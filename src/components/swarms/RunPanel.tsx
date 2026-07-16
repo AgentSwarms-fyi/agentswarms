@@ -1,0 +1,610 @@
+// Runtime panel: input prompt + live event log + final output.
+// Supports two layouts:
+//   - "side"   → tall right-rail panel (legacy)
+//   - "bottom" → wide horizontal dock at the bottom of the canvas (default in-canvas)
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import {
+  Loader2,
+  Play,
+  Square,
+  Sparkles,
+  ChevronDown,
+  ChevronUp,
+  ImageIcon,
+  Maximize2,
+  X,
+} from "lucide-react";
+import { useMemo, useState } from "react";
+import type { SwarmRunEvent } from "@/lib/swarmRuntime";
+import { cn } from "@/lib/utils";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
+
+// Extract image URLs from arbitrary text. Catches:
+//   - Markdown:  ![alt](https://x/y.png)
+//   - Bare URLs: https://x/y.jpg, /local/path.webp
+//   - data URIs: data:image/png;base64,...
+const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|avif|svg)(\?[^\s)"']*)?/i;
+const URL_RE =
+  /(https?:\/\/[^\s)"'<>]+|\/[\w\-./]+\.(?:png|jpe?g|gif|webp|avif|svg)(?:\?[^\s)"'<>]*)?|data:image\/[a-zA-Z+]+;base64,[A-Za-z0-9+/=]+)/g;
+const MD_IMAGE_RE = /!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
+
+type FoundImage = { url: string; alt?: string; source: string };
+
+function extractImages(text: string, source: string): FoundImage[] {
+  if (!text) return [];
+  const found: FoundImage[] = [];
+  const seen = new Set<string>();
+  const push = (url: string, alt?: string) => {
+    if (!url || seen.has(url)) return;
+    seen.add(url);
+    found.push({ url, alt, source });
+  };
+  let m: RegExpExecArray | null;
+  const md = new RegExp(MD_IMAGE_RE);
+  while ((m = md.exec(text)) !== null) push(m[2], m[1]);
+  const url = new RegExp(URL_RE);
+  while ((m = url.exec(text)) !== null) {
+    const candidate = m[1];
+    if (candidate.startsWith("data:image/") || IMAGE_EXT_RE.test(candidate)) {
+      push(candidate);
+    }
+  }
+  return found;
+}
+
+type Props = {
+  input: string;
+  setInput: (v: string) => void;
+  isRunning: boolean;
+  events: SwarmRunEvent[];
+  finalOutput: string | null;
+  onRun: () => void;
+  onStop: () => void;
+  exampleInput?: string;
+  layout?: "side" | "bottom";
+  traceRunId?: string | null;
+  traceEnabled?: boolean;
+  onTraceEnabledChange?: (v: boolean) => void;
+};
+
+export function RunPanel({
+  input,
+  setInput,
+  isRunning,
+  events,
+  finalOutput,
+  onRun,
+  onStop,
+  exampleInput,
+  layout = "side",
+  traceRunId,
+  traceEnabled,
+  onTraceEnabledChange,
+}: Props) {
+  const [collapsed, setCollapsed] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  // Auto-detect any image URLs/markdown across node outputs and the final output.
+  // Works for any media-producing swarm — pre-baked assets, image-gen tools, KB images, etc.
+  const images = useMemo<FoundImage[]>(() => {
+    const all: FoundImage[] = [];
+    for (const ev of events) {
+      if (ev.type === "node_done") all.push(...extractImages(ev.output, ev.nodeId));
+    }
+    if (finalOutput) all.push(...extractImages(finalOutput, "final"));
+    const seen = new Set<string>();
+    return all.filter((img) => (seen.has(img.url) ? false : (seen.add(img.url), true)));
+  }, [events, finalOutput]);
+
+  // Live cost/token meter — accumulate per-node usage emitted by the runtime.
+  const usage = useMemo(() => {
+    let tokensIn = 0;
+    let tokensOut = 0;
+    let costUsd = 0;
+    let nodes = 0;
+    for (const ev of events) {
+      if (ev.type === "node_usage") {
+        tokensIn += ev.tokensIn;
+        tokensOut += ev.tokensOut;
+        costUsd += ev.costUsd;
+        nodes += 1;
+      }
+    }
+    return { tokensIn, tokensOut, costUsd, total: tokensIn + tokensOut, nodes };
+  }, [events]);
+
+  if (layout === "bottom") {
+    return (
+      <div className="border-t border-border bg-card/60 backdrop-blur flex flex-col max-h-[55vh]">
+        {/* Header bar */}
+        <div className="px-4 py-2 border-b border-border flex items-center gap-2">
+          <Sparkles className="h-3.5 w-3.5 text-primary" />
+          <p className="text-sm font-semibold">Run swarm</p>
+          {isRunning && (
+            <Badge
+              variant="outline"
+              className="text-[10px] gap-1 border-amber-500/40 text-amber-400"
+            >
+              <Loader2 className="h-2.5 w-2.5 animate-spin" /> Running
+            </Badge>
+          )}
+          <div className="ml-auto flex items-center gap-2">
+            <UsageMeter usage={usage} />
+            {onTraceEnabledChange && (
+              <label
+                className="flex items-center gap-1.5 text-[10px] text-muted-foreground cursor-pointer select-none"
+                title="Record observability trace for this run"
+              >
+                <input
+                  type="checkbox"
+                  checked={!!traceEnabled}
+                  onChange={(e) => onTraceEnabledChange(e.target.checked)}
+                  className="h-3 w-3"
+                  disabled={isRunning}
+                />
+                Trace
+              </label>
+            )}
+            {traceRunId && !isRunning && (
+              <a
+                href={`/analytics/observability/${traceRunId}`}
+                className="text-[11px] text-primary hover:underline px-2 py-1 rounded border border-primary/40"
+                title="Open trace canvas"
+              >
+                Open trace →
+              </a>
+            )}
+            {!isRunning ? (
+              <Button onClick={onRun} size="sm" disabled={!input.trim()} className="h-7">
+                <Play className="h-3.5 w-3.5 mr-1.5" /> Run
+              </Button>
+            ) : (
+              <Button onClick={onStop} size="sm" variant="destructive" className="h-7">
+                <Square className="h-3.5 w-3.5 mr-1.5" /> Stop
+              </Button>
+            )}
+            <button
+              type="button"
+              onClick={() => setExpanded(true)}
+              className="grid h-7 w-7 place-items-center rounded-md border border-border/50 text-muted-foreground hover:border-primary/50 hover:text-primary"
+              title="Expand run details"
+              aria-label="Expand run details"
+            >
+              <Maximize2 className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setCollapsed((c) => !c)}
+              className="grid h-7 w-7 place-items-center rounded-md border border-border/50 text-muted-foreground hover:border-primary/50 hover:text-primary"
+              title={collapsed ? "Expand run dock" : "Collapse run dock"}
+              aria-label={collapsed ? "Expand run dock" : "Collapse run dock"}
+            >
+              {collapsed ? (
+                <ChevronUp className="h-3.5 w-3.5" />
+              ) : (
+                <ChevronDown className="h-3.5 w-3.5" />
+              )}
+            </button>
+          </div>
+        </div>
+
+        {!collapsed && (
+          <div className="grid grid-cols-12 gap-0 max-h-64">
+            {/* Input column */}
+            <div className="col-span-12 md:col-span-4 border-r border-border p-3 flex flex-col gap-2">
+              <Textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder={exampleInput || "Type the swarm's initial input..."}
+                rows={3}
+                disabled={isRunning}
+                className="text-sm resize-none flex-1"
+              />
+              {exampleInput && !input && (
+                <button
+                  type="button"
+                  onClick={() => setInput(exampleInput)}
+                  className="text-[10px] text-primary hover:underline self-start"
+                >
+                  Use example input
+                </button>
+              )}
+            </div>
+
+            {/* Events column */}
+            <div className="col-span-12 md:col-span-5 border-r border-border overflow-y-auto p-3 space-y-1 text-xs font-mono max-h-64">
+              {events.length === 0 && !isRunning && (
+                <p className="text-muted-foreground text-center py-6">
+                  Run the swarm to see live events here.
+                </p>
+              )}
+              {events.map((e, i) => (
+                <EventLine key={i} ev={e} />
+              ))}
+            </div>
+
+            {/* Final output column */}
+            <div className="col-span-12 md:col-span-3 overflow-y-auto p-3 max-h-64">
+              {finalOutput !== null ? (
+                <>
+                  <p className="text-[10px] uppercase tracking-wider text-emerald-400 mb-1">
+                    Final output
+                  </p>
+                  <div className="text-xs whitespace-pre-wrap leading-relaxed">{finalOutput}</div>
+                </>
+              ) : (
+                <p className="text-[10px] text-muted-foreground italic">
+                  Final output will appear here once the run completes.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {!collapsed && images.length > 0 && (
+          <div className="border-t border-border p-3 overflow-y-auto">
+            <MediaGallery images={images} compact />
+          </div>
+        )}
+        <ExpandedRunDialog
+          open={expanded}
+          onOpenChange={setExpanded}
+          input={input}
+          events={events}
+          finalOutput={finalOutput}
+          images={images}
+          isRunning={isRunning}
+        />
+      </div>
+    );
+  }
+
+  // ── Legacy side layout ──
+  return (
+    <div className={cn("w-96 border-l border-border bg-card/40 flex flex-col h-full")}>
+      <div className="px-4 py-3 border-b border-border flex items-center gap-2">
+        <Sparkles className="h-3.5 w-3.5 text-primary" />
+        <p className="text-sm font-semibold">Run swarm</p>
+        {isRunning && (
+          <Badge variant="outline" className="text-[10px] gap-1 border-amber-500/40 text-amber-400">
+            <Loader2 className="h-2.5 w-2.5 animate-spin" /> Running
+          </Badge>
+        )}
+        <div className="ml-auto flex items-center gap-2">
+          <UsageMeter usage={usage} />
+        </div>
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          className="grid h-7 w-7 place-items-center rounded-md border border-border/50 text-muted-foreground hover:border-primary/50 hover:text-primary"
+          title="Expand run details"
+          aria-label="Expand run details"
+        >
+          <Maximize2 className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      <div className="p-3 space-y-2 border-b border-border">
+        <Textarea
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder={exampleInput || "Type the swarm's initial input..."}
+          rows={4}
+          disabled={isRunning}
+          className="text-sm"
+        />
+        {exampleInput && !input && (
+          <button
+            type="button"
+            onClick={() => setInput(exampleInput)}
+            className="text-[10px] text-primary hover:underline"
+          >
+            Use example input
+          </button>
+        )}
+        <div className="flex gap-2">
+          {!isRunning ? (
+            <Button onClick={onRun} size="sm" className="flex-1" disabled={!input.trim()}>
+              <Play className="h-3.5 w-3.5 mr-1.5" /> Run
+            </Button>
+          ) : (
+            <Button onClick={onStop} size="sm" variant="destructive" className="flex-1">
+              <Square className="h-3.5 w-3.5 mr-1.5" /> Stop
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-3 space-y-1 text-xs font-mono">
+        {events.length === 0 && !isRunning && (
+          <p className="text-muted-foreground text-center py-8">
+            Run the swarm to see live events here.
+          </p>
+        )}
+        {events.map((e, i) => (
+          <EventLine key={i} ev={e} />
+        ))}
+      </div>
+
+      {images.length > 0 && (
+        <div className="border-t border-border p-3 max-h-72 overflow-y-auto">
+          <MediaGallery images={images} compact />
+        </div>
+      )}
+
+      {finalOutput !== null && (
+        <div className="border-t border-border p-3 max-h-64 overflow-y-auto">
+          <p className="text-[10px] uppercase tracking-wider text-emerald-400 mb-1">Final output</p>
+          <div className="text-xs whitespace-pre-wrap leading-relaxed">{finalOutput}</div>
+        </div>
+      )}
+      <ExpandedRunDialog
+        open={expanded}
+        onOpenChange={setExpanded}
+        input={input}
+        events={events}
+        finalOutput={finalOutput}
+        images={images}
+        isRunning={isRunning}
+      />
+    </div>
+  );
+}
+
+type UsageSummary = {
+  tokensIn: number;
+  tokensOut: number;
+  costUsd: number;
+  total: number;
+  nodes: number;
+};
+
+// Compact live token/cost readout. Cost is an estimate (only models in the
+// runtime's NODE_COST_TABLE contribute a dollar figure; others count tokens
+// but add $0), so we label it "~$".
+function UsageMeter({ usage }: { usage: UsageSummary }) {
+  if (usage.total === 0) return null;
+  return (
+    <div
+      className="flex items-center gap-2 rounded-md border border-border/50 bg-background/60 px-2 py-1 text-[10px] tabular-nums"
+      title={`Live usage across ${usage.nodes} node${usage.nodes === 1 ? "" : "s"}\nInput: ${usage.tokensIn.toLocaleString()} tokens\nOutput: ${usage.tokensOut.toLocaleString()} tokens\nEstimated cost: $${usage.costUsd.toFixed(4)} (models without a known price contribute $0)`}
+    >
+      <span className="text-muted-foreground">{usage.total.toLocaleString()} tok</span>
+      <span className="text-muted-foreground/70">
+        ↑{usage.tokensIn.toLocaleString()} ↓{usage.tokensOut.toLocaleString()}
+      </span>
+      <span className="text-emerald-400">~${usage.costUsd.toFixed(4)}</span>
+    </div>
+  );
+}
+
+function EventLine({ ev }: { ev: SwarmRunEvent }) {
+  switch (ev.type) {
+    case "node_start":
+      return (
+        <p>
+          <span className="text-primary">▶</span>{" "}
+          <span className="text-muted-foreground">start</span> {ev.nodeId}
+        </p>
+      );
+    case "node_done":
+      return (
+        <div>
+          <p>
+            <span className="text-emerald-400">✓</span>{" "}
+            <span className="text-muted-foreground">done</span> {ev.nodeId}
+          </p>
+          <p className="text-[10px] text-muted-foreground/70 pl-4 line-clamp-2">
+            {ev.output.slice(0, 200)}
+          </p>
+        </div>
+      );
+    case "node_error":
+      return (
+        <p className="text-destructive">
+          ✗ error {ev.nodeId}: {ev.error}
+        </p>
+      );
+    case "loop_iteration_start":
+      return (
+        <p>
+          <span className="text-orange-400">↻</span>{" "}
+          <span className="text-muted-foreground">loop</span> {ev.nodeId} iteration {ev.iteration}/
+          {ev.maxIterations}
+        </p>
+      );
+    case "loop_iteration_done":
+      return (
+        <div>
+          <p>
+            <span className={ev.done ? "text-emerald-400" : "text-orange-400"}>
+              {ev.done ? "✓" : "↺"}
+            </span>{" "}
+            <span className="text-muted-foreground">
+              {ev.done ? "loop stopped" : "loop pass done"}
+            </span>{" "}
+            {ev.nodeId} #{ev.iteration}
+          </p>
+          <p className="text-[10px] text-muted-foreground/70 pl-4 line-clamp-2">
+            {ev.output.slice(0, 200)}
+          </p>
+        </div>
+      );
+    case "approval_pending":
+      return (
+        <p className="text-amber-400">
+          ⏸ awaiting approval ({ev.approvalId.slice(0, 8)}…) — open the inbox to decide
+        </p>
+      );
+    case "run_done":
+      return <p className="text-emerald-400 mt-2">━━ run complete ━━</p>;
+    case "run_error":
+      return <p className="text-destructive mt-2">━━ run failed: {ev.error} ━━</p>;
+    case "node_token":
+      return null;
+    default:
+      return null;
+  }
+}
+
+function MediaGallery({ images, compact }: { images: FoundImage[]; compact?: boolean }) {
+  return (
+    <div>
+      <p className="text-[10px] uppercase tracking-wider text-primary mb-2 flex items-center gap-1">
+        <ImageIcon className="h-3 w-3" /> Media · {images.length}
+      </p>
+      <div className={cn("grid gap-2", compact ? "grid-cols-4" : "grid-cols-2")}>
+        {images.map((img, i) => (
+          <a
+            key={`${img.url}-${i}`}
+            href={img.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="group relative block overflow-hidden rounded-md border border-border/60 bg-muted hover:border-primary/60 transition-colors"
+            title={`${img.source}${img.alt ? " — " + img.alt : ""}`}
+          >
+            <img
+              src={img.url}
+              alt={img.alt || img.source}
+              loading="lazy"
+              className="aspect-square w-full object-cover"
+              onError={(e) => {
+                (e.currentTarget.parentElement as HTMLElement).style.display = "none";
+              }}
+            />
+            <span className="absolute bottom-0 left-0 right-0 truncate bg-background/80 px-1.5 py-0.5 text-[9px] text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
+              {img.source}
+            </span>
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ExpandedRunDialog({
+  open,
+  onOpenChange,
+  input,
+  events,
+  finalOutput,
+  images,
+  isRunning,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  input: string;
+  events: SwarmRunEvent[];
+  finalOutput: string | null;
+  images: FoundImage[];
+  isRunning: boolean;
+}) {
+  const nodeEvents = events.filter((e) => e.type === "node_done" || e.type === "node_error");
+  const usage = events.reduce<UsageSummary>(
+    (acc, ev) => {
+      if (ev.type === "node_usage") {
+        acc.tokensIn += ev.tokensIn;
+        acc.tokensOut += ev.tokensOut;
+        acc.costUsd += ev.costUsd;
+        acc.total += ev.tokensIn + ev.tokensOut;
+        acc.nodes += 1;
+      }
+      return acc;
+    },
+    { tokensIn: 0, tokensOut: 0, costUsd: 0, total: 0, nodes: 0 },
+  );
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col gap-0 p-0">
+        <DialogHeader className="px-6 pt-5 pb-3 border-b border-border">
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <Sparkles className="h-4 w-4 text-primary" />
+            Swarm Run Details
+            {isRunning && (
+              <Badge
+                variant="outline"
+                className="text-[10px] gap-1 border-amber-500/40 text-amber-400"
+              >
+                <Loader2 className="h-2.5 w-2.5 animate-spin" /> Running
+              </Badge>
+            )}
+            <div className="ml-auto">
+              <UsageMeter usage={usage} />
+            </div>
+          </DialogTitle>
+        </DialogHeader>
+
+        <ScrollArea className="flex-1 overflow-auto">
+          <div className="p-6 space-y-6">
+            {/* Input */}
+            <section>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                Input
+              </h3>
+              <div className="rounded-lg border border-border bg-muted/40 p-4 text-sm whitespace-pre-wrap leading-relaxed">
+                {input || <span className="italic text-muted-foreground">No input provided</span>}
+              </div>
+            </section>
+
+            {/* Agent Outputs */}
+            <section>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                Agent Outputs ({nodeEvents.length})
+              </h3>
+              {nodeEvents.length === 0 ? (
+                <p className="text-sm text-muted-foreground italic">No agent outputs yet.</p>
+              ) : (
+                <div className="space-y-3">
+                  {nodeEvents.map((ev, i) => (
+                    <div key={i} className="rounded-lg border border-border bg-card p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        {ev.type === "node_done" ? (
+                          <span className="text-emerald-400 text-sm">✓</span>
+                        ) : (
+                          <span className="text-destructive text-sm">✗</span>
+                        )}
+                        <span className="font-mono text-sm font-medium">{ev.nodeId}</span>
+                      </div>
+                      <div className="text-sm whitespace-pre-wrap leading-relaxed text-foreground/80">
+                        {ev.type === "node_done" ? ev.output : ev.error}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            {/* Images */}
+            {images.length > 0 && (
+              <section>
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                  Media
+                </h3>
+                <MediaGallery images={images} />
+              </section>
+            )}
+
+            {/* Final Output */}
+            <section>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-emerald-400 mb-2">
+                Final Output
+              </h3>
+              {finalOutput !== null ? (
+                <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-4 text-sm whitespace-pre-wrap leading-relaxed">
+                  {finalOutput}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground italic">
+                  {isRunning ? "Waiting for run to complete…" : "No final output yet."}
+                </p>
+              )}
+            </section>
+          </div>
+        </ScrollArea>
+      </DialogContent>
+    </Dialog>
+  );
+}

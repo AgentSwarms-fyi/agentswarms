@@ -1,0 +1,289 @@
+// Reusable site footer — visible on landing/about/contact/privacy pages.
+// Keeps the public marketing pages credible: links to legal pages, contact,
+// and the project's home base. The admin email is intentionally NOT exposed
+// here — visitors reach us through the contact form only.
+import { Link } from "@tanstack/react-router";
+import { Mail, BookOpen, LayoutDashboard } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
+import agentSwarmsLogo from "@/assets/agentswarms-logo.jpg";
+
+function XIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
+      <path d="M18.244 2H21l-6.52 7.45L22.5 22h-6.86l-4.78-6.27L5.4 22H2.64l6.97-7.96L1.5 2h6.99l4.32 5.71L18.244 2Zm-1.2 18h1.62L7.04 4H5.32l11.72 16Z" />
+    </svg>
+  );
+}
+
+export function SiteFooter() {
+  const year = new Date().getFullYear();
+  return (
+    <footer className="border-t border-border/40 bg-background">
+      <div className="mx-auto max-w-7xl px-6 py-12">
+        <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
+          {/* Brand */}
+          <div>
+            <Link to="/" className="inline-flex items-center gap-2 font-semibold">
+              <img
+                src={agentSwarmsLogo}
+                alt="AgentSwarms AI School logo"
+                width={24}
+                height={24}
+                className="h-6 w-6 shrink-0 rounded-md object-cover"
+              />
+              AgentSwarms
+            </Link>
+            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+              An interactive school for Agentic AI. Run real swarms in the browser, read the
+              side-panel lesson, then fork the template and make it your own.
+            </p>
+          </div>
+
+          {/* Learn */}
+          <div>
+            <h4 className="text-sm font-semibold text-foreground">Learn</h4>
+            <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
+              <li>
+                <Link to="/curriculum" className="hover:text-foreground">
+                  Curriculum overview
+                </Link>
+              </li>
+              <li>
+                <Link to="/learn" className="hover:text-foreground">
+                  Full handbook
+                </Link>
+              </li>
+              <li>
+                <Link to="/interview-questions" className="hover:text-foreground">
+                  Interview Questions
+                </Link>
+              </li>
+              <li>
+                <Link to="/" hash="curriculum" className="hover:text-foreground">
+                  Lessons
+                </Link>
+              </li>
+              <li>
+                <Link to="/learn" hash="glossary" className="hover:text-foreground">
+                  Glossary
+                </Link>
+              </li>
+            </ul>
+          </div>
+
+          {/* Product */}
+          <div>
+            <h4 className="text-sm font-semibold text-foreground">Product</h4>
+            <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
+              <li>
+                <Link to="/pricing" className="hover:text-foreground">
+                  Pricing
+                </Link>
+              </li>
+              <li>
+                <Link to="/about" className="hover:text-foreground">
+                  About
+                </Link>
+              </li>
+              <li>
+                <Link to="/contact" className="hover:text-foreground">
+                  Contact
+                </Link>
+              </li>
+              <li>
+                <Link to="/login" className="hover:text-foreground">
+                  Sign in
+                </Link>
+              </li>
+            </ul>
+          </div>
+
+          {/* Legal & Contact */}
+          <div>
+            <h4 className="text-sm font-semibold text-foreground">Legal & Contact</h4>
+            <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
+              <li>
+                <Link to="/privacy" className="hover:text-foreground">
+                  Privacy
+                </Link>
+              </li>
+              <li>
+                <Link to="/terms" className="hover:text-foreground">
+                  Terms of Use
+                </Link>
+              </li>
+              <li>
+                <a
+                  href="mailto:hello@agentswarms.fyi"
+                  className="inline-flex items-center gap-1.5 hover:text-foreground"
+                >
+                  <Mail className="h-3 w-3" />
+                  <span>hello@agentswarms.fyi</span>
+                </a>
+              </li>
+              <li>
+                <Link
+                  to="/contact"
+                  className="inline-flex items-center gap-1 hover:text-foreground"
+                >
+                  <Mail className="h-3 w-3" /> Report an issue
+                </Link>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <div className="mt-10 flex flex-col items-center justify-between gap-3 border-t border-border/40 pt-6 text-xs text-muted-foreground sm:flex-row">
+          <span>© {year} AgentSwarms — Learn Agentic AI by building it. Hosted in the EU.</span>
+          <a
+            href="https://dang.ai"
+            target="_blank"
+            rel="dofollow noopener"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "8px",
+              border: "1px solid #d8cdf8",
+              background: "#ffffff",
+              color: "#050505",
+              font: "700 14px/1.2 Arial,sans-serif",
+              textDecoration: "none",
+              borderRadius: "8px",
+              padding: "10px 12px",
+            }}
+          >
+            Featured on Dang.ai
+          </a>
+          <a
+            href="https://startupfa.me/s/agentswarms?utm_source=agentswarms.fyi"
+            target="_blank"
+            rel="noreferrer noopener"
+            className="inline-block"
+            aria-label="Featured on Startup Fame"
+          >
+            <img
+              src="https://startupfa.me/badges/featured-badge-small.webp"
+              alt="AgentSwarms - Featured on Startup Fame"
+              width={224}
+              height={36}
+              loading="lazy"
+            />
+          </a>
+          <a
+            href="https://launchboosts.com/project/agentswarms"
+            target="_blank"
+            rel="noreferrer noopener"
+            className="inline-block"
+            aria-label="Featured on LaunchBoosts"
+          >
+            <img
+              src="https://launchboosts.com/badges/featured-light.svg"
+              alt="Featured on LaunchBoosts"
+              width={180}
+              height={54}
+              loading="lazy"
+            />
+          </a>
+          <a
+            href="https://theresanaiforthat.com/ai/agentswarms/?ref=featured&v=10555105"
+            target="_blank"
+            rel="nofollow noreferrer"
+            className="inline-block"
+            aria-label="Featured on There's An AI For That"
+          >
+            <img
+              width={300}
+              src="https://media.theresanaiforthat.com/featured-on-taaft.png?width=600"
+              alt="Featured on There's An AI For That"
+              className="h-auto w-[220px] sm:w-[260px]"
+              loading="lazy"
+            />
+          </a>
+          <a
+            href="https://theresanaiforthat.com/ai/agentswarms/?ref=social-icon&v=10555105"
+            target="_blank"
+            rel="nofollow noreferrer"
+            className="inline-block"
+            aria-label="Featured on TAAFT"
+          >
+            <img
+              src="https://media.theresanaiforthat.com/social/icon_full.svg"
+              alt="Featured on TAAFT"
+              className="h-8 w-auto"
+              loading="lazy"
+            />
+          </a>
+        </div>
+      </div>
+    </footer>
+  );
+}
+
+// Slimmer header used on /about, /contact, /privacy, /pricing, /curriculum etc.
+export function SiteHeader() {
+  const { isAuthenticated, loading } = useAuth();
+  return (
+    <nav className="sticky top-0 z-50 border-b border-border/40 bg-background/80 backdrop-blur-md">
+      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
+        <Link to="/" className="inline-flex items-center gap-2 font-semibold">
+          <img
+            src={agentSwarmsLogo}
+            alt="AgentSwarms AI School logo"
+            width={32}
+            height={32}
+            className="h-8 w-8 shrink-0 rounded-lg object-cover"
+          />
+          <span>AgentSwarms</span>
+        </Link>
+        <div className="flex items-center gap-4 text-sm text-muted-foreground sm:gap-5">
+          <Link to="/curriculum" className="hidden hover:text-foreground sm:inline">
+            Curriculum
+          </Link>
+          <Link to="/interview-questions" className="hidden hover:text-foreground sm:inline">
+            Interview Questions
+          </Link>
+          <Link
+            to="/learn"
+            className="hidden items-center gap-1 hover:text-foreground md:inline-flex"
+          >
+            <BookOpen className="h-3.5 w-3.5" /> Learn
+          </Link>
+          <Link to="/docs" className="hidden hover:text-foreground sm:inline">
+            Docs
+          </Link>
+          <Link to="/pricing" className="hidden hover:text-foreground sm:inline">
+            Pricing
+          </Link>
+          <Link to="/about" className="hidden hover:text-foreground md:inline">
+            About
+          </Link>
+          <Link to="/contact" className="hidden hover:text-foreground md:inline">
+            Contact
+          </Link>
+          {/* Reserve a fixed slot so the Sign in / Lab swap after Supabase
+              resolves the session doesn't cause a visible flash on first paint. */}
+          {loading ? (
+            <span
+              aria-hidden
+              className="inline-flex h-[34px] w-[88px] rounded-md border border-border/60 bg-card/60"
+            />
+          ) : isAuthenticated ? (
+            <Link
+              to="/dashboard"
+              className="inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-card/60 px-3 py-1.5 text-foreground hover:border-primary/50"
+            >
+              <LayoutDashboard className="h-3.5 w-3.5" /> Lab
+            </Link>
+          ) : (
+            <Link
+              to="/login"
+              className="rounded-md border border-border/60 bg-card/60 px-3 py-1.5 text-foreground hover:border-primary/50"
+            >
+              Sign in
+            </Link>
+          )}
+        </div>
+      </div>
+    </nav>
+  );
+}

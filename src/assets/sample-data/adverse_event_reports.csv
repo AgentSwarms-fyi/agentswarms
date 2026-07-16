@@ -1,0 +1,51 @@
+Report_ID,Report_Date,Drug_Name,Indication,Adverse_Event,Body_System,Severity,Outcome,Patient_Age,Patient_Sex,Country,Concomitant_Drug,Reporter_Type
+AE-2026-00001,2026-01-04,Cardenolex,Atrial Fibrillation,Elevated ALT,Hepatic,Moderate,Recovered,67,M,US,Atorvastatin,Physician
+AE-2026-00002,2026-01-09,Cardenolex,Atrial Fibrillation,Jaundice,Hepatic,Severe,Hospitalized,71,F,DE,Warfarin,Physician
+AE-2026-00003,2026-01-11,Cardenolex,Heart Failure,Nausea,Gastrointestinal,Mild,Recovered,58,M,US,Metformin,Patient
+AE-2026-00004,2026-01-15,Cardenolex,Atrial Fibrillation,Elevated AST,Hepatic,Moderate,Recovered,65,F,UK,Atorvastatin,Physician
+AE-2026-00005,2026-01-18,Cardenolex,Atrial Fibrillation,Hepatitis,Hepatic,Severe,Hospitalized,73,M,JP,Atorvastatin,Physician
+AE-2026-00006,2026-01-22,Cardenolex,Heart Failure,Headache,Neurological,Mild,Recovered,61,F,US,Lisinopril,Patient
+AE-2026-00007,2026-01-25,Cardenolex,Atrial Fibrillation,Acute Liver Injury,Hepatic,Severe,Hospitalized,69,M,DE,Atorvastatin,Physician
+AE-2026-00008,2026-01-29,Cardenolex,Atrial Fibrillation,Bradycardia,Cardiovascular,Moderate,Recovered,77,M,US,None,Physician
+AE-2026-00009,2026-02-02,Cardenolex,Atrial Fibrillation,Elevated ALT,Hepatic,Moderate,Recovered,64,F,FR,Atorvastatin,Physician
+AE-2026-00010,2026-02-06,Cardenolex,Heart Failure,Dizziness,Neurological,Mild,Recovered,72,M,US,Furosemide,Patient
+AE-2026-00011,2026-02-09,Cardenolex,Atrial Fibrillation,Hepatic Failure,Hepatic,Life-threatening,Hospitalized,68,M,US,Atorvastatin,Physician
+AE-2026-00012,2026-02-13,Cardenolex,Atrial Fibrillation,Elevated ALT,Hepatic,Moderate,Recovered,59,F,UK,Simvastatin,Physician
+AE-2026-00013,2026-02-17,Cardenolex,Heart Failure,Fatigue,General,Mild,Recovered,75,F,DE,None,Patient
+AE-2026-00014,2026-02-20,Cardenolex,Atrial Fibrillation,Cholestasis,Hepatic,Severe,Hospitalized,70,M,JP,Atorvastatin,Physician
+AE-2026-00015,2026-02-24,Cardenolex,Atrial Fibrillation,Elevated Bilirubin,Hepatic,Moderate,Recovered,66,F,US,Atorvastatin,Physician
+AE-2026-00016,2026-02-28,Cardenolex,Atrial Fibrillation,Elevated ALT,Hepatic,Severe,Hospitalized,74,M,FR,Atorvastatin,Physician
+AE-2026-00017,2026-03-03,Cardenolex,Heart Failure,Rash,Skin,Mild,Recovered,55,F,US,None,Patient
+AE-2026-00018,2026-03-07,Cardenolex,Atrial Fibrillation,Hepatitis,Hepatic,Severe,Hospitalized,72,M,DE,Atorvastatin,Physician
+AE-2026-00019,2026-03-10,Cardenolex,Atrial Fibrillation,Elevated AST,Hepatic,Moderate,Recovered,63,F,US,Atorvastatin,Physician
+AE-2026-00020,2026-03-14,Cardenolex,Atrial Fibrillation,Acute Liver Injury,Hepatic,Severe,Hospitalized,70,M,UK,Atorvastatin,Physician
+AE-2026-00021,2026-03-18,Rhythmoral,Atrial Fibrillation,Nausea,Gastrointestinal,Mild,Recovered,62,F,US,None,Patient
+AE-2026-00022,2026-03-21,Rhythmoral,Atrial Fibrillation,Elevated ALT,Hepatic,Mild,Recovered,68,M,DE,Atorvastatin,Physician
+AE-2026-00023,2026-03-25,Rhythmoral,Atrial Fibrillation,Headache,Neurological,Mild,Recovered,57,F,US,None,Patient
+AE-2026-00024,2026-03-28,Rhythmoral,Atrial Fibrillation,Bradycardia,Cardiovascular,Moderate,Recovered,73,M,JP,None,Physician
+AE-2026-00025,2026-04-01,Rhythmoral,Atrial Fibrillation,Dizziness,Neurological,Mild,Recovered,66,F,US,Lisinopril,Patient
+AE-2026-00026,2026-04-04,Rhythmoral,Atrial Fibrillation,Elevated ALT,Hepatic,Mild,Recovered,70,M,UK,Atorvastatin,Physician
+AE-2026-00027,2026-04-08,Rhythmoral,Atrial Fibrillation,Fatigue,General,Mild,Recovered,69,F,DE,None,Patient
+AE-2026-00028,2026-04-11,Rhythmoral,Atrial Fibrillation,Skin Rash,Skin,Mild,Recovered,61,M,US,None,Patient
+AE-2026-00029,2026-04-15,Vasostatil,Hypertension,Cough,Respiratory,Mild,Recovered,58,F,US,None,Patient
+AE-2026-00030,2026-04-18,Vasostatil,Hypertension,Hyperkalemia,Metabolic,Moderate,Recovered,71,M,DE,Spironolactone,Physician
+AE-2026-00031,2026-04-22,Vasostatil,Hypertension,Elevated ALT,Hepatic,Mild,Recovered,64,F,UK,None,Physician
+AE-2026-00032,2026-04-25,Vasostatil,Hypertension,Headache,Neurological,Mild,Recovered,55,M,US,None,Patient
+AE-2026-00033,2026-04-29,Vasostatil,Hypertension,Dizziness,Neurological,Mild,Recovered,62,F,JP,None,Patient
+AE-2026-00034,2026-05-02,Cardenolex,Atrial Fibrillation,Elevated ALT,Hepatic,Moderate,Recovered,68,M,US,Atorvastatin,Physician
+AE-2026-00035,2026-05-06,Cardenolex,Atrial Fibrillation,Hepatitis,Hepatic,Severe,Hospitalized,71,F,FR,Atorvastatin,Physician
+AE-2026-00036,2026-05-09,Cardenolex,Atrial Fibrillation,Hepatic Failure,Hepatic,Life-threatening,Hospitalized,75,M,DE,Atorvastatin,Physician
+AE-2026-00037,2026-05-13,Cardenolex,Atrial Fibrillation,Cholestasis,Hepatic,Severe,Hospitalized,67,F,US,Atorvastatin,Physician
+AE-2026-00038,2026-05-16,Cardenolex,Heart Failure,Nausea,Gastrointestinal,Mild,Recovered,60,M,UK,None,Patient
+AE-2026-00039,2026-05-20,Cardenolex,Atrial Fibrillation,Elevated AST,Hepatic,Moderate,Recovered,69,F,JP,Atorvastatin,Physician
+AE-2026-00040,2026-05-23,Cardenolex,Atrial Fibrillation,Acute Liver Injury,Hepatic,Severe,Hospitalized,72,M,US,Atorvastatin,Physician
+AE-2026-00041,2026-05-27,Cardenolex,Atrial Fibrillation,Elevated ALT,Hepatic,Moderate,Recovered,65,F,DE,Simvastatin,Physician
+AE-2026-00042,2026-05-30,Rhythmoral,Atrial Fibrillation,Nausea,Gastrointestinal,Mild,Recovered,63,M,US,None,Patient
+AE-2026-00043,2026-06-03,Rhythmoral,Atrial Fibrillation,Elevated ALT,Hepatic,Mild,Recovered,70,F,UK,Atorvastatin,Physician
+AE-2026-00044,2026-06-06,Rhythmoral,Atrial Fibrillation,Bradycardia,Cardiovascular,Mild,Recovered,72,M,JP,None,Physician
+AE-2026-00045,2026-06-10,Rhythmoral,Atrial Fibrillation,Headache,Neurological,Mild,Recovered,58,F,DE,None,Patient
+AE-2026-00046,2026-06-13,Vasostatil,Hypertension,Cough,Respiratory,Mild,Recovered,59,M,US,None,Patient
+AE-2026-00047,2026-06-17,Vasostatil,Hypertension,Hyperkalemia,Metabolic,Moderate,Recovered,68,F,DE,Spironolactone,Physician
+AE-2026-00048,2026-06-20,Vasostatil,Hypertension,Elevated ALT,Hepatic,Mild,Recovered,65,M,UK,None,Physician
+AE-2026-00049,2026-06-24,Cardenolex,Atrial Fibrillation,Hepatitis,Hepatic,Severe,Hospitalized,73,F,US,Atorvastatin,Physician
+AE-2026-00050,2026-06-27,Cardenolex,Atrial Fibrillation,Elevated ALT,Hepatic,Moderate,Recovered,66,M,FR,Atorvastatin,Physician

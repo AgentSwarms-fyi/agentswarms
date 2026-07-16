@@ -1,0 +1,1 @@
+ALTER TABLE public.mcp_servers ADD COLUMN IF NOT EXISTS tools jsonb NOT NULL DEFAULT '[]'::jsonb;

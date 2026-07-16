@@ -1,0 +1,25 @@
+GL_Code,Department,Category,Q3_Budget,Q3_Actual,Variance,Status
+5010,Marketing,Event Sponsorship,150000,45000,-105000,UNDER BUDGET
+5020,Marketing,Digital Ads,300000,580000,280000,OVER BUDGET
+5030,Marketing,Software Licenses,45000,46500,1500,On Budget
+5040,Marketing,Contractors,80000,80000,0,On Budget
+5050,Marketing,Travel & Entertainment,60000,25000,-35000,UNDER BUDGET
+6010,Engineering,Cloud Hosting (AWS),400000,615000,215000,OVER BUDGET
+6020,Engineering,Software Licenses,120000,125000,5000,On Budget
+6030,Engineering,Hardware/Equipment,90000,40000,-50000,UNDER BUDGET
+6040,Engineering,Contractors,150000,150000,0,On Budget
+6050,Engineering,API Usage Fees,50000,185000,135000,OVER BUDGET
+7010,Sales,Travel & Entertainment,200000,310000,110000,OVER BUDGET
+7020,Sales,Client Dinners,50000,85000,35000,OVER BUDGET
+7030,Sales,Software Licenses,95000,95000,0,On Budget
+7040,Sales,Training & Enablement,40000,15000,-25000,UNDER BUDGET
+8010,HR,Recruiting Fees,120000,30000,-90000,UNDER BUDGET
+8020,HR,Employee Wellbeing,50000,55000,5000,On Budget
+8030,HR,Software Licenses,35000,35000,0,On Budget
+8040,HR,Offsite Events,80000,0,-80000,UNDER BUDGET
+9010,Legal,Outside Counsel,150000,380000,230000,OVER BUDGET
+9020,Legal,Software Licenses,25000,26000,1000,On Budget
+9030,Legal,Compliance Audits,60000,60000,0,On Budget
+10010,Operations,Office Lease,250000,250000,0,On Budget
+10020,Operations,Utilities,40000,42000,2000,On Budget
+10030,Operations,Shipping & Logistics,180000,175000,-5000,UNDER BUDGET

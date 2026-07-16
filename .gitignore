@@ -1,0 +1,25 @@
+# dependencies
+/node_modules
+
+# env
+.env
+.env.local
+.env.*.local
+
+# build output
+/dist
+/.output
+/.vinxi
+/.wrangler
+/.tanstack
+
+# supabase CLI local state
+/supabase/.temp
+/supabase/.branches
+
+# editor / OS
+.DS_Store
+*.log
+
+# internal notes, not meant for the repo
+CLAUDE.md

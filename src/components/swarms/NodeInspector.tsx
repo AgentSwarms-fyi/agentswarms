@@ -1,0 +1,2004 @@
+// Side panel for editing the currently-selected swarm node.
+// Renders different controls based on node.kind.
+import { useEffect, useState } from "react";
+import type { Node } from "@xyflow/react";
+import type { SwarmNodeData, SwarmToolId, EvalMetricConfig } from "@/lib/swarmRuntime";
+import { DEFAULT_EVAL_METRICS } from "@/lib/swarmRuntime";
+import { supabase } from "@/integrations/supabase/client";
+import { fetchAgentCard, type AgentCard } from "@/lib/a2aClient";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
+import {
+  Trash2,
+  X,
+  Library,
+  Search,
+  Globe,
+  BookOpen,
+  Workflow,
+  Plug,
+  Calculator,
+  Clock,
+  CloudSun,
+  Cloud,
+  Loader2,
+  CheckCircle2,
+  AlertCircle,
+  Database,
+  Shield,
+  Brain,
+  Code2,
+  Play,
+  GitBranch,
+} from "lucide-react";
+import { runSandboxed, safeStringify } from "@/lib/sandbox/jsSandbox";
+import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
+import { PromptLibraryPicker } from "@/components/prompts/PromptLibraryPicker";
+import { SkillPicker } from "@/components/skills/SkillPicker";
+import { isImageModelId } from "@/lib/providerSupport";
+
+// Mirror the provider list shown in /agents AgentForm so swarm nodes can use
+// any LLM provider the user has connected.
+const PROVIDERS: { value: string; label: string }[] = [
+  { value: "openai", label: "OpenAI" },
+  { value: "gemini", label: "Google Gemini" },
+  { value: "grok", label: "Grok (xAI)" },
+  { value: "groq", label: "Groq (LPU inference)" },
+  { value: "openrouter", label: "OpenRouter" },
+  { value: "ollama", label: "Custom Ollama" },
+  { value: "bedrock", label: "AWS Bedrock (your account)" },
+  { value: "vertex", label: "Google Vertex AI (your account)" },
+  { value: "anthropic", label: "Anthropic direct (your API key)" },
+  { value: "azure_openai", label: "Azure OpenAI (your deployment)" },
+  { value: "oci_genai", label: "OCI Generative AI (your tenancy)" },
+  { value: "qwen", label: "Qwen (Alibaba DashScope)" },
+];
+
+// Same model catalog as AgentForm — single source of truth would be nice,
+// but keeping a copy avoids importing the 1000-line form into the canvas.
+const MODEL_SUGGESTIONS: Record<string, string[]> = {
+  openai: [
+    "gpt-5",
+    "gpt-5-mini",
+    "gpt-5-nano",
+    "gpt-5.2",
+    "gpt-4.1",
+    "gpt-4.1-mini",
+    "gpt-4o",
+    "gpt-4o-mini",
+    "gpt-4-turbo",
+    "gpt-3.5-turbo",
+    "o3",
+    "o3-mini",
+    "o1",
+    "o1-preview",
+    "o1-mini",
+  ],
+  gemini: [
+    "gemini-3.1-pro-preview",
+    "gemini-3-flash-preview",
+    "gemini-3.1-flash-image-preview",
+    "gemini-3-pro-image-preview",
+    "gemini-2.5-pro",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-2.5-flash-image",
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
+    "gemini-1.5-pro",
+    "gemini-1.5-flash",
+  ],
+  grok: ["grok-4", "grok-3", "grok-3-mini", "grok-2-1212"],
+  ollama: ["llama3.1", "mistral", "codellama", "mixtral"],
+  bedrock: [
+    "anthropic.claude-3-5-sonnet-20241022-v2:0",
+    "anthropic.claude-3-5-haiku-20241022-v1:0",
+    "anthropic.claude-3-opus-20240229-v1:0",
+    "meta.llama3-1-70b-instruct-v1:0",
+    "mistral.mistral-large-2407-v1:0",
+  ],
+  vertex: ["gemini-2.5-pro", "gemini-2.5-flash", "claude-3-5-sonnet-v2@20241022"],
+  anthropic: [
+    "claude-opus-4-7",
+    "claude-sonnet-4-6",
+    "claude-haiku-4-5",
+    "claude-opus-4-1-20250805",
+    "claude-sonnet-4-5-20250929",
+    "claude-haiku-4-5-20251001",
+    "claude-opus-4-20250514",
+    "claude-sonnet-4-20250514",
+    "claude-3-7-sonnet-20250219",
+    "claude-3-5-sonnet-20241022",
+    "claude-3-5-haiku-20241022",
+    "claude-3-opus-20240229",
+  ],
+  azure_openai: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"],
+  oci_genai: [
+    "cohere.command-r-plus-08-2024",
+    "cohere.command-r-08-2024",
+    "meta.llama-3.1-70b-instruct",
+    "meta.llama-3.1-405b-instruct",
+  ],
+  qwen: [
+    "qwen-max",
+    "qwen-plus",
+    "qwen-turbo",
+    "qwen2.5-72b-instruct",
+    "qwen2.5-32b-instruct",
+    "qwen2.5-coder-32b-instruct",
+  ],
+  groq: [
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+    "llama-3.1-70b-versatile",
+    "llama3-70b-8192",
+    "llama3-8b-8192",
+    "mixtral-8x7b-32768",
+    "gemma2-9b-it",
+    "deepseek-r1-distill-llama-70b",
+    "qwen-2.5-32b",
+    "qwen-2.5-coder-32b",
+  ],
+  openrouter: [
+    // openrouter/free is OpenRouter's smart router that picks a free model
+    // matching the request's required features. 200K ctx, $0/token.
+    "openrouter/free",
+    "openai/gpt-5",
+    "openai/gpt-4o",
+    "openai/gpt-4o-mini",
+    "anthropic/claude-3.5-sonnet",
+    "anthropic/claude-3.5-haiku",
+    "google/gemini-2.5-pro",
+    "google/gemini-2.5-flash",
+    "meta-llama/llama-3.3-70b-instruct",
+    "deepseek/deepseek-chat",
+    "mistralai/mistral-large",
+    "x-ai/grok-2-1212",
+    "qwen/qwen-2.5-72b-instruct",
+  ],
+};
+
+// Providers that run the server-side tool loop. Must stay in sync with
+// OPENAI_COMPAT_PROVIDERS in src/utils/providers/credentials.server.ts.
+// An empty/undefined provider (which defaults to openrouter server-side)
+// also runs the loop. Anything outside this set silently streams without tools.
+const TOOL_SUPPORTING_PROVIDERS = new Set<string>([
+  "openai",
+  "gemini",
+  "grok",
+  "groq",
+  "openrouter",
+  "ollama",
+  "qwen",
+  "vllm",
+  "nvidia",
+]);
+function providerLacksToolSupport(provider?: string): boolean {
+  if (!provider) return false; // empty defaults to openrouter which supports tools
+  return !TOOL_SUPPORTING_PROVIDERS.has(provider);
+}
+
+// Curated subset of tools a swarm node can opt into. These map 1:1 to the
+// server-side TOOLABLE_IDS in registry.server.ts. Anything outside this list
+// is intentionally hidden — the UI must not advertise tools that don't run.
+const TOOL_CATALOG: { id: SwarmToolId; label: string; desc: string; icon: typeof Search }[] = [
+  {
+    id: "web_search",
+    label: "Web Search",
+    desc: "Search the web for fresh info (Firecrawl, falls back to DuckDuckGo).",
+    icon: Search,
+  },
+  {
+    id: "web_browse",
+    label: "Web Browse",
+    desc: "Fetch a URL as clean markdown for the agent to read (Firecrawl required).",
+    icon: Globe,
+  },
+  {
+    id: "kb_search",
+    label: "Knowledge Base Search",
+    desc: "Search documents in the agent's linked knowledge base.",
+    icon: BookOpen,
+  },
+  {
+    id: "kb_graph_search",
+    label: "Knowledge Graph Search",
+    desc: "Multi-hop Graph RAG over the KB's entity relationships. Build the graph in Knowledge → Graph first.",
+    icon: GitBranch,
+  },
+  {
+    id: "sql_query",
+    label: "SQL Query",
+    desc: "Run read-only SQL against the user's local CSV-derived tables (Data & SQL page).",
+    icon: Database,
+  },
+  {
+    id: "calculator",
+    label: "Calculator",
+    desc: "Safe math expression evaluator. No key needed.",
+    icon: Calculator,
+  },
+  {
+    id: "datetime",
+    label: "Date & Time",
+    desc: "Current date/time in any IANA timezone. No key needed.",
+    icon: Clock,
+  },
+  {
+    id: "weather",
+    label: "Weather",
+    desc: "Current conditions + 3-day forecast via Open-Meteo. No key needed.",
+    icon: CloudSun,
+  },
+  {
+    id: "n8n_run_workflow",
+    label: "n8n Workflow",
+    desc: "Trigger a workflow on the user's connected n8n instance.",
+    icon: Workflow,
+  },
+  {
+    id: "mcp_call_tool",
+    label: "MCP Tool Call",
+    desc: "Invoke a tool on a connected MCP server.",
+    icon: Plug,
+  },
+];
+
+type ImportableAgent = {
+  id: string;
+  name: string;
+  description: string | null;
+  llm_provider: string;
+  llm_model: string;
+  temperature: number;
+  system_prompt: string | null;
+  knowledge_base_id: string | null;
+  tools: unknown;
+};
+
+type Props = {
+  node: Node<SwarmNodeData>;
+  knowledgeBases: { id: string; name: string }[];
+  agentLibrary: ImportableAgent[];
+  onChange: (patch: Partial<SwarmNodeData>) => void;
+  onDelete: () => void;
+  onClose: () => void;
+};
+
+export function NodeInspector({
+  node,
+  knowledgeBases,
+  agentLibrary,
+  onChange,
+  onDelete,
+  onClose,
+}: Props) {
+  const data = node.data;
+
+  // Discover which LLM providers the user has connected. Mirrors AgentForm so
+  // a swarm node can pick from the same list of providers/models the agent
+  // builder shows. openrouter is always available (operator's shared key).
+  const [connectedProviders, setConnectedProviders] = useState<Set<string>>(
+    () => new Set<string>(["openrouter"]),
+  );
+  // Data tables — used by the sql_query per-node allow-list picker.
+  const [availableDataTables, setAvailableDataTables] = useState<
+    { id: string; name: string; is_sample: boolean }[]
+  >([]);
+  const [dataTablesLoaded, setDataTablesLoaded] = useState(false);
+  // Connected MCP servers — used by the mcp_call_tool per-node allow-list picker
+  // so users can check off servers instead of typing names from memory.
+  const [availableMcpServers, setAvailableMcpServers] = useState<
+    { id: string; name: string; type: string; status: string }[]
+  >([]);
+  const [mcpServersLoaded, setMcpServersLoaded] = useState(false);
+  useEffect(() => {
+    (async () => {
+      const connected = new Set<string>(["openrouter"]);
+      const [{ data: creds }, { data: integ }] = await Promise.all([
+        supabase.from("provider_credentials").select("provider, is_active"),
+        supabase.from("integrations").select("provider, type, is_active"),
+      ]);
+      creds?.forEach((r: { provider: string | null; is_active: boolean | null }) => {
+        if (r.is_active !== false && r.provider) connected.add(r.provider);
+      });
+      integ
+        ?.filter((r: { type: string }) => r.type === "llm_provider")
+        .forEach((r: { provider: string | null; is_active: boolean | null }) => {
+          if (r.is_active !== false && r.provider) connected.add(r.provider);
+        });
+      setConnectedProviders(connected);
+      const { data: dt } = await supabase
+        .from("user_data_tables")
+        .select("id, name, is_sample")
+        .order("name", { ascending: true });
+      if (dt) setAvailableDataTables(dt);
+      setDataTablesLoaded(true);
+      const { data: mcp } = await supabase
+        .from("mcp_servers")
+        .select("id, name, type, status")
+        .eq("status", "connected")
+        .order("name", { ascending: true });
+      if (mcp) {
+        setAvailableMcpServers(mcp as any);
+        // Only live servers are selectable. Prune anything removed or no
+        // longer connected on the inspected node before it can render.
+        const validNames = new Set((mcp as any[]).map((s) => s.name));
+        const current = (data.toolConfigs?.mcp_server_names ?? []) as string[];
+        if (Array.isArray(current) && current.some((n) => !validNames.has(n))) {
+          onChange({
+            toolConfigs: {
+              ...(data.toolConfigs ?? {}),
+              mcp_server_names: current.filter((n) => validNames.has(n)),
+            },
+          });
+        }
+      }
+      setMcpServersLoaded(true);
+    })();
+  }, []);
+
+  const currentProvider = data.provider || "openrouter";
+  const currentModel = data.model || "openai/gpt-4o-mini";
+  // Show every connected provider + the node's current one (even if it was
+  // disconnected after the fact, so the value isn't silently dropped).
+  const availableProviders = PROVIDERS.filter(
+    (p) => connectedProviders.has(p.value) || p.value === currentProvider,
+  );
+  const suggestedModels = MODEL_SUGGESTIONS[currentProvider] || [];
+
+  // Snapshot-copy an existing /agents Agent into this node. Independent copy:
+  // future edits to the source agent won't affect this swarm.
+  function importFromLibrary(agentId: string) {
+    const a = agentLibrary.find((x) => x.id === agentId);
+    if (!a) return;
+    const t = (
+      a.tools && typeof a.tools === "object" && !Array.isArray(a.tools) ? a.tools : {}
+    ) as {
+      builtInTools?: Record<string, boolean>;
+    };
+    // Map the agent's `builtInTools.web_search` style flags to the curated
+    // SwarmToolId set so the snapshot honors what the agent already had on.
+    const importedTools: SwarmToolId[] = [];
+    const m = t.builtInTools || {};
+    if (m.web_search) importedTools.push("web_search");
+    if (m.web_browse || m.web_browser) importedTools.push("web_browse");
+    if (a.knowledge_base_id) importedTools.push("kb_search");
+    onChange({
+      label: a.name,
+      systemPrompt: a.system_prompt || "",
+      provider: a.llm_provider,
+      model: a.llm_model,
+      temperature: a.temperature,
+      knowledgeBaseId: a.knowledge_base_id,
+      enabledTools: importedTools,
+      // Intentionally do NOT set agentId — snapshot copy means this node
+      // runs independently and can't be silently changed by /agents edits.
+      agentId: null,
+    });
+  }
+
+  const enabled = new Set<SwarmToolId>(data.enabledTools ?? []);
+  function toggleTool(id: SwarmToolId, on: boolean) {
+    const next = new Set(enabled);
+    if (on) next.add(id);
+    else next.delete(id);
+    onChange({ enabledTools: Array.from(next) });
+  }
+
+  // Per-tool configuration helpers. Mirror the agent builder's panels:
+  //   - web_search / web_browse: provider + API key (built-in Firecrawl by default)
+  //   - n8n_run_workflow: comma-separated allow-list of workflow ids
+  //   - mcp_call_tool: comma-separated allow-list of server names
+  // All values are persisted to node.data.toolConfigs and forwarded by
+  // swarmRuntime.callAgent → /api/chat → resolveAgentTools where they are
+  // strictly enforced (not cosmetic).
+  const tc = data.toolConfigs ?? {};
+  function patchToolConfig(patch: Partial<NonNullable<SwarmNodeData["toolConfigs"]>>) {
+    onChange({ toolConfigs: { ...tc, ...patch } });
+  }
+  function patchWebTool(
+    key: "web_search" | "web_browse",
+    patch: Partial<NonNullable<NonNullable<SwarmNodeData["toolConfigs"]>["web_search"]>>,
+  ) {
+    onChange({
+      toolConfigs: {
+        ...tc,
+        [key]: { ...(tc[key] ?? {}), ...patch },
+      },
+    });
+  }
+
+  return (
+    <aside className="w-80 border-l border-border bg-card/40 flex flex-col h-full">
+      <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            {data.kind} node
+          </p>
+          <p className="text-sm font-semibold truncate">{data.label}</p>
+        </div>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={onDelete}
+            title="Delete node"
+          >
+            <Trash2 className="h-3.5 w-3.5 text-destructive" />
+          </Button>
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose} title="Close">
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 text-sm">
+        <Section label="Label">
+          <Input value={data.label} onChange={(e) => onChange({ label: e.target.value })} />
+        </Section>
+
+        {(data.kind === "agent" ||
+          data.kind === "loop" ||
+          data.kind === "condition" ||
+          data.kind === "router" ||
+          data.kind === "evaluate") && (
+          <>
+            {/* Helper banner — clarifies how loop/condition differ from a plain agent.
+                Agent nodes get no banner (the defaults are self-explanatory). */}
+            {data.kind === "loop" && (
+              <div className="rounded-md border border-primary/30 bg-primary/5 p-2.5 text-[11px] leading-relaxed">
+                <p className="font-medium text-foreground mb-0.5">🔁 Loop node</p>
+                <p className="text-muted-foreground">
+                  Re-runs this agent body up to <strong>Max iterations</strong> times. Each
+                  iteration sees the previous output as context. Stops early when the agent appends{" "}
+                  <code className="font-mono">DONE</code> to its reply.
+                </p>
+              </div>
+            )}
+            {data.kind === "condition" && (
+              <div className="rounded-md border border-primary/30 bg-primary/5 p-2.5 text-[11px] leading-relaxed">
+                <p className="font-medium text-foreground mb-0.5">🔀 Condition node</p>
+                <p className="text-muted-foreground">
+                  Asks the LLM a YES/NO question and routes execution along the outgoing edge whose
+                  label matches (<code className="font-mono">yes</code> or{" "}
+                  <code className="font-mono">no</code>). No tools or knowledge base — just a fast
+                  judgment call.
+                </p>
+              </div>
+            )}
+            {data.kind === "router" && (
+              <div className="rounded-md border border-indigo-500/30 bg-indigo-500/5 p-2.5 text-[11px] leading-relaxed">
+                <p className="font-medium text-foreground mb-0.5">🧭 Router Agent</p>
+                <p className="text-muted-foreground">
+                  Intelligently picks <strong>one</strong> outgoing route. Label each outgoing edge
+                  with a route name (e.g. <code className="font-mono">math</code>,{" "}
+                  <code className="font-mono">writer</code>, <code className="font-mono">code</code>
+                  ) — the LLM chooses one, that branch runs, and the others stay still. Use this
+                  instead of fanning an agent out to multiple branches in parallel.
+                </p>
+              </div>
+            )}
+            {data.kind === "evaluate" && (
+              <div className="rounded-md border border-teal-500/30 bg-teal-500/5 p-2.5 text-[11px] leading-relaxed">
+                <p className="font-medium text-foreground mb-0.5">
+                  📊 Evaluate node (LLM-as-a-Judge)
+                </p>
+                <p className="text-muted-foreground">
+                  Scores upstream output against configurable metrics (faithfulness, relevancy,
+                  completeness, etc.) using a strong LLM judge. Returns a structured JSON scorecard
+                  with per-metric 0–1 scores, justifications, and an overall pass/fail verdict. Best
+                  practice: use a <strong>different model family</strong> than the candidate being
+                  judged.
+                </p>
+              </div>
+            )}
+
+            {/* Import from agent library — snapshot copy.
+                Hidden for condition/evaluate nodes: importing a full agent's prompt + tools
+                doesn't make sense for specialized judge nodes. */}
+            {data.kind !== "condition" && data.kind !== "router" && data.kind !== "evaluate" && (
+              <Section label="Import from agent library">
+                <Select value="" onValueChange={importFromLibrary}>
+                  <SelectTrigger>
+                    <SelectValue
+                      placeholder={
+                        agentLibrary.length === 0
+                          ? "No saved agents yet — build one in /agents"
+                          : "Pick an agent to copy in"
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {agentLibrary.map((a) => (
+                      <SelectItem key={a.id} value={a.id}>
+                        <span className="flex items-center gap-2">
+                          <Library className="h-3 w-3 text-primary" />
+                          <span className="truncate">{a.name}</span>
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  Copies prompt, model, tools, and KB into this node. Independent of the source —
+                  future edits to the agent won't affect this swarm.
+                </p>
+              </Section>
+            )}
+
+            <Section label="Provider">
+              <Select
+                value={currentProvider}
+                onValueChange={(v) => {
+                  // When provider changes, snap the model to the first
+                  // suggestion for that provider so we don't end up with an
+                  // OpenAI model still selected after switching to Anthropic.
+                  const first = MODEL_SUGGESTIONS[v]?.[0];
+                  onChange({ provider: v, ...(first ? { model: first } : {}) });
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableProviders.map((p) => (
+                    <SelectItem key={p.value} value={p.value}>
+                      {p.label}
+                      {!connectedProviders.has(p.value) && p.value !== "openrouter" && (
+                        <span className="ml-2 text-[10px] text-muted-foreground">
+                          (not connected)
+                        </span>
+                      )}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[10px] text-muted-foreground mt-1">
+                Only providers you've connected appear here. Add more in{" "}
+                <strong>Integrations</strong>.
+              </p>
+            </Section>
+
+            <Section label="Model">
+              {suggestedModels.length > 0 ? (
+                <Select
+                  value={suggestedModels.includes(currentModel) ? currentModel : ""}
+                  onValueChange={(v) => onChange({ model: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Pick a model or type a custom one below" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {suggestedModels.map((m) => (
+                      <SelectItem key={m} value={m}>
+                        <span className="inline-flex items-center gap-2">
+                          <span className="font-mono text-xs">{m}</span>
+                          {isImageModelId(m) && (
+                            <span className="rounded-sm border border-primary/40 bg-primary/10 px-1.5 py-0 text-[9px] uppercase tracking-wider text-primary">
+                              Image
+                            </span>
+                          )}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : null}
+              <Input
+                value={currentModel}
+                onChange={(e) => onChange({ model: e.target.value })}
+                placeholder="e.g. gpt-5, claude-opus-4-7, custom-model-id"
+                className="font-mono text-xs mt-2"
+              />
+              <p className="text-[10px] text-muted-foreground mt-1">
+                {isImageModelId(currentModel)
+                  ? "This model returns an image. The node accepts text prompts and (optionally) an upstream image to edit. The final image renders in the Run panel with a Download button."
+                  : currentProvider === "openrouter"
+                    ? "Routed via OpenRouter — uses the server's default key unless you've connected your own."
+                    : "Uses your connected provider credentials."}
+              </p>
+            </Section>
+
+            <Section label={`Temperature: ${(data.temperature ?? 0.4).toFixed(2)}`}>
+              <Slider
+                value={[data.temperature ?? 0.4]}
+                min={0}
+                max={1}
+                step={0.05}
+                onValueChange={([v]) => onChange({ temperature: v })}
+              />
+            </Section>
+
+            {data.kind !== "evaluate" && (
+              <Section
+                label={
+                  data.kind === "condition"
+                    ? "Condition prompt (asks YES/NO)"
+                    : data.kind === "router"
+                      ? "Router prompt (picks 1 of N route labels)"
+                      : "System prompt"
+                }
+              >
+                {data.kind !== "condition" && data.kind !== "router" && (
+                  <div className="flex justify-end mb-1.5">
+                    <PromptLibraryPicker
+                      iconOnly
+                      align="end"
+                      onPick={(p) => {
+                        onChange({ systemPrompt: p.content });
+                        toast.success(`Loaded "${p.title}" from Library`);
+                      }}
+                    />
+                  </div>
+                )}
+                <Textarea
+                  value={
+                    data.kind === "condition"
+                      ? data.conditionPrompt || ""
+                      : data.kind === "router"
+                        ? data.routerPrompt || ""
+                        : data.systemPrompt || ""
+                  }
+                  onChange={(e) =>
+                    onChange(
+                      data.kind === "condition"
+                        ? { conditionPrompt: e.target.value }
+                        : data.kind === "router"
+                          ? { routerPrompt: e.target.value }
+                          : { systemPrompt: e.target.value },
+                    )
+                  }
+                  rows={6}
+                  placeholder={
+                    data.kind === "condition"
+                      ? "Should the workflow continue down the YES branch?"
+                      : data.kind === "router"
+                        ? "You manage these specialists: ... Pick the best route for the user's request."
+                        : "You are a helpful agent that..."
+                  }
+                  className="font-mono text-xs"
+                />
+                {data.kind === "router" && (
+                  <p className="text-[10px] text-muted-foreground mt-1.5">
+                    Route names come from the labels on this node's outgoing edges. Click an edge to
+                    label it (e.g. <code className="font-mono">math</code>,{" "}
+                    <code className="font-mono">writer</code>). Unlabeled edges are ignored.
+                  </p>
+                )}
+              </Section>
+            )}
+
+            {data.kind !== "condition" && data.kind !== "router" && data.kind !== "evaluate" && (
+              <Section label="Skills (from Skill Library)">
+                <SkillPicker
+                  value={Array.isArray(data.skillIds) ? data.skillIds : []}
+                  onChange={(ids) => onChange({ skillIds: ids })}
+                />
+                <p className="text-[10px] text-muted-foreground mt-1.5">
+                  Attached skills are prepended to this node's system prompt at run time.
+                </p>
+              </Section>
+            )}
+
+            {data.kind === "loop" && (
+              <Section label={`Max iterations: ${data.maxIters ?? 3}`}>
+                <Slider
+                  value={[data.maxIters ?? 3]}
+                  min={1}
+                  max={6}
+                  step={1}
+                  onValueChange={([v]) => onChange({ maxIters: v })}
+                />
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  Loop ends early when the agent appends <code>DONE</code>.
+                </p>
+              </Section>
+            )}
+
+            {/* Tools + KB hidden for condition/router/evaluate nodes — specialized judges don't need them. */}
+            {data.kind !== "condition" && data.kind !== "router" && data.kind !== "evaluate" && (
+              <>
+                {/* Warn when this node's provider doesn't support tool calling.
+                    The chat API only runs the tool loop for OpenAI-compatible
+                    providers + the built-in gateway; everything else (Bedrock,
+                    Vertex, Azure, OCI, direct Anthropic) silently ignores
+                    enabledTools and streams plain text. */}
+                {(data.enabledTools ?? []).length > 0 &&
+                  providerLacksToolSupport(data.provider) && (
+                    <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-2">
+                      <p className="text-[11px] text-amber-400 leading-snug">
+                        <strong>⚠ Tools may be ignored.</strong> The selected provider (
+                        {data.provider}) doesn&apos;t support tool calling in this app yet — only
+                        OpenAI-compatible providers (OpenAI, Gemini, Grok, Groq, OpenRouter, Ollama,
+                        Qwen, vLLM, NVIDIA NIM) and the built-in gateway run the tool loop. This
+                        node will stream plain text without invoking tools.
+                      </p>
+                    </div>
+                  )}
+
+                {/* Curated per-node tool toggles */}
+                <Section label="Tools (server-side, executed during run)">
+                  <div className="space-y-2">
+                    {TOOL_CATALOG.map((t) => {
+                      const Icon = t.icon;
+                      const on = enabled.has(t.id);
+                      return (
+                        <div
+                          key={t.id}
+                          className="rounded-md border border-border/50 bg-background/40 p-2"
+                        >
+                          <div className="flex items-start gap-2">
+                            <Icon
+                              className={`h-3.5 w-3.5 mt-0.5 shrink-0 ${on ? "text-primary" : "text-muted-foreground"}`}
+                            />
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-xs font-medium">{t.label}</span>
+                                <Switch checked={on} onCheckedChange={(v) => toggleTool(t.id, v)} />
+                              </div>
+                              <p className="text-[10px] text-muted-foreground mt-0.5">{t.desc}</p>
+                            </div>
+                          </div>
+
+                          {/* Per-tool configuration. Real, not cosmetic — values are
+                          forwarded to /api/chat → resolveAgentTools. */}
+                          {on &&
+                            (t.id === "web_search" || t.id === "web_browse") &&
+                            (() => {
+                              const webId: "web_search" | "web_browse" = t.id;
+                              const provider = tc[webId]?.provider || "firecrawl_builtin";
+                              return (
+                                <div className="mt-2 pt-2 border-t border-border/40 space-y-2">
+                                  <div>
+                                    <Label className="text-[10px] text-muted-foreground mb-1 block">
+                                      Provider
+                                    </Label>
+                                    <Select
+                                      value={provider}
+                                      onValueChange={(v) =>
+                                        patchWebTool(webId, {
+                                          provider: v,
+                                          ...(v === "firecrawl_builtin" ? { api_key: "" } : {}),
+                                        })
+                                      }
+                                    >
+                                      <SelectTrigger className="h-8 text-xs">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="firecrawl_builtin">
+                                          Firecrawl (built-in)
+                                        </SelectItem>
+                                        <SelectItem value="firecrawl_custom">
+                                          Firecrawl (custom API key)
+                                        </SelectItem>
+                                        {webId === "web_search" && (
+                                          <>
+                                            <SelectItem value="brave">Brave Search</SelectItem>
+                                            <SelectItem value="tavily">Tavily</SelectItem>
+                                            <SelectItem value="serpapi">SerpAPI</SelectItem>
+                                          </>
+                                        )}
+                                        {webId === "web_browse" && (
+                                          <SelectItem value="scrapingbee">ScrapingBee</SelectItem>
+                                        )}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                  {provider !== "firecrawl_builtin" && (
+                                    <div>
+                                      <Label className="text-[10px] text-muted-foreground mb-1 block">
+                                        API key
+                                      </Label>
+                                      <Input
+                                        type="password"
+                                        className="h-8 text-xs font-mono"
+                                        placeholder="Paste API key for selected provider"
+                                        value={tc[webId]?.api_key || ""}
+                                        onChange={(e) =>
+                                          patchWebTool(webId, { api_key: e.target.value })
+                                        }
+                                      />
+                                    </div>
+                                  )}
+                                  {provider === "firecrawl_builtin" && (
+                                    <p className="text-[10px] text-muted-foreground">
+                                      Uses the workspace Firecrawl key from{" "}
+                                      <span className="font-medium text-foreground">
+                                        Connectors
+                                      </span>
+                                      . Falls back to DuckDuckGo for search if Firecrawl is
+                                      unavailable.
+                                    </p>
+                                  )}
+                                </div>
+                              );
+                            })()}
+
+                          {on && t.id === "n8n_run_workflow" && (
+                            <div className="mt-2 pt-2 border-t border-border/40 space-y-1">
+                              <Label className="text-[10px] text-muted-foreground block">
+                                Allowed workflow IDs (optional)
+                              </Label>
+                              <Input
+                                className="h-8 text-xs font-mono"
+                                placeholder="wf_abc123, wf_xyz789"
+                                value={(tc.n8n_workflow_ids ?? []).join(", ")}
+                                onChange={(e) =>
+                                  patchToolConfig({
+                                    n8n_workflow_ids: e.target.value
+                                      .split(",")
+                                      .map((s) => s.trim())
+                                      .filter(Boolean),
+                                  })
+                                }
+                              />
+                              <p className="text-[10px] text-muted-foreground">
+                                Comma-separated. Empty = any workflow on the connected n8n instance.
+                                Connect n8n in{" "}
+                                <span className="font-medium text-foreground">Integrations</span>.
+                              </p>
+                            </div>
+                          )}
+
+                          {on && t.id === "mcp_call_tool" && (
+                            <div className="mt-2 pt-2 border-t border-border/40 space-y-1.5">
+                              <Label className="text-[10px] text-muted-foreground block">
+                                Allowed MCP servers (optional)
+                              </Label>
+                              {!mcpServersLoaded ? (
+                                <p className="text-[10px] text-muted-foreground">Loading…</p>
+                              ) : availableMcpServers.length === 0 ? (
+                                <p className="text-[10px] text-muted-foreground">
+                                  No MCP servers connected. Add one under{" "}
+                                  <a href="/mcp" className="text-primary underline">
+                                    /mcp
+                                  </a>
+                                  .
+                                </p>
+                              ) : (
+                                <>
+                                  {(() => {
+                                    const validNames = new Set(
+                                      availableMcpServers.map((s) => s.name),
+                                    );
+                                    const selected = new Set(
+                                      (tc.mcp_server_names ?? []).filter((n) => validNames.has(n)),
+                                    );
+                                    return (
+                                      <>
+                                        <div className="grid gap-1">
+                                          {availableMcpServers.map((srv) => {
+                                            const checked = selected.has(srv.name);
+                                            return (
+                                              <label
+                                                key={srv.id}
+                                                className="flex items-center gap-2 rounded-md border border-border/40 bg-muted/20 px-2 py-1 cursor-pointer hover:border-primary/40"
+                                              >
+                                                <input
+                                                  type="checkbox"
+                                                  className="h-3 w-3 accent-primary"
+                                                  checked={checked}
+                                                  onChange={(e) => {
+                                                    const next = new Set(selected);
+                                                    if (e.target.checked) next.add(srv.name);
+                                                    else next.delete(srv.name);
+                                                    patchToolConfig({
+                                                      mcp_server_names: Array.from(next),
+                                                    });
+                                                  }}
+                                                />
+                                                <span className="text-[11px] font-medium truncate flex-1">
+                                                  {srv.name}
+                                                </span>
+                                                <span className="text-[9px] text-muted-foreground capitalize">
+                                                  {srv.status}
+                                                </span>
+                                              </label>
+                                            );
+                                          })}
+                                        </div>
+                                        <p className="text-[10px] text-muted-foreground">
+                                          Empty = any connected server is allowed.
+                                        </p>
+                                      </>
+                                    );
+                                  })()}
+                                </>
+                              )}
+                            </div>
+                          )}
+
+                          {on && t.id === "kb_search" && !data.knowledgeBaseId && (
+                            <div className="mt-2 pt-2 border-t border-border/40">
+                              <p className="text-[10px] text-destructive">
+                                Pick a knowledge base below for this tool to return results.
+                              </p>
+                            </div>
+                          )}
+
+                          {on && t.id === "sql_query" && (
+                            <div className="mt-2 pt-2 border-t border-border/40 space-y-1">
+                              <Label className="text-[10px] text-muted-foreground block">
+                                Allowed tables (optional)
+                              </Label>
+                              {!dataTablesLoaded ? (
+                                <p className="text-[10px] text-muted-foreground">Loading tables…</p>
+                              ) : availableDataTables.length === 0 ? (
+                                <p className="text-[10px] text-muted-foreground">
+                                  No tables yet. Upload a CSV in{" "}
+                                  <span className="font-medium text-foreground">
+                                    Data &amp; SQL Agents
+                                  </span>
+                                  .
+                                </p>
+                              ) : (
+                                <>
+                                  <div className="max-h-32 overflow-y-auto space-y-1 rounded-md border border-border/40 bg-background/40 p-2">
+                                    {availableDataTables.map((dt) => {
+                                      const list = tc.sql_table_names ?? [];
+                                      const checked = list.includes(dt.name);
+                                      return (
+                                        <label
+                                          key={dt.id}
+                                          className="flex items-start gap-2 cursor-pointer text-[10px]"
+                                        >
+                                          <input
+                                            type="checkbox"
+                                            className="mt-0.5"
+                                            checked={checked}
+                                            onChange={(e) => {
+                                              const next = e.target.checked
+                                                ? Array.from(new Set([...list, dt.name]))
+                                                : list.filter((n) => n !== dt.name);
+                                              patchToolConfig({ sql_table_names: next });
+                                            }}
+                                          />
+                                          <span className="font-mono truncate flex-1">
+                                            {dt.name}
+                                          </span>
+                                          {dt.is_sample && (
+                                            <Badge variant="outline" className="text-[9px]">
+                                              sample
+                                            </Badge>
+                                          )}
+                                        </label>
+                                      );
+                                    })}
+                                  </div>
+                                  <p className="text-[10px] text-muted-foreground">
+                                    {(tc.sql_table_names ?? []).length === 0
+                                      ? "No selection — node can query every table you can read."
+                                      : `Node will only see ${(tc.sql_table_names ?? []).length} selected table${(tc.sql_table_names ?? []).length === 1 ? "" : "s"}.`}
+                                  </p>
+                                </>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-2">
+                    Each enabled tool is offered to the model during this node's run. Tools whose
+                    backing service isn't connected are silently skipped.
+                  </p>
+                </Section>
+
+                <Section label="Knowledge base (optional, for grounding)">
+                  <Select
+                    value={data.knowledgeBaseId || "__none__"}
+                    onValueChange={(v) =>
+                      onChange({ knowledgeBaseId: v === "__none__" ? null : v })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">None</SelectItem>
+                      {knowledgeBases.map((kb) => (
+                        <SelectItem key={kb.id} value={kb.id}>
+                          {kb.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    Requires linking via an Agent in <strong>/agents</strong> for full RAG. Coming
+                    soon: pick KB inline.
+                  </p>
+                </Section>
+
+                {/* Per-node guardrails. Real enforcement — values are forwarded to
+                /api/chat where they merge OVER the linked agent's saved
+                guardrails (so a node can be STRICTER than its source agent). */}
+                <GuardrailsSection data={data} onChange={onChange} />
+
+                {/* Per-node memory configuration. Forwarded as memoryOverrides to
+                /api/chat. STM scope is per-conversation; LTM scope decides
+                whether facts are shared with the agent's normal sessions or
+                isolated to this swarm run. */}
+                <MemorySection data={data} onChange={onChange} />
+              </>
+            )}
+          </>
+        )}
+
+        {data.kind === "approval" && (
+          <>
+            <Section label="Approval title (shown in inbox)">
+              <Input
+                value={data.approvalTitle || ""}
+                onChange={(e) => onChange({ approvalTitle: e.target.value })}
+                placeholder="Approve action: send email"
+              />
+            </Section>
+            <Section label="Risk level">
+              <Select
+                value={data.approvalRisk || "medium"}
+                onValueChange={(v) => onChange({ approvalRisk: v as "low" | "medium" | "high" })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="low">Low</SelectItem>
+                  <SelectItem value="medium">Medium</SelectItem>
+                  <SelectItem value="high">High</SelectItem>
+                </SelectContent>
+              </Select>
+            </Section>
+            <Section label="Timeout (seconds)">
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min={0}
+                  step={30}
+                  value={data.approvalTimeoutMs ? Math.round(data.approvalTimeoutMs / 1000) : ""}
+                  onChange={(e) => {
+                    const secs = parseInt(e.target.value, 10);
+                    onChange({ approvalTimeoutMs: secs > 0 ? secs * 1000 : undefined });
+                  }}
+                  placeholder="No timeout"
+                  className="w-32"
+                />
+                <span className="text-[11px] text-muted-foreground">
+                  seconds (0 = wait forever)
+                </span>
+              </div>
+            </Section>
+          </>
+        )}
+
+        {data.kind === "a2a_remote" && <A2APanel data={data} onChange={onChange} />}
+
+        {data.kind === "function" && <FunctionPanel data={data} onChange={onChange} />}
+
+        {data.kind === "evaluate" && <EvaluatePanel data={data} onChange={onChange} />}
+
+        <Section label="Inputs (variables read from upstream)">
+          <Input
+            value={(data.inputs ?? []).join(", ")}
+            onChange={(e) =>
+              onChange({
+                inputs: e.target.value
+                  .split(",")
+                  .map((s) => s.trim())
+                  .filter(Boolean),
+              })
+            }
+            placeholder="input, summary"
+            className="font-mono text-xs"
+          />
+          <p className="text-[10px] text-muted-foreground mt-1">
+            Comma-separated. Each upstream node's output is keyed by its <code>outputVar</code>.
+          </p>
+        </Section>
+
+        {data.kind !== "output" && (
+          <Section label="Output variable (name written to context)">
+            <Input
+              value={data.outputVar || ""}
+              onChange={(e) =>
+                onChange({ outputVar: e.target.value.replace(/[^a-zA-Z0-9_]/g, "") })
+              }
+              placeholder={data.kind === "input" ? "input" : `out_${node.id}`}
+              className="font-mono text-xs"
+            />
+          </Section>
+        )}
+
+        {data.lastOutput && (
+          <Section label="Last output (preview)">
+            <div className="rounded-md border border-border bg-background/50 p-2 text-xs max-h-40 overflow-auto whitespace-pre-wrap">
+              {data.lastOutput.slice(0, 1500)}
+            </div>
+          </Section>
+        )}
+
+        <div className="flex flex-wrap gap-1 pt-2 border-t border-border">
+          <Badge variant="outline" className="text-[9px]">
+            id: {node.id}
+          </Badge>
+          <Badge variant="outline" className="text-[9px]">
+            kind: {data.kind}
+          </Badge>
+          {(data.enabledTools?.length ?? 0) > 0 && (
+            <Badge variant="outline" className="text-[9px] border-primary/40 text-primary">
+              {data.enabledTools!.length} tool{data.enabledTools!.length === 1 ? "" : "s"}
+            </Badge>
+          )}
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+// ───────────────────── Per-node Guardrails panel ─────────────────────
+// Real, server-enforced guardrails. The values entered here ride along on
+// every /api/chat request this node makes (see swarmRuntime.callAgent),
+// where they are merged OVER the linked agent's saved guardrails. The
+// chat route then runs the same evaluateInputGuardrails / applyOutputGuardrails
+// pipeline used by the playground — same redaction, same blocking, same
+// safety-tier matching. Nothing here is cosmetic.
+function GuardrailsSection({
+  data,
+  onChange,
+}: {
+  data: SwarmNodeData;
+  onChange: (patch: Partial<SwarmNodeData>) => void;
+}) {
+  const g = (data.guardrails ?? {}) as NonNullable<SwarmNodeData["guardrails"]>;
+  const active =
+    !!g.enableInputFilters ||
+    !!g.enableOutputFilters ||
+    !!g.blockPII ||
+    !!g.blockProfanity ||
+    (g.contentSafetyLevel && g.contentSafetyLevel !== "off") ||
+    !!g.enableCitationCheck ||
+    !!g.enableHallucinationFilter ||
+    !!(g.blockedPatterns && g.blockedPatterns.trim()) ||
+    !!(g.allowedTopics && g.allowedTopics.trim()) ||
+    !!(g.topicRestrictions && g.topicRestrictions.trim());
+
+  function patch(p: Partial<NonNullable<SwarmNodeData["guardrails"]>>) {
+    onChange({ guardrails: { ...g, ...p } });
+  }
+
+  return (
+    <Section
+      label={
+        <span className="flex items-center gap-1.5">
+          <Shield className="h-3 w-3 text-primary" />
+          Guardrails (server-enforced)
+          {active && (
+            <Badge variant="outline" className="text-[9px] border-primary/40 text-primary ml-1">
+              active
+            </Badge>
+          )}
+        </span>
+      }
+    >
+      <div className="rounded-md border border-border/50 bg-background/40 p-2.5 space-y-3">
+        <p className="text-[10px] text-muted-foreground">
+          Merged OVER the linked agent's guardrails — set anything here to make this node stricter.
+          Inputs that violate these rules are rejected by{" "}
+          <code className="font-mono">/api/chat</code> with a 422; unsafe outputs are redacted or
+          blocked before they reach the canvas.
+        </p>
+
+        {/* Content safety */}
+        <div className="space-y-1.5">
+          <Label className="text-[10px] text-muted-foreground">Content safety level</Label>
+          <Select
+            value={g.contentSafetyLevel || "off"}
+            onValueChange={(v) =>
+              patch({ contentSafetyLevel: v as "off" | "low" | "medium" | "high" })
+            }
+          >
+            <SelectTrigger className="h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="off">Off (inherit from agent)</SelectItem>
+              <SelectItem value="low">Low — block explicit harm terms</SelectItem>
+              <SelectItem value="medium">Medium — + sensitive categories</SelectItem>
+              <SelectItem value="high">High — + borderline terms</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* PII / profanity */}
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <Label className="text-xs">Block PII</Label>
+            <p className="text-[10px] text-muted-foreground">
+              Redact emails, SSNs, phones, card numbers in input + output.
+            </p>
+          </div>
+          <Switch checked={!!g.blockPII} onCheckedChange={(v) => patch({ blockPII: v })} />
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <Label className="text-xs">Block profanity</Label>
+            <p className="text-[10px] text-muted-foreground">
+              Mask matched terms in the assistant's reply.
+            </p>
+          </div>
+          <Switch
+            checked={!!g.blockProfanity}
+            onCheckedChange={(v) => patch({ blockProfanity: v })}
+          />
+        </div>
+
+        {/* Input filters */}
+        <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/40">
+          <Label className="text-xs">Enable input filters</Label>
+          <Switch
+            checked={!!g.enableInputFilters}
+            onCheckedChange={(v) => patch({ enableInputFilters: v })}
+          />
+        </div>
+        {g.enableInputFilters && (
+          <>
+            <div className="space-y-1">
+              <Label className="text-[10px] text-muted-foreground">Max input length (chars)</Label>
+              <Input
+                type="number"
+                className="h-8 text-xs"
+                value={g.maxInputLength ?? 4000}
+                min={100}
+                max={100000}
+                onChange={(e) => patch({ maxInputLength: Number(e.target.value) || 4000 })}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-[10px] text-muted-foreground">
+                Blocked input patterns (regex, one per line)
+              </Label>
+              <Textarea
+                rows={2}
+                className="text-xs font-mono"
+                value={g.blockedPatterns ?? ""}
+                onChange={(e) => patch({ blockedPatterns: e.target.value })}
+                placeholder={"ignore previous instructions\nact as.*DAN"}
+              />
+            </div>
+          </>
+        )}
+
+        {/* Output filters */}
+        <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/40">
+          <Label className="text-xs">Enable output filters</Label>
+          <Switch
+            checked={!!g.enableOutputFilters}
+            onCheckedChange={(v) => patch({ enableOutputFilters: v })}
+          />
+        </div>
+        {g.enableOutputFilters && (
+          <>
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <Label className="text-xs">Citation check</Label>
+                <p className="text-[10px] text-muted-foreground">
+                  Warn when KB-grounded answers omit [n] markers.
+                </p>
+              </div>
+              <Switch
+                checked={!!g.enableCitationCheck}
+                onCheckedChange={(v) => patch({ enableCitationCheck: v })}
+              />
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <Label className="text-xs">Hallucination heuristic</Label>
+                <p className="text-[10px] text-muted-foreground">
+                  Warn when grounded answers state numbers/years without a source.
+                </p>
+              </div>
+              <Switch
+                checked={!!g.enableHallucinationFilter}
+                onCheckedChange={(v) => patch({ enableHallucinationFilter: v })}
+              />
+            </div>
+          </>
+        )}
+
+        {/* Topics */}
+        <div className="space-y-1 pt-1 border-t border-border/40">
+          <Label className="text-[10px] text-muted-foreground">
+            Allowed topics (one per line, optional)
+          </Label>
+          <Textarea
+            rows={2}
+            className="text-xs"
+            value={g.allowedTopics ?? ""}
+            onChange={(e) => patch({ allowedTopics: e.target.value })}
+            placeholder={"customer support\nproduct info"}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-[10px] text-muted-foreground">
+            Restricted topics (one per line, optional)
+          </Label>
+          <Textarea
+            rows={2}
+            className="text-xs"
+            value={g.topicRestrictions ?? ""}
+            onChange={(e) => patch({ topicRestrictions: e.target.value })}
+            placeholder={"politics\nmedical advice"}
+          />
+        </div>
+
+        {active && (
+          <button
+            type="button"
+            className="text-[10px] text-muted-foreground hover:text-destructive underline"
+            onClick={() => onChange({ guardrails: undefined })}
+          >
+            Clear all node-level guardrails (inherit agent's only)
+          </button>
+        )}
+      </div>
+    </Section>
+  );
+}
+
+function Section({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div>
+      <Label className="text-[11px] text-muted-foreground mb-1.5 block">{label}</Label>
+      {children}
+    </div>
+  );
+}
+
+// ───────────────────── A2A Remote Agent panel ─────────────────────
+// Real config UI for a node that delegates to a remote A2A-compliant server.
+// "Discover" actually fetches the Agent Card via /api/a2a?action=discover.
+function A2APanel({
+  data,
+  onChange,
+}: {
+  data: SwarmNodeData;
+  onChange: (patch: Partial<SwarmNodeData>) => void;
+}) {
+  const [discovering, setDiscovering] = useState(false);
+  const [discoverError, setDiscoverError] = useState<string | null>(null);
+  const card: AgentCard | undefined = data.a2aAgentCard;
+  const endpoint = data.a2aEndpoint || "";
+
+  async function handleDiscover() {
+    if (!endpoint.trim()) {
+      toast.error("Enter the remote agent endpoint URL first");
+      return;
+    }
+    setDiscovering(true);
+    setDiscoverError(null);
+    const { data: sessionData } = await supabase.auth.getSession();
+    const result = await fetchAgentCard({
+      endpoint: endpoint.trim(),
+      authToken: sessionData.session?.access_token,
+    });
+    setDiscovering(false);
+    if (!result.ok || !result.card) {
+      setDiscoverError(result.error || "Discovery failed");
+      toast.error(result.error || "Discovery failed");
+      return;
+    }
+    onChange({
+      a2aAgentCard: result.card,
+      // Reset skill if the previous one isn't on this card
+      a2aSkillId: result.card.skills?.find((s) => s.id === data.a2aSkillId)
+        ? data.a2aSkillId
+        : undefined,
+      // Disable streaming if the new card doesn't support it
+      a2aStreaming: data.a2aStreaming && !!result.card.capabilities?.streaming,
+    });
+    toast.success(`Discovered: ${result.card.name}`);
+  }
+
+  return (
+    <>
+      <Section label="Remote A2A endpoint URL">
+        <Input
+          value={endpoint}
+          onChange={(e) => onChange({ a2aEndpoint: e.target.value })}
+          placeholder="https://my-agent.example.com"
+          className="font-mono text-xs"
+        />
+        <p className="text-[10px] text-muted-foreground mt-1">
+          The base URL of an A2A-compliant agent server. Try the public sample at{" "}
+          <code className="text-[10px]">
+            https://sample-a2a-agent-908687846511.us-central1.run.app
+          </code>
+          .
+        </p>
+      </Section>
+
+      <Button
+        onClick={handleDiscover}
+        disabled={discovering || !endpoint.trim()}
+        size="sm"
+        variant="outline"
+        className="w-full h-8"
+      >
+        {discovering ? (
+          <>
+            <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Discovering…
+          </>
+        ) : (
+          <>
+            <Cloud className="h-3.5 w-3.5 mr-1.5" /> Discover Agent Card
+          </>
+        )}
+      </Button>
+
+      {discoverError && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 p-2 flex items-start gap-2">
+          <AlertCircle className="h-3.5 w-3.5 text-destructive shrink-0 mt-0.5" />
+          <p className="text-[11px] text-destructive">{discoverError}</p>
+        </div>
+      )}
+
+      {card && (
+        <div className="rounded-md border border-fuchsia-500/30 bg-fuchsia-500/5 p-3 space-y-2">
+          <div className="flex items-start gap-2">
+            <CheckCircle2 className="h-3.5 w-3.5 text-fuchsia-400 shrink-0 mt-0.5" />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold truncate">{card.name}</p>
+              <p className="text-[10px] text-muted-foreground">v{card.version}</p>
+              {card.description && (
+                <p className="text-[10px] text-muted-foreground mt-1 line-clamp-3">
+                  {card.description}
+                </p>
+              )}
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {card.capabilities?.streaming && (
+              <Badge
+                variant="outline"
+                className="text-[9px] border-fuchsia-500/40 text-fuchsia-400"
+              >
+                streaming
+              </Badge>
+            )}
+            {card.capabilities?.pushNotifications && (
+              <Badge variant="outline" className="text-[9px]">
+                push
+              </Badge>
+            )}
+            <Badge variant="outline" className="text-[9px]">
+              {card.skills?.length ?? 0} skill{card.skills?.length === 1 ? "" : "s"}
+            </Badge>
+          </div>
+
+          {card.skills && card.skills.length > 0 && (
+            <div>
+              <Label className="text-[10px] text-muted-foreground mb-1 block">
+                Skill (optional)
+              </Label>
+              <Select
+                value={data.a2aSkillId || "__any__"}
+                onValueChange={(v) => onChange({ a2aSkillId: v === "__any__" ? undefined : v })}
+              >
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__any__">Any (let agent decide)</SelectItem>
+                  {card.skills.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.name || s.id}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+        </div>
+      )}
+
+      <Section label="Auth header (optional, sent as Authorization)">
+        <Input
+          type="password"
+          value={data.a2aAuthHeader || ""}
+          onChange={(e) => onChange({ a2aAuthHeader: e.target.value })}
+          placeholder="Bearer sk-... or just the token"
+          className="font-mono text-xs"
+        />
+        <p className="text-[10px] text-muted-foreground mt-1">
+          Forwarded only to the endpoint above. If you omit "Bearer ", we'll add it.
+        </p>
+      </Section>
+
+      <div className="flex items-center justify-between rounded-md border border-border/50 bg-background/40 p-2">
+        <div className="min-w-0">
+          <p className="text-xs font-medium">Stream responses (SSE)</p>
+          <p className="text-[10px] text-muted-foreground">
+            {card?.capabilities?.streaming
+              ? "Use message/stream — tokens appear live in the run panel."
+              : card
+                ? "Disabled — this agent's card doesn't declare streaming."
+                : "Discover the agent first to enable streaming."}
+          </p>
+        </div>
+        <Switch
+          checked={!!data.a2aStreaming}
+          disabled={!card?.capabilities?.streaming}
+          onCheckedChange={(v) => onChange({ a2aStreaming: v })}
+        />
+      </div>
+    </>
+  );
+}
+
+// ───────────────────── Per-node Memory panel ─────────────────────
+// Forwards memory toggles + ltm_scope to /api/chat as `memoryOverrides`.
+// STM here means the sliding window + auto-summary applied per conversation.
+// LTM scope decides where facts extracted during this run are stored AND
+// recalled from:
+//   - "agent": share with the linked agent's normal playground sessions
+//   - "swarm": isolate to this swarm run only (uses swarm_run_id as key)
+//   - "none":  no LTM read/write for this node
+function MemorySection({
+  data,
+  onChange,
+}: {
+  data: SwarmNodeData;
+  onChange: (patch: Partial<SwarmNodeData>) => void;
+}) {
+  const m = data.memory ?? {};
+  const stmEnabled = m.stm_enabled !== false; // default on
+  const ltmEnabled = !!m.ltm_enabled;
+  const scope = m.ltm_scope ?? "agent";
+  const window = m.stm_window_messages ?? 20;
+
+  function patch(p: Partial<NonNullable<SwarmNodeData["memory"]>>) {
+    onChange({ memory: { ...m, ...p } });
+  }
+
+  const active = m.stm_enabled === false || ltmEnabled || (m.ltm_scope && m.ltm_scope !== "agent");
+
+  return (
+    <Section
+      label={
+        <span className="flex items-center gap-1.5">
+          <Brain className="h-3 w-3 text-primary" />
+          Memory
+          {active && (
+            <Badge variant="outline" className="text-[9px] border-primary/40 text-primary ml-1">
+              custom
+            </Badge>
+          )}
+        </span>
+      }
+    >
+      <div className="rounded-md border border-border/50 bg-background/40 p-2.5 space-y-3">
+        <p className="text-[10px] text-muted-foreground">
+          Overrides the linked agent's memory config for this node only. Forwarded to{" "}
+          <code className="font-mono">/api/chat</code> as{" "}
+          <code className="font-mono">memoryOverrides</code>.
+        </p>
+
+        <div className="flex items-center justify-between">
+          <div className="min-w-0 pr-2">
+            <p className="text-xs font-medium">Short-term memory (STM)</p>
+            <p className="text-[10px] text-muted-foreground">
+              Sliding window + rolling summary across this conversation.
+            </p>
+          </div>
+          <Switch checked={stmEnabled} onCheckedChange={(v) => patch({ stm_enabled: v })} />
+        </div>
+
+        {stmEnabled && (
+          <div>
+            <Label className="text-[10px] text-muted-foreground mb-1 block">
+              Window: last <strong>{window}</strong> messages
+            </Label>
+            <Slider
+              min={4}
+              max={50}
+              step={2}
+              value={[window]}
+              onValueChange={(v) => patch({ stm_window_messages: v[0] })}
+            />
+          </div>
+        )}
+
+        <div className="flex items-center justify-between border-t border-border/40 pt-3">
+          <div className="min-w-0 pr-2">
+            <p className="text-xs font-medium">Long-term memory (LTM)</p>
+            <p className="text-[10px] text-muted-foreground">
+              Recall + auto-extract durable facts across runs.
+            </p>
+          </div>
+          <Switch checked={ltmEnabled} onCheckedChange={(v) => patch({ ltm_enabled: v })} />
+        </div>
+
+        {ltmEnabled && (
+          <div>
+            <Label className="text-[10px] text-muted-foreground mb-1 block">LTM scope</Label>
+            <Select
+              value={scope}
+              onValueChange={(v) => patch({ ltm_scope: v as "agent" | "swarm" | "none" })}
+            >
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="agent">Share with agent (default)</SelectItem>
+                <SelectItem value="swarm">Isolate to this swarm run</SelectItem>
+                <SelectItem value="none">No LTM (read/write off)</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-[10px] text-muted-foreground mt-1">
+              <strong>agent</strong> reuses the agent's library. <strong>swarm</strong> keeps facts
+              scoped to this run only — useful for ephemeral, isolated experiments.
+            </p>
+          </div>
+        )}
+
+        {active && (
+          <button
+            type="button"
+            className="text-[10px] text-muted-foreground hover:text-destructive underline"
+            onClick={() => onChange({ memory: undefined })}
+          >
+            Clear node-level memory overrides (inherit agent's)
+          </button>
+        )}
+      </div>
+    </Section>
+  );
+}
+
+// ───────────────────── Custom JS Function panel ─────────────────────
+// Lets the user author a small JavaScript snippet that runs sandboxed
+// (via runSandboxed) when this node executes. Includes a "Test" button
+// that runs the code locally against a user-provided JSON sample so the
+// user can validate behaviour before saving the swarm.
+function FunctionPanel({
+  data,
+  onChange,
+}: {
+  data: SwarmNodeData;
+  onChange: (patch: Partial<SwarmNodeData>) => void;
+}) {
+  const code =
+    data.functionCode ??
+    "// ctx.input is the upstream value\n// ctx.vars holds all named upstream outputs\nreturn ctx.input;";
+  const timeoutMs = data.functionTimeoutMs ?? 2000;
+
+  const [sample, setSample] = useState<string>('"hello world"');
+  const [running, setRunning] = useState(false);
+  const [testOutput, setTestOutput] = useState<string | null>(null);
+  const [testError, setTestError] = useState<string | null>(null);
+  const [testLogs, setTestLogs] = useState<string[]>([]);
+
+  async function handleTest() {
+    setRunning(true);
+    setTestError(null);
+    setTestOutput(null);
+    setTestLogs([]);
+    let parsed: unknown = sample;
+    try {
+      parsed = JSON.parse(sample);
+    } catch {
+      // Treat as raw string if not valid JSON.
+      parsed = sample;
+    }
+    const result = await runSandboxed(code, { input: parsed, vars: {} }, timeoutMs);
+    setRunning(false);
+    setTestLogs(result.logs);
+    if (result.ok) {
+      setTestOutput(safeStringify(result.value));
+      toast.success("Function ran successfully");
+    } else {
+      setTestError(result.error);
+      toast.error(result.error);
+    }
+  }
+
+  return (
+    <>
+      <Section
+        label={
+          <span className="flex items-center gap-1.5">
+            <Code2 className="h-3 w-3" /> JavaScript code (sandboxed)
+          </span>
+        }
+      >
+        <Textarea
+          value={code}
+          onChange={(e) => onChange({ functionCode: e.target.value })}
+          className="font-mono text-[11px] min-h-[180px] leading-relaxed"
+          spellCheck={false}
+          placeholder="return ctx.input;"
+        />
+        <p className="text-[10px] text-muted-foreground mt-1">
+          Receives <code>ctx.input</code> (upstream value) and <code>ctx.vars</code> (named
+          outputs). Must <code>return</code> a value. Globals like <code>fetch</code>,{" "}
+          <code>window</code>,<code>localStorage</code> are blocked.
+        </p>
+      </Section>
+
+      <Section label="Timeout (ms)">
+        <Input
+          type="number"
+          min={100}
+          max={5000}
+          step={100}
+          value={timeoutMs}
+          onChange={(e) => {
+            const n = Number(e.target.value);
+            if (Number.isFinite(n))
+              onChange({ functionTimeoutMs: Math.max(100, Math.min(5000, Math.round(n))) });
+          }}
+          className="font-mono text-xs"
+        />
+        <p className="text-[10px] text-muted-foreground mt-1">
+          Async code is aborted after the timeout. A purely synchronous infinite loop can still
+          freeze the tab — keep snippets short and avoid <code>while(true)</code>.
+        </p>
+      </Section>
+
+      <Section label="Test on sample input (JSON)">
+        <Textarea
+          value={sample}
+          onChange={(e) => setSample(e.target.value)}
+          className="font-mono text-[11px] min-h-[60px]"
+          spellCheck={false}
+          placeholder='"hello" or {"x":1}'
+        />
+        <Button
+          onClick={handleTest}
+          disabled={running}
+          size="sm"
+          variant="outline"
+          className="w-full h-8 mt-2"
+        >
+          {running ? (
+            <>
+              <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Running…
+            </>
+          ) : (
+            <>
+              <Play className="h-3.5 w-3.5 mr-1.5" /> Test on sample input
+            </>
+          )}
+        </Button>
+
+        {testOutput !== null && (
+          <div className="mt-2 rounded-md border border-border bg-background/50 p-2">
+            <p className="text-[10px] font-medium text-muted-foreground mb-1">Return value</p>
+            <pre className="text-[11px] whitespace-pre-wrap break-words max-h-40 overflow-auto">
+              {testOutput}
+            </pre>
+          </div>
+        )}
+        {testError && (
+          <div className="mt-2 rounded-md border border-destructive/40 bg-destructive/10 p-2 flex items-start gap-2">
+            <AlertCircle className="h-3.5 w-3.5 text-destructive shrink-0 mt-0.5" />
+            <p className="text-[11px] text-destructive">{testError}</p>
+          </div>
+        )}
+        {testLogs.length > 0 && (
+          <div className="mt-2 rounded-md border border-border bg-muted/30 p-2">
+            <p className="text-[10px] font-medium text-muted-foreground mb-1">console output</p>
+            <pre className="text-[11px] whitespace-pre-wrap break-words max-h-32 overflow-auto">
+              {testLogs.join("\n")}
+            </pre>
+          </div>
+        )}
+      </Section>
+    </>
+  );
+}
+
+// ───────────────────── Evaluate (LLM-as-a-Judge) panel ─────────────────────
+function EvaluatePanel({
+  data,
+  onChange,
+}: {
+  data: SwarmNodeData;
+  onChange: (patch: Partial<SwarmNodeData>) => void;
+}) {
+  const metrics: EvalMetricConfig[] = data.evalMetrics ?? DEFAULT_EVAL_METRICS;
+
+  function patchMetric(id: string, patch: Partial<EvalMetricConfig>) {
+    const updated = metrics.map((m) => (m.id === id ? { ...m, ...patch } : m));
+    onChange({ evalMetrics: updated });
+  }
+
+  function addCustomMetric() {
+    const id = `custom_${Date.now()}`;
+    onChange({
+      evalMetrics: [
+        ...metrics,
+        {
+          id,
+          name: "Custom Metric",
+          enabled: true,
+          weight: 0.1,
+          description: "Describe what this metric should evaluate.",
+        },
+      ],
+    });
+  }
+
+  function removeMetric(id: string) {
+    onChange({ evalMetrics: metrics.filter((m) => m.id !== id) });
+  }
+
+  const totalWeight = metrics.filter((m) => m.enabled).reduce((s, m) => s + m.weight, 0);
+
+  return (
+    <>
+      <Section label="Evaluation metrics">
+        <p className="text-[10px] text-muted-foreground mb-2">
+          Toggle metrics on/off and adjust weights. The judge will score each enabled metric 0–1 and
+          compute a weighted overall score.
+        </p>
+        <div className="space-y-2">
+          {metrics.map((m) => (
+            <div key={m.id} className="rounded-md border border-border p-2 space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  <Switch
+                    checked={m.enabled}
+                    onCheckedChange={(v) => patchMetric(m.id, { enabled: v })}
+                  />
+                  {m.id.startsWith("custom_") ? (
+                    <Input
+                      value={m.name}
+                      onChange={(e) => patchMetric(m.id, { name: e.target.value })}
+                      className="h-6 text-xs font-semibold"
+                    />
+                  ) : (
+                    <span
+                      className={`text-xs font-semibold ${m.enabled ? "" : "text-muted-foreground"}`}
+                    >
+                      {m.name}
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="text-[10px] text-muted-foreground w-8 text-right">
+                    {(m.weight * 100).toFixed(0)}%
+                  </span>
+                  {m.id.startsWith("custom_") && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-5 w-5"
+                      onClick={() => removeMetric(m.id)}
+                    >
+                      <X className="h-3 w-3 text-destructive" />
+                    </Button>
+                  )}
+                </div>
+              </div>
+              {m.enabled && (
+                <>
+                  {m.id.startsWith("custom_") && (
+                    <Textarea
+                      value={m.description}
+                      onChange={(e) => patchMetric(m.id, { description: e.target.value })}
+                      placeholder="Describe what this metric evaluates…"
+                      className="text-xs min-h-[40px]"
+                    />
+                  )}
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-muted-foreground">Weight:</span>
+                    <Slider
+                      min={0}
+                      max={100}
+                      step={5}
+                      value={[m.weight * 100]}
+                      onValueChange={([v]) => patchMetric(m.id, { weight: v / 100 })}
+                      className="flex-1"
+                    />
+                  </div>
+                  {!m.id.startsWith("custom_") && (
+                    <p className="text-[10px] text-muted-foreground">{m.description}</p>
+                  )}
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+        {Math.abs(totalWeight - 1) > 0.01 && (
+          <div className="flex items-start gap-1.5 mt-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5">
+            <span className="text-amber-400 text-xs mt-px">⚠</span>
+            <p className="text-[11px] text-amber-400 leading-snug">
+              Weights sum to <strong>{(totalWeight * 100).toFixed(0)}%</strong>, not 100%. The
+              overall score will be on a different scale — adjust weights to add up to 100% for
+              accurate results.
+            </p>
+          </div>
+        )}
+        <Button
+          variant="outline"
+          size="sm"
+          className="mt-2 w-full text-xs"
+          onClick={addCustomMetric}
+        >
+          + Add custom metric
+        </Button>
+      </Section>
+
+      <Section label="Pass threshold">
+        <div className="flex items-center gap-3">
+          <Slider
+            min={0}
+            max={100}
+            step={5}
+            value={[(data.evalPassThreshold ?? 0.7) * 100]}
+            onValueChange={([v]) => onChange({ evalPassThreshold: v / 100 })}
+            className="flex-1"
+          />
+          <span className="text-xs font-mono w-10 text-right">
+            {((data.evalPassThreshold ?? 0.7) * 100).toFixed(0)}%
+          </span>
+        </div>
+        <p className="text-[10px] text-muted-foreground mt-1">
+          Overall weighted score must reach this threshold for the evaluation to "pass".
+        </p>
+      </Section>
+
+      <Section label="Reference variable (original question / context)">
+        <Input
+          value={data.evalReferenceInput || ""}
+          onChange={(e) =>
+            onChange({ evalReferenceInput: e.target.value.replace(/[^a-zA-Z0-9_]/g, "") })
+          }
+          placeholder="input"
+          className="font-mono text-xs"
+        />
+        <p className="text-[10px] text-muted-foreground mt-1">
+          Variable name holding the original question or source context. The judge uses this to
+          assess faithfulness and relevancy.
+        </p>
+      </Section>
+
+      <Section label="Evaluation rubric (optional)">
+        <Textarea
+          value={data.evalRubric || ""}
+          onChange={(e) => onChange({ evalRubric: e.target.value })}
+          placeholder="Describe specific criteria, grading standards, or domain-specific expectations…"
+          className="min-h-[80px] text-xs"
+        />
+        <p className="text-[10px] text-muted-foreground mt-1">
+          A written rubric the judge must follow. Industry best practice: be specific about what
+          constitutes a 1.0 vs 0.0 on each axis.
+        </p>
+      </Section>
+
+      <Section label="Custom instructions for the judge (optional)">
+        <Textarea
+          value={data.evalCustomInstructions || ""}
+          onChange={(e) => onChange({ evalCustomInstructions: e.target.value })}
+          placeholder="e.g. 'Be strict about citation accuracy' or 'Penalize any response that mentions competitor products'"
+          className="min-h-[60px] text-xs"
+        />
+      </Section>
+    </>
+  );
+}

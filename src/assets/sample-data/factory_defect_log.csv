@@ -1,0 +1,161 @@
+defect_id,date,line,station,sku,defect_code,severity,ppm,shift,operator_id,root_cause,status
+DEF-005001,2026-03-01,Line-B,Paint,MX-300,BATT-LEAK,Minor,2550,A,OP-771,Torque gun firmware,Contained
+DEF-005002,2026-01-10,Line-A,QC-Final,MX-200LR,PAINT-RUN,Critical,4178,C,OP-183,Humidity > spec,Contained
+DEF-005003,2026-02-06,Line-D,Stamping,MX-300,DENT,Critical,1376,B,OP-815,Tooling slip,Closed
+DEF-005004,2026-04-08,Line-D,Battery-Pack,MX-200,SCRATCH,Major,1979,B,OP-195,Tooling slip,CAPA-Issued
+DEF-005005,2026-03-25,Line-D,Welding,MX-200,HARNESS-CHAFE,Critical,4139,C,OP-183,Operator error,Open
+DEF-005006,2026-04-28,Line-A,Paint,MX-100,BATT-LEAK,Critical,860,A,OP-501,Tooling slip,Contained
+DEF-005007,2026-04-03,Line-A,Assembly-1,MX-100,GAP-OOS,Major,3715,B,OP-948,Supplier defect (Bosch),Contained
+DEF-005008,2026-04-03,Line-C,Stamping,MX-200LR,BATT-LEAK,Minor,1859,A,OP-183,Robot calibration drift,Closed
+DEF-005009,2026-04-23,Line-A,Stamping,MX-100,TORQUE-LOW,Major,3862,B,OP-417,Torque gun firmware,CAPA-Issued
+DEF-005010,2026-01-25,Line-A,Stamping,MX-200,BMS-FW,Major,1966,B,OP-533,Tooling slip,Open
+DEF-005011,2026-01-27,Line-B,QC-Final,MX-200,BOLT-MISSING,Minor,4411,B,OP-436,Robot calibration drift,Closed
+DEF-005012,2026-02-19,Line-A,Assembly-2,MX-200LR,HARNESS-CHAFE,Critical,1554,A,OP-856,Unknown — under investigation,Open
+DEF-005013,2026-04-28,Line-D,Paint,MX-200LR,BOLT-MISSING,Critical,376,C,OP-841,Supplier defect (Bosch),Open
+DEF-005014,2026-03-08,Line-A,Paint,MX-400 SUV,PAINT-RUN,Minor,2743,B,OP-244,Tooling slip,CAPA-Issued
+DEF-005015,2026-02-26,Line-D,Stamping,MX-200LR,TORQUE-LOW,Critical,536,A,OP-972,Stamping die wear,Open
+DEF-005016,2026-03-10,Line-D,Paint,MX-100,SCRATCH,Critical,3282,C,OP-458,Operator error,Closed
+DEF-005017,2026-01-28,Line-C,Assembly-1,MX-300,BATT-LEAK,Minor,2258,C,OP-932,Humidity > spec,Closed
+DEF-005018,2026-02-16,Line-C,Battery-Pack,MX-100,BOLT-MISSING,Critical,3029,C,OP-436,Paint nozzle clog,CAPA-Issued
+DEF-005019,2026-02-18,Line-A,Paint,MX-200LR,BMS-FW,Minor,2651,B,OP-932,Humidity > spec,Contained
+DEF-005020,2026-04-12,Line-C,Assembly-2,MX-300,BOLT-MISSING,Critical,366,B,OP-772,Paint nozzle clog,CAPA-Issued
+DEF-005021,2026-03-17,Line-D,Stamping,MX-200,TORQUE-LOW,Minor,275,A,OP-815,Supplier defect (Bosch),Closed
+DEF-005022,2026-04-19,Line-D,Paint,MX-200LR,WELD-PORE,Critical,1276,B,OP-717,Torque gun firmware,Closed
+DEF-005023,2026-04-11,Line-A,QC-Final,MX-200,BMS-FW,Minor,2064,B,OP-856,Humidity > spec,Open
+DEF-005024,2026-03-25,Line-C,QC-Final,MX-300,BMS-FW,Minor,3675,A,OP-441,Torque gun firmware,Open
+DEF-005025,2026-04-06,Line-C,QC-Final,MX-200LR,BOLT-MISSING,Critical,739,C,OP-717,Unknown — under investigation,Closed
+DEF-005026,2026-03-28,Line-B,Stamping,MX-200,TORQUE-LOW,Major,1446,A,OP-815,Tooling slip,Open
+DEF-005027,2026-03-18,Line-B,Assembly-2,MX-100,DENT,Major,3042,A,OP-709,Humidity > spec,CAPA-Issued
+DEF-005028,2026-04-25,Line-C,QC-Final,MX-100,HARNESS-CHAFE,Minor,624,B,OP-230,Unknown — under investigation,Closed
+DEF-005029,2026-02-27,Line-D,Assembly-2,MX-100,SCRATCH,Minor,1510,A,OP-856,Torque gun firmware,Closed
+DEF-005030,2026-02-06,Line-C,Battery-Pack,MX-100,BATT-LEAK,Major,1867,B,OP-458,Unknown — under investigation,Closed
+DEF-005031,2026-02-21,Line-B,Assembly-2,MX-400 SUV,BMS-FW,Minor,4390,A,OP-779,Supplier defect (Bosch),Open
+DEF-005032,2026-01-03,Line-B,Battery-Pack,MX-400 SUV,WELD-PORE,Critical,2188,B,OP-533,Robot calibration drift,CAPA-Issued
+DEF-005033,2026-03-21,Line-D,Paint,MX-300,BMS-FW,Minor,3976,A,OP-772,Torque gun firmware,CAPA-Issued
+DEF-005034,2026-04-16,Line-B,Paint,MX-200LR,BOLT-MISSING,Major,1691,C,OP-417,Humidity > spec,Contained
+DEF-005035,2026-03-17,Line-B,Assembly-1,MX-100,SCRATCH,Major,889,B,OP-932,Stamping die wear,Contained
+DEF-005036,2026-01-02,Line-D,Welding,MX-200,BMS-FW,Critical,3166,B,OP-195,Supplier defect (Bosch),Contained
+DEF-005037,2026-02-16,Line-C,Assembly-1,MX-100,SCRATCH,Major,3844,A,OP-758,Unknown — under investigation,CAPA-Issued
+DEF-005038,2026-02-07,Line-A,Paint,MX-300,DENT,Minor,2910,C,OP-786,Operator error,Open
+DEF-005039,2026-01-14,Line-C,Battery-Pack,MX-300,TORQUE-LOW,Critical,2186,B,OP-972,Humidity > spec,Open
+DEF-005040,2026-02-12,Line-D,Assembly-2,MX-300,SCRATCH,Minor,2384,C,OP-501,Paint nozzle clog,Contained
+DEF-005041,2026-01-13,Line-C,Battery-Pack,MX-200,BATT-LEAK,Critical,2797,A,OP-786,Unknown — under investigation,CAPA-Issued
+DEF-005042,2026-01-02,Line-C,Battery-Pack,MX-300,WELD-PORE,Critical,1142,C,OP-230,Torque gun firmware,Contained
+DEF-005043,2026-03-20,Line-C,Assembly-2,MX-200LR,BATT-LEAK,Major,1351,C,OP-948,Unknown — under investigation,CAPA-Issued
+DEF-005044,2026-03-16,Line-A,Assembly-1,MX-400 SUV,WELD-PORE,Major,3037,B,OP-841,Tooling slip,Closed
+DEF-005045,2026-02-24,Line-D,Welding,MX-200,WELD-PORE,Minor,3955,A,OP-195,Paint nozzle clog,Contained
+DEF-005046,2026-01-15,Line-D,QC-Final,MX-200,BATT-LEAK,Minor,3450,B,OP-948,Tooling slip,Open
+DEF-005047,2026-02-17,Line-D,Assembly-2,MX-300,GAP-OOS,Critical,2682,B,OP-244,Tooling slip,Closed
+DEF-005048,2026-03-22,Line-B,Paint,MX-400 SUV,BMS-FW,Minor,3986,B,OP-771,Operator error,Closed
+DEF-005049,2026-02-23,Line-C,Assembly-2,MX-200LR,BOLT-MISSING,Major,2617,B,OP-441,Unknown — under investigation,CAPA-Issued
+DEF-005050,2026-04-27,Line-A,Paint,MX-100,BATT-LEAK,Major,1219,B,OP-932,Operator error,CAPA-Issued
+DEF-005051,2026-02-07,Line-C,Welding,MX-100,SCRATCH,Critical,2241,C,OP-761,Stamping die wear,Contained
+DEF-005052,2026-01-22,Line-B,Stamping,MX-100,SCRATCH,Critical,1868,B,OP-186,Tooling slip,Open
+DEF-005053,2026-02-01,Line-D,Assembly-1,MX-200,SCRATCH,Major,1313,B,OP-825,Operator error,Open
+DEF-005054,2026-01-21,Line-A,Welding,MX-300,DENT,Critical,1922,A,OP-972,Humidity > spec,CAPA-Issued
+DEF-005055,2026-02-24,Line-C,Assembly-2,MX-400 SUV,BMS-FW,Minor,326,A,OP-186,Operator error,CAPA-Issued
+DEF-005056,2026-04-05,Line-B,Battery-Pack,MX-100,SCRATCH,Major,3854,B,OP-779,Tooling slip,Closed
+DEF-005057,2026-02-01,Line-B,Welding,MX-400 SUV,BATT-LEAK,Critical,2436,C,OP-758,Humidity > spec,Closed
+DEF-005058,2026-01-13,Line-D,Paint,MX-200,PAINT-RUN,Minor,1533,A,OP-778,Humidity > spec,Contained
+DEF-005059,2026-04-25,Line-A,Paint,MX-200LR,BMS-FW,Major,2720,C,OP-815,Robot calibration drift,Open
+DEF-005060,2026-04-10,Line-C,QC-Final,MX-100,TORQUE-LOW,Critical,3341,C,OP-232,Supplier defect (Bosch),Contained
+DEF-005061,2026-02-05,Line-C,Assembly-1,MX-400 SUV,BOLT-MISSING,Major,1274,B,OP-801,Stamping die wear,Contained
+DEF-005062,2026-01-17,Line-C,Stamping,MX-400 SUV,BOLT-MISSING,Critical,4346,A,OP-772,Unknown — under investigation,Contained
+DEF-005063,2026-02-06,Line-A,QC-Final,MX-200,BATT-LEAK,Major,4282,C,OP-761,Tooling slip,Open
+DEF-005064,2026-04-26,Line-D,Assembly-1,MX-400 SUV,WELD-PORE,Minor,3734,A,OP-639,Tooling slip,Closed
+DEF-005065,2026-01-13,Line-B,Assembly-2,MX-100,BMS-FW,Critical,44,A,OP-436,Supplier defect (Bosch),Open
+DEF-005066,2026-01-03,Line-D,Welding,MX-200,BOLT-MISSING,Major,279,C,OP-910,Supplier defect (Bosch),CAPA-Issued
+DEF-005067,2026-04-28,Line-B,QC-Final,MX-200LR,HARNESS-CHAFE,Minor,3097,A,OP-244,Unknown — under investigation,CAPA-Issued
+DEF-005068,2026-02-24,Line-C,Assembly-1,MX-400 SUV,GAP-OOS,Minor,48,B,OP-801,Humidity > spec,Contained
+DEF-005069,2026-02-15,Line-B,QC-Final,MX-100,BATT-LEAK,Major,1290,A,OP-910,Robot calibration drift,Contained
+DEF-005070,2026-02-03,Line-A,Welding,MX-100,PAINT-RUN,Major,295,B,OP-932,Stamping die wear,Contained
+DEF-005071,2026-01-05,Line-C,Assembly-2,MX-400 SUV,SCRATCH,Minor,2389,C,OP-825,Stamping die wear,Closed
+DEF-005072,2026-02-22,Line-C,Paint,MX-100,SCRATCH,Major,1830,C,OP-761,Torque gun firmware,CAPA-Issued
+DEF-005073,2026-04-02,Line-C,QC-Final,MX-300,BATT-LEAK,Critical,3142,B,OP-696,Operator error,CAPA-Issued
+DEF-005074,2026-02-25,Line-B,Paint,MX-200,SCRATCH,Minor,3899,B,OP-772,Unknown — under investigation,CAPA-Issued
+DEF-005075,2026-04-18,Line-B,Paint,MX-200,SCRATCH,Major,1118,B,OP-994,Tooling slip,Closed
+DEF-005076,2026-01-18,Line-D,QC-Final,MX-400 SUV,GAP-OOS,Major,442,C,OP-972,Paint nozzle clog,Contained
+DEF-005077,2026-02-16,Line-A,Welding,MX-200,GAP-OOS,Major,2747,C,OP-441,Tooling slip,Contained
+DEF-005078,2026-02-13,Line-D,Assembly-1,MX-400 SUV,GAP-OOS,Major,2654,C,OP-417,Operator error,Closed
+DEF-005079,2026-03-17,Line-D,Battery-Pack,MX-200LR,BOLT-MISSING,Minor,3837,A,OP-672,Supplier defect (Bosch),CAPA-Issued
+DEF-005080,2026-01-19,Line-C,Assembly-2,MX-400 SUV,GAP-OOS,Minor,1215,C,OP-910,Operator error,Contained
+DEF-005081,2026-02-11,Line-B,Assembly-1,MX-400 SUV,GAP-OOS,Critical,3131,C,OP-186,Operator error,CAPA-Issued
+DEF-005082,2026-04-15,Line-B,QC-Final,MX-400 SUV,TORQUE-LOW,Minor,2905,B,OP-244,Unknown — under investigation,Open
+DEF-005083,2026-01-27,Line-D,Welding,MX-200,PAINT-RUN,Minor,417,A,OP-696,Robot calibration drift,Contained
+DEF-005084,2026-04-12,Line-D,Stamping,MX-100,WELD-PORE,Critical,3978,C,OP-639,Humidity > spec,Open
+DEF-005085,2026-01-17,Line-A,Assembly-2,MX-300,BMS-FW,Major,4408,A,OP-253,Paint nozzle clog,Contained
+DEF-005086,2026-02-07,Line-C,Paint,MX-300,DENT,Major,4332,A,OP-672,Humidity > spec,CAPA-Issued
+DEF-005087,2026-02-23,Line-A,QC-Final,MX-100,GAP-OOS,Critical,2477,A,OP-758,Humidity > spec,CAPA-Issued
+DEF-005088,2026-04-02,Line-D,Battery-Pack,MX-300,WELD-PORE,Minor,1423,C,OP-186,Paint nozzle clog,Open
+DEF-005089,2026-02-07,Line-A,Stamping,MX-200LR,DENT,Major,3915,C,OP-195,Robot calibration drift,Contained
+DEF-005090,2026-03-01,Line-D,Stamping,MX-200LR,GAP-OOS,Critical,1201,A,OP-195,Stamping die wear,CAPA-Issued
+DEF-005091,2026-03-13,Line-C,Stamping,MX-100,TORQUE-LOW,Critical,662,B,OP-771,Paint nozzle clog,Closed
+DEF-005092,2026-04-25,Line-C,Battery-Pack,MX-300,BATT-LEAK,Critical,262,B,OP-771,Supplier defect (Bosch),CAPA-Issued
+DEF-005093,2026-04-06,Line-C,Battery-Pack,MX-200,DENT,Minor,3133,C,OP-717,Paint nozzle clog,Closed
+DEF-005094,2026-02-13,Line-C,Stamping,MX-100,TORQUE-LOW,Major,3211,A,OP-709,Tooling slip,Closed
+DEF-005095,2026-03-04,Line-D,Assembly-1,MX-400 SUV,TORQUE-LOW,Minor,735,C,OP-948,Humidity > spec,Open
+DEF-005096,2026-01-03,Line-C,Battery-Pack,MX-300,BATT-LEAK,Critical,782,A,OP-232,Humidity > spec,CAPA-Issued
+DEF-005097,2026-01-24,Line-B,QC-Final,MX-300,SCRATCH,Critical,2008,A,OP-183,Operator error,Closed
+DEF-005098,2026-03-16,Line-D,Paint,MX-300,TORQUE-LOW,Minor,538,B,OP-786,Paint nozzle clog,Closed
+DEF-005099,2026-03-08,Line-A,Welding,MX-200LR,BOLT-MISSING,Major,1621,A,OP-758,Supplier defect (Bosch),CAPA-Issued
+DEF-005100,2026-03-15,Line-B,Paint,MX-200LR,BATT-LEAK,Critical,3547,C,OP-458,Tooling slip,Closed
+DEF-005101,2026-02-13,Line-D,Assembly-2,MX-200,BATT-LEAK,Critical,2407,B,OP-485,Operator error,CAPA-Issued
+DEF-005102,2026-03-04,Line-B,QC-Final,MX-400 SUV,DENT,Critical,1656,A,OP-230,Stamping die wear,CAPA-Issued
+DEF-005103,2026-03-27,Line-D,Welding,MX-200LR,PAINT-RUN,Critical,3371,A,OP-778,Torque gun firmware,CAPA-Issued
+DEF-005104,2026-04-03,Line-D,Assembly-2,MX-400 SUV,BOLT-MISSING,Critical,3945,C,OP-910,Unknown — under investigation,Open
+DEF-005105,2026-03-23,Line-B,QC-Final,MX-200LR,SCRATCH,Minor,716,A,OP-533,Robot calibration drift,CAPA-Issued
+DEF-005106,2026-03-26,Line-A,Paint,MX-200,HARNESS-CHAFE,Minor,887,C,OP-856,Unknown — under investigation,Contained
+DEF-005107,2026-04-12,Line-B,Paint,MX-100,HARNESS-CHAFE,Critical,3813,B,OP-253,Operator error,CAPA-Issued
+DEF-005108,2026-01-04,Line-C,Assembly-1,MX-200,TORQUE-LOW,Major,2873,C,OP-786,Supplier defect (Bosch),CAPA-Issued
+DEF-005109,2026-01-15,Line-C,Stamping,MX-100,BOLT-MISSING,Minor,2632,A,OP-186,Paint nozzle clog,Contained
+DEF-005110,2026-02-17,Line-D,Assembly-1,MX-200,TORQUE-LOW,Major,1331,B,OP-244,Torque gun firmware,CAPA-Issued
+DEF-005111,2026-04-01,Line-D,Assembly-1,MX-100,DENT,Major,1636,C,OP-417,Stamping die wear,Closed
+DEF-005112,2026-01-19,Line-C,Paint,MX-200,PAINT-RUN,Minor,4418,B,OP-441,Operator error,CAPA-Issued
+DEF-005113,2026-03-20,Line-A,Paint,MX-200LR,HARNESS-CHAFE,Critical,3235,B,OP-533,Torque gun firmware,Closed
+DEF-005114,2026-01-22,Line-B,Paint,MX-100,TORQUE-LOW,Minor,2585,A,OP-672,Torque gun firmware,CAPA-Issued
+DEF-005115,2026-04-20,Line-B,Assembly-1,MX-400 SUV,TORQUE-LOW,Major,3163,C,OP-244,Unknown — under investigation,Contained
+DEF-005116,2026-04-10,Line-D,Assembly-2,MX-100,TORQUE-LOW,Major,1552,B,OP-358,Tooling slip,Contained
+DEF-005117,2026-02-27,Line-D,Assembly-1,MX-300,HARNESS-CHAFE,Critical,4160,B,OP-932,Tooling slip,Contained
+DEF-005118,2026-01-19,Line-A,Paint,MX-200,WELD-PORE,Major,1826,C,OP-232,Torque gun firmware,CAPA-Issued
+DEF-005119,2026-04-18,Line-A,Paint,MX-400 SUV,SCRATCH,Critical,947,B,OP-801,Robot calibration drift,CAPA-Issued
+DEF-005120,2026-02-14,Line-A,Assembly-1,MX-200LR,PAINT-RUN,Major,2047,B,OP-994,Tooling slip,Open
+DEF-005121,2026-02-07,Line-D,Welding,MX-400 SUV,DENT,Critical,2892,A,OP-417,Stamping die wear,Open
+DEF-005122,2026-03-18,Line-C,QC-Final,MX-200LR,BMS-FW,Minor,4433,B,OP-195,Operator error,Open
+DEF-005123,2026-02-25,Line-B,QC-Final,MX-200,HARNESS-CHAFE,Major,505,A,OP-696,Supplier defect (Bosch),Contained
+DEF-005124,2026-04-16,Line-D,Assembly-1,MX-300,TORQUE-LOW,Critical,2221,A,OP-994,Humidity > spec,Closed
+DEF-005125,2026-03-15,Line-A,Battery-Pack,MX-100,BOLT-MISSING,Critical,2701,C,OP-230,Supplier defect (Bosch),Open
+DEF-005126,2026-04-07,Line-C,Paint,MX-200LR,HARNESS-CHAFE,Major,1755,B,OP-639,Torque gun firmware,CAPA-Issued
+DEF-005127,2026-03-22,Line-D,Stamping,MX-100,WELD-PORE,Minor,396,A,OP-932,Tooling slip,Open
+DEF-005128,2026-04-07,Line-C,Stamping,MX-200LR,TORQUE-LOW,Minor,2492,B,OP-994,Supplier defect (Bosch),Contained
+DEF-005129,2026-01-13,Line-A,QC-Final,MX-100,BMS-FW,Major,1938,A,OP-417,Tooling slip,Open
+DEF-005130,2026-02-19,Line-D,Stamping,MX-100,GAP-OOS,Critical,4275,C,OP-186,Paint nozzle clog,CAPA-Issued
+DEF-005131,2026-02-16,Line-A,QC-Final,MX-100,PAINT-RUN,Major,1895,A,OP-825,Supplier defect (Bosch),Closed
+DEF-005132,2026-02-13,Line-A,Assembly-2,MX-200,TORQUE-LOW,Minor,1190,B,OP-417,Stamping die wear,Contained
+DEF-005133,2026-04-20,Line-A,Welding,MX-100,BOLT-MISSING,Minor,1799,C,OP-485,Supplier defect (Bosch),CAPA-Issued
+DEF-005134,2026-03-26,Line-A,Welding,MX-400 SUV,TORQUE-LOW,Major,2049,C,OP-786,Operator error,Open
+DEF-005135,2026-03-07,Line-D,Paint,MX-100,SCRATCH,Minor,4194,A,OP-819,Humidity > spec,Open
+DEF-005136,2026-02-16,Line-A,Paint,MX-200LR,DENT,Critical,601,A,OP-485,Humidity > spec,Closed
+DEF-005137,2026-02-25,Line-A,Stamping,MX-200LR,BOLT-MISSING,Minor,617,A,OP-972,Robot calibration drift,CAPA-Issued
+DEF-005138,2026-03-21,Line-D,Stamping,MX-400 SUV,SCRATCH,Major,3423,C,OP-533,Torque gun firmware,Closed
+DEF-005139,2026-01-10,Line-B,Assembly-2,MX-200LR,PAINT-RUN,Minor,4208,B,OP-761,Paint nozzle clog,Closed
+DEF-005140,2026-04-24,Line-A,Assembly-1,MX-100,GAP-OOS,Minor,494,B,OP-533,Robot calibration drift,Closed
+DEF-005141,2026-02-04,Line-A,Welding,MX-300,WELD-PORE,Critical,1144,B,OP-856,Unknown — under investigation,Closed
+DEF-005142,2026-02-12,Line-A,Battery-Pack,MX-100,TORQUE-LOW,Critical,2221,B,OP-436,Operator error,Open
+DEF-005143,2026-03-23,Line-D,Assembly-2,MX-200LR,DENT,Major,651,A,OP-819,Torque gun firmware,Closed
+DEF-005144,2026-02-09,Line-A,Stamping,MX-100,PAINT-RUN,Minor,964,A,OP-972,Tooling slip,Closed
+DEF-005145,2026-04-05,Line-D,Welding,MX-200LR,TORQUE-LOW,Critical,309,A,OP-910,Supplier defect (Bosch),Closed
+DEF-005146,2026-01-19,Line-A,Welding,MX-200,BATT-LEAK,Critical,998,C,OP-972,Humidity > spec,Open
+DEF-005147,2026-04-28,Line-A,Assembly-2,MX-300,BMS-FW,Major,2565,A,OP-672,Stamping die wear,Closed
+DEF-005148,2026-03-24,Line-C,Assembly-2,MX-300,DENT,Major,2007,A,OP-801,Stamping die wear,Contained
+DEF-005149,2026-01-14,Line-C,QC-Final,MX-100,WELD-PORE,Critical,1928,B,OP-358,Humidity > spec,Closed
+DEF-005150,2026-01-07,Line-D,Stamping,MX-200,SCRATCH,Major,1971,C,OP-501,Paint nozzle clog,Open
+DEF-005151,2026-02-28,Line-C,Assembly-1,MX-100,SCRATCH,Critical,3403,C,OP-253,Unknown — under investigation,Contained
+DEF-005152,2026-04-03,Line-B,Welding,MX-200LR,DENT,Major,530,B,OP-825,Humidity > spec,Closed
+DEF-005153,2026-03-15,Line-B,Welding,MX-400 SUV,BMS-FW,Minor,1933,A,OP-696,Paint nozzle clog,Contained
+DEF-005154,2026-04-15,Line-C,Battery-Pack,MX-200,BATT-LEAK,Minor,3350,B,OP-709,Tooling slip,Closed
+DEF-005155,2026-01-03,Line-A,Welding,MX-200LR,TORQUE-LOW,Critical,2512,A,OP-994,Stamping die wear,Closed
+DEF-005156,2026-04-17,Line-B,Stamping,MX-300,WELD-PORE,Major,2468,B,OP-639,Unknown — under investigation,Contained
+DEF-005157,2026-01-15,Line-A,Stamping,MX-200,PAINT-RUN,Minor,1165,A,OP-458,Humidity > spec,Closed
+DEF-005158,2026-01-19,Line-A,Stamping,MX-200,DENT,Minor,2140,C,OP-932,Torque gun firmware,Open
+DEF-005159,2026-03-04,Line-B,Assembly-2,MX-300,WELD-PORE,Minor,3796,C,OP-758,Tooling slip,Open
+DEF-005160,2026-04-22,Line-B,Welding,MX-200LR,HARNESS-CHAFE,Major,1435,B,OP-932,Torque gun firmware,Open
