@@ -35,7 +35,7 @@ export type SampleAgentWithSkills = {
   builtInTools?: Record<string, boolean>;
   /** Optional knowledge base ids to wire into the agent. */
   knowledgeBaseIds?: string[];
-  /** Lovable AI gateway model id (no extra credentials required). */
+  /** Model id served via the instance default (OpenRouter) — no extra credentials required. */
   model?: string;
   temperature?: number;
   /** Steps shown in the right-side guided tour panel. */

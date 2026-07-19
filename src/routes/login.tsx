@@ -1,7 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { lovable } from "@/integrations/lovable";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -46,37 +45,31 @@ function LoginPage() {
   const [googleLoading, setGoogleLoading] = useState(false);
   const [appleLoading, setAppleLoading] = useState(false);
 
-  const handleGoogleSignIn = async () => {
-    setGoogleLoading(true);
+  // Social sign-in uses Supabase Auth directly. Each provider must be enabled
+  // (with its client id/secret) in your Supabase project under
+  // Authentication → Providers, or the call returns a "provider is not
+  // enabled" error. The browser is redirected to the provider and back.
+  const handleOAuthSignIn = async (
+    provider: "google" | "apple",
+    setBusy: (v: boolean) => void,
+  ) => {
+    setBusy(true);
     try {
-      const result = await lovable.auth.signInWithOAuth("google", {
-        redirect_uri: window.location.origin,
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider,
+        options: { redirectTo: `${window.location.origin}/dashboard` },
       });
-      if (result.error) throw result.error;
-      if (result.redirected) return;
-      window.location.href = "/dashboard";
+      if (error) throw error;
+      // Success: Supabase navigates the browser to the provider's consent page.
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Google sign-in failed";
+      const msg = err instanceof Error ? err.message : `${provider} sign-in failed`;
       toast.error(msg);
-      setGoogleLoading(false);
+      setBusy(false);
     }
   };
 
-  const handleAppleSignIn = async () => {
-    setAppleLoading(true);
-    try {
-      const result = await lovable.auth.signInWithOAuth("apple", {
-        redirect_uri: window.location.origin,
-      });
-      if (result.error) throw result.error;
-      if (result.redirected) return;
-      window.location.href = "/dashboard";
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Apple sign-in failed";
-      toast.error(msg);
-      setAppleLoading(false);
-    }
-  };
+  const handleGoogleSignIn = () => handleOAuthSignIn("google", setGoogleLoading);
+  const handleAppleSignIn = () => handleOAuthSignIn("apple", setAppleLoading);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

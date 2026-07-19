@@ -133,10 +133,7 @@ export default function AboutPage() {
             </p>
             <div className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-emerald-600/40 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:border-emerald-500/30 dark:text-emerald-400">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-              Free forever for learners — see{" "}
-              <Link to="/pricing" className="ml-1 underline">
-                pricing
-              </Link>
+              Free and open source — MIT licensed
             </div>
           </div>
         </section>

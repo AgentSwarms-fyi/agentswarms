@@ -19,7 +19,7 @@ async function sendWelcomeEmailOnce(session: Session) {
       data: { ...meta, welcome_email_sent: true },
     });
 
-    await fetch("/lovable/email/transactional/send", {
+    await fetch("/api/email/send", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

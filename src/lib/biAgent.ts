@@ -68,7 +68,7 @@ export type BiTurn = {
   status: "planning" | "writing_sql" | "executing" | "charting" | "summarizing" | "done" | "error";
 };
 
-// ── Lovable AI gateway via /api/bi (JSON-mode) ──────────────────────────────
+// ── LLM via /api/bi (JSON-mode) ──────────────────────────────────────────
 
 async function llmJson<T>(opts: {
   systemPrompt: string;

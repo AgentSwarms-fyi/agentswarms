@@ -1,5 +1,6 @@
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { getNotebook, getNotebookSummary, NOTEBOOKS } from "@/lib/notebooks/catalog";
+import type { Notebook } from "@/lib/notebooks/types";
 import { NotebookViewer } from "@/components/notebooks/NotebookViewer";
 
 export const Route = createFileRoute("/_authenticated/notebooks/$notebookId")({
@@ -44,6 +45,9 @@ export const Route = createFileRoute("/_authenticated/notebooks/$notebookId")({
 });
 
 function NotebookPage() {
-  const { notebook } = Route.useLoaderData();
+  // TanStack's generated route types fail to infer this loader's return type
+  // (known quirk with async loaders that throw notFound()); the cast matches
+  // the loader's actual `{ notebook }` return above.
+  const { notebook } = Route.useLoaderData() as unknown as { notebook: Notebook };
   return <NotebookViewer notebook={notebook} />;
 }

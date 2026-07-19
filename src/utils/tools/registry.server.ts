@@ -1,7 +1,7 @@
 // Server-side tool registry for the agent's tool-calling loop.
 //
 // We expose four classes of tools to the LLM (via OpenAI-compatible
-// function calling — Lovable AI gateway accepts this format):
+// function calling):
 //
 //   1. kb_search          — keyword RAG over the user's knowledge_documents
 //   2. web_search         — DuckDuckGo Instant Answer (no key needed)

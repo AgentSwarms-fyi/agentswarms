@@ -24,7 +24,7 @@ export const Route = createFileRoute("/_authenticated/prompt-compare")({
   component: PromptComparePage,
 });
 
-/* ── Available models (Lovable AI gateway) ── */
+/* ── Available models (instance default via OpenRouter) ── */
 const MODELS = [
   { id: "google/gemini-2.5-flash", label: "Gemini 2.5 Flash", provider: "openrouter" },
   { id: "google/gemini-2.5-flash-lite", label: "Gemini 2.5 Flash Lite", provider: "openrouter" },

@@ -1,15 +1,15 @@
 // Real, runnable templates for the platform.
 // Each template ships with:
-//   - a real Lovable AI Gateway model id (no extra credentials needed by default)
+//   - a default model id served through the instance's OpenRouter fallback
+//     (no extra credentials needed when the operator sets OPENROUTER_API_KEY)
 //   - real seed documents that get inserted into knowledge_bases / knowledge_documents
 //   - a real tool list (knowledge base RAG, optional approval workflow)
 //   - a real guardrails configuration (PII scan, output safety, citation enforcement)
 //   - a suggested first prompt the user can fire with one click
 //   - a guided lesson with checkpoints that auto-tick as the user completes them
 //
-// Important: model ids must match what /api/chat will accept. For Lovable AI we
-// use the gateway ids (e.g. "google/gemini-3-flash-preview"). For external
-// providers we set requiresProvider so the UI can guard the CTA.
+// Important: model ids must match what /api/chat will accept. For providers
+// that need user credentials we set requiresProvider so the UI can guard the CTA.
 
 export type TemplateCategory =
   | "Customer Support"

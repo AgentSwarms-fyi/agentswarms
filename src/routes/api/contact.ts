@@ -4,10 +4,11 @@
 //   1. Validate input with Zod (length + format).
 //   2. Lightweight in-memory rate limit by IP (best-effort; resets on cold start).
 //   3. Insert into public.contact_messages via service role.
-//   4. Enqueue two emails through pgmq (auth queue is not used here):
+//   4. Send two emails via the configured mailer (Resend / SMTP / no-op):
 //        a. Admin notification → CONTACT_ADMIN_EMAIL (kept secret)
 //        b. Confirmation back to the visitor
-//      The shared process-email-queue cron drains both within seconds.
+//      With no mailer configured, the message is still persisted and the
+//      sends are skipped.
 //
 // We never expose CONTACT_ADMIN_EMAIL to the client.
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
@@ -16,13 +17,9 @@ import { createFileRoute } from '@tanstack/react-router'
 import { z } from 'zod'
 import * as React from 'react'
 import { TEMPLATES } from '@/lib/email-templates/registry'
+import { sendMail } from '@/lib/email/mailer.server'
 
 type AnySupabase = SupabaseClient<any, any, any, any, any>
-
-const SENDER_DOMAIN = 'notify.agentswarms.fyi'
-const FROM_DOMAIN = 'agentswarms.fyi'
-const FROM_NAME = 'AgentSwarms'
-const FROM_LOCAL = 'noreply'
 
 const ContactSchema = z.object({
   name: z.string().trim().min(1).max(120),
@@ -60,14 +57,12 @@ function newMessageId(): string {
     .join('')
 }
 
-async function enqueueEmail(args: {
+async function sendTemplateEmail(args: {
   supabase: AnySupabase
-  queue: 'transactional_emails'
   templateName: string
   recipient: string
   templateData: Record<string, unknown>
   label: string
-  idempotencyKey: string
 }) {
   const entry = TEMPLATES[args.templateName]
   if (!entry) throw new Error(`Unknown template: ${args.templateName}`)
@@ -81,33 +76,23 @@ async function enqueueEmail(args: {
       : entry.subject
 
   const messageId = newMessageId()
-  const payload = {
-    message_id: messageId,
-    to: args.recipient,
-    from: { name: FROM_NAME, local: FROM_LOCAL, domain: FROM_DOMAIN },
-    sender_domain: SENDER_DOMAIN,
-    subject,
-    html,
-    text,
-    purpose: 'transactional',
-    label: args.label,
-    idempotency_key: args.idempotencyKey,
-    queued_at: new Date().toISOString(),
-  }
+  const result = await sendMail({ to: args.recipient, subject, html, text })
 
-  // Mark as pending in the send log so the dashboard reflects it immediately.
   await args.supabase.from('email_send_log').insert({
     message_id: messageId,
     template_name: args.label,
     recipient_email: args.recipient,
-    status: 'pending',
+    status: result.sent
+      ? 'sent'
+      : result.reason === 'no_mailer_configured'
+        ? 'skipped'
+        : 'failed',
+    error_message: result.sent ? null : result.reason,
   })
 
-  const { error } = await args.supabase.rpc('enqueue_email', {
-    queue_name: args.queue,
-    payload,
-  })
-  if (error) throw error
+  if (!result.sent && result.reason !== 'no_mailer_configured') {
+    throw new Error(result.reason)
+  }
 }
 
 export const Route = createFileRoute('/api/contact')({
@@ -195,11 +180,10 @@ export const Route = createFileRoute('/api/contact')({
         const submittedAt = new Date(inserted.created_at).toUTCString()
 
         // Fire both emails in parallel; don't fail the whole request if one
-        // enqueue fails — the message is already persisted.
+        // send fails — the message is already persisted.
         const results = await Promise.allSettled([
-          enqueueEmail({
+          sendTemplateEmail({
             supabase,
-            queue: 'transactional_emails',
             templateName: 'contact-admin-notification',
             recipient: adminEmail,
             templateData: {
@@ -211,22 +195,19 @@ export const Route = createFileRoute('/api/contact')({
               submittedAt,
             },
             label: 'contact-admin-notification',
-            idempotencyKey: `contact-admin-${inserted.id}`,
           }),
-          enqueueEmail({
+          sendTemplateEmail({
             supabase,
-            queue: 'transactional_emails',
             templateName: 'contact-confirmation',
             recipient: email,
             templateData: { name, message },
             label: 'contact-confirmation',
-            idempotencyKey: `contact-confirm-${inserted.id}`,
           }),
         ])
 
         for (const r of results) {
           if (r.status === 'rejected') {
-            console.error('Contact email enqueue failed', r.reason)
+            console.error('Contact email send failed', r.reason)
           }
         }
 

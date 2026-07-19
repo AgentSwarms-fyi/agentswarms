@@ -11,14 +11,12 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as Char91indexChar93RouteImport } from './routes/[index]'
 import { Route as TermsRouteImport } from './routes/terms'
-import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as RobotsDottxtRouteImport } from './routes/robots[.]txt'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as LearnRouteImport } from './routes/learn'
 import { Route as InterviewQuestionsRouteImport } from './routes/interview-questions'
-import { Route as Google4ffa242ca1a18f45DothtmlRouteImport } from './routes/google4ffa242ca1a18f45[.]html'
 import { Route as DocsRouteImport } from './routes/docs'
 import { Route as CurriculumRouteImport } from './routes/curriculum'
 import { Route as ContactRouteImport } from './routes/contact'
@@ -67,7 +65,6 @@ import { Route as AuthenticatedAccountRouteImport } from './routes/_authenticate
 import { Route as AuthenticatedTemplatesIndexRouteImport } from './routes/_authenticated/templates.index'
 import { Route as AuthenticatedNotebooksIndexRouteImport } from './routes/_authenticated/notebooks.index'
 import { Route as AuthenticatedCertificationIndexRouteImport } from './routes/_authenticated/certification.index'
-import { Route as LovableEmailSuppressionRouteImport } from './routes/lovable/email/suppression'
 import { Route as ApiTemplatesProvisionRouteImport } from './routes/api/templates.provision'
 import { Route as ApiSkillsGenerateRouteImport } from './routes/api/skills.generate'
 import { Route as ApiKbIngestUrlRouteImport } from './routes/api/kb/ingest-url'
@@ -76,17 +73,13 @@ import { Route as ApiKbBuildGraphRouteImport } from './routes/api/kb/build-graph
 import { Route as ApiExamSubmitMcqRouteImport } from './routes/api/exam.submit-mcq'
 import { Route as ApiExamStartRouteImport } from './routes/api/exam.start'
 import { Route as ApiExamEvaluateRouteImport } from './routes/api/exam.evaluate'
+import { Route as ApiEmailSendRouteImport } from './routes/api/email/send'
 import { Route as ApiCertificateIdRouteImport } from './routes/api/certificate.$id'
 import { Route as AuthenticatedTemplatesTemplateIdRouteImport } from './routes/_authenticated/templates.$templateId'
 import { Route as AuthenticatedNotebooksNotebookIdRouteImport } from './routes/_authenticated/notebooks.$notebookId'
 import { Route as AuthenticatedCertificationExamRouteImport } from './routes/_authenticated/certification.exam'
 import { Route as AuthenticatedAnalyticsObservabilityRouteImport } from './routes/_authenticated/analytics_.observability'
 import { Route as AuthenticatedAdminAnalyticsRouteImport } from './routes/_authenticated/admin.analytics'
-import { Route as LovableEmailTransactionalSendRouteImport } from './routes/lovable/email/transactional/send'
-import { Route as LovableEmailTransactionalPreviewRouteImport } from './routes/lovable/email/transactional/preview'
-import { Route as LovableEmailQueueProcessRouteImport } from './routes/lovable/email/queue/process'
-import { Route as LovableEmailAuthWebhookRouteImport } from './routes/lovable/email/auth/webhook'
-import { Route as LovableEmailAuthPreviewRouteImport } from './routes/lovable/email/auth/preview'
 import { Route as ApiPublicHooksRefreshModelRegistryRouteImport } from './routes/api/public/hooks/refresh-model-registry'
 import { Route as ApiPublicHooksGenerateExamSetRouteImport } from './routes/api/public/hooks/generate-exam-set'
 import { Route as AuthenticatedAnalyticsObservabilityRunIdRouteImport } from './routes/_authenticated/analytics_.observability.$runId'
@@ -102,11 +95,6 @@ const Char91indexChar93Route = Char91indexChar93RouteImport.update({
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
   path: '/terms',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
-  id: '/sitemap.xml',
-  path: '/sitemap.xml',
   getParentRoute: () => rootRouteImport,
 } as any)
 const RobotsDottxtRoute = RobotsDottxtRouteImport.update({
@@ -139,12 +127,6 @@ const InterviewQuestionsRoute = InterviewQuestionsRouteImport.update({
   path: '/interview-questions',
   getParentRoute: () => rootRouteImport,
 } as any)
-const Google4ffa242ca1a18f45DothtmlRoute =
-  Google4ffa242ca1a18f45DothtmlRouteImport.update({
-    id: '/google4ffa242ca1a18f45.html',
-    path: '/google4ffa242ca1a18f45.html',
-    getParentRoute: () => rootRouteImport,
-  } as any)
 const DocsRoute = DocsRouteImport.update({
   id: '/docs',
   path: '/docs',
@@ -392,11 +374,6 @@ const AuthenticatedCertificationIndexRoute =
     path: '/',
     getParentRoute: () => AuthenticatedCertificationRoute,
   } as any)
-const LovableEmailSuppressionRoute = LovableEmailSuppressionRouteImport.update({
-  id: '/lovable/email/suppression',
-  path: '/lovable/email/suppression',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ApiTemplatesProvisionRoute = ApiTemplatesProvisionRouteImport.update({
   id: '/api/templates/provision',
   path: '/api/templates/provision',
@@ -437,6 +414,11 @@ const ApiExamEvaluateRoute = ApiExamEvaluateRouteImport.update({
   path: '/api/exam/evaluate',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiEmailSendRoute = ApiEmailSendRouteImport.update({
+  id: '/api/email/send',
+  path: '/api/email/send',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiCertificateIdRoute = ApiCertificateIdRouteImport.update({
   id: '/api/certificate/$id',
   path: '/api/certificate/$id',
@@ -472,34 +454,6 @@ const AuthenticatedAdminAnalyticsRoute =
     path: '/admin/analytics',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
-const LovableEmailTransactionalSendRoute =
-  LovableEmailTransactionalSendRouteImport.update({
-    id: '/lovable/email/transactional/send',
-    path: '/lovable/email/transactional/send',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const LovableEmailTransactionalPreviewRoute =
-  LovableEmailTransactionalPreviewRouteImport.update({
-    id: '/lovable/email/transactional/preview',
-    path: '/lovable/email/transactional/preview',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const LovableEmailQueueProcessRoute =
-  LovableEmailQueueProcessRouteImport.update({
-    id: '/lovable/email/queue/process',
-    path: '/lovable/email/queue/process',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const LovableEmailAuthWebhookRoute = LovableEmailAuthWebhookRouteImport.update({
-  id: '/lovable/email/auth/webhook',
-  path: '/lovable/email/auth/webhook',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const LovableEmailAuthPreviewRoute = LovableEmailAuthPreviewRouteImport.update({
-  id: '/lovable/email/auth/preview',
-  path: '/lovable/email/auth/preview',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ApiPublicHooksRefreshModelRegistryRoute =
   ApiPublicHooksRefreshModelRegistryRouteImport.update({
     id: '/api/public/hooks/refresh-model-registry',
@@ -543,7 +497,6 @@ export interface FileRoutesByFullPath {
   '/contact': typeof ContactRoute
   '/curriculum': typeof CurriculumRoute
   '/docs': typeof DocsRouteWithChildren
-  '/google4ffa242ca1a18f45.html': typeof Google4ffa242ca1a18f45DothtmlRoute
   '/index': typeof Char91indexChar93Route
   '/interview-questions': typeof InterviewQuestionsRoute
   '/learn': typeof LearnRoute
@@ -551,7 +504,6 @@ export interface FileRoutesByFullPath {
   '/privacy': typeof PrivacyRoute
   '/reset-password': typeof ResetPasswordRoute
   '/robots.txt': typeof RobotsDottxtRoute
-  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/terms': typeof TermsRoute
   '/account': typeof AuthenticatedAccountRoute
   '/agents': typeof AuthenticatedAgentsRoute
@@ -598,6 +550,7 @@ export interface FileRoutesByFullPath {
   '/notebooks/$notebookId': typeof AuthenticatedNotebooksNotebookIdRoute
   '/templates/$templateId': typeof AuthenticatedTemplatesTemplateIdRoute
   '/api/certificate/$id': typeof ApiCertificateIdRoute
+  '/api/email/send': typeof ApiEmailSendRoute
   '/api/exam/evaluate': typeof ApiExamEvaluateRoute
   '/api/exam/start': typeof ApiExamStartRoute
   '/api/exam/submit-mcq': typeof ApiExamSubmitMcqRoute
@@ -606,18 +559,12 @@ export interface FileRoutesByFullPath {
   '/api/kb/ingest-url': typeof ApiKbIngestUrlRoute
   '/api/skills/generate': typeof ApiSkillsGenerateRoute
   '/api/templates/provision': typeof ApiTemplatesProvisionRoute
-  '/lovable/email/suppression': typeof LovableEmailSuppressionRoute
   '/certification/': typeof AuthenticatedCertificationIndexRoute
   '/notebooks/': typeof AuthenticatedNotebooksIndexRoute
   '/templates/': typeof AuthenticatedTemplatesIndexRoute
   '/analytics/observability/$runId': typeof AuthenticatedAnalyticsObservabilityRunIdRoute
   '/api/public/hooks/generate-exam-set': typeof ApiPublicHooksGenerateExamSetRoute
   '/api/public/hooks/refresh-model-registry': typeof ApiPublicHooksRefreshModelRegistryRoute
-  '/lovable/email/auth/preview': typeof LovableEmailAuthPreviewRoute
-  '/lovable/email/auth/webhook': typeof LovableEmailAuthWebhookRoute
-  '/lovable/email/queue/process': typeof LovableEmailQueueProcessRoute
-  '/lovable/email/transactional/preview': typeof LovableEmailTransactionalPreviewRoute
-  '/lovable/email/transactional/send': typeof LovableEmailTransactionalSendRoute
   '/api/notebooks/$notebookId/ai/v1/embeddings': typeof ApiNotebooksNotebookIdAiV1EmbeddingsRoute
   '/api/notebooks/$notebookId/ai/v1/chat/completions': typeof ApiNotebooksNotebookIdAiV1ChatCompletionsRoute
   '/api/notebooks/$notebookId/ai/v1/images/generations': typeof ApiNotebooksNotebookIdAiV1ImagesGenerationsRoute
@@ -627,7 +574,6 @@ export interface FileRoutesByTo {
   '/about': typeof AboutRoute
   '/contact': typeof ContactRoute
   '/curriculum': typeof CurriculumRoute
-  '/google4ffa242ca1a18f45.html': typeof Google4ffa242ca1a18f45DothtmlRoute
   '/index': typeof Char91indexChar93Route
   '/interview-questions': typeof InterviewQuestionsRoute
   '/learn': typeof LearnRoute
@@ -635,7 +581,6 @@ export interface FileRoutesByTo {
   '/privacy': typeof PrivacyRoute
   '/reset-password': typeof ResetPasswordRoute
   '/robots.txt': typeof RobotsDottxtRoute
-  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/terms': typeof TermsRoute
   '/account': typeof AuthenticatedAccountRoute
   '/agents': typeof AuthenticatedAgentsRoute
@@ -680,6 +625,7 @@ export interface FileRoutesByTo {
   '/notebooks/$notebookId': typeof AuthenticatedNotebooksNotebookIdRoute
   '/templates/$templateId': typeof AuthenticatedTemplatesTemplateIdRoute
   '/api/certificate/$id': typeof ApiCertificateIdRoute
+  '/api/email/send': typeof ApiEmailSendRoute
   '/api/exam/evaluate': typeof ApiExamEvaluateRoute
   '/api/exam/start': typeof ApiExamStartRoute
   '/api/exam/submit-mcq': typeof ApiExamSubmitMcqRoute
@@ -688,18 +634,12 @@ export interface FileRoutesByTo {
   '/api/kb/ingest-url': typeof ApiKbIngestUrlRoute
   '/api/skills/generate': typeof ApiSkillsGenerateRoute
   '/api/templates/provision': typeof ApiTemplatesProvisionRoute
-  '/lovable/email/suppression': typeof LovableEmailSuppressionRoute
   '/certification': typeof AuthenticatedCertificationIndexRoute
   '/notebooks': typeof AuthenticatedNotebooksIndexRoute
   '/templates': typeof AuthenticatedTemplatesIndexRoute
   '/analytics/observability/$runId': typeof AuthenticatedAnalyticsObservabilityRunIdRoute
   '/api/public/hooks/generate-exam-set': typeof ApiPublicHooksGenerateExamSetRoute
   '/api/public/hooks/refresh-model-registry': typeof ApiPublicHooksRefreshModelRegistryRoute
-  '/lovable/email/auth/preview': typeof LovableEmailAuthPreviewRoute
-  '/lovable/email/auth/webhook': typeof LovableEmailAuthWebhookRoute
-  '/lovable/email/queue/process': typeof LovableEmailQueueProcessRoute
-  '/lovable/email/transactional/preview': typeof LovableEmailTransactionalPreviewRoute
-  '/lovable/email/transactional/send': typeof LovableEmailTransactionalSendRoute
   '/api/notebooks/$notebookId/ai/v1/embeddings': typeof ApiNotebooksNotebookIdAiV1EmbeddingsRoute
   '/api/notebooks/$notebookId/ai/v1/chat/completions': typeof ApiNotebooksNotebookIdAiV1ChatCompletionsRoute
   '/api/notebooks/$notebookId/ai/v1/images/generations': typeof ApiNotebooksNotebookIdAiV1ImagesGenerationsRoute
@@ -712,7 +652,6 @@ export interface FileRoutesById {
   '/contact': typeof ContactRoute
   '/curriculum': typeof CurriculumRoute
   '/docs': typeof DocsRouteWithChildren
-  '/google4ffa242ca1a18f45.html': typeof Google4ffa242ca1a18f45DothtmlRoute
   '/index': typeof Char91indexChar93Route
   '/interview-questions': typeof InterviewQuestionsRoute
   '/learn': typeof LearnRoute
@@ -720,7 +659,6 @@ export interface FileRoutesById {
   '/privacy': typeof PrivacyRoute
   '/reset-password': typeof ResetPasswordRoute
   '/robots.txt': typeof RobotsDottxtRoute
-  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/terms': typeof TermsRoute
   '/_authenticated/account': typeof AuthenticatedAccountRoute
   '/_authenticated/agents': typeof AuthenticatedAgentsRoute
@@ -767,6 +705,7 @@ export interface FileRoutesById {
   '/_authenticated/notebooks/$notebookId': typeof AuthenticatedNotebooksNotebookIdRoute
   '/_authenticated/templates/$templateId': typeof AuthenticatedTemplatesTemplateIdRoute
   '/api/certificate/$id': typeof ApiCertificateIdRoute
+  '/api/email/send': typeof ApiEmailSendRoute
   '/api/exam/evaluate': typeof ApiExamEvaluateRoute
   '/api/exam/start': typeof ApiExamStartRoute
   '/api/exam/submit-mcq': typeof ApiExamSubmitMcqRoute
@@ -775,18 +714,12 @@ export interface FileRoutesById {
   '/api/kb/ingest-url': typeof ApiKbIngestUrlRoute
   '/api/skills/generate': typeof ApiSkillsGenerateRoute
   '/api/templates/provision': typeof ApiTemplatesProvisionRoute
-  '/lovable/email/suppression': typeof LovableEmailSuppressionRoute
   '/_authenticated/certification/': typeof AuthenticatedCertificationIndexRoute
   '/_authenticated/notebooks/': typeof AuthenticatedNotebooksIndexRoute
   '/_authenticated/templates/': typeof AuthenticatedTemplatesIndexRoute
   '/_authenticated/analytics_/observability/$runId': typeof AuthenticatedAnalyticsObservabilityRunIdRoute
   '/api/public/hooks/generate-exam-set': typeof ApiPublicHooksGenerateExamSetRoute
   '/api/public/hooks/refresh-model-registry': typeof ApiPublicHooksRefreshModelRegistryRoute
-  '/lovable/email/auth/preview': typeof LovableEmailAuthPreviewRoute
-  '/lovable/email/auth/webhook': typeof LovableEmailAuthWebhookRoute
-  '/lovable/email/queue/process': typeof LovableEmailQueueProcessRoute
-  '/lovable/email/transactional/preview': typeof LovableEmailTransactionalPreviewRoute
-  '/lovable/email/transactional/send': typeof LovableEmailTransactionalSendRoute
   '/api/notebooks/$notebookId/ai/v1/embeddings': typeof ApiNotebooksNotebookIdAiV1EmbeddingsRoute
   '/api/notebooks/$notebookId/ai/v1/chat/completions': typeof ApiNotebooksNotebookIdAiV1ChatCompletionsRoute
   '/api/notebooks/$notebookId/ai/v1/images/generations': typeof ApiNotebooksNotebookIdAiV1ImagesGenerationsRoute
@@ -799,7 +732,6 @@ export interface FileRouteTypes {
     | '/contact'
     | '/curriculum'
     | '/docs'
-    | '/google4ffa242ca1a18f45.html'
     | '/index'
     | '/interview-questions'
     | '/learn'
@@ -807,7 +739,6 @@ export interface FileRouteTypes {
     | '/privacy'
     | '/reset-password'
     | '/robots.txt'
-    | '/sitemap.xml'
     | '/terms'
     | '/account'
     | '/agents'
@@ -854,6 +785,7 @@ export interface FileRouteTypes {
     | '/notebooks/$notebookId'
     | '/templates/$templateId'
     | '/api/certificate/$id'
+    | '/api/email/send'
     | '/api/exam/evaluate'
     | '/api/exam/start'
     | '/api/exam/submit-mcq'
@@ -862,18 +794,12 @@ export interface FileRouteTypes {
     | '/api/kb/ingest-url'
     | '/api/skills/generate'
     | '/api/templates/provision'
-    | '/lovable/email/suppression'
     | '/certification/'
     | '/notebooks/'
     | '/templates/'
     | '/analytics/observability/$runId'
     | '/api/public/hooks/generate-exam-set'
     | '/api/public/hooks/refresh-model-registry'
-    | '/lovable/email/auth/preview'
-    | '/lovable/email/auth/webhook'
-    | '/lovable/email/queue/process'
-    | '/lovable/email/transactional/preview'
-    | '/lovable/email/transactional/send'
     | '/api/notebooks/$notebookId/ai/v1/embeddings'
     | '/api/notebooks/$notebookId/ai/v1/chat/completions'
     | '/api/notebooks/$notebookId/ai/v1/images/generations'
@@ -883,7 +809,6 @@ export interface FileRouteTypes {
     | '/about'
     | '/contact'
     | '/curriculum'
-    | '/google4ffa242ca1a18f45.html'
     | '/index'
     | '/interview-questions'
     | '/learn'
@@ -891,7 +816,6 @@ export interface FileRouteTypes {
     | '/privacy'
     | '/reset-password'
     | '/robots.txt'
-    | '/sitemap.xml'
     | '/terms'
     | '/account'
     | '/agents'
@@ -936,6 +860,7 @@ export interface FileRouteTypes {
     | '/notebooks/$notebookId'
     | '/templates/$templateId'
     | '/api/certificate/$id'
+    | '/api/email/send'
     | '/api/exam/evaluate'
     | '/api/exam/start'
     | '/api/exam/submit-mcq'
@@ -944,18 +869,12 @@ export interface FileRouteTypes {
     | '/api/kb/ingest-url'
     | '/api/skills/generate'
     | '/api/templates/provision'
-    | '/lovable/email/suppression'
     | '/certification'
     | '/notebooks'
     | '/templates'
     | '/analytics/observability/$runId'
     | '/api/public/hooks/generate-exam-set'
     | '/api/public/hooks/refresh-model-registry'
-    | '/lovable/email/auth/preview'
-    | '/lovable/email/auth/webhook'
-    | '/lovable/email/queue/process'
-    | '/lovable/email/transactional/preview'
-    | '/lovable/email/transactional/send'
     | '/api/notebooks/$notebookId/ai/v1/embeddings'
     | '/api/notebooks/$notebookId/ai/v1/chat/completions'
     | '/api/notebooks/$notebookId/ai/v1/images/generations'
@@ -967,7 +886,6 @@ export interface FileRouteTypes {
     | '/contact'
     | '/curriculum'
     | '/docs'
-    | '/google4ffa242ca1a18f45.html'
     | '/index'
     | '/interview-questions'
     | '/learn'
@@ -975,7 +893,6 @@ export interface FileRouteTypes {
     | '/privacy'
     | '/reset-password'
     | '/robots.txt'
-    | '/sitemap.xml'
     | '/terms'
     | '/_authenticated/account'
     | '/_authenticated/agents'
@@ -1022,6 +939,7 @@ export interface FileRouteTypes {
     | '/_authenticated/notebooks/$notebookId'
     | '/_authenticated/templates/$templateId'
     | '/api/certificate/$id'
+    | '/api/email/send'
     | '/api/exam/evaluate'
     | '/api/exam/start'
     | '/api/exam/submit-mcq'
@@ -1030,18 +948,12 @@ export interface FileRouteTypes {
     | '/api/kb/ingest-url'
     | '/api/skills/generate'
     | '/api/templates/provision'
-    | '/lovable/email/suppression'
     | '/_authenticated/certification/'
     | '/_authenticated/notebooks/'
     | '/_authenticated/templates/'
     | '/_authenticated/analytics_/observability/$runId'
     | '/api/public/hooks/generate-exam-set'
     | '/api/public/hooks/refresh-model-registry'
-    | '/lovable/email/auth/preview'
-    | '/lovable/email/auth/webhook'
-    | '/lovable/email/queue/process'
-    | '/lovable/email/transactional/preview'
-    | '/lovable/email/transactional/send'
     | '/api/notebooks/$notebookId/ai/v1/embeddings'
     | '/api/notebooks/$notebookId/ai/v1/chat/completions'
     | '/api/notebooks/$notebookId/ai/v1/images/generations'
@@ -1054,7 +966,6 @@ export interface RootRouteChildren {
   ContactRoute: typeof ContactRoute
   CurriculumRoute: typeof CurriculumRoute
   DocsRoute: typeof DocsRouteWithChildren
-  Google4ffa242ca1a18f45DothtmlRoute: typeof Google4ffa242ca1a18f45DothtmlRoute
   Char91indexChar93Route: typeof Char91indexChar93Route
   InterviewQuestionsRoute: typeof InterviewQuestionsRoute
   LearnRoute: typeof LearnRoute
@@ -1062,7 +973,6 @@ export interface RootRouteChildren {
   PrivacyRoute: typeof PrivacyRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
   RobotsDottxtRoute: typeof RobotsDottxtRoute
-  SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   TermsRoute: typeof TermsRoute
   ApiA2aRoute: typeof ApiA2aRoute
   ApiBiRoute: typeof ApiBiRoute
@@ -1071,6 +981,7 @@ export interface RootRouteChildren {
   EmailUnsubscribeRoute: typeof EmailUnsubscribeRoute
   VerifyCodeRoute: typeof VerifyCodeRoute
   ApiCertificateIdRoute: typeof ApiCertificateIdRoute
+  ApiEmailSendRoute: typeof ApiEmailSendRoute
   ApiExamEvaluateRoute: typeof ApiExamEvaluateRoute
   ApiExamStartRoute: typeof ApiExamStartRoute
   ApiExamSubmitMcqRoute: typeof ApiExamSubmitMcqRoute
@@ -1079,14 +990,8 @@ export interface RootRouteChildren {
   ApiKbIngestUrlRoute: typeof ApiKbIngestUrlRoute
   ApiSkillsGenerateRoute: typeof ApiSkillsGenerateRoute
   ApiTemplatesProvisionRoute: typeof ApiTemplatesProvisionRoute
-  LovableEmailSuppressionRoute: typeof LovableEmailSuppressionRoute
   ApiPublicHooksGenerateExamSetRoute: typeof ApiPublicHooksGenerateExamSetRoute
   ApiPublicHooksRefreshModelRegistryRoute: typeof ApiPublicHooksRefreshModelRegistryRoute
-  LovableEmailAuthPreviewRoute: typeof LovableEmailAuthPreviewRoute
-  LovableEmailAuthWebhookRoute: typeof LovableEmailAuthWebhookRoute
-  LovableEmailQueueProcessRoute: typeof LovableEmailQueueProcessRoute
-  LovableEmailTransactionalPreviewRoute: typeof LovableEmailTransactionalPreviewRoute
-  LovableEmailTransactionalSendRoute: typeof LovableEmailTransactionalSendRoute
   ApiNotebooksNotebookIdAiV1EmbeddingsRoute: typeof ApiNotebooksNotebookIdAiV1EmbeddingsRoute
   ApiNotebooksNotebookIdAiV1ChatCompletionsRoute: typeof ApiNotebooksNotebookIdAiV1ChatCompletionsRoute
   ApiNotebooksNotebookIdAiV1ImagesGenerationsRoute: typeof ApiNotebooksNotebookIdAiV1ImagesGenerationsRoute
@@ -1106,13 +1011,6 @@ declare module '@tanstack/react-router' {
       path: '/terms'
       fullPath: '/terms'
       preLoaderRoute: typeof TermsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/sitemap.xml': {
-      id: '/sitemap.xml'
-      path: '/sitemap.xml'
-      fullPath: '/sitemap.xml'
-      preLoaderRoute: typeof SitemapDotxmlRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/robots.txt': {
@@ -1155,13 +1053,6 @@ declare module '@tanstack/react-router' {
       path: '/interview-questions'
       fullPath: '/interview-questions'
       preLoaderRoute: typeof InterviewQuestionsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/google4ffa242ca1a18f45.html': {
-      id: '/google4ffa242ca1a18f45.html'
-      path: '/google4ffa242ca1a18f45.html'
-      fullPath: '/google4ffa242ca1a18f45.html'
-      preLoaderRoute: typeof Google4ffa242ca1a18f45DothtmlRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/docs': {
@@ -1500,13 +1391,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedCertificationIndexRouteImport
       parentRoute: typeof AuthenticatedCertificationRoute
     }
-    '/lovable/email/suppression': {
-      id: '/lovable/email/suppression'
-      path: '/lovable/email/suppression'
-      fullPath: '/lovable/email/suppression'
-      preLoaderRoute: typeof LovableEmailSuppressionRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/templates/provision': {
       id: '/api/templates/provision'
       path: '/api/templates/provision'
@@ -1563,6 +1447,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiExamEvaluateRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/email/send': {
+      id: '/api/email/send'
+      path: '/api/email/send'
+      fullPath: '/api/email/send'
+      preLoaderRoute: typeof ApiEmailSendRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/certificate/$id': {
       id: '/api/certificate/$id'
       path: '/api/certificate/$id'
@@ -1604,41 +1495,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/admin/analytics'
       preLoaderRoute: typeof AuthenticatedAdminAnalyticsRouteImport
       parentRoute: typeof AuthenticatedRoute
-    }
-    '/lovable/email/transactional/send': {
-      id: '/lovable/email/transactional/send'
-      path: '/lovable/email/transactional/send'
-      fullPath: '/lovable/email/transactional/send'
-      preLoaderRoute: typeof LovableEmailTransactionalSendRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/lovable/email/transactional/preview': {
-      id: '/lovable/email/transactional/preview'
-      path: '/lovable/email/transactional/preview'
-      fullPath: '/lovable/email/transactional/preview'
-      preLoaderRoute: typeof LovableEmailTransactionalPreviewRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/lovable/email/queue/process': {
-      id: '/lovable/email/queue/process'
-      path: '/lovable/email/queue/process'
-      fullPath: '/lovable/email/queue/process'
-      preLoaderRoute: typeof LovableEmailQueueProcessRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/lovable/email/auth/webhook': {
-      id: '/lovable/email/auth/webhook'
-      path: '/lovable/email/auth/webhook'
-      fullPath: '/lovable/email/auth/webhook'
-      preLoaderRoute: typeof LovableEmailAuthWebhookRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/lovable/email/auth/preview': {
-      id: '/lovable/email/auth/preview'
-      path: '/lovable/email/auth/preview'
-      fullPath: '/lovable/email/auth/preview'
-      preLoaderRoute: typeof LovableEmailAuthPreviewRouteImport
-      parentRoute: typeof rootRouteImport
     }
     '/api/public/hooks/refresh-model-registry': {
       id: '/api/public/hooks/refresh-model-registry'
@@ -1833,7 +1689,6 @@ const rootRouteChildren: RootRouteChildren = {
   ContactRoute: ContactRoute,
   CurriculumRoute: CurriculumRoute,
   DocsRoute: DocsRouteWithChildren,
-  Google4ffa242ca1a18f45DothtmlRoute: Google4ffa242ca1a18f45DothtmlRoute,
   Char91indexChar93Route: Char91indexChar93Route,
   InterviewQuestionsRoute: InterviewQuestionsRoute,
   LearnRoute: LearnRoute,
@@ -1841,7 +1696,6 @@ const rootRouteChildren: RootRouteChildren = {
   PrivacyRoute: PrivacyRoute,
   ResetPasswordRoute: ResetPasswordRoute,
   RobotsDottxtRoute: RobotsDottxtRoute,
-  SitemapDotxmlRoute: SitemapDotxmlRoute,
   TermsRoute: TermsRoute,
   ApiA2aRoute: ApiA2aRoute,
   ApiBiRoute: ApiBiRoute,
@@ -1850,6 +1704,7 @@ const rootRouteChildren: RootRouteChildren = {
   EmailUnsubscribeRoute: EmailUnsubscribeRoute,
   VerifyCodeRoute: VerifyCodeRoute,
   ApiCertificateIdRoute: ApiCertificateIdRoute,
+  ApiEmailSendRoute: ApiEmailSendRoute,
   ApiExamEvaluateRoute: ApiExamEvaluateRoute,
   ApiExamStartRoute: ApiExamStartRoute,
   ApiExamSubmitMcqRoute: ApiExamSubmitMcqRoute,
@@ -1858,15 +1713,9 @@ const rootRouteChildren: RootRouteChildren = {
   ApiKbIngestUrlRoute: ApiKbIngestUrlRoute,
   ApiSkillsGenerateRoute: ApiSkillsGenerateRoute,
   ApiTemplatesProvisionRoute: ApiTemplatesProvisionRoute,
-  LovableEmailSuppressionRoute: LovableEmailSuppressionRoute,
   ApiPublicHooksGenerateExamSetRoute: ApiPublicHooksGenerateExamSetRoute,
   ApiPublicHooksRefreshModelRegistryRoute:
     ApiPublicHooksRefreshModelRegistryRoute,
-  LovableEmailAuthPreviewRoute: LovableEmailAuthPreviewRoute,
-  LovableEmailAuthWebhookRoute: LovableEmailAuthWebhookRoute,
-  LovableEmailQueueProcessRoute: LovableEmailQueueProcessRoute,
-  LovableEmailTransactionalPreviewRoute: LovableEmailTransactionalPreviewRoute,
-  LovableEmailTransactionalSendRoute: LovableEmailTransactionalSendRoute,
   ApiNotebooksNotebookIdAiV1EmbeddingsRoute:
     ApiNotebooksNotebookIdAiV1EmbeddingsRoute,
   ApiNotebooksNotebookIdAiV1ChatCompletionsRoute:

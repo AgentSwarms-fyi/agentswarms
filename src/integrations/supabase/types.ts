@@ -271,75 +271,6 @@ export type Database = {
         };
         Relationships: [];
       };
-      blog_comments: {
-        Row: {
-          author_name: string;
-          blog_slug: string;
-          content: string;
-          created_at: string | null;
-          id: string;
-          user_id: string;
-        };
-        Insert: {
-          author_name: string;
-          blog_slug: string;
-          content: string;
-          created_at?: string | null;
-          id?: string;
-          user_id: string;
-        };
-        Update: {
-          author_name?: string;
-          blog_slug?: string;
-          content?: string;
-          created_at?: string | null;
-          id?: string;
-          user_id?: string;
-        };
-        Relationships: [];
-      };
-      blog_reactions: {
-        Row: {
-          blog_slug: string;
-          created_at: string | null;
-          id: string;
-          reaction: string;
-          user_id: string;
-        };
-        Insert: {
-          blog_slug: string;
-          created_at?: string | null;
-          id?: string;
-          reaction: string;
-          user_id: string;
-        };
-        Update: {
-          blog_slug?: string;
-          created_at?: string | null;
-          id?: string;
-          reaction?: string;
-          user_id?: string;
-        };
-        Relationships: [];
-      };
-      blog_view_counts: {
-        Row: {
-          blog_slug: string;
-          updated_at: string;
-          views: number;
-        };
-        Insert: {
-          blog_slug: string;
-          updated_at?: string;
-          views?: number;
-        };
-        Update: {
-          blog_slug?: string;
-          updated_at?: string;
-          views?: number;
-        };
-        Relationships: [];
-      };
       budget_settings: {
         Row: {
           alert_thresholds: number[];
@@ -569,36 +500,6 @@ export type Database = {
           recipient_email?: string;
           status?: string;
           template_name?: string;
-        };
-        Relationships: [];
-      };
-      email_send_state: {
-        Row: {
-          auth_email_ttl_minutes: number;
-          batch_size: number;
-          id: number;
-          retry_after_until: string | null;
-          send_delay_ms: number;
-          transactional_email_ttl_minutes: number;
-          updated_at: string;
-        };
-        Insert: {
-          auth_email_ttl_minutes?: number;
-          batch_size?: number;
-          id?: number;
-          retry_after_until?: string | null;
-          send_delay_ms?: number;
-          transactional_email_ttl_minutes?: number;
-          updated_at?: string;
-        };
-        Update: {
-          auth_email_ttl_minutes?: number;
-          batch_size?: number;
-          id?: number;
-          retry_after_until?: string | null;
-          send_delay_ms?: number;
-          transactional_email_ttl_minutes?: number;
-          updated_at?: string;
         };
         Relationships: [];
       };
@@ -1999,15 +1900,6 @@ export type Database = {
     };
     Functions: {
       cleanup_old_observability_data: { Args: never; Returns: undefined };
-      delete_email: {
-        Args: { message_id: number; queue_name: string };
-        Returns: boolean;
-      };
-      enqueue_email: {
-        Args: { payload: Json; queue_name: string };
-        Returns: number;
-      };
-      increment_blog_view: { Args: { _slug: string }; Returns: number };
       insert_sample_rows: {
         Args: { _rows: Json; _table_id: string };
         Returns: number;
@@ -2027,26 +1919,9 @@ export type Database = {
           similarity: number;
         }[];
       };
-      move_to_dlq: {
-        Args: {
-          dlq_name: string;
-          message_id: number;
-          payload: Json;
-          source_queue: string;
-        };
-        Returns: number;
-      };
       prune_agent_memory_items: {
         Args: { _agent_id: string; _max: number; _user_id: string };
         Returns: number;
-      };
-      read_email_batch: {
-        Args: { batch_size: number; queue_name: string; vt: number };
-        Returns: {
-          message: Json;
-          msg_id: number;
-          read_ct: number;
-        }[];
       };
       upsert_sample_dataset: {
         Args: { _columns: Json; _name: string; _source_filename: string };

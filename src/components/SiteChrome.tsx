@@ -76,11 +76,6 @@ export function SiteFooter() {
             <h4 className="text-sm font-semibold text-foreground">Product</h4>
             <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
               <li>
-                <Link to="/pricing" className="hover:text-foreground">
-                  Pricing
-                </Link>
-              </li>
-              <li>
                 <Link to="/about" className="hover:text-foreground">
                   About
                 </Link>
@@ -250,9 +245,6 @@ export function SiteHeader() {
           </Link>
           <Link to="/docs" className="hidden hover:text-foreground sm:inline">
             Docs
-          </Link>
-          <Link to="/pricing" className="hidden hover:text-foreground sm:inline">
-            Pricing
           </Link>
           <Link to="/about" className="hidden hover:text-foreground md:inline">
             About

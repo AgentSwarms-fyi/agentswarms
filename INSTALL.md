@@ -6,9 +6,10 @@ project (database, auth, storage), configuring environment variables, and
 running the app.
 
 AgentSwarms is a TanStack Start (React 19) app backed by Supabase
-(Postgres + Auth + Storage), deployed to Cloudflare Workers. There is no
-separate backend to install — Supabase _is_ the backend, and you run it as a
-hosted (free-tier) project rather than installing Postgres yourself.
+(Postgres + Auth + Storage). Deploy it with **Docker on any Node host**
+(primary path — see step 8) or to **Cloudflare Workers** (secondary). There
+is no separate backend to install — Supabase _is_ the backend, and you run
+it as a hosted (free-tier) project rather than installing Postgres yourself.
 
 ---
 
@@ -20,7 +21,7 @@ hosted (free-tier) project rather than installing Postgres yourself.
 | **npm** (bundled with Node) or **Bun** `1.1+` | —                    | Either works — both `package-lock.json` and `bun.lock` are committed. Use one consistently.                       |
 | **Git**                                       | any recent           | to clone the repo                                                                                                 |
 | **A Supabase account**                        | free tier is enough  | [supabase.com](https://supabase.com) — this is your database, auth, and file storage                              |
-| **Supabase CLI**                              | `2.x`                | _(recommended, not strictly required)_ — the fastest way to apply the project's ~59 SQL migrations in one command |
+| **Supabase CLI**                              | `2.x`                | _(recommended, not strictly required)_ — the fastest way to apply the project's ~60 SQL migrations in one command |
 
 Optional, but needed for a fully working app:
 
@@ -138,17 +139,28 @@ bun install
 2. Pick an organization, name, database password (save it somewhere — you
    won't need it for this app directly, but Supabase asks), and region.
    Wait ~2 minutes for provisioning.
-3. Once it's ready, go to **Settings → API** and note down three values —
-   you'll need them in step 6:
+3. Once it's ready, go to **Project Settings → API Keys** (older projects:
+   **Settings → API**) and note down four values — you'll need them in
+   step 5:
    - **Project URL** (e.g. `https://xxxxx.supabase.co`)
-   - **Project ID** (the `xxxxx` part of the URL)
-   - **`anon` / `publishable` key**
-   - **`service_role` key** (Settings → API → also under "Project API keys" —
-     keep this one secret, it bypasses row-level security)
+   - **Project ID** (the `xxxxx` part of the URL — also shown as
+     "Reference ID" under Project Settings → General)
+   - **Publishable key** — starts with `sb_publishable_...` (on older
+     projects this is the `anon` key, a long `eyJ...` JWT). Safe to expose
+     to browsers.
+   - **Secret key** — starts with `sb_secret_...` (on older projects: the
+     `service_role` JWT). Click "Reveal" and copy it in full. Keep it
+     secret — it bypasses row-level security.
+
+   > ⚠️ **Don't mix the last two up** when filling `.env` in step 5. The
+   > publishable key goes in `SUPABASE_PUBLISHABLE_KEY` **and** the `VITE_`
+   > copies; the secret key goes **only** in `SUPABASE_SERVICE_ROLE_KEY`.
+   > Swapping them is the #1 cause of an **"Invalid API key"** error at
+   > signup.
 
 ### 4.2 Apply the database schema (migrations)
 
-The repo ships ~59 SQL migrations under `supabase/migrations/` that create
+The repo ships ~60 SQL migrations under `supabase/migrations/` that create
 every table, RLS policy, Postgres function/trigger, index, and the
 `avatars` storage bucket. They also enable the Postgres extensions the app
 needs: `vector` (pgvector, for Knowledge Base embeddings), `pg_cron`,
@@ -163,11 +175,13 @@ supabase link --project-ref <your-project-id>   # the Project ID from 4.1
 supabase db push                                 # applies all migrations, in order
 ```
 
-`supabase link` rewrites `supabase/config.toml`'s `project_id` to point at
-_your_ project — don't skip it, or `db push` will try to push to the
-original project this repo was developed against.
+`supabase link` records which remote project you're targeting (under the
+git-ignored `supabase/.temp/` directory) — don't skip it, or `db push`
+won't know where to push. The `project_id` in `supabase/config.toml` is
+just a local name for the CLI; it ships pre-filled (`"agentswarms"`) and
+you don't need to change it.
 
-**Alternative: manual, via the SQL Editor** (works but tedious for 59
+**Alternative: manual, via the SQL Editor** (works but tedious for ~60
 files) — in the Supabase Dashboard, open **SQL Editor**, and run each file
 under `supabase/migrations/` **in filename order** (the leading timestamp
 is the sort key — oldest first). Paste each file's contents and run it
@@ -192,16 +206,12 @@ for low volume, which is fine for development. If you want production-grade
 delivery later, configure custom SMTP under **Authentication → Emails →
 SMTP Settings**.
 
-> **⚠️ Known limitation — social login.** The "Continue with Google/Apple"
-> buttons on `/login` call a proprietary Lovable-platform SDK
-> (`@lovable.dev/cloud-auth-js`, see `src/integrations/lovable/index.ts`)
-> that relays OAuth through Lovable's own hosted service — it will **not**
-> work in a self-hosted deployment. **Email/password signup and login work
-> fully out of the box** (they go through plain Supabase Auth). If you want
-> social login, you'd need to replace that file's OAuth call with Supabase's
-> native `supabase.auth.signInWithOAuth({ provider: "google", ... })` and
-> configure the provider under Authentication → Providers — not covered by
-> this guide.
+> **Social login.** The "Continue with Google/Apple" buttons on `/login` use
+> Supabase Auth's native `signInWithOAuth`. They work as soon as you enable
+> the matching provider (with its client ID/secret) in your Supabase project
+> under **Authentication → Providers**; until then they return a
+> "provider is not enabled" error. **Email/password signup and login work
+> fully out of the box.**
 
 ---
 
@@ -273,26 +283,102 @@ env var or a migration that didn't apply (re-run `supabase db push` if you
 suspect the latter; it's safe to re-run, already-applied migrations are
 skipped).
 
----
+### Troubleshooting first-run errors
 
-## 8. Production build (optional)
+**"Invalid API key" when signing up or logging in.** The publishable and
+secret keys are swapped (or one was truncated when copying) in `.env`.
+`SUPABASE_PUBLISHABLE_KEY` and both `VITE_SUPABASE_*_KEY` vars must hold
+the `sb_publishable_...` (or legacy `anon`) key — the `sb_secret_...` key
+belongs **only** in `SUPABASE_SERVICE_ROLE_KEY`. You can verify a key
+without the app:
 
 ```bash
-npm run build      # or: bun run build
-npm run preview    # serve the production build locally to sanity-check it
+curl -H "apikey: YOUR_PUBLISHABLE_KEY" https://YOUR_PROJECT_ID.supabase.co/auth/v1/health
+# HTTP 200 → key is valid for this project
+```
+
+Remember to restart `npm run dev` after editing `.env`.
+
+**`Missing required field in config: project_id` from `supabase db push`.**
+`supabase/config.toml` must contain a non-empty `project_id`. It ships
+pre-filled with `"agentswarms"` (the value is just a local label — your
+real project is selected by `supabase link`); restore it if it got blanked.
+
+**`failed to parse environment file: .env (unexpected character ...)`.**
+Your editor saved `.env` with a UTF-8 BOM (byte-order mark), which the
+Supabase CLI can't parse. Re-save it as plain UTF-8 **without** BOM — in
+VS Code: click the encoding in the status bar → "Save with Encoding" →
+"UTF-8". (On Windows, `Set-Content -Encoding utf8` in Windows PowerShell
+5.x writes a BOM — use an editor or PowerShell 7+ instead.)
+
+**"Unsupported provider: lovable_ai" when messaging an agent.** Your
+database schema predates the `20260719000000_fix_new_user_seed_provider`
+migration (the signup trigger used to seed sample agents on a provider
+that only exists on the hosted platform). Run `npx supabase db push` —
+it updates the trigger and repairs already-created agents.
+
+**Changes to `.env` not taking effect.** Vite bakes `VITE_*` values into
+the bundle when the dev server starts. Stop it (Ctrl+C), run
+`npm run dev` again, and hard-refresh the browser (Ctrl+Shift+R).
+
+---
+
+## 8. Production deployment
+
+There are two supported targets. **Docker (Node) is the primary path.**
+
+### 8a. Docker (recommended)
+
+The repo ships a `Dockerfile` + `docker-compose.yml`. With your `.env`
+filled in (step 5) and migrations applied (step 4.2):
+
+```bash
+docker compose up --build
+# → http://localhost:8080
+```
+
+How it works: the `VITE_*` values are inlined into the client bundle at
+image build time (compose passes them as build args from your `.env`);
+everything else — service-role key, provider keys, SMTP — is read at
+runtime from the environment. The container builds a plain Node SSR bundle
+(`DEPLOY_TARGET=node` skips the Cloudflare plugin) and serves it with
+`vite preview` on port 8080. Any Docker host works: a VPS, Kubernetes,
+Fly.io, Railway, Render.
+
+To rebuild after changing `VITE_*` values, run
+`docker compose up --build` again (they're baked at build time).
+
+### 8b. Cloudflare Workers (secondary)
+
+The repo also keeps a Workers config (`wrangler.jsonc`); the default
+`npm run build` (without `DEPLOY_TARGET=node`) produces a Workers build.
+
+```bash
+npm run build
+npx wrangler deploy
+```
+
+Set your secrets first (`npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY`,
+etc. — every non-`VITE_` variable in `.env.example`). Note that the SMTP
+mailer option doesn't run on Workers (no raw TCP for nodemailer) — use
+`RESEND_API_KEY` there instead.
+
+### 8c. Bare Node (no Docker)
+
+```bash
+DEPLOY_TARGET=node npm run build
+npm run preview -- --host 0.0.0.0 --port 8080
 ```
 
 On native Windows PowerShell/cmd (no WSL, no Git Bash), see the workaround
 in the Windows prerequisites section above — the build script's inline
 `NODE_OPTIONS=...` syntax needs a POSIX-compatible shell.
 
-The deploy target is **Cloudflare Workers** (see `wrangler.jsonc`). Actual
-deployment (`wrangler deploy`, Cloudflare account setup, secrets binding) is
-outside the scope of this local-setup guide.
+## Learn more
 
-## Don't know about this app
-
-**([Read offical docs](https://agentswarms.fyi/docs))**
+Product documentation for every feature ships inside the app at `/docs`.
+The hosted edition (with extra content: blog, community, voice, embeds) is
+at **[agentswarms.fyi](https://agentswarms.fyi)**.
 
 This will help you more if you wants to understand app basic working. (Know about UI)
 

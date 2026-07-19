@@ -1,0 +1,22 @@
+# AgentSwarms — self-hosted via Docker.
+#
+#   1. cp .env.example .env   (fill in your Supabase project + keys)
+#   2. Apply the database migrations once:  supabase link && supabase db push
+#   3. docker compose up --build
+#   4. Open http://localhost:8080
+#
+# Compose reads .env automatically: the VITE_* values are passed as build args
+# (inlined into the client bundle), everything else is runtime environment.
+services:
+  agentswarms:
+    build:
+      context: .
+      args:
+        VITE_SUPABASE_PROJECT_ID: ${VITE_SUPABASE_PROJECT_ID}
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
+        VITE_SUPABASE_PUBLISHABLE_KEY: ${VITE_SUPABASE_PUBLISHABLE_KEY}
+        VITE_ADMIN_EMAIL: ${VITE_ADMIN_EMAIL}
+    env_file: .env
+    ports:
+      - "8080:8080"
+    restart: unless-stopped

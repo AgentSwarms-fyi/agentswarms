@@ -17,7 +17,7 @@ export async function sendTransactionalEmail(
   } = await supabase.auth.getSession();
   if (!session) throw new Error("Not authenticated");
 
-  const response = await fetch("/lovable/email/transactional/send", {
+  const response = await fetch("/api/email/send", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

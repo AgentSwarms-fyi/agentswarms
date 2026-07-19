@@ -1,1 +1,4 @@
-project_id = ""
+# Local project name used by the Supabase CLI. Any non-empty value works —
+# `supabase link --project-ref <your-project-id>` is what selects the actual
+# remote project (the ref is stored under supabase/.temp/, not here).
+project_id = "agentswarms"

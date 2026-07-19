@@ -1,0 +1,11 @@
+node_modules
+dist
+.output
+.tanstack
+.git
+.env
+.env.*
+!.env.example
+*.log
+Dockerfile
+docker-compose.yml

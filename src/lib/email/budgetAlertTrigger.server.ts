@@ -15,11 +15,10 @@ import * as React from 'react'
 import { render } from '@react-email/components'
 import { supabaseAdmin } from '@/integrations/supabase/client.server'
 import { TEMPLATES } from '@/lib/email-templates/registry'
+import { sendMail } from '@/lib/email/mailer.server'
 
-const SITE_NAME = 'agentswarms'
-const SENDER_DOMAIN = 'notify.agentswarms.fyi'
-const FROM_DOMAIN = 'agentswarms.fyi'
-const SITE_URL = 'https://agentswarms.fyi'
+// Self-hosted: the instance's public URL (used for links inside the email).
+const SITE_URL = process.env.SITE_URL || 'http://localhost:8080'
 const TEMPLATE_NAME = 'budget-alert'
 
 function generateToken(): string {
@@ -95,44 +94,30 @@ async function enqueueBudgetEmail(args: {
     typeof entry.subject === 'function' ? entry.subject(data) : entry.subject
 
   const messageId = crypto.randomUUID()
-  const idempotencyKey =
-    args.kind === 'exceeded'
-      ? `budget-exceeded-${args.userId}-${firstOfMonth()}`
-      : `budget-threshold-${args.userId}-${firstOfMonth()}-${Math.round(args.percentUsed)}`
+
+  // Send directly via the configured mailer (Resend / SMTP / no-op).
+  // Per-month idempotency is already enforced by the caller via
+  // budget_settings.notified_* columns, so no queue is needed here.
+  const result = await sendMail({
+    to: args.email,
+    subject,
+    html,
+    text,
+    headers: {
+      'List-Unsubscribe': `<${SITE_URL}/email/unsubscribe?token=${unsubscribeToken}>`,
+      'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+    },
+  })
 
   await sb.from('email_send_log').insert({
     message_id: messageId,
     template_name: TEMPLATE_NAME,
     recipient_email: args.email,
-    status: 'pending',
+    status: result.sent ? 'sent' : result.reason === 'no_mailer_configured' ? 'skipped' : 'failed',
+    error_message: result.sent ? null : result.reason,
   })
-
-  const { error: enqueueError } = await sb.rpc('enqueue_email', {
-    queue_name: 'transactional_emails',
-    payload: {
-      message_id: messageId,
-      to: args.email,
-      from: `${SITE_NAME} <noreply@${FROM_DOMAIN}>`,
-      sender_domain: SENDER_DOMAIN,
-      subject,
-      html,
-      text,
-      purpose: 'transactional',
-      label: TEMPLATE_NAME,
-      idempotency_key: idempotencyKey,
-      unsubscribe_token: unsubscribeToken,
-      queued_at: new Date().toISOString(),
-    },
-  })
-  if (enqueueError) {
-    console.error('[budgetAlertTrigger] enqueue failed:', enqueueError.message)
-    await sb.from('email_send_log').insert({
-      message_id: messageId,
-      template_name: TEMPLATE_NAME,
-      recipient_email: args.email,
-      status: 'failed',
-      error_message: enqueueError.message,
-    })
+  if (!result.sent && result.reason !== 'no_mailer_configured') {
+    console.error('[budgetAlertTrigger] send failed:', result.reason)
   }
 }
 
