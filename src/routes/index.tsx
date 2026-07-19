@@ -1,24 +1,20 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { motion } from "framer-motion";
 import {
-  AlertTriangle,
+  Activity,
   ArrowRight,
   ChevronDown,
-  BookOpen,
-  Compass,
+  Container,
   Cpu,
-  FlaskConical,
-  Hammer,
+  Database,
+  GraduationCap,
+  KeyRound,
   LayoutDashboard,
   LogOut,
   Menu,
-  MessageSquare,
   Network,
-  Notebook as NotebookIcon,
-  Presentation as PresentationIcon,
-  Rocket,
+  Plug,
   Settings,
-  Wrench,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -26,13 +22,7 @@ import { SiteFooter } from "@/components/SiteChrome";
 import { BrowserFrame } from "@/components/marketing/BrowserFrame";
 import { GlowCard } from "@/components/marketing/GlowCard";
 import { Reveal } from "@/components/marketing/Reveal";
-import {
-  RealBuilderMock,
-  DeckMock,
-  BrokenSwarmMock,
-  NotebookMock,
-  VramMock,
-} from "@/components/marketing/HomeMocks";
+import { RealBuilderMock, DeckMock } from "@/components/marketing/HomeMocks";
 import { SectionHeading } from "@/components/marketing/SectionHeading";
 import agentSwarmsLogo from "@/assets/agentswarms-logo.jpg";
 import playgroundPreview from "@/assets/playground-preview.png";
@@ -46,11 +36,24 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/hooks/use-auth";
-import { useRef, useState } from "react";
+
+// Public source repository for this build. Self-hosters running a fork
+// should point this at their own repo.
+const GITHUB_URL = "https://github.com/rohan044/agentswarms";
+
+// lucide-react no longer ships brand icons, so the GitHub mark is inlined.
+function Github({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
+      <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" />
+    </svg>
+  );
+}
 
 function HoverMoreMenu() {
   const items = [
     { to: "/learn", label: "Learn" },
+    { to: "/curriculum", label: "Curriculum" },
     { to: "/interview-questions", label: "Interview Questions" },
     { to: "/about", label: "About" },
     { to: "/contact", label: "Contact" },
@@ -88,63 +91,47 @@ function HoverMoreMenu() {
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "AgentSwarms — Learn Agentic AI Hands-On (Free)" },
+      { title: "AgentSwarms — Open-Source, Self-Hosted Agentic AI Platform" },
       {
         name: "description",
         content:
-          "Hands-on playground for Agentic AI. Free: 8 tracks, 50+ lessons, 50+ runnable agents & swarms, 10 build-along labs — RAG, tools, guardrails, swarms.",
+          "Run AI agents and multi-agent swarms on your own infrastructure. Visual builder, RAG, tools, MCP, budgets, and full traces. One Supabase project, one Docker command, any model provider. MIT licensed.",
       },
       {
         name: "keywords",
         content:
-          "learn agentic AI, agentic AI playground, agentic AI tutorial, hands-on AI agents, build AI agents, multi-agent systems course, RAG tutorial, AI agent builder, free agentic AI course, agent orchestration, swarm AI",
+          "self-hosted AI agents, open source agentic AI platform, multi-agent swarms, deploy AI agents Docker, BYOK LLM platform, agent orchestration, MCP, RAG platform, LangGraph export, self-hosted LLM tools",
       },
-      { property: "og:title", content: "AgentSwarms — Learn Agentic AI by Building It" },
+      { property: "og:title", content: "AgentSwarms — Self-Hosted Agentic AI Platform" },
       {
         property: "og:description",
         content:
-          "8 tracks, 50+ lessons, 50+ live agents & swarms, 10 build-along labs. Hands-on playground for Agentic AI — RAG, tools, guardrails, swarms. Free.",
+          "Deploy your own agentic AI platform: agents, swarms, RAG, tools, traces, budgets. Your Supabase, your model keys, one Docker command. Open source (MIT).",
       },
-      { property: "og:url", content: "https://agentswarms.fyi/" },
-      { name: "twitter:title", content: "AgentSwarms — Learn Agentic AI by Building It" },
+      { name: "twitter:title", content: "AgentSwarms — Self-Hosted Agentic AI Platform" },
       {
         name: "twitter:description",
         content:
-          "The only hands-on playground for Agentic AI. 50+ lessons, 50+ live agents & swarms, 9 interactive decks, 10 build-along labs. Free forever.",
+          "Run agents and swarms on your own infrastructure. Any model provider, full traces, MIT licensed, deployed with one Docker command.",
       },
       { name: "twitter:card", content: "summary_large_image" },
-      {
-        property: "og:image",
-        content:
-          "https://storage.googleapis.com/gpt-engineer-file-uploads/A8j55GgL3fSxUGx8RgucpYdm9B63/social-images/social-1776452942019-Captsvvsvsure.webp",
-      },
-      {
-        name: "twitter:image",
-        content:
-          "https://storage.googleapis.com/gpt-engineer-file-uploads/A8j55GgL3fSxUGx8RgucpYdm9B63/social-images/social-1776452942019-Captsvvsvsure.webp",
-      },
+      { property: "og:image", content: "/og-image.png" },
+      { name: "twitter:image", content: "/og-image.png" },
     ],
-    links: [{ rel: "canonical", href: "https://agentswarms.fyi/" }],
     scripts: [
       {
         type: "application/ld+json",
         children: JSON.stringify({
           "@context": "https://schema.org",
-          "@type": "WebSite",
+          "@type": "SoftwareApplication",
           name: "AgentSwarms",
-          url: "https://agentswarms.fyi/",
+          applicationCategory: "DeveloperApplication",
+          operatingSystem: "Self-hosted (Docker, Node.js, Cloudflare Workers)",
           description:
-            "The only interactive, hands-on playground for learning Agentic AI. Free curriculum covering RAG, tools, guardrails, SQL agents, and multi-agent swarms.",
-          publisher: {
-            "@type": "Organization",
-            name: "AgentSwarms",
-            url: "https://agentswarms.fyi/",
-          },
-          potentialAction: {
-            "@type": "SearchAction",
-            target: "https://agentswarms.fyi/learn?q={search_term_string}",
-            "query-input": "required name=search_term_string",
-          },
+            "Open-source, self-hosted agentic AI platform: visual agent builder, multi-agent swarm canvas, RAG, tools, MCP, budgets, and execution traces. Bring your own Supabase project and model provider keys.",
+          license: "https://opensource.org/license/mit",
+          offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+          codeRepository: GITHUB_URL,
         }),
       },
     ],
@@ -152,75 +139,163 @@ export const Route = createFileRoute("/")({
   component: LandingPage,
 });
 
-/* Only show 3 highlight lessons on the homepage */
-const highlightLessons = [
-  {
-    icon: MessageSquare,
-    chip: "Lesson 01",
-    hash: "prompts",
-    title: "Prompts & System Messages",
-    description:
-      "Shape an agent's personality, role, and constraints with a system prompt. Same model, wildly different behaviour — just by changing words.",
-    youWillLearn: [
-      "Anatomy of a great system prompt",
-      "Few-shot vs zero-shot patterns",
-      "How temperature changes creativity vs accuracy",
-    ],
-  },
-  {
-    icon: Wrench,
-    chip: "Lesson 03",
-    hash: "tools",
-    title: "Tools & Function Calling",
-    description:
-      "Give your agent superpowers. Connect it to APIs, MCP servers, and webhooks so it can fetch data, send emails, run SQL.",
-    youWillLearn: [
-      "OpenAI tool-call schema, plain English",
-      "MCP servers in 5 minutes",
-      "Designing safe, idempotent tools",
-    ],
-  },
-  {
-    icon: Network,
-    chip: "Lesson 05",
-    hash: "swarms",
-    title: "Multi-Agent Swarms",
-    description:
-      "One agent is a worker. A swarm is a team. Build researcher → writer → reviewer pipelines with explicit handoffs.",
-    youWillLearn: [
-      "Orchestrator vs peer-to-peer patterns",
-      "Routing and handoff messages",
-      "When to split an agent into a swarm",
-    ],
-  },
-];
-
-const learningPath = [
+const deploySteps = [
   {
     step: "01",
-    icon: BookOpen,
-    title: "Try a Live Demo",
-    body: "Pick any template — Product Support, Research Assistant, Code Reviewer — and a working agent is provisioned in seconds.",
+    icon: Database,
+    title: "Create a Supabase project",
+    body: "The free tier is the entire backend — Postgres, auth, storage, vector search. One `npx supabase db push` applies the full schema.",
   },
   {
     step: "02",
-    icon: Compass,
-    title: "Follow the Guided Tour",
-    body: "Each demo opens with a side-panel lesson. Suggested prompts walk you through RAG, guardrails, and approvals.",
+    icon: KeyRound,
+    title: "Fill in .env",
+    body: "Four Supabase values, plus one optional OpenRouter key if you want instance-wide, zero-config chat. Users can always bring their own keys.",
   },
   {
     step: "03",
-    icon: Wrench,
-    title: "Fork & Experiment",
-    body: "Tweak the system prompt, swap models, wire up your own knowledge base. Break things — that's how you learn.",
+    icon: Container,
+    title: "docker compose up",
+    body: "Public config is baked at build, secrets are read at runtime. Ship it on a $5 VPS, Fly.io, Railway, Render, or Kubernetes.",
   },
-  {
-    step: "04",
-    icon: Rocket,
-    title: "Build Your Own",
-    body: "Compose your own agents, chain them into a swarm, and watch traces light up in the observability dashboard.",
-  },
-];
+] as const;
+
+function TerminalMock() {
+  const lines = [
+    { prompt: true, text: `git clone ${GITHUB_URL.replace("https://", "")} && cd agentswarms` },
+    { prompt: true, text: "cp .env.example .env", comment: "# your Supabase + model keys" },
+    { prompt: true, text: "npx supabase db push", comment: "# entire schema, one command" },
+    { prompt: true, text: "docker compose up --build", comment: "" },
+    { prompt: false, text: "➜  ready — http://localhost:8080" },
+  ];
+  return (
+    <div className="glow-card overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
+      <div className="flex items-center gap-1.5 border-b border-border/60 bg-muted/30 px-4 py-2.5">
+        <span className="h-2.5 w-2.5 rounded-full bg-rose-400/70" />
+        <span className="h-2.5 w-2.5 rounded-full bg-amber-400/70" />
+        <span className="h-2.5 w-2.5 rounded-full bg-emerald-400/70" />
+        <span className="ml-3 font-mono text-[10px] text-muted-foreground">
+          deploy — 4 commands
+        </span>
+      </div>
+      <div className="space-y-2.5 overflow-x-auto p-5 font-mono text-[11px] leading-relaxed sm:text-xs">
+        {lines.map((l) => (
+          <div key={l.text} className="whitespace-nowrap">
+            {l.prompt ? <span className="select-none text-primary">$ </span> : null}
+            <span className={l.prompt ? "text-foreground/90" : "text-emerald-500"}>{l.text}</span>
+            {l.comment ? (
+              <span className="text-muted-foreground/70">
+                {"   "}
+                {l.comment}
+              </span>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const exportTargets = ["LangGraph", "CrewAI", "OpenAI SDK", "Strands"] as const;
+
+function ExportMock() {
+  const codeLines = [
+    {
+      indent: 0,
+      tokens: [
+        { t: "from", c: "text-sky-400" },
+        { t: " langgraph.graph ", c: "text-foreground/80" },
+        { t: "import", c: "text-sky-400" },
+        { t: " StateGraph", c: "text-foreground/80" },
+      ],
+    },
+    {
+      indent: 0,
+      tokens: [
+        { t: "graph", c: "text-foreground/80" },
+        { t: " = ", c: "text-muted-foreground" },
+        { t: "StateGraph", c: "text-emerald-500" },
+        { t: "(ResearchState)", c: "text-foreground/80" },
+      ],
+    },
+    {
+      indent: 0,
+      tokens: [
+        { t: "graph.", c: "text-foreground/80" },
+        { t: "add_node", c: "text-emerald-500" },
+        { t: "(", c: "text-foreground/80" },
+        { t: '"researcher"', c: "text-amber-400" },
+        { t: ", researcher_agent)", c: "text-foreground/80" },
+      ],
+    },
+    {
+      indent: 0,
+      tokens: [
+        { t: "graph.", c: "text-foreground/80" },
+        { t: "add_node", c: "text-emerald-500" },
+        { t: "(", c: "text-foreground/80" },
+        { t: '"writer"', c: "text-amber-400" },
+        { t: ", writer_agent)", c: "text-foreground/80" },
+      ],
+    },
+    {
+      indent: 0,
+      tokens: [
+        { t: "graph.", c: "text-foreground/80" },
+        { t: "add_edge", c: "text-emerald-500" },
+        { t: "(", c: "text-foreground/80" },
+        { t: '"researcher"', c: "text-amber-400" },
+        { t: ", ", c: "text-foreground/80" },
+        { t: '"writer"', c: "text-amber-400" },
+        { t: ")", c: "text-foreground/80" },
+      ],
+    },
+    {
+      indent: 0,
+      tokens: [
+        { t: "app", c: "text-foreground/80" },
+        { t: " = ", c: "text-muted-foreground" },
+        { t: "graph.", c: "text-foreground/80" },
+        { t: "compile", c: "text-emerald-500" },
+        { t: "()", c: "text-foreground/80" },
+      ],
+    },
+  ];
+  return (
+    <div className="glow-card overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
+      <div className="flex flex-wrap items-center gap-1.5 border-b border-border/60 bg-muted/30 px-4 py-2.5">
+        {exportTargets.map((t, i) => (
+          <span
+            key={t}
+            className={
+              i === 0
+                ? "rounded-md bg-primary/15 px-2 py-1 text-[10px] font-semibold text-primary"
+                : "rounded-md px-2 py-1 text-[10px] font-medium text-muted-foreground"
+            }
+          >
+            {t}
+          </span>
+        ))}
+      </div>
+      <div className="space-y-1.5 overflow-x-auto p-5 font-mono text-[11px] leading-relaxed">
+        {codeLines.map((line, i) => (
+          <div key={i} className="whitespace-nowrap">
+            {line.tokens.map((tok, j) => (
+              <span key={j} className={tok.c}>
+                {tok.t}
+              </span>
+            ))}
+          </div>
+        ))}
+      </div>
+      <div className="border-t border-border/60 bg-muted/20 px-4 py-2.5">
+        <span className="font-mono text-[10px] text-muted-foreground">
+          exported from swarm: <span className="text-foreground/80">research-pipeline</span>
+        </span>
+      </div>
+    </div>
+  );
+}
 
 function LandingPage() {
   const { isAuthenticated, loading, user, signOut } = useAuth();
@@ -235,7 +310,7 @@ function LandingPage() {
             <Link to="/" className="flex min-w-0 items-center gap-2">
               <img
                 src={agentSwarmsLogo}
-                alt="AgentSwarms AI School logo"
+                alt="AgentSwarms logo"
                 width={36}
                 height={36}
                 fetchPriority="high"
@@ -246,24 +321,27 @@ function LandingPage() {
                   AgentSwarms
                 </span>
                 <span className="mt-0.5 hidden truncate text-[10px] font-medium uppercase tracking-wider text-muted-foreground sm:inline">
-                  School of Agentic AI
+                  Open-Source Agentic AI
                 </span>
               </span>
             </Link>
           </div>
           <div className="flex min-w-0 shrink-0 items-center gap-1.5 sm:gap-3">
             <Link
-              to="/curriculum"
-              className="hidden text-sm text-muted-foreground hover:text-foreground sm:inline"
-            >
-              Curriculum
-            </Link>
-            <Link
               to="/docs"
               className="hidden text-sm text-muted-foreground hover:text-foreground sm:inline"
             >
               Docs
             </Link>
+            <a
+              href={GITHUB_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="hidden items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground sm:inline-flex"
+            >
+              <Github className="h-4 w-4" />
+              GitHub
+            </a>
 
             {/* Secondary destinations live in a compact "More" menu so the
                 bar stays scannable between sm and xl widths. */}
@@ -282,16 +360,18 @@ function LandingPage() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
                 <DropdownMenuItem asChild>
-                  <Link to="/curriculum">Curriculum</Link>
+                  <a href={GITHUB_URL} target="_blank" rel="noreferrer">
+                    GitHub
+                  </a>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
-                  <Link to="/interview-questions">Interview Questions</Link>
+                  <Link to="/docs">Docs</Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
                   <Link to="/learn">Learn</Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
-                  <Link to="/docs">Docs</Link>
+                  <Link to="/curriculum">Curriculum</Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
                   <Link to="/about">About</Link>
@@ -302,7 +382,7 @@ function LandingPage() {
                 <DropdownMenuSeparator />
                 {showAuthed ? (
                   <DropdownMenuItem asChild>
-                    <Link to="/dashboard">Open the lab</Link>
+                    <Link to="/dashboard">Open dashboard</Link>
                   </DropdownMenuItem>
                 ) : (
                   <DropdownMenuItem asChild>
@@ -315,7 +395,7 @@ function LandingPage() {
               <>
                 <Link to="/dashboard" className="hidden sm:inline">
                   <Button size="sm" className="gap-1.5">
-                    Open the lab <ArrowRight className="h-3.5 w-3.5" />
+                    Open dashboard <ArrowRight className="h-3.5 w-3.5" />
                   </Button>
                 </Link>
                 <DropdownMenu>
@@ -364,7 +444,7 @@ function LandingPage() {
                 </Link>
                 <Link to="/login" className="hidden sm:inline-flex">
                   <Button size="sm" className="gap-1.5">
-                    Start Learning <ArrowRight className="h-3.5 w-3.5" />
+                    Get Started <ArrowRight className="h-3.5 w-3.5" />
                   </Button>
                 </Link>
               </>
@@ -390,14 +470,13 @@ function LandingPage() {
                 transition={{ duration: 0.55, ease: [0.21, 0.47, 0.32, 0.98] }}
               >
                 <h1 className="font-display text-[2.5rem] font-semibold leading-[1.05] tracking-tight text-foreground sm:text-5xl lg:text-7xl">
-                  <span className="sm:whitespace-nowrap">
-                    Master <span className="text-muted-foreground">AI Agents</span>
-                  </span>{" "}
-                  through hands-on building
+                  Run <span className="text-muted-foreground">agents &amp; swarms</span> on your own
+                  infrastructure
                 </h1>
                 <p className="max-w-xl text-lg leading-relaxed text-muted-foreground lg:text-xl">
-                  50+ lessons paired with 50+ runnable agents and swarms: ReAct, Reflexion, Graph
-                  RAG, text-to-SQL. Open one in your browser, fork it, and break it.
+                  The open-source agentic AI platform you deploy yourself: visual agent builder,
+                  multi-agent swarm canvas, RAG, tools, MCP, budgets, and full traces. One Supabase
+                  project. One Docker command. Any model provider.
                 </p>
               </motion.div>
 
@@ -409,15 +488,15 @@ function LandingPage() {
               >
                 <Link to={showAuthed ? "/dashboard" : "/login"}>
                   <Button size="lg" className="gap-2 px-8 text-base">
-                    {showAuthed ? "Open the lab" : "Start Learning Free"}{" "}
+                    {showAuthed ? "Open dashboard" : "Get Started"}{" "}
                     <ArrowRight className="h-4 w-4" />
                   </Button>
                 </Link>
-                <Link to="/curriculum">
-                  <Button variant="outline" size="lg" className="px-8 text-base">
-                    Browse Curriculum
+                <a href={GITHUB_URL} target="_blank" rel="noreferrer">
+                  <Button variant="outline" size="lg" className="gap-2 px-8 text-base">
+                    <Github className="h-4 w-4" /> Deploy Your Own
                   </Button>
-                </Link>
+                </a>
               </motion.div>
 
               <motion.div
@@ -427,12 +506,12 @@ function LandingPage() {
                 transition={{ duration: 0.55, delay: 0.2, ease: [0.21, 0.47, 0.32, 0.98] }}
               >
                 {[
-                  { n: "8", l: "Tracks" },
-                  { n: "50+", l: "Lessons" },
+                  { n: "10+", l: "Model Providers" },
+                  { n: "1", l: "Command Deploy" },
                   { n: "50+", l: "Agents & Swarms" },
-                  { n: "20+", l: "Notebooks" },
-                  { n: "9", l: "Decks" },
-                  { n: "10", l: "Build Labs" },
+                  { n: "100%", l: "Your Data" },
+                  { n: "MIT", l: "Licensed" },
+                  { n: "0", l: "Vendor Lock-in" },
                 ].map((s) => (
                   <div key={s.l} className="space-y-1">
                     <div className="text-xl font-bold tracking-tight text-foreground">{s.n}</div>
@@ -449,7 +528,7 @@ function LandingPage() {
                 animate={{ opacity: 1 }}
                 transition={{ duration: 0.55, delay: 0.3 }}
               >
-                Free forever · No credit card · Runs in your browser
+                Open source (MIT) · Bring your own keys · Docker, bare Node, or Cloudflare Workers
               </motion.p>
             </div>
 
@@ -683,7 +762,7 @@ function LandingPage() {
           <div className="mx-auto max-w-6xl px-6">
             <Reveal className="relative">
               <div className="pointer-events-none absolute -inset-x-8 -top-12 bottom-0 bg-[radial-gradient(50%_50%_at_50%_30%,color-mix(in_oklch,var(--primary)_10%,transparent),transparent)] blur-2xl" />
-              <BrowserFrame url="agentswarms.fyi/swarms" className="relative">
+              <BrowserFrame url="localhost:8080/swarms" className="relative">
                 <video
                   src={playgroundVideo.url}
                   poster={playgroundPreview}
@@ -692,7 +771,7 @@ function LandingPage() {
                   muted
                   playsInline
                   preload="metadata"
-                  aria-label="AgentSwarms playground — building and running a multi-agent flow in the browser"
+                  aria-label="AgentSwarms — building and running a multi-agent flow on a self-hosted instance"
                   width={1920}
                   height={953}
                   className="block w-full"
@@ -708,8 +787,8 @@ function LandingPage() {
             <SectionHeading
               className="mb-14 max-w-3xl"
               eyebrow="Why AgentSwarms"
-              title="Most courses make you watch. We make you build and break."
-              lede="This is a learning and POC platform, not a production runtime. The fastest way to actually understand agentic AI is to run it, wire it, and watch it fail."
+              title="Own the platform, not just an account."
+              lede="Everything runs on infrastructure you control — your database, your model keys, your budgets. No usage caps, no per-seat pricing, no black boxes."
             />
             <div className="grid gap-4 lg:grid-cols-3 lg:grid-rows-2">
               <Reveal className="lg:col-span-2 lg:row-span-2">
@@ -719,8 +798,9 @@ function LandingPage() {
                   </div>
                   <h3 className="text-xl font-semibold">A real builder, not a toy</h3>
                   <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground">
-                    The same visual Agent Builder and drag-and-drop swarm canvas you'd prototype
-                    with — guardrails, tools, memory, RAG, evals, and human approval included.
+                    A visual Agent Builder and drag-and-drop swarm canvas with guardrails, tools,
+                    memory, RAG, evals, and human approval — the full prototyping loop, running on
+                    your own instance.
                   </p>
                   {/* Mini canvas mock — echoes the real swarm canvas */}
                   <RealBuilderMock />
@@ -728,14 +808,14 @@ function LandingPage() {
               </Reveal>
               {[
                 {
-                  icon: Hammer,
-                  title: "Learn by building, not watching",
-                  body: "Every concept maps to a runnable agent or swarm you open in the browser. Read it, run it, fork it — no setup, no API keys to start.",
+                  icon: Container,
+                  title: "Run anywhere",
+                  body: "One Dockerfile and compose file deploy the whole platform on any Node host — a $5 VPS, Fly.io, Railway, Render, Kubernetes — or go serverless on Cloudflare Workers. Supabase's free tier is the entire backend.",
                 },
                 {
-                  icon: FlaskConical,
-                  title: "We teach the failure modes",
-                  body: "Diagnose and repair deliberately-broken swarms in Failure-Mode Labs — hallucinating RAG, runaway loops, dead branches. Almost nobody else teaches this.",
+                  icon: Cpu,
+                  title: "Connect any model",
+                  body: "OpenRouter works out of the box, with adapters for OpenAI, Anthropic, Gemini, Bedrock, Azure, OCI, Qwen, Grok, Groq, Ollama, and vLLM. Per-user encrypted keys, or one shared instance-wide key.",
                 },
               ].map((c, i) => (
                 <Reveal key={c.title} delay={0.08 * (i + 1)}>
@@ -752,140 +832,91 @@ function LandingPage() {
           </div>
         </section>
 
-        {/* Curriculum highlights — 3 cards */}
-        <section id="curriculum" className="relative border-t border-border/60 bg-muted/30 py-24">
+        {/* Deploy — terminal + steps */}
+        <section id="deploy" className="relative border-t border-border/60 bg-muted/30 py-24">
           <div className="pointer-events-none absolute inset-x-0 top-0 h-60 bg-[linear-gradient(to_bottom,color-mix(in_oklch,var(--primary)_3%,transparent),transparent)]" />
           <div className="relative mx-auto max-w-7xl px-6">
             <SectionHeading
               className="mb-16"
               align="center"
-              eyebrow="Curriculum"
-              title={`From "what's an agent?" to "I shipped a swarm."`}
-              lede="Every lesson is interactive — read a concept, then run a live agent that demonstrates it."
+              eyebrow="Deploy"
+              title="Live before your coffee cools."
+              lede="No separate backend to run — a free-tier Supabase project is the database, auth, and storage. The app itself is one container."
             />
 
-            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-              {highlightLessons.map((c, i) => (
-                <Reveal key={c.title} delay={0.08 * i}>
-                  <Link
-                    to="/learn"
-                    hash={c.hash}
-                    className="glow-card group flex h-full flex-col rounded-xl border border-border bg-card p-6"
-                  >
-                    <div className="mb-3 flex items-center justify-between">
-                      <div className="inline-flex rounded-lg bg-primary/10 p-2">
-                        <c.icon className="h-5 w-5 text-primary" />
-                      </div>
-                      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                        {c.chip}
+            <div className="grid items-center gap-12 lg:grid-cols-2">
+              <div className="space-y-6">
+                {deploySteps.map((s, i) => (
+                  <Reveal key={s.step} delay={0.08 * i}>
+                    <div className="glow-card flex gap-5 rounded-xl border border-border bg-card p-6">
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-primary/30 bg-primary/10 font-mono text-sm font-bold text-primary">
+                        {s.step}
                       </span>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-base font-semibold">{s.title}</h3>
+                          <s.icon className="h-4 w-4 text-primary" />
+                        </div>
+                        <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
+                          {s.body}
+                        </p>
+                      </div>
                     </div>
-                    <h3 className="text-lg font-semibold">{c.title}</h3>
-                    <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                      {c.description}
-                    </p>
-                    <ul className="mt-4 space-y-1.5">
-                      {c.youWillLearn.map((item) => (
-                        <li
-                          key={item}
-                          className="flex items-start gap-2 text-xs text-muted-foreground"
-                        >
-                          <span className="mt-1 inline-block h-1 w-1 flex-shrink-0 rounded-full bg-primary" />
-                          <span>{item}</span>
-                        </li>
-                      ))}
-                    </ul>
-                    <div className="mt-4 inline-flex items-center gap-1 text-xs font-medium text-primary opacity-60 transition-opacity group-hover:opacity-100">
-                      Read the full lesson <ArrowRight className="h-3 w-3" />
-                    </div>
-                  </Link>
-                </Reveal>
-              ))}
+                  </Reveal>
+                ))}
+              </div>
+              <Reveal delay={0.15}>
+                <TerminalMock />
+              </Reveal>
             </div>
 
             <div className="mt-10 text-center">
-              <Link
-                to="/curriculum"
+              <a
+                href={`${GITHUB_URL}#installation-guide`}
+                target="_blank"
+                rel="noreferrer"
                 className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
               >
-                View full curriculum (8 tracks, 50+ lessons) <ArrowRight className="h-3.5 w-3.5" />
-              </Link>
+                Read the full installation guide <ArrowRight className="h-3.5 w-3.5" />
+              </a>
             </div>
           </div>
         </section>
 
-        {/* New ways to learn — interactive modes */}
+        {/* Capabilities — alternating feature rows */}
         <section className="border-t border-border/60 bg-muted/30 py-24">
           <div className="mx-auto max-w-7xl px-6">
             <SectionHeading
               className="mb-20"
               align="center"
-              eyebrow="New ways to learn"
-              title="More than a curriculum"
-              lede="Pick the format that fits how you learn — animated explainers, guided builds, or hands-on debugging."
+              eyebrow="Capabilities"
+              title="Everything a platform needs, batteries included"
+              lede="The pieces you'd otherwise glue together yourself — observability, interoperability, and the guidance to use them well."
             />
 
             <div className="space-y-20">
-              {/* Interactive Presentations */}
+              {/* Observability */}
               <Reveal>
                 <div className="grid items-center gap-12 lg:grid-cols-2">
                   <div>
                     <div className="mb-3 flex items-center gap-3">
                       <div className="inline-flex rounded-lg bg-primary/10 p-2">
-                        <PresentationIcon className="h-5 w-5 text-primary" />
+                        <Activity className="h-5 w-5 text-primary" />
                       </div>
                       <span className="rounded-full border border-border/60 bg-background/50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                        9 decks
+                        Traces & budgets
                       </span>
                     </div>
                     <h3 className="text-2xl font-semibold tracking-tight">
-                      Interactive Presentations
+                      See everything your agents do
                     </h3>
                     <p className="mt-3 max-w-lg text-sm leading-relaxed text-muted-foreground">
-                      Animated, click-through decks on LLMs, prompting, RAG, agentic patterns,
-                      orchestration, security, observability, and inference internals.
+                      Every tool call, token, and cost lands in a full execution trace. Set per-user
+                      budgets with email alerts before a runaway loop becomes a bill — it's your key
+                      on the line, so the meter is yours too.
                     </p>
-                    <Link
-                      to="/learn"
-                      hash="presentations"
-                      className="group mt-5 inline-flex items-center gap-1 text-sm font-semibold text-primary"
-                    >
-                      Open presentations
-                      <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
-                    </Link>
                   </div>
-                  {/* Deck mock */}
-                  <DeckMock />
-                </div>
-              </Reveal>
-
-              {/* Build-Along Labs */}
-              <Reveal>
-                <div className="grid items-center gap-12 lg:grid-cols-2">
-                  <div className="lg:order-2">
-                    <div className="mb-3 flex items-center gap-3">
-                      <div className="inline-flex rounded-lg bg-primary/10 p-2">
-                        <Hammer className="h-5 w-5 text-primary" />
-                      </div>
-                      <span className="rounded-full border border-border/60 bg-background/50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                        10 labs
-                      </span>
-                    </div>
-                    <h3 className="text-2xl font-semibold tracking-tight">Build-Along Labs</h3>
-                    <p className="mt-3 max-w-lg text-sm leading-relaxed text-muted-foreground">
-                      Step-by-step guides that build 5 standalone agents and 5 multi-agent swarms in
-                      the real builder — with diagrams, exact settings, and deep links.
-                    </p>
-                    <Link
-                      to="/learn"
-                      hash="build-along"
-                      className="group mt-5 inline-flex items-center gap-1 text-sm font-semibold text-primary"
-                    >
-                      Start building
-                      <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
-                    </Link>
-                  </div>
-                  <BrowserFrame url="agentswarms.fyi/playground" className="lg:order-1">
+                  <BrowserFrame url="localhost:8080/playground" className="">
                     <img
                       src={playgroundPreview}
                       alt="The AgentSwarms playground with an agent conversation and trace inspector"
@@ -896,97 +927,64 @@ function LandingPage() {
                 </div>
               </Reveal>
 
-              {/* Failure-Mode Labs */}
-              <Reveal>
-                <div className="grid items-center gap-12 lg:grid-cols-2">
-                  <div>
-                    <div className="mb-3 flex items-center gap-3">
-                      <div className="inline-flex rounded-lg bg-primary/10 p-2">
-                        <FlaskConical className="h-5 w-5 text-primary" />
-                      </div>
-                      <span className="rounded-full border border-border/60 bg-background/50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                        4 labs
-                      </span>
-                    </div>
-                    <h3 className="text-2xl font-semibold tracking-tight">Failure-Mode Labs</h3>
-                    <p className="mt-3 max-w-lg text-sm leading-relaxed text-muted-foreground">
-                      Fix swarms that are deliberately broken. The platform verifies your repair —
-                      the fastest way to build real intuition for what goes wrong.
-                    </p>
-                    <Link
-                      to="/swarms"
-                      className="group mt-5 inline-flex items-center gap-1 text-sm font-semibold text-primary"
-                    >
-                      Diagnose a swarm
-                      <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
-                    </Link>
-                  </div>
-                  {/* Broken swarm mock */}
-                  <BrokenSwarmMock />
-                </div>
-              </Reveal>
-
-              {/* Interactive Notebooks */}
+              {/* Interoperability */}
               <Reveal>
                 <div className="grid items-center gap-12 lg:grid-cols-2">
                   <div className="lg:order-2">
                     <div className="mb-3 flex items-center gap-3">
                       <div className="inline-flex rounded-lg bg-primary/10 p-2">
-                        <NotebookIcon className="h-5 w-5 text-primary" />
+                        <Plug className="h-5 w-5 text-primary" />
                       </div>
                       <span className="rounded-full border border-border/60 bg-background/50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                        67 notebooks
+                        MCP · A2A · Export
                       </span>
                     </div>
-                    <h3 className="text-2xl font-semibold tracking-tight">Interactive Notebooks</h3>
+                    <h3 className="text-2xl font-semibold tracking-tight">
+                      Interoperable by default
+                    </h3>
                     <p className="mt-3 max-w-lg text-sm leading-relaxed text-muted-foreground">
-                      Runnable TypeScript notebooks in your browser — foundations, advanced topics,
-                      and every major framework (LangChain, LlamaIndex, OpenAI Agents SDK, Vercel AI
-                      SDK, Google ADK), plus 10 reproduced failure-mode examples.
+                      Connect MCP servers as agent tools, expose swarms over an A2A endpoint, and
+                      when you outgrow the canvas, export any swarm to LangGraph, CrewAI, the OpenAI
+                      Agents SDK, or Strands — your work is never trapped here.
+                    </p>
+                  </div>
+                  <div className="lg:order-1">
+                    <ExportMock />
+                  </div>
+                </div>
+              </Reveal>
+
+              {/* Learning guidance */}
+              <Reveal>
+                <div className="grid items-center gap-12 lg:grid-cols-2">
+                  <div>
+                    <div className="mb-3 flex items-center gap-3">
+                      <div className="inline-flex rounded-lg bg-primary/10 p-2">
+                        <GraduationCap className="h-5 w-5 text-primary" />
+                      </div>
+                      <span className="rounded-full border border-border/60 bg-background/50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        Built-in guidance
+                      </span>
+                    </div>
+                    <h3 className="text-2xl font-semibold tracking-tight">
+                      Your team learns on the same instance
+                    </h3>
+                    <p className="mt-3 max-w-lg text-sm leading-relaxed text-muted-foreground">
+                      A guided curriculum, interactive notebooks, and build-along labs ship with the
+                      platform — so the people you invite don't just get a login, they get a path
+                      from "what's an agent?" to shipping swarms.
                     </p>
                     <Link
-                      to="/notebooks"
+                      to="/learn"
                       className="group mt-5 inline-flex items-center gap-1 text-sm font-semibold text-primary"
                     >
-                      Open notebooks
+                      Explore the learning content
                       <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
                     </Link>
                   </div>
-                  {/* Notebook mock */}
-                  <NotebookMock />
+                  <DeckMock />
                 </div>
               </Reveal>
-            </div>
-          </div>
-        </section>
-
-        {/* Learning Path */}
-        <section id="path" className="py-24">
-          <div className="mx-auto max-w-7xl px-6">
-            <SectionHeading
-              className="mb-16"
-              align="center"
-              eyebrow="How it works"
-              title="Four steps from zero to swarm"
-              lede="No installs. No API keys to start. Open a demo, follow the guided prompts, then make it your own."
-            />
-
-            <div className="relative grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-              <div className="absolute left-[12%] right-[12%] top-11 hidden h-px bg-gradient-to-r from-transparent via-border to-transparent lg:block" />
-              {learningPath.map((s, i) => (
-                <Reveal key={s.step} delay={0.08 * i}>
-                  <div className="glow-card relative h-full rounded-xl border border-border bg-card p-6">
-                    <div className="mb-4 flex items-center justify-between">
-                      <span className="relative z-10 flex h-10 w-10 items-center justify-center rounded-full border border-primary/30 bg-primary/10 font-mono text-sm font-bold text-primary">
-                        {s.step}
-                      </span>
-                      <s.icon className="h-5 w-5 text-primary" />
-                    </div>
-                    <h3 className="text-base font-semibold">{s.title}</h3>
-                    <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{s.body}</p>
-                  </div>
-                </Reveal>
-              ))}
             </div>
           </div>
         </section>
@@ -999,24 +997,24 @@ function LandingPage() {
                 <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(60%_80%_at_50%_0%,color-mix(in_oklch,var(--primary)_12%,transparent),transparent)]" />
                 <div className="relative">
                   <h2 className="font-display text-3xl font-semibold tracking-[-0.02em] sm:text-4xl">
-                    Your first agent is one click away
+                    Deploy your own agentic AI platform
                   </h2>
                   <p className="mx-auto mt-4 max-w-xl text-muted-foreground">
-                    Open a template, send the suggested prompt, watch the trace stream. The whole
-                    thing takes a minute.
+                    One Supabase project, one Docker command, any model provider. Demo agents are
+                    already seeded when you sign in.
                   </p>
                   <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
                     <Link to={showAuthed ? "/dashboard" : "/login"}>
                       <Button size="lg" className="gap-2 px-10 text-base">
-                        {showAuthed ? "Open the lab" : "Start the First Lesson"}{" "}
+                        {showAuthed ? "Open dashboard" : "Get Started"}{" "}
                         <ArrowRight className="h-4 w-4" />
                       </Button>
                     </Link>
-                    <Link to="/curriculum">
-                      <Button variant="ghost" size="lg" className="px-6 text-base">
-                        Peek at the curriculum
+                    <a href={GITHUB_URL} target="_blank" rel="noreferrer">
+                      <Button variant="ghost" size="lg" className="gap-2 px-6 text-base">
+                        <Github className="h-4 w-4" /> Star on GitHub
                       </Button>
-                    </Link>
+                    </a>
                   </div>
                 </div>
               </div>
