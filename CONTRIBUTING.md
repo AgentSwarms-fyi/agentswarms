@@ -4,8 +4,9 @@ Thanks for taking the time to contribute!
 
 ## Getting set up
 
-Follow [INSTALL.md](./INSTALL.md) to get a local dev environment running
-(Node/Bun, your own Supabase project, environment variables).
+Follow the [installation guide in the README](./README.md#installation-guide)
+to get a local dev environment running (Node/Bun, your own Supabase project,
+environment variables).
 
 ## Workflow
 
