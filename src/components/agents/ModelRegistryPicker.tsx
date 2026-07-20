@@ -2,7 +2,13 @@
 // else a user needs to pick a real, currently-shipping model id without
 // memorising the exact slug. Pulls live data via getModelRegistry.
 import { useEffect, useMemo, useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +17,7 @@ import { Loader2, Search, Boxes, CheckCircle2, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { getModelRegistry, type RegistryModel } from "@/utils/modelRegistry.functions";
 import { isProviderSupported, isModelSupported } from "@/lib/providerSupport";
+import { modelMatchesAnyRule, useMyModelRules } from "@/hooks/use-iam";
 
 type Props = {
   trigger: React.ReactNode;
@@ -46,12 +53,17 @@ export function ModelRegistryPicker({ trigger, defaultModality = "text", onPick 
     return Array.from(map.values()).sort((a, b) => b.count - a.count);
   }, [models, modality]);
 
+  // IAM model governance: when rules apply to this user, hide models their
+  // administrator hasn't allowed.
+  const myRules = useMyModelRules();
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return models
       .filter((m) => {
         if (modality !== "all" && m.modality !== modality) return false;
         if (provider !== "all" && m.provider_slug !== provider) return false;
+        if (!modelMatchesAnyRule(myRules, m.model_id)) return false;
         if (q) {
           const hay = `${m.display_name} ${m.model_id} ${m.developer}`.toLowerCase();
           if (!hay.includes(q)) return false;
@@ -59,7 +71,7 @@ export function ModelRegistryPicker({ trigger, defaultModality = "text", onPick 
         return true;
       })
       .slice(0, 300);
-  }, [models, search, modality, provider]);
+  }, [models, search, modality, provider, myRules]);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -83,16 +95,21 @@ export function ModelRegistryPicker({ trigger, defaultModality = "text", onPick 
             />
           </div>
           <div className="flex flex-wrap gap-1.5">
-            {["text", "image", "video", "embedding", "speech-to-text", "text-to-speech", "all"].map((m) => (
-              <Badge
-                key={m}
-                variant={modality === m ? "default" : "outline"}
-                className="cursor-pointer capitalize"
-                onClick={() => { setModality(m); setProvider("all"); }}
-              >
-                {m.replace("-", " ")}
-              </Badge>
-            ))}
+            {["text", "image", "video", "embedding", "speech-to-text", "text-to-speech", "all"].map(
+              (m) => (
+                <Badge
+                  key={m}
+                  variant={modality === m ? "default" : "outline"}
+                  className="cursor-pointer capitalize"
+                  onClick={() => {
+                    setModality(m);
+                    setProvider("all");
+                  }}
+                >
+                  {m.replace("-", " ")}
+                </Badge>
+              ),
+            )}
           </div>
           {providers.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
@@ -152,11 +169,17 @@ export function ModelRegistryPicker({ trigger, defaultModality = "text", onPick 
                         <CheckCircle2 className="h-3 w-3" /> Available
                       </Badge>
                     ) : isProviderSupported(m.provider_slug) ? (
-                      <Badge variant="outline" className="text-[10px] gap-1 text-amber-700 dark:text-amber-400 border-amber-500/40 border-dashed">
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] gap-1 text-amber-700 dark:text-amber-400 border-amber-500/40 border-dashed"
+                      >
                         <XCircle className="h-3 w-3" /> {m.modality.replace("-", " ")} N/A
                       </Badge>
                     ) : (
-                      <Badge variant="outline" className="text-[10px] gap-1 text-muted-foreground border-dashed">
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] gap-1 text-muted-foreground border-dashed"
+                      >
                         <XCircle className="h-3 w-3" /> Unsupported
                       </Badge>
                     )}

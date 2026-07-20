@@ -679,6 +679,14 @@ function DataSqlPage() {
                             sample
                           </Badge>
                         )}
+                        {!d.is_sample && d.user_id !== user?.id && (
+                          <Badge
+                            variant="outline"
+                            className="text-[8px] h-4 px-1 border-sky-300 text-sky-600 dark:border-sky-500/30 dark:text-sky-400"
+                          >
+                            shared
+                          </Badge>
+                        )}
                       </button>
                     </CollapsibleTrigger>
                     <button
@@ -688,7 +696,7 @@ function DataSqlPage() {
                     >
                       <BookOpen className="h-3 w-3" />
                     </button>
-                    {!d.is_sample && (
+                    {!d.is_sample && d.user_id === user?.id && (
                       <button
                         onClick={() => handleDeleteTable(d)}
                         className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-red-600 dark:text-muted-foreground dark:hover:text-red-400"

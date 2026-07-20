@@ -768,8 +768,13 @@ function KnowledgePage() {
                           Sample
                         </Badge>
                       )}
+                      {!base.is_sample && base.user_id !== user?.id && (
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0">
+                          Shared
+                        </Badge>
+                      )}
                     </div>
-                    {!base.is_sample && (
+                    {!base.is_sample && base.user_id === user?.id && (
                       <Button
                         variant="ghost"
                         size="sm"
@@ -805,9 +810,16 @@ function KnowledgePage() {
                   <div className="flex items-center gap-2">
                     <h2 className="text-lg font-semibold">{selectedBase.name}</h2>
                     {selectedBase.is_sample && <Badge variant="secondary">Sample</Badge>}
+                    {!selectedBase.is_sample && selectedBase.user_id !== user?.id && (
+                      <Badge variant="outline">Shared</Badge>
+                    )}
                   </div>
                   {selectedBase.is_sample ? (
                     <p className="text-xs text-muted-foreground">Read-only sample knowledge base</p>
+                  ) : selectedBase.user_id !== user?.id ? (
+                    <p className="text-xs text-muted-foreground">
+                      Shared with you (read-only) by an administrator
+                    </p>
                   ) : (
                     <div className="flex items-center gap-2">
                       {(() => {

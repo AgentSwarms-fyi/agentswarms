@@ -28,6 +28,7 @@ import { summarizeIfNeeded } from "@/utils/memory/summarize.server";
 import { extractMemoriesFromTurn } from "@/utils/memory/extract.server";
 import type { RecalledItem } from "@/utils/memory/types";
 import { isImageModelId } from "@/lib/providerSupport";
+import { getEffectiveModelRules, isModelAllowed } from "@/utils/iam.server";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -993,6 +994,25 @@ export const Route = createFileRoute("/api/chat")({
           const authHeader = request.headers.get("authorization");
           const authToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : undefined;
           const userId = await getUserIdFromRequest(request);
+
+          // IAM model governance: a user subject to model rules (their own or
+          // any of their groups') may only call allowed provider/model
+          // combinations. Users with no applicable rules are unrestricted.
+          if (userId && authToken) {
+            const iamSb = getServerSupabase(authToken);
+            if (iamSb) {
+              const modelRules = await getEffectiveModelRules(iamSb, userId);
+              if (modelRules && !isModelAllowed(modelRules, provider, model)) {
+                return new Response(
+                  JSON.stringify({
+                    error: "model_not_allowed",
+                    message: `Your administrator has not allowed ${provider}/${model} for your account. Ask a superadmin to adjust your model access.`,
+                  }),
+                  { status: 403, headers: { "Content-Type": "application/json", ...corsHeaders } },
+                );
+              }
+            }
+          }
 
           // Look up the agent for trace label, gateway flag, n8n webhook,
           // saved built-in tool toggles, AND saved tool-configs (per-tool

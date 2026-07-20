@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { allowedProviders, isModelAllowedByRules, useMyModelRules } from "@/hooks/use-iam";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -553,6 +554,7 @@ export function AgentForm({
   const [description, setDescription] = useState(agent?.description || "");
   const [systemPrompt, setSystemPrompt] = useState(agent?.system_prompt || "");
   const [provider, setProvider] = useState(agent?.llm_provider || "openrouter");
+  const myModelRules = useMyModelRules();
   const [model, setModel] = useState(agent?.llm_model || "google/gemini-3-flash-preview");
   const [temperature, setTemperature] = useState(agent?.temperature || 0.7);
   const [maxTokens, setMaxTokens] = useState(agent?.max_tokens || 4096);
@@ -861,10 +863,15 @@ export function AgentForm({
     }
   }
 
-  const suggestedModels = MODEL_SUGGESTIONS[provider] || [];
+  // IAM model governance: hide providers/models the administrator hasn't
+  // allowed for this user (the server enforces the same rules on /api/chat).
+  const iamAllowedProviders = allowedProviders(myModelRules);
+  const suggestedModels = (MODEL_SUGGESTIONS[provider] || []).filter((m) =>
+    isModelAllowedByRules(myModelRules, provider, m),
+  );
   const availableProviders = PROVIDERS.filter(
     (p) => connectedProviders.has(p.value) || p.value === provider,
-  );
+  ).filter((p) => !iamAllowedProviders || iamAllowedProviders.has(p.value) || p.value === provider);
   const onlyDefaultProvider = providersLoaded && connectedProviders.size === 1;
   const currentProviderConnected = connectedProviders.has(provider);
 

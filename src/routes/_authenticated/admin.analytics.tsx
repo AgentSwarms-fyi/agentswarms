@@ -22,6 +22,7 @@ import {
   SheetDescription,
 } from "@/components/ui/sheet";
 import { useAuth } from "@/hooks/use-auth";
+import { useIsSuperadmin } from "@/hooks/use-iam";
 import { useServerFn } from "@tanstack/react-start";
 import {
   getAdminAnalytics,
@@ -56,8 +57,6 @@ const XAxis = Recharts.XAxis as any;
 const YAxis = Recharts.YAxis as any;
 const Tooltip = Recharts.Tooltip as any;
 const CartesianGrid = Recharts.CartesianGrid as any;
-
-const ADMIN_EMAIL = import.meta.env.VITE_ADMIN_EMAIL?.toLowerCase();
 
 export const Route = createFileRoute("/_authenticated/admin/analytics")({
   component: AdminAnalyticsPage,
@@ -114,7 +113,7 @@ function AdminAnalyticsPage() {
       .finally(() => setDetailLoading(false));
   };
 
-  const isAdmin = (user?.email ?? "").toLowerCase() === ADMIN_EMAIL;
+  const isAdmin = useIsSuperadmin();
 
   useEffect(() => {
     if (!user || !isAdmin) return;

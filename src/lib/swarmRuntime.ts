@@ -346,6 +346,17 @@ export function estimateNodeCost(model: string, tokensIn: number, tokensOut: num
   return _estimateTextCost(model, tokensIn, tokensOut);
 }
 
+// Prefer the server's human-readable `message` (e.g. the IAM
+// "model_not_allowed" explanation) over raw JSON in node error banners.
+function extractChatError(body: string): string {
+  try {
+    const parsed = JSON.parse(body) as { message?: string; error?: string };
+    return parsed.message || parsed.error || body.slice(0, 300);
+  } catch {
+    return body.slice(0, 300);
+  }
+}
+
 async function callAgent(
   node: Node<SwarmNodeData>,
   userMessage: string,
@@ -528,11 +539,11 @@ async function callAgent(
       } else {
         const retryTxt = await retry.text().catch(() => "");
         throw new Error(
-          `Agent call failed after retry [${retry.status}]: ${retryTxt.slice(0, 300)}`,
+          `Agent call failed after retry [${retry.status}]: ${extractChatError(retryTxt)}`,
         );
       }
     } else {
-      throw new Error(`Agent call failed [${resp.status}]: ${txt.slice(0, 300)}`);
+      throw new Error(`Agent call failed [${resp.status}]: ${extractChatError(txt)}`);
     }
   }
 

@@ -48,6 +48,7 @@ import { toast } from "sonner";
 import { PromptLibraryPicker } from "@/components/prompts/PromptLibraryPicker";
 import { SkillPicker } from "@/components/skills/SkillPicker";
 import { isImageModelId } from "@/lib/providerSupport";
+import { allowedProviders, isModelAllowedByRules, useMyModelRules } from "@/hooks/use-iam";
 
 // Mirror the provider list shown in /agents AgentForm so swarm nodes can use
 // any LLM provider the user has connected.
@@ -352,12 +353,19 @@ export function NodeInspector({
 
   const currentProvider = data.provider || "openrouter";
   const currentModel = data.model || "openai/gpt-4o-mini";
+  // IAM model governance: hide providers/models the admin hasn't allowed.
+  const myModelRules = useMyModelRules();
+  const iamAllowedProviders = allowedProviders(myModelRules);
   // Show every connected provider + the node's current one (even if it was
   // disconnected after the fact, so the value isn't silently dropped).
   const availableProviders = PROVIDERS.filter(
     (p) => connectedProviders.has(p.value) || p.value === currentProvider,
+  ).filter(
+    (p) => !iamAllowedProviders || iamAllowedProviders.has(p.value) || p.value === currentProvider,
   );
-  const suggestedModels = MODEL_SUGGESTIONS[currentProvider] || [];
+  const suggestedModels = (MODEL_SUGGESTIONS[currentProvider] || []).filter((m) =>
+    isModelAllowedByRules(myModelRules, currentProvider, m),
+  );
 
   // Snapshot-copy an existing /agents Agent into this node. Independent copy:
   // future edits to the source agent won't affect this swarm.

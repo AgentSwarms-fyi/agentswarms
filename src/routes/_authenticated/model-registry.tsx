@@ -39,8 +39,7 @@ import {
   type RegistryMeta,
 } from "@/utils/modelRegistry.functions";
 import { isProviderSupported, isModelSupported } from "@/lib/providerSupport";
-
-const ADMIN_EMAIL = import.meta.env.VITE_ADMIN_EMAIL?.toLowerCase();
+import { useIsSuperadmin } from "@/hooks/use-iam";
 
 // Real provider logos (Simple Icons via jsdelivr — open-source SVGs).
 // Anything not listed falls back to the Boxes icon. Slugs match devToSlug
@@ -88,7 +87,7 @@ export const Route = createFileRoute("/_authenticated/model-registry")({
 
 function ModelRegistryPage() {
   const { user, session } = useAuth();
-  const isAdmin = (user?.email ?? "").toLowerCase() === ADMIN_EMAIL;
+  const isAdmin = useIsSuperadmin();
   const [models, setModels] = useState<RegistryModel[]>([]);
   const [meta, setMeta] = useState<RegistryMeta | null>(null);
   const [loading, setLoading] = useState(true);

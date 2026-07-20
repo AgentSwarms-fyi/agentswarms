@@ -1,7 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-
-const ADMIN_EMAIL = import.meta.env.ADMIN_EMAIL;
+import { requireSuperadmin } from "@/utils/iam.server";
 
 export type AdminUserRow = {
   user_id: string;
@@ -534,42 +533,14 @@ export const getAdminAnalytics = createServerFn({ method: "POST" })
   });
 
 // ===== Per-user detail server function =====
+// Superadmin gate is DB-backed (user_roles) with the ADMIN_EMAIL account as
+// the permanent bootstrap — see requireSuperadmin in iam.server.ts.
 async function resolveAdminFromAccessToken(
   accessToken: string | undefined,
 ): Promise<{ ok: true; userId: string; email: string } | AdminAnalyticsError> {
-  if (!accessToken) {
-    return { ok: false, error: "Missing access token", stage: "auth" };
-  }
-
-  try {
-    const { data, error } = await supabaseAdmin.auth.getUser(accessToken);
-    const user = data.user;
-    const email = user?.email?.toLowerCase();
-
-    if (error || !user) {
-      return {
-        ok: false,
-        error: error?.message ?? "Invalid session",
-        stage: "auth",
-      };
-    }
-
-    if (!email || email !== ADMIN_EMAIL) {
-      return {
-        ok: false,
-        error: `Forbidden: admin access only (saw email=${email ?? "<none>"})`,
-        stage: "auth",
-      };
-    }
-
-    return { ok: true, userId: user.id, email };
-  } catch (err: any) {
-    return {
-      ok: false,
-      error: err?.message ? String(err.message) : "Failed to validate session",
-      stage: "auth",
-    };
-  }
+  const guard = await requireSuperadmin(accessToken);
+  if (!guard.ok) return { ok: false, error: guard.error, stage: "auth" };
+  return guard;
 }
 
 export const getAdminUserDetail = createServerFn({ method: "POST" })

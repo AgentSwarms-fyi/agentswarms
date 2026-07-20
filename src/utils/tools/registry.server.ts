@@ -1289,13 +1289,9 @@ export async function resolveAgentTools(
   // schema summary to the tool description so the LLM can write correct SQL
   // without first calling list_data_tables.
   if (allows("sql_query")) {
-    // Include both the user's own tables AND public sample tables
-    // (user_id IS NULL, is_sample = true) so the LLM can answer
-    // questions even when the user has not uploaded anything yet.
-    const { data: dt } = await ctx.sb
-      .from("user_data_tables")
-      .select("name, columns")
-      .or(`user_id.eq.${ctx.userId},and(user_id.is.null,is_sample.eq.true)`);
+    // No explicit ownership filter: the client runs under the user's JWT, so
+    // RLS returns their own tables, public samples, and IAM-shared tables.
+    const { data: dt } = await ctx.sb.from("user_data_tables").select("name, columns");
     // Per-call allow-list — when set, restrict to those table names only.
     const allowedTableNames = (cfg.sql_table_names ?? []).map((s) => s.trim()).filter(Boolean);
     const visible =

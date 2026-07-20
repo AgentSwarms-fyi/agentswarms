@@ -4,6 +4,7 @@
 import { createServerFn } from "@tanstack/react-start";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { requireSuperadmin } from "@/utils/iam.server";
 import { syncModelRegistryFromAimlapi } from "@/utils/modelRegistry.server";
 import { z } from "zod";
 
@@ -81,18 +82,9 @@ export const triggerModelRegistrySync = createServerFn({ method: "POST" })
     return Schema.parse(input);
   })
   .handler(async ({ data }) => {
-    const url = process.env.SUPABASE_URL;
-    const key = process.env.SUPABASE_PUBLISHABLE_KEY;
-    if (!url || !key) return { ok: false, error: "Server auth not configured" };
-    const { createClient } = await import("@supabase/supabase-js");
-    const sb = createClient(url, key, {
-      global: { headers: { Authorization: `Bearer ${data.access_token}` } },
-      auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
-    });
-    const { data: claims } = await sb.auth.getClaims(data.access_token);
-    const email = (claims?.claims?.email || "").toString().toLowerCase();
-    if (email !== import.meta.env.ADMIN_EMAIL.toLowerCase()) {
-      return { ok: false, error: "Only the admin can trigger a manual sync" };
+    const guard = await requireSuperadmin(data.access_token);
+    if (!guard.ok) {
+      return { ok: false, error: "Only a superadmin can trigger a manual sync" };
     }
     return syncModelRegistryFromAimlapi();
   });

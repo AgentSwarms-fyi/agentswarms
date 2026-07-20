@@ -49,10 +49,7 @@ function LoginPage() {
   // (with its client id/secret) in your Supabase project under
   // Authentication → Providers, or the call returns a "provider is not
   // enabled" error. The browser is redirected to the provider and back.
-  const handleOAuthSignIn = async (
-    provider: "google" | "apple",
-    setBusy: (v: boolean) => void,
-  ) => {
+  const handleOAuthSignIn = async (provider: "google" | "apple", setBusy: (v: boolean) => void) => {
     setBusy(true);
     try {
       const { error } = await supabase.auth.signInWithOAuth({
@@ -101,7 +98,12 @@ function LoginPage() {
         setMode("signin");
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Authentication failed";
+      let msg = err instanceof Error ? err.message : "Authentication failed";
+      // The IAM signup trigger raises "signups_disabled" when the instance is
+      // invite-only; Supabase surfaces it as a generic database error.
+      if (/signups_disabled|Database error saving new user/i.test(msg)) {
+        msg = "This instance is invite-only. Ask your administrator for an invitation.";
+      }
       toast.error(msg);
     } finally {
       setLoading(false);

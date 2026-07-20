@@ -61,6 +61,7 @@ The "AgentSwarms" name and the hosted service remain with the project author.
 | 📚 **Knowledge Base / RAG**  | Upload documents, chunk and embed them (pgvector), and ground agents in your own data.                                                                            |
 | 🔍 **Observability**         | Inspect every tool call, token, and cost in a full execution trace.                                                                                               |
 | 🔌 **BYOK + MCP + A2A**      | Encrypted per-user provider keys, MCP server connections, swarm export to LangGraph/CrewAI/OpenAI SDK/Strands, and an A2A endpoint.                               |
+| 🛂 **IAM**                   | Superadmins, groups, invite/manual user provisioning, per-user/group model allow-lists, read-only sharing of KBs and data tables, invite-only mode.              |
 | 🧭 **Guided curriculum**     | Five tracks — Foundations, Patterns & Tools, SQL Agents, Multi-Agent Swarms, Scaling & Enterprise — each chapter pairs a concept with something you actually run. |
 | 📓 **Interactive notebooks** | Cell-by-cell, runnable lessons — memory, RAG, guardrails, evals — with real state carried between cells.                                                          |
 | 🛡️ **Guardrails & evals**    | Prompt-injection tests, PII redaction, LLM-as-judge scoring — hands-on, not hypothetical.                                                                         |
@@ -82,6 +83,29 @@ The "AgentSwarms" name and the hosted service remain with the project author.
 | Agents       | [LangChain](https://js.langchain.com) / LangGraph                                               |
 | Swarm canvas | [XYFlow](https://xyflow.com)                                                                    |
 | Deployment   | Docker (Node) — primary · Cloudflare Workers — secondary                                        |
+
+## Access control (IAM)
+
+The account whose email matches `ADMIN_EMAIL` is the instance's **bootstrap
+superadmin** — sign in with it and open **Admin → IAM** (`/admin/iam`) to
+manage everything else:
+
+- **Users** — invite by email (Supabase sends the invitation) or create
+  accounts with a temporary password; ban/unban; delete; promote additional
+  superadmins. The bootstrap superadmin can never be demoted, and the last
+  superadmin is protected.
+- **Groups** — organize users; model rules and resource shares can target a
+  whole group at once.
+- **Model access** — by default every user may call every model. Add allow
+  rules to a user or group to restrict them (patterns: `*`, `openai/*`, or an
+  exact model id; the allowed set is the union of all applicable rules).
+  Enforced server-side on every LLM call and reflected in the model pickers.
+- **Shares** — grant users or groups **read-only** access to any knowledge
+  base or SQL data table; recipients' agents can search/query them but never
+  modify them.
+- **Settings** — flip the instance to **invite-only**: public self-signup
+  (including OAuth) is rejected at the database level, while invited and
+  admin-created users still get in.
 
 ## Getting started
 

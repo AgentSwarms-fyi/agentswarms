@@ -21,10 +21,13 @@ export const PLAYGROUND_ROW_CAP = 50;
 export type ColumnDef = { name: string; type: "number" | "string" | "date" };
 
 export type DatasetMeta = {
-  id: string;          // user_data_tables.id
-  name: string;        // SQL table name
+  id: string; // user_data_tables.id
+  name: string; // SQL table name
   source_filename: string | null;
   is_sample: boolean;
+  // Owner id — null on samples; differs from the viewer's id on tables an
+  // administrator shared with them (read-only via IAM grants).
+  user_id: string | null;
   columns: ColumnDef[];
   row_count: number;
 };
@@ -69,20 +72,29 @@ function registerCustomFunctions(a: typeof alasql) {
     if (!d || typeof format !== "string") return null;
     return format.replace(/%[YmdHMSjw%]/g, (token) => {
       switch (token) {
-        case "%Y": return String(d.getFullYear());
-        case "%m": return pad(d.getMonth() + 1);
-        case "%d": return pad(d.getDate());
-        case "%H": return pad(d.getHours());
-        case "%M": return pad(d.getMinutes());
-        case "%S": return pad(d.getSeconds());
+        case "%Y":
+          return String(d.getFullYear());
+        case "%m":
+          return pad(d.getMonth() + 1);
+        case "%d":
+          return pad(d.getDate());
+        case "%H":
+          return pad(d.getHours());
+        case "%M":
+          return pad(d.getMinutes());
+        case "%S":
+          return pad(d.getSeconds());
         case "%j": {
           const start = Date.UTC(d.getFullYear(), 0, 0);
           const diff = Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) - start;
           return pad(Math.floor(diff / 86400000), 3);
         }
-        case "%w": return String(d.getDay());
-        case "%%": return "%";
-        default: return token;
+        case "%w":
+          return String(d.getDay());
+        case "%%":
+          return "%";
+        default:
+          return token;
       }
     });
   };
@@ -103,19 +115,33 @@ function registerCustomFunctions(a: typeof alasql) {
     const y = d.getFullYear();
     const m = d.getMonth();
     switch (unit.toLowerCase()) {
-      case "year": return `${y}-01-01`;
-      case "quarter": return `${y}-${pad(Math.floor(m / 3) * 3 + 1)}-01`;
-      case "month": return `${y}-${pad(m + 1)}-01`;
-      case "day": return `${y}-${pad(m + 1)}-${pad(d.getDate())}`;
-      default: return null;
+      case "year":
+        return `${y}-01-01`;
+      case "quarter":
+        return `${y}-${pad(Math.floor(m / 3) * 3 + 1)}-01`;
+      case "month":
+        return `${y}-${pad(m + 1)}-01`;
+      case "day":
+        return `${y}-${pad(m + 1)}-${pad(d.getDate())}`;
+      default:
+        return null;
     }
   };
   fn.date_trunc = dateTrunc;
   fn.DATE_TRUNC = dateTrunc;
 
-  const year = function (v: unknown) { const d = toDate(v); return d ? d.getFullYear() : null; };
-  const month = function (v: unknown) { const d = toDate(v); return d ? d.getMonth() + 1 : null; };
-  const day = function (v: unknown) { const d = toDate(v); return d ? d.getDate() : null; };
+  const year = function (v: unknown) {
+    const d = toDate(v);
+    return d ? d.getFullYear() : null;
+  };
+  const month = function (v: unknown) {
+    const d = toDate(v);
+    return d ? d.getMonth() + 1 : null;
+  };
+  const day = function (v: unknown) {
+    const d = toDate(v);
+    return d ? d.getDate() : null;
+  };
   fn.year = year;
   fn.YEAR = year;
   fn.month = month;
@@ -222,7 +248,11 @@ export function parseCsv(input: string | File): Promise<ParsedCsv> {
 function registerTable(name: string, rows: Record<string, unknown>[]) {
   const e = getEngine();
   // Drop any existing table with this name so re-uploading replaces it.
-  try { e(`DROP TABLE IF EXISTS \`${name}\``); } catch { /* noop */ }
+  try {
+    e(`DROP TABLE IF EXISTS \`${name}\``);
+  } catch {
+    /* noop */
+  }
   e(`CREATE TABLE \`${name}\``);
   if (rows.length > 0) {
     (e.tables as any)[name].data = rows;
@@ -239,7 +269,7 @@ export function isTableRegistered(name: string): boolean {
 export async function hydrateFromSupabase(): Promise<DatasetMeta[]> {
   const { data: tables, error } = await supabase
     .from("user_data_tables")
-    .select("id, name, source_filename, columns, is_sample")
+    .select("id, name, source_filename, columns, is_sample, user_id")
     .order("created_at", { ascending: false });
   if (error || !tables) return [];
 
@@ -248,7 +278,14 @@ export async function hydrateFromSupabase(): Promise<DatasetMeta[]> {
   const PAGE = 1000;
   const PARALLEL_PAGES = 5;
 
-  async function loadOne(t: { id: string; name: string; source_filename: string | null; columns: unknown; is_sample: boolean }): Promise<DatasetMeta> {
+  async function loadOne(t: {
+    id: string;
+    name: string;
+    source_filename: string | null;
+    columns: unknown;
+    is_sample: boolean;
+    user_id: string | null;
+  }): Promise<DatasetMeta> {
     const cols = (Array.isArray(t.columns) ? t.columns : []) as ColumnDef[];
     const allRows: Record<string, unknown>[] = [];
     let pageIndex = 0;
@@ -264,9 +301,15 @@ export async function hydrateFromSupabase(): Promise<DatasetMeta[]> {
       );
       let stop = false;
       for (const { data: chunk, error: rowErr } of results) {
-        if (rowErr || !chunk || chunk.length === 0) { stop = true; break; }
+        if (rowErr || !chunk || chunk.length === 0) {
+          stop = true;
+          break;
+        }
         allRows.push(...chunk.map((c) => c.row as Record<string, unknown>));
-        if (chunk.length < PAGE) { stop = true; break; }
+        if (chunk.length < PAGE) {
+          stop = true;
+          break;
+        }
       }
       if (stop) break;
       pageIndex += PARALLEL_PAGES;
@@ -277,6 +320,7 @@ export async function hydrateFromSupabase(): Promise<DatasetMeta[]> {
       name: t.name,
       source_filename: t.source_filename,
       is_sample: t.is_sample,
+      user_id: t.user_id,
       columns: cols,
       row_count: allRows.length,
     };
@@ -351,6 +395,7 @@ export async function saveDataset(args: {
     name: safeName,
     source_filename: args.sourceFilename,
     is_sample: false,
+    user_id: args.userId,
     columns: args.columns,
     row_count: args.rows.length,
   };
@@ -359,23 +404,33 @@ export async function saveDataset(args: {
 export async function deleteDataset(tableId: string, tableName: string): Promise<void> {
   await supabase.from("user_data_tables").delete().eq("id", tableId);
   registered.delete(tableName);
-  try { getEngine()(`DROP TABLE IF EXISTS \`${tableName}\``); } catch { /* noop */ }
+  try {
+    getEngine()(`DROP TABLE IF EXISTS \`${tableName}\``);
+  } catch {
+    /* noop */
+  }
 }
 
 // Reject anything that isn't a SELECT or CTE (WITH ... SELECT). No DDL/DML.
 function isReadOnly(sql: string): boolean {
-  const trimmed = sql.replace(/\/\*[\s\S]*?\*\//g, "").replace(/--.*$/gm, "").trim();
+  const trimmed = sql
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/--.*$/gm, "")
+    .trim();
   if (!trimmed) return false;
   const head = trimmed.toUpperCase();
   if (!(head.startsWith("SELECT") || head.startsWith("WITH"))) return false;
   // Crude denylist for stacked statements.
-  const denylist = /\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|ATTACH|DETACH|PRAGMA|TRUNCATE|REPLACE)\b/i;
+  const denylist =
+    /\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|ATTACH|DETACH|PRAGMA|TRUNCATE|REPLACE)\b/i;
   return !denylist.test(trimmed);
 }
 
 export function runQuery(sql: string): QueryResult {
   if (!isReadOnly(sql)) {
-    throw new Error("Only read-only SELECT (or WITH … SELECT) queries are allowed in the playground.");
+    throw new Error(
+      "Only read-only SELECT (or WITH … SELECT) queries are allowed in the playground.",
+    );
   }
   const e = getEngine();
   const t0 = performance.now();

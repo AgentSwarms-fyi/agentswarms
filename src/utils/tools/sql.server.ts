@@ -73,14 +73,15 @@ async function loadUserTables(
   ctx: AgentToolContext,
   allowSet?: Set<string> | null,
 ): Promise<LoadedTable[]> {
+  // No explicit ownership filter: this client runs under the user's JWT, so
+  // RLS returns exactly what they may read — own tables, public samples, and
+  // tables shared with them via IAM grants.
   const { data: tables } = await ctx.sb
     .from("user_data_tables")
-    .select("id, name, columns, user_id, is_sample")
-    .or(`user_id.eq.${ctx.userId},and(is_sample.eq.true,user_id.is.null)`);
+    .select("id, name, columns, user_id, is_sample");
   if (!tables) return [];
-  const filtered = allowSet && allowSet.size > 0
-    ? tables.filter((t) => allowSet.has(t.name))
-    : tables;
+  const filtered =
+    allowSet && allowSet.size > 0 ? tables.filter((t) => allowSet.has(t.name)) : tables;
   const out: LoadedTable[] = [];
   for (const t of filtered) {
     const allRows: Row[] = [];
@@ -164,29 +165,54 @@ function evalExpr(expr: AstNode, row: Row, tableAliases: Record<string, string>)
       return (expr.value || []).map((e: AstNode) => evalExpr(e, row, tableAliases));
     case "binary_expr": {
       const op = String(expr.operator || "").toUpperCase();
-      if (op === "AND") return Boolean(evalExpr(expr.left, row, tableAliases)) && Boolean(evalExpr(expr.right, row, tableAliases));
-      if (op === "OR") return Boolean(evalExpr(expr.left, row, tableAliases)) || Boolean(evalExpr(expr.right, row, tableAliases));
+      if (op === "AND")
+        return (
+          Boolean(evalExpr(expr.left, row, tableAliases)) &&
+          Boolean(evalExpr(expr.right, row, tableAliases))
+        );
+      if (op === "OR")
+        return (
+          Boolean(evalExpr(expr.left, row, tableAliases)) ||
+          Boolean(evalExpr(expr.right, row, tableAliases))
+        );
       const l = evalExpr(expr.left, row, tableAliases);
       const r = evalExpr(expr.right, row, tableAliases);
       switch (op) {
-        case "=": return looseEq(l, r);
+        case "=":
+          return looseEq(l, r);
         case "!=":
-        case "<>": return !looseEq(l, r);
-        case "<": return numCompare(l, r) < 0;
-        case "<=": return numCompare(l, r) <= 0;
-        case ">": return numCompare(l, r) > 0;
-        case ">=": return numCompare(l, r) >= 0;
-        case "+": return Number(l) + Number(r);
-        case "-": return Number(l) - Number(r);
-        case "*": return Number(l) * Number(r);
-        case "/": return Number(l) / Number(r);
-        case "LIKE": return likeMatch(l, r, false);
-        case "NOT LIKE": return !likeMatch(l, r, false);
-        case "ILIKE": return likeMatch(l, r, true);
-        case "IN": return Array.isArray(r) && r.some((v) => looseEq(l, v));
-        case "NOT IN": return Array.isArray(r) && !r.some((v) => looseEq(l, v));
-        case "IS": return r === null ? l === null || l === undefined : looseEq(l, r);
-        case "IS NOT": return r === null ? !(l === null || l === undefined) : !looseEq(l, r);
+        case "<>":
+          return !looseEq(l, r);
+        case "<":
+          return numCompare(l, r) < 0;
+        case "<=":
+          return numCompare(l, r) <= 0;
+        case ">":
+          return numCompare(l, r) > 0;
+        case ">=":
+          return numCompare(l, r) >= 0;
+        case "+":
+          return Number(l) + Number(r);
+        case "-":
+          return Number(l) - Number(r);
+        case "*":
+          return Number(l) * Number(r);
+        case "/":
+          return Number(l) / Number(r);
+        case "LIKE":
+          return likeMatch(l, r, false);
+        case "NOT LIKE":
+          return !likeMatch(l, r, false);
+        case "ILIKE":
+          return likeMatch(l, r, true);
+        case "IN":
+          return Array.isArray(r) && r.some((v) => looseEq(l, v));
+        case "NOT IN":
+          return Array.isArray(r) && !r.some((v) => looseEq(l, v));
+        case "IS":
+          return r === null ? l === null || l === undefined : looseEq(l, r);
+        case "IS NOT":
+          return r === null ? !(l === null || l === undefined) : !looseEq(l, r);
         case "BETWEEN": {
           if (Array.isArray(r) && r.length === 2) {
             return numCompare(l, r[0]) >= 0 && numCompare(l, r[1]) <= 0;
@@ -233,16 +259,19 @@ function looseEq(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (a == null || b == null) return a == b;
   if (typeof a === "number" || typeof b === "number") {
-    const na = Number(a), nb = Number(b);
+    const na = Number(a),
+      nb = Number(b);
     if (!Number.isNaN(na) && !Number.isNaN(nb)) return na === nb;
   }
   return String(a) === String(b);
 }
 
 function numCompare(a: unknown, b: unknown): number {
-  const na = Number(a), nb = Number(b);
+  const na = Number(a),
+    nb = Number(b);
   if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
-  const sa = String(a ?? ""), sb = String(b ?? "");
+  const sa = String(a ?? ""),
+    sb = String(b ?? "");
   return sa < sb ? -1 : sa > sb ? 1 : 0;
 }
 
@@ -258,11 +287,17 @@ function likeMatch(value: unknown, pattern: unknown, ci: boolean): boolean {
 
 function aggregate(name: string, values: unknown[]): unknown {
   const op = name.toUpperCase();
-  const nums = values.filter((v) => v !== null && v !== undefined && v !== "").map((v) => Number(v)).filter((n) => !Number.isNaN(n));
+  const nums = values
+    .filter((v) => v !== null && v !== undefined && v !== "")
+    .map((v) => Number(v))
+    .filter((n) => !Number.isNaN(n));
   switch (op) {
-    case "COUNT": return values.filter((v) => v !== null && v !== undefined).length;
-    case "SUM": return nums.reduce((a, b) => a + b, 0);
-    case "AVG": return nums.length === 0 ? null : nums.reduce((a, b) => a + b, 0) / nums.length;
+    case "COUNT":
+      return values.filter((v) => v !== null && v !== undefined).length;
+    case "SUM":
+      return nums.reduce((a, b) => a + b, 0);
+    case "AVG":
+      return nums.length === 0 ? null : nums.reduce((a, b) => a + b, 0) / nums.length;
     case "MIN":
       if (nums.length > 0) return Math.min(...nums);
       return values.filter((v) => v != null).sort((a, b) => numCompare(a, b))[0] ?? null;
@@ -284,7 +319,8 @@ function projectionLabel(item: AstNode, idx: number): string {
   }
   if (e.type === "aggr_func") {
     const argCol = e.args?.expr?.column;
-    const colName = typeof argCol === "string" ? argCol : (argCol?.expr?.value ?? argCol?.value ?? "*");
+    const colName =
+      typeof argCol === "string" ? argCol : (argCol?.expr?.value ?? argCol?.value ?? "*");
     return `${e.name}(${colName})`;
   }
   if (e.type === "function") {
@@ -301,7 +337,11 @@ function isAggrExpr(expr: AstNode): boolean {
   return false;
 }
 
-function executeAggrOnGroup(expr: AstNode, group: Row[], tableAliases: Record<string, string>): unknown {
+function executeAggrOnGroup(
+  expr: AstNode,
+  group: Row[],
+  tableAliases: Record<string, string>,
+): unknown {
   if (expr.type === "aggr_func") {
     const name = String(expr.name).toUpperCase();
     const arg = expr.args?.expr;
@@ -315,11 +355,16 @@ function executeAggrOnGroup(expr: AstNode, group: Row[], tableAliases: Record<st
     const l = executeAggrOnGroup(expr.left, group, tableAliases) as number;
     const r = executeAggrOnGroup(expr.right, group, tableAliases) as number;
     switch (expr.operator) {
-      case "+": return Number(l) + Number(r);
-      case "-": return Number(l) - Number(r);
-      case "*": return Number(l) * Number(r);
-      case "/": return Number(l) / Number(r);
-      default: return null;
+      case "+":
+        return Number(l) + Number(r);
+      case "-":
+        return Number(l) - Number(r);
+      case "*":
+        return Number(l) * Number(r);
+      case "/":
+        return Number(l) / Number(r);
+      default:
+        return null;
     }
   }
   // Non-aggregate inside a grouped projection: evaluate against first row
@@ -351,13 +396,16 @@ function resolveOrderValue(
 ): unknown {
   const resolvedExpr = resolveSelectOrdinalExpr(expr, columns);
   if (resolvedExpr?.type === "column_ref") {
-    const column = typeof resolvedExpr.column === "string"
-      ? resolvedExpr.column
-      : (resolvedExpr.column?.expr?.value ?? resolvedExpr.column?.value ?? "");
+    const column =
+      typeof resolvedExpr.column === "string"
+        ? resolvedExpr.column
+        : (resolvedExpr.column?.expr?.value ?? resolvedExpr.column?.value ?? "");
     if (column && column in row) return row[column];
   }
 
-  const matchedIndex = columns.findIndex((column) => JSON.stringify(column.expr ?? null) === JSON.stringify(resolvedExpr ?? null));
+  const matchedIndex = columns.findIndex(
+    (column) => JSON.stringify(column.expr ?? null) === JSON.stringify(resolvedExpr ?? null),
+  );
   if (matchedIndex >= 0) {
     const matchedLabel = projectionLabel(columns[matchedIndex], matchedIndex);
     if (matchedLabel in row) return row[matchedLabel];
@@ -406,8 +454,12 @@ function executeSelect(ast: AstNode, tablesByName: Map<string, LoadedTable>): Ro
   }
 
   // ----- SELECT items -----
-  const columns: AstNode[] = ast.columns === "*" ? [{ expr: { type: "column_ref", column: "*" }, as: null }] : ast.columns;
-  const isStar = columns.length === 1 && columns[0].expr?.type === "column_ref" && columns[0].expr?.column === "*";
+  const columns: AstNode[] =
+    ast.columns === "*" ? [{ expr: { type: "column_ref", column: "*" }, as: null }] : ast.columns;
+  const isStar =
+    columns.length === 1 &&
+    columns[0].expr?.type === "column_ref" &&
+    columns[0].expr?.column === "*";
   const hasAggr = columns.some((c) => isAggrExpr(c.expr));
   const groupBy: AstNode[] = normalizeGroupBy(ast.groupby, columns);
 
@@ -422,7 +474,10 @@ function executeSelect(ast: AstNode, tablesByName: Map<string, LoadedTable>): Ro
       for (const r of rows) {
         const key = groupBy.map((g) => JSON.stringify(evalExpr(g, r, tableAliases))).join("\u0001");
         let bucket = groups.get(key);
-        if (!bucket) { bucket = []; groups.set(key, bucket); }
+        if (!bucket) {
+          bucket = [];
+          groups.set(key, bucket);
+        }
         bucket.push(r);
       }
     }
@@ -470,7 +525,10 @@ function executeSelect(ast: AstNode, tablesByName: Map<string, LoadedTable>): Ro
     const v = ast.limit.value;
     if (Array.isArray(v) && v.length > 0) {
       if (v.length === 1) count = Number(v[0].value);
-      else { offset = Number(v[0].value); count = Number(v[1].value); }
+      else {
+        offset = Number(v[0].value);
+        count = Number(v[1].value);
+      }
     }
     resultRows = resultRows.slice(offset, offset + count);
   }

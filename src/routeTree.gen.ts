@@ -79,6 +79,7 @@ import { Route as AuthenticatedTemplatesTemplateIdRouteImport } from './routes/_
 import { Route as AuthenticatedNotebooksNotebookIdRouteImport } from './routes/_authenticated/notebooks.$notebookId'
 import { Route as AuthenticatedCertificationExamRouteImport } from './routes/_authenticated/certification.exam'
 import { Route as AuthenticatedAnalyticsObservabilityRouteImport } from './routes/_authenticated/analytics_.observability'
+import { Route as AuthenticatedAdminIamRouteImport } from './routes/_authenticated/admin.iam'
 import { Route as AuthenticatedAdminAnalyticsRouteImport } from './routes/_authenticated/admin.analytics'
 import { Route as ApiPublicHooksRefreshModelRegistryRouteImport } from './routes/api/public/hooks/refresh-model-registry'
 import { Route as ApiPublicHooksGenerateExamSetRouteImport } from './routes/api/public/hooks/generate-exam-set'
@@ -448,6 +449,11 @@ const AuthenticatedAnalyticsObservabilityRoute =
     path: '/analytics/observability',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
+const AuthenticatedAdminIamRoute = AuthenticatedAdminIamRouteImport.update({
+  id: '/admin/iam',
+  path: '/admin/iam',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 const AuthenticatedAdminAnalyticsRoute =
   AuthenticatedAdminAnalyticsRouteImport.update({
     id: '/admin/analytics',
@@ -545,6 +551,7 @@ export interface FileRoutesByFullPath {
   '/verify/$code': typeof VerifyCodeRoute
   '/docs/': typeof DocsIndexRoute
   '/admin/analytics': typeof AuthenticatedAdminAnalyticsRoute
+  '/admin/iam': typeof AuthenticatedAdminIamRoute
   '/analytics/observability': typeof AuthenticatedAnalyticsObservabilityRouteWithChildren
   '/certification/exam': typeof AuthenticatedCertificationExamRoute
   '/notebooks/$notebookId': typeof AuthenticatedNotebooksNotebookIdRoute
@@ -620,6 +627,7 @@ export interface FileRoutesByTo {
   '/verify/$code': typeof VerifyCodeRoute
   '/docs': typeof DocsIndexRoute
   '/admin/analytics': typeof AuthenticatedAdminAnalyticsRoute
+  '/admin/iam': typeof AuthenticatedAdminIamRoute
   '/analytics/observability': typeof AuthenticatedAnalyticsObservabilityRouteWithChildren
   '/certification/exam': typeof AuthenticatedCertificationExamRoute
   '/notebooks/$notebookId': typeof AuthenticatedNotebooksNotebookIdRoute
@@ -700,6 +708,7 @@ export interface FileRoutesById {
   '/verify/$code': typeof VerifyCodeRoute
   '/docs/': typeof DocsIndexRoute
   '/_authenticated/admin/analytics': typeof AuthenticatedAdminAnalyticsRoute
+  '/_authenticated/admin/iam': typeof AuthenticatedAdminIamRoute
   '/_authenticated/analytics_/observability': typeof AuthenticatedAnalyticsObservabilityRouteWithChildren
   '/_authenticated/certification/exam': typeof AuthenticatedCertificationExamRoute
   '/_authenticated/notebooks/$notebookId': typeof AuthenticatedNotebooksNotebookIdRoute
@@ -780,6 +789,7 @@ export interface FileRouteTypes {
     | '/verify/$code'
     | '/docs/'
     | '/admin/analytics'
+    | '/admin/iam'
     | '/analytics/observability'
     | '/certification/exam'
     | '/notebooks/$notebookId'
@@ -855,6 +865,7 @@ export interface FileRouteTypes {
     | '/verify/$code'
     | '/docs'
     | '/admin/analytics'
+    | '/admin/iam'
     | '/analytics/observability'
     | '/certification/exam'
     | '/notebooks/$notebookId'
@@ -934,6 +945,7 @@ export interface FileRouteTypes {
     | '/verify/$code'
     | '/docs/'
     | '/_authenticated/admin/analytics'
+    | '/_authenticated/admin/iam'
     | '/_authenticated/analytics_/observability'
     | '/_authenticated/certification/exam'
     | '/_authenticated/notebooks/$notebookId'
@@ -1489,6 +1501,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAnalyticsObservabilityRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/admin/iam': {
+      id: '/_authenticated/admin/iam'
+      path: '/admin/iam'
+      fullPath: '/admin/iam'
+      preLoaderRoute: typeof AuthenticatedAdminIamRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/admin/analytics': {
       id: '/_authenticated/admin/analytics'
       path: '/admin/analytics'
@@ -1611,6 +1630,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedSwarmsRoute: typeof AuthenticatedSwarmsRoute
   AuthenticatedTracesRoute: typeof AuthenticatedTracesRoute
   AuthenticatedAdminAnalyticsRoute: typeof AuthenticatedAdminAnalyticsRoute
+  AuthenticatedAdminIamRoute: typeof AuthenticatedAdminIamRoute
   AuthenticatedAnalyticsObservabilityRoute: typeof AuthenticatedAnalyticsObservabilityRouteWithChildren
   AuthenticatedTemplatesTemplateIdRoute: typeof AuthenticatedTemplatesTemplateIdRoute
   AuthenticatedTemplatesIndexRoute: typeof AuthenticatedTemplatesIndexRoute
@@ -1638,6 +1658,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedSwarmsRoute: AuthenticatedSwarmsRoute,
   AuthenticatedTracesRoute: AuthenticatedTracesRoute,
   AuthenticatedAdminAnalyticsRoute: AuthenticatedAdminAnalyticsRoute,
+  AuthenticatedAdminIamRoute: AuthenticatedAdminIamRoute,
   AuthenticatedAnalyticsObservabilityRoute:
     AuthenticatedAnalyticsObservabilityRouteWithChildren,
   AuthenticatedTemplatesTemplateIdRoute: AuthenticatedTemplatesTemplateIdRoute,

@@ -685,6 +685,140 @@ export type Database = {
         };
         Relationships: [];
       };
+      iam_group_members: {
+        Row: {
+          added_by: string | null;
+          created_at: string;
+          group_id: string;
+          id: string;
+          user_id: string;
+        };
+        Insert: {
+          added_by?: string | null;
+          created_at?: string;
+          group_id: string;
+          id?: string;
+          user_id: string;
+        };
+        Update: {
+          added_by?: string | null;
+          created_at?: string;
+          group_id?: string;
+          id?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "iam_group_members_group_id_fkey";
+            columns: ["group_id"];
+            isOneToOne: false;
+            referencedRelation: "iam_groups";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      iam_groups: {
+        Row: {
+          created_at: string;
+          created_by: string | null;
+          description: string | null;
+          id: string;
+          name: string;
+        };
+        Insert: {
+          created_at?: string;
+          created_by?: string | null;
+          description?: string | null;
+          id?: string;
+          name: string;
+        };
+        Update: {
+          created_at?: string;
+          created_by?: string | null;
+          description?: string | null;
+          id?: string;
+          name?: string;
+        };
+        Relationships: [];
+      };
+      iam_model_rules: {
+        Row: {
+          created_at: string;
+          created_by: string | null;
+          id: string;
+          model_pattern: string;
+          principal_id: string;
+          principal_type: string;
+          provider: string;
+        };
+        Insert: {
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+          model_pattern?: string;
+          principal_id: string;
+          principal_type: string;
+          provider: string;
+        };
+        Update: {
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+          model_pattern?: string;
+          principal_id?: string;
+          principal_type?: string;
+          provider?: string;
+        };
+        Relationships: [];
+      };
+      iam_resource_grants: {
+        Row: {
+          created_at: string;
+          created_by: string | null;
+          id: string;
+          principal_id: string;
+          principal_type: string;
+          resource_id: string;
+          resource_type: string;
+        };
+        Insert: {
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+          principal_id: string;
+          principal_type: string;
+          resource_id: string;
+          resource_type: string;
+        };
+        Update: {
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+          principal_id?: string;
+          principal_type?: string;
+          resource_id?: string;
+          resource_type?: string;
+        };
+        Relationships: [];
+      };
+      iam_settings: {
+        Row: {
+          allow_public_signup: boolean;
+          id: boolean;
+          updated_at: string;
+        };
+        Insert: {
+          allow_public_signup?: boolean;
+          id?: boolean;
+          updated_at?: string;
+        };
+        Update: {
+          allow_public_signup?: boolean;
+          id?: boolean;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       integrations: {
         Row: {
           config: Json;
@@ -1846,6 +1980,30 @@ export type Database = {
           tags?: string[];
           title?: string;
           updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      user_roles: {
+        Row: {
+          created_at: string;
+          created_by: string | null;
+          id: string;
+          role: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+          role: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+          role?: string;
           user_id?: string;
         };
         Relationships: [];

@@ -451,7 +451,9 @@ function PlaygroundPage() {
         let errMsg = `Request failed (${resp.status})`;
         try {
           const j = JSON.parse(errText);
-          if (j?.error) errMsg = j.error;
+          // Prefer the human-readable message (e.g. IAM model_not_allowed).
+          if (j?.message) errMsg = j.message;
+          else if (j?.error) errMsg = j.error;
         } catch {
           /* ignore */
         }

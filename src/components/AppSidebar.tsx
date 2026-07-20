@@ -25,7 +25,6 @@ import {
   NotebookPen,
 } from "lucide-react";
 
-const ADMIN_EMAIL = import.meta.env.VITE_ADMIN_EMAIL?.toLowerCase();
 import { Link, useLocation } from "@tanstack/react-router";
 import agentSwarmsLogo from "@/assets/agentswarms-logo.jpg";
 import {
@@ -43,6 +42,7 @@ import {
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
+import { useIsSuperadmin } from "@/hooks/use-iam";
 
 const buildItems = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
@@ -84,6 +84,7 @@ export function AppSidebar() {
   const collapsed = state === "collapsed";
   const location = useLocation();
   const { signOut, user } = useAuth();
+  const isSuperadmin = useIsSuperadmin();
 
   const isActive = (path: string) => location.pathname === path;
 
@@ -137,9 +138,10 @@ export function AppSidebar() {
         {renderGroup("Integrations", integrationItems)}
         {renderGroup("Learn & Certify", learnItems)}
         {renderGroup("Observability", opsItems)}
-        {(user?.email ?? "").toLowerCase() === ADMIN_EMAIL &&
+        {isSuperadmin &&
           renderGroup("Admin", [
             { title: "Admin Analytics", url: "/admin/analytics", icon: ShieldCheck },
+            { title: "IAM", url: "/admin/iam", icon: ShieldCheck },
           ])}
       </SidebarContent>
 
