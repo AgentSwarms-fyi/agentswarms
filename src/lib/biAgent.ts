@@ -18,6 +18,8 @@ export type ColumnMeta = {
   description?: string;
   alias?: string;
   unit?: string;
+  /** Semantic tag from the data-prep builder: location, category, currency… */
+  semantic_type?: string;
 };
 
 export type SemanticEntry = {
@@ -148,6 +150,7 @@ function describeSchema(
 
 function describeColumn(c: ColumnDef, meta?: ColumnMeta): string {
   const parts = [c.name, c.type];
+  if (meta?.semantic_type) parts.push(`semantic=${meta.semantic_type}`);
   if (meta?.alias) parts.push(`alias="${meta.alias}"`);
   if (meta?.unit) parts.push(`unit=${meta.unit}`);
   if (meta?.description) parts.push(`-- ${meta.description}`);

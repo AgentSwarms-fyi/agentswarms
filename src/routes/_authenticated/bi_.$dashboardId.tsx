@@ -71,6 +71,7 @@ import {
   type BiWidgetSource,
 } from "@/lib/biDashboards";
 import { exportDashboardPdf } from "@/lib/biPdf";
+import { listPrepFlows } from "@/lib/dataPrep";
 import { fetchWarehouseSchema, runWarehouseQuery } from "@/lib/warehouseClient";
 import { hydrateFromSupabase, runQuery, type DatasetMeta, type QueryResult } from "@/lib/sqlEngine";
 import { listWarehouseConnections } from "@/utils/warehouse.functions";
@@ -103,6 +104,7 @@ function BiProjectPage() {
   const [whTables, setWhTables] = useState<Record<string, WarehouseTable[] | "loading" | "error">>(
     {},
   );
+  const [preparedTables, setPreparedTables] = useState<Set<string>>(new Set());
   const listWarehousesFn = useServerFn(listWarehouseConnections);
 
   // Builder pane + dialogs
@@ -152,6 +154,13 @@ function BiProjectPage() {
       } catch (e) {
         toast.error(`Could not load local datasets: ${(e as Error).message}`);
       }
+      listPrepFlows()
+        .then((fs) =>
+          setPreparedTables(
+            new Set(fs.map((f) => f.output_table_name).filter((n): n is string => Boolean(n))),
+          ),
+        )
+        .catch(() => {});
     })();
   }, [isOwner, user?.id]);
 
@@ -195,6 +204,7 @@ function BiProjectPage() {
     () => ({
       userId: user?.id ?? null,
       datasets,
+      preparedTables,
       semantics,
       metrics,
       warehouses,
@@ -202,7 +212,17 @@ function BiProjectPage() {
       ensureSchema,
       runSql,
     }),
-    [user?.id, datasets, semantics, metrics, warehouses, whTables, ensureSchema, runSql],
+    [
+      user?.id,
+      datasets,
+      preparedTables,
+      semantics,
+      metrics,
+      warehouses,
+      whTables,
+      ensureSchema,
+      runSql,
+    ],
   );
 
   // ── Persistence (debounced autosave) ────────────────────────────────

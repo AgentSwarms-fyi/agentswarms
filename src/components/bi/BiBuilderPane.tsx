@@ -449,6 +449,11 @@ export function BiBuilderPane({
                       <Label className="flex cursor-pointer items-center gap-2 py-0.5 font-mono text-[11px] font-normal">
                         <Checkbox checked={checked} onCheckedChange={() => toggleTable(t.name)} />
                         <span className="truncate">{t.name}</span>
+                        {ctx.preparedTables?.has(t.name) && (
+                          <Badge variant="secondary" className="shrink-0 px-1 text-[9px]">
+                            prep
+                          </Badge>
+                        )}
                       </Label>
                       {checked && (
                         <p

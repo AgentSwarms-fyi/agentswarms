@@ -9,6 +9,8 @@ import type { WarehouseConnectionSummary, WarehouseTable } from "@/utils/warehou
 export type BiDataContext = {
   userId: string | null;
   datasets: DatasetMeta[];
+  /** Names of datasets produced by data-prep flows (badged in pickers). */
+  preparedTables?: Set<string>;
   semantics: Map<string, SemanticEntry>;
   metrics: SavedMetric[];
   warehouses: WarehouseConnectionSummary[];

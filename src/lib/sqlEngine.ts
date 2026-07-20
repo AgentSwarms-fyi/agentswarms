@@ -450,6 +450,27 @@ export function runQuery(sql: string): QueryResult {
   };
 }
 
+// Read-only execution WITHOUT the playground row cap — used by the data-prep
+// builder to materialise a full result before saving it as a dataset. The
+// caller supplies its own cap to guard against runaway joins.
+export function runQueryUnlimited(
+  sql: string,
+  maxRows: number,
+): { columns: string[]; rows: Record<string, unknown>[]; total: number; capped: boolean } {
+  if (!isReadOnly(sql)) {
+    throw new Error("Only read-only SELECT (or WITH … SELECT) queries are allowed.");
+  }
+  const result = getEngine()(sql) as Record<string, unknown>[];
+  const capped = result.length > maxRows;
+  const rows = capped ? result.slice(0, maxRows) : result;
+  return {
+    columns: rows.length > 0 ? Object.keys(rows[0]) : [],
+    rows,
+    total: result.length,
+    capped,
+  };
+}
+
 // Convert a query result to CSV text for the Export button.
 export function resultToCsv(result: QueryResult): string {
   if (result.columns.length === 0) return "";

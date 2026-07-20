@@ -2038,6 +2038,42 @@ export type Database = {
         };
         Relationships: [];
       };
+      user_prep_flows: {
+        Row: {
+          config: Json;
+          created_at: string;
+          id: string;
+          last_run_at: string | null;
+          name: string;
+          output_table_id: string | null;
+          output_table_name: string | null;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          config?: Json;
+          created_at?: string;
+          id?: string;
+          last_run_at?: string | null;
+          name: string;
+          output_table_id?: string | null;
+          output_table_name?: string | null;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          config?: Json;
+          created_at?: string;
+          id?: string;
+          last_run_at?: string | null;
+          name?: string;
+          output_table_id?: string | null;
+          output_table_name?: string | null;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       user_prompts: {
         Row: {
           category: string;

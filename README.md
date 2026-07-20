@@ -145,6 +145,18 @@ and reports. An editable dashboard is called a **BI project**:
   capped **data snapshot** in the dashboard.
 - **Export PDF** — one click renders the dashboard (layout preserved) into a
   downloadable A4 PDF report, entirely client-side.
+- **Data preparation** — a visual prep studio (BI Workspace → Data
+  preparation): drag tables onto the canvas to build a join pipeline (left /
+  inner / right / full outer, join keys auto-detected from matching column
+  names, colliding columns auto-aliased), rename columns and set their types
+  — Text, Integer, Decimal, Date, Boolean, **Location**, Category, Currency,
+  Percentage, Identifier — with un-convertible values nulled and counted.
+  The result preview updates live at the bottom. **Run &amp; save**
+  materialises the result as a local dataset (joinable again, chartable,
+  visible to the AI analyst and SQL agents, semantic types recorded in the
+  semantic layer) and the flow itself is saved for re-editing and re-running.
+  External warehouse tables can be pulled in as capped snapshots to join
+  against local data.
 - **Publish & share** — publishing exposes a read-only page at
   `/share/bi/<unguessable-slug>` for anyone with the link; group sharing
   (owner-controlled, or superadmin via Admin → IAM) makes the dashboard
