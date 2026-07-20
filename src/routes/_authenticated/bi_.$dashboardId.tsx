@@ -44,6 +44,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { AskDashboardDialog } from "@/components/bi/AskDashboardDialog";
 import { BiBuilderPane, type BuilderTab } from "@/components/bi/BiBuilderPane";
+import { BiFilterBar } from "@/components/bi/BiFilterBar";
 import { useBiModelPref } from "@/components/bi/BiModelSelect";
 import { BiWidgetCard } from "@/components/bi/BiWidgetCard";
 import { DashboardGrid } from "@/components/bi/DashboardGrid";
@@ -61,13 +62,18 @@ import {
 import {
   addWidgetToLayout,
   compactLayout,
+  filterWidgetRows,
   getDashboard,
+  parseFilters,
   parseLayout,
   parseWidgets,
   pushDown,
   snapshotRows,
   updateDashboard,
+  type BiCrossFilter,
   type BiDashboardRow,
+  type BiFilterConfig,
+  type BiFilterState,
   type BiLayoutItem,
   type BiWidget,
   type BiWidgetSource,
@@ -122,6 +128,11 @@ function BiProjectPage() {
   const [biModel, setBiModel] = useBiModelPref();
   const gridWrapRef = useRef<HTMLDivElement>(null);
 
+  // Dashboard filters: definitions persist, selections are runtime-only.
+  const [filterConfigs, setFilterConfigs] = useState<BiFilterConfig[]>([]);
+  const [filterState, setFilterState] = useState<BiFilterState>({});
+  const [crossFilter, setCrossFilter] = useState<BiCrossFilter>(null);
+
   const isOwner = row !== null && row !== "missing" && row.user_id === user?.id;
   const readOnly = !isOwner;
 
@@ -135,6 +146,7 @@ function BiProjectPage() {
         const w = parseWidgets(r.widgets);
         setWidgets(w);
         setLayout(parseLayout(r.layout, w));
+        setFilterConfigs(parseFilters(r.filters));
       })
       .catch((e) => {
         toast.error((e as Error).message);
@@ -255,6 +267,18 @@ function BiProjectPage() {
     },
     [dashboardId, readOnly],
   );
+
+  function persistFilterConfigs(next: BiFilterConfig[]) {
+    setFilterConfigs(next);
+    if (readOnly) return;
+    setSaveState("saving");
+    updateDashboard(dashboardId, { filters: next as unknown as Json })
+      .then(() => setSaveState("saved"))
+      .catch((e) => {
+        setSaveState("error");
+        toast.error(`Save failed: ${(e as Error).message}`);
+      });
+  }
 
   async function saveName() {
     if (row === null || row === "missing" || readOnly) return;
@@ -416,7 +440,20 @@ function BiProjectPage() {
     );
   }
 
-  const widgetById = new Map(widgets.map((w) => [w.id, w]));
+  // Widgets with dashboard filters + the cross-filter applied to snapshots.
+  const widgetById = new Map(
+    widgets.map((w) => [
+      w.id,
+      w.kind === "chart" && (w.rows?.length ?? 0) > 0
+        ? { ...w, rows: filterWidgetRows(w, filterConfigs, filterState, crossFilter) }
+        : w,
+    ]),
+  );
+
+  const handleElementClick = (widgetId: string) => (column: string, value: string) =>
+    setCrossFilter((prev) =>
+      prev && prev.column === column && prev.value === value ? null : { widgetId, column, value },
+    );
 
   return (
     <div className="flex h-full flex-col">
@@ -580,6 +617,16 @@ function BiProjectPage() {
             backgroundSize: "22px 22px",
           }}
         >
+          <BiFilterBar
+            configs={filterConfigs}
+            widgets={widgets}
+            state={filterState}
+            onStateChange={setFilterState}
+            cross={crossFilter}
+            onClearCross={() => setCrossFilter(null)}
+            editable={!readOnly}
+            onConfigsChange={persistFilterConfigs}
+          />
           <div ref={gridWrapRef}>
             <DashboardGrid
               layout={layout}
@@ -615,6 +662,7 @@ function BiProjectPage() {
                 return (
                   <BiWidgetCard
                     widget={w}
+                    onElementClick={handleElementClick(id)}
                     actions={
                       readOnly ? undefined : (
                         <DropdownMenu>

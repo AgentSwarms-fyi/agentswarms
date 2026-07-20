@@ -7,9 +7,17 @@ import { useServerFn } from "@tanstack/react-start";
 import { BarChart3, Clock } from "lucide-react";
 
 import { Skeleton } from "@/components/ui/skeleton";
+import { BiFilterBar } from "@/components/bi/BiFilterBar";
 import { BiWidgetCard } from "@/components/bi/BiWidgetCard";
 import { DashboardGrid } from "@/components/bi/DashboardGrid";
-import { parseLayout, parseWidgets } from "@/lib/biDashboards";
+import {
+  filterWidgetRows,
+  parseFilters,
+  parseLayout,
+  parseWidgets,
+  type BiCrossFilter,
+  type BiFilterState,
+} from "@/lib/biDashboards";
 import { biGetPublicDashboard, type PublicDashboard } from "@/utils/bi.functions";
 
 export const Route = createFileRoute("/share/bi/$slug")({
@@ -24,6 +32,8 @@ function PublicBiDashboardPage() {
   const fetchFn = useServerFn(biGetPublicDashboard);
   const [dashboard, setDashboard] = useState<PublicDashboard | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [filterState, setFilterState] = useState<BiFilterState>({});
+  const [cross, setCross] = useState<BiCrossFilter>(null);
 
   useEffect(() => {
     fetchFn({ data: { slug } }).then((res) => {
@@ -61,7 +71,15 @@ function PublicBiDashboardPage() {
 
   const widgets = parseWidgets(dashboard.widgets);
   const layout = parseLayout(dashboard.layout, widgets);
-  const widgetById = new Map(widgets.map((w) => [w.id, w]));
+  const filterConfigs = parseFilters(dashboard.filters);
+  const widgetById = new Map(
+    widgets.map((w) => [
+      w.id,
+      w.kind === "chart" && (w.rows?.length ?? 0) > 0
+        ? { ...w, rows: filterWidgetRows(w, filterConfigs, filterState, cross) }
+        : w,
+    ]),
+  );
 
   return (
     <div className="min-h-screen bg-muted/30">
@@ -92,6 +110,14 @@ function PublicBiDashboardPage() {
           backgroundSize: "22px 22px",
         }}
       >
+        <BiFilterBar
+          configs={filterConfigs}
+          widgets={widgets}
+          state={filterState}
+          onStateChange={setFilterState}
+          cross={cross}
+          onClearCross={() => setCross(null)}
+        />
         <DashboardGrid
           layout={layout}
           editable={false}
@@ -102,7 +128,18 @@ function PublicBiDashboardPage() {
           }
           renderItem={(id) => {
             const w = widgetById.get(id);
-            return w ? <BiWidgetCard widget={w} /> : null;
+            return w ? (
+              <BiWidgetCard
+                widget={w}
+                onElementClick={(column, value) =>
+                  setCross((prev) =>
+                    prev && prev.column === column && prev.value === value
+                      ? null
+                      : { widgetId: id, column, value },
+                  )
+                }
+              />
+            ) : null;
           }}
         />
       </main>

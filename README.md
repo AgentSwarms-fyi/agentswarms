@@ -136,9 +136,16 @@ and reports. An editable dashboard is called a **BI project**:
   **scatter**, pie/donut, **funnel**, **treemap**, **heatmap**,
   **box &amp; whisker**, **waterfall**, KPI card (with target comparison),
   **gauge**, **matrix (pivot) table**, **filled map** and **bubble map**
-  (country-level, fully offline — no tile servers), and table. Widgets live
-  on a 12-column drag-and-resize grid, with markdown text blocks for report
-  narrative.
+  (country-level, fully offline — no tile servers), and table. Column, line
+  and area charts support **multi-series** (split by a category column —
+  grouped or stacked), and every numeric visual takes a **value format**
+  (currency / percent). Widgets live on a 12-column drag-and-resize grid,
+  with markdown text blocks for report narrative.
+- **Filters &amp; cross-filtering** — add dashboard filters (value slicers
+  and date ranges) that apply to every widget containing that column, and
+  **click any bar or pie slice to cross-filter** the rest of the dashboard.
+  Both work on the stored snapshots — in the editor, the shared read-only
+  view and the public link — and PDF export captures the filtered view.
 - **Generate visuals with AI** — the same GenBI analyst as the Data & SQL
   page (plan → SQL → execute → chart → narrative) lives in the pane's **AI
   analyst** tab; insert any answer as a widget. On `/data-sql`, every

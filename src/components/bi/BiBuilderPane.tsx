@@ -152,6 +152,9 @@ export function BiBuilderPane({
   const [locationField, setLocationField] = useState("");
   const [targetField, setTargetField] = useState("");
   const [maxInput, setMaxInput] = useState("");
+  const [seriesField, setSeriesField] = useState("");
+  const [stacked, setStacked] = useState(false);
+  const [numFormat, setNumFormat] = useState<"auto" | "currency" | "percent">("auto");
   const [preview, setPreview] = useState<QueryResult | null>(null);
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
@@ -185,6 +188,9 @@ export function BiBuilderPane({
       setLocationField("locationField" in c ? c.locationField : "");
       setTargetField("targetField" in c ? (c.targetField ?? "") : "");
       setMaxInput(c.type === "gauge" && c.max !== undefined ? String(c.max) : "");
+      setSeriesField("seriesField" in c ? (c.seriesField ?? "") : "");
+      setStacked(c.type === "bar" ? Boolean(c.stacked) : false);
+      setNumFormat(c.format ?? "auto");
       setPreview(
         initial.rows && initial.columns
           ? {
@@ -215,6 +221,9 @@ export function BiBuilderPane({
       setLocationField("");
       setTargetField("");
       setMaxInput("");
+      setSeriesField("");
+      setStacked(false);
+      setNumFormat("auto");
       setPreview(null);
     }
     setSelectedTables([]);
@@ -311,56 +320,77 @@ export function BiBuilderPane({
   }
 
   const chartSpec: ChartSpec | null = useMemo(() => {
-    switch (chartType) {
-      case "table":
-        return { type: "table" };
-      case "kpi":
-        return valueField
-          ? {
-              type: "kpi",
-              valueField,
-              label: kpiLabel || undefined,
-              targetField: targetField || undefined,
-            }
-          : null;
-      case "gauge": {
-        const max = maxInput.trim() ? Number(maxInput) : undefined;
-        return valueField
-          ? {
-              type: "gauge",
-              valueField,
-              label: kpiLabel || undefined,
-              targetField: targetField || undefined,
-              max: max !== undefined && Number.isFinite(max) ? max : undefined,
-            }
-          : null;
+    const format = numFormat === "auto" ? undefined : numFormat;
+    const spec = ((): ChartSpec | null => {
+      switch (chartType) {
+        case "table":
+          return { type: "table" };
+        case "kpi":
+          return valueField
+            ? {
+                type: "kpi",
+                valueField,
+                label: kpiLabel || undefined,
+                targetField: targetField || undefined,
+              }
+            : null;
+        case "gauge": {
+          const max = maxInput.trim() ? Number(maxInput) : undefined;
+          return valueField
+            ? {
+                type: "gauge",
+                valueField,
+                label: kpiLabel || undefined,
+                targetField: targetField || undefined,
+                max: max !== undefined && Number.isFinite(max) ? max : undefined,
+              }
+            : null;
+        }
+        case "pie":
+        case "funnel":
+        case "treemap":
+          return nameField && valueField ? { type: chartType, nameField, valueField } : null;
+        case "combo":
+          return xField && yField && lineField
+            ? { type: "combo", xField, barField: yField, lineField }
+            : null;
+        case "scatter":
+          return xField && yField
+            ? { type: "scatter", xField, yField, sizeField: sizeField || undefined }
+            : null;
+        case "heatmap":
+          return xField && yField && valueField
+            ? { type: "heatmap", xField, yField, valueField }
+            : null;
+        case "matrix":
+          return rowField && colField && valueField
+            ? { type: "matrix", rowField, colField, valueField }
+            : null;
+        case "map":
+        case "bubblemap":
+          return locationField && valueField
+            ? { type: chartType, locationField, valueField }
+            : null;
+        case "bar":
+          return xField && yField
+            ? {
+                type: "bar",
+                xField,
+                yField,
+                seriesField: seriesField || undefined,
+                stacked: seriesField && stacked ? true : undefined,
+              }
+            : null;
+        case "line":
+        case "area":
+          return xField && yField
+            ? { type: chartType, xField, yField, seriesField: seriesField || undefined }
+            : null;
+        default:
+          return xField && yField ? { type: chartType, xField, yField } : null;
       }
-      case "pie":
-      case "funnel":
-      case "treemap":
-        return nameField && valueField ? { type: chartType, nameField, valueField } : null;
-      case "combo":
-        return xField && yField && lineField
-          ? { type: "combo", xField, barField: yField, lineField }
-          : null;
-      case "scatter":
-        return xField && yField
-          ? { type: "scatter", xField, yField, sizeField: sizeField || undefined }
-          : null;
-      case "heatmap":
-        return xField && yField && valueField
-          ? { type: "heatmap", xField, yField, valueField }
-          : null;
-      case "matrix":
-        return rowField && colField && valueField
-          ? { type: "matrix", rowField, colField, valueField }
-          : null;
-      case "map":
-      case "bubblemap":
-        return locationField && valueField ? { type: chartType, locationField, valueField } : null;
-      default:
-        return xField && yField ? { type: chartType, xField, yField } : null;
-    }
+    })();
+    return spec ? { ...spec, format } : null;
   }, [
     chartType,
     xField,
@@ -375,6 +405,9 @@ export function BiBuilderPane({
     locationField,
     targetField,
     maxInput,
+    seriesField,
+    stacked,
+    numFormat,
   ]);
 
   const canSubmit = Boolean(title.trim() && sql.trim() && preview && chartSpec);
@@ -491,6 +524,30 @@ export function BiBuilderPane({
               {c}
             </SelectItem>
           ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+
+  const formatSelect = (
+    <div className="space-y-1">
+      <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        Value format
+      </Label>
+      <Select value={numFormat} onValueChange={(v) => setNumFormat(v as typeof numFormat)}>
+        <SelectTrigger className="h-8 text-xs">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="auto" className="text-xs">
+            Auto (1.2k)
+          </SelectItem>
+          <SelectItem value="currency" className="text-xs">
+            Currency ($1.2k)
+          </SelectItem>
+          <SelectItem value="percent" className="text-xs">
+            Percent (12%)
+          </SelectItem>
         </SelectContent>
       </Select>
     </div>
@@ -692,6 +749,19 @@ export function BiBuilderPane({
                     <>
                       {fieldSelect(chartType === "hbar" ? "Category" : "X axis", xField, setXField)}
                       {fieldSelect("Value (numeric)", yField, setYField)}
+                      {chartType !== "hbar" &&
+                        optionalFieldSelect("Split by series", seriesField, setSeriesField)}
+                      {chartType === "bar" && seriesField && (
+                        <div className="flex items-end pb-1.5">
+                          <Label className="flex cursor-pointer items-center gap-2 text-xs font-normal normal-case tracking-normal text-foreground">
+                            <Checkbox
+                              checked={stacked}
+                              onCheckedChange={(v) => setStacked(Boolean(v))}
+                            />
+                            Stacked bars
+                          </Label>
+                        </div>
+                      )}
                     </>
                   )}
                   {chartType === "waterfall" && (
@@ -750,6 +820,15 @@ export function BiBuilderPane({
                       {fieldSelect("Value (numeric)", valueField, setValueField)}
                     </>
                   )}
+                  {chartType !== "table" &&
+                    chartType !== "heatmap" &&
+                    chartType !== "boxplot" &&
+                    chartType !== "matrix" &&
+                    chartType !== "map" &&
+                    chartType !== "bubblemap" &&
+                    chartType !== "kpi" &&
+                    chartType !== "gauge" &&
+                    formatSelect}
                   {(chartType === "kpi" || chartType === "gauge") && (
                     <>
                       {fieldSelect("Value column", valueField, setValueField)}
@@ -779,6 +858,7 @@ export function BiBuilderPane({
                           placeholder="Total revenue"
                         />
                       </div>
+                      {formatSelect}
                     </>
                   )}
                 </div>

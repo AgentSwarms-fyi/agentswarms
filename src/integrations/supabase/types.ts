@@ -276,6 +276,7 @@ export type Database = {
           ai_model: string | null;
           created_at: string;
           description: string | null;
+          filters: Json;
           id: string;
           layout: Json;
           name: string;
@@ -290,6 +291,7 @@ export type Database = {
           ai_model?: string | null;
           created_at?: string;
           description?: string | null;
+          filters?: Json;
           id?: string;
           layout?: Json;
           name: string;
@@ -304,6 +306,7 @@ export type Database = {
           ai_model?: string | null;
           created_at?: string;
           description?: string | null;
+          filters?: Json;
           id?: string;
           layout?: Json;
           name?: string;

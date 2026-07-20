@@ -42,10 +42,13 @@ export type SavedMetric = {
   example_question: string | null;
 };
 
-export type ChartSpec =
+/** Value formatting applied to a chart's numeric output. */
+export type BiNumberFormat = "currency" | "percent";
+
+export type ChartSpec = { format?: BiNumberFormat } & (
   | { type: "table" }
   | { type: "kpi"; valueField: string; label?: string; targetField?: string }
-  | { type: "bar"; xField: string; yField: string; seriesField?: string }
+  | { type: "bar"; xField: string; yField: string; seriesField?: string; stacked?: boolean }
   | { type: "hbar"; xField: string; yField: string }
   | { type: "line"; xField: string; yField: string; seriesField?: string }
   | { type: "area"; xField: string; yField: string; seriesField?: string }
@@ -60,7 +63,8 @@ export type ChartSpec =
   | { type: "boxplot"; xField: string; yField: string }
   | { type: "matrix"; rowField: string; colField: string; valueField: string }
   | { type: "map"; locationField: string; valueField: string }
-  | { type: "bubblemap"; locationField: string; valueField: string };
+  | { type: "bubblemap"; locationField: string; valueField: string }
+);
 
 export type BiPlan = {
   intent: string;
@@ -238,7 +242,9 @@ export async function suggestChart(args: {
     systemPrompt:
       "You pick the best chart for a SQL result. Output JSON only. " +
       "Allowed types and their required fields:\n" +
-      "- 'bar','line','area': { xField, yField } — bar for categorical comparison, line/area for time series\n" +
+      "- 'bar','line','area': { xField, yField, seriesField? } — bar for categorical comparison, " +
+      "line/area for time series; set seriesField to a second categorical column when the data " +
+      "should be split into multiple series (e.g. revenue by month per region)\n" +
       "- 'pie': { nameField, valueField } — part-of-whole, ≤8 rows\n" +
       "- 'kpi': { valueField, label? } — single-value results only\n" +
       "- 'scatter': { xField, yField } — two numeric columns, correlation questions\n" +

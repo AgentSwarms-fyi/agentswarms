@@ -3,7 +3,10 @@
 //
 // Styling follows the conventions of professional BI tools: no axis lines,
 // horizontal-only gridlines, soft tooltips, gradient area fills and a
-// restrained categorical palette.
+// restrained categorical palette. Bar/line/area support multi-series via
+// `seriesField` (long → wide pivot, palette-coloured, optional stacking),
+// numeric output honours the spec's `format` (currency / percent), and
+// bar/pie/hbar elements are clickable for dashboard cross-filtering.
 import { useId } from "react";
 import {
   Area,
@@ -32,7 +35,7 @@ import {
 } from "recharts";
 import { BoxPlot, GaugeChart, HeatmapGrid, MatrixTable } from "@/components/bi/BiChartParts";
 import { BiGeoMap } from "@/components/bi/BiGeoMap";
-import type { ChartSpec } from "@/lib/biAgent";
+import type { BiNumberFormat, ChartSpec } from "@/lib/biAgent";
 
 /** Tableau-style categorical palette — calm, print-safe, colorblind-aware. */
 export const PIE_COLORS = [
@@ -46,6 +49,8 @@ export const PIE_COLORS = [
   "#9DA79E",
 ];
 
+const MAX_SERIES = 12;
+
 export function fmtBiNumber(v: unknown): string {
   if (typeof v !== "number" || !Number.isFinite(v)) return String(v ?? "");
   const abs = Math.abs(v);
@@ -56,11 +61,53 @@ export function fmtBiNumber(v: unknown): string {
   return v.toFixed(2);
 }
 
+/** fmtBiNumber plus the chart's value format (currency / percent). */
+export function fmtBiValue(v: unknown, format?: BiNumberFormat): string {
+  if (typeof v !== "number" || !Number.isFinite(v)) return fmtBiNumber(v);
+  if (format === "currency") {
+    return v < 0 ? `-$${fmtBiNumber(Math.abs(v))}` : `$${fmtBiNumber(v)}`;
+  }
+  if (format === "percent") return `${fmtBiNumber(v)}%`;
+  return fmtBiNumber(v);
+}
+
+/**
+ * Pivot long-format rows (x, series, value) into recharts' wide format:
+ * one object per x with a numeric key per series (values summed).
+ */
+export function pivotSeries(
+  rows: Record<string, unknown>[],
+  xField: string,
+  yField: string,
+  seriesField: string,
+): { data: Record<string, unknown>[]; series: string[] } {
+  const series: string[] = [];
+  const byX = new Map<string, Record<string, unknown>>();
+  const xOrder: string[] = [];
+  for (const r of rows) {
+    const s = String(r[seriesField] ?? "—");
+    if (!series.includes(s)) {
+      if (series.length >= MAX_SERIES) continue;
+      series.push(s);
+    }
+    const xKey = String(r[xField]);
+    if (!byX.has(xKey)) {
+      byX.set(xKey, { [xField]: r[xField] });
+      xOrder.push(xKey);
+    }
+    const entry = byX.get(xKey)!;
+    const v = Number(r[yField]);
+    entry[s] = (Number(entry[s]) || 0) + (Number.isFinite(v) ? v : 0);
+  }
+  return { data: xOrder.map((x) => byX.get(x)!), series };
+}
+
 export function BiChartRender({
   chart,
   rows,
   large = false,
   fill = false,
+  onElementClick,
 }: {
   chart: ChartSpec;
   rows: Record<string, unknown>[];
@@ -68,6 +115,8 @@ export function BiChartRender({
   large?: boolean;
   /** Fill the parent's height (dashboard widgets). Parent needs a real height. */
   fill?: boolean;
+  /** Cross-filtering: called when a bar / slice is clicked. */
+  onElementClick?: (column: string, value: string) => void;
 }) {
   const gradientId = useId();
   const heightClass = fill ? "h-full" : large ? "h-[60vh]" : "h-56";
@@ -89,6 +138,9 @@ export function BiChartRender({
   const axisStroke = "var(--muted-foreground)";
   const primaryStroke = "var(--primary)";
   const tick = { fontSize: tickSize, fill: axisStroke } as const;
+  const fmt = (v: unknown) => fmtBiValue(v, chart.format);
+  const tooltipFmt = (v: unknown) => fmt(v);
+  const clickable = Boolean(onElementClick);
 
   if (chart.type === "kpi") {
     const v = rows[0]?.[chart.valueField];
@@ -117,7 +169,7 @@ export function BiChartRender({
             large ? "text-7xl" : fill ? "text-5xl" : "text-3xl"
           }`}
         >
-          {fmtBiNumber(v)}
+          {fmt(v)}
         </span>
         {deltaPct !== undefined && (
           <span
@@ -127,8 +179,7 @@ export function BiChartRender({
                 : "text-red-600 dark:text-red-400"
             }`}
           >
-            {deltaPct >= 0 ? "▲" : "▼"} {Math.abs(deltaPct).toFixed(1)}% vs target (
-            {fmtBiNumber(target)})
+            {deltaPct >= 0 ? "▲" : "▼"} {Math.abs(deltaPct).toFixed(1)}% vs target ({fmt(target)})
           </span>
         )}
       </div>
@@ -144,6 +195,7 @@ export function BiChartRender({
         target={target !== undefined && Number.isFinite(target) ? target : undefined}
         max={chart.max}
         label={chart.label || chart.valueField}
+        format={chart.format}
       />
     );
   }
@@ -186,30 +238,118 @@ export function BiChartRender({
   }
 
   if (chart.type === "bar") {
+    const pivoted = chart.seriesField
+      ? pivotSeries(rows, chart.xField, chart.yField, chart.seriesField)
+      : null;
+    const handleClick = onElementClick
+      ? (data: { payload?: Record<string, unknown> } | Record<string, unknown>) => {
+          const payload =
+            (data as { payload?: Record<string, unknown> }).payload ??
+            (data as Record<string, unknown>);
+          const v = payload?.[chart.xField];
+          if (v !== undefined) onElementClick(chart.xField, String(v));
+        }
+      : undefined;
     return (
       <div className={`${heightClass} w-full`}>
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={rows} margin={{ top: 12, right: 12, left: 0, bottom: 4 }}>
+          <BarChart
+            data={pivoted ? pivoted.data : rows}
+            margin={{ top: 12, right: 12, left: 0, bottom: 4 }}
+          >
             <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
             <XAxis dataKey={chart.xField} tick={tick} axisLine={false} tickLine={false} />
-            <YAxis
+            <YAxis tick={tick} axisLine={false} tickLine={false} tickFormatter={fmt} width={48} />
+            <Tooltip
+              contentStyle={tooltipStyle}
+              labelStyle={labelStyle}
+              itemStyle={labelStyle}
+              formatter={tooltipFmt}
+              cursor={{ fill: "var(--accent)", opacity: 0.35 }}
+            />
+            {pivoted ? (
+              <>
+                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: labelSize }} />
+                {pivoted.series.map((s, i) => (
+                  <Bar
+                    key={s}
+                    dataKey={s}
+                    fill={PIE_COLORS[i % PIE_COLORS.length]}
+                    stackId={chart.stacked ? "stack" : undefined}
+                    radius={
+                      chart.stacked
+                        ? i === pivoted.series.length - 1
+                          ? [5, 5, 0, 0]
+                          : [0, 0, 0, 0]
+                        : [5, 5, 0, 0]
+                    }
+                    maxBarSize={44}
+                    onClick={handleClick}
+                    cursor={clickable ? "pointer" : undefined}
+                  />
+                ))}
+              </>
+            ) : (
+              <Bar
+                dataKey={chart.yField}
+                fill={primaryStroke}
+                radius={[5, 5, 0, 0]}
+                maxBarSize={44}
+                onClick={handleClick}
+                cursor={clickable ? "pointer" : undefined}
+              />
+            )}
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    );
+  }
+
+  if (chart.type === "hbar") {
+    const handleClick = onElementClick
+      ? (data: { payload?: Record<string, unknown> }) => {
+          const v = data?.payload?.[chart.xField];
+          if (v !== undefined) onElementClick(chart.xField, String(v));
+        }
+      : undefined;
+    return (
+      <div className={`${heightClass} w-full`}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart
+            data={rows}
+            layout="vertical"
+            margin={{ top: 8, right: 16, left: 8, bottom: 4 }}
+          >
+            <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} horizontal={false} />
+            <XAxis
+              type="number"
               tick={tick}
               axisLine={false}
               tickLine={false}
-              tickFormatter={fmtBiNumber}
-              width={44}
+              tickFormatter={fmt}
+            />
+            <YAxis
+              type="category"
+              dataKey={chart.xField}
+              tick={tick}
+              axisLine={false}
+              tickLine={false}
+              width={96}
             />
             <Tooltip
               contentStyle={tooltipStyle}
               labelStyle={labelStyle}
               itemStyle={labelStyle}
+              formatter={tooltipFmt}
               cursor={{ fill: "var(--accent)", opacity: 0.35 }}
             />
             <Bar
               dataKey={chart.yField}
               fill={primaryStroke}
-              radius={[5, 5, 0, 0]}
-              maxBarSize={44}
+              radius={[0, 5, 5, 0]}
+              maxBarSize={22}
+              onClick={handleClick}
+              cursor={clickable ? "pointer" : undefined}
             />
           </BarChart>
         </ResponsiveContainer>
@@ -218,28 +358,50 @@ export function BiChartRender({
   }
 
   if (chart.type === "line") {
+    const pivoted = chart.seriesField
+      ? pivotSeries(rows, chart.xField, chart.yField, chart.seriesField)
+      : null;
     return (
       <div className={`${heightClass} w-full`}>
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={rows} margin={{ top: 12, right: 12, left: 0, bottom: 4 }}>
+          <LineChart
+            data={pivoted ? pivoted.data : rows}
+            margin={{ top: 12, right: 12, left: 0, bottom: 4 }}
+          >
             <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
             <XAxis dataKey={chart.xField} tick={tick} axisLine={false} tickLine={false} />
-            <YAxis
-              tick={tick}
-              axisLine={false}
-              tickLine={false}
-              tickFormatter={fmtBiNumber}
-              width={44}
+            <YAxis tick={tick} axisLine={false} tickLine={false} tickFormatter={fmt} width={48} />
+            <Tooltip
+              contentStyle={tooltipStyle}
+              labelStyle={labelStyle}
+              itemStyle={labelStyle}
+              formatter={tooltipFmt}
             />
-            <Tooltip contentStyle={tooltipStyle} labelStyle={labelStyle} itemStyle={labelStyle} />
-            <Line
-              type="monotone"
-              dataKey={chart.yField}
-              stroke={primaryStroke}
-              strokeWidth={2.5}
-              dot={false}
-              activeDot={{ r: 4, strokeWidth: 0 }}
-            />
+            {pivoted ? (
+              <>
+                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: labelSize }} />
+                {pivoted.series.map((s, i) => (
+                  <Line
+                    key={s}
+                    type="monotone"
+                    dataKey={s}
+                    stroke={PIE_COLORS[i % PIE_COLORS.length]}
+                    strokeWidth={2.25}
+                    dot={false}
+                    activeDot={{ r: 4, strokeWidth: 0 }}
+                  />
+                ))}
+              </>
+            ) : (
+              <Line
+                type="monotone"
+                dataKey={chart.yField}
+                stroke={primaryStroke}
+                strokeWidth={2.5}
+                dot={false}
+                activeDot={{ r: 4, strokeWidth: 0 }}
+              />
+            )}
           </LineChart>
         </ResponsiveContainer>
       </div>
@@ -247,10 +409,16 @@ export function BiChartRender({
   }
 
   if (chart.type === "area") {
+    const pivoted = chart.seriesField
+      ? pivotSeries(rows, chart.xField, chart.yField, chart.seriesField)
+      : null;
     return (
       <div className={`${heightClass} w-full`}>
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={rows} margin={{ top: 12, right: 12, left: 0, bottom: 4 }}>
+          <AreaChart
+            data={pivoted ? pivoted.data : rows}
+            margin={{ top: 12, right: 12, left: 0, bottom: 4 }}
+          >
             <defs>
               <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor={primaryStroke} stopOpacity={0.28} />
@@ -259,21 +427,38 @@ export function BiChartRender({
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
             <XAxis dataKey={chart.xField} tick={tick} axisLine={false} tickLine={false} />
-            <YAxis
-              tick={tick}
-              axisLine={false}
-              tickLine={false}
-              tickFormatter={fmtBiNumber}
-              width={44}
+            <YAxis tick={tick} axisLine={false} tickLine={false} tickFormatter={fmt} width={48} />
+            <Tooltip
+              contentStyle={tooltipStyle}
+              labelStyle={labelStyle}
+              itemStyle={labelStyle}
+              formatter={tooltipFmt}
             />
-            <Tooltip contentStyle={tooltipStyle} labelStyle={labelStyle} itemStyle={labelStyle} />
-            <Area
-              type="monotone"
-              dataKey={chart.yField}
-              stroke={primaryStroke}
-              strokeWidth={2.5}
-              fill={`url(#${gradientId})`}
-            />
+            {pivoted ? (
+              <>
+                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: labelSize }} />
+                {pivoted.series.map((s, i) => (
+                  <Area
+                    key={s}
+                    type="monotone"
+                    dataKey={s}
+                    stackId="stack"
+                    stroke={PIE_COLORS[i % PIE_COLORS.length]}
+                    strokeWidth={1.75}
+                    fill={PIE_COLORS[i % PIE_COLORS.length]}
+                    fillOpacity={0.25}
+                  />
+                ))}
+              </>
+            ) : (
+              <Area
+                type="monotone"
+                dataKey={chart.yField}
+                stroke={primaryStroke}
+                strokeWidth={2.5}
+                fill={`url(#${gradientId})`}
+              />
+            )}
           </AreaChart>
         </ResponsiveContainer>
       </div>
@@ -297,60 +482,31 @@ export function BiChartRender({
               stroke="var(--card)"
               strokeWidth={2}
             >
-              {rows.map((_, i) => (
-                <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+              {rows.map((r, i) => (
+                <Cell
+                  key={i}
+                  fill={PIE_COLORS[i % PIE_COLORS.length]}
+                  cursor={clickable ? "pointer" : undefined}
+                  onClick={
+                    onElementClick
+                      ? () => onElementClick(chart.nameField, String(r[chart.nameField]))
+                      : undefined
+                  }
+                />
               ))}
             </Pie>
-            <Tooltip contentStyle={tooltipStyle} labelStyle={labelStyle} itemStyle={labelStyle} />
+            <Tooltip
+              contentStyle={tooltipStyle}
+              labelStyle={labelStyle}
+              itemStyle={labelStyle}
+              formatter={tooltipFmt}
+            />
             <Legend
               iconType="circle"
               iconSize={8}
               wrapperStyle={{ fontSize: labelSize, color: axisStroke }}
             />
           </PieChart>
-        </ResponsiveContainer>
-      </div>
-    );
-  }
-
-  if (chart.type === "hbar") {
-    return (
-      <div className={`${heightClass} w-full`}>
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart
-            data={rows}
-            layout="vertical"
-            margin={{ top: 8, right: 16, left: 8, bottom: 4 }}
-          >
-            <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} horizontal={false} />
-            <XAxis
-              type="number"
-              tick={tick}
-              axisLine={false}
-              tickLine={false}
-              tickFormatter={fmtBiNumber}
-            />
-            <YAxis
-              type="category"
-              dataKey={chart.xField}
-              tick={tick}
-              axisLine={false}
-              tickLine={false}
-              width={96}
-            />
-            <Tooltip
-              contentStyle={tooltipStyle}
-              labelStyle={labelStyle}
-              itemStyle={labelStyle}
-              cursor={{ fill: "var(--accent)", opacity: 0.35 }}
-            />
-            <Bar
-              dataKey={chart.yField}
-              fill={primaryStroke}
-              radius={[0, 5, 5, 0]}
-              maxBarSize={22}
-            />
-          </BarChart>
         </ResponsiveContainer>
       </div>
     );
@@ -368,8 +524,8 @@ export function BiChartRender({
               tick={tick}
               axisLine={false}
               tickLine={false}
-              tickFormatter={fmtBiNumber}
-              width={44}
+              tickFormatter={fmt}
+              width={48}
             />
             <YAxis
               yAxisId="right"
@@ -380,7 +536,12 @@ export function BiChartRender({
               tickFormatter={fmtBiNumber}
               width={44}
             />
-            <Tooltip contentStyle={tooltipStyle} labelStyle={labelStyle} itemStyle={labelStyle} />
+            <Tooltip
+              contentStyle={tooltipStyle}
+              labelStyle={labelStyle}
+              itemStyle={labelStyle}
+              formatter={tooltipFmt}
+            />
             <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: labelSize }} />
             <Bar
               yAxisId="left"
@@ -426,8 +587,8 @@ export function BiChartRender({
               tick={tick}
               axisLine={false}
               tickLine={false}
-              tickFormatter={fmtBiNumber}
-              width={44}
+              tickFormatter={fmt}
+              width={48}
             />
             {chart.sizeField && (
               <ZAxis dataKey={chart.sizeField} name={chart.sizeField} range={[36, 420]} />
@@ -450,7 +611,12 @@ export function BiChartRender({
       <div className={`${heightClass} w-full`}>
         <ResponsiveContainer width="100%" height="100%">
           <FunnelChart margin={{ top: 8, right: 96, left: 8, bottom: 8 }}>
-            <Tooltip contentStyle={tooltipStyle} labelStyle={labelStyle} itemStyle={labelStyle} />
+            <Tooltip
+              contentStyle={tooltipStyle}
+              labelStyle={labelStyle}
+              itemStyle={labelStyle}
+              formatter={tooltipFmt}
+            />
             <Funnel dataKey={chart.valueField} nameKey={chart.nameField} data={rows}>
               {rows.map((_, i) => (
                 <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
@@ -483,13 +649,7 @@ export function BiChartRender({
           <ComposedChart data={wf} margin={{ top: 12, right: 12, left: 0, bottom: 4 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
             <XAxis dataKey="name" tick={tick} axisLine={false} tickLine={false} />
-            <YAxis
-              tick={tick}
-              axisLine={false}
-              tickLine={false}
-              tickFormatter={fmtBiNumber}
-              width={44}
-            />
+            <YAxis tick={tick} axisLine={false} tickLine={false} tickFormatter={fmt} width={48} />
             <Tooltip
               contentStyle={tooltipStyle}
               labelStyle={labelStyle}
@@ -498,7 +658,7 @@ export function BiChartRender({
                 const p = entry?.payload as { value: number; cum: number } | undefined;
                 if (!p) return ["", ""];
                 return [
-                  `${p.value >= 0 ? "+" : ""}${fmtBiNumber(p.value)} (running ${fmtBiNumber(p.cum)})`,
+                  `${p.value >= 0 ? "+" : ""}${fmt(p.value)} (running ${fmt(p.cum)})`,
                   "change",
                 ];
               }}
@@ -537,7 +697,7 @@ export function BiChartRender({
               contentStyle={tooltipStyle}
               labelStyle={labelStyle}
               itemStyle={labelStyle}
-              formatter={(v: number) => [fmtBiNumber(v), ""]}
+              formatter={(v: number) => [fmt(v), ""]}
             />
           </Treemap>
         </ResponsiveContainer>

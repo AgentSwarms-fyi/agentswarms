@@ -44,9 +44,111 @@ export type BiDashboardRow = {
   published_at: string | null;
   /** Reader AI model (OpenRouter id); null = server default. */
   ai_model: string | null;
+  /** Owner-defined dashboard filter definitions (BiFilterConfig[]). */
+  filters: Json;
   created_at: string;
   updated_at: string;
 };
+
+// ── Dashboard filters & cross-filtering ────────────────────────────────
+//
+// Filter DEFINITIONS are persisted on the dashboard; SELECTIONS are runtime
+// state. Both apply purely client-side to widget snapshots: a widget is
+// affected only when it actually contains the filter's column (standard BI
+// semantics), so unrelated widgets stay untouched.
+
+export type BiFilterKind = "select" | "daterange";
+
+export type BiFilterConfig = {
+  id: string;
+  label: string;
+  column: string;
+  kind: BiFilterKind;
+};
+
+/** Runtime selections, keyed by filter id. */
+export type BiFilterState = Record<string, { values?: string[]; from?: string; to?: string }>;
+
+/** Click-to-filter: set by clicking a bar/slice; excludes its own widget. */
+export type BiCrossFilter = { widgetId: string; column: string; value: string } | null;
+
+export function parseFilters(v: Json): BiFilterConfig[] {
+  if (!Array.isArray(v)) return [];
+  return (v as unknown[]).filter(
+    (f): f is BiFilterConfig =>
+      !!f &&
+      typeof f === "object" &&
+      typeof (f as BiFilterConfig).id === "string" &&
+      typeof (f as BiFilterConfig).column === "string" &&
+      ((f as BiFilterConfig).kind === "select" || (f as BiFilterConfig).kind === "daterange"),
+  );
+}
+
+/** Normalise any value to a comparable YYYY-MM-DD string (or null). */
+export function toIsoDay(v: unknown): string | null {
+  if (v === null || v === undefined || v === "") return null;
+  const s = String(v).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return null;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** Distinct values a "select" filter can offer, unioned across widgets. */
+export function filterOptions(column: string, widgets: BiWidget[], cap = 100): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const w of widgets) {
+    if (w.kind !== "chart" || !w.columns?.includes(column)) continue;
+    for (const row of w.rows ?? []) {
+      const v = row[column];
+      if (v === null || v === undefined) continue;
+      const s = String(v);
+      if (!seen.has(s)) {
+        seen.add(s);
+        out.push(s);
+        if (out.length >= cap) return out.sort();
+      }
+    }
+  }
+  return out.sort();
+}
+
+/** Apply dashboard filters + the cross-filter to one widget's snapshot. */
+export function filterWidgetRows(
+  widget: BiWidget,
+  configs: BiFilterConfig[],
+  state: BiFilterState,
+  cross: BiCrossFilter,
+): Record<string, unknown>[] {
+  let rows = widget.rows ?? [];
+  if (widget.kind !== "chart" || rows.length === 0) return rows;
+  const cols = new Set(widget.columns ?? []);
+
+  for (const cfg of configs) {
+    if (!cols.has(cfg.column)) continue;
+    const st = state[cfg.id];
+    if (!st) continue;
+    if (cfg.kind === "select" && st.values && st.values.length > 0) {
+      const wanted = new Set(st.values);
+      rows = rows.filter((r) => wanted.has(String(r[cfg.column])));
+    } else if (cfg.kind === "daterange" && (st.from || st.to)) {
+      rows = rows.filter((r) => {
+        const day = toIsoDay(r[cfg.column]);
+        if (!day) return false;
+        if (st.from && day < st.from) return false;
+        if (st.to && day > st.to) return false;
+        return true;
+      });
+    }
+  }
+
+  if (cross && cross.widgetId !== widget.id && cols.has(cross.column)) {
+    rows = rows.filter((r) => String(r[cross.column]) === cross.value);
+  }
+  return rows;
+}
 
 // ── Layout math (pure, shared by editor + viewer) ────────────────────────
 
@@ -227,6 +329,7 @@ export async function updateDashboard(
     description: string | null;
     widgets: Json;
     layout: Json;
+    filters: Json;
     published: boolean;
     public_slug: string | null;
     published_at: string | null;

@@ -62,10 +62,13 @@ function WidgetDataTable({
 export function BiWidgetCard({
   widget,
   actions,
+  onElementClick,
 }: {
   widget: BiWidget;
   /** Extra header controls (edit/remove menu) injected by the editor. */
   actions?: React.ReactNode;
+  /** Cross-filtering: bar/slice clicks bubble up as (column, value). */
+  onElementClick?: (column: string, value: string) => void;
 }) {
   const isText = widget.kind === "text";
   const chart = widget.chart ?? { type: "table" as const };
@@ -99,7 +102,7 @@ export function BiWidgetCard({
         ) : chart.type === "table" ? (
           <WidgetDataTable columns={columns} rows={rows} />
         ) : (
-          <BiChartRender chart={chart} rows={rows} fill />
+          <BiChartRender chart={chart} rows={rows} fill onElementClick={onElementClick} />
         )}
       </div>
     </div>
