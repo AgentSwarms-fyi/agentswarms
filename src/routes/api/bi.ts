@@ -10,6 +10,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createClient } from "@supabase/supabase-js";
 import { recordGatewayCall, extractUsage } from "@/utils/observability/recordGatewayUsage.server";
+import { getEffectiveModelRules, isModelAllowed } from "@/utils/iam.server";
 import {
   OPENROUTER_CHAT_URL,
   getOpenRouterApiKey,
@@ -83,6 +84,19 @@ export const Route = createFileRoute("/api/bi")({
         const startedAt = Date.now();
         const model = body.model || DEFAULT_MODEL;
         const surface = surfaceFor(body.stage);
+
+        // IAM model governance: same gate as /api/chat. BI calls route
+        // through OpenRouter, so rules match against provider "openrouter".
+        const rules = await getEffectiveModelRules(
+          userClient as unknown as Parameters<typeof getEffectiveModelRules>[0],
+          user.id,
+        );
+        if (rules && !isModelAllowed(rules, "openrouter", model)) {
+          return json(
+            { error: `Your administrator has not allowed the model openrouter/${model}.` },
+            403,
+          );
+        }
 
         const r = await fetch(OPENROUTER_CHAT_URL, {
           method: "POST",

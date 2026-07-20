@@ -11,6 +11,9 @@ export type BiDataContext = {
   datasets: DatasetMeta[];
   /** Names of datasets produced by data-prep flows (badged in pickers). */
   preparedTables?: Set<string>;
+  /** Preferred text model for generative features (null = server default). */
+  model?: string | null;
+  onModelChange?: (model: string | null) => void;
   semantics: Map<string, SemanticEntry>;
   metrics: SavedMetric[];
   warehouses: WarehouseConnectionSummary[];

@@ -273,6 +273,7 @@ export type Database = {
       };
       bi_dashboards: {
         Row: {
+          ai_model: string | null;
           created_at: string;
           description: string | null;
           id: string;
@@ -286,6 +287,7 @@ export type Database = {
           widgets: Json;
         };
         Insert: {
+          ai_model?: string | null;
           created_at?: string;
           description?: string | null;
           id?: string;
@@ -299,6 +301,7 @@ export type Database = {
           widgets?: Json;
         };
         Update: {
+          ai_model?: string | null;
           created_at?: string;
           description?: string | null;
           id?: string;

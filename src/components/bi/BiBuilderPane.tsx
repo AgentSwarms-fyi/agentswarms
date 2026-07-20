@@ -48,6 +48,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { BiChatMessage } from "@/components/data-sql/BiChatMessage";
 import { BiChartRender, fmtBiNumber } from "@/components/bi/BiChartRender";
+import { BiModelSelect } from "@/components/bi/BiModelSelect";
 import { keyFromSource, sourceFromKey, type BiDataContext } from "@/components/bi/biDataContext";
 import { cn } from "@/lib/utils";
 import { runBiTurn, type BiTurn, type ChartSpec } from "@/lib/biAgent";
@@ -430,6 +431,7 @@ export function BiBuilderPane({
           ? (generated) => ctx.runSql(sourceFromKey(activeWarehouse.id, ctx.warehouses), generated)
           : undefined,
         dialect: activeWarehouse ? WAREHOUSE_LABELS[activeWarehouse.provider] : undefined,
+        model: ctx.model ?? undefined,
         onUpdate: (turn) => {
           setTurns((prev) => {
             const copy = [...prev];
@@ -851,6 +853,18 @@ export function BiBuilderPane({
         <div className="flex min-h-0 flex-1 flex-col">
           <div className="space-y-2 p-3 pb-2">
             {sourceSelect}
+            {ctx.onModelChange && (
+              <div className="space-y-1.5">
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  AI model
+                </Label>
+                <BiModelSelect
+                  value={ctx.model ?? null}
+                  onChange={ctx.onModelChange}
+                  className="w-full"
+                />
+              </div>
+            )}
             {schemaLoading && (
               <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
                 <Loader2 className="h-3 w-3 animate-spin" /> loading schema…

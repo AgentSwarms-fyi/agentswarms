@@ -42,6 +42,8 @@ export type BiDashboardRow = {
   published: boolean;
   public_slug: string | null;
   published_at: string | null;
+  /** Reader AI model (OpenRouter id); null = server default. */
+  ai_model: string | null;
   created_at: string;
   updated_at: string;
 };

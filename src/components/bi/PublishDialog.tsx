@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { Check, Copy, Globe, Loader2, Users } from "lucide-react";
+import { Check, Copy, Cpu, Globe, Loader2, Users } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,13 +18,19 @@ import {
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
+import { BiModelSelect } from "@/components/bi/BiModelSelect";
 import {
   makePublicSlug,
   publicDashboardUrl,
   updateDashboard,
   type BiDashboardRow,
 } from "@/lib/biDashboards";
-import { biGetShares, biListShareTargets, biSetShares } from "@/utils/bi.functions";
+import {
+  biGetShares,
+  biListShareTargets,
+  biSetReaderModel,
+  biSetShares,
+} from "@/utils/bi.functions";
 
 export function PublishDialog({
   open,
@@ -42,13 +48,30 @@ export function PublishDialog({
   const listTargetsFn = useServerFn(biListShareTargets);
   const getSharesFn = useServerFn(biGetShares);
   const setSharesFn = useServerFn(biSetShares);
+  const setModelFn = useServerFn(biSetReaderModel);
 
   const [groups, setGroups] = useState<{ id: string; name: string }[] | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [userGrants, setUserGrants] = useState(0);
   const [busyPublish, setBusyPublish] = useState(false);
   const [busyShares, setBusyShares] = useState(false);
+  const [busyModel, setBusyModel] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  async function saveReaderModel(model: string | null) {
+    if (!accessToken) return;
+    setBusyModel(true);
+    try {
+      const res = await setModelFn({
+        data: { access_token: accessToken, dashboard_id: dashboard.id, model },
+      });
+      if (!res.ok) return toast.error(res.error);
+      onUpdated({ ai_model: model });
+      toast.success(model ? "Reader AI model set" : "Reader AI model reset to default");
+    } finally {
+      setBusyModel(false);
+    }
+  }
 
   useEffect(() => {
     if (!open || !accessToken) return;
@@ -160,6 +183,28 @@ export function PublishDialog({
                 </Button>
               </div>
             )}
+          </div>
+
+          <div className="rounded-lg border border-border/60 p-3">
+            <div className="mb-2 flex items-center gap-2">
+              <Cpu className="h-4 w-4 text-primary" />
+              <div>
+                <p className="text-sm font-medium">Reader AI model</p>
+                <p className="text-xs text-muted-foreground">
+                  Signed-in viewers use this text model to ask AI questions about the dashboard's
+                  data. Shared groups must be allowed this model under IAM.
+                </p>
+              </div>
+            </div>
+            <BiModelSelect
+              value={dashboard.ai_model}
+              onChange={(m) => void saveReaderModel(m)}
+              disabled={busyModel}
+              className="w-full"
+            />
+            <p className="mt-2 text-[10px] text-muted-foreground">
+              The anonymous public link shows data only — AI Q&amp;A is for signed-in viewers.
+            </p>
           </div>
 
           <div className="rounded-lg border border-border/60 p-3">

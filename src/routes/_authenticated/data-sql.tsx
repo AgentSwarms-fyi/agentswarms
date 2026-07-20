@@ -90,6 +90,7 @@ import {
 } from "@/lib/biAgent";
 import { BiChatMessage } from "@/components/data-sql/BiChatMessage";
 import { AddToDashboardDialog } from "@/components/bi/AddToDashboardDialog";
+import { BiModelSelect, useBiModelPref } from "@/components/bi/BiModelSelect";
 import type { BiWidgetSource } from "@/lib/biDashboards";
 import { SuggestedQuestions } from "@/components/data-sql/SuggestedQuestions";
 import { SemanticLayerEditor } from "@/components/data-sql/SemanticLayerEditor";
@@ -242,6 +243,8 @@ function DataSqlPage() {
   // "Add to dashboard" records the right one even if the user switches later.
   const biTurnSourcesRef = useRef<BiWidgetSource[]>([]);
   const [addToDash, setAddToDash] = useState<{ turn: BiTurn; source: BiWidgetSource } | null>(null);
+  // Text model used by the BI agent (NL → SQL, chart, narrative).
+  const [biModel, setBiModel] = useBiModelPref();
 
   // External data warehouses (connected under /integrations → Data Warehouses).
   // dataSource: "local" (in-browser AlaSQL) or a warehouse connection id.
@@ -634,7 +637,12 @@ function DataSqlPage() {
     if (datasets.length === 0) return;
     setSuggestionsLoading(true);
     try {
-      const qs = await generateSuggestedQuestions({ datasets, semantics, metrics: savedMetrics });
+      const qs = await generateSuggestedQuestions({
+        datasets,
+        semantics,
+        metrics: savedMetrics,
+        model: biModel ?? undefined,
+      });
       setSuggestions(qs);
     } catch {
       /* ignore */
@@ -676,6 +684,7 @@ function DataSqlPage() {
           ? (generated) => runWarehouseSql(activeWarehouse.id, generated)
           : undefined,
         dialect: activeWarehouse ? WAREHOUSE_LABELS[activeWarehouse.provider] : undefined,
+        model: biModel ?? undefined,
         onUpdate: (turn) => {
           setBiTurns((prev) => {
             const copy = [...prev];
@@ -1262,6 +1271,9 @@ function DataSqlPage() {
             </div>
 
             <div className="border-t border-slate-200 dark:border-border p-2">
+              <div className="mb-1.5">
+                <BiModelSelect value={biModel} onChange={setBiModel} className="w-full" />
+              </div>
               <div className="flex gap-1">
                 <input
                   value={biInput}

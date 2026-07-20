@@ -42,7 +42,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { AskDashboardDialog } from "@/components/bi/AskDashboardDialog";
 import { BiBuilderPane, type BuilderTab } from "@/components/bi/BiBuilderPane";
+import { useBiModelPref } from "@/components/bi/BiModelSelect";
 import { BiWidgetCard } from "@/components/bi/BiWidgetCard";
 import { DashboardGrid } from "@/components/bi/DashboardGrid";
 import { PublishDialog } from "@/components/bi/PublishDialog";
@@ -116,6 +118,8 @@ function BiProjectPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [insightBusyId, setInsightBusyId] = useState<string | null>(null);
+  const [askOpen, setAskOpen] = useState(false);
+  const [biModel, setBiModel] = useBiModelPref();
   const gridWrapRef = useRef<HTMLDivElement>(null);
 
   const isOwner = row !== null && row !== "missing" && row.user_id === user?.id;
@@ -205,6 +209,8 @@ function BiProjectPage() {
       userId: user?.id ?? null,
       datasets,
       preparedTables,
+      model: biModel,
+      onModelChange: setBiModel,
       semantics,
       metrics,
       warehouses,
@@ -212,10 +218,12 @@ function BiProjectPage() {
       ensureSchema,
       runSql,
     }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       user?.id,
       datasets,
       preparedTables,
+      biModel,
       semantics,
       metrics,
       warehouses,
@@ -331,6 +339,7 @@ function BiProjectPage() {
         sql: w.sql,
         columns: w.columns ?? [],
         rows: w.rows,
+        model: biModel ?? undefined,
       });
       const widget: BiWidget = {
         id: crypto.randomUUID(),
@@ -521,6 +530,18 @@ function BiProjectPage() {
               </Button>
             </>
           )}
+          {readOnly && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 gap-1.5 px-2.5 text-xs"
+              onClick={() => setAskOpen(true)}
+              disabled={layout.length === 0}
+              title="Ask AI questions about this dashboard's data"
+            >
+              <Sparkles className="h-3.5 w-3.5 text-primary" /> Ask AI
+            </Button>
+          )}
           <Button
             size="sm"
             variant="ghost"
@@ -678,6 +699,16 @@ function BiProjectPage() {
             onUpdated={(patch) => setRow({ ...row, ...patch })}
           />
         </>
+      )}
+
+      {readOnly && (
+        <AskDashboardDialog
+          open={askOpen}
+          onOpenChange={setAskOpen}
+          dashboardName={row.name}
+          widgets={widgets}
+          model={row.ai_model}
+        />
       )}
     </div>
   );

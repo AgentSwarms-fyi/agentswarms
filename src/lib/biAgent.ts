@@ -176,9 +176,11 @@ export async function planQuestion(args: {
   datasets: DatasetMeta[];
   semantics: Map<string, SemanticEntry>;
   metrics: SavedMetric[];
+  model?: string;
 }): Promise<BiPlan> {
   const schema = describeSchema(args.datasets, args.semantics, args.metrics);
   const plan = await llmJson<BiPlan>({
+    model: args.model,
     systemPrompt:
       "You are a BI planning agent. Read the user's question and the schema, then output a structured plan as JSON. " +
       "Only use tables and columns that exist in the schema. Be precise.",
@@ -195,6 +197,7 @@ export async function generateSql(args: {
   metrics: SavedMetric[];
   /** e.g. "Snowflake" — switches the prompt from AlaSQL to warehouse SQL. */
   dialect?: string;
+  model?: string;
 }): Promise<string> {
   const schema = describeSchema(args.datasets, args.semantics, args.metrics);
   const engineLine = args.dialect
@@ -203,6 +206,7 @@ export async function generateSql(args: {
     : "You are a SQL generation agent for an in-browser AlaSQL engine. " +
       "Wrap identifiers with spaces or special chars in backticks. ";
   const out = await llmJson<{ sql: string }>({
+    model: args.model,
     systemPrompt:
       engineLine +
       "Output a SINGLE SELECT statement only — no INSERT/UPDATE/DELETE/DDL. " +
@@ -218,6 +222,7 @@ export async function suggestChart(args: {
   question: string;
   result: QueryResult;
   plan: BiPlan;
+  model?: string;
 }): Promise<ChartSpec> {
   if (args.result.row_count === 0) return { type: "table" };
   if (args.result.row_count === 1 && args.result.columns.length === 1) {
@@ -229,6 +234,7 @@ export async function suggestChart(args: {
   }
   const sample = args.result.rows.slice(0, 5);
   const out = await llmJson<ChartSpec>({
+    model: args.model,
     systemPrompt:
       "You pick the best chart for a SQL result. Output JSON only. " +
       "Allowed types and their required fields:\n" +
@@ -252,10 +258,12 @@ export async function summarizeResult(args: {
   question: string;
   result: QueryResult;
   plan: BiPlan;
+  model?: string;
 }): Promise<string> {
   if (args.result.row_count === 0) return "The query returned no rows.";
   const sample = args.result.rows.slice(0, 10);
   const out = await llmJson<{ summary: string }>({
+    model: args.model,
     systemPrompt:
       "You summarize SQL query results in 2–3 short sentences for a business user. " +
       "Lead with the headline number. Round large numbers (e.g. $1.2M, 3.4k). " +
@@ -271,10 +279,12 @@ export async function generateSuggestedQuestions(args: {
   datasets: DatasetMeta[];
   semantics: Map<string, SemanticEntry>;
   metrics: SavedMetric[];
+  model?: string;
 }): Promise<string[]> {
   if (args.datasets.length === 0) return [];
   const schema = describeSchema(args.datasets, args.semantics, args.metrics);
   const out = await llmJson<{ questions: string[] }>({
+    model: args.model,
     systemPrompt:
       "Suggest 4 specific, business-relevant questions a user could ask about this data. " +
       "Each question must be answerable with a single SQL query against the schema. " +
@@ -295,9 +305,11 @@ export async function generateWidgetInsight(args: {
   sql?: string;
   columns: string[];
   rows: Record<string, unknown>[];
+  model?: string;
 }): Promise<string> {
   const sample = args.rows.slice(0, 30);
   const out = await llmJson<{ insight: string }>({
+    model: args.model,
     systemPrompt:
       "You are a BI analyst writing an insight card that sits next to a dashboard visual. " +
       'Output JSON only: { "insight": "<markdown>" }. Structure the markdown exactly as three ' +
@@ -323,6 +335,8 @@ export async function runBiTurn(args: {
   execute?: (sql: string) => Promise<QueryResult>;
   /** Human name of the SQL engine when `execute` is provided. */
   dialect?: string;
+  /** OpenRouter model id for every LLM step (server default when omitted). */
+  model?: string;
 }): Promise<BiTurn> {
   let turn: BiTurn = { question: args.question, status: "planning" };
   args.onUpdate({ ...turn });
@@ -332,6 +346,7 @@ export async function runBiTurn(args: {
       datasets: args.datasets,
       semantics: args.semantics,
       metrics: args.metrics,
+      model: args.model,
     });
     turn.status = "writing_sql";
     args.onUpdate({ ...turn });
@@ -343,6 +358,7 @@ export async function runBiTurn(args: {
       semantics: args.semantics,
       metrics: args.metrics,
       dialect: args.dialect,
+      model: args.model,
     });
     turn.status = "executing";
     args.onUpdate({ ...turn });
@@ -352,8 +368,18 @@ export async function runBiTurn(args: {
     args.onUpdate({ ...turn });
 
     const [chart, narrative] = await Promise.all([
-      suggestChart({ question: args.question, result: turn.result, plan: turn.plan }),
-      summarizeResult({ question: args.question, result: turn.result, plan: turn.plan }),
+      suggestChart({
+        question: args.question,
+        result: turn.result,
+        plan: turn.plan,
+        model: args.model,
+      }),
+      summarizeResult({
+        question: args.question,
+        result: turn.result,
+        plan: turn.plan,
+        model: args.model,
+      }),
     ]);
     turn.chart = chart;
     turn.narrative = narrative;
@@ -366,6 +392,46 @@ export async function runBiTurn(args: {
     args.onUpdate({ ...turn });
     return turn;
   }
+}
+
+// ── Reader Q&A over published dashboards ───────────────────────────────
+
+/**
+ * Answer a viewer's question using ONLY a dashboard's stored widget
+ * snapshots — no data-source access needed, so shared (read-only) viewers
+ * can use it with the model the publisher selected.
+ */
+export async function askDashboardQuestion(args: {
+  question: string;
+  model?: string;
+  widgets: {
+    title: string;
+    kind: string;
+    columns?: string[];
+    rows?: Record<string, unknown>[];
+    text?: string;
+  }[];
+}): Promise<string> {
+  const context = args.widgets
+    .slice(0, 16)
+    .map((w) => {
+      if (w.kind === "text") return `NOTE "${w.title}":\n${(w.text ?? "").slice(0, 800)}`;
+      const cols = (w.columns ?? []).join(", ");
+      const sample = JSON.stringify((w.rows ?? []).slice(0, 15));
+      return `WIDGET "${w.title}"\nCOLUMNS: ${cols}\nROWS (sample of ${w.rows?.length ?? 0}): ${sample}`;
+    })
+    .join("\n\n");
+  const out = await llmJson<{ answer: string }>({
+    model: args.model,
+    systemPrompt:
+      "You are a BI analyst answering questions about a published dashboard. " +
+      "Use ONLY the widget data provided — never invent numbers. If the data cannot answer the " +
+      "question, say so briefly and name what data would be needed. Answer in tight markdown " +
+      "with specific figures, rounded for readability. " +
+      'Output JSON only: { "answer": "<markdown>" }.',
+    userPrompt: `DASHBOARD DATA:\n${context}\n\nQUESTION: ${args.question}\n\nReturn JSON: { "answer": "..." }`,
+  });
+  return out.answer;
 }
 
 // ── Persistence helpers ─────────────────────────────────────────────────

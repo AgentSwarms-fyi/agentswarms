@@ -146,6 +146,14 @@ and reports. An editable dashboard is called a **BI project**:
 - **AI insights per visual** — every chart's menu has **AI insight**: the
   analyst reads that widget's data and drops a markdown card below it with
   what the data shows, caveats to watch, and suggested next steps.
+- **Pick the AI model** — the BI agent on Data & SQL and every generative
+  feature in the BI Workspace (AI analyst, insights) runs on a selectable
+  **text model** from the Model Registry, filtered by your IAM model rules
+  and enforced server-side. When publishing, choose a **reader AI model**:
+  signed-in viewers of a shared dashboard get an **Ask AI** panel that
+  answers questions from the stored data snapshots using that model — and
+  sharing with a group is validated against the group's IAM model rules
+  (the anonymous public link stays data-only, no AI).
 - **Refresh** re-runs every widget's SQL against its source and stores a
   capped **data snapshot** in the dashboard.
 - **Export PDF** — one click renders the dashboard (layout preserved) into a
