@@ -1373,7 +1373,11 @@ export async function resolveAgentTools(
       );
       handlers.set("list_warehouse_tables", async (c, a) => {
         try {
-          const conn = await loadWarehouseConnection(c.sb, { name: String(a.connection ?? "") });
+          const conn = await loadWarehouseConnection(
+            c.sb,
+            { name: String(a.connection ?? "") },
+            c.userId,
+          );
           const whTables = await listWarehouseTables(conn.config);
           return JSON.stringify({
             connection: conn.name,
@@ -1389,7 +1393,11 @@ export async function resolveAgentTools(
       });
       handlers.set("warehouse_query", async (c, a) => {
         try {
-          const conn = await loadWarehouseConnection(c.sb, { name: String(a.connection ?? "") });
+          const conn = await loadWarehouseConnection(
+            c.sb,
+            { name: String(a.connection ?? "") },
+            c.userId,
+          );
           const result = await executeWarehouseQuery(conn.config, String(a.sql ?? ""), 200);
           const LLM_ROW_CAP = 50;
           return JSON.stringify({

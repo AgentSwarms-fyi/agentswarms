@@ -32,7 +32,8 @@ export const Route = createFileRoute("/api/warehouse/schema")({
         const sb = token ? getServerSupabase(token) : null;
         if (!token || !sb) return json(401, { error: "Sign in to browse warehouses" });
         const { data: claims } = await sb.auth.getClaims(token);
-        if (!claims?.claims?.sub) return json(401, { error: "Invalid session" });
+        const userId = claims?.claims?.sub;
+        if (!userId) return json(401, { error: "Invalid session" });
 
         let body: { connection_id?: string };
         try {
@@ -43,7 +44,11 @@ export const Route = createFileRoute("/api/warehouse/schema")({
         if (!body.connection_id) return json(400, { error: "connection_id is required" });
 
         try {
-          const conn = await loadWarehouseConnection(sb, { connectionId: body.connection_id });
+          const conn = await loadWarehouseConnection(
+            sb,
+            { connectionId: body.connection_id },
+            userId,
+          );
           const tables = await listWarehouseTables(conn.config);
           return json(200, { tables, connection: conn.name, provider: conn.provider });
         } catch (e) {

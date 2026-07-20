@@ -36,6 +36,8 @@ import type {
 // (plaintext, OpenAI-compatible). When saved through the Agents page it goes
 // through the encrypted provider_credentials table. The chat route checks
 // the legacy table first, so the Integrations card takes precedence.
+import { containsSecretRef, resolveSecretRefsInObject } from "@/utils/secrets.server";
+
 const LEGACY_PROVIDERS = new Set<ProviderId>([
   "grok",
   "openai",
@@ -64,7 +66,15 @@ async function loadLegacyConfig(userId: string, provider: ProviderId) {
     .order("updated_at", { ascending: false });
   if (error) throw new Error(error.message);
   if (!data || data.length === 0) return null;
-  return data[0];
+  const row = data[0];
+
+  // Secrets Manager: allow {{secret:NAME}} references inside provider
+  // configs (api_key, base_url, …), resolved per-user at use time.
+  const cfg = (row.config ?? {}) as Record<string, unknown>;
+  if (Object.values(cfg).some((v) => typeof v === "string" && containsSecretRef(v))) {
+    return { ...row, config: await resolveSecretRefsInObject(userId, cfg) };
+  }
+  return row;
 }
 
 // Optional override applied when an agent has tools.routeThroughGateway = true

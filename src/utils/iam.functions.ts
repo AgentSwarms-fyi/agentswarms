@@ -41,7 +41,7 @@ export type IamModelRuleRow = {
 
 export type IamGrantRow = {
   id: string;
-  resource_type: "knowledge_base" | "data_table";
+  resource_type: "knowledge_base" | "data_table" | "secret";
   resource_id: string;
   resource_name: string | null; // null = resource was deleted
   resource_owner_id: string | null;
@@ -50,7 +50,7 @@ export type IamGrantRow = {
 };
 
 export type IamResourceOption = {
-  resource_type: "knowledge_base" | "data_table";
+  resource_type: "knowledge_base" | "data_table" | "secret";
   id: string;
   name: string;
   owner_user_id: string | null;
@@ -488,13 +488,14 @@ export const iamListGrantableResources = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<IamError | { ok: true; resources: IamResourceOption[] }> => {
     const guard = await requireSuperadmin(data.access_token);
     if (!guard.ok) return guard;
-    const [{ data: kbs }, { data: tables }] = await Promise.all([
+    const [{ data: kbs }, { data: tables }, { data: secrets }] = await Promise.all([
       supabaseAdmin.from("knowledge_bases").select("id, name, user_id").order("name"),
       supabaseAdmin
         .from("user_data_tables")
         .select("id, name, user_id, is_sample")
         .eq("is_sample", false)
         .order("name"),
+      supabaseAdmin.from("user_secrets").select("id, name, user_id").order("name"),
     ]);
     const resources: IamResourceOption[] = [
       ...(kbs ?? []).map((k) => ({
@@ -508,6 +509,12 @@ export const iamListGrantableResources = createServerFn({ method: "POST" })
         id: t.id,
         name: t.name,
         owner_user_id: t.user_id,
+      })),
+      ...(secrets ?? []).map((s) => ({
+        resource_type: "secret" as const,
+        id: s.id,
+        name: s.name,
+        owner_user_id: s.user_id,
       })),
     ];
     return { ok: true, resources };
@@ -531,18 +538,25 @@ export const iamListGrants = createServerFn({ method: "POST" })
     const tableIds = (grants ?? [])
       .filter((g) => g.resource_type === "data_table")
       .map((g) => g.resource_id);
+    const secretIds = (grants ?? [])
+      .filter((g) => g.resource_type === "secret")
+      .map((g) => g.resource_id);
 
-    const [{ data: kbs }, { data: tables }] = await Promise.all([
+    const [{ data: kbs }, { data: tables }, { data: secrets }] = await Promise.all([
       kbIds.length
         ? supabaseAdmin.from("knowledge_bases").select("id, name, user_id").in("id", kbIds)
         : Promise.resolve({ data: [] as { id: string; name: string; user_id: string }[] }),
       tableIds.length
         ? supabaseAdmin.from("user_data_tables").select("id, name, user_id").in("id", tableIds)
         : Promise.resolve({ data: [] as { id: string; name: string; user_id: string | null }[] }),
+      secretIds.length
+        ? supabaseAdmin.from("user_secrets").select("id, name, user_id").in("id", secretIds)
+        : Promise.resolve({ data: [] as { id: string; name: string; user_id: string }[] }),
     ]);
 
     const kbById = new Map((kbs ?? []).map((k) => [k.id, k]));
     const tableById = new Map((tables ?? []).map((t) => [t.id, t]));
+    const secretById = new Map((secrets ?? []).map((s) => [s.id, s]));
 
     return {
       ok: true,
@@ -550,7 +564,9 @@ export const iamListGrants = createServerFn({ method: "POST" })
         const res =
           g.resource_type === "knowledge_base"
             ? kbById.get(g.resource_id)
-            : tableById.get(g.resource_id);
+            : g.resource_type === "secret"
+              ? secretById.get(g.resource_id)
+              : tableById.get(g.resource_id);
         return {
           id: g.id,
           resource_type: g.resource_type as IamGrantRow["resource_type"],
@@ -569,7 +585,7 @@ export const iamCreateGrant = createServerFn({ method: "POST" })
     z
       .object({
         access_token: z.string().min(1),
-        resource_type: z.enum(["knowledge_base", "data_table"]),
+        resource_type: z.enum(["knowledge_base", "data_table", "secret"]),
         resource_id: z.string().uuid(),
         principal_type: z.enum(["user", "group"]),
         principal_id: z.string().uuid(),

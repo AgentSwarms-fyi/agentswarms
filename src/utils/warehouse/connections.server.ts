@@ -4,6 +4,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { decryptJson } from "@/utils/providers/crypto.server";
+import { resolveSecretRefsInObject } from "@/utils/secrets.server";
 import type { WarehouseConfig, WarehouseProvider } from "./types";
 
 export type LoadedConnection = {
@@ -16,6 +17,8 @@ export type LoadedConnection = {
 export async function loadWarehouseConnection(
   sb: SupabaseClient<Database>,
   ref: { connectionId?: string; name?: string },
+  /** When set, {{secret:NAME}} references in the config are resolved for this user. */
+  resolveSecretsFor?: string,
 ): Promise<LoadedConnection> {
   let query = sb
     .from("data_warehouse_connections")
@@ -33,7 +36,13 @@ export async function loadWarehouseConnection(
   if (!enc?.ciphertext || !enc?.iv) {
     throw new Error(`Warehouse connection "${row.name}" has no stored credentials`);
   }
-  const config = await decryptJson<WarehouseConfig>(enc.ciphertext, enc.iv);
+  let config = await decryptJson<WarehouseConfig>(enc.ciphertext, enc.iv);
+  if (resolveSecretsFor) {
+    config = (await resolveSecretRefsInObject(
+      resolveSecretsFor,
+      config as unknown as Record<string, unknown>,
+    )) as unknown as WarehouseConfig;
+  }
   return {
     id: row.id,
     name: row.name,

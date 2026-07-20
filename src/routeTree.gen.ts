@@ -46,6 +46,7 @@ import { Route as ApiA2aRouteImport } from './routes/api/a2a'
 import { Route as AuthenticatedTracesRouteImport } from './routes/_authenticated/traces'
 import { Route as AuthenticatedSwarmsRouteImport } from './routes/_authenticated/swarms'
 import { Route as AuthenticatedSkillsRouteImport } from './routes/_authenticated/skills'
+import { Route as AuthenticatedSecretsRouteImport } from './routes/_authenticated/secrets'
 import { Route as AuthenticatedPromptsRouteImport } from './routes/_authenticated/prompts'
 import { Route as AuthenticatedPromptCompareRouteImport } from './routes/_authenticated/prompt-compare'
 import { Route as AuthenticatedPlaygroundRouteImport } from './routes/_authenticated/playground'
@@ -270,6 +271,11 @@ const AuthenticatedSwarmsRoute = AuthenticatedSwarmsRouteImport.update({
 const AuthenticatedSkillsRoute = AuthenticatedSkillsRouteImport.update({
   id: '/skills',
   path: '/skills',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedSecretsRoute = AuthenticatedSecretsRouteImport.update({
+  id: '/secrets',
+  path: '/secrets',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedPromptsRoute = AuthenticatedPromptsRouteImport.update({
@@ -524,6 +530,7 @@ export interface FileRoutesByFullPath {
   '/playground': typeof AuthenticatedPlaygroundRoute
   '/prompt-compare': typeof AuthenticatedPromptCompareRoute
   '/prompts': typeof AuthenticatedPromptsRoute
+  '/secrets': typeof AuthenticatedSecretsRoute
   '/skills': typeof AuthenticatedSkillsRoute
   '/swarms': typeof AuthenticatedSwarmsRoute
   '/traces': typeof AuthenticatedTracesRoute
@@ -601,6 +608,7 @@ export interface FileRoutesByTo {
   '/playground': typeof AuthenticatedPlaygroundRoute
   '/prompt-compare': typeof AuthenticatedPromptCompareRoute
   '/prompts': typeof AuthenticatedPromptsRoute
+  '/secrets': typeof AuthenticatedSecretsRoute
   '/skills': typeof AuthenticatedSkillsRoute
   '/swarms': typeof AuthenticatedSwarmsRoute
   '/traces': typeof AuthenticatedTracesRoute
@@ -682,6 +690,7 @@ export interface FileRoutesById {
   '/_authenticated/playground': typeof AuthenticatedPlaygroundRoute
   '/_authenticated/prompt-compare': typeof AuthenticatedPromptCompareRoute
   '/_authenticated/prompts': typeof AuthenticatedPromptsRoute
+  '/_authenticated/secrets': typeof AuthenticatedSecretsRoute
   '/_authenticated/skills': typeof AuthenticatedSkillsRoute
   '/_authenticated/swarms': typeof AuthenticatedSwarmsRoute
   '/_authenticated/traces': typeof AuthenticatedTracesRoute
@@ -763,6 +772,7 @@ export interface FileRouteTypes {
     | '/playground'
     | '/prompt-compare'
     | '/prompts'
+    | '/secrets'
     | '/skills'
     | '/swarms'
     | '/traces'
@@ -840,6 +850,7 @@ export interface FileRouteTypes {
     | '/playground'
     | '/prompt-compare'
     | '/prompts'
+    | '/secrets'
     | '/skills'
     | '/swarms'
     | '/traces'
@@ -920,6 +931,7 @@ export interface FileRouteTypes {
     | '/_authenticated/playground'
     | '/_authenticated/prompt-compare'
     | '/_authenticated/prompts'
+    | '/_authenticated/secrets'
     | '/_authenticated/skills'
     | '/_authenticated/swarms'
     | '/_authenticated/traces'
@@ -1267,6 +1279,13 @@ declare module '@tanstack/react-router' {
       path: '/skills'
       fullPath: '/skills'
       preLoaderRoute: typeof AuthenticatedSkillsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/secrets': {
+      id: '/_authenticated/secrets'
+      path: '/secrets'
+      fullPath: '/secrets'
+      preLoaderRoute: typeof AuthenticatedSecretsRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/prompts': {
@@ -1623,6 +1642,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedPlaygroundRoute: typeof AuthenticatedPlaygroundRoute
   AuthenticatedPromptCompareRoute: typeof AuthenticatedPromptCompareRoute
   AuthenticatedPromptsRoute: typeof AuthenticatedPromptsRoute
+  AuthenticatedSecretsRoute: typeof AuthenticatedSecretsRoute
   AuthenticatedSkillsRoute: typeof AuthenticatedSkillsRoute
   AuthenticatedSwarmsRoute: typeof AuthenticatedSwarmsRoute
   AuthenticatedTracesRoute: typeof AuthenticatedTracesRoute
@@ -1651,6 +1671,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedPlaygroundRoute: AuthenticatedPlaygroundRoute,
   AuthenticatedPromptCompareRoute: AuthenticatedPromptCompareRoute,
   AuthenticatedPromptsRoute: AuthenticatedPromptsRoute,
+  AuthenticatedSecretsRoute: AuthenticatedSecretsRoute,
   AuthenticatedSkillsRoute: AuthenticatedSkillsRoute,
   AuthenticatedSwarmsRoute: AuthenticatedSwarmsRoute,
   AuthenticatedTracesRoute: AuthenticatedTracesRoute,

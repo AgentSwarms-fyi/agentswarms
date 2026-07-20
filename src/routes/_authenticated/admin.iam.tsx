@@ -1227,10 +1227,12 @@ function AccessTab({
       {/* Resource shares */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Knowledge base &amp; data table shares</CardTitle>
+          <CardTitle className="text-base">Resource shares</CardTitle>
           <CardDescription>
-            Grant read-only access to any user's knowledge base or SQL data table. Recipients (and
-            their agents) can search and query the resource but cannot modify it.
+            Grant access to any user's knowledge base, SQL data table, or secret. KBs and tables are
+            shared read-only; secrets become usable via{" "}
+            <code className="text-xs">{"{{secret:NAME}}"}</code> references without ever exposing
+            the value.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -1245,7 +1247,11 @@ function AccessTab({
                     key={`${r.resource_type}:${r.id}`}
                     value={`${r.resource_type}:${r.id}`}
                   >
-                    {r.resource_type === "knowledge_base" ? "📚 " : "🗃 "}
+                    {r.resource_type === "knowledge_base"
+                      ? "📚 "
+                      : r.resource_type === "secret"
+                        ? "🔑 "
+                        : "🗃 "}
                     {r.name}
                     {r.owner_user_id
                       ? ` — ${userById.get(r.owner_user_id)?.email ?? "unknown owner"}`
@@ -1336,6 +1342,8 @@ function AccessTab({
                       <div className="flex items-center gap-2">
                         {g.resource_type === "knowledge_base" ? (
                           <BookOpen className="h-4 w-4 text-muted-foreground" />
+                        ) : g.resource_type === "secret" ? (
+                          <KeyRound className="h-4 w-4 text-muted-foreground" />
                         ) : (
                           <DatabaseIcon className="h-4 w-4 text-muted-foreground" />
                         )}

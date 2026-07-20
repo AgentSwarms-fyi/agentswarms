@@ -33,7 +33,8 @@ export const Route = createFileRoute("/api/warehouse/query")({
         const sb = token ? getServerSupabase(token) : null;
         if (!token || !sb) return json(401, { error: "Sign in to query warehouses" });
         const { data: claims } = await sb.auth.getClaims(token);
-        if (!claims?.claims?.sub) return json(401, { error: "Invalid session" });
+        const userId = claims?.claims?.sub;
+        if (!userId) return json(401, { error: "Invalid session" });
 
         let body: { connection_id?: string; sql?: string; max_rows?: number };
         try {
@@ -46,7 +47,11 @@ export const Route = createFileRoute("/api/warehouse/query")({
         }
 
         try {
-          const conn = await loadWarehouseConnection(sb, { connectionId: body.connection_id });
+          const conn = await loadWarehouseConnection(
+            sb,
+            { connectionId: body.connection_id },
+            userId,
+          );
           const result = await executeWarehouseQuery(
             conn.config,
             body.sql,

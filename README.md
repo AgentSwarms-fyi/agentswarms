@@ -60,6 +60,7 @@ The "AgentSwarms" name and the hosted service remain with the project author.
 | 🐝 **Swarm canvas**          | Design multi-agent workflows visually (built on [XYFlow](https://xyflow.com)) and execute them end-to-end.                                                        |
 | 📚 **Knowledge Base / RAG**  | Upload documents, chunk and embed them (pgvector), and ground agents in your own data.                                                                            |
 | 🏢 **Data warehouses**       | Connect Amazon Redshift, Snowflake, Databricks, Google BigQuery, or Azure Synapse (encrypted credentials, read-only). Query them from the Data & SQL page, from SQL agents, and feed BI charts. |
+| 🔑 **Secrets Manager**       | Store credentials once (encrypted, write-only) and reference them anywhere as `{{secret:NAME}}` — warehouse connections, provider keys. Superadmins share secrets with users/groups via IAM.  |
 | 🔍 **Observability**         | Inspect every tool call, token, and cost in a full execution trace.                                                                                               |
 | 🔌 **BYOK + MCP + A2A**      | Encrypted per-user provider keys, MCP server connections, swarm export to LangGraph/CrewAI/OpenAI SDK/Strands, and an A2A endpoint.                               |
 | 🛂 **IAM**                   | Superadmins, groups, invite/manual user provisioning, per-user/group model allow-lists, read-only sharing of KBs and data tables, invite-only mode.              |

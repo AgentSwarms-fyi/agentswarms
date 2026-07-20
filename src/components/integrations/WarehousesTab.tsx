@@ -352,7 +352,9 @@ export function WarehousesTab() {
             </DialogTitle>
             <DialogDescription>
               Credentials are encrypted at rest and only used server-side. Use a read-only database
-              user/role — the app additionally rejects non-SELECT statements.
+              user/role — the app additionally rejects non-SELECT statements. Any field accepts a
+              Secrets Manager reference like <code className="text-xs">{"{{secret:NAME}}"}</code>{" "}
+              instead of the raw value.
             </DialogDescription>
           </DialogHeader>
           {meta ? (

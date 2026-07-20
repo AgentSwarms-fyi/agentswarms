@@ -164,7 +164,11 @@ export const testWarehouseConnectionFn = createServerFn({ method: "POST" })
     try {
       const ctx = await requireUser(data.access_token);
       sb = ctx.sb;
-      const conn = await loadWarehouseConnection(sb, { connectionId: data.connection_id });
+      const conn = await loadWarehouseConnection(
+        sb,
+        { connectionId: data.connection_id },
+        ctx.userId,
+      );
       await testWarehouseConnection(conn.config);
       await sb
         .from("data_warehouse_connections")

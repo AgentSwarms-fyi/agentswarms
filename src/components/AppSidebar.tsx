@@ -18,6 +18,7 @@ import {
   GraduationCap,
   ShieldCheck,
   Boxes,
+  KeyRound,
   BookMarked,
   Wand2,
   Image as ImageIcon,
@@ -69,6 +70,7 @@ const opsItems = [
 
 const integrationItems = [
   { title: "Integrations", url: "/integrations", icon: Puzzle },
+  { title: "Secrets", url: "/secrets", icon: KeyRound },
   { title: "MCP Servers", url: "/mcp", icon: Plug },
   { title: "Model Registry", url: "/model-registry", icon: Boxes },
 ];

@@ -2062,6 +2062,36 @@ export type Database = {
         };
         Relationships: [];
       };
+      user_secrets: {
+        Row: {
+          created_at: string;
+          description: string | null;
+          id: string;
+          name: string;
+          updated_at: string;
+          user_id: string;
+          value: Json;
+        };
+        Insert: {
+          created_at?: string;
+          description?: string | null;
+          id?: string;
+          name: string;
+          updated_at?: string;
+          user_id: string;
+          value?: Json;
+        };
+        Update: {
+          created_at?: string;
+          description?: string | null;
+          id?: string;
+          name?: string;
+          updated_at?: string;
+          user_id?: string;
+          value?: Json;
+        };
+        Relationships: [];
+      };
       user_roles: {
         Row: {
           created_at: string;
@@ -2136,6 +2166,14 @@ export type Database = {
     };
     Functions: {
       cleanup_old_observability_data: { Args: never; Returns: undefined };
+      has_resource_access: {
+        Args: { rtype: string; rid: string; uid: string };
+        Returns: boolean;
+      };
+      is_superadmin: {
+        Args: { uid: string };
+        Returns: boolean;
+      };
       insert_sample_rows: {
         Args: { _rows: Json; _table_id: string };
         Returns: number;
