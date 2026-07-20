@@ -271,6 +271,48 @@ export type Database = {
         };
         Relationships: [];
       };
+      bi_dashboards: {
+        Row: {
+          created_at: string;
+          description: string | null;
+          id: string;
+          layout: Json;
+          name: string;
+          public_slug: string | null;
+          published: boolean;
+          published_at: string | null;
+          updated_at: string;
+          user_id: string;
+          widgets: Json;
+        };
+        Insert: {
+          created_at?: string;
+          description?: string | null;
+          id?: string;
+          layout?: Json;
+          name: string;
+          public_slug?: string | null;
+          published?: boolean;
+          published_at?: string | null;
+          updated_at?: string;
+          user_id: string;
+          widgets?: Json;
+        };
+        Update: {
+          created_at?: string;
+          description?: string | null;
+          id?: string;
+          layout?: Json;
+          name?: string;
+          public_slug?: string | null;
+          published?: boolean;
+          published_at?: string | null;
+          updated_at?: string;
+          user_id?: string;
+          widgets?: Json;
+        };
+        Relationships: [];
+      };
       budget_settings: {
         Row: {
           alert_thresholds: number[];

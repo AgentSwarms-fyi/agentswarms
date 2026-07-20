@@ -61,11 +61,13 @@ import { Route as AuthenticatedDataSqlRouteImport } from './routes/_authenticate
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedCertificationRouteImport } from './routes/_authenticated/certification'
 import { Route as AuthenticatedBudgetsRouteImport } from './routes/_authenticated/budgets'
+import { Route as AuthenticatedBiRouteImport } from './routes/_authenticated/bi'
 import { Route as AuthenticatedAnalyticsRouteImport } from './routes/_authenticated/analytics'
 import { Route as AuthenticatedAgentsRouteImport } from './routes/_authenticated/agents'
 import { Route as AuthenticatedAccountRouteImport } from './routes/_authenticated/account'
 import { Route as AuthenticatedTemplatesIndexRouteImport } from './routes/_authenticated/templates.index'
 import { Route as AuthenticatedCertificationIndexRouteImport } from './routes/_authenticated/certification.index'
+import { Route as ShareBiSlugRouteImport } from './routes/share.bi.$slug'
 import { Route as ApiWarehouseSchemaRouteImport } from './routes/api/warehouse/schema'
 import { Route as ApiWarehouseQueryRouteImport } from './routes/api/warehouse/query'
 import { Route as ApiTemplatesProvisionRouteImport } from './routes/api/templates.provision'
@@ -81,6 +83,7 @@ import { Route as ApiCertificateIdRouteImport } from './routes/api/certificate.$
 import { Route as ApiAuthSsoConfigRouteImport } from './routes/api/auth/sso-config'
 import { Route as AuthenticatedTemplatesTemplateIdRouteImport } from './routes/_authenticated/templates.$templateId'
 import { Route as AuthenticatedCertificationExamRouteImport } from './routes/_authenticated/certification.exam'
+import { Route as AuthenticatedBiDashboardIdRouteImport } from './routes/_authenticated/bi_.$dashboardId'
 import { Route as AuthenticatedAnalyticsObservabilityRouteImport } from './routes/_authenticated/analytics_.observability'
 import { Route as AuthenticatedAdminIamRouteImport } from './routes/_authenticated/admin.iam'
 import { Route as AuthenticatedAdminAnalyticsRouteImport } from './routes/_authenticated/admin.analytics'
@@ -353,6 +356,11 @@ const AuthenticatedBudgetsRoute = AuthenticatedBudgetsRouteImport.update({
   path: '/budgets',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedBiRoute = AuthenticatedBiRouteImport.update({
+  id: '/bi',
+  path: '/bi',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 const AuthenticatedAnalyticsRoute = AuthenticatedAnalyticsRouteImport.update({
   id: '/analytics',
   path: '/analytics',
@@ -380,6 +388,11 @@ const AuthenticatedCertificationIndexRoute =
     path: '/',
     getParentRoute: () => AuthenticatedCertificationRoute,
   } as any)
+const ShareBiSlugRoute = ShareBiSlugRouteImport.update({
+  id: '/share/bi/$slug',
+  path: '/share/bi/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiWarehouseSchemaRoute = ApiWarehouseSchemaRouteImport.update({
   id: '/api/warehouse/schema',
   path: '/api/warehouse/schema',
@@ -457,6 +470,12 @@ const AuthenticatedCertificationExamRoute =
     path: '/exam',
     getParentRoute: () => AuthenticatedCertificationRoute,
   } as any)
+const AuthenticatedBiDashboardIdRoute =
+  AuthenticatedBiDashboardIdRouteImport.update({
+    id: '/bi_/$dashboardId',
+    path: '/bi/$dashboardId',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 const AuthenticatedAnalyticsObservabilityRoute =
   AuthenticatedAnalyticsObservabilityRouteImport.update({
     id: '/analytics_/observability',
@@ -516,6 +535,7 @@ export interface FileRoutesByFullPath {
   '/account': typeof AuthenticatedAccountRoute
   '/agents': typeof AuthenticatedAgentsRoute
   '/analytics': typeof AuthenticatedAnalyticsRoute
+  '/bi': typeof AuthenticatedBiRoute
   '/budgets': typeof AuthenticatedBudgetsRoute
   '/certification': typeof AuthenticatedCertificationRouteWithChildren
   '/dashboard': typeof AuthenticatedDashboardRoute
@@ -557,6 +577,7 @@ export interface FileRoutesByFullPath {
   '/admin/analytics': typeof AuthenticatedAdminAnalyticsRoute
   '/admin/iam': typeof AuthenticatedAdminIamRoute
   '/analytics/observability': typeof AuthenticatedAnalyticsObservabilityRouteWithChildren
+  '/bi/$dashboardId': typeof AuthenticatedBiDashboardIdRoute
   '/certification/exam': typeof AuthenticatedCertificationExamRoute
   '/templates/$templateId': typeof AuthenticatedTemplatesTemplateIdRoute
   '/api/auth/sso-config': typeof ApiAuthSsoConfigRoute
@@ -572,6 +593,7 @@ export interface FileRoutesByFullPath {
   '/api/templates/provision': typeof ApiTemplatesProvisionRoute
   '/api/warehouse/query': typeof ApiWarehouseQueryRoute
   '/api/warehouse/schema': typeof ApiWarehouseSchemaRoute
+  '/share/bi/$slug': typeof ShareBiSlugRoute
   '/certification/': typeof AuthenticatedCertificationIndexRoute
   '/templates/': typeof AuthenticatedTemplatesIndexRoute
   '/analytics/observability/$runId': typeof AuthenticatedAnalyticsObservabilityRunIdRoute
@@ -595,6 +617,7 @@ export interface FileRoutesByTo {
   '/account': typeof AuthenticatedAccountRoute
   '/agents': typeof AuthenticatedAgentsRoute
   '/analytics': typeof AuthenticatedAnalyticsRoute
+  '/bi': typeof AuthenticatedBiRoute
   '/budgets': typeof AuthenticatedBudgetsRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/data-sql': typeof AuthenticatedDataSqlRoute
@@ -635,6 +658,7 @@ export interface FileRoutesByTo {
   '/admin/analytics': typeof AuthenticatedAdminAnalyticsRoute
   '/admin/iam': typeof AuthenticatedAdminIamRoute
   '/analytics/observability': typeof AuthenticatedAnalyticsObservabilityRouteWithChildren
+  '/bi/$dashboardId': typeof AuthenticatedBiDashboardIdRoute
   '/certification/exam': typeof AuthenticatedCertificationExamRoute
   '/templates/$templateId': typeof AuthenticatedTemplatesTemplateIdRoute
   '/api/auth/sso-config': typeof ApiAuthSsoConfigRoute
@@ -650,6 +674,7 @@ export interface FileRoutesByTo {
   '/api/templates/provision': typeof ApiTemplatesProvisionRoute
   '/api/warehouse/query': typeof ApiWarehouseQueryRoute
   '/api/warehouse/schema': typeof ApiWarehouseSchemaRoute
+  '/share/bi/$slug': typeof ShareBiSlugRoute
   '/certification': typeof AuthenticatedCertificationIndexRoute
   '/templates': typeof AuthenticatedTemplatesIndexRoute
   '/analytics/observability/$runId': typeof AuthenticatedAnalyticsObservabilityRunIdRoute
@@ -676,6 +701,7 @@ export interface FileRoutesById {
   '/_authenticated/account': typeof AuthenticatedAccountRoute
   '/_authenticated/agents': typeof AuthenticatedAgentsRoute
   '/_authenticated/analytics': typeof AuthenticatedAnalyticsRoute
+  '/_authenticated/bi': typeof AuthenticatedBiRoute
   '/_authenticated/budgets': typeof AuthenticatedBudgetsRoute
   '/_authenticated/certification': typeof AuthenticatedCertificationRouteWithChildren
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
@@ -717,6 +743,7 @@ export interface FileRoutesById {
   '/_authenticated/admin/analytics': typeof AuthenticatedAdminAnalyticsRoute
   '/_authenticated/admin/iam': typeof AuthenticatedAdminIamRoute
   '/_authenticated/analytics_/observability': typeof AuthenticatedAnalyticsObservabilityRouteWithChildren
+  '/_authenticated/bi_/$dashboardId': typeof AuthenticatedBiDashboardIdRoute
   '/_authenticated/certification/exam': typeof AuthenticatedCertificationExamRoute
   '/_authenticated/templates/$templateId': typeof AuthenticatedTemplatesTemplateIdRoute
   '/api/auth/sso-config': typeof ApiAuthSsoConfigRoute
@@ -732,6 +759,7 @@ export interface FileRoutesById {
   '/api/templates/provision': typeof ApiTemplatesProvisionRoute
   '/api/warehouse/query': typeof ApiWarehouseQueryRoute
   '/api/warehouse/schema': typeof ApiWarehouseSchemaRoute
+  '/share/bi/$slug': typeof ShareBiSlugRoute
   '/_authenticated/certification/': typeof AuthenticatedCertificationIndexRoute
   '/_authenticated/templates/': typeof AuthenticatedTemplatesIndexRoute
   '/_authenticated/analytics_/observability/$runId': typeof AuthenticatedAnalyticsObservabilityRunIdRoute
@@ -758,6 +786,7 @@ export interface FileRouteTypes {
     | '/account'
     | '/agents'
     | '/analytics'
+    | '/bi'
     | '/budgets'
     | '/certification'
     | '/dashboard'
@@ -799,6 +828,7 @@ export interface FileRouteTypes {
     | '/admin/analytics'
     | '/admin/iam'
     | '/analytics/observability'
+    | '/bi/$dashboardId'
     | '/certification/exam'
     | '/templates/$templateId'
     | '/api/auth/sso-config'
@@ -814,6 +844,7 @@ export interface FileRouteTypes {
     | '/api/templates/provision'
     | '/api/warehouse/query'
     | '/api/warehouse/schema'
+    | '/share/bi/$slug'
     | '/certification/'
     | '/templates/'
     | '/analytics/observability/$runId'
@@ -837,6 +868,7 @@ export interface FileRouteTypes {
     | '/account'
     | '/agents'
     | '/analytics'
+    | '/bi'
     | '/budgets'
     | '/dashboard'
     | '/data-sql'
@@ -877,6 +909,7 @@ export interface FileRouteTypes {
     | '/admin/analytics'
     | '/admin/iam'
     | '/analytics/observability'
+    | '/bi/$dashboardId'
     | '/certification/exam'
     | '/templates/$templateId'
     | '/api/auth/sso-config'
@@ -892,6 +925,7 @@ export interface FileRouteTypes {
     | '/api/templates/provision'
     | '/api/warehouse/query'
     | '/api/warehouse/schema'
+    | '/share/bi/$slug'
     | '/certification'
     | '/templates'
     | '/analytics/observability/$runId'
@@ -917,6 +951,7 @@ export interface FileRouteTypes {
     | '/_authenticated/account'
     | '/_authenticated/agents'
     | '/_authenticated/analytics'
+    | '/_authenticated/bi'
     | '/_authenticated/budgets'
     | '/_authenticated/certification'
     | '/_authenticated/dashboard'
@@ -958,6 +993,7 @@ export interface FileRouteTypes {
     | '/_authenticated/admin/analytics'
     | '/_authenticated/admin/iam'
     | '/_authenticated/analytics_/observability'
+    | '/_authenticated/bi_/$dashboardId'
     | '/_authenticated/certification/exam'
     | '/_authenticated/templates/$templateId'
     | '/api/auth/sso-config'
@@ -973,6 +1009,7 @@ export interface FileRouteTypes {
     | '/api/templates/provision'
     | '/api/warehouse/query'
     | '/api/warehouse/schema'
+    | '/share/bi/$slug'
     | '/_authenticated/certification/'
     | '/_authenticated/templates/'
     | '/_authenticated/analytics_/observability/$runId'
@@ -1016,6 +1053,7 @@ export interface RootRouteChildren {
   ApiTemplatesProvisionRoute: typeof ApiTemplatesProvisionRoute
   ApiWarehouseQueryRoute: typeof ApiWarehouseQueryRoute
   ApiWarehouseSchemaRoute: typeof ApiWarehouseSchemaRoute
+  ShareBiSlugRoute: typeof ShareBiSlugRoute
   ApiPublicHooksGenerateExamSetRoute: typeof ApiPublicHooksGenerateExamSetRoute
   ApiPublicHooksRefreshModelRegistryRoute: typeof ApiPublicHooksRefreshModelRegistryRoute
 }
@@ -1386,6 +1424,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedBudgetsRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/bi': {
+      id: '/_authenticated/bi'
+      path: '/bi'
+      fullPath: '/bi'
+      preLoaderRoute: typeof AuthenticatedBiRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/analytics': {
       id: '/_authenticated/analytics'
       path: '/analytics'
@@ -1420,6 +1465,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/certification/'
       preLoaderRoute: typeof AuthenticatedCertificationIndexRouteImport
       parentRoute: typeof AuthenticatedCertificationRoute
+    }
+    '/share/bi/$slug': {
+      id: '/share/bi/$slug'
+      path: '/share/bi/$slug'
+      fullPath: '/share/bi/$slug'
+      preLoaderRoute: typeof ShareBiSlugRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/warehouse/schema': {
       id: '/api/warehouse/schema'
@@ -1526,6 +1578,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedCertificationExamRouteImport
       parentRoute: typeof AuthenticatedCertificationRoute
     }
+    '/_authenticated/bi_/$dashboardId': {
+      id: '/_authenticated/bi_/$dashboardId'
+      path: '/bi/$dashboardId'
+      fullPath: '/bi/$dashboardId'
+      preLoaderRoute: typeof AuthenticatedBiDashboardIdRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/analytics_/observability': {
       id: '/_authenticated/analytics_/observability'
       path: '/analytics/observability'
@@ -1628,6 +1687,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedAccountRoute: typeof AuthenticatedAccountRoute
   AuthenticatedAgentsRoute: typeof AuthenticatedAgentsRoute
   AuthenticatedAnalyticsRoute: typeof AuthenticatedAnalyticsRoute
+  AuthenticatedBiRoute: typeof AuthenticatedBiRoute
   AuthenticatedBudgetsRoute: typeof AuthenticatedBudgetsRoute
   AuthenticatedCertificationRoute: typeof AuthenticatedCertificationRouteWithChildren
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
@@ -1649,6 +1709,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedAdminAnalyticsRoute: typeof AuthenticatedAdminAnalyticsRoute
   AuthenticatedAdminIamRoute: typeof AuthenticatedAdminIamRoute
   AuthenticatedAnalyticsObservabilityRoute: typeof AuthenticatedAnalyticsObservabilityRouteWithChildren
+  AuthenticatedBiDashboardIdRoute: typeof AuthenticatedBiDashboardIdRoute
   AuthenticatedTemplatesTemplateIdRoute: typeof AuthenticatedTemplatesTemplateIdRoute
   AuthenticatedTemplatesIndexRoute: typeof AuthenticatedTemplatesIndexRoute
 }
@@ -1657,6 +1718,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedAccountRoute: AuthenticatedAccountRoute,
   AuthenticatedAgentsRoute: AuthenticatedAgentsRoute,
   AuthenticatedAnalyticsRoute: AuthenticatedAnalyticsRoute,
+  AuthenticatedBiRoute: AuthenticatedBiRoute,
   AuthenticatedBudgetsRoute: AuthenticatedBudgetsRoute,
   AuthenticatedCertificationRoute: AuthenticatedCertificationRouteWithChildren,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
@@ -1679,6 +1741,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedAdminIamRoute: AuthenticatedAdminIamRoute,
   AuthenticatedAnalyticsObservabilityRoute:
     AuthenticatedAnalyticsObservabilityRouteWithChildren,
+  AuthenticatedBiDashboardIdRoute: AuthenticatedBiDashboardIdRoute,
   AuthenticatedTemplatesTemplateIdRoute: AuthenticatedTemplatesTemplateIdRoute,
   AuthenticatedTemplatesIndexRoute: AuthenticatedTemplatesIndexRoute,
 }
@@ -1756,6 +1819,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiTemplatesProvisionRoute: ApiTemplatesProvisionRoute,
   ApiWarehouseQueryRoute: ApiWarehouseQueryRoute,
   ApiWarehouseSchemaRoute: ApiWarehouseSchemaRoute,
+  ShareBiSlugRoute: ShareBiSlugRoute,
   ApiPublicHooksGenerateExamSetRoute: ApiPublicHooksGenerateExamSetRoute,
   ApiPublicHooksRefreshModelRegistryRoute:
     ApiPublicHooksRefreshModelRegistryRoute,

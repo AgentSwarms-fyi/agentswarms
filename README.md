@@ -61,6 +61,7 @@ The "AgentSwarms" name and the hosted service remain with the project author.
 | 📚 **Knowledge Base / RAG**  | Upload documents, chunk and embed them (pgvector), and ground agents in your own data.                                                                            |
 | 🏢 **Data warehouses**       | Connect Amazon Redshift, Snowflake, Databricks, Google BigQuery, or Azure Synapse (encrypted credentials, read-only). Query them from the Data & SQL page, from SQL agents, and feed BI charts. |
 | 🔑 **Secrets Manager**       | Store credentials once (encrypted, write-only) and reference them anywhere as `{{secret:NAME}}` — warehouse connections, provider keys. Superadmins share secrets with users/groups via IAM.  |
+| 📊 **Business Intelligence** | A BI Workspace with drag-and-drop dashboards: build charts from local datasets or connected warehouses, generate visuals with the AI analyst, then publish with a public link or share with IAM groups. |
 | 🔍 **Observability**         | Inspect every tool call, token, and cost in a full execution trace.                                                                                               |
 | 🔌 **BYOK + MCP + A2A**      | Encrypted per-user provider keys, MCP server connections, swarm export to LangGraph/CrewAI/OpenAI SDK/Strands, and an A2A endpoint.                               |
 | 🛂 **IAM**                   | Superadmins, groups, invite/manual user provisioning, per-user/group model allow-lists, read-only sharing of KBs and data tables, invite-only mode.              |
@@ -103,8 +104,8 @@ manage everything else:
   exact model id; the allowed set is the union of all applicable rules).
   Enforced server-side on every LLM call and reflected in the model pickers.
 - **Shares** — grant users or groups **read-only** access to any knowledge
-  base or SQL data table; recipients' agents can search/query them but never
-  modify them.
+  base, SQL data table, secret, or BI dashboard; recipients' agents can
+  search/query them but never modify them.
 - **Settings** — flip the instance to **invite-only**: public self-signup
   (including OAuth) is rejected at the database level, while invited,
   admin-created, and SSO-provisioned users still get in.
@@ -121,6 +122,28 @@ manage everything else:
   > feature; self-hosted GoTrue → set `GOTRUE_SAML_ENABLED=true` with a
   > `GOTRUE_SAML_PRIVATE_KEY`. The SSO tab detects and explains this if it's
   > not enabled yet.
+
+## Business Intelligence
+
+The **BI Workspace** (`/bi`) turns connected data into shareable dashboards
+and reports. An editable dashboard is called a **BI project**:
+
+- **Build visuals by hand** — pick a source (your Data & SQL datasets or any
+  connected warehouse), write a read-only SQL query, preview it, and choose a
+  bar/line/area/pie chart, KPI tile, or table. Widgets live on a 12-column
+  drag-and-resize grid, with markdown text blocks for report narrative.
+- **Generate visuals with AI** — the same GenBI analyst as the Data & SQL
+  page (plan → SQL → execute → chart → narrative) runs inside the editor;
+  insert any answer as a widget. On `/data-sql`, every generated visual also
+  has an **Add to dashboard** button.
+- **Refresh** re-runs every widget's SQL against its source and stores a
+  capped **data snapshot** in the dashboard.
+- **Publish & share** — publishing exposes a read-only page at
+  `/share/bi/<unguessable-slug>` for anyone with the link; group sharing
+  (owner-controlled, or superadmin via Admin → IAM) makes the dashboard
+  appear read-only in members' BI Workspace. Viewers always see the stored
+  snapshots — your warehouse credentials are never used on their behalf and
+  never leave the server.
 
 ## Getting started
 

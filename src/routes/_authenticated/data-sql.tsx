@@ -89,6 +89,8 @@ import {
   type SavedMetric,
 } from "@/lib/biAgent";
 import { BiChatMessage } from "@/components/data-sql/BiChatMessage";
+import { AddToDashboardDialog } from "@/components/bi/AddToDashboardDialog";
+import type { BiWidgetSource } from "@/lib/biDashboards";
 import { SuggestedQuestions } from "@/components/data-sql/SuggestedQuestions";
 import { SemanticLayerEditor } from "@/components/data-sql/SemanticLayerEditor";
 
@@ -236,6 +238,10 @@ function DataSqlPage() {
   const [metricName, setMetricName] = useState("");
   const [metricDescription, setMetricDescription] = useState("");
   const biScrollRef = useRef<HTMLDivElement>(null);
+  // Which source each BI turn ran against (index-aligned with biTurns), so
+  // "Add to dashboard" records the right one even if the user switches later.
+  const biTurnSourcesRef = useRef<BiWidgetSource[]>([]);
+  const [addToDash, setAddToDash] = useState<{ turn: BiTurn; source: BiWidgetSource } | null>(null);
 
   // External data warehouses (connected under /integrations → Data Warehouses).
   // dataSource: "local" (in-browser AlaSQL) or a warehouse connection id.
@@ -649,6 +655,16 @@ function DataSqlPage() {
     if (!q || biBusy) return;
     setBiInput("");
     setBiBusy(true);
+    biTurnSourcesRef.current.push(
+      activeWarehouse
+        ? {
+            kind: "warehouse",
+            connection_id: activeWarehouse.id,
+            connection_name: activeWarehouse.name,
+            provider: activeWarehouse.provider,
+          }
+        : { kind: "local" },
+    );
     setBiTurns((prev) => [...prev, { question: q, status: "planning" }]);
     try {
       await runBiTurn({
@@ -1231,7 +1247,17 @@ function DataSqlPage() {
                 </div>
               )}
               {biTurns.map((t, i) => (
-                <BiChatMessage key={i} turn={t} onSaveMetric={handleAskSaveMetric} />
+                <BiChatMessage
+                  key={i}
+                  turn={t}
+                  onSaveMetric={handleAskSaveMetric}
+                  onAddToDashboard={() =>
+                    setAddToDash({
+                      turn: t,
+                      source: biTurnSourcesRef.current[i] ?? { kind: "local" },
+                    })
+                  }
+                />
               ))}
             </div>
 
@@ -1397,6 +1423,15 @@ function DataSqlPage() {
         onOpenChange={setUploadOpen}
         userId={user?.id || ""}
         onUploaded={refreshTables}
+      />
+
+      {/* Insert a generated visual into a BI project */}
+      <AddToDashboardDialog
+        open={addToDash !== null}
+        onOpenChange={(o) => !o && setAddToDash(null)}
+        turn={addToDash?.turn ?? null}
+        source={addToDash?.source ?? { kind: "local" }}
+        userId={user?.id ?? null}
       />
 
       {/* Semantic layer editor */}

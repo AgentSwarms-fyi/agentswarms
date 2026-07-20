@@ -22,6 +22,7 @@ import {
   Image as ImageIcon,
   Columns,
   NotebookPen,
+  PieChart,
 } from "lucide-react";
 
 import { Link, useLocation } from "@tanstack/react-router";
@@ -57,6 +58,7 @@ const buildItems = [
   { title: "Prompt Library", url: "/prompts", icon: BookMarked },
   { title: "Skill Library", url: "/skills", icon: Wand2 },
   { title: "Data & SQL Agents", url: "/data-sql", icon: Database },
+  { title: "BI Workspace", url: "/bi", icon: PieChart },
 ];
 
 const opsItems = [

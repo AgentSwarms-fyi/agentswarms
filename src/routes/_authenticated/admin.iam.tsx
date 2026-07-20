@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { format, formatDistanceToNow } from "date-fns";
 import {
   Ban,
+  BarChart3,
   Building2,
   Check,
   Copy,
@@ -1229,8 +1230,8 @@ function AccessTab({
         <CardHeader>
           <CardTitle className="text-base">Resource shares</CardTitle>
           <CardDescription>
-            Grant access to any user's knowledge base, SQL data table, or secret. KBs and tables are
-            shared read-only; secrets become usable via{" "}
+            Grant access to any user's knowledge base, SQL data table, secret, or BI dashboard. KBs,
+            tables and dashboards are shared read-only; secrets become usable via{" "}
             <code className="text-xs">{"{{secret:NAME}}"}</code> references without ever exposing
             the value.
           </CardDescription>
@@ -1251,7 +1252,9 @@ function AccessTab({
                       ? "📚 "
                       : r.resource_type === "secret"
                         ? "🔑 "
-                        : "🗃 "}
+                        : r.resource_type === "bi_dashboard"
+                          ? "📊 "
+                          : "🗃 "}
                     {r.name}
                     {r.owner_user_id
                       ? ` — ${userById.get(r.owner_user_id)?.email ?? "unknown owner"}`
@@ -1300,7 +1303,7 @@ function AccessTab({
               disabled={!shareResourceKey || !sharePrincipalId}
               onClick={async () => {
                 const [resource_type, resource_id] = shareResourceKey.split(":") as [
-                  "knowledge_base" | "data_table",
+                  "knowledge_base" | "data_table" | "secret" | "bi_dashboard",
                   string,
                 ];
                 const res = await createGrant({
@@ -1344,6 +1347,8 @@ function AccessTab({
                           <BookOpen className="h-4 w-4 text-muted-foreground" />
                         ) : g.resource_type === "secret" ? (
                           <KeyRound className="h-4 w-4 text-muted-foreground" />
+                        ) : g.resource_type === "bi_dashboard" ? (
+                          <BarChart3 className="h-4 w-4 text-muted-foreground" />
                         ) : (
                           <DatabaseIcon className="h-4 w-4 text-muted-foreground" />
                         )}
