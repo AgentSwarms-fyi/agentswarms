@@ -481,6 +481,9 @@ export function BiChartRender({
               paddingAngle={2}
               stroke="var(--card)"
               strokeWidth={2}
+              // recharts' pie enter-animation can wedge and leave the chart
+              // permanently empty (no sector paths) — render statically.
+              isAnimationActive={false}
             >
               {rows.map((r, i) => (
                 <Cell
@@ -617,7 +620,12 @@ export function BiChartRender({
               itemStyle={labelStyle}
               formatter={tooltipFmt}
             />
-            <Funnel dataKey={chart.valueField} nameKey={chart.nameField} data={rows}>
+            <Funnel
+              dataKey={chart.valueField}
+              nameKey={chart.nameField}
+              data={rows}
+              isAnimationActive={false}
+            >
               {rows.map((_, i) => (
                 <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
               ))}

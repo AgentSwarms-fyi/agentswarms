@@ -126,43 +126,47 @@ export function DashboardGrid({
       className="relative w-full"
       style={{ height: totalRows * (ROW_H + GAP) - GAP }}
     >
-      {items.map((it) => {
-        const pos = toPx(it);
-        const isDragging = draggingId === it.i;
-        return (
-          <div
-            key={it.i}
-            data-widget-id={it.i}
-            className={`absolute ${
-              isDragging ? "z-30 opacity-90 shadow-xl" : "z-0"
-            } ${draggingId && !isDragging ? "transition-all duration-150" : ""}`}
-            style={pos}
-          >
-            {editable && (
-              <div
-                className="absolute inset-x-0 top-0 z-20 h-9 cursor-grab active:cursor-grabbing"
-                style={{ right: 72 }}
-                title="Drag to move"
-                onPointerDown={(e) => startDrag(e, it.i, "move")}
-                onPointerMove={moveDrag}
-                onPointerUp={endDrag}
-                onPointerCancel={endDrag}
-              />
-            )}
-            <div className="h-full w-full">{renderItem(it.i)}</div>
-            {editable && (
-              <div
-                className="absolute bottom-0.5 right-0.5 z-20 h-4 w-4 cursor-nwse-resize rounded-sm border-b-2 border-r-2 border-muted-foreground/50 hover:border-primary"
-                title="Drag to resize"
-                onPointerDown={(e) => startDrag(e, it.i, "resize")}
-                onPointerMove={moveDrag}
-                onPointerUp={endDrag}
-                onPointerCancel={endDrag}
-              />
-            )}
-          </div>
-        );
-      })}
+      {/* Mount widgets only once the real width is measured: recharts'
+          ResponsiveContainer gets stuck if it first observes a 0-width
+          parent, leaving a tiny chart with a dead hover/tooltip area. */}
+      {width > 0 &&
+        items.map((it) => {
+          const pos = toPx(it);
+          const isDragging = draggingId === it.i;
+          return (
+            <div
+              key={it.i}
+              data-widget-id={it.i}
+              className={`absolute ${
+                isDragging ? "z-30 opacity-90 shadow-xl" : "z-0"
+              } ${draggingId && !isDragging ? "transition-all duration-150" : ""}`}
+              style={pos}
+            >
+              {editable && (
+                <div
+                  className="absolute inset-x-0 top-0 z-20 h-9 cursor-grab active:cursor-grabbing"
+                  style={{ right: 72 }}
+                  title="Drag to move"
+                  onPointerDown={(e) => startDrag(e, it.i, "move")}
+                  onPointerMove={moveDrag}
+                  onPointerUp={endDrag}
+                  onPointerCancel={endDrag}
+                />
+              )}
+              <div className="h-full w-full">{renderItem(it.i)}</div>
+              {editable && (
+                <div
+                  className="absolute bottom-0.5 right-0.5 z-20 h-4 w-4 cursor-nwse-resize rounded-sm border-b-2 border-r-2 border-muted-foreground/50 hover:border-primary"
+                  title="Drag to resize"
+                  onPointerDown={(e) => startDrag(e, it.i, "resize")}
+                  onPointerMove={moveDrag}
+                  onPointerUp={endDrag}
+                  onPointerCancel={endDrag}
+                />
+              )}
+            </div>
+          );
+        })}
     </div>
   );
 }
