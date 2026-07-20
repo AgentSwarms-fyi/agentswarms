@@ -38,13 +38,30 @@ import { useAuth } from "@/hooks/use-auth";
 import { isModelAllowedByRules, useMyModelRules } from "@/hooks/use-iam";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
-import { getModelRegistry, type RegistryModel } from "@/utils/modelRegistry.functions";
+import { listProviderModels, type ProviderModelInfo } from "@/utils/providerModels.functions";
 import {
   encodeModelChoice,
   isBiCompatProvider,
   parseModelChoice,
 } from "@/utils/providers/modelChoice";
 import { PROVIDER_LABELS, type ProviderId } from "@/utils/providers/types";
+
+/** Shown for OpenRouter when the live /models fetch is empty or fails. */
+const OPENROUTER_FALLBACK_MODELS = [
+  "openrouter/auto",
+  "openai/gpt-5",
+  "openai/gpt-4o",
+  "openai/gpt-4o-mini",
+  "anthropic/claude-3.5-sonnet",
+  "anthropic/claude-3.5-haiku",
+  "google/gemini-2.5-pro",
+  "google/gemini-2.5-flash",
+  "meta-llama/llama-3.3-70b-instruct",
+  "deepseek/deepseek-chat",
+  "mistralai/mistral-large",
+  "x-ai/grok-2-1212",
+  "qwen/qwen-2.5-72b-instruct",
+];
 
 export const BI_MODEL_STORAGE_KEY = "agentswarms.bi_model";
 
@@ -71,9 +88,9 @@ export function useBiModelPref(): [string | null, (m: string | null) => void] {
 
 type ConnectedIntegration = { provider: string; default_model: string | null };
 
-// Session caches shared by every picker instance.
-let modelCache: RegistryModel[] | null = null;
-let modelCachePromise: Promise<RegistryModel[]> | null = null;
+// Session caches shared by every picker instance. Provider model lists are
+// fetched live from each integration's /models endpoint once per session.
+const providerModelsCache = new Map<string, ProviderModelInfo[]>();
 let integrationsCache: ConnectedIntegration[] | null = null;
 let integrationsPromise: Promise<ConnectedIntegration[]> | null = null;
 
@@ -138,10 +155,10 @@ export function BiModelSelect({
   const { session } = useAuth();
   const token = session?.access_token;
   const rules = useMyModelRules();
-  const getRegistryFn = useServerFn(getModelRegistry);
+  const listModelsFn = useServerFn(listProviderModels);
 
   const [open, setOpen] = useState(false);
-  const [models, setModels] = useState<RegistryModel[] | null>(modelCache);
+  const [models, setModels] = useState<ProviderModelInfo[] | null>(null);
   const [integrations, setIntegrations] = useState<ConnectedIntegration[] | null>(
     integrationsCache,
   );
@@ -183,39 +200,66 @@ export function BiModelSelect({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [integrations, value, allowUnset]);
 
-  // Catalog only matters for OpenRouter.
+  // Live model discovery for the selected provider (its /models endpoint,
+  // called with the caller's own credentials). Cached per session.
   useEffect(() => {
-    if (modelCache || !token || provider !== "openrouter") return;
-    modelCachePromise ??= getRegistryFn({ data: { access_token: token } }).then((res) => {
-      modelCache = res.models;
-      return res.models;
-    });
-    modelCachePromise.then(setModels).catch(() => setModels([]));
-  }, [token, getRegistryFn, provider]);
+    if (!provider || !token) return;
+    const cached = providerModelsCache.get(provider);
+    if (cached) {
+      setModels(cached);
+      return;
+    }
+    setModels(null);
+    let cancelled = false;
+    listModelsFn({ data: { access_token: token, provider } })
+      .then((res) => {
+        if (cancelled) return;
+        const list = res.ok ? res.models : [];
+        providerModelsCache.set(provider, list);
+        setModels(list);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          providerModelsCache.set(provider, []);
+          setModels([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [provider, token, listModelsFn]);
 
   const entries = useMemo(() => {
     if (!integration) return [];
     const out: { value: string; display: string; sub: string }[] = [];
+    const seen = new Set<string>();
     if (integration.default_model && allowed(integration.provider, integration.default_model)) {
+      seen.add(integration.default_model);
       out.push({
         value: encodeModelChoice(integration.provider, integration.default_model),
         display: integration.default_model,
         sub: "integration default",
       });
     }
-    if (integration.provider === "openrouter") {
-      const seen = new Set<string>();
-      for (const m of models ?? []) {
-        if (m.modality !== "text" || m.source !== "openrouter") continue;
-        if (m.model_id === integration.default_model || seen.has(m.model_id)) continue;
-        seen.add(m.model_id);
-        if (!allowed("openrouter", m.model_id)) continue;
-        out.push({
-          value: encodeModelChoice("openrouter", m.model_id),
-          display: m.display_name,
-          sub: m.model_id,
-        });
-      }
+    // Live list from the provider's /models endpoint; curated fallback for
+    // OpenRouter when the fetch failed or came back empty.
+    const live: ProviderModelInfo[] =
+      models === null
+        ? []
+        : models.length > 0
+          ? models
+          : integration.provider === "openrouter"
+            ? OPENROUTER_FALLBACK_MODELS.map((id) => ({ id, name: null }))
+            : [];
+    for (const m of live) {
+      if (seen.has(m.id)) continue;
+      seen.add(m.id);
+      if (!allowed(integration.provider, m.id)) continue;
+      out.push({
+        value: encodeModelChoice(integration.provider, m.id),
+        display: m.name ?? m.id,
+        sub: m.id,
+      });
     }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -297,10 +341,10 @@ export function BiModelSelect({
             <CommandInput placeholder="Search models…" className="h-9 text-xs" />
             <CommandList className="max-h-64">
               <CommandEmpty>
-                {provider === "openrouter" && models === null
-                  ? "Loading the catalog…"
+                {models === null
+                  ? "Loading models from your integration…"
                   : entries.length === 0
-                    ? "No models for this integration — set its default model under Integrations."
+                    ? "No models found — set a default model for this integration under Integrations."
                     : "No model matches."}
               </CommandEmpty>
               <CommandGroup
