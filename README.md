@@ -63,7 +63,7 @@ The "AgentSwarms" name and the hosted service remain with the project author.
 | 🔌 **BYOK + MCP + A2A**      | Encrypted per-user provider keys, MCP server connections, swarm export to LangGraph/CrewAI/OpenAI SDK/Strands, and an A2A endpoint.                               |
 | 🛂 **IAM**                   | Superadmins, groups, invite/manual user provisioning, per-user/group model allow-lists, read-only sharing of KBs and data tables, invite-only mode.              |
 | 🧭 **Guided curriculum**     | Five tracks — Foundations, Patterns & Tools, SQL Agents, Multi-Agent Swarms, Scaling & Enterprise — each chapter pairs a concept with something you actually run. |
-| 📓 **Interactive notebooks** | Cell-by-cell, runnable lessons — memory, RAG, guardrails, evals — with real state carried between cells.                                                          |
+| 📓 **Interactive notebooks** | Cell-by-cell, runnable lessons — memory, RAG, guardrails, evals — plus your own **in-browser Python notebooks** (Pyodide) with a built-in helper for calling your connected models. |
 | 🛡️ **Guardrails & evals**    | Prompt-injection tests, PII redaction, LLM-as-judge scoring — hands-on, not hypothetical.                                                                         |
 | 🎓 **Certification**         | Pass the exam, get a verifiable certificate and badge.                                                                                                            |
 

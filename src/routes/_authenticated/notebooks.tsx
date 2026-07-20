@@ -1,16 +1,42 @@
-import { createFileRoute, Link, Outlet, useRouterState } from "@tanstack/react-router";
-import { useState } from "react";
+import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import { NOTEBOOKS } from "@/lib/notebooks/catalog";
 import type { NotebookSummary } from "@/lib/notebooks/types";
 import { Badge } from "@/components/ui/badge";
-import { Notebook as NotebookIcon, ChevronRight, BookOpen, Bot, Sparkles, Network, ShieldCheck, Database, Gauge, Cpu, Zap, AlertTriangle } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  Notebook as NotebookIcon,
+  ChevronRight,
+  BookOpen,
+  Bot,
+  Sparkles,
+  Network,
+  ShieldCheck,
+  Database,
+  Gauge,
+  Cpu,
+  Zap,
+  AlertTriangle,
+  FlaskConical,
+  Plus,
+  Trash2,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import type { Json } from "@/integrations/supabase/types";
+import { useAuth } from "@/hooks/use-auth";
+import { newPythonNotebookCells } from "@/lib/pythonNotebookTemplate";
 
 export const Route = createFileRoute("/_authenticated/notebooks")({
   head: () => ({
     meta: [
       { title: "Notebooks — AgentSwarms" },
-      { name: "description", content: "Interactive TypeScript notebooks for learning agentic AI — run cells, edit code, see real LLM and tool outputs." },
+      {
+        name: "description",
+        content:
+          "Interactive TypeScript notebooks for learning agentic AI — run cells, edit code, see real LLM and tool outputs.",
+      },
     ],
   }),
   component: NotebooksLayout,
@@ -140,7 +166,58 @@ function subgroupItems(items: NotebookSummary[]): SubgroupedItems {
 }
 
 function groupedNotebooks() {
-  return GROUPS.map((g) => ({ ...g, items: NOTEBOOKS.filter(g.match) })).filter((g) => g.items.length > 0);
+  return GROUPS.map((g) => ({ ...g, items: NOTEBOOKS.filter(g.match) })).filter(
+    (g) => g.items.length > 0,
+  );
+}
+
+type PyNotebookSummary = { id: string; title: string; updated_at: string };
+
+/** Load + mutate the current user's Python notebooks (RLS-scoped). */
+function usePyNotebooks(pathname: string) {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [pyNotebooks, setPyNotebooks] = useState<PyNotebookSummary[]>([]);
+  const [creating, setCreating] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    supabase
+      .from("user_python_notebooks")
+      .select("id, title, updated_at")
+      .order("updated_at", { ascending: false })
+      .then(({ data }) => setPyNotebooks(data ?? []));
+    // Re-fetch on navigation so renames/creations from the editor show up.
+  }, [user, pathname]);
+
+  const createNotebook = async () => {
+    if (!user || creating) return;
+    setCreating(true);
+    try {
+      const { data, error } = await supabase
+        .from("user_python_notebooks")
+        .insert({
+          user_id: user.id,
+          title: "My Python notebook",
+          cells: newPythonNotebookCells() as unknown as Json,
+        })
+        .select("id")
+        .single();
+      if (error || !data) return toast.error(error?.message ?? "Failed to create notebook");
+      void navigate({ to: "/notebooks/py/$pyNotebookId", params: { pyNotebookId: data.id } });
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const deleteNotebook = async (id: string) => {
+    if (!window.confirm("Delete this notebook? This cannot be undone.")) return;
+    const { error } = await supabase.from("user_python_notebooks").delete().eq("id", id);
+    if (error) return toast.error(error.message);
+    setPyNotebooks((prev) => prev.filter((n) => n.id !== id));
+  };
+
+  return { pyNotebooks, createNotebook, deleteNotebook, creating };
 }
 
 function NotebooksLayout() {
@@ -148,8 +225,9 @@ function NotebooksLayout() {
   const hasNotebookSelected = pathname.startsWith("/notebooks/") && pathname !== "/notebooks/";
   const groups = groupedNotebooks();
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(groups.map((g) => [g.id, false]))
+    Object.fromEntries(groups.map((g) => [g.id, false])),
   );
+  const { pyNotebooks, createNotebook, deleteNotebook, creating } = usePyNotebooks(pathname);
 
   return (
     <div className="flex h-[calc(100vh-3rem)] w-full min-w-0">
@@ -166,6 +244,45 @@ function NotebooksLayout() {
           </div>
         </div>
         <nav className="flex-1 overflow-y-auto p-2 space-y-1">
+          {/* User-authored Python notebooks */}
+          <div className="pb-1">
+            <div className="flex items-center gap-1.5 px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <FlaskConical className="h-3.5 w-3.5 text-primary" />
+              <span className="flex-1 text-left">My Python Lab</span>
+              <button
+                type="button"
+                onClick={() => void createNotebook()}
+                disabled={creating}
+                title="New Python notebook"
+                className="rounded p-0.5 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            {pyNotebooks.length > 0 && (
+              <ul className="ml-2 border-l border-border/60 pl-1">
+                {pyNotebooks.map((nb) => {
+                  const active = pathname === `/notebooks/py/${nb.id}`;
+                  return (
+                    <li key={nb.id}>
+                      <Link
+                        to="/notebooks/py/$pyNotebookId"
+                        params={{ pyNotebookId: nb.id }}
+                        className={cn(
+                          "block rounded-md px-2 py-1.5 text-[13px] leading-snug transition-colors",
+                          active
+                            ? "bg-primary/10 text-foreground font-medium"
+                            : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                        )}
+                      >
+                        <span className="line-clamp-1">{nb.title}</span>
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
           {groups.map((group) => {
             const Icon = group.icon;
             const open = openGroups[group.id] ?? false;
@@ -178,7 +295,7 @@ function NotebooksLayout() {
                     "w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-semibold uppercase tracking-wide hover:bg-muted/50",
                     group.id === "failure-modes"
                       ? "text-amber-500 hover:text-amber-400"
-                      : "text-muted-foreground hover:text-foreground"
+                      : "text-muted-foreground hover:text-foreground",
                   )}
                 >
                   <ChevronRight
@@ -217,12 +334,14 @@ function NotebooksLayout() {
                                       "block rounded-md px-2 py-1.5 text-[13px] leading-snug transition-colors",
                                       active
                                         ? "bg-primary/10 text-foreground font-medium"
-                                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                                        : "text-muted-foreground hover:bg-muted hover:text-foreground",
                                     )}
                                     title={nb.description}
                                   >
                                     <span className="line-clamp-2">
-                                      <span className="text-muted-foreground/70 tabular-nums">{idx + 1}.</span>{" "}
+                                      <span className="text-muted-foreground/70 tabular-nums">
+                                        {idx + 1}.
+                                      </span>{" "}
                                       {nb.title}
                                     </span>
                                   </Link>
@@ -241,13 +360,32 @@ function NotebooksLayout() {
         </nav>
       </aside>
       <main data-notebooks-main className="flex-1 min-w-0 overflow-y-auto">
-        {hasNotebookSelected ? <Outlet /> : <NotebookCatalog />}
+        {hasNotebookSelected ? (
+          <Outlet />
+        ) : (
+          <NotebookCatalog
+            pyNotebooks={pyNotebooks}
+            onCreatePy={() => void createNotebook()}
+            onDeletePy={(id) => void deleteNotebook(id)}
+            creatingPy={creating}
+          />
+        )}
       </main>
     </div>
   );
 }
 
-function NotebookCatalog() {
+function NotebookCatalog({
+  pyNotebooks,
+  onCreatePy,
+  onDeletePy,
+  creatingPy,
+}: {
+  pyNotebooks: PyNotebookSummary[];
+  onCreatePy: () => void;
+  onDeletePy: (id: string) => void;
+  creatingPy: boolean;
+}) {
   const groups = groupedNotebooks();
   return (
     <div className="h-full overflow-y-auto p-6 lg:p-8">
@@ -258,7 +396,8 @@ function NotebookCatalog() {
             <div>
               <h1 className="text-2xl font-semibold tracking-tight">All notebooks</h1>
               <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-                Choose any notebook below. Every example is runnable — edit the code, re-run cells, see real outputs.
+                Choose any notebook below. Every example is runnable — edit the code, re-run cells,
+                see real outputs.
               </p>
             </div>
           </div>
@@ -266,6 +405,82 @@ function NotebookCatalog() {
             {NOTEBOOKS.length} available
           </Badge>
         </div>
+
+        {/* My Python Lab — user-authored, in-browser Python notebooks */}
+        <section className="mb-8">
+          <div className="mb-3 flex items-center gap-2">
+            <FlaskConical className="h-4 w-4 text-primary" />
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-foreground">
+              My Python Lab
+            </h2>
+            <span className="text-xs text-muted-foreground">· {pyNotebooks.length}</span>
+            <Button
+              size="sm"
+              variant="outline"
+              className="ml-auto gap-1.5"
+              onClick={onCreatePy}
+              disabled={creatingPy}
+            >
+              <Plus className="h-3.5 w-3.5" /> New Python notebook
+            </Button>
+          </div>
+          <p className="mb-3 max-w-3xl text-sm text-muted-foreground">
+            Your own Python notebooks — experiment with code and frameworks right in the browser.
+            Each one starts with notes on calling models through your connected providers and a
+            runnable sample.
+          </p>
+          {pyNotebooks.length === 0 ? (
+            <button
+              type="button"
+              onClick={onCreatePy}
+              disabled={creatingPy}
+              className="flex w-full max-w-md items-center gap-3 rounded-md border border-dashed border-border p-4 text-left transition hover:border-primary/60 hover:bg-card"
+            >
+              <Plus className="h-5 w-5 text-primary" />
+              <span>
+                <span className="block text-sm font-medium">Create your first Python notebook</span>
+                <span className="block text-xs text-muted-foreground">
+                  Pre-loaded with model-usage notes and runnable sample cells.
+                </span>
+              </span>
+            </button>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
+              {pyNotebooks.map((nb) => (
+                <div
+                  key={nb.id}
+                  className="group relative rounded-md border border-border bg-card/50 transition hover:border-primary/60 hover:bg-card"
+                >
+                  <Link
+                    to="/notebooks/py/$pyNotebookId"
+                    params={{ pyNotebookId: nb.id }}
+                    className="block p-4"
+                  >
+                    <div className="mb-2 flex items-start justify-between gap-3">
+                      <h4 className="min-w-0 text-base font-semibold leading-snug break-words">
+                        {nb.title}
+                      </h4>
+                      <Badge variant="secondary" className="shrink-0 text-[10px]">
+                        Python
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Updated {new Date(nb.updated_at).toLocaleDateString()}
+                    </p>
+                  </Link>
+                  <button
+                    type="button"
+                    title="Delete notebook"
+                    onClick={() => onDeletePy(nb.id)}
+                    className="absolute bottom-3 right-3 rounded p-1 text-muted-foreground opacity-0 transition hover:text-destructive group-hover:opacity-100"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
 
         <div className="space-y-8">
           {groups.map((group) => {

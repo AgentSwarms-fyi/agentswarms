@@ -1990,6 +1990,36 @@ export type Database = {
         };
         Relationships: [];
       };
+      user_python_notebooks: {
+        Row: {
+          cells: Json;
+          created_at: string;
+          description: string | null;
+          id: string;
+          title: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          cells?: Json;
+          created_at?: string;
+          description?: string | null;
+          id?: string;
+          title?: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          cells?: Json;
+          created_at?: string;
+          description?: string | null;
+          id?: string;
+          title?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       user_roles: {
         Row: {
           created_at: string;

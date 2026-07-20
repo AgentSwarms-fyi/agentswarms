@@ -38,6 +38,7 @@ import { Route as DocsCertificationRouteImport } from './routes/docs.certificati
 import { Route as DocsAnalyticsRouteImport } from './routes/docs.analytics'
 import { Route as DocsAgentsRouteImport } from './routes/docs.agents'
 import { Route as DocsAccountRouteImport } from './routes/docs.account'
+import { Route as ApiPythonChatRouteImport } from './routes/api/python-chat'
 import { Route as ApiContactRouteImport } from './routes/api/contact'
 import { Route as ApiChatRouteImport } from './routes/api/chat'
 import { Route as ApiBiRouteImport } from './routes/api/bi'
@@ -84,6 +85,7 @@ import { Route as AuthenticatedAdminIamRouteImport } from './routes/_authenticat
 import { Route as AuthenticatedAdminAnalyticsRouteImport } from './routes/_authenticated/admin.analytics'
 import { Route as ApiPublicHooksRefreshModelRegistryRouteImport } from './routes/api/public/hooks/refresh-model-registry'
 import { Route as ApiPublicHooksGenerateExamSetRouteImport } from './routes/api/public/hooks/generate-exam-set'
+import { Route as AuthenticatedNotebooksPyPyNotebookIdRouteImport } from './routes/_authenticated/notebooks.py.$pyNotebookId'
 import { Route as AuthenticatedAnalyticsObservabilityRunIdRouteImport } from './routes/_authenticated/analytics_.observability.$runId'
 import { Route as ApiNotebooksNotebookIdAiV1EmbeddingsRouteImport } from './routes/api/notebooks.$notebookId.ai.v1.embeddings'
 import { Route as ApiNotebooksNotebookIdAiV1ImagesGenerationsRouteImport } from './routes/api/notebooks.$notebookId.ai.v1.images.generations'
@@ -232,6 +234,11 @@ const DocsAccountRoute = DocsAccountRouteImport.update({
   id: '/account',
   path: '/account',
   getParentRoute: () => DocsRoute,
+} as any)
+const ApiPythonChatRoute = ApiPythonChatRouteImport.update({
+  id: '/api/python-chat',
+  path: '/api/python-chat',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const ApiContactRoute = ApiContactRouteImport.update({
   id: '/api/contact',
@@ -478,6 +485,12 @@ const ApiPublicHooksGenerateExamSetRoute =
     path: '/api/public/hooks/generate-exam-set',
     getParentRoute: () => rootRouteImport,
   } as any)
+const AuthenticatedNotebooksPyPyNotebookIdRoute =
+  AuthenticatedNotebooksPyPyNotebookIdRouteImport.update({
+    id: '/py/$pyNotebookId',
+    path: '/py/$pyNotebookId',
+    getParentRoute: () => AuthenticatedNotebooksRoute,
+  } as any)
 const AuthenticatedAnalyticsObservabilityRunIdRoute =
   AuthenticatedAnalyticsObservabilityRunIdRouteImport.update({
     id: '/$runId',
@@ -541,6 +554,7 @@ export interface FileRoutesByFullPath {
   '/api/bi': typeof ApiBiRoute
   '/api/chat': typeof ApiChatRoute
   '/api/contact': typeof ApiContactRoute
+  '/api/python-chat': typeof ApiPythonChatRoute
   '/docs/account': typeof DocsAccountRoute
   '/docs/agents': typeof DocsAgentsRoute
   '/docs/analytics': typeof DocsAnalyticsRoute
@@ -577,6 +591,7 @@ export interface FileRoutesByFullPath {
   '/notebooks/': typeof AuthenticatedNotebooksIndexRoute
   '/templates/': typeof AuthenticatedTemplatesIndexRoute
   '/analytics/observability/$runId': typeof AuthenticatedAnalyticsObservabilityRunIdRoute
+  '/notebooks/py/$pyNotebookId': typeof AuthenticatedNotebooksPyPyNotebookIdRoute
   '/api/public/hooks/generate-exam-set': typeof ApiPublicHooksGenerateExamSetRoute
   '/api/public/hooks/refresh-model-registry': typeof ApiPublicHooksRefreshModelRegistryRoute
   '/api/notebooks/$notebookId/ai/v1/embeddings': typeof ApiNotebooksNotebookIdAiV1EmbeddingsRoute
@@ -618,6 +633,7 @@ export interface FileRoutesByTo {
   '/api/bi': typeof ApiBiRoute
   '/api/chat': typeof ApiChatRoute
   '/api/contact': typeof ApiContactRoute
+  '/api/python-chat': typeof ApiPythonChatRoute
   '/docs/account': typeof DocsAccountRoute
   '/docs/agents': typeof DocsAgentsRoute
   '/docs/analytics': typeof DocsAnalyticsRoute
@@ -654,6 +670,7 @@ export interface FileRoutesByTo {
   '/notebooks': typeof AuthenticatedNotebooksIndexRoute
   '/templates': typeof AuthenticatedTemplatesIndexRoute
   '/analytics/observability/$runId': typeof AuthenticatedAnalyticsObservabilityRunIdRoute
+  '/notebooks/py/$pyNotebookId': typeof AuthenticatedNotebooksPyPyNotebookIdRoute
   '/api/public/hooks/generate-exam-set': typeof ApiPublicHooksGenerateExamSetRoute
   '/api/public/hooks/refresh-model-registry': typeof ApiPublicHooksRefreshModelRegistryRoute
   '/api/notebooks/$notebookId/ai/v1/embeddings': typeof ApiNotebooksNotebookIdAiV1EmbeddingsRoute
@@ -700,6 +717,7 @@ export interface FileRoutesById {
   '/api/bi': typeof ApiBiRoute
   '/api/chat': typeof ApiChatRoute
   '/api/contact': typeof ApiContactRoute
+  '/api/python-chat': typeof ApiPythonChatRoute
   '/docs/account': typeof DocsAccountRoute
   '/docs/agents': typeof DocsAgentsRoute
   '/docs/analytics': typeof DocsAnalyticsRoute
@@ -736,6 +754,7 @@ export interface FileRoutesById {
   '/_authenticated/notebooks/': typeof AuthenticatedNotebooksIndexRoute
   '/_authenticated/templates/': typeof AuthenticatedTemplatesIndexRoute
   '/_authenticated/analytics_/observability/$runId': typeof AuthenticatedAnalyticsObservabilityRunIdRoute
+  '/_authenticated/notebooks/py/$pyNotebookId': typeof AuthenticatedNotebooksPyPyNotebookIdRoute
   '/api/public/hooks/generate-exam-set': typeof ApiPublicHooksGenerateExamSetRoute
   '/api/public/hooks/refresh-model-registry': typeof ApiPublicHooksRefreshModelRegistryRoute
   '/api/notebooks/$notebookId/ai/v1/embeddings': typeof ApiNotebooksNotebookIdAiV1EmbeddingsRoute
@@ -782,6 +801,7 @@ export interface FileRouteTypes {
     | '/api/bi'
     | '/api/chat'
     | '/api/contact'
+    | '/api/python-chat'
     | '/docs/account'
     | '/docs/agents'
     | '/docs/analytics'
@@ -818,6 +838,7 @@ export interface FileRouteTypes {
     | '/notebooks/'
     | '/templates/'
     | '/analytics/observability/$runId'
+    | '/notebooks/py/$pyNotebookId'
     | '/api/public/hooks/generate-exam-set'
     | '/api/public/hooks/refresh-model-registry'
     | '/api/notebooks/$notebookId/ai/v1/embeddings'
@@ -859,6 +880,7 @@ export interface FileRouteTypes {
     | '/api/bi'
     | '/api/chat'
     | '/api/contact'
+    | '/api/python-chat'
     | '/docs/account'
     | '/docs/agents'
     | '/docs/analytics'
@@ -895,6 +917,7 @@ export interface FileRouteTypes {
     | '/notebooks'
     | '/templates'
     | '/analytics/observability/$runId'
+    | '/notebooks/py/$pyNotebookId'
     | '/api/public/hooks/generate-exam-set'
     | '/api/public/hooks/refresh-model-registry'
     | '/api/notebooks/$notebookId/ai/v1/embeddings'
@@ -940,6 +963,7 @@ export interface FileRouteTypes {
     | '/api/bi'
     | '/api/chat'
     | '/api/contact'
+    | '/api/python-chat'
     | '/docs/account'
     | '/docs/agents'
     | '/docs/analytics'
@@ -976,6 +1000,7 @@ export interface FileRouteTypes {
     | '/_authenticated/notebooks/'
     | '/_authenticated/templates/'
     | '/_authenticated/analytics_/observability/$runId'
+    | '/_authenticated/notebooks/py/$pyNotebookId'
     | '/api/public/hooks/generate-exam-set'
     | '/api/public/hooks/refresh-model-registry'
     | '/api/notebooks/$notebookId/ai/v1/embeddings'
@@ -1002,6 +1027,7 @@ export interface RootRouteChildren {
   ApiBiRoute: typeof ApiBiRoute
   ApiChatRoute: typeof ApiChatRoute
   ApiContactRoute: typeof ApiContactRoute
+  ApiPythonChatRoute: typeof ApiPythonChatRoute
   EmailUnsubscribeRoute: typeof EmailUnsubscribeRoute
   VerifyCodeRoute: typeof VerifyCodeRoute
   ApiAuthSsoConfigRoute: typeof ApiAuthSsoConfigRoute
@@ -1226,6 +1252,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/docs/account'
       preLoaderRoute: typeof DocsAccountRouteImport
       parentRoute: typeof DocsRoute
+    }
+    '/api/python-chat': {
+      id: '/api/python-chat'
+      path: '/api/python-chat'
+      fullPath: '/api/python-chat'
+      preLoaderRoute: typeof ApiPythonChatRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/contact': {
       id: '/api/contact'
@@ -1549,6 +1582,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicHooksGenerateExamSetRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/notebooks/py/$pyNotebookId': {
+      id: '/_authenticated/notebooks/py/$pyNotebookId'
+      path: '/py/$pyNotebookId'
+      fullPath: '/notebooks/py/$pyNotebookId'
+      preLoaderRoute: typeof AuthenticatedNotebooksPyPyNotebookIdRouteImport
+      parentRoute: typeof AuthenticatedNotebooksRoute
+    }
     '/_authenticated/analytics_/observability/$runId': {
       id: '/_authenticated/analytics_/observability/$runId'
       path: '/$runId'
@@ -1599,6 +1639,7 @@ const AuthenticatedCertificationRouteWithChildren =
 interface AuthenticatedNotebooksRouteChildren {
   AuthenticatedNotebooksNotebookIdRoute: typeof AuthenticatedNotebooksNotebookIdRoute
   AuthenticatedNotebooksIndexRoute: typeof AuthenticatedNotebooksIndexRoute
+  AuthenticatedNotebooksPyPyNotebookIdRoute: typeof AuthenticatedNotebooksPyPyNotebookIdRoute
 }
 
 const AuthenticatedNotebooksRouteChildren: AuthenticatedNotebooksRouteChildren =
@@ -1606,6 +1647,8 @@ const AuthenticatedNotebooksRouteChildren: AuthenticatedNotebooksRouteChildren =
     AuthenticatedNotebooksNotebookIdRoute:
       AuthenticatedNotebooksNotebookIdRoute,
     AuthenticatedNotebooksIndexRoute: AuthenticatedNotebooksIndexRoute,
+    AuthenticatedNotebooksPyPyNotebookIdRoute:
+      AuthenticatedNotebooksPyPyNotebookIdRoute,
   }
 
 const AuthenticatedNotebooksRouteWithChildren =
@@ -1742,6 +1785,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiBiRoute: ApiBiRoute,
   ApiChatRoute: ApiChatRoute,
   ApiContactRoute: ApiContactRoute,
+  ApiPythonChatRoute: ApiPythonChatRoute,
   EmailUnsubscribeRoute: EmailUnsubscribeRoute,
   VerifyCodeRoute: VerifyCodeRoute,
   ApiAuthSsoConfigRoute: ApiAuthSsoConfigRoute,
