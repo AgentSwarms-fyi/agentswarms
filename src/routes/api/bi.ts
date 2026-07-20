@@ -1,8 +1,15 @@
 // POST /api/bi
 // Lightweight JSON-only LLM endpoint for the BI Agent pipeline (plan / sql /
-// chart / narrative / suggestions). Uses OpenRouter with
+// chart / narrative / suggestions). Routes through OpenRouter with
 // response_format: json_object so the client can JSON.parse the reply
 // directly without prose-stripping heuristics.
+//
+// Credentials follow the app's BYOK rule: the CALLER's OpenRouter
+// integration (connected under /integrations, incl. base-URL overrides and
+// {{secret:}} refs) is used first, falling back to the operator's shared
+// OPENROUTER_API_KEY — same resolution as /api/chat and /api/python-chat.
+// The default model likewise comes from the caller's integration
+// (default_model) before the instance fallback.
 //
 // Auth: Bearer token (any signed-in user). Writes one execution_traces row
 // per call so analytics stay accurate.
@@ -12,9 +19,9 @@ import { createClient } from "@supabase/supabase-js";
 import { recordGatewayCall, extractUsage } from "@/utils/observability/recordGatewayUsage.server";
 import { getEffectiveModelRules, isModelAllowed } from "@/utils/iam.server";
 import {
-  OPENROUTER_CHAT_URL,
-  getOpenRouterApiKey,
-} from "@/utils/providers/openrouterDefault.server";
+  loadCredentialRow,
+  resolveOpenAICompatTransport,
+} from "@/utils/providers/credentials.server";
 
 const DEFAULT_MODEL = "google/gemini-2.5-flash";
 
@@ -69,8 +76,22 @@ export const Route = createFileRoute("/api/bi")({
         } = await userClient.auth.getUser();
         if (!user) return json({ error: "Unauthorized" }, 401);
 
-        const apiKey = getOpenRouterApiKey();
-        if (!apiKey) return json({ error: "BI Agent unavailable (no API key)" }, 503);
+        // BYOK: the caller's own OpenRouter integration wins; the operator's
+        // shared env key is only the zero-config fallback.
+        const transport = await resolveOpenAICompatTransport({
+          userId: user.id,
+          provider: "openrouter",
+        });
+        if (!transport || !transport.apiKey) {
+          return json(
+            {
+              error:
+                "OpenRouter isn't configured. Connect it under Integrations " +
+                "(or ask the operator to set OPENROUTER_API_KEY).",
+            },
+            503,
+          );
+        }
 
         const body = (await request.json().catch(() => ({}))) as {
           systemPrompt?: string;
@@ -82,7 +103,18 @@ export const Route = createFileRoute("/api/bi")({
         if (!body.userPrompt) return json({ error: "userPrompt required" }, 400);
 
         const startedAt = Date.now();
-        const model = body.model || DEFAULT_MODEL;
+        // Model precedence: explicit choice → the caller's integration
+        // default_model → the instance default.
+        let model = body.model || "";
+        if (!model) {
+          try {
+            const cred = await loadCredentialRow(user.id, "openrouter");
+            if (cred?.default_model) model = cred.default_model;
+          } catch {
+            /* fall through to the instance default */
+          }
+        }
+        if (!model) model = DEFAULT_MODEL;
         const surface = surfaceFor(body.stage);
 
         // IAM model governance: same gate as /api/chat. BI calls route
@@ -98,11 +130,12 @@ export const Route = createFileRoute("/api/bi")({
           );
         }
 
-        const r = await fetch(OPENROUTER_CHAT_URL, {
+        const r = await fetch(transport.endpointUrl, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${apiKey}`,
+            Authorization: `Bearer ${transport.apiKey}`,
+            ...(transport.extraHeaders ?? {}),
           },
           body: JSON.stringify({
             model,

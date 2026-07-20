@@ -19,9 +19,12 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useAuth } from "@/hooks/use-auth";
 import { isModelAllowedByRules, useMyModelRules } from "@/hooks/use-iam";
+import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { getModelRegistry, type RegistryModel } from "@/utils/modelRegistry.functions";
 
+/** Instance-level fallback (an OpenRouter route id) — used only when the
+ * caller's OpenRouter integration has no default_model of its own. */
 export const DEFAULT_BI_MODEL = "google/gemini-2.5-flash";
 export const BI_MODEL_STORAGE_KEY = "agentswarms.bi_model";
 
@@ -50,6 +53,25 @@ export function useBiModelPref(): [string | null, (m: string | null) => void] {
 let modelCache: RegistryModel[] | null = null;
 let modelCachePromise: Promise<RegistryModel[]> | null = null;
 
+// The caller's own OpenRouter integration default (RLS-scoped read).
+// undefined = not loaded yet; null = integration has no default_model.
+let userDefaultCache: string | null | undefined;
+let userDefaultPromise: Promise<string | null> | null = null;
+
+function fetchUserDefaultModel(): Promise<string | null> {
+  userDefaultPromise ??= Promise.resolve(
+    supabase
+      .from("provider_credentials")
+      .select("default_model")
+      .eq("provider", "openrouter")
+      .maybeSingle(),
+  ).then(({ data }) => {
+    userDefaultCache = data?.default_model ?? null;
+    return userDefaultCache;
+  });
+  return userDefaultPromise;
+}
+
 export function BiModelSelect({
   value,
   onChange,
@@ -69,8 +91,14 @@ export function BiModelSelect({
 
   const [open, setOpen] = useState(false);
   const [models, setModels] = useState<RegistryModel[] | null>(modelCache);
+  const [userDefault, setUserDefault] = useState<string | null>(userDefaultCache ?? null);
 
   useEffect(() => {
+    if (userDefaultCache === undefined) {
+      fetchUserDefaultModel()
+        .then(setUserDefault)
+        .catch(() => {});
+    }
     if (modelCache || !token) return;
     modelCachePromise ??= getRegistryFn({ data: { access_token: token } }).then((res) => {
       modelCache = res.models;
@@ -92,9 +120,10 @@ export function BiModelSelect({
   }, [models, rules]);
 
   const selected = value ? options.find((m) => m.model_id === value) : null;
+  const effectiveDefault = userDefault ?? DEFAULT_BI_MODEL;
   const label = value
     ? (selected?.display_name ?? value)
-    : `Default (${DEFAULT_BI_MODEL.split("/")[1] ?? DEFAULT_BI_MODEL})`;
+    : `Default (${effectiveDefault.split("/").pop() ?? effectiveDefault})`;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -132,8 +161,12 @@ export function BiModelSelect({
                 className="text-xs"
               >
                 <Check className={cn("mr-2 h-3.5 w-3.5", value ? "opacity-0" : "opacity-100")} />
-                <span>
-                  Default <span className="text-muted-foreground">({DEFAULT_BI_MODEL})</span>
+                <span className="min-w-0">
+                  <span className="block truncate">Default</span>
+                  <span className="block truncate font-mono text-[10px] text-muted-foreground">
+                    {effectiveDefault} ·{" "}
+                    {userDefault ? "your OpenRouter integration" : "instance default"}
+                  </span>
                 </span>
               </CommandItem>
               {options.map((m) => (

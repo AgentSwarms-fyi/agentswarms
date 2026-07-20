@@ -43,32 +43,32 @@ instance can start with zero setup.
 
 Same UI, two different missions:
 
-|                | **This repository (MIT)**                                                                                                                                                 | **[agentswarms.fyi](https://agentswarms.fyi) (hosted)**                                                                                                              |
-| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Focus**      | **Easy deployment of the full agentic AI platform** on your own infrastructure — agents, swarms, RAG, traces, budgets — with the learning curriculum included as guidance. | **Learning first**: a hands-on classroom for agentic AI — guided curriculum, build-along labs, interactive notebooks, presentations, and certification — fully managed. |
-| **Runs on**    | Your Supabase project, your provider keys, your Docker host (or Cloudflare Workers).                                                                                       | Managed infrastructure, including an AI gateway with free-tier models — nothing to configure.                                                                          |
-| **Extras**     | Headless control of your own data; no usage caps other than your own budgets.                                                                                              | Hosted-only surfaces: field-engineering blog, community galleries, voice agents, website embeds, and free standalone tools.                                             |
-| **Best for**   | Teams and tinkerers who want to **run** an agentic AI platform they own.                                                                                                    | Learners who want to **study and practice** agentic AI without setting anything up.                                                                                    |
+|              | **This repository (MIT)**                                                                                                                                                  | **[agentswarms.fyi](https://agentswarms.fyi) (hosted)**                                                                                                                 |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Focus**    | **Easy deployment of the full agentic AI platform** on your own infrastructure — agents, swarms, RAG, traces, budgets — with the learning curriculum included as guidance. | **Learning first**: a hands-on classroom for agentic AI — guided curriculum, build-along labs, interactive notebooks, presentations, and certification — fully managed. |
+| **Runs on**  | Your Supabase project, your provider keys, your Docker host (or Cloudflare Workers).                                                                                       | Managed infrastructure, including an AI gateway with free-tier models — nothing to configure.                                                                           |
+| **Extras**   | Headless control of your own data; no usage caps other than your own budgets.                                                                                              | Hosted-only surfaces: field-engineering blog, community galleries, voice agents, website embeds, and free standalone tools.                                             |
+| **Best for** | Teams and tinkerers who want to **run** an agentic AI platform they own.                                                                                                   | Learners who want to **study and practice** agentic AI without setting anything up.                                                                                     |
 
 The "AgentSwarms" name and the hosted service remain with the project author.
 
 ## Features
 
-|                              |                                                                                                                                                                   |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 🤖 **Agent Playground**      | Build an agent, wire up tools, and chat with it in-browser, with full request/response traces.                                                                    |
-| 🐝 **Swarm canvas**          | Design multi-agent workflows visually (built on [XYFlow](https://xyflow.com)) and execute them end-to-end.                                                        |
-| 📚 **Knowledge Base / RAG**  | Upload documents, chunk and embed them (pgvector), and ground agents in your own data.                                                                            |
-| 🏢 **Data warehouses**       | Connect Amazon Redshift, Snowflake, Databricks, Google BigQuery, or Azure Synapse (encrypted credentials, read-only). Query them from the Data & SQL page, from SQL agents, and feed BI charts. |
-| 🔑 **Secrets Manager**       | Store credentials once (encrypted, write-only) and reference them anywhere as `{{secret:NAME}}` — warehouse connections, provider keys. Superadmins share secrets with users/groups via IAM.  |
+|                              |                                                                                                                                                                                                         |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 🤖 **Agent Playground**      | Build an agent, wire up tools, and chat with it in-browser, with full request/response traces.                                                                                                          |
+| 🐝 **Swarm canvas**          | Design multi-agent workflows visually (built on [XYFlow](https://xyflow.com)) and execute them end-to-end.                                                                                              |
+| 📚 **Knowledge Base / RAG**  | Upload documents, chunk and embed them (pgvector), and ground agents in your own data.                                                                                                                  |
+| 🏢 **Data warehouses**       | Connect Amazon Redshift, Snowflake, Databricks, Google BigQuery, or Azure Synapse (encrypted credentials, read-only). Query them from the Data & SQL page, from SQL agents, and feed BI charts.         |
+| 🔑 **Secrets Manager**       | Store credentials once (encrypted, write-only) and reference them anywhere as `{{secret:NAME}}` — warehouse connections, provider keys. Superadmins share secrets with users/groups via IAM.            |
 | 📊 **Business Intelligence** | A BI Workspace with drag-and-drop dashboards: build charts from local datasets or connected warehouses, generate visuals with the AI analyst, then publish with a public link or share with IAM groups. |
-| 🔍 **Observability**         | Inspect every tool call, token, and cost in a full execution trace.                                                                                               |
-| 🔌 **BYOK + MCP + A2A**      | Encrypted per-user provider keys, MCP server connections, swarm export to LangGraph/CrewAI/OpenAI SDK/Strands, and an A2A endpoint.                               |
-| 🛂 **IAM**                   | Superadmins, groups, invite/manual user provisioning, per-user/group model allow-lists, read-only sharing of KBs and data tables, invite-only mode.              |
-| 🧭 **Guided curriculum**     | Five tracks — Foundations, Patterns & Tools, SQL Agents, Multi-Agent Swarms, Scaling & Enterprise — each chapter pairs a concept with something you actually run. |
-| 📓 **Python Lab**            | Your own in-browser Python notebooks (Pyodide) — experiment with code and frameworks, with a built-in helper for calling your connected models.                    |
-| 🛡️ **Guardrails & evals**    | Prompt-injection tests, PII redaction, LLM-as-judge scoring — hands-on, not hypothetical.                                                                         |
-| 🎓 **Certification**         | Pass the exam, get a verifiable certificate and badge.                                                                                                            |
+| 🔍 **Observability**         | Inspect every tool call, token, and cost in a full execution trace.                                                                                                                                     |
+| 🔌 **BYOK + MCP + A2A**      | Encrypted per-user provider keys, MCP server connections, swarm export to LangGraph/CrewAI/OpenAI SDK/Strands, and an A2A endpoint.                                                                     |
+| 🛂 **IAM**                   | Superadmins, groups, invite/manual user provisioning, per-user/group model allow-lists, read-only sharing of KBs and data tables, invite-only mode.                                                     |
+| 🧭 **Guided curriculum**     | Five tracks — Foundations, Patterns & Tools, SQL Agents, Multi-Agent Swarms, Scaling & Enterprise — each chapter pairs a concept with something you actually run.                                       |
+| 📓 **Python Lab**            | Your own in-browser Python notebooks (Pyodide) — experiment with code and frameworks, with a built-in helper for calling your connected models.                                                         |
+| 🛡️ **Guardrails & evals**    | Prompt-injection tests, PII redaction, LLM-as-judge scoring — hands-on, not hypothetical.                                                                                                               |
+| 🎓 **Certification**         | Pass the exam, get a verifiable certificate and badge.                                                                                                                                                  |
 
 <div align="center">
   <img src="public/sample-badge-current.png" alt="AgentSwarms Certified Agentic AI Practitioner badge" width="220" />
@@ -156,7 +156,9 @@ and reports. An editable dashboard is called a **BI project**:
 - **Pick the AI model** — the BI agent on Data & SQL and every generative
   feature in the BI Workspace (AI analyst, insights) runs on a selectable
   **text model** from the Model Registry, filtered by your IAM model rules
-  and enforced server-side. When publishing, choose a **reader AI model**:
+  and enforced server-side. Calls are **BYOK**: they use your own OpenRouter
+  integration (key, base URL, and its default model) with the operator's
+  shared `OPENROUTER_API_KEY` only as a zero-config fallback. When publishing, choose a **reader AI model**:
   signed-in viewers of a shared dashboard get an **Ask AI** panel that
   answers questions from the stored data snapshots using that model — and
   sharing with a group is validated against the group's IAM model rules
@@ -230,7 +232,7 @@ storage), configuring environment variables, and running the app.
 Optional, but needed for a fully working app:
 
 | Optional                                                                  | Why                                                                                                                                                       |
-| ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **OpenRouter API key** ([openrouter.ai/keys](https://openrouter.ai/keys)) | Without it, nobody can chat with an agent until they add their own provider key under `/integrations`. With it, the app works zero-config for every user. |
 | **OpenAI API key** ([platform.openai.com](https://platform.openai.com))   | Powers Knowledge Base embeddings (RAG / vector search). Without it, KB search silently falls back to keyword search.                                      |
 
@@ -505,11 +507,11 @@ Remember to restart `npm run dev` after editing `.env`.
 **Server-side features fail with 401 / "Invalid API key" even though the
 publishable key works.** Your `SUPABASE_SERVICE_ROLE_KEY` is bad — commonly
 a truncated copy (they're easy to cut off), a key copied from a
-*different* Supabase project's dashboard, or a new-style `sb_secret_...`
+_different_ Supabase project's dashboard, or a new-style `sb_secret_...`
 key that has been rolled. The reliable fix: in **Project Settings → API
 Keys → Legacy API keys**, copy the **`service_role` JWT** (a ~200+
 character `eyJ...` string) and use that as `SUPABASE_SERVICE_ROLE_KEY` —
-and double-check the dashboard URL contains *your* project ref before
+and double-check the dashboard URL contains _your_ project ref before
 copying.
 
 **`Missing required field in config: project_id` from `supabase db push`.**
