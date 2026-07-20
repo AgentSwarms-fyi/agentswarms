@@ -64,7 +64,6 @@ import { Route as AuthenticatedAnalyticsRouteImport } from './routes/_authentica
 import { Route as AuthenticatedAgentsRouteImport } from './routes/_authenticated/agents'
 import { Route as AuthenticatedAccountRouteImport } from './routes/_authenticated/account'
 import { Route as AuthenticatedTemplatesIndexRouteImport } from './routes/_authenticated/templates.index'
-import { Route as AuthenticatedNotebooksIndexRouteImport } from './routes/_authenticated/notebooks.index'
 import { Route as AuthenticatedCertificationIndexRouteImport } from './routes/_authenticated/certification.index'
 import { Route as ApiTemplatesProvisionRouteImport } from './routes/api/templates.provision'
 import { Route as ApiSkillsGenerateRouteImport } from './routes/api/skills.generate'
@@ -78,7 +77,6 @@ import { Route as ApiEmailSendRouteImport } from './routes/api/email/send'
 import { Route as ApiCertificateIdRouteImport } from './routes/api/certificate.$id'
 import { Route as ApiAuthSsoConfigRouteImport } from './routes/api/auth/sso-config'
 import { Route as AuthenticatedTemplatesTemplateIdRouteImport } from './routes/_authenticated/templates.$templateId'
-import { Route as AuthenticatedNotebooksNotebookIdRouteImport } from './routes/_authenticated/notebooks.$notebookId'
 import { Route as AuthenticatedCertificationExamRouteImport } from './routes/_authenticated/certification.exam'
 import { Route as AuthenticatedAnalyticsObservabilityRouteImport } from './routes/_authenticated/analytics_.observability'
 import { Route as AuthenticatedAdminIamRouteImport } from './routes/_authenticated/admin.iam'
@@ -87,9 +85,6 @@ import { Route as ApiPublicHooksRefreshModelRegistryRouteImport } from './routes
 import { Route as ApiPublicHooksGenerateExamSetRouteImport } from './routes/api/public/hooks/generate-exam-set'
 import { Route as AuthenticatedNotebooksPyPyNotebookIdRouteImport } from './routes/_authenticated/notebooks.py.$pyNotebookId'
 import { Route as AuthenticatedAnalyticsObservabilityRunIdRouteImport } from './routes/_authenticated/analytics_.observability.$runId'
-import { Route as ApiNotebooksNotebookIdAiV1EmbeddingsRouteImport } from './routes/api/notebooks.$notebookId.ai.v1.embeddings'
-import { Route as ApiNotebooksNotebookIdAiV1ImagesGenerationsRouteImport } from './routes/api/notebooks.$notebookId.ai.v1.images.generations'
-import { Route as ApiNotebooksNotebookIdAiV1ChatCompletionsRouteImport } from './routes/api/notebooks.$notebookId.ai.v1.chat.completions'
 
 const Char91indexChar93Route = Char91indexChar93RouteImport.update({
   id: '/index',
@@ -371,12 +366,6 @@ const AuthenticatedTemplatesIndexRoute =
     path: '/templates/',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
-const AuthenticatedNotebooksIndexRoute =
-  AuthenticatedNotebooksIndexRouteImport.update({
-    id: '/',
-    path: '/',
-    getParentRoute: () => AuthenticatedNotebooksRoute,
-  } as any)
 const AuthenticatedCertificationIndexRoute =
   AuthenticatedCertificationIndexRouteImport.update({
     id: '/',
@@ -444,12 +433,6 @@ const AuthenticatedTemplatesTemplateIdRoute =
     path: '/templates/$templateId',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
-const AuthenticatedNotebooksNotebookIdRoute =
-  AuthenticatedNotebooksNotebookIdRouteImport.update({
-    id: '/$notebookId',
-    path: '/$notebookId',
-    getParentRoute: () => AuthenticatedNotebooksRoute,
-  } as any)
 const AuthenticatedCertificationExamRoute =
   AuthenticatedCertificationExamRouteImport.update({
     id: '/exam',
@@ -496,24 +479,6 @@ const AuthenticatedAnalyticsObservabilityRunIdRoute =
     id: '/$runId',
     path: '/$runId',
     getParentRoute: () => AuthenticatedAnalyticsObservabilityRoute,
-  } as any)
-const ApiNotebooksNotebookIdAiV1EmbeddingsRoute =
-  ApiNotebooksNotebookIdAiV1EmbeddingsRouteImport.update({
-    id: '/api/notebooks/$notebookId/ai/v1/embeddings',
-    path: '/api/notebooks/$notebookId/ai/v1/embeddings',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const ApiNotebooksNotebookIdAiV1ImagesGenerationsRoute =
-  ApiNotebooksNotebookIdAiV1ImagesGenerationsRouteImport.update({
-    id: '/api/notebooks/$notebookId/ai/v1/images/generations',
-    path: '/api/notebooks/$notebookId/ai/v1/images/generations',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const ApiNotebooksNotebookIdAiV1ChatCompletionsRoute =
-  ApiNotebooksNotebookIdAiV1ChatCompletionsRouteImport.update({
-    id: '/api/notebooks/$notebookId/ai/v1/chat/completions',
-    path: '/api/notebooks/$notebookId/ai/v1/chat/completions',
-    getParentRoute: () => rootRouteImport,
   } as any)
 
 export interface FileRoutesByFullPath {
@@ -574,7 +539,6 @@ export interface FileRoutesByFullPath {
   '/admin/iam': typeof AuthenticatedAdminIamRoute
   '/analytics/observability': typeof AuthenticatedAnalyticsObservabilityRouteWithChildren
   '/certification/exam': typeof AuthenticatedCertificationExamRoute
-  '/notebooks/$notebookId': typeof AuthenticatedNotebooksNotebookIdRoute
   '/templates/$templateId': typeof AuthenticatedTemplatesTemplateIdRoute
   '/api/auth/sso-config': typeof ApiAuthSsoConfigRoute
   '/api/certificate/$id': typeof ApiCertificateIdRoute
@@ -588,15 +552,11 @@ export interface FileRoutesByFullPath {
   '/api/skills/generate': typeof ApiSkillsGenerateRoute
   '/api/templates/provision': typeof ApiTemplatesProvisionRoute
   '/certification/': typeof AuthenticatedCertificationIndexRoute
-  '/notebooks/': typeof AuthenticatedNotebooksIndexRoute
   '/templates/': typeof AuthenticatedTemplatesIndexRoute
   '/analytics/observability/$runId': typeof AuthenticatedAnalyticsObservabilityRunIdRoute
   '/notebooks/py/$pyNotebookId': typeof AuthenticatedNotebooksPyPyNotebookIdRoute
   '/api/public/hooks/generate-exam-set': typeof ApiPublicHooksGenerateExamSetRoute
   '/api/public/hooks/refresh-model-registry': typeof ApiPublicHooksRefreshModelRegistryRoute
-  '/api/notebooks/$notebookId/ai/v1/embeddings': typeof ApiNotebooksNotebookIdAiV1EmbeddingsRoute
-  '/api/notebooks/$notebookId/ai/v1/chat/completions': typeof ApiNotebooksNotebookIdAiV1ChatCompletionsRoute
-  '/api/notebooks/$notebookId/ai/v1/images/generations': typeof ApiNotebooksNotebookIdAiV1ImagesGenerationsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -622,6 +582,7 @@ export interface FileRoutesByTo {
   '/knowledge': typeof AuthenticatedKnowledgeRoute
   '/mcp': typeof AuthenticatedMcpRoute
   '/model-registry': typeof AuthenticatedModelRegistryRoute
+  '/notebooks': typeof AuthenticatedNotebooksRouteWithChildren
   '/patterns': typeof AuthenticatedPatternsRoute
   '/playground': typeof AuthenticatedPlaygroundRoute
   '/prompt-compare': typeof AuthenticatedPromptCompareRoute
@@ -653,7 +614,6 @@ export interface FileRoutesByTo {
   '/admin/iam': typeof AuthenticatedAdminIamRoute
   '/analytics/observability': typeof AuthenticatedAnalyticsObservabilityRouteWithChildren
   '/certification/exam': typeof AuthenticatedCertificationExamRoute
-  '/notebooks/$notebookId': typeof AuthenticatedNotebooksNotebookIdRoute
   '/templates/$templateId': typeof AuthenticatedTemplatesTemplateIdRoute
   '/api/auth/sso-config': typeof ApiAuthSsoConfigRoute
   '/api/certificate/$id': typeof ApiCertificateIdRoute
@@ -667,15 +627,11 @@ export interface FileRoutesByTo {
   '/api/skills/generate': typeof ApiSkillsGenerateRoute
   '/api/templates/provision': typeof ApiTemplatesProvisionRoute
   '/certification': typeof AuthenticatedCertificationIndexRoute
-  '/notebooks': typeof AuthenticatedNotebooksIndexRoute
   '/templates': typeof AuthenticatedTemplatesIndexRoute
   '/analytics/observability/$runId': typeof AuthenticatedAnalyticsObservabilityRunIdRoute
   '/notebooks/py/$pyNotebookId': typeof AuthenticatedNotebooksPyPyNotebookIdRoute
   '/api/public/hooks/generate-exam-set': typeof ApiPublicHooksGenerateExamSetRoute
   '/api/public/hooks/refresh-model-registry': typeof ApiPublicHooksRefreshModelRegistryRoute
-  '/api/notebooks/$notebookId/ai/v1/embeddings': typeof ApiNotebooksNotebookIdAiV1EmbeddingsRoute
-  '/api/notebooks/$notebookId/ai/v1/chat/completions': typeof ApiNotebooksNotebookIdAiV1ChatCompletionsRoute
-  '/api/notebooks/$notebookId/ai/v1/images/generations': typeof ApiNotebooksNotebookIdAiV1ImagesGenerationsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -737,7 +693,6 @@ export interface FileRoutesById {
   '/_authenticated/admin/iam': typeof AuthenticatedAdminIamRoute
   '/_authenticated/analytics_/observability': typeof AuthenticatedAnalyticsObservabilityRouteWithChildren
   '/_authenticated/certification/exam': typeof AuthenticatedCertificationExamRoute
-  '/_authenticated/notebooks/$notebookId': typeof AuthenticatedNotebooksNotebookIdRoute
   '/_authenticated/templates/$templateId': typeof AuthenticatedTemplatesTemplateIdRoute
   '/api/auth/sso-config': typeof ApiAuthSsoConfigRoute
   '/api/certificate/$id': typeof ApiCertificateIdRoute
@@ -751,15 +706,11 @@ export interface FileRoutesById {
   '/api/skills/generate': typeof ApiSkillsGenerateRoute
   '/api/templates/provision': typeof ApiTemplatesProvisionRoute
   '/_authenticated/certification/': typeof AuthenticatedCertificationIndexRoute
-  '/_authenticated/notebooks/': typeof AuthenticatedNotebooksIndexRoute
   '/_authenticated/templates/': typeof AuthenticatedTemplatesIndexRoute
   '/_authenticated/analytics_/observability/$runId': typeof AuthenticatedAnalyticsObservabilityRunIdRoute
   '/_authenticated/notebooks/py/$pyNotebookId': typeof AuthenticatedNotebooksPyPyNotebookIdRoute
   '/api/public/hooks/generate-exam-set': typeof ApiPublicHooksGenerateExamSetRoute
   '/api/public/hooks/refresh-model-registry': typeof ApiPublicHooksRefreshModelRegistryRoute
-  '/api/notebooks/$notebookId/ai/v1/embeddings': typeof ApiNotebooksNotebookIdAiV1EmbeddingsRoute
-  '/api/notebooks/$notebookId/ai/v1/chat/completions': typeof ApiNotebooksNotebookIdAiV1ChatCompletionsRoute
-  '/api/notebooks/$notebookId/ai/v1/images/generations': typeof ApiNotebooksNotebookIdAiV1ImagesGenerationsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -821,7 +772,6 @@ export interface FileRouteTypes {
     | '/admin/iam'
     | '/analytics/observability'
     | '/certification/exam'
-    | '/notebooks/$notebookId'
     | '/templates/$templateId'
     | '/api/auth/sso-config'
     | '/api/certificate/$id'
@@ -835,15 +785,11 @@ export interface FileRouteTypes {
     | '/api/skills/generate'
     | '/api/templates/provision'
     | '/certification/'
-    | '/notebooks/'
     | '/templates/'
     | '/analytics/observability/$runId'
     | '/notebooks/py/$pyNotebookId'
     | '/api/public/hooks/generate-exam-set'
     | '/api/public/hooks/refresh-model-registry'
-    | '/api/notebooks/$notebookId/ai/v1/embeddings'
-    | '/api/notebooks/$notebookId/ai/v1/chat/completions'
-    | '/api/notebooks/$notebookId/ai/v1/images/generations'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -869,6 +815,7 @@ export interface FileRouteTypes {
     | '/knowledge'
     | '/mcp'
     | '/model-registry'
+    | '/notebooks'
     | '/patterns'
     | '/playground'
     | '/prompt-compare'
@@ -900,7 +847,6 @@ export interface FileRouteTypes {
     | '/admin/iam'
     | '/analytics/observability'
     | '/certification/exam'
-    | '/notebooks/$notebookId'
     | '/templates/$templateId'
     | '/api/auth/sso-config'
     | '/api/certificate/$id'
@@ -914,15 +860,11 @@ export interface FileRouteTypes {
     | '/api/skills/generate'
     | '/api/templates/provision'
     | '/certification'
-    | '/notebooks'
     | '/templates'
     | '/analytics/observability/$runId'
     | '/notebooks/py/$pyNotebookId'
     | '/api/public/hooks/generate-exam-set'
     | '/api/public/hooks/refresh-model-registry'
-    | '/api/notebooks/$notebookId/ai/v1/embeddings'
-    | '/api/notebooks/$notebookId/ai/v1/chat/completions'
-    | '/api/notebooks/$notebookId/ai/v1/images/generations'
   id:
     | '__root__'
     | '/'
@@ -983,7 +925,6 @@ export interface FileRouteTypes {
     | '/_authenticated/admin/iam'
     | '/_authenticated/analytics_/observability'
     | '/_authenticated/certification/exam'
-    | '/_authenticated/notebooks/$notebookId'
     | '/_authenticated/templates/$templateId'
     | '/api/auth/sso-config'
     | '/api/certificate/$id'
@@ -997,15 +938,11 @@ export interface FileRouteTypes {
     | '/api/skills/generate'
     | '/api/templates/provision'
     | '/_authenticated/certification/'
-    | '/_authenticated/notebooks/'
     | '/_authenticated/templates/'
     | '/_authenticated/analytics_/observability/$runId'
     | '/_authenticated/notebooks/py/$pyNotebookId'
     | '/api/public/hooks/generate-exam-set'
     | '/api/public/hooks/refresh-model-registry'
-    | '/api/notebooks/$notebookId/ai/v1/embeddings'
-    | '/api/notebooks/$notebookId/ai/v1/chat/completions'
-    | '/api/notebooks/$notebookId/ai/v1/images/generations'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -1043,9 +980,6 @@ export interface RootRouteChildren {
   ApiTemplatesProvisionRoute: typeof ApiTemplatesProvisionRoute
   ApiPublicHooksGenerateExamSetRoute: typeof ApiPublicHooksGenerateExamSetRoute
   ApiPublicHooksRefreshModelRegistryRoute: typeof ApiPublicHooksRefreshModelRegistryRoute
-  ApiNotebooksNotebookIdAiV1EmbeddingsRoute: typeof ApiNotebooksNotebookIdAiV1EmbeddingsRoute
-  ApiNotebooksNotebookIdAiV1ChatCompletionsRoute: typeof ApiNotebooksNotebookIdAiV1ChatCompletionsRoute
-  ApiNotebooksNotebookIdAiV1ImagesGenerationsRoute: typeof ApiNotebooksNotebookIdAiV1ImagesGenerationsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -1435,13 +1369,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedTemplatesIndexRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
-    '/_authenticated/notebooks/': {
-      id: '/_authenticated/notebooks/'
-      path: '/'
-      fullPath: '/notebooks/'
-      preLoaderRoute: typeof AuthenticatedNotebooksIndexRouteImport
-      parentRoute: typeof AuthenticatedNotebooksRoute
-    }
     '/_authenticated/certification/': {
       id: '/_authenticated/certification/'
       path: '/'
@@ -1533,13 +1460,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedTemplatesTemplateIdRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
-    '/_authenticated/notebooks/$notebookId': {
-      id: '/_authenticated/notebooks/$notebookId'
-      path: '/$notebookId'
-      fullPath: '/notebooks/$notebookId'
-      preLoaderRoute: typeof AuthenticatedNotebooksNotebookIdRouteImport
-      parentRoute: typeof AuthenticatedNotebooksRoute
-    }
     '/_authenticated/certification/exam': {
       id: '/_authenticated/certification/exam'
       path: '/exam'
@@ -1596,27 +1516,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAnalyticsObservabilityRunIdRouteImport
       parentRoute: typeof AuthenticatedAnalyticsObservabilityRoute
     }
-    '/api/notebooks/$notebookId/ai/v1/embeddings': {
-      id: '/api/notebooks/$notebookId/ai/v1/embeddings'
-      path: '/api/notebooks/$notebookId/ai/v1/embeddings'
-      fullPath: '/api/notebooks/$notebookId/ai/v1/embeddings'
-      preLoaderRoute: typeof ApiNotebooksNotebookIdAiV1EmbeddingsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/notebooks/$notebookId/ai/v1/images/generations': {
-      id: '/api/notebooks/$notebookId/ai/v1/images/generations'
-      path: '/api/notebooks/$notebookId/ai/v1/images/generations'
-      fullPath: '/api/notebooks/$notebookId/ai/v1/images/generations'
-      preLoaderRoute: typeof ApiNotebooksNotebookIdAiV1ImagesGenerationsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/notebooks/$notebookId/ai/v1/chat/completions': {
-      id: '/api/notebooks/$notebookId/ai/v1/chat/completions'
-      path: '/api/notebooks/$notebookId/ai/v1/chat/completions'
-      fullPath: '/api/notebooks/$notebookId/ai/v1/chat/completions'
-      preLoaderRoute: typeof ApiNotebooksNotebookIdAiV1ChatCompletionsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
   }
 }
 
@@ -1637,16 +1536,11 @@ const AuthenticatedCertificationRouteWithChildren =
   )
 
 interface AuthenticatedNotebooksRouteChildren {
-  AuthenticatedNotebooksNotebookIdRoute: typeof AuthenticatedNotebooksNotebookIdRoute
-  AuthenticatedNotebooksIndexRoute: typeof AuthenticatedNotebooksIndexRoute
   AuthenticatedNotebooksPyPyNotebookIdRoute: typeof AuthenticatedNotebooksPyPyNotebookIdRoute
 }
 
 const AuthenticatedNotebooksRouteChildren: AuthenticatedNotebooksRouteChildren =
   {
-    AuthenticatedNotebooksNotebookIdRoute:
-      AuthenticatedNotebooksNotebookIdRoute,
-    AuthenticatedNotebooksIndexRoute: AuthenticatedNotebooksIndexRoute,
     AuthenticatedNotebooksPyPyNotebookIdRoute:
       AuthenticatedNotebooksPyPyNotebookIdRoute,
   }
@@ -1802,12 +1696,6 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicHooksGenerateExamSetRoute: ApiPublicHooksGenerateExamSetRoute,
   ApiPublicHooksRefreshModelRegistryRoute:
     ApiPublicHooksRefreshModelRegistryRoute,
-  ApiNotebooksNotebookIdAiV1EmbeddingsRoute:
-    ApiNotebooksNotebookIdAiV1EmbeddingsRoute,
-  ApiNotebooksNotebookIdAiV1ChatCompletionsRoute:
-    ApiNotebooksNotebookIdAiV1ChatCompletionsRoute,
-  ApiNotebooksNotebookIdAiV1ImagesGenerationsRoute:
-    ApiNotebooksNotebookIdAiV1ImagesGenerationsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

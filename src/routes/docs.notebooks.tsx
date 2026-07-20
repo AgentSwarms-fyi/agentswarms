@@ -4,29 +4,27 @@ import { DocLink, DocsHeader, H2, NextPrev, Note, P, UL } from "@/components/doc
 export const Route = createFileRoute("/docs/notebooks")({
   head: () => ({
     meta: [
-      { title: "Notebooks — AgentSwarms Documentation" },
+      { title: "Python Lab — AgentSwarms Documentation" },
       {
         name: "description",
         content:
-          "67 runnable TypeScript notebooks in the browser: LangChain, LlamaIndex, OpenAI Agents SDK, Vercel AI SDK, Google ADK, evals, multi-agent systems, and failure modes.",
+          "Create your own Python notebooks that run in the browser (Pyodide): experiment with code and frameworks, and call your connected models straight from Python.",
       },
-      { property: "og:title", content: "Notebooks — AgentSwarms Documentation" },
+      { property: "og:title", content: "Python Lab — AgentSwarms Documentation" },
       {
         property: "og:description",
         content:
-          "67 runnable TypeScript notebooks in the browser — frameworks, evals, multi-agent systems, and failure modes.",
+          "User-authored Python notebooks in the browser — with a built-in helper for calling your connected models.",
       },
-      { property: "og:url", content: "https://agentswarms.fyi/docs/notebooks" },
       { property: "og:type", content: "article" },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:title", content: "Notebooks — AgentSwarms Documentation" },
+      { name: "twitter:title", content: "Python Lab — AgentSwarms Documentation" },
       {
         name: "twitter:description",
         content:
-          "67 runnable TypeScript notebooks in the browser — frameworks, evals, multi-agent systems, and failure modes.",
+          "User-authored Python notebooks in the browser — with a built-in helper for calling your connected models.",
       },
     ],
-    links: [{ rel: "canonical", href: "https://agentswarms.fyi/docs/notebooks" }],
   }),
   component: NotebooksDoc,
 });
@@ -36,77 +34,79 @@ function NotebooksDoc() {
     <>
       <DocsHeader
         eyebrow="Build"
-        title="Notebooks"
-        description="The notebook lab at /notebooks holds 67 runnable TypeScript notebooks. Cells execute in your browser against real models and real framework packages — there is nothing to install."
+        title="Python Lab"
+        description="Create your own Python notebooks at /notebooks. Cells execute in your browser — real CPython via Pyodide, nothing to install — and can call models through your connected providers."
       />
 
-      <H2 id="tracks">The tracks</H2>
-      <P>Notebooks are organized into curated tracks in the left sidebar:</P>
-      <UL>
-        <li>
-          <strong>Framework tracks</strong> — LangChain (and LangGraph), LlamaIndex.ts, OpenAI
-          Agents SDK, Vercel AI SDK, Google ADK, and Multi-Agent Systems with LangGraph.js. Each
-          track teaches the framework's own primitives (agents, tools, handoffs, state machines) in
-          its idiomatic style.
-        </li>
-        <li>
-          <strong>Foundations Lab</strong> — prompt engineering and multimodal work built on raw{" "}
-          <code>fetch</code>, so you see the wire format before any framework hides it.
-        </li>
-        <li>
-          <strong>Agentic Evals</strong> — eight notebooks from deterministic checks through
-          LLM-as-judge, juries, the RAG triad, trajectory grading, red-teaming, and operational
-          metrics.
-        </li>
-        <li>
-          <strong>Failure Modes Lab</strong> — one long notebook that reproduces twelve real
-          production failures (runaway loops, prompt injection, RAG poisoning, context rot, cost
-          blow-ups) and ships the fix for each.
-        </li>
-        <li>
-          <strong>Standalone Agents, Enterprise Ops &amp; Safety, Real-world Examples</strong> —
-          applied patterns: cost routing, semantic chunking, MCP servers, and end-to-end builds.
-        </li>
-      </UL>
+      <H2 id="creating">Creating a notebook</H2>
+      <P>
+        Open <DocLink to="/notebooks">/notebooks</DocLink> and hit{" "}
+        <strong>New Python notebook</strong>. Every new notebook starts from a template: a notes
+        cell explaining how to call models, a runnable chat sample, a structured-JSON sample, and a
+        pure-Python experiment. Notebooks are private to your account and autosave as you type.
+      </P>
 
       <H2 id="how-cells-run">How cells run</H2>
       <UL>
         <li>
           Each code cell is a real editor (CodeMirror) — edit the code, then run it with the play
-          button or <strong>Shift+Enter</strong>. Output, errors, and run duration appear under the
-          cell.
+          button or <strong>Shift+Enter</strong>. stdout, the last expression's value, errors, and
+          run duration appear under the cell.
         </li>
         <li>
-          Cells execute <strong>in your browser</strong>. Framework packages (LangChain, LlamaIndex,
-          and the rest) are loaded as version-pinned ES modules from a CDN at run time.
+          Cells execute <strong>in your browser</strong> on Pyodide (CPython compiled to
+          WebAssembly). The first run downloads the runtime (~10&nbsp;MB); after that it's cached.
         </li>
         <li>
-          Model calls go through an authenticated, OpenAI-compatible proxy scoped to the notebook (
-          <code>/api/notebooks/…/ai/v1</code> with chat, embeddings, and image endpoints), so
-          notebooks work without putting an API key in the browser.
+          All cells share one interpreter, Jupyter-style: variables defined in one cell are visible
+          in the next, and top-level <code>await</code> is supported.
         </li>
         <li>
-          A <em>Reset</em> control restores every cell to its original source and clears outputs —
-          experiments are free.
+          Packages bundled with Pyodide (numpy, pandas, scipy, scikit-learn, …) load automatically
+          on import. Pure-Python packages from PyPI install with{" "}
+          <code>import micropip; await micropip.install("…")</code>.
+        </li>
+      </UL>
+
+      <H2 id="models">Calling models</H2>
+      <P>
+        The injected <code>agentswarms</code> module routes model calls through your account — pick
+        the provider yourself:
+      </P>
+      <UL>
+        <li>
+          <code>
+            reply = await agentswarms.chat("…", provider="openrouter", model="openai/gpt-4o-mini")
+          </code>
+        </li>
+        <li>
+          <strong>provider</strong> — any OpenAI-compatible provider you've connected under{" "}
+          <DocLink to="/integrations">Integrations</DocLink> (openrouter, openai, gemini, groq,
+          grok, qwen, ollama, vllm, nvidia). If the instance has a default OpenRouter key,{" "}
+          <code>"openrouter"</code> works with zero setup.
+        </li>
+        <li>
+          <strong>model</strong> — that provider's model id. Browse ids in the{" "}
+          <DocLink to="/model-registry">Model Registry</DocLink>.
+        </li>
+        <li>
+          Calls respect your administrator's IAM model rules, are logged in{" "}
+          <DocLink to="/traces">Traces</DocLink>, and count toward your budget.
         </li>
       </UL>
 
       <Note>
-        Notebooks are TypeScript, not Python, on purpose: the same language the platform's exports
-        use, runnable with zero environment setup. The reasoning is written up in{" "}
-        <DocLink to="/blog/why-we-built-typescript-notebooks-for-agentic-ai">
-          the blog post on why we built TypeScript notebooks
-        </DocLink>
-        .
+        The runtime is sandboxed in the browser: no filesystem beyond Pyodide's virtual FS, no
+        native extensions outside the bundled scientific stack, and network access only via HTTP
+        from your session.
       </Note>
 
-      <H2 id="where-they-fit">Where notebooks fit</H2>
+      <H2 id="where-they-fit">Where the lab fits</H2>
       <P>
-        Notebooks teach the <em>code-level</em> view of the same patterns the rest of the platform
-        teaches visually. A typical loop: meet a pattern in the{" "}
-        <DocLink to="/learn">lessons</DocLink>, run it as a graph on the{" "}
-        <DocLink to="/docs/swarms">Swarm Canvas</DocLink>, then open the matching notebook to build
-        the same thing in framework code you could ship anywhere.
+        The Python Lab is the free-form counterpart to the rest of the platform: meet a pattern in
+        the <DocLink to="/learn">lessons</DocLink>, run it as a graph on the{" "}
+        <DocLink to="/docs/swarms">Swarm Canvas</DocLink>, then prototype your own variation in
+        Python with real model calls.
       </P>
 
       <NextPrev current="/docs/notebooks" />

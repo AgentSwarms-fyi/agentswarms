@@ -47,7 +47,7 @@ import { useIsSuperadmin } from "@/hooks/use-iam";
 const buildItems = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "Real-World Examples", url: "/templates", icon: Sparkles },
-  { title: "Notebooks", url: "/notebooks", icon: NotebookPen },
+  { title: "Python Lab", url: "/notebooks", icon: NotebookPen },
   { title: "Agentic Patterns", url: "/patterns", icon: Workflow },
   { title: "Agent Builder", url: "/agents", icon: Bot },
   { title: "Agent Swarms", url: "/swarms", icon: Network },
@@ -99,7 +99,7 @@ export function AppSidebar() {
                 <Link to={item.url}>
                   <item.icon className="h-4 w-4" />
                   <span className="flex-1">{item.title}</span>
-                  {item.title === "Notebooks" && !collapsed && (
+                  {item.title === "Python Lab" && !collapsed && (
                     <span className="ml-auto rounded-full bg-primary/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-primary">
                       New
                     </span>

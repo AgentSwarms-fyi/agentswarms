@@ -303,77 +303,27 @@ const tracks: Track[] = [
 const stats = [
   { v: "8", label: "learning tracks" },
   { v: "50+", label: "in-depth lessons" },
-  { v: "67", label: "runnable notebooks" },
+  { v: "Python", label: "in-browser notebook lab" },
   { v: "50+", label: "one-click agents & swarms" },
 ] as const;
 
-// Kept in sync with src/lib/notebooks/catalog.ts (67 notebooks total).
-const notebookTracks = [
+// Highlights for the Python Lab (/notebooks) — user-authored, in-browser
+// notebooks with a built-in helper for calling connected models.
+const pythonLabHighlights = [
   {
-    label: "Foundations & Prompting",
-    count: 2,
-    blurb: "Prompt engineering, multimodal & vision, structured JSON — built on raw fetch.",
-  },
-  {
-    label: "Failure Modes Lab",
-    count: 1,
+    label: "Real CPython, zero setup",
     blurb:
-      "12 real production failures — hallucinations, injection, RAG poisoning, cost blow-ups — with fixes.",
+      "Powered by Pyodide (WebAssembly). Cells share one interpreter, top-level await works, and bundled packages like numpy and pandas load on import.",
   },
   {
-    label: "Agentic Evaluation",
-    count: 8,
+    label: "Your models, from Python",
     blurb:
-      "Deterministic vs semantic, LLM-as-judge, juries, judge calibration, RAG triad, trajectory, red-team, operational metrics.",
+      "The built-in agentswarms.chat() helper calls any provider you've connected — or the instance default OpenRouter — with IAM rules and traces applied.",
   },
   {
-    label: "LangChain & LangGraph",
-    count: 5,
-    blurb: "Chat, tools, agents, memory + human-in-the-loop, embeddings & RAG.",
-  },
-  {
-    label: "LlamaIndex.ts",
-    count: 7,
+    label: "Guided from the first cell",
     blurb:
-      "Nodes, vector index, sentence-window, router, sub-question, data agents, faithfulness eval.",
-  },
-  {
-    label: "OpenAI Agents SDK",
-    count: 6,
-    blurb:
-      "Agents & the run loop, handoffs & triage, guardrail tripwires, structured output, sessions, streaming & tracing.",
-  },
-  {
-    label: "Vercel AI SDK",
-    count: 6,
-    blurb:
-      "generateText/streamText, typed objects with Zod, tool() + multi-step loops, the Agent class.",
-  },
-  {
-    label: "Google ADK (TypeScript)",
-    count: 6,
-    blurb:
-      "LlmAgent, FunctionTool, Sequential/Parallel/Loop, multi-agent transfer, callbacks & safety.",
-  },
-  {
-    label: "Standalone Agents",
-    count: 10,
-    blurb: "Hand-rolled agent patterns end to end — no framework, every step visible.",
-  },
-  {
-    label: "Multi-Agent Systems (LangGraph.js)",
-    count: 6,
-    blurb: "State machines, supervisors, parallel workers, and durable multi-agent graphs.",
-  },
-  {
-    label: "Enterprise Ops & Safety",
-    count: 3,
-    blurb: "Cost routing, semantic chunking, and building an MCP server.",
-  },
-  {
-    label: "Real-world Examples",
-    count: 6,
-    blurb: "Applied end-to-end builds that combine retrieval, tools, and evaluation.",
+      "Every new notebook opens with model-usage notes and runnable samples: a chat call, structured JSON output, and a pure-Python experiment.",
   },
 ] as const;
 
@@ -821,37 +771,32 @@ function CurriculumPage() {
           </div>
         </section>
 
-        {/* ════════ Jupyter-style runnable notebooks ════════ */}
+        {/* ════════ Python Lab — your own in-browser notebooks ════════ */}
         <section id="notebooks" className="border-t border-border/60 bg-background py-20">
           <div className="mx-auto max-w-6xl px-6">
             <div className="text-center">
               <p className="mb-4 text-xs font-medium uppercase tracking-[0.18em] text-primary">
-                67 runnable notebooks
+                Python Lab
               </p>
               <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
-                A full notebook lab,{" "}
+                Your own notebook lab,{" "}
                 <span className="text-primary">in your browser — no setup</span>
               </h2>
               <p className="mx-auto mt-4 max-w-2xl text-muted-foreground">
-                Every notebook is a real Jupyter-style workspace with editable cells, live
-                execution, and concept-by-concept explanations. Twelve curated tracks covering the
-                frameworks and patterns the industry actually ships.
+                Create Python notebooks to experiment with code and frameworks. Every notebook is a
+                real Jupyter-style workspace with editable cells and live execution — and a built-in
+                helper for calling models through your connected providers.
               </p>
             </div>
 
-            <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {notebookTracks.map((nt) => (
+            <div className="mt-12 grid gap-4 sm:grid-cols-3">
+              {pythonLabHighlights.map((h) => (
                 <div
-                  key={nt.label}
+                  key={h.label}
                   className="rounded-xl border border-border bg-card p-5 transition hover:border-primary/60 hover:shadow-md"
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <h3 className="text-base font-bold">{nt.label}</h3>
-                    <span className="inline-flex items-center rounded-full border border-primary/30 bg-primary/5 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-primary">
-                      {nt.count} {nt.count === 1 ? "notebook" : "notebooks"}
-                    </span>
-                  </div>
-                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{nt.blurb}</p>
+                  <h3 className="text-base font-bold">{h.label}</h3>
+                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{h.blurb}</p>
                 </div>
               ))}
             </div>
@@ -859,7 +804,7 @@ function CurriculumPage() {
             <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
               <Link to="/notebooks">
                 <Button size="lg" className="gap-1.5">
-                  Browse all 67 notebooks <ArrowRight className="h-4 w-4" />
+                  Open the Python Lab <ArrowRight className="h-4 w-4" />
                 </Button>
               </Link>
               <Link to="/learn">
@@ -870,7 +815,7 @@ function CurriculumPage() {
             </div>
 
             <p className="mt-6 text-center text-xs text-muted-foreground">
-              Real packages · real model calls · editable cells · no install
+              Real CPython · real model calls · editable cells · no install
             </p>
           </div>
         </section>

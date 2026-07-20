@@ -103,7 +103,7 @@ const comparisons = [
 ];
 
 const features = [
-  "8 learning tracks from prompts to multi-agent swarms, plus 67 runnable notebooks",
+  "8 learning tracks from prompts to multi-agent swarms, plus an in-browser Python notebook lab",
   "Runnable templates: RAG bot, SQL analyst, RevOps swarm, planner-executor",
   "Multi-provider model gateway: OpenAI, Anthropic, Gemini, Bedrock, Azure, OCI, Qwen, Grok",
   "Built-in HITL approvals inbox + per-agent budget caps",
