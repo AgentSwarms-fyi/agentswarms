@@ -65,6 +65,8 @@ import { Route as AuthenticatedAgentsRouteImport } from './routes/_authenticated
 import { Route as AuthenticatedAccountRouteImport } from './routes/_authenticated/account'
 import { Route as AuthenticatedTemplatesIndexRouteImport } from './routes/_authenticated/templates.index'
 import { Route as AuthenticatedCertificationIndexRouteImport } from './routes/_authenticated/certification.index'
+import { Route as ApiWarehouseSchemaRouteImport } from './routes/api/warehouse/schema'
+import { Route as ApiWarehouseQueryRouteImport } from './routes/api/warehouse/query'
 import { Route as ApiTemplatesProvisionRouteImport } from './routes/api/templates.provision'
 import { Route as ApiSkillsGenerateRouteImport } from './routes/api/skills.generate'
 import { Route as ApiKbIngestUrlRouteImport } from './routes/api/kb/ingest-url'
@@ -372,6 +374,16 @@ const AuthenticatedCertificationIndexRoute =
     path: '/',
     getParentRoute: () => AuthenticatedCertificationRoute,
   } as any)
+const ApiWarehouseSchemaRoute = ApiWarehouseSchemaRouteImport.update({
+  id: '/api/warehouse/schema',
+  path: '/api/warehouse/schema',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiWarehouseQueryRoute = ApiWarehouseQueryRouteImport.update({
+  id: '/api/warehouse/query',
+  path: '/api/warehouse/query',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiTemplatesProvisionRoute = ApiTemplatesProvisionRouteImport.update({
   id: '/api/templates/provision',
   path: '/api/templates/provision',
@@ -551,6 +563,8 @@ export interface FileRoutesByFullPath {
   '/api/kb/ingest-url': typeof ApiKbIngestUrlRoute
   '/api/skills/generate': typeof ApiSkillsGenerateRoute
   '/api/templates/provision': typeof ApiTemplatesProvisionRoute
+  '/api/warehouse/query': typeof ApiWarehouseQueryRoute
+  '/api/warehouse/schema': typeof ApiWarehouseSchemaRoute
   '/certification/': typeof AuthenticatedCertificationIndexRoute
   '/templates/': typeof AuthenticatedTemplatesIndexRoute
   '/analytics/observability/$runId': typeof AuthenticatedAnalyticsObservabilityRunIdRoute
@@ -626,6 +640,8 @@ export interface FileRoutesByTo {
   '/api/kb/ingest-url': typeof ApiKbIngestUrlRoute
   '/api/skills/generate': typeof ApiSkillsGenerateRoute
   '/api/templates/provision': typeof ApiTemplatesProvisionRoute
+  '/api/warehouse/query': typeof ApiWarehouseQueryRoute
+  '/api/warehouse/schema': typeof ApiWarehouseSchemaRoute
   '/certification': typeof AuthenticatedCertificationIndexRoute
   '/templates': typeof AuthenticatedTemplatesIndexRoute
   '/analytics/observability/$runId': typeof AuthenticatedAnalyticsObservabilityRunIdRoute
@@ -705,6 +721,8 @@ export interface FileRoutesById {
   '/api/kb/ingest-url': typeof ApiKbIngestUrlRoute
   '/api/skills/generate': typeof ApiSkillsGenerateRoute
   '/api/templates/provision': typeof ApiTemplatesProvisionRoute
+  '/api/warehouse/query': typeof ApiWarehouseQueryRoute
+  '/api/warehouse/schema': typeof ApiWarehouseSchemaRoute
   '/_authenticated/certification/': typeof AuthenticatedCertificationIndexRoute
   '/_authenticated/templates/': typeof AuthenticatedTemplatesIndexRoute
   '/_authenticated/analytics_/observability/$runId': typeof AuthenticatedAnalyticsObservabilityRunIdRoute
@@ -784,6 +802,8 @@ export interface FileRouteTypes {
     | '/api/kb/ingest-url'
     | '/api/skills/generate'
     | '/api/templates/provision'
+    | '/api/warehouse/query'
+    | '/api/warehouse/schema'
     | '/certification/'
     | '/templates/'
     | '/analytics/observability/$runId'
@@ -859,6 +879,8 @@ export interface FileRouteTypes {
     | '/api/kb/ingest-url'
     | '/api/skills/generate'
     | '/api/templates/provision'
+    | '/api/warehouse/query'
+    | '/api/warehouse/schema'
     | '/certification'
     | '/templates'
     | '/analytics/observability/$runId'
@@ -937,6 +959,8 @@ export interface FileRouteTypes {
     | '/api/kb/ingest-url'
     | '/api/skills/generate'
     | '/api/templates/provision'
+    | '/api/warehouse/query'
+    | '/api/warehouse/schema'
     | '/_authenticated/certification/'
     | '/_authenticated/templates/'
     | '/_authenticated/analytics_/observability/$runId'
@@ -978,6 +1002,8 @@ export interface RootRouteChildren {
   ApiKbIngestUrlRoute: typeof ApiKbIngestUrlRoute
   ApiSkillsGenerateRoute: typeof ApiSkillsGenerateRoute
   ApiTemplatesProvisionRoute: typeof ApiTemplatesProvisionRoute
+  ApiWarehouseQueryRoute: typeof ApiWarehouseQueryRoute
+  ApiWarehouseSchemaRoute: typeof ApiWarehouseSchemaRoute
   ApiPublicHooksGenerateExamSetRoute: typeof ApiPublicHooksGenerateExamSetRoute
   ApiPublicHooksRefreshModelRegistryRoute: typeof ApiPublicHooksRefreshModelRegistryRoute
 }
@@ -1376,6 +1402,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedCertificationIndexRouteImport
       parentRoute: typeof AuthenticatedCertificationRoute
     }
+    '/api/warehouse/schema': {
+      id: '/api/warehouse/schema'
+      path: '/api/warehouse/schema'
+      fullPath: '/api/warehouse/schema'
+      preLoaderRoute: typeof ApiWarehouseSchemaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/warehouse/query': {
+      id: '/api/warehouse/query'
+      path: '/api/warehouse/query'
+      fullPath: '/api/warehouse/query'
+      preLoaderRoute: typeof ApiWarehouseQueryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/templates/provision': {
       id: '/api/templates/provision'
       path: '/api/templates/provision'
@@ -1693,6 +1733,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiKbIngestUrlRoute: ApiKbIngestUrlRoute,
   ApiSkillsGenerateRoute: ApiSkillsGenerateRoute,
   ApiTemplatesProvisionRoute: ApiTemplatesProvisionRoute,
+  ApiWarehouseQueryRoute: ApiWarehouseQueryRoute,
+  ApiWarehouseSchemaRoute: ApiWarehouseSchemaRoute,
   ApiPublicHooksGenerateExamSetRoute: ApiPublicHooksGenerateExamSetRoute,
   ApiPublicHooksRefreshModelRegistryRoute:
     ApiPublicHooksRefreshModelRegistryRoute,

@@ -685,6 +685,48 @@ export type Database = {
         };
         Relationships: [];
       };
+      data_warehouse_connections: {
+        Row: {
+          created_at: string;
+          credentials: Json;
+          id: string;
+          is_active: boolean;
+          last_test_error: string | null;
+          last_test_status: string | null;
+          last_tested_at: string | null;
+          name: string;
+          provider: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          credentials?: Json;
+          id?: string;
+          is_active?: boolean;
+          last_test_error?: string | null;
+          last_test_status?: string | null;
+          last_tested_at?: string | null;
+          name: string;
+          provider: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          credentials?: Json;
+          id?: string;
+          is_active?: boolean;
+          last_test_error?: string | null;
+          last_test_status?: string | null;
+          last_tested_at?: string | null;
+          name?: string;
+          provider?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       iam_group_members: {
         Row: {
           added_by: string | null;

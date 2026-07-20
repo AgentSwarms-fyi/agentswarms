@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { WarehousesTab } from "@/components/integrations/WarehousesTab";
 import { Badge } from "@/components/ui/badge";
 import {
   Select,
@@ -857,9 +858,14 @@ function IntegrationsPage() {
         <Tabs defaultValue="llm" className="space-y-4">
           <TabsList>
             <TabsTrigger value="llm">LLM Providers</TabsTrigger>
+            <TabsTrigger value="warehouses">Data Warehouses</TabsTrigger>
             <TabsTrigger value="gateway">LLM Gateway</TabsTrigger>
             <TabsTrigger value="n8n">n8n Workflows</TabsTrigger>
           </TabsList>
+
+          <TabsContent value="warehouses" className="space-y-4">
+            <WarehousesTab />
+          </TabsContent>
 
           <TabsContent value="llm" className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

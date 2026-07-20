@@ -39,7 +39,22 @@ import {
   BookOpen,
   BarChart3,
   Plus,
+  Server,
 } from "lucide-react";
+import { useServerFn } from "@tanstack/react-start";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { listWarehouseConnections } from "@/utils/warehouse.functions";
+import {
+  WAREHOUSE_LABELS,
+  type WarehouseConnectionSummary,
+  type WarehouseTable,
+} from "@/utils/warehouse/types";
 import {
   hydrateFromSupabase,
   runQuery,
@@ -188,7 +203,7 @@ function highlightSql(src: string): string {
 }
 
 function DataSqlPage() {
-  const { user } = useAuth();
+  const { user, session } = useAuth();
   const [datasets, setDatasets] = useState<DatasetMeta[]>([]);
   const [loadingTables, setLoadingTables] = useState(true);
   const [activeTable, setActiveTable] = useState<string | null>(null);
@@ -221,6 +236,105 @@ function DataSqlPage() {
   const [metricName, setMetricName] = useState("");
   const [metricDescription, setMetricDescription] = useState("");
   const biScrollRef = useRef<HTMLDivElement>(null);
+
+  // External data warehouses (connected under /integrations → Data Warehouses).
+  // dataSource: "local" (in-browser AlaSQL) or a warehouse connection id.
+  const listWarehousesFn = useServerFn(listWarehouseConnections);
+  const [warehouses, setWarehouses] = useState<WarehouseConnectionSummary[]>([]);
+  const [whTables, setWhTables] = useState<Record<string, WarehouseTable[] | "loading" | "error">>(
+    {},
+  );
+  const [dataSource, setDataSource] = useState<string>("local");
+
+  useEffect(() => {
+    const token = session?.access_token;
+    if (!token) return;
+    listWarehousesFn({ data: { access_token: token } }).then((res) => {
+      if (res.ok) setWarehouses(res.connections.filter((c) => c.is_active));
+    });
+  }, [session?.access_token, listWarehousesFn]);
+
+  async function loadWarehouseSchema(connId: string) {
+    const existing = whTables[connId];
+    if (existing && existing !== "error") return;
+    setWhTables((s) => ({ ...s, [connId]: "loading" }));
+    try {
+      const resp = await fetch("/api/warehouse/schema", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session?.access_token ?? ""}`,
+        },
+        body: JSON.stringify({ connection_id: connId }),
+      });
+      const j = (await resp.json()) as {
+        tables?: WarehouseTable[];
+        message?: string;
+        error?: string;
+      };
+      if (!resp.ok) throw new Error(j.message || j.error || "Failed to load schema");
+      setWhTables((s) => ({ ...s, [connId]: j.tables ?? [] }));
+    } catch (e) {
+      setWhTables((s) => ({ ...s, [connId]: "error" }));
+      toast.error((e as Error).message);
+    }
+  }
+
+  async function runWarehouseSql(connId: string, sqlText: string): Promise<QueryResult> {
+    const resp = await fetch("/api/warehouse/query", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session?.access_token ?? ""}`,
+      },
+      body: JSON.stringify({ connection_id: connId, sql: sqlText }),
+    });
+    const j = (await resp.json()) as {
+      columns?: { name: string }[];
+      rows?: Record<string, unknown>[];
+      row_count?: number;
+      truncated?: boolean;
+      duration_ms?: number;
+      message?: string;
+      error?: string;
+    };
+    if (!resp.ok) throw new Error(j.message || j.error || "Warehouse query failed");
+    return {
+      columns: (j.columns ?? []).map((c) => c.name),
+      rows: j.rows ?? [],
+      row_count: j.row_count ?? 0,
+      total_matched: j.row_count ?? 0,
+      capped: Boolean(j.truncated),
+      duration_ms: j.duration_ms ?? 0,
+    };
+  }
+
+  const activeWarehouse =
+    dataSource !== "local" ? (warehouses.find((w) => w.id === dataSource) ?? null) : null;
+
+  // Warehouse tables presented in DatasetMeta shape so the BI agent can plan
+  // and write SQL against them exactly like local tables.
+  const warehouseDatasets: DatasetMeta[] = useMemo(() => {
+    if (!activeWarehouse) return [];
+    const tables = whTables[activeWarehouse.id];
+    if (!tables || tables === "loading" || tables === "error") return [];
+    return tables.map((t) => ({
+      id: `${activeWarehouse.id}:${t.schema}.${t.name}`,
+      name: `${t.schema}.${t.name}`,
+      source_filename: null,
+      is_sample: false,
+      user_id: user?.id ?? null,
+      columns: t.columns.map((c) => ({
+        name: c.name,
+        type: /INT|NUM|DEC|FLOAT|DOUBLE|REAL|LONG|BIGNUMERIC/i.test(c.type)
+          ? ("number" as const)
+          : /DATE|TIME/i.test(c.type)
+            ? ("date" as const)
+            : ("string" as const),
+      })),
+      row_count: 0,
+    }));
+  }, [activeWarehouse, whTables, user?.id]);
 
   // Initial load: hydrate engine, then auto-seed sample if user has nothing.
   useEffect(() => {
@@ -278,12 +392,12 @@ function DataSqlPage() {
     }
   }
 
-  function handleRun() {
+  async function handleRun() {
     if (!sql.trim()) return;
     setRunning(true);
     setQueryError(null);
     try {
-      const r = runQuery(sql);
+      const r = dataSource === "local" ? runQuery(sql) : await runWarehouseSql(dataSource, sql);
       setResult(r);
     } catch (e) {
       setQueryError((e as Error).message);
@@ -539,9 +653,13 @@ function DataSqlPage() {
     try {
       await runBiTurn({
         question: q,
-        datasets,
+        datasets: activeWarehouse ? warehouseDatasets : datasets,
         semantics,
         metrics: savedMetrics,
+        execute: activeWarehouse
+          ? (generated) => runWarehouseSql(activeWarehouse.id, generated)
+          : undefined,
+        dialect: activeWarehouse ? WAREHOUSE_LABELS[activeWarehouse.provider] : undefined,
         onUpdate: (turn) => {
           setBiTurns((prev) => {
             const copy = [...prev];
@@ -729,6 +847,76 @@ function DataSqlPage() {
                 </Collapsible>
               ))
             )}
+
+            {/* External warehouses — connected under /integrations */}
+            {warehouses.length > 0 && (
+              <div className="mt-3 border-t border-slate-200 dark:border-border pt-2">
+                <p className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-muted-foreground">
+                  External warehouses
+                </p>
+                {warehouses.map((w) => {
+                  const tables = whTables[w.id];
+                  const selected = dataSource === w.id;
+                  return (
+                    <div key={w.id}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDataSource(selected ? "local" : w.id);
+                          if (!selected) void loadWarehouseSchema(w.id);
+                        }}
+                        className={`flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-xs transition-colors ${
+                          selected
+                            ? "bg-teal-50 text-teal-700 dark:bg-teal-500/10 dark:text-teal-300"
+                            : "text-slate-600 hover:bg-slate-100 dark:text-foreground dark:hover:bg-accent"
+                        }`}
+                        title={WAREHOUSE_LABELS[w.provider]}
+                      >
+                        <Server className="h-3 w-3 shrink-0" />
+                        <span className="flex-1 truncate font-medium">{w.name}</span>
+                        <span className="text-[9px] text-slate-400 dark:text-muted-foreground">
+                          {WAREHOUSE_LABELS[w.provider].split(" ")[0]}
+                        </span>
+                      </button>
+                      {selected && (
+                        <div className="ml-4 mr-1 mb-1 border-l border-slate-200 dark:border-border pl-2 py-0.5">
+                          {tables === "loading" ? (
+                            <p className="flex items-center gap-1 py-1 text-[10px] text-slate-400 dark:text-muted-foreground">
+                              <Loader2 className="h-3 w-3 animate-spin" /> Loading tables…
+                            </p>
+                          ) : tables === "error" ? (
+                            <button
+                              type="button"
+                              className="py-1 text-[10px] text-red-500 underline-offset-2 hover:underline"
+                              onClick={() => void loadWarehouseSchema(w.id)}
+                            >
+                              Failed to load — retry
+                            </button>
+                          ) : (
+                            (tables ?? []).slice(0, 100).map((t) => (
+                              <button
+                                key={`${t.schema}.${t.name}`}
+                                type="button"
+                                className="flex w-full items-center gap-1 py-0.5 text-left"
+                                title={t.columns.map((c) => `${c.name} ${c.type}`).join(", ")}
+                                onClick={() =>
+                                  setSql(`SELECT * FROM ${t.schema}.${t.name} LIMIT 50;`)
+                                }
+                              >
+                                <TableIcon className="h-2.5 w-2.5 shrink-0 text-slate-400 dark:text-muted-foreground" />
+                                <span className="truncate font-mono text-[10px] text-slate-600 dark:text-foreground">
+                                  {t.schema}.{t.name}
+                                </span>
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </ScrollArea>
 
@@ -772,6 +960,27 @@ function DataSqlPage() {
               )}
             </div>
             <div className="flex items-center gap-1.5">
+              {warehouses.length > 0 && (
+                <Select
+                  value={dataSource}
+                  onValueChange={(v) => {
+                    setDataSource(v);
+                    if (v !== "local") void loadWarehouseSchema(v);
+                  }}
+                >
+                  <SelectTrigger className="h-8 w-48 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="local">Local (in-browser)</SelectItem>
+                    {warehouses.map((w) => (
+                      <SelectItem key={w.id} value={w.id}>
+                        {w.name} · {WAREHOUSE_LABELS[w.provider].split(" ")[0]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
               <Button
                 size="sm"
                 variant="ghost"

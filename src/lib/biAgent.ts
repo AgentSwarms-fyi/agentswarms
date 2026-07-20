@@ -114,9 +114,7 @@ function describeSchema(
 ): string {
   const tableLines = datasets.map((d) => {
     const sem = semantics.get(d.id);
-    const cols = d.columns
-      .map((c) => describeColumn(c, sem?.column_meta?.[c.name]))
-      .join(", ");
+    const cols = d.columns.map((c) => describeColumn(c, sem?.column_meta?.[c.name])).join(", ");
     const desc = sem?.table_description
       ? ` -- ${sem.table_description}`
       : d.is_sample
@@ -127,10 +125,7 @@ function describeSchema(
 
   const metricLines = metrics
     .filter((m) => m.sql_expression)
-    .map(
-      (m) =>
-        `- ${m.name}: ${m.sql_expression}${m.description ? `  // ${m.description}` : ""}`,
-    );
+    .map((m) => `- ${m.name}: ${m.sql_expression}${m.description ? `  // ${m.description}` : ""}`);
 
   const joinLines: string[] = [];
   semantics.forEach((s) => {
@@ -183,14 +178,20 @@ export async function generateSql(args: {
   datasets: DatasetMeta[];
   semantics: Map<string, SemanticEntry>;
   metrics: SavedMetric[];
+  /** e.g. "Snowflake" — switches the prompt from AlaSQL to warehouse SQL. */
+  dialect?: string;
 }): Promise<string> {
   const schema = describeSchema(args.datasets, args.semantics, args.metrics);
+  const engineLine = args.dialect
+    ? `You are a SQL generation agent for ${args.dialect}. Use standard ANSI SQL for that warehouse; ` +
+      "reference tables by their full schema-qualified names exactly as given, and quote unusual identifiers with double quotes. "
+    : "You are a SQL generation agent for an in-browser AlaSQL engine. " +
+      "Wrap identifiers with spaces or special chars in backticks. ";
   const out = await llmJson<{ sql: string }>({
     systemPrompt:
-      "You are a SQL generation agent for an in-browser AlaSQL engine. " +
+      engineLine +
       "Output a SINGLE SELECT statement only — no INSERT/UPDATE/DELETE/DDL. " +
       "Use only tables and columns from the provided schema. " +
-      "Wrap identifiers with spaces or special chars in backticks. " +
       "Prefer aggregates (SUM/AVG/COUNT) for analytical questions. " +
       "Always add ORDER BY for rankings, and LIMIT 50 if the result might be large.",
     userPrompt: `${schema}\n\nPLAN: ${JSON.stringify(args.plan)}\nQUESTION: ${args.question}\n\nReturn JSON: { "sql": "SELECT ..." }`,
@@ -268,6 +269,10 @@ export async function runBiTurn(args: {
   semantics: Map<string, SemanticEntry>;
   metrics: SavedMetric[];
   onUpdate: (turn: BiTurn) => void;
+  /** Override SQL execution (e.g. run against an external warehouse). */
+  execute?: (sql: string) => Promise<QueryResult>;
+  /** Human name of the SQL engine when `execute` is provided. */
+  dialect?: string;
 }): Promise<BiTurn> {
   let turn: BiTurn = { question: args.question, status: "planning" };
   args.onUpdate({ ...turn });
@@ -287,11 +292,12 @@ export async function runBiTurn(args: {
       datasets: args.datasets,
       semantics: args.semantics,
       metrics: args.metrics,
+      dialect: args.dialect,
     });
     turn.status = "executing";
     args.onUpdate({ ...turn });
 
-    turn.result = runQuery(turn.sql);
+    turn.result = args.execute ? await args.execute(turn.sql) : runQuery(turn.sql);
     turn.status = "charting";
     args.onUpdate({ ...turn });
 
@@ -319,7 +325,9 @@ export async function loadSemantics(tableIds: string[]): Promise<Map<string, Sem
   if (tableIds.length === 0) return map;
   const { data } = await supabase
     .from("user_data_semantics")
-    .select("id, table_id, table_description, business_name, column_meta, primary_key, join_hints, is_sample")
+    .select(
+      "id, table_id, table_description, business_name, column_meta, primary_key, join_hints, is_sample",
+    )
     .in("table_id", tableIds);
   for (const row of data ?? []) {
     map.set(row.table_id, {

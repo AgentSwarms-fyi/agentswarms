@@ -15,6 +15,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { listDataTablesTool, runListDataTables, runSqlQuery, sqlQueryTool } from "./sql.server";
+import { loadWarehouseConnection } from "@/utils/warehouse/connections.server";
+import { executeWarehouseQuery, listWarehouseTables } from "@/utils/warehouse/drivers.server";
 import {
   memoryRememberTool,
   memoryRecallTool,
@@ -1318,6 +1320,89 @@ export async function resolveAgentTools(
       tools.push(listDataTablesTool, sqlTool);
       handlers.set("list_data_tables", (c, a) => runListDataTables(c, a, allowSet));
       handlers.set("sql_query", (c, a) => runSqlQuery(c, a, allowSet));
+      enabled.sql = true;
+    }
+  }
+
+  // External warehouse tools — same toggle as sql_query, available when the
+  // user has connected at least one warehouse under /integrations. Queries
+  // run server-side against the vendor API with decrypted credentials; the
+  // model only ever sees result rows.
+  if (allows("sql_query")) {
+    const { data: whConns } = await ctx.sb
+      .from("data_warehouse_connections")
+      .select("name, provider")
+      .eq("is_active", true);
+    if (whConns && whConns.length > 0) {
+      const connList = whConns.map((c) => `"${c.name}" (${c.provider})`).join(", ");
+      tools.push(
+        {
+          type: "function",
+          function: {
+            name: "list_warehouse_tables",
+            description:
+              `List tables and columns in a connected external data warehouse. ` +
+              `Available connections: ${connList}. Call this before writing warehouse SQL.`,
+            parameters: {
+              type: "object",
+              properties: {
+                connection: { type: "string", description: "Connection name" },
+              },
+              required: ["connection"],
+            },
+          },
+        },
+        {
+          type: "function",
+          function: {
+            name: "warehouse_query",
+            description:
+              `Run a read-only SQL query (single SELECT/WITH statement) against a connected ` +
+              `external data warehouse. Use fully-qualified schema.table names from ` +
+              `list_warehouse_tables. Available connections: ${connList}.`,
+            parameters: {
+              type: "object",
+              properties: {
+                connection: { type: "string", description: "Connection name" },
+                sql: { type: "string", description: "A single SELECT statement" },
+              },
+              required: ["connection", "sql"],
+            },
+          },
+        },
+      );
+      handlers.set("list_warehouse_tables", async (c, a) => {
+        try {
+          const conn = await loadWarehouseConnection(c.sb, { name: String(a.connection ?? "") });
+          const whTables = await listWarehouseTables(conn.config);
+          return JSON.stringify({
+            connection: conn.name,
+            provider: conn.provider,
+            tables: whTables.map((t) => ({
+              table: `${t.schema}.${t.name}`,
+              columns: t.columns.map((col) => `${col.name} ${col.type}`),
+            })),
+          });
+        } catch (e) {
+          return JSON.stringify({ error: e instanceof Error ? e.message : "Failed" });
+        }
+      });
+      handlers.set("warehouse_query", async (c, a) => {
+        try {
+          const conn = await loadWarehouseConnection(c.sb, { name: String(a.connection ?? "") });
+          const result = await executeWarehouseQuery(conn.config, String(a.sql ?? ""), 200);
+          const LLM_ROW_CAP = 50;
+          return JSON.stringify({
+            connection: conn.name,
+            columns: result.columns.map((col) => col.name),
+            rows: result.rows.slice(0, LLM_ROW_CAP),
+            row_count: result.row_count,
+            truncated: result.truncated || result.row_count > LLM_ROW_CAP,
+          });
+        } catch (e) {
+          return JSON.stringify({ error: e instanceof Error ? e.message : "Query failed" });
+        }
+      });
       enabled.sql = true;
     }
   }
