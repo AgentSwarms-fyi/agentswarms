@@ -17,6 +17,7 @@ import {
   ChevronDown,
   Code2,
   Database,
+  FileText,
   Sparkles,
   AlertTriangle,
   Save,
@@ -105,6 +106,22 @@ export function BiChatMessage({
               className="text-[9px] h-4 px-1.5 border-slate-200 text-slate-600 font-mono dark:border-slate-700 dark:text-slate-400"
             >
               {t}
+            </Badge>
+          ))}
+        </div>
+      )}
+
+      {/* Knowledge documents the analyst cross-referenced */}
+      {turn.docNames && turn.docNames.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {turn.docNames.map((d) => (
+            <Badge
+              key={d}
+              variant="outline"
+              className="text-[9px] h-4 px-1.5 border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800/50 dark:bg-amber-950/30 dark:text-amber-300"
+            >
+              <FileText className="h-2 w-2 mr-1" />
+              {d}
             </Badge>
           ))}
         </div>

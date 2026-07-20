@@ -52,8 +52,9 @@ import { BiChatMessage } from "@/components/data-sql/BiChatMessage";
 import { BiChartRender, fmtBiNumber } from "@/components/bi/BiChartRender";
 import { BiModelSelect } from "@/components/bi/BiModelSelect";
 import { keyFromSource, sourceFromKey, type BiDataContext } from "@/components/bi/biDataContext";
+import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
-import { runBiTurn, type BiTurn, type ChartSpec } from "@/lib/biAgent";
+import { runBiTurn, type BiDoc, type BiTurn, type ChartSpec } from "@/lib/biAgent";
 import { snapshotRows, widgetFromBiTurn, type BiWidget } from "@/lib/biDashboards";
 import type { QueryResult } from "@/lib/sqlEngine";
 import { warehouseTablesAsDatasets } from "@/lib/warehouseClient";
@@ -89,6 +90,12 @@ const VIZ_TYPES: {
 ];
 
 type SourceTable = { name: string; cols: string[] };
+
+/** A knowledge-base document the analyst can pull unstructured context from. */
+type KbDocOption = { id: string; name: string; kbName: string };
+
+/** Per-question cap keeps the excerpt budget meaningful per document. */
+const MAX_AI_DOCS = 6;
 
 function detectJoinKey(a: string[], b: string[]): string | null {
   const setB = new Set(b.map((c) => c.toLowerCase()));
@@ -168,6 +175,12 @@ export function BiBuilderPane({
   const [insertedIdx, setInsertedIdx] = useState<Set<number>>(new Set());
   /** Tables the analyst may use; empty = all tables of the source. */
   const [aiTables, setAiTables] = useState<string[]>([]);
+  /** Knowledge docs (ids) the analyst cross-references; empty = structured only. */
+  const [aiDocs, setAiDocs] = useState<string[]>([]);
+  const [kbDocOptions, setKbDocOptions] = useState<KbDocOption[] | "loading" | "error" | null>(
+    null,
+  );
+  const docContentCache = useRef(new Map<string, string>());
   const turnsScrollRef = useRef<HTMLDivElement>(null);
 
   // Prefill / reset the Build form when the edited widget changes.
@@ -445,6 +458,68 @@ export function BiBuilderPane({
     return warehouseTablesAsDatasets(activeWarehouse.id, tables, ctx.userId);
   }, [activeWarehouse, ctx.datasets, ctx.whTables, ctx.userId]);
 
+  // List content-bearing KB documents the caller can read (own + shared +
+  // samples — RLS decides). Loaded lazily when the picker first opens.
+  async function loadKbDocs() {
+    if (kbDocOptions !== null && kbDocOptions !== "error") return;
+    setKbDocOptions("loading");
+    try {
+      const [kbsRes, docsRes] = await Promise.all([
+        supabase.from("knowledge_bases").select("id, name"),
+        supabase
+          .from("knowledge_documents")
+          .select("id, name, knowledge_base_id")
+          .not("content", "is", null)
+          .neq("content", "")
+          .order("name"),
+      ]);
+      if (kbsRes.error || docsRes.error) {
+        throw new Error((kbsRes.error ?? docsRes.error)!.message);
+      }
+      const kbName = new Map((kbsRes.data ?? []).map((k) => [k.id, k.name]));
+      setKbDocOptions(
+        (docsRes.data ?? []).map((d) => ({
+          id: d.id,
+          name: d.name,
+          kbName: kbName.get(d.knowledge_base_id) ?? "Knowledge Base",
+        })),
+      );
+    } catch {
+      setKbDocOptions("error");
+    }
+  }
+
+  const docGroups = useMemo(() => {
+    if (!Array.isArray(kbDocOptions)) return [];
+    const groups = new Map<string, KbDocOption[]>();
+    for (const d of kbDocOptions) {
+      const arr = groups.get(d.kbName) ?? [];
+      arr.push(d);
+      groups.set(d.kbName, arr);
+    }
+    return Array.from(groups.entries());
+  }, [kbDocOptions]);
+
+  /** Fetch (and cache) the content of the selected docs; undefined = none usable. */
+  async function loadSelectedDocs(): Promise<BiDoc[] | undefined> {
+    if (aiDocs.length === 0 || !Array.isArray(kbDocOptions)) return undefined;
+    const missing = aiDocs.filter((id) => !docContentCache.current.has(id));
+    if (missing.length > 0) {
+      const { data, error } = await supabase
+        .from("knowledge_documents")
+        .select("id, content")
+        .in("id", missing);
+      if (error) throw new Error(error.message);
+      for (const row of data ?? []) docContentCache.current.set(row.id, row.content ?? "");
+    }
+    const docs = aiDocs.flatMap((id): BiDoc[] => {
+      const opt = kbDocOptions.find((o) => o.id === id);
+      const content = (docContentCache.current.get(id) ?? "").trim();
+      return opt && content ? [{ id, name: opt.name, kbName: opt.kbName, content }] : [];
+    });
+    return docs.length > 0 ? docs : undefined;
+  }
+
   async function sendQuestion() {
     const q = question.trim();
     if (!q || aiBusy) return;
@@ -463,12 +538,30 @@ export function BiBuilderPane({
     setQuestion("");
     setAiBusy(true);
     setTurns((prev) => [...prev, { question: q, status: "planning" }]);
+    // Docs are additive context — if they can't be loaded, warn and continue
+    // with structured data alone rather than failing the whole question.
+    let documents: BiDoc[] | undefined;
+    if (aiDocs.length > 0) {
+      try {
+        documents = await loadSelectedDocs();
+        if (!documents) {
+          toast.warning(
+            "The selected documents have no readable text — analysing structured data only.",
+          );
+        }
+      } catch (e) {
+        toast.warning(
+          `Couldn't load the selected documents (${(e as Error).message}) — analysing structured data only.`,
+        );
+      }
+    }
     try {
       await runBiTurn({
         question: q,
         datasets: datasetsToUse,
         semantics: activeWarehouse ? new Map() : ctx.semantics,
         metrics: activeWarehouse ? [] : ctx.metrics,
+        documents,
         execute: activeWarehouse
           ? (generated) => ctx.runSql(sourceFromKey(activeWarehouse.id, ctx.warehouses), generated)
           : undefined,
@@ -1020,6 +1113,97 @@ export function BiBuilderPane({
                 </PopoverContent>
               </Popover>
             </div>
+            <div className="space-y-1.5">
+              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Knowledge documents
+              </Label>
+              <Popover onOpenChange={(open) => open && void loadKbDocs()}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 w-full justify-between gap-1.5 text-xs font-normal"
+                    title="Blend unstructured context from your knowledge bases into the analysis"
+                  >
+                    <span className="truncate">
+                      {aiDocs.length === 0
+                        ? "None — structured data only"
+                        : aiDocs.length === 1
+                          ? ((Array.isArray(kbDocOptions)
+                              ? kbDocOptions.find((o) => o.id === aiDocs[0])?.name
+                              : undefined) ?? "1 document selected")
+                          : `${aiDocs.length} documents selected`}
+                    </span>
+                    <ChevronsUpDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-72 p-2">
+                  <div className="max-h-56 space-y-0.5 overflow-y-auto">
+                    {kbDocOptions === "loading" && (
+                      <p className="flex items-center gap-1.5 px-1 py-2 text-[11px] text-muted-foreground">
+                        <Loader2 className="h-3 w-3 animate-spin" /> Loading documents…
+                      </p>
+                    )}
+                    {kbDocOptions === "error" && (
+                      <p className="px-1 py-2 text-[11px] text-destructive">
+                        Couldn't load your knowledge documents — close and reopen to retry.
+                      </p>
+                    )}
+                    {Array.isArray(kbDocOptions) && kbDocOptions.length === 0 && (
+                      <p className="px-1 py-2 text-[11px] text-muted-foreground">
+                        No documents with text content — add some on the Knowledge page first.
+                      </p>
+                    )}
+                    {docGroups.map(([kb, docs]) => (
+                      <div key={kb}>
+                        <p className="px-1.5 pb-0.5 pt-1.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/80">
+                          {kb}
+                        </p>
+                        {docs.map((d) => {
+                          const checked = aiDocs.includes(d.id);
+                          return (
+                            <Label
+                              key={d.id}
+                              className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-[11px] font-normal hover:bg-muted/60"
+                            >
+                              <Checkbox
+                                checked={checked}
+                                onCheckedChange={(on) =>
+                                  setAiDocs((prev) => {
+                                    if (!on) return prev.filter((x) => x !== d.id);
+                                    if (prev.length >= MAX_AI_DOCS) {
+                                      toast.info(
+                                        `Up to ${MAX_AI_DOCS} documents per question — deselect one first.`,
+                                      );
+                                      return prev;
+                                    }
+                                    return [...prev, d.id];
+                                  })
+                                }
+                              />
+                              <span className="truncate">{d.name}</span>
+                            </Label>
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-1.5 flex items-center justify-between border-t border-border/50 pt-1.5">
+                    <p className="text-[10px] text-muted-foreground">
+                      The analyst cross-references docs with your data
+                    </p>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 px-2 text-[10px]"
+                      onClick={() => setAiDocs([])}
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
             {schemaLoading && (
               <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
                 <Loader2 className="h-3 w-3 animate-spin" /> loading schema…
@@ -1033,7 +1217,8 @@ export function BiBuilderPane({
             {turns.length === 0 && (
               <p className="py-10 text-center text-xs text-muted-foreground">
                 Ask a business question — the analyst writes and runs the SQL, picks a chart, and
-                explains the result. Insert any answer as a widget.
+                explains the result. Select knowledge documents to blend unstructured context into
+                the insight. Insert any answer as a widget.
               </p>
             )}
             {turns.map((t, i) => (

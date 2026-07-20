@@ -83,6 +83,8 @@ export type BiTurn = {
   result?: QueryResult;
   chart?: ChartSpec;
   narrative?: string;
+  /** Names of the knowledge documents the analyst was given for this turn. */
+  docNames?: string[];
   error?: string;
   status: "planning" | "writing_sql" | "executing" | "charting" | "summarizing" | "done" | "error";
 };
@@ -177,6 +179,111 @@ function describeColumn(c: ColumnDef, meta?: ColumnMeta): string {
   return parts.join(" ");
 }
 
+// ── Unstructured context: knowledge-base documents ───────────────────────
+//
+// Selected documents are chunked and lexically scored against the question;
+// the top chunks (or the opening, when nothing matches) go into the plan and
+// narrative prompts so the analyst can cross-reference structured results
+// with unstructured content — and honestly say when they don't relate.
+
+export type BiDoc = { id: string; name: string; kbName: string; content: string };
+
+export type BiDocExcerpt = {
+  name: string;
+  kbName: string;
+  excerpts: string[];
+  /** False when no chunk overlapped the question — the opening is shown instead. */
+  matched: boolean;
+};
+
+const DOC_STOP = new Set(
+  "the a an and or but of to in on for with is are was were be this that it as at by from what how why when which show me per top total average count sum".split(
+    " ",
+  ),
+);
+const DOC_CONTENT_CAP = 120_000; // chars scanned per document
+const CHUNK_TARGET = 700; // chars per excerpt chunk
+const MAX_CHUNKS_PER_DOC = 3;
+const TOTAL_EXCERPT_BUDGET = 9_000; // chars across all documents
+
+function chunkDocContent(content: string): string[] {
+  const chunks: string[] = [];
+  let buf = "";
+  for (const p of content.slice(0, DOC_CONTENT_CAP).split(/\n{2,}/)) {
+    const para = p.trim();
+    if (!para) continue;
+    if (buf && buf.length + para.length + 1 > CHUNK_TARGET) {
+      chunks.push(buf);
+      buf = "";
+    }
+    buf = buf ? `${buf}\n${para}` : para;
+    while (buf.length > CHUNK_TARGET * 2) {
+      chunks.push(buf.slice(0, CHUNK_TARGET * 2));
+      buf = buf.slice(CHUNK_TARGET * 2);
+    }
+  }
+  if (buf) chunks.push(buf);
+  return chunks;
+}
+
+export function extractDocExcerpts(question: string, docs: BiDoc[]): BiDocExcerpt[] {
+  const terms = Array.from(
+    new Set(
+      question
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, " ")
+        .split(/\s+/)
+        .filter((t) => t.length >= 3 && !DOC_STOP.has(t)),
+    ),
+  );
+  const perDocBudget = Math.max(1200, Math.floor(TOTAL_EXCERPT_BUDGET / Math.max(docs.length, 1)));
+  return docs.map((doc) => {
+    const scored = chunkDocContent(doc.content).map((chunk, idx) => {
+      const lower = chunk.toLowerCase();
+      let score = 0;
+      for (const term of terms) {
+        let from = 0;
+        let count = 0;
+        while (count < 4) {
+          const at = lower.indexOf(term, from);
+          if (at === -1) break;
+          count += 1;
+          from = at + term.length;
+        }
+        if (count > 0) score += 1 + (count - 1) * 0.25;
+      }
+      return { chunk, idx, score };
+    });
+    const hits = scored
+      .filter((s) => s.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, MAX_CHUNKS_PER_DOC);
+    const matched = hits.length > 0;
+    // No overlap → hand the model the opening so it can judge (and honestly
+    // report) whether the document relates to the data at all.
+    const picked = matched ? hits.sort((a, b) => a.idx - b.idx) : scored.slice(0, 1);
+    const excerpts: string[] = [];
+    let used = 0;
+    for (const p of picked) {
+      const room = perDocBudget - used;
+      if (room <= 0) break;
+      const text = p.chunk.length > room ? `${p.chunk.slice(0, room)}…` : p.chunk;
+      excerpts.push(text);
+      used += text.length;
+    }
+    return { name: doc.name, kbName: doc.kbName, excerpts, matched };
+  });
+}
+
+function describeDocs(docs: BiDocExcerpt[]): string {
+  const blocks = docs.map((d) => {
+    const note = d.matched ? "" : " [no keyword overlap with the question — opening shown]";
+    const body = d.excerpts.map((e) => `> ${e.replace(/\n/g, "\n> ")}`).join("\n> […]\n");
+    return `DOCUMENT "${d.name}" (knowledge base "${d.kbName}")${note}:\n${body}`;
+  });
+  return `SELECTED KNOWLEDGE DOCUMENTS (unstructured context):\n${blocks.join("\n\n")}`;
+}
+
 // ── Pipeline steps ───────────────────────────────────────────────────────
 
 export async function planQuestion(args: {
@@ -184,15 +291,20 @@ export async function planQuestion(args: {
   datasets: DatasetMeta[];
   semantics: Map<string, SemanticEntry>;
   metrics: SavedMetric[];
+  docs?: BiDocExcerpt[];
   model?: string;
 }): Promise<BiPlan> {
   const schema = describeSchema(args.datasets, args.semantics, args.metrics);
+  const docBlock = args.docs?.length
+    ? `\n\n${describeDocs(args.docs)}\nThe documents are unstructured context only — SQL can ONLY query the tables above. ` +
+      "If a document suggests a breakdown or filter that exists in the schema, prefer it."
+    : "";
   const plan = await llmJson<BiPlan>({
     model: args.model,
     systemPrompt:
       "You are a BI planning agent. Read the user's question and the schema, then output a structured plan as JSON. " +
       "Only use tables and columns that exist in the schema. Be precise.",
-    userPrompt: `${schema}\n\nQUESTION: ${args.question}\n\nReturn JSON with this exact shape:\n{\n  "intent": "short description of what the user wants",\n  "tables": ["table_name"],\n  "metrics": ["metric or aggregation"],\n  "breakdowns": ["column to group by"],\n  "time_grain": "day|week|month|quarter|year|null",\n  "filters": ["plain-English filters"]\n}`,
+    userPrompt: `${schema}${docBlock}\n\nQUESTION: ${args.question}\n\nReturn JSON with this exact shape:\n{\n  "intent": "short description of what the user wants",\n  "tables": ["table_name"],\n  "metrics": ["metric or aggregation"],\n  "breakdowns": ["column to group by"],\n  "time_grain": "day|week|month|quarter|year|null",\n  "filters": ["plain-English filters"]\n}`,
   });
   return plan;
 }
@@ -268,17 +380,29 @@ export async function summarizeResult(args: {
   question: string;
   result: QueryResult;
   plan: BiPlan;
+  docs?: BiDocExcerpt[];
   model?: string;
 }): Promise<string> {
-  if (args.result.row_count === 0) return "The query returned no rows.";
+  const hasDocs = Boolean(args.docs?.length);
+  if (args.result.row_count === 0 && !hasDocs) return "The query returned no rows.";
   const sample = args.result.rows.slice(0, 10);
+  const docBlock = hasDocs ? `\n\n${describeDocs(args.docs!)}` : "";
   const out = await llmJson<{ summary: string }>({
     model: args.model,
-    systemPrompt:
-      "You summarize SQL query results in 2–3 short sentences for a business user. " +
-      "Lead with the headline number. Round large numbers (e.g. $1.2M, 3.4k). " +
-      "Do NOT show SQL or column names verbatim — speak naturally.",
-    userPrompt: `QUESTION: ${args.question}\nROWS (sample): ${JSON.stringify(sample)}\nTOTAL ROWS: ${args.result.row_count}${args.result.capped ? " (truncated)" : ""}\n\nReturn JSON: { "summary": "..." }`,
+    systemPrompt: hasDocs
+      ? "You are a BI analyst combining a SQL query result (structured data) with knowledge-document " +
+        "excerpts (unstructured data). Write 3–5 short sentences for a business user. Lead with the " +
+        "headline number from the query result (if it returned no rows, say so). Then cross-reference " +
+        "the documents: use them to explain, support or contradict the numbers, naming each document " +
+        "you draw on. Only claim connections the excerpts actually support — if the documents contain " +
+        "nothing relevant to this question or result, you MUST say plainly that you found no " +
+        "correlation between the structured data and the selected documents, then summarize the data " +
+        "alone. Never invent document content. Round large numbers (e.g. $1.2M, 3.4k). " +
+        "Do NOT show SQL or column names verbatim — speak naturally."
+      : "You summarize SQL query results in 2–3 short sentences for a business user. " +
+        "Lead with the headline number. Round large numbers (e.g. $1.2M, 3.4k). " +
+        "Do NOT show SQL or column names verbatim — speak naturally.",
+    userPrompt: `QUESTION: ${args.question}\nROWS (sample): ${JSON.stringify(sample)}\nTOTAL ROWS: ${args.result.row_count}${args.result.capped ? " (truncated)" : ""}${docBlock}\n\nReturn JSON: { "summary": "..." }`,
   });
   return out.summary;
 }
@@ -340,6 +464,8 @@ export async function runBiTurn(args: {
   datasets: DatasetMeta[];
   semantics: Map<string, SemanticEntry>;
   metrics: SavedMetric[];
+  /** Knowledge documents to cross-reference with the query result. */
+  documents?: BiDoc[];
   onUpdate: (turn: BiTurn) => void;
   /** Override SQL execution (e.g. run against an external warehouse). */
   execute?: (sql: string) => Promise<QueryResult>;
@@ -348,7 +474,14 @@ export async function runBiTurn(args: {
   /** OpenRouter model id for every LLM step (server default when omitted). */
   model?: string;
 }): Promise<BiTurn> {
-  let turn: BiTurn = { question: args.question, status: "planning" };
+  const docExcerpts = args.documents?.length
+    ? extractDocExcerpts(args.question, args.documents)
+    : undefined;
+  let turn: BiTurn = {
+    question: args.question,
+    status: "planning",
+    docNames: args.documents?.length ? args.documents.map((d) => d.name) : undefined,
+  };
   args.onUpdate({ ...turn });
   try {
     turn.plan = await planQuestion({
@@ -356,6 +489,7 @@ export async function runBiTurn(args: {
       datasets: args.datasets,
       semantics: args.semantics,
       metrics: args.metrics,
+      docs: docExcerpts,
       model: args.model,
     });
     turn.status = "writing_sql";
@@ -388,6 +522,7 @@ export async function runBiTurn(args: {
         question: args.question,
         result: turn.result,
         plan: turn.plan,
+        docs: docExcerpts,
         model: args.model,
       }),
     ]);

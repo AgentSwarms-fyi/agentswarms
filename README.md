@@ -149,7 +149,14 @@ and reports. An editable dashboard is called a **BI project**:
 - **Generate visuals with AI** — the same GenBI analyst as the Data & SQL
   page (plan → SQL → execute → chart → narrative) lives in the pane's **AI
   analyst** tab; insert any answer as a widget. On `/data-sql`, every
-  generated visual also has an **Add to dashboard** button.
+  generated visual also has an **Add to dashboard** button. Scope the
+  analyst with **Tables to analyse**, and optionally select **knowledge
+  documents** (up to 6, from any knowledge base you can read): the analyst
+  then cross-references the query result with the documents' most relevant
+  passages and blends both into the insight — naming each document it draws
+  on, and saying plainly when it finds **no correlation** between the
+  structured data and the selected documents rather than inventing one.
+  With no documents selected it analyses structured sources only.
 - **AI insights per visual** — every chart's menu has **AI insight**: the
   analyst reads that widget's data and drops a markdown card below it with
   what the data shows, caveats to watch, and suggested next steps.
