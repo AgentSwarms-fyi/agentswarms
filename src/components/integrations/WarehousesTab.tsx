@@ -6,7 +6,17 @@ import { useCallback, useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { format } from "date-fns";
-import { Check, Database, Loader2, Plug2, Trash2, X } from "lucide-react";
+import { Check, Loader2, Plug2, Trash2, X } from "lucide-react";
+
+// Official provider marks, used nominatively to identify each integration.
+// Sources: Simple Icons (CC0) for Snowflake / Databricks / BigQuery;
+// Wikimedia Commons for Amazon Redshift; Microsoft's Azure architecture
+// icon set for Synapse.
+import redshiftLogo from "@/assets/warehouses/redshift.svg";
+import snowflakeLogo from "@/assets/warehouses/snowflake.svg";
+import databricksLogo from "@/assets/warehouses/databricks.svg";
+import bigqueryLogo from "@/assets/warehouses/bigquery.svg";
+import synapseLogo from "@/assets/warehouses/synapse.svg";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -51,6 +61,14 @@ type Field = {
   type?: "password" | "textarea";
   optional?: boolean;
   hint?: string;
+};
+
+const PROVIDER_LOGOS: Record<WarehouseProvider, string> = {
+  redshift: redshiftLogo,
+  snowflake: snowflakeLogo,
+  databricks: databricksLogo,
+  bigquery: bigqueryLogo,
+  azure_synapse: synapseLogo,
 };
 
 const PROVIDER_META: Record<
@@ -242,9 +260,13 @@ export function WarehousesTab() {
         {WAREHOUSE_PROVIDERS.map((p) => (
           <Card key={p} className="border-border/50">
             <CardHeader className="pb-3">
-              <div className="flex items-center gap-2">
-                <div className="h-8 w-8 rounded-md bg-muted flex items-center justify-center shrink-0">
-                  <Database className="h-4 w-4 text-primary" />
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border/50 bg-white p-1.5">
+                  <img
+                    src={PROVIDER_LOGOS[p]}
+                    alt={`${WAREHOUSE_LABELS[p]} logo`}
+                    className="h-full w-full object-contain"
+                  />
                 </div>
                 <CardTitle className="text-base">{WAREHOUSE_LABELS[p]}</CardTitle>
               </div>
@@ -289,7 +311,14 @@ export function WarehousesTab() {
                   <TableRow key={c.id}>
                     <TableCell className="font-medium">{c.name}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {WAREHOUSE_LABELS[c.provider]}
+                      <span className="flex items-center gap-1.5">
+                        <img
+                          src={PROVIDER_LOGOS[c.provider]}
+                          alt=""
+                          className="h-4 w-4 object-contain"
+                        />
+                        {WAREHOUSE_LABELS[c.provider]}
+                      </span>
                     </TableCell>
                     <TableCell>
                       {c.last_test_status === "ok" ? (
@@ -347,7 +376,16 @@ export function WarehousesTab() {
       <Dialog open={!!dialogProvider} onOpenChange={(o) => !o && setDialogProvider(null)}>
         <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              {dialogProvider && (
+                <span className="flex h-6 w-6 items-center justify-center rounded border border-border/50 bg-white p-0.5">
+                  <img
+                    src={PROVIDER_LOGOS[dialogProvider]}
+                    alt=""
+                    className="h-full w-full object-contain"
+                  />
+                </span>
+              )}
               Connect {dialogProvider ? WAREHOUSE_LABELS[dialogProvider] : ""}
             </DialogTitle>
             <DialogDescription>
