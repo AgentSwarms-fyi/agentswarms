@@ -10,6 +10,7 @@ import {
   ArrowLeft,
   BarChart3,
   Copy,
+  FileDown,
   Globe,
   Loader2,
   MoreVertical,
@@ -41,15 +42,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
-import { AiWidgetDialog } from "@/components/bi/AiWidgetDialog";
+import { BiBuilderPane, type BuilderTab } from "@/components/bi/BiBuilderPane";
 import { BiWidgetCard } from "@/components/bi/BiWidgetCard";
 import { DashboardGrid } from "@/components/bi/DashboardGrid";
 import { PublishDialog } from "@/components/bi/PublishDialog";
-import { WidgetBuilderDialog } from "@/components/bi/WidgetBuilderDialog";
 import type { BiDataContext } from "@/components/bi/biDataContext";
 import { useAuth } from "@/hooks/use-auth";
 import type { Json } from "@/integrations/supabase/types";
 import {
+  generateWidgetInsight,
   loadSavedMetrics,
   loadSemantics,
   type SavedMetric,
@@ -57,9 +58,11 @@ import {
 } from "@/lib/biAgent";
 import {
   addWidgetToLayout,
+  compactLayout,
   getDashboard,
   parseLayout,
   parseWidgets,
+  pushDown,
   snapshotRows,
   updateDashboard,
   type BiDashboardRow,
@@ -67,6 +70,7 @@ import {
   type BiWidget,
   type BiWidgetSource,
 } from "@/lib/biDashboards";
+import { exportDashboardPdf } from "@/lib/biPdf";
 import { fetchWarehouseSchema, runWarehouseQuery } from "@/lib/warehouseClient";
 import { hydrateFromSupabase, runQuery, type DatasetMeta, type QueryResult } from "@/lib/sqlEngine";
 import { listWarehouseConnections } from "@/utils/warehouse.functions";
@@ -101,14 +105,16 @@ function BiProjectPage() {
   );
   const listWarehousesFn = useServerFn(listWarehouseConnections);
 
-  // Dialogs
-  const [builderOpen, setBuilderOpen] = useState(false);
+  // Builder pane + dialogs
+  const [pane, setPane] = useState<BuilderTab | null>(null);
   const [builderInitial, setBuilderInitial] = useState<BiWidget | null>(null);
-  const [aiOpen, setAiOpen] = useState(false);
   const [textOpen, setTextOpen] = useState(false);
   const [textInitial, setTextInitial] = useState<BiWidget | null>(null);
   const [publishOpen, setPublishOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [insightBusyId, setInsightBusyId] = useState<string | null>(null);
+  const gridWrapRef = useRef<HTMLDivElement>(null);
 
   const isOwner = row !== null && row !== "missing" && row.user_id === user?.id;
   const readOnly = !isOwner;
@@ -289,7 +295,66 @@ function BiProjectPage() {
       setTextOpen(true);
     } else {
       setBuilderInitial(w);
-      setBuilderOpen(true);
+      setPane("build");
+    }
+  }
+
+  /** Generate an AI insight card and place it directly below the visual. */
+  async function addInsight(w: BiWidget) {
+    if (!w.rows || w.rows.length === 0) {
+      return toast.error("No data snapshot — run or refresh this widget first");
+    }
+    setInsightBusyId(w.id);
+    try {
+      const insight = await generateWidgetInsight({
+        title: w.title,
+        sql: w.sql,
+        columns: w.columns ?? [],
+        rows: w.rows,
+      });
+      const widget: BiWidget = {
+        id: crypto.randomUUID(),
+        kind: "text",
+        title: `Insight — ${w.title}`,
+        text: insight,
+      };
+      const anchor = layout.find((l) => l.i === w.id);
+      let nextLayout: BiLayoutItem[];
+      if (anchor) {
+        const item: BiLayoutItem = {
+          i: widget.id,
+          x: anchor.x,
+          y: anchor.y + anchor.h,
+          w: anchor.w,
+          h: 3,
+        };
+        nextLayout = compactLayout(pushDown([...layout, item], item));
+      } else {
+        nextLayout = addWidgetToLayout(layout, widget);
+      }
+      persist([...widgets, widget], nextLayout);
+      toast.success("AI insight added below the visual");
+    } catch (e) {
+      toast.error(`Insight failed: ${(e as Error).message}`);
+    } finally {
+      setInsightBusyId(null);
+    }
+  }
+
+  async function handleExport() {
+    if (row === null || row === "missing" || !gridWrapRef.current) return;
+    setExporting(true);
+    try {
+      await exportDashboardPdf({
+        title: row.name,
+        description: row.description,
+        container: gridWrapRef.current,
+      });
+      toast.success("PDF downloaded");
+    } catch (e) {
+      toast.error(`Export failed: ${(e as Error).message}`);
+    } finally {
+      setExporting(false);
     }
   }
 
@@ -362,21 +427,19 @@ function BiProjectPage() {
 
         <div className="ml-auto flex items-center gap-1.5">
           {!readOnly && (
+            <span className="mr-1 text-[10px] text-muted-foreground">
+              {saveState === "saving" ? "Saving…" : saveState === "error" ? "Save failed" : "Saved"}
+            </span>
+          )}
+          {!readOnly && (
             <>
-              <span className="mr-1 text-[10px] text-muted-foreground">
-                {saveState === "saving"
-                  ? "Saving…"
-                  : saveState === "error"
-                    ? "Save failed"
-                    : "Saved"}
-              </span>
               <Button
                 size="sm"
                 variant="outline"
                 className="h-8 gap-1.5 text-xs"
                 onClick={() => {
                   setBuilderInitial(null);
-                  setBuilderOpen(true);
+                  setPane("build");
                 }}
               >
                 <Plus className="h-3.5 w-3.5" /> Chart
@@ -385,9 +448,9 @@ function BiProjectPage() {
                 size="sm"
                 variant="outline"
                 className="h-8 gap-1.5 text-xs"
-                onClick={() => setAiOpen(true)}
+                onClick={() => setPane("ai")}
               >
-                <Sparkles className="h-3.5 w-3.5 text-primary" /> AI visual
+                <Sparkles className="h-3.5 w-3.5 text-primary" /> AI analyst
               </Button>
               <Button
                 size="sm"
@@ -414,94 +477,138 @@ function BiProjectPage() {
                 )}
                 Refresh data
               </Button>
-              <Button
-                size="sm"
-                className="h-8 gap-1.5 text-xs"
-                onClick={() => setPublishOpen(true)}
-              >
-                <Share2 className="h-3.5 w-3.5" /> Publish &amp; share
-              </Button>
             </>
+          )}
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 gap-1.5 text-xs"
+            onClick={() => void handleExport()}
+            disabled={exporting || layout.length === 0}
+            title="Export this dashboard as a PDF report"
+          >
+            {exporting ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <FileDown className="h-3.5 w-3.5" />
+            )}
+            Export PDF
+          </Button>
+          {!readOnly && (
+            <Button size="sm" className="h-8 gap-1.5 text-xs" onClick={() => setPublishOpen(true)}>
+              <Share2 className="h-3.5 w-3.5" /> Publish &amp; share
+            </Button>
           )}
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto bg-muted/20 p-4">
-        <DashboardGrid
-          layout={layout}
-          editable={!readOnly}
-          onLayoutChange={(next) => persist(widgets, next)}
-          emptyState={
-            <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border/70 py-20 text-center">
-              <BarChart3 className="h-8 w-8 text-muted-foreground" />
-              <p className="text-sm font-medium">This dashboard is empty</p>
-              {!readOnly && (
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    className="gap-1.5"
-                    onClick={() => {
-                      setBuilderInitial(null);
-                      setBuilderOpen(true);
-                    }}
-                  >
-                    <Plus className="h-3.5 w-3.5" /> Add a chart
-                  </Button>
-                  <Button size="sm" className="gap-1.5" onClick={() => setAiOpen(true)}>
-                    <Sparkles className="h-3.5 w-3.5" /> Generate with AI
-                  </Button>
+      <div className="flex min-h-0 flex-1">
+        <div className="min-w-0 flex-1 overflow-y-auto bg-muted/20 p-4">
+          <div ref={gridWrapRef}>
+            <DashboardGrid
+              layout={layout}
+              editable={!readOnly}
+              onLayoutChange={(next) => persist(widgets, next)}
+              emptyState={
+                <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border/70 py-20 text-center">
+                  <BarChart3 className="h-8 w-8 text-muted-foreground" />
+                  <p className="text-sm font-medium">This dashboard is empty</p>
+                  {!readOnly && (
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="gap-1.5"
+                        onClick={() => {
+                          setBuilderInitial(null);
+                          setPane("build");
+                        }}
+                      >
+                        <Plus className="h-3.5 w-3.5" /> Add a chart
+                      </Button>
+                      <Button size="sm" className="gap-1.5" onClick={() => setPane("ai")}>
+                        <Sparkles className="h-3.5 w-3.5" /> Generate with AI
+                      </Button>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          }
-          renderItem={(id) => {
-            const w = widgetById.get(id);
-            if (!w) return null;
-            return (
-              <BiWidgetCard
-                widget={w}
-                actions={
-                  readOnly ? undefined : (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button size="sm" variant="ghost" className="h-6 w-6 shrink-0 p-0">
-                          <MoreVertical className="h-3.5 w-3.5" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => editWidget(w)}>
-                          <Pencil className="mr-2 h-3.5 w-3.5" /> Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => duplicateWidget(w.id)}>
-                          <Copy className="mr-2 h-3.5 w-3.5" /> Duplicate
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          className="text-destructive focus:text-destructive"
-                          onClick={() => removeWidget(w.id)}
-                        >
-                          <Trash2 className="mr-2 h-3.5 w-3.5" /> Remove
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  )
-                }
-              />
-            );
-          }}
-        />
+              }
+              renderItem={(id) => {
+                const w = widgetById.get(id);
+                if (!w) return null;
+                return (
+                  <BiWidgetCard
+                    widget={w}
+                    actions={
+                      readOnly ? undefined : (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button size="sm" variant="ghost" className="h-6 w-6 shrink-0 p-0">
+                              <MoreVertical className="h-3.5 w-3.5" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => editWidget(w)}>
+                              <Pencil className="mr-2 h-3.5 w-3.5" /> Edit
+                            </DropdownMenuItem>
+                            {w.kind === "chart" && (
+                              <DropdownMenuItem
+                                disabled={insightBusyId !== null}
+                                onClick={() => void addInsight(w)}
+                              >
+                                {insightBusyId === w.id ? (
+                                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <Sparkles className="mr-2 h-3.5 w-3.5 text-primary" />
+                                )}
+                                AI insight
+                              </DropdownMenuItem>
+                            )}
+                            <DropdownMenuItem onClick={() => duplicateWidget(w.id)}>
+                              <Copy className="mr-2 h-3.5 w-3.5" /> Duplicate
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              onClick={() => removeWidget(w.id)}
+                            >
+                              <Trash2 className="mr-2 h-3.5 w-3.5" /> Remove
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )
+                    }
+                  />
+                );
+              }}
+            />
+          </div>
+        </div>
+
+        {!readOnly && pane !== null && (
+          <BiBuilderPane
+            ctx={ctx}
+            tab={pane}
+            onTabChange={setPane}
+            initial={builderInitial}
+            onSubmit={(w) => {
+              if (builderInitial) {
+                replaceWidget(w);
+                setBuilderInitial(null);
+              } else {
+                addWidget(w);
+              }
+            }}
+            onInsertAi={addWidget}
+            onClose={() => {
+              setPane(null);
+              setBuilderInitial(null);
+            }}
+          />
+        )}
       </div>
 
       {!readOnly && (
         <>
-          <WidgetBuilderDialog
-            open={builderOpen}
-            onOpenChange={setBuilderOpen}
-            ctx={ctx}
-            initial={builderInitial}
-            onSubmit={(w) => (builderInitial ? replaceWidget(w) : addWidget(w))}
-          />
-          <AiWidgetDialog open={aiOpen} onOpenChange={setAiOpen} ctx={ctx} onInsert={addWidget} />
           <TextWidgetDialog
             open={textOpen}
             onOpenChange={setTextOpen}

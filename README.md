@@ -128,16 +128,23 @@ manage everything else:
 The **BI Workspace** (`/bi`) turns connected data into shareable dashboards
 and reports. An editable dashboard is called a **BI project**:
 
-- **Build visuals by hand** — pick a source (your Data & SQL datasets or any
-  connected warehouse), write a read-only SQL query, preview it, and choose a
-  bar/line/area/pie chart, KPI tile, or table. Widgets live on a 12-column
+- **Build visuals by hand** — a right-hand builder pane: pick a source (your
+  Data & SQL datasets or any connected warehouse), tick one or **more tables
+  to join** (a JOIN skeleton is written for you with auto-detected join
+  keys), run the read-only SQL, then pick the visual from an **icon picker**
+  — bar/line/area/pie chart, KPI tile, or table. Widgets live on a 12-column
   drag-and-resize grid, with markdown text blocks for report narrative.
 - **Generate visuals with AI** — the same GenBI analyst as the Data & SQL
-  page (plan → SQL → execute → chart → narrative) runs inside the editor;
-  insert any answer as a widget. On `/data-sql`, every generated visual also
-  has an **Add to dashboard** button.
+  page (plan → SQL → execute → chart → narrative) lives in the pane's **AI
+  analyst** tab; insert any answer as a widget. On `/data-sql`, every
+  generated visual also has an **Add to dashboard** button.
+- **AI insights per visual** — every chart's menu has **AI insight**: the
+  analyst reads that widget's data and drops a markdown card below it with
+  what the data shows, caveats to watch, and suggested next steps.
 - **Refresh** re-runs every widget's SQL against its source and stores a
   capped **data snapshot** in the dashboard.
+- **Export PDF** — one click renders the dashboard (layout preserved) into a
+  downloadable A4 PDF report, entirely client-side.
 - **Publish & share** — publishing exposes a read-only page at
   `/share/bi/<unguessable-slug>` for anyone with the link; group sharing
   (owner-controlled, or superadmin via Admin → IAM) makes the dashboard

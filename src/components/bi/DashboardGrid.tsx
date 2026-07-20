@@ -132,6 +132,7 @@ export function DashboardGrid({
         return (
           <div
             key={it.i}
+            data-widget-id={it.i}
             className={`absolute ${
               isDragging ? "z-30 opacity-90 shadow-xl" : "z-0"
             } ${draggingId && !isDragging ? "transition-all duration-150" : ""}`}

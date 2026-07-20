@@ -261,6 +261,33 @@ export async function generateSuggestedQuestions(args: {
   return (out.questions || []).slice(0, 4);
 }
 
+// ── Widget insight (BI dashboards) ─────────────────────────────────────
+
+/**
+ * Analyse a dashboard visual's data snapshot and produce a markdown insight
+ * card: what the data shows, caveats, and suggested next steps.
+ */
+export async function generateWidgetInsight(args: {
+  title: string;
+  sql?: string;
+  columns: string[];
+  rows: Record<string, unknown>[];
+}): Promise<string> {
+  const sample = args.rows.slice(0, 30);
+  const out = await llmJson<{ insight: string }>({
+    systemPrompt:
+      "You are a BI analyst writing an insight card that sits next to a dashboard visual. " +
+      'Output JSON only: { "insight": "<markdown>" }. Structure the markdown exactly as three ' +
+      "bolded sections with tight bullets: '**What the data shows**' (2-3 bullets), " +
+      "'**Watch out for**' (1-2 bullets on anomalies, gaps or caveats), and " +
+      "'**Suggested next steps**' (1-2 actionable bullets). Be specific — quote real numbers " +
+      "from the data, rounded for readability ($1.2M, 3.4k). No preamble, no headings beyond " +
+      "the bolded labels.",
+    userPrompt: `VISUAL: ${args.title}\nSQL: ${args.sql ?? "n/a"}\nCOLUMNS: ${args.columns.join(", ")}\nTOTAL ROWS: ${args.rows.length}\nROWS (sample): ${JSON.stringify(sample)}\n\nReturn JSON: { "insight": "..." }`,
+  });
+  return out.insight;
+}
+
 // ── Orchestrator ───────────────────────────────────────────────────────
 
 export async function runBiTurn(args: {

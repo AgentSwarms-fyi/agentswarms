@@ -75,6 +75,7 @@
     "date-fns": "^4.1.0",
     "embla-carousel-react": "^8.6.0",
     "framer-motion": "^12.38.0",
+    "html2canvas-pro": "^2.2.4",
     "input-otp": "^1.4.2",
     "js-yaml": "^4.1.1",
     "langchain": "^1.4.4",
