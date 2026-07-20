@@ -567,6 +567,24 @@ export async function loadCredentialRow(userId: string, provider: ProviderId) {
   return data;
 }
 
+/**
+ * The user's configured default model for a provider — checks the newer
+ * provider_credentials store first, then the legacy integrations config
+ * (where OpenAI-compatible providers connected via /integrations live).
+ */
+export async function getProviderDefaultModel(
+  userId: string,
+  provider: ProviderId,
+): Promise<string | null> {
+  const cred = await loadCredentialRow(userId, provider).catch(() => null);
+  if (cred?.default_model) return cred.default_model;
+  const legacy = await loadLegacyConfig(userId, provider).catch(() => null);
+  const cfg = (legacy?.config ?? {}) as Record<string, unknown>;
+  if (typeof cfg.default_model === "string" && cfg.default_model) return cfg.default_model;
+  if (typeof cfg.model === "string" && cfg.model) return cfg.model;
+  return null;
+}
+
 export async function streamWithProvider(args: {
   userId: string;
   provider: ProviderId;

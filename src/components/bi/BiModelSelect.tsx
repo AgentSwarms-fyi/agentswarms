@@ -78,12 +78,43 @@ let integrationsCache: ConnectedIntegration[] | null = null;
 let integrationsPromise: Promise<ConnectedIntegration[]> | null = null;
 
 function fetchIntegrations(): Promise<ConnectedIntegration[]> {
-  integrationsPromise ??= Promise.resolve(
-    supabase.from("provider_credentials").select("provider, default_model, is_active"),
-  ).then(({ data }) => {
-    integrationsCache = (data ?? [])
-      .filter((r) => r.is_active !== false && isBiCompatProvider(r.provider))
-      .map((r) => ({ provider: r.provider, default_model: r.default_model }));
+  // Provider connections live in TWO stores (mirroring /integrations):
+  // the legacy `integrations` table (type llm_provider, config jsonb) and
+  // the newer `provider_credentials` table. Merge both, RLS-scoped.
+  integrationsPromise ??= Promise.all([
+    Promise.resolve(
+      supabase
+        .from("integrations")
+        .select("provider, config, is_active")
+        .eq("type", "llm_provider"),
+    ),
+    Promise.resolve(
+      supabase.from("provider_credentials").select("provider, default_model, is_active"),
+    ),
+  ]).then(([legacy, creds]) => {
+    const byProvider = new Map<string, ConnectedIntegration>();
+    for (const r of legacy.data ?? []) {
+      if (r.is_active === false || !r.provider || !isBiCompatProvider(r.provider)) continue;
+      const cfg = (r.config ?? {}) as Record<string, unknown>;
+      const dm =
+        (typeof cfg.default_model === "string" && cfg.default_model) ||
+        (typeof cfg.model === "string" && cfg.model) ||
+        null;
+      const prev = byProvider.get(r.provider);
+      byProvider.set(r.provider, {
+        provider: r.provider,
+        default_model: prev?.default_model ?? dm,
+      });
+    }
+    for (const r of creds.data ?? []) {
+      if (r.is_active === false || !isBiCompatProvider(r.provider)) continue;
+      const prev = byProvider.get(r.provider);
+      byProvider.set(r.provider, {
+        provider: r.provider,
+        default_model: r.default_model ?? prev?.default_model ?? null,
+      });
+    }
+    integrationsCache = [...byProvider.values()];
     return integrationsCache;
   });
   return integrationsPromise;

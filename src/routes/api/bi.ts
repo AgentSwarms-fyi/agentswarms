@@ -19,7 +19,7 @@ import { createClient } from "@supabase/supabase-js";
 import { recordGatewayCall, extractUsage } from "@/utils/observability/recordGatewayUsage.server";
 import { getEffectiveModelRules, isModelAllowed } from "@/utils/iam.server";
 import {
-  loadCredentialRow,
+  getProviderDefaultModel,
   resolveOpenAICompatTransport,
 } from "@/utils/providers/credentials.server";
 import { isBiCompatProvider } from "@/utils/providers/modelChoice";
@@ -119,12 +119,7 @@ export const Route = createFileRoute("/api/bi")({
         // default_model → the instance default (OpenRouter only).
         let model = body.model || "";
         if (!model) {
-          try {
-            const cred = await loadCredentialRow(user.id, provider as ProviderId);
-            if (cred?.default_model) model = cred.default_model;
-          } catch {
-            /* fall through */
-          }
+          model = (await getProviderDefaultModel(user.id, provider as ProviderId)) ?? "";
         }
         if (!model && provider === "openrouter") model = DEFAULT_MODEL;
         if (!model) {
