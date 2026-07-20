@@ -22,6 +22,8 @@ import {
   loadCredentialRow,
   resolveOpenAICompatTransport,
 } from "@/utils/providers/credentials.server";
+import { isBiCompatProvider } from "@/utils/providers/modelChoice";
+import type { ProviderId } from "@/utils/providers/types";
 
 const DEFAULT_MODEL = "google/gemini-2.5-flash";
 
@@ -76,65 +78,86 @@ export const Route = createFileRoute("/api/bi")({
         } = await userClient.auth.getUser();
         if (!user) return json({ error: "Unauthorized" }, 401);
 
-        // BYOK: the caller's own OpenRouter integration wins; the operator's
-        // shared env key is only the zero-config fallback.
-        const transport = await resolveOpenAICompatTransport({
-          userId: user.id,
-          provider: "openrouter",
-        });
-        if (!transport || !transport.apiKey) {
-          return json(
-            {
-              error:
-                "OpenRouter isn't configured. Connect it under Integrations " +
-                "(or ask the operator to set OPENROUTER_API_KEY).",
-            },
-            503,
-          );
-        }
-
         const body = (await request.json().catch(() => ({}))) as {
           systemPrompt?: string;
           userPrompt?: string;
+          provider?: string;
           model?: string;
           temperature?: number;
           stage?: string;
         };
         if (!body.userPrompt) return json({ error: "userPrompt required" }, 400);
 
+        // Which of the caller's integrations executes the call. Defaults to
+        // OpenRouter (the zero-config path with an operator env fallback).
+        const provider = body.provider || "openrouter";
+        if (!isBiCompatProvider(provider)) {
+          return json({ error: `Provider "${provider}" isn't available for BI.` }, 400);
+        }
+
+        // BYOK: the caller's own integration wins; for OpenRouter the
+        // operator's shared env key is the zero-config fallback.
+        const transport = await resolveOpenAICompatTransport({
+          userId: user.id,
+          provider: provider as ProviderId,
+        });
+        if (!transport || (!transport.apiKey && provider !== "ollama")) {
+          return json(
+            {
+              error:
+                `${provider} isn't configured. Connect it under Integrations` +
+                (provider === "openrouter"
+                  ? " (or ask the operator to set OPENROUTER_API_KEY)."
+                  : "."),
+            },
+            503,
+          );
+        }
+
         const startedAt = Date.now();
-        // Model precedence: explicit choice → the caller's integration
-        // default_model → the instance default.
+        // Model precedence: explicit choice → the integration's
+        // default_model → the instance default (OpenRouter only).
         let model = body.model || "";
         if (!model) {
           try {
-            const cred = await loadCredentialRow(user.id, "openrouter");
+            const cred = await loadCredentialRow(user.id, provider as ProviderId);
             if (cred?.default_model) model = cred.default_model;
           } catch {
-            /* fall through to the instance default */
+            /* fall through */
           }
         }
-        if (!model) model = DEFAULT_MODEL;
+        if (!model && provider === "openrouter") model = DEFAULT_MODEL;
+        if (!model) {
+          return json(
+            {
+              error:
+                `Pick a model — your ${provider} integration has no default ` +
+                "model set (Integrations → edit the connection).",
+            },
+            400,
+          );
+        }
         const surface = surfaceFor(body.stage);
 
-        // IAM model governance: same gate as /api/chat. BI calls route
-        // through OpenRouter, so rules match against provider "openrouter".
+        // IAM model governance: same gate as /api/chat, against the
+        // executing provider.
         const rules = await getEffectiveModelRules(
           userClient as unknown as Parameters<typeof getEffectiveModelRules>[0],
           user.id,
         );
-        if (rules && !isModelAllowed(rules, "openrouter", model)) {
+        if (rules && !isModelAllowed(rules, provider, model)) {
           return json(
-            { error: `Your administrator has not allowed the model openrouter/${model}.` },
+            { error: `Your administrator has not allowed the model ${provider}/${model}.` },
             403,
           );
         }
+        const gatewayModelLabel = provider === "openrouter" ? model : `${provider}/${model}`;
 
         const r = await fetch(transport.endpointUrl, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${transport.apiKey}`,
+            ...(transport.apiKey ? { Authorization: `Bearer ${transport.apiKey}` } : {}),
             ...(transport.extraHeaders ?? {}),
           },
           body: JSON.stringify({
@@ -158,7 +181,7 @@ export const Route = createFileRoute("/api/bi")({
           void recordGatewayCall({
             userId: user.id,
             surface,
-            model,
+            model: gatewayModelLabel,
             promptText: body.userPrompt,
             latencyMs: Date.now() - startedAt,
             status: "error",
@@ -178,7 +201,7 @@ export const Route = createFileRoute("/api/bi")({
         void recordGatewayCall({
           userId: user.id,
           surface,
-          model,
+          model: gatewayModelLabel,
           promptText: body.userPrompt,
           responseText: text,
           tokensIn: usage?.tokensIn,

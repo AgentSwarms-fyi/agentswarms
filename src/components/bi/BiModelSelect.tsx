@@ -1,8 +1,11 @@
-// Searchable model picker for the BI generative features. Lists TEXT models
-// from the model registry that are routable through the BI gateway
-// (OpenRouter source), filtered down to what the current user's IAM model
-// rules allow. Selection is optional — "Default" uses the server's default
-// BI model.
+// Model picker for the BI generative features, driven by the CALLER'S
+// CONNECTED INTEGRATIONS (/integrations): one group per connected
+// OpenAI-compatible provider, its configured default model first. OpenRouter
+// additionally contributes its full text-model catalog (one key serves the
+// whole catalog). Entries are filtered by the user's IAM model rules.
+//
+// Selections encode provider + model ("provider::model", see modelChoice)
+// so /api/bi executes against the right integration.
 import { useEffect, useMemo, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { Check, ChevronsUpDown, Cpu } from "lucide-react";
@@ -22,9 +25,15 @@ import { isModelAllowedByRules, useMyModelRules } from "@/hooks/use-iam";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { getModelRegistry, type RegistryModel } from "@/utils/modelRegistry.functions";
+import {
+  encodeModelChoice,
+  isBiCompatProvider,
+  parseModelChoice,
+} from "@/utils/providers/modelChoice";
+import { PROVIDER_LABELS, type ProviderId } from "@/utils/providers/types";
 
-/** Instance-level fallback (an OpenRouter route id) — used only when the
- * caller's OpenRouter integration has no default_model of its own. */
+/** Instance-level fallback (an OpenRouter route id) — used only when no
+ * integration default applies. */
 export const DEFAULT_BI_MODEL = "google/gemini-2.5-flash";
 export const BI_MODEL_STORAGE_KEY = "agentswarms.bi_model";
 
@@ -49,28 +58,28 @@ export function useBiModelPref(): [string | null, (m: string | null) => void] {
   return [model, update];
 }
 
-// One fetch per session shared by every picker instance.
+type ConnectedIntegration = { provider: string; default_model: string | null };
+
+// Session caches shared by every picker instance.
 let modelCache: RegistryModel[] | null = null;
 let modelCachePromise: Promise<RegistryModel[]> | null = null;
+let integrationsCache: ConnectedIntegration[] | null = null;
+let integrationsPromise: Promise<ConnectedIntegration[]> | null = null;
 
-// The caller's own OpenRouter integration default (RLS-scoped read).
-// undefined = not loaded yet; null = integration has no default_model.
-let userDefaultCache: string | null | undefined;
-let userDefaultPromise: Promise<string | null> | null = null;
-
-function fetchUserDefaultModel(): Promise<string | null> {
-  userDefaultPromise ??= Promise.resolve(
-    supabase
-      .from("provider_credentials")
-      .select("default_model")
-      .eq("provider", "openrouter")
-      .maybeSingle(),
+function fetchIntegrations(): Promise<ConnectedIntegration[]> {
+  integrationsPromise ??= Promise.resolve(
+    supabase.from("provider_credentials").select("provider, default_model, is_active"),
   ).then(({ data }) => {
-    userDefaultCache = data?.default_model ?? null;
-    return userDefaultCache;
+    integrationsCache = (data ?? [])
+      .filter((r) => r.is_active !== false && isBiCompatProvider(r.provider))
+      .map((r) => ({ provider: r.provider, default_model: r.default_model }));
+    return integrationsCache;
   });
-  return userDefaultPromise;
+  return integrationsPromise;
 }
+
+type Entry = { value: string; display: string; sub: string };
+type Group = { provider: string; label: string; entries: Entry[] };
 
 export function BiModelSelect({
   value,
@@ -78,7 +87,7 @@ export function BiModelSelect({
   className,
   disabled = false,
 }: {
-  /** OpenRouter model id, or null for the server default. */
+  /** Encoded "provider::model" choice, or null for the server default. */
   value: string | null;
   onChange: (model: string | null) => void;
   className?: string;
@@ -91,38 +100,88 @@ export function BiModelSelect({
 
   const [open, setOpen] = useState(false);
   const [models, setModels] = useState<RegistryModel[] | null>(modelCache);
-  const [userDefault, setUserDefault] = useState<string | null>(userDefaultCache ?? null);
+  const [integrations, setIntegrations] = useState<ConnectedIntegration[] | null>(
+    integrationsCache,
+  );
 
   useEffect(() => {
-    if (userDefaultCache === undefined) {
-      fetchUserDefaultModel()
-        .then(setUserDefault)
-        .catch(() => {});
+    if (!integrationsCache) {
+      fetchIntegrations()
+        .then(setIntegrations)
+        .catch(() => setIntegrations([]));
     }
-    if (modelCache || !token) return;
+  }, []);
+
+  // The OpenRouter catalog is only relevant when OpenRouter is connected
+  // (or nothing is — the instance fallback also routes through OpenRouter).
+  const openrouterAvailable =
+    integrations !== null &&
+    (integrations.length === 0 || integrations.some((i) => i.provider === "openrouter"));
+
+  useEffect(() => {
+    if (modelCache || !token || !openrouterAvailable) return;
     modelCachePromise ??= getRegistryFn({ data: { access_token: token } }).then((res) => {
       modelCache = res.models;
       return res.models;
     });
     modelCachePromise.then(setModels).catch(() => setModels([]));
-  }, [token, getRegistryFn]);
+  }, [token, getRegistryFn, openrouterAvailable]);
 
-  // Text models only, routable via the BI gateway, allowed by IAM rules.
-  const options = useMemo(() => {
-    const seen = new Set<string>();
-    return (models ?? []).filter((m) => {
-      if (m.modality !== "text" || m.source !== "openrouter") return false;
-      if (seen.has(m.model_id)) return false;
-      seen.add(m.model_id);
-      if (rules && !isModelAllowedByRules(rules, "openrouter", m.model_id)) return false;
-      return true;
-    });
-  }, [models, rules]);
+  const allowed = (provider: string, model: string) =>
+    !rules || isModelAllowedByRules(rules, provider, model);
 
-  const selected = value ? options.find((m) => m.model_id === value) : null;
-  const effectiveDefault = userDefault ?? DEFAULT_BI_MODEL;
+  const groups = useMemo<Group[]>(() => {
+    const out: Group[] = [];
+    for (const int of integrations ?? []) {
+      const entries: Entry[] = [];
+      if (int.default_model && allowed(int.provider, int.default_model)) {
+        entries.push({
+          value: encodeModelChoice(int.provider, int.default_model),
+          display: int.default_model,
+          sub: "integration default",
+        });
+      }
+      if (int.provider === "openrouter") {
+        const seen = new Set<string>();
+        for (const m of models ?? []) {
+          if (m.modality !== "text" || m.source !== "openrouter") continue;
+          if (m.model_id === int.default_model || seen.has(m.model_id)) continue;
+          seen.add(m.model_id);
+          if (!allowed("openrouter", m.model_id)) continue;
+          entries.push({
+            value: encodeModelChoice("openrouter", m.model_id),
+            display: m.display_name,
+            sub: m.model_id,
+          });
+        }
+      }
+      if (entries.length > 0) {
+        out.push({
+          provider: int.provider,
+          label: PROVIDER_LABELS[int.provider as ProviderId] ?? int.provider,
+          entries,
+        });
+      }
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [integrations, models, rules]);
+
+  const openrouterInt = integrations?.find((i) => i.provider === "openrouter") ?? null;
+  const effectiveDefault = openrouterInt?.default_model ?? DEFAULT_BI_MODEL;
+  const defaultSub = openrouterInt
+    ? openrouterInt.default_model
+      ? "your OpenRouter integration"
+      : "instance default, via your OpenRouter key"
+    : "instance default (OpenRouter)";
+  const showDefaultEntry = openrouterAvailable;
+
+  const parsedValue = parseModelChoice(value);
+  const selectedEntry = value
+    ? groups.flatMap((g) => g.entries).find((e) => e.value === value)
+    : null;
   const label = value
-    ? (selected?.display_name ?? value)
+    ? (selectedEntry?.display ?? parsedValue?.model ?? value)
     : `Default (${effectiveDefault.split("/").pop() ?? effectiveDefault})`;
 
   return (
@@ -135,7 +194,11 @@ export function BiModelSelect({
           aria-expanded={open}
           disabled={disabled}
           className={cn("h-8 justify-between gap-1.5 text-xs font-normal", className)}
-          title="AI model used for generation"
+          title={
+            value && parsedValue
+              ? `${parsedValue.model} via ${PROVIDER_LABELS[parsedValue.provider as ProviderId] ?? parsedValue.provider}`
+              : "AI model used for generation"
+          }
         >
           <span className="flex min-w-0 items-center gap-1.5">
             <Cpu className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -146,54 +209,63 @@ export function BiModelSelect({
       </PopoverTrigger>
       <PopoverContent align="end" className="w-80 p-0">
         <Command>
-          <CommandInput placeholder="Search text models…" className="h-9 text-xs" />
+          <CommandInput placeholder="Search your connected models…" className="h-9 text-xs" />
           <CommandList className="max-h-64">
             <CommandEmpty>
-              {models === null ? "Loading models…" : "No text model matches."}
+              {integrations === null
+                ? "Loading your integrations…"
+                : groups.length === 0 && !showDefaultEntry
+                  ? "No connected text-model integrations — add one under Integrations."
+                  : "No model matches."}
             </CommandEmpty>
-            <CommandGroup>
-              <CommandItem
-                value="__default__"
-                onSelect={() => {
-                  onChange(null);
-                  setOpen(false);
-                }}
-                className="text-xs"
-              >
-                <Check className={cn("mr-2 h-3.5 w-3.5", value ? "opacity-0" : "opacity-100")} />
-                <span className="min-w-0">
-                  <span className="block truncate">Default</span>
-                  <span className="block truncate font-mono text-[10px] text-muted-foreground">
-                    {effectiveDefault} ·{" "}
-                    {userDefault ? "your OpenRouter integration" : "instance default"}
-                  </span>
-                </span>
-              </CommandItem>
-              {options.map((m) => (
+            {showDefaultEntry && (
+              <CommandGroup>
                 <CommandItem
-                  key={m.id}
-                  value={`${m.display_name} ${m.model_id}`}
+                  value="__default__"
                   onSelect={() => {
-                    onChange(m.model_id);
+                    onChange(null);
                     setOpen(false);
                   }}
                   className="text-xs"
                 >
-                  <Check
-                    className={cn(
-                      "mr-2 h-3.5 w-3.5",
-                      value === m.model_id ? "opacity-100" : "opacity-0",
-                    )}
-                  />
+                  <Check className={cn("mr-2 h-3.5 w-3.5", value ? "opacity-0" : "opacity-100")} />
                   <span className="min-w-0">
-                    <span className="block truncate">{m.display_name}</span>
+                    <span className="block truncate">Default</span>
                     <span className="block truncate font-mono text-[10px] text-muted-foreground">
-                      {m.model_id}
+                      {effectiveDefault} · {defaultSub}
                     </span>
                   </span>
                 </CommandItem>
-              ))}
-            </CommandGroup>
+              </CommandGroup>
+            )}
+            {groups.map((g) => (
+              <CommandGroup key={g.provider} heading={g.label}>
+                {g.entries.map((e) => (
+                  <CommandItem
+                    key={e.value}
+                    value={`${g.label} ${e.display} ${e.sub}`}
+                    onSelect={() => {
+                      onChange(e.value);
+                      setOpen(false);
+                    }}
+                    className="text-xs"
+                  >
+                    <Check
+                      className={cn(
+                        "mr-2 h-3.5 w-3.5",
+                        value === e.value ? "opacity-100" : "opacity-0",
+                      )}
+                    />
+                    <span className="min-w-0">
+                      <span className="block truncate">{e.display}</span>
+                      <span className="block truncate font-mono text-[10px] text-muted-foreground">
+                        {e.sub}
+                      </span>
+                    </span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            ))}
           </CommandList>
         </Command>
       </PopoverContent>

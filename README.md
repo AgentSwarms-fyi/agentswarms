@@ -154,11 +154,13 @@ and reports. An editable dashboard is called a **BI project**:
   analyst reads that widget's data and drops a markdown card below it with
   what the data shows, caveats to watch, and suggested next steps.
 - **Pick the AI model** — the BI agent on Data & SQL and every generative
-  feature in the BI Workspace (AI analyst, insights) runs on a selectable
-  **text model** from the Model Registry, filtered by your IAM model rules
-  and enforced server-side. Calls are **BYOK**: they use your own OpenRouter
-  integration (key, base URL, and its default model) with the operator's
-  shared `OPENROUTER_API_KEY` only as a zero-config fallback. When publishing, choose a **reader AI model**:
+  feature in the BI Workspace (AI analyst, insights) runs on a text model
+  picked from **your connected integrations**: one group per connected
+  OpenAI-compatible provider (its configured default model first), with the
+  full catalog when OpenRouter is connected — filtered by your IAM model
+  rules and enforced server-side. Calls are **BYOK**: they execute against
+  the chosen integration's own key, with the operator's shared
+  `OPENROUTER_API_KEY` only as a zero-config fallback. When publishing, choose a **reader AI model**:
   signed-in viewers of a shared dashboard get an **Ask AI** panel that
   answers questions from the stored data snapshots using that model — and
   sharing with a group is validated against the group's IAM model rules

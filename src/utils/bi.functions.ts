@@ -12,6 +12,7 @@ import { z } from "zod";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { isModelAllowed } from "@/utils/iam.server";
+import { parseModelChoice } from "@/utils/providers/modelChoice";
 import type { Json } from "@/integrations/supabase/types";
 
 async function requireUserId(accessToken: string): Promise<string> {
@@ -37,12 +38,15 @@ async function requireDashboardOwner(
 }
 
 /**
- * Names of the given groups whose IAM model rules EXCLUDE `model` (BI runs
- * through OpenRouter). A group with no rules of its own is unrestricted at
- * group level (IAM is default-allow), so it never blocks.
+ * Names of the given groups whose IAM model rules EXCLUDE the reader model
+ * (an encoded "provider::model" choice; legacy plain ids mean OpenRouter).
+ * A group with no rules of its own is unrestricted at group level (IAM is
+ * default-allow), so it never blocks.
  */
 async function groupsBlockedFromModel(groupIds: string[], model: string): Promise<string[]> {
   if (groupIds.length === 0) return [];
+  const choice = parseModelChoice(model);
+  if (!choice) return [];
   const [{ data: rules }, { data: groups }] = await Promise.all([
     supabaseAdmin
       .from("iam_model_rules")
@@ -61,7 +65,11 @@ async function groupsBlockedFromModel(groupIds: string[], model: string): Promis
   const blocked: string[] = [];
   for (const gid of groupIds) {
     const groupRules = byGroup.get(gid);
-    if (groupRules && groupRules.length > 0 && !isModelAllowed(groupRules, "openrouter", model)) {
+    if (
+      groupRules &&
+      groupRules.length > 0 &&
+      !isModelAllowed(groupRules, choice.provider, choice.model)
+    ) {
       blocked.push(nameById.get(gid) ?? gid);
     }
   }

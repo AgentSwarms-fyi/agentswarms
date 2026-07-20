@@ -13,6 +13,7 @@
 
 import { supabase } from "@/integrations/supabase/client";
 import { runQuery, type ColumnDef, type DatasetMeta, type QueryResult } from "@/lib/sqlEngine";
+import { parseModelChoice } from "@/utils/providers/modelChoice";
 
 export type ColumnMeta = {
   description?: string;
@@ -98,6 +99,8 @@ async function llmJson<T>(opts: {
   const token = sessionData.session?.access_token;
   if (!token) throw new Error("Not signed in");
 
+  // opts.model may be an encoded "provider::model" choice (see modelChoice).
+  const choice = parseModelChoice(opts.model);
   const resp = await fetch("/api/bi", {
     method: "POST",
     headers: {
@@ -107,7 +110,8 @@ async function llmJson<T>(opts: {
     body: JSON.stringify({
       systemPrompt: opts.systemPrompt,
       userPrompt: opts.userPrompt,
-      model: opts.model,
+      provider: choice?.provider,
+      model: choice?.model,
       temperature: opts.temperature,
     }),
   });

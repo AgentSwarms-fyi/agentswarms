@@ -16,6 +16,7 @@ import {
 import { MarkdownMessage } from "@/components/playground/MarkdownMessage";
 import { askDashboardQuestion } from "@/lib/biAgent";
 import type { BiWidget } from "@/lib/biDashboards";
+import { parseModelChoice } from "@/utils/providers/modelChoice";
 
 type Turn = { question: string; answer?: string; error?: string };
 
@@ -98,7 +99,7 @@ export function AskDashboardDialog({
             {model ? (
               <>
                 {" "}
-                using <code className="text-[11px]">{model}</code>
+                using <code className="text-[11px]">{parseModelChoice(model)?.model ?? model}</code>
               </>
             ) : (
               " using the default model"
