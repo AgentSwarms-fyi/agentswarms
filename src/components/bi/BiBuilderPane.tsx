@@ -530,7 +530,10 @@ export function BiBuilderPane({
   );
 
   const formatSelect = (
-    <div className="space-y-1">
+    <div
+      className="space-y-1"
+      title="How numeric values are displayed on axes, tooltips, KPI and gauge figures"
+    >
       <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
         Value format
       </Label>
@@ -540,13 +543,13 @@ export function BiBuilderPane({
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="auto" className="text-xs">
-            Auto (1.2k)
+            Auto — 1234 → 1.2k
           </SelectItem>
           <SelectItem value="currency" className="text-xs">
-            Currency ($1.2k)
+            Currency — 1234 → $1.2k
           </SelectItem>
           <SelectItem value="percent" className="text-xs">
-            Percent (12%)
+            Percent — 12.3 → 12.3%
           </SelectItem>
         </SelectContent>
       </Select>

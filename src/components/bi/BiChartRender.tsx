@@ -51,24 +51,77 @@ export const PIE_COLORS = [
 
 const MAX_SERIES = 12;
 
-export function fmtBiNumber(v: unknown): string {
-  if (typeof v !== "number" || !Number.isFinite(v)) return String(v ?? "");
-  const abs = Math.abs(v);
-  if (abs >= 1_000_000_000) return `${(v / 1_000_000_000).toFixed(2)}B`;
-  if (abs >= 1_000_000) return `${(v / 1_000_000).toFixed(2)}M`;
-  if (abs >= 1_000) return `${(v / 1_000).toFixed(1)}k`;
-  if (Number.isInteger(v)) return v.toString();
-  return v.toFixed(2);
+/** Coerce a value to a finite number — SQL results often carry numerics as
+ * strings (warehouse drivers, CSV columns), which must still format/plot. */
+export function toBiNumber(v: unknown): number | null {
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  if (typeof v === "string" && v.trim() !== "") {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
 }
 
-/** fmtBiNumber plus the chart's value format (currency / percent). */
+export function fmtBiNumber(v: unknown): string {
+  const n = toBiNumber(v);
+  if (n === null) return String(v ?? "");
+  const abs = Math.abs(n);
+  if (abs >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(2)}B`;
+  if (abs >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
+  if (abs >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  if (Number.isInteger(n)) return n.toString();
+  return n.toFixed(2).replace(/\.?0+$/, "");
+}
+
+/**
+ * fmtBiNumber plus the chart's value format:
+ *   currency → "$1.2M" (negatives as "-$…")
+ *   percent  → "12.3%" (the value is treated as already being in percent
+ *              units — 12.3 formats as 12.3%, not 0.12%)
+ */
 export function fmtBiValue(v: unknown, format?: BiNumberFormat): string {
-  if (typeof v !== "number" || !Number.isFinite(v)) return fmtBiNumber(v);
+  const n = toBiNumber(v);
+  if (n === null) return fmtBiNumber(v);
   if (format === "currency") {
-    return v < 0 ? `-$${fmtBiNumber(Math.abs(v))}` : `$${fmtBiNumber(v)}`;
+    return n < 0 ? `-$${fmtBiNumber(Math.abs(n))}` : `$${fmtBiNumber(n)}`;
   }
-  if (format === "percent") return `${fmtBiNumber(v)}%`;
-  return fmtBiNumber(v);
+  if (format === "percent") return `${fmtBiNumber(n)}%`;
+  return fmtBiNumber(n);
+}
+
+/**
+ * Group rows by a category field, SUMMING the given value fields — so a
+ * result with repeated categories (e.g. two "EU" rows) renders one slice /
+ * bar / stage per category instead of duplicates. Value fields are coerced
+ * to numbers; first-seen category order is preserved.
+ */
+export function aggregateByField(
+  rows: Record<string, unknown>[],
+  keyField: string,
+  valueFields: string[],
+): Record<string, unknown>[] {
+  const order: string[] = [];
+  const byKey = new Map<string, Record<string, unknown>>();
+  for (const r of rows) {
+    const k = String(r[keyField]);
+    const existing = byKey.get(k);
+    if (!existing) {
+      const copy: Record<string, unknown> = { ...r };
+      for (const f of valueFields) {
+        const n = toBiNumber(r[f]);
+        if (n !== null) copy[f] = n;
+      }
+      byKey.set(k, copy);
+      order.push(k);
+      continue;
+    }
+    for (const f of valueFields) {
+      const add = toBiNumber(r[f]);
+      if (add === null) continue;
+      existing[f] = (toBiNumber(existing[f]) ?? 0) + add;
+    }
+  }
+  return order.map((k) => byKey.get(k)!);
 }
 
 /**
@@ -241,6 +294,7 @@ export function BiChartRender({
     const pivoted = chart.seriesField
       ? pivotSeries(rows, chart.xField, chart.yField, chart.seriesField)
       : null;
+    const barData = pivoted ? pivoted.data : aggregateByField(rows, chart.xField, [chart.yField]);
     const handleClick = onElementClick
       ? (data: { payload?: Record<string, unknown> } | Record<string, unknown>) => {
           const payload =
@@ -253,10 +307,7 @@ export function BiChartRender({
     return (
       <div className={`${heightClass} w-full`}>
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart
-            data={pivoted ? pivoted.data : rows}
-            margin={{ top: 12, right: 12, left: 0, bottom: 4 }}
-          >
+          <BarChart data={barData} margin={{ top: 12, right: 12, left: 0, bottom: 4 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
             <XAxis dataKey={chart.xField} tick={tick} axisLine={false} tickLine={false} />
             <YAxis tick={tick} axisLine={false} tickLine={false} tickFormatter={fmt} width={48} />
@@ -316,7 +367,7 @@ export function BiChartRender({
       <div className={`${heightClass} w-full`}>
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
-            data={rows}
+            data={aggregateByField(rows, chart.xField, [chart.yField])}
             layout="vertical"
             margin={{ top: 8, right: 16, left: 8, bottom: 4 }}
           >
@@ -365,7 +416,7 @@ export function BiChartRender({
       <div className={`${heightClass} w-full`}>
         <ResponsiveContainer width="100%" height="100%">
           <LineChart
-            data={pivoted ? pivoted.data : rows}
+            data={pivoted ? pivoted.data : aggregateByField(rows, chart.xField, [chart.yField])}
             margin={{ top: 12, right: 12, left: 0, bottom: 4 }}
           >
             <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
@@ -416,7 +467,7 @@ export function BiChartRender({
       <div className={`${heightClass} w-full`}>
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart
-            data={pivoted ? pivoted.data : rows}
+            data={pivoted ? pivoted.data : aggregateByField(rows, chart.xField, [chart.yField])}
             margin={{ top: 12, right: 12, left: 0, bottom: 4 }}
           >
             <defs>
@@ -466,12 +517,13 @@ export function BiChartRender({
   }
 
   if (chart.type === "pie") {
+    const pieData = aggregateByField(rows, chart.nameField, [chart.valueField]);
     return (
       <div className={`${heightClass} w-full`}>
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie
-              data={rows}
+              data={pieData}
               dataKey={chart.valueField}
               nameKey={chart.nameField}
               cx="50%"
@@ -485,7 +537,7 @@ export function BiChartRender({
               // permanently empty (no sector paths) — render statically.
               isAnimationActive={false}
             >
-              {rows.map((r, i) => (
+              {pieData.map((r, i) => (
                 <Cell
                   key={i}
                   fill={PIE_COLORS[i % PIE_COLORS.length]}
@@ -519,7 +571,10 @@ export function BiChartRender({
     return (
       <div className={`${heightClass} w-full`}>
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={rows} margin={{ top: 12, right: 8, left: 0, bottom: 4 }}>
+          <ComposedChart
+            data={aggregateByField(rows, chart.xField, [chart.barField, chart.lineField])}
+            margin={{ top: 12, right: 8, left: 0, bottom: 4 }}
+          >
             <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
             <XAxis dataKey={chart.xField} tick={tick} axisLine={false} tickLine={false} />
             <YAxis
@@ -543,7 +598,9 @@ export function BiChartRender({
               contentStyle={tooltipStyle}
               labelStyle={labelStyle}
               itemStyle={labelStyle}
-              formatter={tooltipFmt}
+              formatter={(v: unknown, name: unknown) =>
+                name === chart.barField ? fmt(v) : fmtBiNumber(v)
+              }
             />
             <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: labelSize }} />
             <Bar
@@ -569,6 +626,15 @@ export function BiChartRender({
   }
 
   if (chart.type === "scatter") {
+    // Points need real numbers on both axes — coerce string numerics.
+    const points = rows.map((r) => ({
+      ...r,
+      [chart.xField]: toBiNumber(r[chart.xField]) ?? r[chart.xField],
+      [chart.yField]: toBiNumber(r[chart.yField]) ?? r[chart.yField],
+      ...(chart.sizeField
+        ? { [chart.sizeField]: toBiNumber(r[chart.sizeField]) ?? r[chart.sizeField] }
+        : {}),
+    }));
     return (
       <div className={`${heightClass} w-full`}>
         <ResponsiveContainer width="100%" height="100%">
@@ -601,8 +667,11 @@ export function BiChartRender({
               labelStyle={labelStyle}
               itemStyle={labelStyle}
               cursor={{ strokeDasharray: "3 3", stroke: axisStroke }}
+              formatter={(v: unknown, name: unknown) =>
+                name === chart.yField ? fmt(v) : fmtBiNumber(v)
+              }
             />
-            <Scatter data={rows} fill={primaryStroke} fillOpacity={0.65} />
+            <Scatter data={points} fill={primaryStroke} fillOpacity={0.65} />
           </ScatterChart>
         </ResponsiveContainer>
       </div>
@@ -610,6 +679,7 @@ export function BiChartRender({
   }
 
   if (chart.type === "funnel") {
+    const funnelData = aggregateByField(rows, chart.nameField, [chart.valueField]);
     return (
       <div className={`${heightClass} w-full`}>
         <ResponsiveContainer width="100%" height="100%">
@@ -623,10 +693,10 @@ export function BiChartRender({
             <Funnel
               dataKey={chart.valueField}
               nameKey={chart.nameField}
-              data={rows}
+              data={funnelData}
               isAnimationActive={false}
             >
-              {rows.map((_, i) => (
+              {funnelData.map((_, i) => (
                 <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
               ))}
               <LabelList
@@ -645,7 +715,7 @@ export function BiChartRender({
 
   if (chart.type === "waterfall") {
     let cum = 0;
-    const wf = rows.map((r) => {
+    const wf = aggregateByField(rows, chart.xField, [chart.yField]).map((r) => {
       const v = Number(r[chart.yField]) || 0;
       const base = v >= 0 ? cum : cum + v;
       cum += v;
@@ -684,7 +754,7 @@ export function BiChartRender({
   }
 
   if (chart.type === "treemap") {
-    const data = rows
+    const data = aggregateByField(rows, chart.nameField, [chart.valueField])
       .map((r) => ({
         name: String(r[chart.nameField] ?? "—"),
         size: Number(r[chart.valueField]) || 0,
