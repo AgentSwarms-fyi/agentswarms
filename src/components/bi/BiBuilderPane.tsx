@@ -344,7 +344,9 @@ export function BiBuilderPane({
 
   const fieldSelect = (label: string, value: string, setter: (v: string) => void) => (
     <div className="space-y-1">
-      <Label className="text-xs">{label}</Label>
+      <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {label}
+      </Label>
       <Select value={value || undefined} onValueChange={setter}>
         <SelectTrigger className="h-8 text-xs">
           <SelectValue placeholder="Pick a column" />
@@ -362,7 +364,9 @@ export function BiBuilderPane({
 
   const sourceSelect = (
     <div className="space-y-1.5">
-      <Label className="text-xs">Data source</Label>
+      <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        Data source
+      </Label>
       <Select value={sourceKey} onValueChange={changeSource}>
         <SelectTrigger className="h-8 text-xs">
           <SelectValue />
@@ -382,7 +386,7 @@ export function BiBuilderPane({
   );
 
   return (
-    <div className="flex w-[400px] shrink-0 flex-col border-l border-border bg-background">
+    <div className="flex w-[420px] shrink-0 flex-col border-l border-border bg-background">
       {/* Header + tab switch */}
       <div className="flex items-center gap-2 border-b border-border px-3 py-2">
         <div className="flex flex-1 rounded-md bg-muted p-0.5">
@@ -429,7 +433,9 @@ export function BiBuilderPane({
             {/* Tables — above the SQL, multi-select for joins */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
-                <Label className="text-xs">Tables — select one or more to join</Label>
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Tables — select one or more to join
+                </Label>
                 {schemaLoading && (
                   <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
                     <Loader2 className="h-3 w-3 animate-spin" /> loading…
@@ -477,7 +483,9 @@ export function BiBuilderPane({
 
             {/* SQL */}
             <div className="space-y-1.5">
-              <Label className="text-xs">SQL (SELECT only)</Label>
+              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                SQL (SELECT only)
+              </Label>
               <Textarea
                 value={sql}
                 onChange={(e) => setSql(e.target.value)}
@@ -518,8 +526,10 @@ export function BiBuilderPane({
               <>
                 {/* Visualization — icon picker */}
                 <div className="space-y-1.5">
-                  <Label className="text-xs">Visualisation</Label>
-                  <div className="grid grid-cols-6 gap-1">
+                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Visualisation
+                  </Label>
+                  <div className="grid grid-cols-3 gap-1.5">
                     {VIZ_TYPES.map((v) => (
                       <button
                         key={v.value}
@@ -527,13 +537,13 @@ export function BiBuilderPane({
                         title={v.label}
                         onClick={() => setChartType(v.value)}
                         className={cn(
-                          "flex flex-col items-center gap-0.5 rounded-md border px-1 py-1.5 text-[9px] transition",
+                          "flex flex-col items-center gap-1 rounded-lg border px-2 py-2.5 text-[10px] font-medium transition",
                           chartType === v.value
-                            ? "border-primary bg-primary/10 text-primary"
-                            : "border-border/60 text-muted-foreground hover:border-primary/40 hover:text-foreground",
+                            ? "border-primary bg-primary/10 text-primary shadow-sm"
+                            : "border-border/60 text-muted-foreground hover:border-primary/40 hover:bg-muted/50 hover:text-foreground",
                         )}
                       >
-                        <v.icon className="h-4 w-4" />
+                        <v.icon className="h-5 w-5" />
                         {v.label}
                       </button>
                     ))}
@@ -557,7 +567,9 @@ export function BiBuilderPane({
                     <>
                       {fieldSelect("Value column", valueField, setValueField)}
                       <div className="space-y-1">
-                        <Label className="text-xs">KPI label</Label>
+                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                          KPI label
+                        </Label>
                         <Input
                           value={kpiLabel}
                           onChange={(e) => setKpiLabel(e.target.value)}
@@ -609,7 +621,9 @@ export function BiBuilderPane({
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label className="text-xs">Widget title</Label>
+                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Widget title
+                  </Label>
                   <Input
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}

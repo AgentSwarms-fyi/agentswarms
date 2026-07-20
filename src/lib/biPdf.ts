@@ -95,8 +95,11 @@ export async function exportDashboardPdf(args: {
         const rect = el.getBoundingClientRect();
         const canvas = await html2canvas(el, {
           scale: 2,
-          backgroundColor: null,
+          backgroundColor: "#ffffff",
           logging: false,
+          // Always capture in light theme so exported reports are
+          // print-friendly, regardless of the on-screen theme.
+          onclone: (doc) => doc.documentElement.classList.remove("dark"),
         });
         return {
           dataUrl: canvas.toDataURL("image/png"),

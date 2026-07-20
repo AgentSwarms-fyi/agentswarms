@@ -8,12 +8,16 @@ import { formatDistanceToNow } from "date-fns";
 import {
   BarChart3,
   Check,
+  Gauge,
   Globe,
   LayoutDashboard,
   Link2,
   Loader2,
+  PieChart,
   Plus,
+  Table2,
   Trash2,
+  Type,
   Wand2,
 } from "lucide-react";
 
@@ -135,11 +139,17 @@ function BiWorkspacePage() {
       </div>
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as "projects" | "prep")}>
-        <TabsList>
-          <TabsTrigger value="projects" className="gap-1.5">
+        <TabsList className="h-auto w-full justify-start gap-6 rounded-none border-b border-border bg-transparent p-0">
+          <TabsTrigger
+            value="projects"
+            className="gap-1.5 rounded-none border-0 border-b-2 border-transparent bg-transparent px-1 pb-2.5 text-sm font-medium text-muted-foreground shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
+          >
             <LayoutDashboard className="h-3.5 w-3.5" /> Projects
           </TabsTrigger>
-          <TabsTrigger value="prep" className="gap-1.5">
+          <TabsTrigger
+            value="prep"
+            className="gap-1.5 rounded-none border-0 border-b-2 border-transparent bg-transparent px-1 pb-2.5 text-sm font-medium text-muted-foreground shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
+          >
             <Wand2 className="h-3.5 w-3.5" /> Data preparation
           </TabsTrigger>
         </TabsList>
@@ -177,24 +187,34 @@ function BiWorkspacePage() {
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {dashboards.map((d) => {
                 const mine = d.user_id === user?.id;
-                const widgetCount = parseWidgets(d.widgets).length;
+                const widgets = parseWidgets(d.widgets);
+                const widgetCount = widgets.length;
                 return (
                   <Card
                     key={d.id}
-                    className="group cursor-pointer border-border/60 transition hover:border-primary/50 hover:shadow-md"
+                    className="group cursor-pointer overflow-hidden rounded-xl border-border/60 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-lg"
                     onClick={() =>
                       void navigate({ to: "/bi/$dashboardId", params: { dashboardId: d.id } })
                     }
                   >
-                    <CardContent className="flex h-full flex-col gap-3 p-4">
+                    <CardContent className="flex h-full flex-col gap-3 p-5">
                       <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="truncate font-semibold">{d.name}</p>
-                          {d.description && (
-                            <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
-                              {d.description}
-                            </p>
-                          )}
+                        <div className="flex min-w-0 items-start gap-3">
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                            <LayoutDashboard className="h-5 w-5 text-primary" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="truncate font-semibold">{d.name}</p>
+                            {d.description ? (
+                              <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+                                {d.description}
+                              </p>
+                            ) : (
+                              <p className="mt-0.5 text-xs text-muted-foreground/60">
+                                No description
+                              </p>
+                            )}
+                          </div>
                         </div>
                         <div className="flex shrink-0 flex-col items-end gap-1">
                           {d.published ? (
@@ -213,7 +233,38 @@ function BiWorkspacePage() {
                           )}
                         </div>
                       </div>
-                      <div className="mt-auto flex items-center justify-between text-xs text-muted-foreground">
+                      {widgets.length > 0 && (
+                        <div className="flex items-center gap-1">
+                          {widgets.slice(0, 6).map((w) => {
+                            const t = w.kind === "text" ? "text" : (w.chart?.type ?? "bar");
+                            const Glyph =
+                              t === "text"
+                                ? Type
+                                : t === "pie"
+                                  ? PieChart
+                                  : t === "kpi"
+                                    ? Gauge
+                                    : t === "table"
+                                      ? Table2
+                                      : BarChart3;
+                            return (
+                              <span
+                                key={w.id}
+                                className="flex h-6 w-6 items-center justify-center rounded-md bg-muted"
+                                title={w.title}
+                              >
+                                <Glyph className="h-3 w-3 text-muted-foreground" />
+                              </span>
+                            );
+                          })}
+                          {widgets.length > 6 && (
+                            <span className="text-[10px] text-muted-foreground">
+                              +{widgets.length - 6}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      <div className="mt-auto flex items-center justify-between border-t border-border/40 pt-3 text-xs text-muted-foreground">
                         <span>
                           {widgetCount} widget{widgetCount === 1 ? "" : "s"} · updated{" "}
                           {formatDistanceToNow(new Date(d.updated_at), { addSuffix: true })}

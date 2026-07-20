@@ -411,52 +411,73 @@ function BiProjectPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2.5">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-border bg-background px-3 py-2">
         <Button
           asChild
           size="sm"
           variant="ghost"
-          className="h-8 w-8 p-0"
+          className="h-8 w-8 p-0 text-muted-foreground"
           title="Back to BI Workspace"
         >
           <Link to="/bi">
             <ArrowLeft className="h-4 w-4" />
           </Link>
         </Button>
-        {readOnly ? (
-          <h1 className="min-w-0 truncate text-base font-semibold">{row.name}</h1>
-        ) : (
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onBlur={() => void saveName()}
-            onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-            className="h-8 w-64 border-transparent bg-transparent text-base font-semibold hover:border-border focus:border-border"
-          />
-        )}
+        <div className="flex min-w-0 items-center gap-2">
+          <Link
+            to="/bi"
+            className="hidden shrink-0 text-xs font-medium text-muted-foreground hover:text-foreground sm:block"
+          >
+            BI Workspace
+          </Link>
+          <span className="hidden text-xs text-muted-foreground/50 sm:block">/</span>
+          {readOnly ? (
+            <h1 className="min-w-0 truncate text-[15px] font-semibold">{row.name}</h1>
+          ) : (
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onBlur={() => void saveName()}
+              onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+              className="h-8 w-56 rounded-md border-transparent bg-transparent px-2 text-[15px] font-semibold shadow-none hover:bg-muted/60 focus:bg-background focus-visible:border-border"
+            />
+          )}
+        </div>
         {row.published && (
-          <Badge className="gap-1 bg-emerald-500/15 text-[10px] text-emerald-600 hover:bg-emerald-500/15 dark:text-emerald-400">
+          <Badge className="gap-1 border-0 bg-emerald-500/15 text-[10px] font-medium text-emerald-600 hover:bg-emerald-500/15 dark:text-emerald-400">
             <Globe className="h-2.5 w-2.5" /> Published
           </Badge>
         )}
         {readOnly && (
-          <Badge variant="outline" className="text-[10px]">
-            Read-only · shared with you
+          <Badge variant="outline" className="text-[10px] font-medium">
+            Read-only
           </Badge>
         )}
 
-        <div className="ml-auto flex items-center gap-1.5">
+        <div className="ml-auto flex items-center gap-0.5">
           {!readOnly && (
-            <span className="mr-1 text-[10px] text-muted-foreground">
-              {saveState === "saving" ? "Saving…" : saveState === "error" ? "Save failed" : "Saved"}
+            <span
+              className="mr-2 flex items-center gap-1.5 text-[11px] text-muted-foreground"
+              title="Changes save automatically"
+            >
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${
+                  saveState === "saving"
+                    ? "animate-pulse bg-amber-500"
+                    : saveState === "error"
+                      ? "bg-destructive"
+                      : "bg-emerald-500"
+                }`}
+              />
+              {saveState === "saving" ? "Saving" : saveState === "error" ? "Save failed" : "Saved"}
             </span>
           )}
           {!readOnly && (
             <>
               <Button
                 size="sm"
-                variant="outline"
-                className="h-8 gap-1.5 text-xs"
+                variant="ghost"
+                className="h-8 gap-1.5 px-2.5 text-xs"
                 onClick={() => {
                   setBuilderInitial(null);
                   setPane("build");
@@ -466,16 +487,16 @@ function BiProjectPage() {
               </Button>
               <Button
                 size="sm"
-                variant="outline"
-                className="h-8 gap-1.5 text-xs"
+                variant="ghost"
+                className="h-8 gap-1.5 px-2.5 text-xs"
                 onClick={() => setPane("ai")}
               >
                 <Sparkles className="h-3.5 w-3.5 text-primary" /> AI analyst
               </Button>
               <Button
                 size="sm"
-                variant="outline"
-                className="h-8 gap-1.5 text-xs"
+                variant="ghost"
+                className="h-8 gap-1.5 px-2.5 text-xs"
                 onClick={() => {
                   setTextInitial(null);
                   setTextOpen(true);
@@ -483,10 +504,11 @@ function BiProjectPage() {
               >
                 <Type className="h-3.5 w-3.5" /> Text
               </Button>
+              <div className="mx-1.5 h-5 w-px bg-border" />
               <Button
                 size="sm"
-                variant="outline"
-                className="h-8 gap-1.5 text-xs"
+                variant="ghost"
+                className="h-8 gap-1.5 px-2.5 text-xs"
                 onClick={() => void refreshAll()}
                 disabled={refreshing}
               >
@@ -495,14 +517,14 @@ function BiProjectPage() {
                 ) : (
                   <RefreshCw className="h-3.5 w-3.5" />
                 )}
-                Refresh data
+                Refresh
               </Button>
             </>
           )}
           <Button
             size="sm"
-            variant="outline"
-            className="h-8 gap-1.5 text-xs"
+            variant="ghost"
+            className="h-8 gap-1.5 px-2.5 text-xs"
             onClick={() => void handleExport()}
             disabled={exporting || layout.length === 0}
             title="Export this dashboard as a PDF report"
@@ -515,15 +537,28 @@ function BiProjectPage() {
             Export PDF
           </Button>
           {!readOnly && (
-            <Button size="sm" className="h-8 gap-1.5 text-xs" onClick={() => setPublishOpen(true)}>
-              <Share2 className="h-3.5 w-3.5" /> Publish &amp; share
-            </Button>
+            <>
+              <div className="mx-1.5 h-5 w-px bg-border" />
+              <Button
+                size="sm"
+                className="h-8 gap-1.5 px-3 text-xs"
+                onClick={() => setPublishOpen(true)}
+              >
+                <Share2 className="h-3.5 w-3.5" /> Publish &amp; share
+              </Button>
+            </>
           )}
         </div>
       </div>
 
       <div className="flex min-h-0 flex-1">
-        <div className="min-w-0 flex-1 overflow-y-auto bg-muted/20 p-4">
+        <div
+          className="min-w-0 flex-1 overflow-y-auto bg-muted/30 p-5"
+          style={{
+            backgroundImage: "radial-gradient(circle, var(--border) 1px, transparent 1px)",
+            backgroundSize: "22px 22px",
+          }}
+        >
           <div ref={gridWrapRef}>
             <DashboardGrid
               layout={layout}

@@ -64,23 +64,34 @@ function PublicBiDashboardPage() {
   const widgetById = new Map(widgets.map((w) => [w.id, w]));
 
   return (
-    <div className="min-h-screen bg-muted/20">
-      <header className="border-b border-border bg-background px-6 py-4">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-end justify-between gap-2">
+    <div className="min-h-screen bg-muted/30">
+      <header className="border-b border-border bg-background px-6 py-5">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">{dashboard.name}</h1>
+            <p className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-widest text-primary">
+              <BarChart3 className="h-3 w-3" /> AgentSwarms BI
+            </p>
+            <h1 className="text-3xl font-bold tracking-tight">{dashboard.name}</h1>
             {dashboard.description && (
-              <p className="mt-0.5 text-sm text-muted-foreground">{dashboard.description}</p>
+              <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+                {dashboard.description}
+              </p>
             )}
           </div>
-          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <p className="flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/50 px-3 py-1 text-xs text-muted-foreground">
             <Clock className="h-3 w-3" />
             Data as of {new Date(dashboard.updated_at).toLocaleString()}
           </p>
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl p-6">
+      <main
+        className="mx-auto max-w-7xl p-6"
+        style={{
+          backgroundImage: "radial-gradient(circle, var(--border) 1px, transparent 1px)",
+          backgroundSize: "22px 22px",
+        }}
+      >
         <DashboardGrid
           layout={layout}
           editable={false}
@@ -96,7 +107,7 @@ function PublicBiDashboardPage() {
         />
       </main>
 
-      <footer className="px-6 pb-8 text-center text-xs text-muted-foreground">
+      <footer className="border-t border-border/50 bg-background px-6 py-5 text-center text-xs text-muted-foreground">
         Built with{" "}
         <Link to="/" className="font-medium text-primary underline-offset-4 hover:underline">
           AgentSwarms

@@ -470,7 +470,7 @@ export function DataPrepTab() {
 
         {/* Canvas */}
         <Card
-          className={`border-border/60 transition ${dragOver ? "border-primary bg-primary/5" : ""}`}
+          className={`overflow-hidden border-border/60 transition ${dragOver ? "border-primary ring-2 ring-primary/20" : ""}`}
           onDragOver={(e) => {
             e.preventDefault();
             setDragOver(true);
@@ -478,7 +478,13 @@ export function DataPrepTab() {
           onDragLeave={() => setDragOver(false)}
           onDrop={handleDrop}
         >
-          <CardContent className="p-4">
+          <CardContent
+            className="bg-muted/30 p-4"
+            style={{
+              backgroundImage: "radial-gradient(circle, var(--border) 1px, transparent 1px)",
+              backgroundSize: "20px 20px",
+            }}
+          >
             {!cfg.base ? (
               <div className="flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border/70 py-14 text-center">
                 <Table2 className="h-8 w-8 text-muted-foreground" />
@@ -767,14 +773,19 @@ export function DataPrepTab() {
                       </thead>
                       <tbody>
                         {preview.rows.map((row, i) => (
-                          <tr key={i} className="border-t border-border/40">
+                          <tr
+                            key={i}
+                            className="border-t border-border/40 transition-colors hover:bg-muted/40"
+                          >
                             {preview.columns.map((c) => (
                               <td
                                 key={c}
-                                className="whitespace-nowrap px-2 py-1 font-mono text-[10px]"
+                                className={`whitespace-nowrap px-2 py-1 text-[11px] ${
+                                  typeof row[c] === "number" ? "text-right tabular-nums" : ""
+                                }`}
                               >
                                 {row[c] === null || row[c] === undefined ? (
-                                  <span className="text-muted-foreground">null</span>
+                                  <span className="text-muted-foreground/60">—</span>
                                 ) : typeof row[c] === "number" ? (
                                   fmtBiNumber(row[c])
                                 ) : (
@@ -834,9 +845,15 @@ function TableNode({
   onRemove: () => void;
 }) {
   return (
-    <div className="w-44 rounded-lg border border-border bg-card p-2 shadow-sm">
+    <div
+      className={`w-48 rounded-lg border bg-card p-2.5 shadow-sm ${
+        isBase
+          ? "border-primary/40 border-t-2 border-t-primary"
+          : "border-border border-t-2 border-t-sky-500/70"
+      }`}
+    >
       <div className="flex items-center gap-1.5">
-        <Table2 className="h-3.5 w-3.5 shrink-0 text-primary" />
+        <Table2 className={`h-3.5 w-3.5 shrink-0 ${isBase ? "text-primary" : "text-sky-500"}`} />
         <span className="min-w-0 flex-1 truncate font-mono text-xs font-medium" title={name}>
           {name}
         </span>
