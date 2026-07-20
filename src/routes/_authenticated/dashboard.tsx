@@ -18,43 +18,11 @@ import {
   CheckCircle2,
   AlertCircle,
   Cpu,
-  GraduationCap,
   LayoutTemplate,
   Workflow,
 } from "lucide-react";
-import { LearnPanel, type LearnSection } from "@/components/LearnPanel";
 import { SWARM_TEMPLATES } from "@/lib/swarmTemplates";
 import { cn } from "@/lib/utils";
-
-const dashboardLearn: LearnSection = {
-  why: "Your dashboard is the launchpad. Before building, get oriented with what's already here and what you can spin up in seconds.",
-  whatToExpect: [
-    "Counts of your agents, conversations, integrations, KBs",
-    "Quick links into every workspace",
-    "A bird's-eye view as your fleet grows",
-  ],
-  whatYouLearn: [
-    "How agentic systems are composed (agent + tools + KB + traces)",
-    "Where to start as a beginner vs. as a builder",
-    "Why observability matters from day one",
-  ],
-  howYouLearn: [
-    "Open Discover Templates and provision a demo",
-    "Chat with it in the Playground",
-    "Come back here and watch the counters move",
-  ],
-  realLife: [
-    "Personal productivity assistants",
-    "A study buddy for your courses",
-    "Hobby project copilots",
-  ],
-  enterprise: [
-    "Internal AI platform team's central console",
-    "Per-team agent inventories with cost attribution",
-    "Audit overview for compliance reviews",
-  ],
-  learnMoreHash: "intro",
-};
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   component: DashboardPage,
@@ -222,13 +190,6 @@ function DashboardPage() {
       search: { new: 1 } as Record<string, unknown>,
     },
     {
-      title: "Take Practitioner Exam",
-      desc: "Earn a verifiable AgentSwarms credential.",
-      to: "/certification" as const,
-      icon: GraduationCap,
-      search: undefined,
-    },
-    {
       title: "Visual Playground",
       desc: "Open a blank canvas and design a swarm.",
       to: "/swarms" as const,
@@ -269,7 +230,7 @@ function DashboardPage() {
           </header>
 
           {/* Action Tiles */}
-          <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-6 grid gap-3 sm:grid-cols-3">
             {actionTiles.map((tile) => (
               <Link
                 key={tile.title}
@@ -539,11 +500,6 @@ function DashboardPage() {
           )}
         </section>
       </div>
-      <LearnPanel
-        topic="Welcome — start here"
-        tagline="A quick map of how AgentSwarms teaches you agentic AI."
-        section={dashboardLearn}
-      />
     </div>
   );
 }
