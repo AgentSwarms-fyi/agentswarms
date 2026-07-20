@@ -104,8 +104,21 @@ manage everything else:
   base or SQL data table; recipients' agents can search/query them but never
   modify them.
 - **Settings** — flip the instance to **invite-only**: public self-signup
-  (including OAuth) is rejected at the database level, while invited and
-  admin-created users still get in.
+  (including OAuth) is rejected at the database level, while invited,
+  admin-created, and SSO-provisioned users still get in.
+- **SSO** — connect enterprise identity providers (Okta, Auth0, Microsoft
+  Entra ID, or any SAML 2.0 IdP) so users sign in with their work account.
+  The tab shows the two values to paste into your IdP's SAML app (ACS URL
+  and Entity ID), takes the IdP's metadata URL/XML plus the email domains it
+  covers, and adds a "Continue with single sign-on" flow to the login page.
+  Optionally **require SSO**, hiding email/password and social login
+  (`/login?native=1` remains as a superadmin escape hatch).
+
+  > SAML SSO must be enabled on your Supabase project first: hosted Supabase
+  > → **Authentication → Sign In / Up → SSO (SAML 2.0)** — a Pro-plan
+  > feature; self-hosted GoTrue → set `GOTRUE_SAML_ENABLED=true` with a
+  > `GOTRUE_SAML_PRIVATE_KEY`. The SSO tab detects and explains this if it's
+  > not enabled yet.
 
 ## Getting started
 

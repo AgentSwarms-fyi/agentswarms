@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { format, formatDistanceToNow } from "date-fns";
 import {
   Ban,
+  Building2,
   Check,
   Copy,
   Database as DatabaseIcon,
@@ -89,9 +90,11 @@ import {
   iamAddGroupMember,
   iamCreateGrant,
   iamCreateGroup,
+  iamCreateSsoProvider,
   iamCreateUser,
   iamDeleteGrant,
   iamDeleteGroup,
+  iamDeleteSsoProvider,
   iamDeleteUser,
   iamGetSettings,
   iamGrantSuperadmin,
@@ -99,6 +102,7 @@ import {
   iamListGrants,
   iamListGroups,
   iamListModelRules,
+  iamListSsoProviders,
   iamListUsers,
   iamRemoveGroupMember,
   iamRevokeSuperadmin,
@@ -110,6 +114,8 @@ import {
   type IamGroupRow,
   type IamModelRuleRow,
   type IamResourceOption,
+  type IamSettings,
+  type IamSsoProvider,
   type IamUserRow,
 } from "@/utils/iam.functions";
 
@@ -137,13 +143,16 @@ function AdminIamPage() {
   const listGrants = useServerFn(iamListGrants);
   const listResources = useServerFn(iamListGrantableResources);
   const getSettings = useServerFn(iamGetSettings);
+  const listSso = useServerFn(iamListSsoProviders);
 
   const [users, setUsers] = useState<IamUserRow[] | null>(null);
   const [groups, setGroups] = useState<IamGroupRow[] | null>(null);
   const [rules, setRules] = useState<IamModelRuleRow[] | null>(null);
   const [grants, setGrants] = useState<IamGrantRow[] | null>(null);
   const [resources, setResources] = useState<IamResourceOption[] | null>(null);
-  const [allowSignup, setAllowSignup] = useState<boolean | null>(null);
+  const [settings, setSettings] = useState<IamSettings | null>(null);
+  const [ssoProviders, setSsoProviders] = useState<IamSsoProvider[]>([]);
+  const [samlDisabledMsg, setSamlDisabledMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -157,8 +166,9 @@ function AdminIamPage() {
       listGrants({ data: { access_token: token } }),
       listResources({ data: { access_token: token } }),
       getSettings({ data: { access_token: token } }),
+      listSso({ data: { access_token: token } }),
     ])
-      .then(([u, g, r, gr, res, st]) => {
+      .then(([u, g, r, gr, res, st, sso]) => {
         if (!u.ok) return setError(u.error);
         if (!g.ok) return setError(g.error);
         if (!r.ok) return setError(r.error);
@@ -170,11 +180,24 @@ function AdminIamPage() {
         setRules(r.rules);
         setGrants(gr.grants);
         setResources(res.resources);
-        setAllowSignup(st.allow_public_signup);
+        setSettings({
+          allow_public_signup: st.allow_public_signup,
+          sso_enabled: st.sso_enabled,
+          sso_enforced: st.sso_enforced,
+        });
+        // SSO provider listing is non-fatal: SAML may simply not be enabled
+        // on the Supabase project yet.
+        if (sso.ok) {
+          setSsoProviders(sso.providers);
+          setSamlDisabledMsg(null);
+        } else {
+          setSsoProviders([]);
+          setSamlDisabledMsg(sso.error);
+        }
       })
       .catch((e) => setError(String(e?.message ?? e)))
       .finally(() => setLoading(false));
-  }, [token, listUsers, listGroups, listRules, listGrants, listResources, getSettings]);
+  }, [token, listUsers, listGroups, listRules, listGrants, listResources, getSettings, listSso]);
 
   useEffect(() => {
     if (!isSuperadmin || !token) return;
@@ -246,6 +269,9 @@ function AdminIamPage() {
           <TabsTrigger value="access" className="gap-1.5">
             <KeyRound className="h-3.5 w-3.5" /> Access
           </TabsTrigger>
+          <TabsTrigger value="sso" className="gap-1.5">
+            <Building2 className="h-3.5 w-3.5" /> SSO
+          </TabsTrigger>
           <TabsTrigger value="settings" className="gap-1.5">
             <Settings2 className="h-3.5 w-3.5" /> Settings
           </TabsTrigger>
@@ -270,13 +296,18 @@ function AdminIamPage() {
             reload={reload}
           />
         </TabsContent>
-        <TabsContent value="settings" className="mt-4">
-          <SettingsTab
+        <TabsContent value="sso" className="mt-4">
+          <SsoTab
             token={token!}
-            users={users}
-            allowSignup={allowSignup ?? true}
-            setAllowSignup={setAllowSignup}
+            settings={settings}
+            setSettings={setSettings}
+            providers={ssoProviders}
+            samlDisabledMsg={samlDisabledMsg}
+            reload={reload}
           />
+        </TabsContent>
+        <TabsContent value="settings" className="mt-4">
+          <SettingsTab token={token!} users={users} settings={settings} setSettings={setSettings} />
         </TabsContent>
       </Tabs>
     </div>
@@ -1357,16 +1388,17 @@ function AccessTab({
 function SettingsTab({
   token,
   users,
-  allowSignup,
-  setAllowSignup,
+  settings,
+  setSettings,
 }: {
   token: string;
   users: IamUserRow[];
-  allowSignup: boolean;
-  setAllowSignup: (v: boolean) => void;
+  settings: IamSettings | null;
+  setSettings: (v: IamSettings) => void;
 }) {
   const updateSettings = useServerFn(iamUpdateSettings);
   const superadmins = users.filter((u) => u.is_superadmin);
+  const allowSignup = settings?.allow_public_signup ?? true;
 
   return (
     <div className="space-y-6 max-w-2xl">
@@ -1374,8 +1406,8 @@ function SettingsTab({
         <CardHeader>
           <CardTitle className="text-base">Public signup</CardTitle>
           <CardDescription>
-            When disabled, only invited or admin-created users can register — new self-service
-            signups (including OAuth) are rejected at the database level.
+            When disabled, only invited, admin-created, or SSO-provisioned users can register — new
+            self-service signups (including OAuth) are rejected at the database level.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -1387,7 +1419,7 @@ function SettingsTab({
                   data: { access_token: token, allow_public_signup: checked },
                 });
                 if (!res.ok) return toast.error(res.error);
-                setAllowSignup(checked);
+                if (settings) setSettings({ ...settings, allow_public_signup: checked });
                 toast.success(checked ? "Public signup enabled" : "Instance is now invite-only");
               }}
             />
@@ -1414,6 +1446,356 @@ function SettingsTab({
           ))}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+// ─── SSO tab ─────────────────────────────────────────────────────────────────
+
+function CopyField({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="space-y-1">
+      <Label className="text-xs text-muted-foreground">{label}</Label>
+      <div className="flex gap-2">
+        <Input readOnly value={value} className="font-mono text-xs" />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            void navigator.clipboard.writeText(value);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+          }}
+        >
+          {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function SsoTab({
+  token,
+  settings,
+  setSettings,
+  providers,
+  samlDisabledMsg,
+  reload,
+}: {
+  token: string;
+  settings: IamSettings | null;
+  setSettings: (v: IamSettings) => void;
+  providers: IamSsoProvider[];
+  samlDisabledMsg: string | null;
+  reload: () => void;
+}) {
+  const updateSettings = useServerFn(iamUpdateSettings);
+  const createProvider = useServerFn(iamCreateSsoProvider);
+  const deleteProvider = useServerFn(iamDeleteSsoProvider);
+
+  const [addOpen, setAddOpen] = useState(false);
+  const [metaMode, setMetaMode] = useState<"url" | "xml">("url");
+  const [metadataUrl, setMetadataUrl] = useState("");
+  const [metadataXml, setMetadataXml] = useState("");
+  const [domainsInput, setDomainsInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<IamSsoProvider | null>(null);
+
+  const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL ?? "").replace(/\/$/, "");
+  const acsUrl = `${supabaseUrl}/auth/v1/sso/saml/acs`;
+  const entityId = `${supabaseUrl}/auth/v1/sso/saml/metadata`;
+
+  const patchSettings = async (patch: Partial<IamSettings>, okMsg: string) => {
+    const res = await updateSettings({ data: { access_token: token, ...patch } });
+    if (!res.ok) return toast.error(res.error);
+    if (settings) setSettings({ ...settings, ...patch });
+    toast.success(okMsg);
+  };
+
+  const submitProvider = async () => {
+    const domains = domainsInput
+      .split(",")
+      .map((d) => d.trim().toLowerCase())
+      .filter(Boolean);
+    if (domains.length === 0) return toast.error("Enter at least one email domain");
+    if (metaMode === "url" && !metadataUrl.trim()) return toast.error("Metadata URL is required");
+    if (metaMode === "xml" && !metadataXml.trim()) return toast.error("Metadata XML is required");
+    setBusy(true);
+    try {
+      const res = await createProvider({
+        data: {
+          access_token: token,
+          metadata_url: metaMode === "url" ? metadataUrl.trim() : undefined,
+          metadata_xml: metaMode === "xml" ? metadataXml.trim() : undefined,
+          domains,
+        },
+      });
+      if (!res.ok) return toast.error(res.error);
+      toast.success("Identity provider added");
+      setAddOpen(false);
+      setMetadataUrl("");
+      setMetadataXml("");
+      setDomainsInput("");
+      reload();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6 max-w-3xl">
+      {samlDisabledMsg ? (
+        <Card className="border-amber-500/40 bg-amber-500/5">
+          <CardContent className="p-4 text-sm text-amber-700 dark:text-amber-400">
+            {samlDisabledMsg}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Single sign-on</CardTitle>
+          <CardDescription>
+            Let users sign in through your identity provider — Okta, Auth0, Microsoft Entra ID, or
+            any SAML 2.0 IdP. Users are matched by the email domains you assign to each provider.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <label className="flex items-center gap-3 text-sm">
+            <Switch
+              checked={settings?.sso_enabled ?? false}
+              disabled={!settings}
+              onCheckedChange={(checked) =>
+                patchSettings(
+                  { sso_enabled: checked },
+                  checked ? "SSO sign-in enabled" : "SSO sign-in disabled",
+                )
+              }
+            />
+            Show "Continue with single sign-on" on the login page
+          </label>
+          <label className="flex items-center gap-3 text-sm">
+            <Switch
+              checked={settings?.sso_enforced ?? false}
+              disabled={!settings || !settings.sso_enabled}
+              onCheckedChange={(checked) =>
+                patchSettings(
+                  { sso_enforced: checked },
+                  checked ? "SSO is now required for sign-in" : "Native sign-in restored",
+                )
+              }
+            />
+            <span>
+              Require SSO — hide email/password and social sign-in
+              <span className="block text-xs text-muted-foreground">
+                Superadmins can always reach native login at <code>/login?native=1</code>.
+              </span>
+            </span>
+          </label>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Service provider details</CardTitle>
+          <CardDescription>
+            Paste these into your IdP when creating the SAML application. Okta: "Single sign-on URL"
+            + "Audience URI". Auth0 (Addons → SAML2 Web App): application callback URL + audience.
+            Entra ID: "Reply URL" + "Identifier".
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <CopyField label="ACS URL (assertion consumer service)" value={acsUrl} />
+          <CopyField label="Entity ID / Audience" value={entityId} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-base">Identity providers</CardTitle>
+              <CardDescription>
+                Each provider handles sign-ins for its assigned email domains.
+              </CardDescription>
+            </div>
+            <Button
+              size="sm"
+              className="gap-1.5"
+              disabled={!!samlDisabledMsg}
+              onClick={() => setAddOpen(true)}
+            >
+              <Plus className="h-3.5 w-3.5" /> Add provider
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {providers.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No identity providers yet. Create the SAML app in your IdP first, then add its
+              metadata here.
+            </p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Provider</TableHead>
+                  <TableHead>Email domains</TableHead>
+                  <TableHead>Added</TableHead>
+                  <TableHead className="w-10" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {providers.map((p) => (
+                  <TableRow key={p.id}>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Building2 className="h-4 w-4 text-muted-foreground" />
+                        <span className="max-w-72 truncate font-mono text-xs">
+                          {p.metadata_url ?? p.entity_id ?? p.id}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        {p.domains.map((d) => (
+                          <Badge key={d} variant="secondary" className="text-[10px]">
+                            {d}
+                          </Badge>
+                        ))}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {p.created_at ? format(new Date(p.created_at), "d MMM yyyy") : "—"}
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                        onClick={() => setDeleteTarget(p)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Add provider dialog */}
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Add identity provider</DialogTitle>
+            <DialogDescription>
+              Create a SAML 2.0 app in your IdP using the service provider details above, then paste
+              its metadata here. Okta: the app's "Identity Provider metadata" link. Auth0:{" "}
+              <code className="text-xs">
+                https://&lt;tenant&gt;.auth0.com/samlp/metadata/&lt;client-id&gt;
+              </code>
+              . Entra ID: the "App Federation Metadata Url".
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant={metaMode === "url" ? "default" : "outline"}
+                onClick={() => setMetaMode("url")}
+              >
+                Metadata URL
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={metaMode === "xml" ? "default" : "outline"}
+                onClick={() => setMetaMode("xml")}
+              >
+                Paste metadata XML
+              </Button>
+            </div>
+            {metaMode === "url" ? (
+              <div className="space-y-2">
+                <Label>Metadata URL</Label>
+                <Input
+                  value={metadataUrl}
+                  onChange={(e) => setMetadataUrl(e.target.value)}
+                  placeholder="https://your-org.okta.com/app/xxxx/sso/saml/metadata"
+                  className="font-mono text-xs"
+                />
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label>Metadata XML</Label>
+                <Textarea
+                  value={metadataXml}
+                  onChange={(e) => setMetadataXml(e.target.value)}
+                  rows={6}
+                  placeholder="<EntityDescriptor …>"
+                  className="font-mono text-xs"
+                />
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label>Email domains (comma-separated)</Label>
+              <Input
+                value={domainsInput}
+                onChange={(e) => setDomainsInput(e.target.value)}
+                placeholder="company.com, subsidiary.io"
+              />
+              <p className="text-xs text-muted-foreground">
+                Users whose work email matches one of these domains are routed to this IdP.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setAddOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={submitProvider} disabled={busy}>
+              Add provider
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete provider confirm */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove this identity provider?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Users from {deleteTarget?.domains.join(", ") || "its domains"} will no longer be able
+              to sign in via SSO. Their accounts are not deleted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={async () => {
+                if (!deleteTarget) return;
+                const res = await deleteProvider({
+                  data: { access_token: token, provider_id: deleteTarget.id },
+                });
+                if (!res.ok) return toast.error(res.error);
+                toast.success("Identity provider removed");
+                setDeleteTarget(null);
+                reload();
+              }}
+            >
+              Remove provider
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

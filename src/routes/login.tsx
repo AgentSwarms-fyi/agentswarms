@@ -1,11 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Zap, ArrowLeft } from "lucide-react";
+import { Zap, ArrowLeft, Building2 } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { toast } from "sonner";
 import agentSwarmsLogo from "@/assets/agentswarms-logo.jpg";
@@ -44,6 +44,49 @@ function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [appleLoading, setAppleLoading] = useState(false);
+
+  // Instance SSO configuration (set by superadmins under /admin/iam → SSO).
+  const [ssoConfig, setSsoConfig] = useState<{ enabled: boolean; enforced: boolean } | null>(null);
+  const [ssoOpen, setSsoOpen] = useState(false);
+  const [ssoEmail, setSsoEmail] = useState("");
+  const [ssoLoading, setSsoLoading] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/auth/sso-config")
+      .then((r) => (r.ok ? r.json() : { enabled: false, enforced: false }))
+      .then((cfg) => setSsoConfig({ enabled: !!cfg.enabled, enforced: !!cfg.enforced }))
+      .catch(() => setSsoConfig({ enabled: false, enforced: false }));
+  }, []);
+
+  // Escape hatch so a superadmin can always reach native login even when SSO
+  // is enforced: /login?native=1
+  const nativeOverride =
+    typeof window !== "undefined" && new URLSearchParams(window.location.search).has("native");
+  const showNative = !ssoConfig?.enforced || nativeOverride;
+  const showSso = ssoConfig?.enabled ?? false;
+
+  const handleSsoSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const domain = ssoEmail.trim().split("@")[1];
+    if (!domain) return toast.error("Enter your work email address");
+    setSsoLoading(true);
+    try {
+      const { data, error } = await supabase.auth.signInWithSSO({
+        domain,
+        options: { redirectTo: `${window.location.origin}/dashboard` },
+      });
+      if (error) throw error;
+      if (data?.url) window.location.href = data.url;
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : "SSO sign-in failed";
+      toast.error(
+        /No SSO provider assigned|not found/i.test(raw)
+          ? `Single sign-on isn't configured for @${domain}. Contact your administrator.`
+          : raw,
+      );
+      setSsoLoading(false);
+    }
+  };
 
   // Social sign-in uses Supabase Auth directly. Each provider must be enabled
   // (with its client id/secret) in your Supabase project under
@@ -141,7 +184,60 @@ function LoginPage() {
           <CardDescription>{headerCopy}</CardDescription>
         </CardHeader>
         <CardContent>
-          {mode !== "forgot" && (
+          {showSso && (
+            <div className="mb-2">
+              {ssoOpen ? (
+                <form onSubmit={handleSsoSignIn} className="space-y-2">
+                  <Label htmlFor="sso-email">Work email</Label>
+                  <Input
+                    id="sso-email"
+                    type="email"
+                    placeholder="you@company.com"
+                    value={ssoEmail}
+                    onChange={(e) => setSsoEmail(e.target.value)}
+                    autoComplete="email"
+                    autoFocus
+                    required
+                  />
+                  <Button type="submit" className="w-full gap-2" disabled={ssoLoading}>
+                    <Building2 className="h-4 w-4" />
+                    {ssoLoading ? "Redirecting…" : "Continue with SSO"}
+                  </Button>
+                  <button
+                    type="button"
+                    onClick={() => setSsoOpen(false)}
+                    className="mx-auto block text-xs text-muted-foreground underline-offset-4 hover:underline"
+                  >
+                    Cancel
+                  </button>
+                </form>
+              ) : (
+                <Button
+                  type="button"
+                  variant={showNative ? "outline" : "default"}
+                  className="w-full gap-2"
+                  onClick={() => setSsoOpen(true)}
+                >
+                  <Building2 className="h-4 w-4" /> Continue with single sign-on (SSO)
+                </Button>
+              )}
+              {showNative && (
+                <div className="my-4 flex items-center gap-3 text-[11px] uppercase tracking-wider text-muted-foreground">
+                  <span className="h-px flex-1 bg-border" />
+                  <span>or</span>
+                  <span className="h-px flex-1 bg-border" />
+                </div>
+              )}
+            </div>
+          )}
+
+          {!showNative && !showSso && ssoConfig !== null && (
+            <p className="text-center text-sm text-muted-foreground">
+              Sign-in is managed by your administrator.
+            </p>
+          )}
+
+          {showNative && mode !== "forgot" && (
             <>
               <Button
                 type="button"
@@ -178,88 +274,92 @@ function LoginPage() {
             </>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                autoComplete="email"
-              />
-            </div>
-
-            {mode !== "forgot" && (
+          {showNative && (
+            <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="password">Password</Label>
-                  {mode === "signin" && (
-                    <button
-                      type="button"
-                      onClick={() => setMode("forgot")}
-                      className="text-xs text-primary underline-offset-4 hover:underline"
-                    >
-                      Forgot password?
-                    </button>
-                  )}
-                </div>
+                <Label htmlFor="email">Email</Label>
                 <Input
-                  id="password"
-                  type="password"
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  id="email"
+                  type="email"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
                   required
-                  minLength={6}
-                  autoComplete={mode === "signup" ? "new-password" : "current-password"}
+                  autoComplete="email"
                 />
               </div>
-            )}
 
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading
-                ? "Loading..."
-                : mode === "signup"
-                  ? "Create Account"
-                  : mode === "forgot"
-                    ? "Send reset link"
-                    : "Sign In"}
-            </Button>
-          </form>
+              {mode !== "forgot" && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="password">Password</Label>
+                    {mode === "signin" && (
+                      <button
+                        type="button"
+                        onClick={() => setMode("forgot")}
+                        className="text-xs text-primary underline-offset-4 hover:underline"
+                      >
+                        Forgot password?
+                      </button>
+                    )}
+                  </div>
+                  <Input
+                    id="password"
+                    type="password"
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    minLength={6}
+                    autoComplete={mode === "signup" ? "new-password" : "current-password"}
+                  />
+                </div>
+              )}
 
-          <div className="mt-4 text-center text-sm text-muted-foreground">
-            {mode === "forgot" ? (
-              <button
-                onClick={() => setMode("signin")}
-                className="inline-flex items-center gap-1 text-primary underline-offset-4 hover:underline"
-              >
-                <ArrowLeft className="h-3.5 w-3.5" /> Back to sign in
-              </button>
-            ) : mode === "signup" ? (
-              <>
-                Already have an account?{" "}
+              <Button type="submit" className="w-full" disabled={loading}>
+                {loading
+                  ? "Loading..."
+                  : mode === "signup"
+                    ? "Create Account"
+                    : mode === "forgot"
+                      ? "Send reset link"
+                      : "Sign In"}
+              </Button>
+            </form>
+          )}
+
+          {showNative && (
+            <div className="mt-4 text-center text-sm text-muted-foreground">
+              {mode === "forgot" ? (
                 <button
                   onClick={() => setMode("signin")}
-                  className="text-primary underline-offset-4 hover:underline"
+                  className="inline-flex items-center gap-1 text-primary underline-offset-4 hover:underline"
                 >
-                  Sign in
+                  <ArrowLeft className="h-3.5 w-3.5" /> Back to sign in
                 </button>
-              </>
-            ) : (
-              <>
-                Don't have an account?{" "}
-                <button
-                  onClick={() => setMode("signup")}
-                  className="text-primary underline-offset-4 hover:underline"
-                >
-                  Sign up
-                </button>
-              </>
-            )}
-          </div>
+              ) : mode === "signup" ? (
+                <>
+                  Already have an account?{" "}
+                  <button
+                    onClick={() => setMode("signin")}
+                    className="text-primary underline-offset-4 hover:underline"
+                  >
+                    Sign in
+                  </button>
+                </>
+              ) : (
+                <>
+                  Don't have an account?{" "}
+                  <button
+                    onClick={() => setMode("signup")}
+                    className="text-primary underline-offset-4 hover:underline"
+                  >
+                    Sign up
+                  </button>
+                </>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

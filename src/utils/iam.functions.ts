@@ -613,34 +613,222 @@ export const iamDeleteGrant = createServerFn({ method: "POST" })
 
 // --- Settings ------------------------------------------------------------
 
+export type IamSettings = {
+  allow_public_signup: boolean;
+  sso_enabled: boolean;
+  sso_enforced: boolean;
+};
+
 export const iamGetSettings = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
-  .handler(async ({ data }): Promise<IamError | { ok: true; allow_public_signup: boolean }> => {
+  .handler(async ({ data }): Promise<IamError | ({ ok: true } & IamSettings)> => {
     const guard = await requireSuperadmin(data.access_token);
     if (!guard.ok) return guard;
     const { data: row, error } = await supabaseAdmin
       .from("iam_settings")
-      .select("allow_public_signup")
+      .select("allow_public_signup, sso_enabled, sso_enforced")
       .eq("id", true)
       .maybeSingle();
     if (error) return { ok: false, error: error.message };
-    return { ok: true, allow_public_signup: row?.allow_public_signup ?? true };
+    return {
+      ok: true,
+      allow_public_signup: row?.allow_public_signup ?? true,
+      sso_enabled: row?.sso_enabled ?? false,
+      sso_enforced: row?.sso_enforced ?? false,
+    };
   });
 
 export const iamUpdateSettings = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) =>
-    z.object({ access_token: z.string().min(1), allow_public_signup: z.boolean() }).parse(input),
+    z
+      .object({
+        access_token: z.string().min(1),
+        allow_public_signup: z.boolean().optional(),
+        sso_enabled: z.boolean().optional(),
+        sso_enforced: z.boolean().optional(),
+      })
+      .parse(input),
   )
   .handler(async ({ data }): Promise<IamError | { ok: true }> => {
     const guard = await requireSuperadmin(data.access_token);
     if (!guard.ok) return guard;
-    const { error } = await supabaseAdmin
-      .from("iam_settings")
-      .update({
-        allow_public_signup: data.allow_public_signup,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", true);
+    const patch: {
+      updated_at: string;
+      allow_public_signup?: boolean;
+      sso_enabled?: boolean;
+      sso_enforced?: boolean;
+    } = { updated_at: new Date().toISOString() };
+    if (typeof data.allow_public_signup === "boolean")
+      patch.allow_public_signup = data.allow_public_signup;
+    if (typeof data.sso_enabled === "boolean") patch.sso_enabled = data.sso_enabled;
+    if (typeof data.sso_enforced === "boolean") patch.sso_enforced = data.sso_enforced;
+    const { error } = await supabaseAdmin.from("iam_settings").update(patch).eq("id", true);
     if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  });
+
+// --- Single sign-on (SAML identity providers) -----------------------------
+// Providers live in GoTrue, managed through its admin API. On hosted
+// Supabase, SAML SSO must be enabled on the project (Pro plan feature) or
+// these endpoints return 404 — surfaced to the UI as `saml_disabled`.
+
+export type IamSsoProvider = {
+  id: string;
+  entity_id: string | null;
+  metadata_url: string | null;
+  domains: string[];
+  created_at: string | null;
+};
+
+type GotrueSsoProvider = {
+  id: string;
+  created_at?: string;
+  saml?: { entity_id?: string; metadata_url?: string };
+  domains?: { domain: string }[];
+};
+
+async function gotrueAdminSso(
+  path: string,
+  init?: RequestInit,
+): Promise<{ ok: true; body: unknown } | { ok: false; error: string; saml_disabled?: boolean }> {
+  const base = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!base || !key) return { ok: false, error: "Server is missing Supabase configuration" };
+  const res = await fetch(`${base}/auth/v1/admin/sso/providers${path}`, {
+    ...init,
+    headers: {
+      apikey: key,
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json",
+      ...(init?.headers ?? {}),
+    },
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    if (res.status === 404) {
+      return {
+        ok: false,
+        saml_disabled: true,
+        error:
+          "SAML SSO is not enabled on this Supabase project. Enable it in the Supabase dashboard " +
+          "(Authentication → Sign In / Up → SSO with SAML — requires the Pro plan on hosted " +
+          "Supabase), then retry.",
+      };
+    }
+    let message = text.slice(0, 300);
+    try {
+      const parsed = JSON.parse(text) as { msg?: string; message?: string; error?: string };
+      message = parsed.msg || parsed.message || parsed.error || message;
+    } catch {
+      /* keep raw */
+    }
+    return { ok: false, error: `SSO admin API error (${res.status}): ${message}` };
+  }
+  try {
+    return { ok: true, body: text ? JSON.parse(text) : {} };
+  } catch {
+    return { ok: true, body: {} };
+  }
+}
+
+function mapSsoProvider(p: GotrueSsoProvider): IamSsoProvider {
+  return {
+    id: p.id,
+    entity_id: p.saml?.entity_id ?? null,
+    metadata_url: p.saml?.metadata_url ?? null,
+    domains: (p.domains ?? []).map((d) => d.domain),
+    created_at: p.created_at ?? null,
+  };
+}
+
+export const iamListSsoProviders = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .handler(
+    async ({
+      data,
+    }): Promise<
+      (IamError & { saml_disabled?: boolean }) | { ok: true; providers: IamSsoProvider[] }
+    > => {
+      const guard = await requireSuperadmin(data.access_token);
+      if (!guard.ok) return guard;
+      const res = await gotrueAdminSso("");
+      if (!res.ok) return res;
+      const items = ((res.body as { items?: GotrueSsoProvider[] }).items ?? []).map(mapSsoProvider);
+      return { ok: true, providers: items };
+    },
+  );
+
+export const iamCreateSsoProvider = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        access_token: z.string().min(1),
+        metadata_url: z.string().url().optional(),
+        metadata_xml: z.string().min(1).optional(),
+        domains: z.array(z.string().min(3).max(255)).min(1).max(50),
+      })
+      .refine((v) => v.metadata_url || v.metadata_xml, {
+        message: "Provide a metadata URL or paste the metadata XML",
+      })
+      .parse(input),
+  )
+  .handler(
+    async ({
+      data,
+    }): Promise<
+      (IamError & { saml_disabled?: boolean }) | { ok: true; provider: IamSsoProvider }
+    > => {
+      const guard = await requireSuperadmin(data.access_token);
+      if (!guard.ok) return guard;
+      const res = await gotrueAdminSso("", {
+        method: "POST",
+        body: JSON.stringify({
+          type: "saml",
+          ...(data.metadata_url ? { metadata_url: data.metadata_url } : {}),
+          ...(data.metadata_xml ? { metadata_xml: data.metadata_xml } : {}),
+          domains: data.domains,
+        }),
+      });
+      if (!res.ok) return res;
+      return { ok: true, provider: mapSsoProvider(res.body as GotrueSsoProvider) };
+    },
+  );
+
+export const iamUpdateSsoProvider = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        access_token: z.string().min(1),
+        provider_id: z.string().uuid(),
+        metadata_url: z.string().url().optional(),
+        metadata_xml: z.string().min(1).optional(),
+        domains: z.array(z.string().min(3).max(255)).min(1).max(50),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }): Promise<(IamError & { saml_disabled?: boolean }) | { ok: true }> => {
+    const guard = await requireSuperadmin(data.access_token);
+    if (!guard.ok) return guard;
+    const res = await gotrueAdminSso(`/${data.provider_id}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        ...(data.metadata_url ? { metadata_url: data.metadata_url } : {}),
+        ...(data.metadata_xml ? { metadata_xml: data.metadata_xml } : {}),
+        domains: data.domains,
+      }),
+    });
+    if (!res.ok) return res;
+    return { ok: true };
+  });
+
+export const iamDeleteSsoProvider = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z.object({ access_token: z.string().min(1), provider_id: z.string().uuid() }).parse(input),
+  )
+  .handler(async ({ data }): Promise<(IamError & { saml_disabled?: boolean }) | { ok: true }> => {
+    const guard = await requireSuperadmin(data.access_token);
+    if (!guard.ok) return guard;
+    const res = await gotrueAdminSso(`/${data.provider_id}`, { method: "DELETE" });
+    if (!res.ok) return res;
     return { ok: true };
   });

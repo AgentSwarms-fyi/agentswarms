@@ -805,16 +805,22 @@ export type Database = {
         Row: {
           allow_public_signup: boolean;
           id: boolean;
+          sso_enabled: boolean;
+          sso_enforced: boolean;
           updated_at: string;
         };
         Insert: {
           allow_public_signup?: boolean;
           id?: boolean;
+          sso_enabled?: boolean;
+          sso_enforced?: boolean;
           updated_at?: string;
         };
         Update: {
           allow_public_signup?: boolean;
           id?: boolean;
+          sso_enabled?: boolean;
+          sso_enforced?: boolean;
           updated_at?: string;
         };
         Relationships: [];

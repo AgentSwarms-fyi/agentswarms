@@ -75,6 +75,7 @@ import { Route as ApiExamStartRouteImport } from './routes/api/exam.start'
 import { Route as ApiExamEvaluateRouteImport } from './routes/api/exam.evaluate'
 import { Route as ApiEmailSendRouteImport } from './routes/api/email/send'
 import { Route as ApiCertificateIdRouteImport } from './routes/api/certificate.$id'
+import { Route as ApiAuthSsoConfigRouteImport } from './routes/api/auth/sso-config'
 import { Route as AuthenticatedTemplatesTemplateIdRouteImport } from './routes/_authenticated/templates.$templateId'
 import { Route as AuthenticatedNotebooksNotebookIdRouteImport } from './routes/_authenticated/notebooks.$notebookId'
 import { Route as AuthenticatedCertificationExamRouteImport } from './routes/_authenticated/certification.exam'
@@ -425,6 +426,11 @@ const ApiCertificateIdRoute = ApiCertificateIdRouteImport.update({
   path: '/api/certificate/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAuthSsoConfigRoute = ApiAuthSsoConfigRouteImport.update({
+  id: '/api/auth/sso-config',
+  path: '/api/auth/sso-config',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedTemplatesTemplateIdRoute =
   AuthenticatedTemplatesTemplateIdRouteImport.update({
     id: '/templates/$templateId',
@@ -556,6 +562,7 @@ export interface FileRoutesByFullPath {
   '/certification/exam': typeof AuthenticatedCertificationExamRoute
   '/notebooks/$notebookId': typeof AuthenticatedNotebooksNotebookIdRoute
   '/templates/$templateId': typeof AuthenticatedTemplatesTemplateIdRoute
+  '/api/auth/sso-config': typeof ApiAuthSsoConfigRoute
   '/api/certificate/$id': typeof ApiCertificateIdRoute
   '/api/email/send': typeof ApiEmailSendRoute
   '/api/exam/evaluate': typeof ApiExamEvaluateRoute
@@ -632,6 +639,7 @@ export interface FileRoutesByTo {
   '/certification/exam': typeof AuthenticatedCertificationExamRoute
   '/notebooks/$notebookId': typeof AuthenticatedNotebooksNotebookIdRoute
   '/templates/$templateId': typeof AuthenticatedTemplatesTemplateIdRoute
+  '/api/auth/sso-config': typeof ApiAuthSsoConfigRoute
   '/api/certificate/$id': typeof ApiCertificateIdRoute
   '/api/email/send': typeof ApiEmailSendRoute
   '/api/exam/evaluate': typeof ApiExamEvaluateRoute
@@ -713,6 +721,7 @@ export interface FileRoutesById {
   '/_authenticated/certification/exam': typeof AuthenticatedCertificationExamRoute
   '/_authenticated/notebooks/$notebookId': typeof AuthenticatedNotebooksNotebookIdRoute
   '/_authenticated/templates/$templateId': typeof AuthenticatedTemplatesTemplateIdRoute
+  '/api/auth/sso-config': typeof ApiAuthSsoConfigRoute
   '/api/certificate/$id': typeof ApiCertificateIdRoute
   '/api/email/send': typeof ApiEmailSendRoute
   '/api/exam/evaluate': typeof ApiExamEvaluateRoute
@@ -794,6 +803,7 @@ export interface FileRouteTypes {
     | '/certification/exam'
     | '/notebooks/$notebookId'
     | '/templates/$templateId'
+    | '/api/auth/sso-config'
     | '/api/certificate/$id'
     | '/api/email/send'
     | '/api/exam/evaluate'
@@ -870,6 +880,7 @@ export interface FileRouteTypes {
     | '/certification/exam'
     | '/notebooks/$notebookId'
     | '/templates/$templateId'
+    | '/api/auth/sso-config'
     | '/api/certificate/$id'
     | '/api/email/send'
     | '/api/exam/evaluate'
@@ -950,6 +961,7 @@ export interface FileRouteTypes {
     | '/_authenticated/certification/exam'
     | '/_authenticated/notebooks/$notebookId'
     | '/_authenticated/templates/$templateId'
+    | '/api/auth/sso-config'
     | '/api/certificate/$id'
     | '/api/email/send'
     | '/api/exam/evaluate'
@@ -992,6 +1004,7 @@ export interface RootRouteChildren {
   ApiContactRoute: typeof ApiContactRoute
   EmailUnsubscribeRoute: typeof EmailUnsubscribeRoute
   VerifyCodeRoute: typeof VerifyCodeRoute
+  ApiAuthSsoConfigRoute: typeof ApiAuthSsoConfigRoute
   ApiCertificateIdRoute: typeof ApiCertificateIdRoute
   ApiEmailSendRoute: typeof ApiEmailSendRoute
   ApiExamEvaluateRoute: typeof ApiExamEvaluateRoute
@@ -1473,6 +1486,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiCertificateIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/auth/sso-config': {
+      id: '/api/auth/sso-config'
+      path: '/api/auth/sso-config'
+      fullPath: '/api/auth/sso-config'
+      preLoaderRoute: typeof ApiAuthSsoConfigRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/templates/$templateId': {
       id: '/_authenticated/templates/$templateId'
       path: '/templates/$templateId'
@@ -1724,6 +1744,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiContactRoute: ApiContactRoute,
   EmailUnsubscribeRoute: EmailUnsubscribeRoute,
   VerifyCodeRoute: VerifyCodeRoute,
+  ApiAuthSsoConfigRoute: ApiAuthSsoConfigRoute,
   ApiCertificateIdRoute: ApiCertificateIdRoute,
   ApiEmailSendRoute: ApiEmailSendRoute,
   ApiExamEvaluateRoute: ApiExamEvaluateRoute,
