@@ -13,6 +13,7 @@ import {
   BarChart4,
   BarChartHorizontal,
   CandlestickChart,
+  ChevronsUpDown,
   Filter,
   Flame,
   Gauge,
@@ -38,6 +39,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -164,6 +166,8 @@ export function BiBuilderPane({
   const [turns, setTurns] = useState<BiTurn[]>([]);
   const [aiBusy, setAiBusy] = useState(false);
   const [insertedIdx, setInsertedIdx] = useState<Set<number>>(new Set());
+  /** Tables the analyst may use; empty = all tables of the source. */
+  const [aiTables, setAiTables] = useState<string[]>([]);
   const turnsScrollRef = useRef<HTMLDivElement>(null);
 
   // Prefill / reset the Build form when the edited widget changes.
@@ -257,6 +261,7 @@ export function BiBuilderPane({
   function changeSource(v: string) {
     setSourceKey(v);
     setSelectedTables([]);
+    setAiTables([]);
     setPreview(null);
     if (sql === lastSeeded.current) {
       setSql("");
@@ -451,13 +456,17 @@ export function BiBuilderPane({
       );
       return;
     }
+    // Scope the analyst to the picked tables (empty selection = all).
+    const scoped =
+      aiTables.length > 0 ? aiDatasets.filter((d) => aiTables.includes(d.name)) : aiDatasets;
+    const datasetsToUse = scoped.length > 0 ? scoped : aiDatasets;
     setQuestion("");
     setAiBusy(true);
     setTurns((prev) => [...prev, { question: q, status: "planning" }]);
     try {
       await runBiTurn({
         question: q,
-        datasets: aiDatasets,
+        datasets: datasetsToUse,
         semantics: activeWarehouse ? new Map() : ctx.semantics,
         metrics: activeWarehouse ? [] : ctx.metrics,
         execute: activeWarehouse
@@ -948,6 +957,69 @@ export function BiBuilderPane({
                 />
               </div>
             )}
+            <div className="space-y-1.5">
+              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Tables to analyse
+              </Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 w-full justify-between gap-1.5 text-xs font-normal"
+                    title="Limit which tables the analyst may use"
+                  >
+                    <span className="truncate">
+                      {aiTables.length === 0
+                        ? "All tables"
+                        : aiTables.length === 1
+                          ? aiTables[0]
+                          : `${aiTables.length} tables selected`}
+                    </span>
+                    <ChevronsUpDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-72 p-2">
+                  <div className="max-h-56 space-y-0.5 overflow-y-auto">
+                    {sourceTables.length === 0 && (
+                      <p className="px-1 py-2 text-[11px] text-muted-foreground">
+                        {schemaLoading ? "Loading tables…" : "No tables for this source."}
+                      </p>
+                    )}
+                    {sourceTables.map((t) => {
+                      const checked = aiTables.includes(t.name);
+                      return (
+                        <Label
+                          key={t.name}
+                          className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 font-mono text-[11px] font-normal hover:bg-muted/60"
+                        >
+                          <Checkbox
+                            checked={checked}
+                            onCheckedChange={(on) =>
+                              setAiTables((prev) =>
+                                on ? [...prev, t.name] : prev.filter((x) => x !== t.name),
+                              )
+                            }
+                          />
+                          <span className="truncate">{t.name}</span>
+                        </Label>
+                      );
+                    })}
+                  </div>
+                  <div className="mt-1.5 flex items-center justify-between border-t border-border/50 pt-1.5">
+                    <p className="text-[10px] text-muted-foreground">Empty = analyse all tables</p>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 px-2 text-[10px]"
+                      onClick={() => setAiTables([])}
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
             {schemaLoading && (
               <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
                 <Loader2 className="h-3 w-3 animate-spin" /> loading schema…
