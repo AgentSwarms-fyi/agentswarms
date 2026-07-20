@@ -14,8 +14,6 @@ import {
   Sparkles,
   Workflow,
   Database,
-  Award,
-  GraduationCap,
   ShieldCheck,
   Boxes,
   KeyRound,
@@ -75,12 +73,6 @@ const integrationItems = [
   { title: "Model Registry", url: "/model-registry", icon: Boxes },
 ];
 
-const learnItems = [
-  { title: "Curriculum & Quizzes", url: "/learn", icon: GraduationCap },
-  { title: "Interview Questions", url: "/interview-questions", icon: BookMarked },
-  { title: "Certification", url: "/certification", icon: Award },
-];
-
 export function AppSidebar() {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
@@ -138,7 +130,6 @@ export function AppSidebar() {
       <SidebarContent>
         {renderGroup("Build", buildItems)}
         {renderGroup("Integrations", integrationItems)}
-        {renderGroup("Learn & Certify", learnItems)}
         {renderGroup("Observability", opsItems)}
         {isSuperadmin &&
           renderGroup("Admin", [
