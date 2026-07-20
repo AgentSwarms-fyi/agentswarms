@@ -201,6 +201,7 @@ export function PublishDialog({
               onChange={(m) => void saveReaderModel(m)}
               disabled={busyModel}
               className="w-full"
+              allowUnset
             />
             <p className="mt-2 text-[10px] text-muted-foreground">
               The anonymous public link shows data only — AI Q&amp;A is for signed-in viewers.
