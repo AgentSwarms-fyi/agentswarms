@@ -131,9 +131,14 @@ and reports. An editable dashboard is called a **BI project**:
 - **Build visuals by hand** — a right-hand builder pane: pick a source (your
   Data & SQL datasets or any connected warehouse), tick one or **more tables
   to join** (a JOIN skeleton is written for you with auto-detected join
-  keys), run the read-only SQL, then pick the visual from an **icon picker**
-  — bar/line/area/pie chart, KPI tile, or table. Widgets live on a 12-column
-  drag-and-resize grid, with markdown text blocks for report narrative.
+  keys), run the read-only SQL, then pick from **18 visual types** in an
+  icon picker: column, bar, line, area, **combo (bars + line, dual axis)**,
+  **scatter**, pie/donut, **funnel**, **treemap**, **heatmap**,
+  **box &amp; whisker**, **waterfall**, KPI card (with target comparison),
+  **gauge**, **matrix (pivot) table**, **filled map** and **bubble map**
+  (country-level, fully offline — no tile servers), and table. Widgets live
+  on a 12-column drag-and-resize grid, with markdown text blocks for report
+  narrative.
 - **Generate visuals with AI** — the same GenBI analyst as the Data & SQL
   page (plan → SQL → execute → chart → narrative) lives in the pane's **AI
   analyst** tab; insert any answer as a widget. On `/data-sql`, every

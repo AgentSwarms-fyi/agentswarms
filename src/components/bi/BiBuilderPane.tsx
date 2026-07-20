@@ -8,13 +8,25 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   AreaChart,
+  BarChart2,
   BarChart3,
+  BarChart4,
+  BarChartHorizontal,
+  CandlestickChart,
+  Filter,
+  Flame,
   Gauge,
+  Grid3x3,
+  Hash,
+  LayoutGrid,
   LineChart,
   Loader2,
+  Map as MapIcon,
+  MapPin,
   PieChart,
   Play,
   Plus,
+  ScatterChart,
   Send,
   Sparkles,
   Table2,
@@ -53,11 +65,23 @@ const VIZ_TYPES: {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
 }[] = [
-  { value: "bar", label: "Bar", icon: BarChart3 },
+  { value: "bar", label: "Column", icon: BarChart3 },
+  { value: "hbar", label: "Bar", icon: BarChartHorizontal },
   { value: "line", label: "Line", icon: LineChart },
   { value: "area", label: "Area", icon: AreaChart },
+  { value: "combo", label: "Combo", icon: BarChart2 },
+  { value: "scatter", label: "Scatter", icon: ScatterChart },
   { value: "pie", label: "Pie", icon: PieChart },
-  { value: "kpi", label: "KPI", icon: Gauge },
+  { value: "funnel", label: "Funnel", icon: Filter },
+  { value: "treemap", label: "Treemap", icon: LayoutGrid },
+  { value: "heatmap", label: "Heatmap", icon: Flame },
+  { value: "boxplot", label: "Box plot", icon: CandlestickChart },
+  { value: "waterfall", label: "Waterfall", icon: BarChart4 },
+  { value: "kpi", label: "KPI", icon: Hash },
+  { value: "gauge", label: "Gauge", icon: Gauge },
+  { value: "matrix", label: "Matrix", icon: Grid3x3 },
+  { value: "map", label: "Map", icon: MapIcon },
+  { value: "bubblemap", label: "Bubbles", icon: MapPin },
   { value: "table", label: "Table", icon: Table2 },
 ];
 
@@ -120,6 +144,13 @@ export function BiBuilderPane({
   const [nameField, setNameField] = useState("");
   const [valueField, setValueField] = useState("");
   const [kpiLabel, setKpiLabel] = useState("");
+  const [lineField, setLineField] = useState("");
+  const [sizeField, setSizeField] = useState("");
+  const [rowField, setRowField] = useState("");
+  const [colField, setColField] = useState("");
+  const [locationField, setLocationField] = useState("");
+  const [targetField, setTargetField] = useState("");
+  const [maxInput, setMaxInput] = useState("");
   const [preview, setPreview] = useState<QueryResult | null>(null);
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
@@ -142,10 +173,17 @@ export function BiBuilderPane({
       const c = initial.chart ?? { type: "table" as const };
       setChartType(c.type);
       setXField("xField" in c ? c.xField : "");
-      setYField("yField" in c ? c.yField : "");
+      setYField(c.type === "combo" ? c.barField : "yField" in c ? c.yField : "");
       setNameField("nameField" in c ? c.nameField : "");
       setValueField("valueField" in c ? c.valueField : "");
-      setKpiLabel(c.type === "kpi" ? (c.label ?? "") : "");
+      setKpiLabel("label" in c ? (c.label ?? "") : "");
+      setLineField(c.type === "combo" ? c.lineField : "");
+      setSizeField(c.type === "scatter" ? (c.sizeField ?? "") : "");
+      setRowField(c.type === "matrix" ? c.rowField : "");
+      setColField(c.type === "matrix" ? c.colField : "");
+      setLocationField("locationField" in c ? c.locationField : "");
+      setTargetField("targetField" in c ? (c.targetField ?? "") : "");
+      setMaxInput(c.type === "gauge" && c.max !== undefined ? String(c.max) : "");
       setPreview(
         initial.rows && initial.columns
           ? {
@@ -169,6 +207,13 @@ export function BiBuilderPane({
       setNameField("");
       setValueField("");
       setKpiLabel("");
+      setLineField("");
+      setSizeField("");
+      setRowField("");
+      setColField("");
+      setLocationField("");
+      setTargetField("");
+      setMaxInput("");
       setPreview(null);
     }
     setSelectedTables([]);
@@ -245,6 +290,16 @@ export function BiBuilderPane({
       if (!yField || !res.columns.includes(yField)) setYField(firstNumber);
       if (!nameField || !res.columns.includes(nameField)) setNameField(firstString);
       if (!valueField || !res.columns.includes(valueField)) setValueField(firstNumber);
+      const numericCols = res.columns.filter((c) => typeof res.rows[0]?.[c] === "number");
+      const stringCols = res.columns.filter((c) => typeof res.rows[0]?.[c] === "string");
+      if (!lineField || !res.columns.includes(lineField)) {
+        setLineField(numericCols.find((c) => c !== firstNumber) ?? firstNumber);
+      }
+      if (!locationField || !res.columns.includes(locationField)) setLocationField(firstString);
+      if (!rowField || !res.columns.includes(rowField)) setRowField(firstString);
+      if (!colField || !res.columns.includes(colField)) {
+        setColField(stringCols.find((c) => c !== firstString) ?? firstString);
+      }
       if (res.row_count === 1 && res.columns.length === 1 && !initial) setChartType("kpi");
     } catch (e) {
       setPreview(null);
@@ -259,13 +314,67 @@ export function BiBuilderPane({
       case "table":
         return { type: "table" };
       case "kpi":
-        return valueField ? { type: "kpi", valueField, label: kpiLabel || undefined } : null;
+        return valueField
+          ? {
+              type: "kpi",
+              valueField,
+              label: kpiLabel || undefined,
+              targetField: targetField || undefined,
+            }
+          : null;
+      case "gauge": {
+        const max = maxInput.trim() ? Number(maxInput) : undefined;
+        return valueField
+          ? {
+              type: "gauge",
+              valueField,
+              label: kpiLabel || undefined,
+              targetField: targetField || undefined,
+              max: max !== undefined && Number.isFinite(max) ? max : undefined,
+            }
+          : null;
+      }
       case "pie":
-        return nameField && valueField ? { type: "pie", nameField, valueField } : null;
+      case "funnel":
+      case "treemap":
+        return nameField && valueField ? { type: chartType, nameField, valueField } : null;
+      case "combo":
+        return xField && yField && lineField
+          ? { type: "combo", xField, barField: yField, lineField }
+          : null;
+      case "scatter":
+        return xField && yField
+          ? { type: "scatter", xField, yField, sizeField: sizeField || undefined }
+          : null;
+      case "heatmap":
+        return xField && yField && valueField
+          ? { type: "heatmap", xField, yField, valueField }
+          : null;
+      case "matrix":
+        return rowField && colField && valueField
+          ? { type: "matrix", rowField, colField, valueField }
+          : null;
+      case "map":
+      case "bubblemap":
+        return locationField && valueField ? { type: chartType, locationField, valueField } : null;
       default:
         return xField && yField ? { type: chartType, xField, yField } : null;
     }
-  }, [chartType, xField, yField, nameField, valueField, kpiLabel]);
+  }, [
+    chartType,
+    xField,
+    yField,
+    nameField,
+    valueField,
+    kpiLabel,
+    lineField,
+    sizeField,
+    rowField,
+    colField,
+    locationField,
+    targetField,
+    maxInput,
+  ]);
 
   const canSubmit = Boolean(title.trim() && sql.trim() && preview && chartSpec);
 
@@ -352,6 +461,29 @@ export function BiBuilderPane({
           <SelectValue placeholder="Pick a column" />
         </SelectTrigger>
         <SelectContent>
+          {(preview?.columns ?? []).map((c) => (
+            <SelectItem key={c} value={c} className="text-xs">
+              {c}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+
+  const optionalFieldSelect = (label: string, value: string, setter: (v: string) => void) => (
+    <div className="space-y-1">
+      <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {label}
+      </Label>
+      <Select value={value || "__none__"} onValueChange={(v) => setter(v === "__none__" ? "" : v)}>
+        <SelectTrigger className="h-8 text-xs">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="__none__" className="text-xs">
+            None
+          </SelectItem>
           {(preview?.columns ?? []).map((c) => (
             <SelectItem key={c} value={c} className="text-xs">
               {c}
@@ -551,24 +683,92 @@ export function BiBuilderPane({
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
-                  {(chartType === "bar" || chartType === "line" || chartType === "area") && (
+                  {(chartType === "bar" ||
+                    chartType === "hbar" ||
+                    chartType === "line" ||
+                    chartType === "area") && (
                     <>
-                      {fieldSelect("X axis", xField, setXField)}
-                      {fieldSelect("Y axis (numeric)", yField, setYField)}
+                      {fieldSelect(chartType === "hbar" ? "Category" : "X axis", xField, setXField)}
+                      {fieldSelect("Value (numeric)", yField, setYField)}
                     </>
                   )}
-                  {chartType === "pie" && (
+                  {chartType === "waterfall" && (
                     <>
-                      {fieldSelect("Category", nameField, setNameField)}
+                      {fieldSelect("Stage / step", xField, setXField)}
+                      {fieldSelect("Change (+/- numeric)", yField, setYField)}
+                    </>
+                  )}
+                  {chartType === "boxplot" && (
+                    <>
+                      {fieldSelect("Category", xField, setXField)}
+                      {fieldSelect("Value (numeric)", yField, setYField)}
+                    </>
+                  )}
+                  {(chartType === "pie" || chartType === "funnel" || chartType === "treemap") && (
+                    <>
+                      {fieldSelect(
+                        chartType === "funnel" ? "Stage" : "Category",
+                        nameField,
+                        setNameField,
+                      )}
                       {fieldSelect("Value (numeric)", valueField, setValueField)}
                     </>
                   )}
-                  {chartType === "kpi" && (
+                  {chartType === "combo" && (
+                    <>
+                      {fieldSelect("X axis", xField, setXField)}
+                      {fieldSelect("Bars (numeric)", yField, setYField)}
+                      {fieldSelect("Line (numeric)", lineField, setLineField)}
+                    </>
+                  )}
+                  {chartType === "scatter" && (
+                    <>
+                      {fieldSelect("X (numeric)", xField, setXField)}
+                      {fieldSelect("Y (numeric)", yField, setYField)}
+                      {optionalFieldSelect("Bubble size", sizeField, setSizeField)}
+                    </>
+                  )}
+                  {chartType === "heatmap" && (
+                    <>
+                      {fieldSelect("Columns (X)", xField, setXField)}
+                      {fieldSelect("Rows (Y)", yField, setYField)}
+                      {fieldSelect("Value (numeric)", valueField, setValueField)}
+                    </>
+                  )}
+                  {chartType === "matrix" && (
+                    <>
+                      {fieldSelect("Rows", rowField, setRowField)}
+                      {fieldSelect("Columns", colField, setColField)}
+                      {fieldSelect("Value (numeric)", valueField, setValueField)}
+                    </>
+                  )}
+                  {(chartType === "map" || chartType === "bubblemap") && (
+                    <>
+                      {fieldSelect("Location (country)", locationField, setLocationField)}
+                      {fieldSelect("Value (numeric)", valueField, setValueField)}
+                    </>
+                  )}
+                  {(chartType === "kpi" || chartType === "gauge") && (
                     <>
                       {fieldSelect("Value column", valueField, setValueField)}
+                      {optionalFieldSelect("Target column", targetField, setTargetField)}
+                      {chartType === "gauge" && (
+                        <div className="space-y-1">
+                          <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                            Max (optional)
+                          </Label>
+                          <Input
+                            value={maxInput}
+                            onChange={(e) => setMaxInput(e.target.value)}
+                            className="h-8 text-xs"
+                            placeholder="auto"
+                            inputMode="decimal"
+                          />
+                        </div>
+                      )}
                       <div className="space-y-1">
                         <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                          KPI label
+                          Label
                         </Label>
                         <Input
                           value={kpiLabel}
@@ -580,6 +780,12 @@ export function BiBuilderPane({
                     </>
                   )}
                 </div>
+                {(chartType === "map" || chartType === "bubblemap") && (
+                  <p className="text-[10px] text-muted-foreground">
+                    Locations are matched to countries by name or common shorthand (USA, UK…).
+                    Unmatched rows are counted on the map.
+                  </p>
+                )}
 
                 {/* Preview */}
                 <div className="rounded-lg border border-border/60 bg-card p-2">

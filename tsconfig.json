@@ -1,5 +1,13 @@
 {
-  "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts", "eslint.config.js", "trash/blog/blog.tsx", "trash/blog/blog.index.tsx", "trash/blog/blog.$slug.tsx"],
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "vite.config.ts",
+    "eslint.config.js",
+    "trash/blog/blog.tsx",
+    "trash/blog/blog.index.tsx",
+    "trash/blog/blog.$slug.tsx"
+  ],
   "compilerOptions": {
     "target": "ES2022",
     "jsx": "react-jsx",
@@ -9,6 +17,7 @@
 
     /* Bundler mode */
     "moduleResolution": "Bundler",
+    "resolveJsonModule": true,
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": false,
     "noEmit": true,

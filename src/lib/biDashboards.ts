@@ -98,6 +98,9 @@ export function defaultWidgetSize(widget: BiWidget): { w: number; h: number } {
   if (widget.kind === "text") return { w: 6, h: 3 };
   const t = widget.chart?.type;
   if (t === "kpi") return { w: 3, h: 3 };
+  if (t === "gauge") return { w: 4, h: 4 };
+  if (t === "map" || t === "bubblemap") return { w: 8, h: 6 };
+  if (t === "matrix") return { w: 8, h: 6 };
   return { w: 6, h: 6 };
 }
 

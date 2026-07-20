@@ -44,11 +44,23 @@ export type SavedMetric = {
 
 export type ChartSpec =
   | { type: "table" }
-  | { type: "kpi"; valueField: string; label?: string }
+  | { type: "kpi"; valueField: string; label?: string; targetField?: string }
   | { type: "bar"; xField: string; yField: string; seriesField?: string }
+  | { type: "hbar"; xField: string; yField: string }
   | { type: "line"; xField: string; yField: string; seriesField?: string }
+  | { type: "area"; xField: string; yField: string; seriesField?: string }
   | { type: "pie"; nameField: string; valueField: string }
-  | { type: "area"; xField: string; yField: string; seriesField?: string };
+  | { type: "combo"; xField: string; barField: string; lineField: string }
+  | { type: "scatter"; xField: string; yField: string; sizeField?: string }
+  | { type: "funnel"; nameField: string; valueField: string }
+  | { type: "waterfall"; xField: string; yField: string }
+  | { type: "gauge"; valueField: string; label?: string; targetField?: string; max?: number }
+  | { type: "treemap"; nameField: string; valueField: string }
+  | { type: "heatmap"; xField: string; yField: string; valueField: string }
+  | { type: "boxplot"; xField: string; yField: string }
+  | { type: "matrix"; rowField: string; colField: string; valueField: string }
+  | { type: "map"; locationField: string; valueField: string }
+  | { type: "bubblemap"; locationField: string; valueField: string };
 
 export type BiPlan = {
   intent: string;
@@ -219,10 +231,18 @@ export async function suggestChart(args: {
   const out = await llmJson<ChartSpec>({
     systemPrompt:
       "You pick the best chart for a SQL result. Output JSON only. " +
-      "Allowed types: 'bar','line','pie','area','kpi','table'. " +
-      "For time-series use 'line' or 'area'. For categorical comparisons use 'bar'. " +
-      "For part-of-whole with ≤8 rows use 'pie'. Use 'kpi' only for single-value results. " +
-      "Otherwise default to 'table'. xField/yField/nameField/valueField MUST be exact column names from the data.",
+      "Allowed types and their required fields:\n" +
+      "- 'bar','line','area': { xField, yField } — bar for categorical comparison, line/area for time series\n" +
+      "- 'pie': { nameField, valueField } — part-of-whole, ≤8 rows\n" +
+      "- 'kpi': { valueField, label? } — single-value results only\n" +
+      "- 'scatter': { xField, yField } — two numeric columns, correlation questions\n" +
+      "- 'combo': { xField, barField, lineField } — two measures on different scales over one dimension\n" +
+      "- 'funnel': { nameField, valueField } — sequential pipeline stages with decreasing values\n" +
+      "- 'waterfall': { xField, yField } — additive positive/negative contributions to a total\n" +
+      "- 'treemap': { nameField, valueField } — hierarchical/part-of-whole with many categories\n" +
+      "- 'heatmap': { xField, yField, valueField } — intensity across two categorical dimensions\n" +
+      "- 'table': {} — fallback\n" +
+      "All field values MUST be exact column names from the data.",
     userPrompt: `QUESTION: ${args.question}\nINTENT: ${args.plan.intent}\nCOLUMNS: ${args.result.columns.join(", ")}\nSAMPLE ROWS: ${JSON.stringify(sample)}\nROW COUNT: ${args.result.row_count}\n\nReturn JSON like { "type": "bar", "xField": "...", "yField": "..." }`,
   });
   return out;
