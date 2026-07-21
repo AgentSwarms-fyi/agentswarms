@@ -113,14 +113,48 @@ export async function retrieveCitationsServer(opts: {
   const kbIds = Array.from(new Set([...agentKbIds, ...(opts.extraKbIds ?? [])]));
   if (kbIds.length === 0) return [];
 
-  // 2) Vector search via pgvector — best-effort.
+  // 2) Vector search via pgvector — best-effort. The query must be embedded
+  // with the same model/provider the documents were embedded with, so read
+  // the embed config stamped on the KB's documents and resolve the caller's
+  // integration when it isn't the built-in OpenAI key.
   let vectorCits: Citation[] = [];
-  const openaiKey = process.env.OPENAI_API_KEY;
-  if (openaiKey) {
+  let embedKey = process.env.OPENAI_API_KEY ?? "";
+  let embedEndpoint: string | undefined;
+  let embedModel: string | undefined;
+  let allowCustomModel = false;
+  try {
+    const { data: metaDocs } = await sb
+      .from("knowledge_documents")
+      .select("metadata")
+      .in("knowledge_base_id", kbIds)
+      .limit(20);
+    const meta = (metaDocs ?? [])
+      .map((r) => r.metadata as { embedding_provider?: string; embedding_model?: string } | null)
+      .find((m) => m?.embedding_model);
+    if (meta?.embedding_model) embedModel = meta.embedding_model;
+    if (meta?.embedding_provider && meta.embedding_provider !== "openai_builtin" && opts.userId) {
+      const { resolveOpenAICompatTransport } = await import("@/utils/providers/credentials.server");
+      const t = await resolveOpenAICompatTransport({
+        userId: opts.userId,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        provider: meta.embedding_provider as any,
+      });
+      if (t && (t.apiKey || meta.embedding_provider === "ollama")) {
+        embedKey = t.apiKey ?? "";
+        embedEndpoint = t.endpointUrl.replace(/\/chat\/completions\/?$/, "/embeddings");
+        allowCustomModel = true;
+      }
+    }
+  } catch {
+    /* fall back to the built-in key */
+  }
+  if (embedKey || embedEndpoint) {
     try {
-      const [queryEmbedding] = await embedTexts([opts.query], openaiKey, undefined, {
+      const [queryEmbedding] = await embedTexts([opts.query], embedKey, embedModel, {
         userId: opts.userId ?? null,
         surface: "KB: Query Embedding",
+        endpoint: embedEndpoint,
+        allowCustomModel,
       });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data: matches, error: matchErr } = await (sb as any).rpc("match_kb_chunks", {

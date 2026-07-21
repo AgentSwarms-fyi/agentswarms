@@ -114,7 +114,7 @@ type VectorStoreDef = {
 const VECTOR_STORES: VectorStoreDef[] = [
   {
     id: "local",
-    name: "Built-in (pgvector + keyword fallback)",
+    name: "Supabase pgvector (default — configured)",
     description:
       "Documents are chunked and embedded with the embedding model you select above (OpenAI or Google), truncated to 1536 dims via Matryoshka so all models share one pgvector column with an HNSW cosine index. Retrieval embeds the query with the same model and runs semantic similarity search; any document that hasn't been embedded yet falls back to a keyword scan so nothing goes silent during back-fill.",
     fields: [],
@@ -137,6 +137,26 @@ const ALL_EMBEDDING_MODELS: EmbeddingModelDef[] = [
     label: "OpenAI text-embedding-3-large (→1536d) — Built-in",
     provider: "openai_builtin",
   },
+];
+
+// Providers whose integrations expose an OpenAI-compatible /embeddings
+// endpoint. "openai_builtin" = the operator's OPENAI_API_KEY (zero config).
+const EMBED_PROVIDERS: { id: string; label: string; models: string[] }[] = [
+  {
+    id: "openai_builtin",
+    label: "Built-in (operator OpenAI key)",
+    models: ["text-embedding-3-small", "text-embedding-3-large"],
+  },
+  {
+    id: "openai",
+    label: "OpenAI (your integration)",
+    models: ["text-embedding-3-small", "text-embedding-3-large"],
+  },
+  { id: "gemini", label: "Google Gemini", models: ["gemini-embedding-001"] },
+  { id: "ollama", label: "Ollama", models: ["nomic-embed-text", "mxbai-embed-large"] },
+  { id: "vllm", label: "vLLM", models: [] },
+  { id: "nvidia", label: "NVIDIA NIM", models: ["nvidia/nv-embed-v1"] },
+  { id: "qwen", label: "Qwen", models: ["text-embedding-v3"] },
 ];
 
 const CHUNKING_STRATEGIES = [
@@ -186,6 +206,8 @@ function KnowledgePage() {
   // Vector store settings
   const [vectorStore, setVectorStore] = useState("local");
   const [embeddingModel, setEmbeddingModel] = useState("text-embedding-3-small");
+  const [embedProvider, setEmbedProvider] = useState("openai_builtin");
+  const [customEmbedModel, setCustomEmbedModel] = useState("");
   const [chunkStrategy, setChunkStrategy] = useState("recursive");
   const [chunkSize, setChunkSize] = useState(512);
   const [chunkOverlap, setChunkOverlap] = useState(50);
@@ -210,6 +232,11 @@ function KnowledgePage() {
       ),
     [connectedProviders, embeddingModel],
   );
+  const embedProviderOptions = EMBED_PROVIDERS.filter(
+    (p) => p.id === "openai_builtin" || connectedProviders.has(p.id),
+  );
+  const embedModelSuggestions = EMBED_PROVIDERS.find((p) => p.id === embedProvider)?.models ?? [];
+  const effectiveEmbedModel = customEmbedModel.trim() || embeddingModel;
   const currentEmbeddingDef = ALL_EMBEDDING_MODELS.find((m) => m.value === embeddingModel);
   const isEmbeddingProviderConnected = currentEmbeddingDef
     ? connectedProviders.has(currentEmbeddingDef.provider)
@@ -393,7 +420,8 @@ function KnowledgePage() {
   async function addDoc() {
     if (!user || !selectedBase) return;
     const meta = {
-      embedding_model: embeddingModel,
+      embedding_model: effectiveEmbedModel,
+      embedding_provider: embedProvider,
       chunk_strategy: chunkStrategy,
       chunk_size: chunkSize,
       chunk_overlap: chunkOverlap,
@@ -439,7 +467,13 @@ function KnowledgePage() {
     const insertedIds = (inserted ?? []).map((r) => r.id);
     if (insertedIds.length > 0) {
       try {
-        await embedFn({ data: { documentIds: insertedIds } });
+        await embedFn({
+          data: {
+            documentIds: insertedIds,
+            provider: embedProvider,
+            model: effectiveEmbedModel,
+          },
+        });
       } catch (err) {
         console.warn("[knowledge] embedding failed:", err);
       }
@@ -608,20 +642,69 @@ function KnowledgePage() {
 
                   <TabsContent value="embedding" className="space-y-4 mt-4">
                     <div className="space-y-2">
-                      <Label>Embedding Model</Label>
-                      <Select value={embeddingModel} onValueChange={setEmbeddingModel}>
+                      <Label>Embedding Provider</Label>
+                      <Select
+                        value={embedProvider}
+                        onValueChange={(v) => {
+                          setEmbedProvider(v);
+                          setCustomEmbedModel("");
+                          const first = EMBED_PROVIDERS.find((p) => p.id === v)?.models[0];
+                          if (first) setEmbeddingModel(first);
+                        }}
+                      >
                         <SelectTrigger>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {availableEmbeddingModels.map((m) => (
-                            <SelectItem key={m.value} value={m.value}>
-                              {m.label}
-                              {!connectedProviders.has(m.provider) && " (not connected)"}
+                          {embedProviderOptions.map((p) => (
+                            <SelectItem key={p.id} value={p.id}>
+                              {p.label}
                             </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
+                      <Label className="pt-1">Embedding Model</Label>
+                      {embedModelSuggestions.length > 0 && (
+                        <Select
+                          value={
+                            customEmbedModel
+                              ? "__custom__"
+                              : embedModelSuggestions.includes(embeddingModel)
+                                ? embeddingModel
+                                : "__custom__"
+                          }
+                          onValueChange={(v) => {
+                            if (v === "__custom__") setCustomEmbedModel(embeddingModel);
+                            else {
+                              setEmbeddingModel(v);
+                              setCustomEmbedModel("");
+                            }
+                          }}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {embedModelSuggestions.map((m) => (
+                              <SelectItem key={m} value={m}>
+                                {m}
+                              </SelectItem>
+                            ))}
+                            <SelectItem value="__custom__">Custom model name…</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      )}
+                      {(customEmbedModel !== "" || embedModelSuggestions.length === 0) && (
+                        <Input
+                          value={customEmbedModel}
+                          onChange={(e) => setCustomEmbedModel(e.target.value)}
+                          placeholder="Model name, e.g. text-embedding-3-small"
+                        />
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        Custom models must return 1536-dim vectors (or support dimension truncation)
+                        to match the pgvector column — mismatches are rejected with a clear error.
+                      </p>
                       <p className="text-xs text-muted-foreground">
                         Only models from connected providers are listed.{" "}
                         <Link to="/integrations" className="text-primary underline">
@@ -841,7 +924,12 @@ function KnowledgePage() {
                               );
                               try {
                                 const r = await backfillFn({
-                                  data: { knowledgeBaseId: selectedBase.id, limit: 100 },
+                                  data: {
+                                    knowledgeBaseId: selectedBase.id,
+                                    limit: 100,
+                                    provider: embedProvider,
+                                    model: effectiveEmbedModel,
+                                  },
                                 });
                                 if (r.skipped)
                                   toast.error("Embeddings are unavailable on this workspace.", {

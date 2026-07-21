@@ -143,21 +143,33 @@ export async function embedTexts(
   texts: string[],
   openaiKey: string,
   model: string = DEFAULT_EMBED_MODEL,
-  opts?: { userId?: string | null; surface?: string },
+  opts?: {
+    userId?: string | null;
+    surface?: string;
+    /** OpenAI-compatible /embeddings endpoint (integration BYOK). */
+    endpoint?: string;
+    /** Skip the built-in model allow-list (custom integration models). */
+    allowCustomModel?: boolean;
+  },
 ): Promise<number[][]> {
   if (texts.length === 0) return [];
-  if (!openaiKey) throw new Error("OPENAI_API_KEY is not configured");
-  const useModel = SUPPORTED_EMBED_MODELS.has(model) ? model : DEFAULT_EMBED_MODEL;
+  const endpoint = opts?.endpoint ?? "https://api.openai.com/v1/embeddings";
+  if (!openaiKey && !opts?.endpoint) throw new Error("OPENAI_API_KEY is not configured");
+  const useModel = opts?.allowCustomModel
+    ? model
+    : SUPPORTED_EMBED_MODELS.has(model)
+      ? model
+      : DEFAULT_EMBED_MODEL;
 
   const out: number[][] = [];
   for (let i = 0; i < texts.length; i += EMBED_BATCH) {
     const batch = texts.slice(i, i + EMBED_BATCH);
     const tStart = Date.now();
-    const res = await fetch("https://api.openai.com/v1/embeddings", {
+    const res = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${openaiKey}`,
+        ...(openaiKey ? { Authorization: `Bearer ${openaiKey}` } : {}),
       },
       body: JSON.stringify({
         model: useModel,
@@ -256,6 +268,9 @@ export async function embedAndStoreDocuments(opts: {
   // Attribute embedding gateway calls to this user in execution_traces.
   userId?: string | null;
   surface?: string;
+  /** OpenAI-compatible /embeddings endpoint + custom-model flag (BYOK). */
+  endpoint?: string;
+  allowCustomModel?: boolean;
 }): Promise<{ documentsProcessed: number; chunksInserted: number }> {
   const { sb, docs, openaiKey } = opts;
   if (docs.length === 0) return { documentsProcessed: 0, chunksInserted: 0 };
@@ -320,6 +335,8 @@ export async function embedAndStoreDocuments(opts: {
   for (const [model, indices] of byModel) {
     const inputs = indices.map((i) => rows[i].content);
     const vectors = await embedTexts(inputs, openaiKey, model, {
+      endpoint: opts.endpoint,
+      allowCustomModel: opts.allowCustomModel,
       userId: opts.userId ?? null,
       surface: opts.surface,
     });
