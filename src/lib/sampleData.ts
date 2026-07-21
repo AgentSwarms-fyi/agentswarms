@@ -13,6 +13,9 @@ import autoClaimsCsvUrl from "@/assets/sample-data/auto_claims_history.csv?url";
 import factoryDefectsCsvUrl from "@/assets/sample-data/factory_defect_log.csv?url";
 import siemAlertsCsvUrl from "@/assets/sample-data/siem_alerts.csv?url";
 import ecomReturnsCsvUrl from "@/assets/sample-data/ecom_returns.csv?url";
+import nbaSeasonsCsvUrl from "@/assets/sample-data/nba_team_seasons.csv?url";
+import worldHealthCsvUrl from "@/assets/sample-data/world_health_indicators.csv?url";
+import globalElectricityCsvUrl from "@/assets/sample-data/global_electricity.csv?url";
 import { parseCsv } from "@/lib/sqlEngine";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -46,16 +49,54 @@ export const SIEM_ALERTS_FILENAME = "SIEM_Alerts.csv";
 export const ECOM_RETURNS_TABLE_NAME = "ecom_returns";
 export const ECOM_RETURNS_FILENAME = "Ecom_Returns.csv";
 
+// Eighth — Sports analytics (FiveThirtyEight NBA Elo, CC-BY 4.0),
+// aggregated to team-seasons 1977-2015. Backs the sample BI dashboard.
+export const NBA_SEASONS_TABLE_NAME = "nba_team_seasons";
+export const NBA_SEASONS_FILENAME = "NBA_Team_Seasons.csv";
+
+// Ninth — Healthcare (World Bank Open Data, CC-BY 4.0): life expectancy,
+// health spending, physicians, infant mortality for 45 countries 2000-2022.
+export const WORLD_HEALTH_TABLE_NAME = "world_health_indicators";
+export const WORLD_HEALTH_FILENAME = "World_Health_Indicators.csv";
+
+// Tenth — Energy & utilities (Our World in Data energy dataset, CC-BY 4.0):
+// electricity generation by source for World + 28 countries, 1990-2023.
+export const GLOBAL_ELECTRICITY_TABLE_NAME = "global_electricity";
+export const GLOBAL_ELECTRICITY_FILENAME = "Global_Electricity.csv";
+
 type SampleSpec = { tableName: string; filename: string; csvUrl: string };
 
 const SAMPLES: SampleSpec[] = [
   { tableName: SAMPLE_TABLE_NAME, filename: SAMPLE_FILENAME, csvUrl: sampleCsvUrl },
   { tableName: BUDGET_TABLE_NAME, filename: BUDGET_FILENAME, csvUrl: budgetCsvUrl },
-  { tableName: ADVERSE_EVENTS_TABLE_NAME, filename: ADVERSE_EVENTS_FILENAME, csvUrl: adverseEventsCsvUrl },
+  {
+    tableName: ADVERSE_EVENTS_TABLE_NAME,
+    filename: ADVERSE_EVENTS_FILENAME,
+    csvUrl: adverseEventsCsvUrl,
+  },
   { tableName: AUTO_CLAIMS_TABLE_NAME, filename: AUTO_CLAIMS_FILENAME, csvUrl: autoClaimsCsvUrl },
-  { tableName: FACTORY_DEFECTS_TABLE_NAME, filename: FACTORY_DEFECTS_FILENAME, csvUrl: factoryDefectsCsvUrl },
+  {
+    tableName: FACTORY_DEFECTS_TABLE_NAME,
+    filename: FACTORY_DEFECTS_FILENAME,
+    csvUrl: factoryDefectsCsvUrl,
+  },
   { tableName: SIEM_ALERTS_TABLE_NAME, filename: SIEM_ALERTS_FILENAME, csvUrl: siemAlertsCsvUrl },
-  { tableName: ECOM_RETURNS_TABLE_NAME, filename: ECOM_RETURNS_FILENAME, csvUrl: ecomReturnsCsvUrl },
+  {
+    tableName: ECOM_RETURNS_TABLE_NAME,
+    filename: ECOM_RETURNS_FILENAME,
+    csvUrl: ecomReturnsCsvUrl,
+  },
+  { tableName: NBA_SEASONS_TABLE_NAME, filename: NBA_SEASONS_FILENAME, csvUrl: nbaSeasonsCsvUrl },
+  {
+    tableName: WORLD_HEALTH_TABLE_NAME,
+    filename: WORLD_HEALTH_FILENAME,
+    csvUrl: worldHealthCsvUrl,
+  },
+  {
+    tableName: GLOBAL_ELECTRICITY_TABLE_NAME,
+    filename: GLOBAL_ELECTRICITY_FILENAME,
+    csvUrl: globalElectricityCsvUrl,
+  },
 ];
 
 // Returns true if at least one fresh seed was performed; false if all already existed.
@@ -98,7 +139,8 @@ async function seedPublicSample(spec: SampleSpec): Promise<void> {
     _source_filename: spec.filename,
     _columns: columns as any,
   });
-  if (upsertErr || !tableId) throw new Error(upsertErr?.message || "Failed to register sample table");
+  if (upsertErr || !tableId)
+    throw new Error(upsertErr?.message || "Failed to register sample table");
 
   const { count } = await supabase
     .from("user_data_rows")

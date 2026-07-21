@@ -57,6 +57,27 @@ node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json
 | [pdfjs-dist](https://github.com/mozilla/pdf.js) | Apache-2.0 | PDF text extraction for knowledge bases |
 | [mammoth](https://github.com/mwilliamson/mammoth.js) | BSD-2-Clause | DOCX text extraction for knowledge bases |
 
+### Bundled open datasets
+
+The sample datasets under `src/assets/sample-data/` include cleaned extracts
+of these open data sources (all CC-BY 4.0 — attribution required, retained
+here and in the in-app dashboard descriptions):
+
+- **[FiveThirtyEight NBA Elo](https://github.com/fivethirtyeight/data/tree/master/nba-elo)**
+  — `nba_team_seasons.csv`, game-level Elo aggregated to team-seasons
+  (1977–2015).
+- **[World Bank Open Data](https://data.worldbank.org/)** —
+  `world_health_indicators.csv`: life expectancy, health expenditure,
+  physicians, infant mortality and population for 45 countries (2000–2022).
+- **[Our World in Data — Energy](https://github.com/owid/energy-data)**
+  (Ember & Energy Institute source data) — `global_electricity.csv`:
+  electricity generation by source for the world and 28 countries
+  (1990–2023).
+
+Sample dashboard backgrounds use public-domain NASA imagery
+([NASA Image and Video Library](https://images.nasa.gov/): Black Marble city
+lights, ISS aurora, SDO sun).
+
 ## Backend & connectivity
 
 | Project | License | Used for |
