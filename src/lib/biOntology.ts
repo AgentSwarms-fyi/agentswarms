@@ -61,9 +61,12 @@ export type OntologyRelation = {
   /** Short verb phrase, e.g. "places", "belongs to", "derived from". */
   label: string;
   kind: OntologyRelationKind;
+  /** Field-level anchors: column names — or a document name on a KB side. */
   keys?: { from: string; to: string };
   cardinality?: OntologyCardinality;
   confidence: "high" | "medium" | "low";
+  /** Why the AI believes this relation holds (quoted signal). */
+  evidence?: string;
 };
 
 export type OntologySpec = {
@@ -83,8 +86,19 @@ export type OntologySourceInputs = {
   semantics: Map<string, SemanticEntry>;
   preparedTables: Set<string>;
   warehouses: { id: string; name: string; tables: WarehouseTable[] }[];
-  knowledgeBases: { id: string; name: string; docCount: number; docs?: string[] }[];
+  knowledgeBases: {
+    id: string;
+    name: string;
+    docCount: number;
+    docs?: string[];
+    /** Content excerpts per document — AI signal for content-level links. */
+    docExcerpts?: { name: string; excerpt: string }[];
+  }[];
   prepFlows: { name: string; outputTable: string | null; sources: string[] }[];
+  /** Sample rows by local table name — AI signal for value-level links. */
+  tableSamples?: Map<string, Record<string, unknown>[]>;
+  /** Result of a user-provided SQL query, sent to the AI as extra signal. */
+  customSample?: { sql: string; rows: Record<string, unknown>[] };
 };
 
 const MAX_ONTOLOGY_ENTITIES = 80;
@@ -311,25 +325,111 @@ type AiEntityPatch = {
   domain?: string;
   description?: string;
 };
-type AiRelation = { from?: string; to?: string; label?: string; cardinality?: string };
+type AiRelation = {
+  from?: string;
+  to?: string;
+  label?: string;
+  cardinality?: string;
+  keys?: { from?: string; to?: string };
+  evidence?: string;
+};
 type AiOntologyOut = { summary?: string; entities?: AiEntityPatch[]; relations?: AiRelation[] };
 
-function describeForPrompt(entities: OntologyEntity[], relations: OntologyRelation[]): string {
+export type OntologyAiContext = {
+  /** Entity id → sample rows (values shown truncated in the prompt). */
+  samples?: Map<string, Record<string, unknown>[]>;
+  /** Entity id (KB) → document content excerpts. */
+  docExcerpts?: Map<string, { name: string; excerpt: string }[]>;
+  /** Result of a user-provided SQL query, with the query itself. */
+  customSample?: { sql: string; rows: Record<string, unknown>[] };
+};
+
+const SAMPLE_COLS_IN_PROMPT = 12;
+const SAMPLE_VALUE_CHARS = 40;
+const DOC_EXCERPT_CHARS = 450;
+// Row counts are user-configurable, so the prompt is bounded by characters,
+// not rows: narrow tables fit many rows, wide tables get truncated.
+const SAMPLE_TABLE_CHAR_BUDGET = 6_000;
+const SAMPLE_TOTAL_CHAR_BUDGET = 40_000;
+const CUSTOM_SAMPLE_CHAR_BUDGET = 8_000;
+
+/** Serialize as many rows as fit in `budget` chars; note what was cut. */
+export function sampleForPrompt(rows: Record<string, unknown>[], budget: number): string {
+  const out: string[] = [];
+  let used = 0;
+  for (const r of rows) {
+    const s = JSON.stringify(
+      Object.fromEntries(
+        Object.entries(r)
+          .slice(0, SAMPLE_COLS_IN_PROMPT)
+          .map(([k, v]) => [k, typeof v === "string" ? v.slice(0, SAMPLE_VALUE_CHARS) : v]),
+      ),
+    );
+    if (out.length > 0 && used + s.length > budget) break;
+    out.push(s);
+    used += s.length;
+  }
+  const more = rows.length - out.length;
+  return `[${out.join(",")}]${more > 0 ? ` …(+${more} more rows)` : ""}`;
+}
+
+function describeForPrompt(
+  entities: OntologyEntity[],
+  relations: OntologyRelation[],
+  aiCtx?: OntologyAiContext,
+): string {
   const entityLines = entities.map((e) => {
     const cols = e.fields
-      .slice(0, 12)
+      .slice(0, 24)
       .map((f) => `${f.name}:${f.type}${f.semantic ? `/${f.semantic}` : ""}`)
       .join(", ");
     const rows = e.rowCount !== undefined ? ` rows=${e.rowCount}` : "";
     const desc = e.description ? ` -- ${e.description.slice(0, 90)}` : "";
     return `- ${e.id} | ${e.table} | source=${e.source}${rows} | ${cols || "(documents)"}${desc}`;
   });
+
+  const sampleLines: string[] = [];
+  let sampleCharsUsed = 0;
+  for (const e of entities) {
+    const rows = aiCtx?.samples?.get(e.id);
+    if (!rows || rows.length === 0) continue;
+    const budget = Math.min(SAMPLE_TABLE_CHAR_BUDGET, SAMPLE_TOTAL_CHAR_BUDGET - sampleCharsUsed);
+    if (budget <= 0) break;
+    const s = sampleForPrompt(rows, budget);
+    sampleCharsUsed += s.length;
+    sampleLines.push(`- ${e.id}: ${s}`);
+  }
+
+  const excerptLines: string[] = [];
+  for (const e of entities) {
+    for (const d of aiCtx?.docExcerpts?.get(e.id) ?? []) {
+      const excerpt = d.excerpt.replace(/\s+/g, " ").trim().slice(0, DOC_EXCERPT_CHARS);
+      if (excerpt) excerptLines.push(`- ${e.id} document "${d.name}": ${excerpt}`);
+    }
+  }
+
+  const customLines: string[] = [];
+  if (aiCtx?.customSample && aiCtx.customSample.rows.length > 0) {
+    customLines.push(
+      `SQL: ${aiCtx.customSample.sql.replace(/\s+/g, " ").trim().slice(0, 500)}`,
+      `ROWS: ${sampleForPrompt(aiCtx.customSample.rows, CUSTOM_SAMPLE_CHAR_BUDGET)}`,
+    );
+  }
+
   const relLines = relations.map(
     (r) => `- ${r.from} -> ${r.to} (${r.kind}${r.keys ? `, ${r.keys.from}=${r.keys.to}` : ""})`,
   );
   return [
     "ENTITIES:",
     ...entityLines,
+    sampleLines.length ? "\nSAMPLE ROWS (real values, truncated):" : "",
+    ...sampleLines,
+    excerptLines.length ? "\nDOCUMENT EXCERPTS (real content, truncated):" : "",
+    ...excerptLines,
+    customLines.length
+      ? "\nCUSTOM SQL SAMPLE (the user ran this query to expose relationships):"
+      : "",
+    ...customLines,
     relLines.length ? "\nDETECTED RELATIONS (from keys, join hints and prep lineage):" : "",
     ...relLines,
   ]
@@ -343,37 +443,34 @@ function flipCardinality(c?: OntologyCardinality): OntologyCardinality | undefin
   return c === "1:N" ? "N:1" : c === "N:1" ? "1:N" : c;
 }
 
-export async function enrichOntology(args: {
-  entities: OntologyEntity[];
-  relations: OntologyRelation[];
-  model?: string;
-}): Promise<{ summary: string; entities: OntologyEntity[]; relations: OntologyRelation[] }> {
-  const out = await llmJson<AiOntologyOut>({
-    model: args.model,
-    systemPrompt:
-      "You are a data architect building a business ontology of an organisation's data estate. " +
-      "Classify entities, name their business domains and label relationships. Output JSON only. " +
-      "Rules: use ONLY the entity ids given; every entity gets a category from " +
-      `[${ONTOLOGY_CATEGORIES.join(", ")}], a short business domain ("Sales", "Customers", ` +
-      '"Operations"…), a business name and a description of at most 18 words. ' +
-      "Label EVERY detected relation with a verb phrase of at most 4 words plus a cardinality. " +
-      "You may add NEW relations between listed entities (including knowledge bases that " +
-      "document a subject area) ONLY when the names/columns clearly support them — never " +
-      "invent speculative links. Group related entities under the same domain.",
-    userPrompt:
-      `${describeForPrompt(args.entities, args.relations)}\n\n` +
-      'Return JSON: { "summary": "2-3 sentence executive overview of this data estate", ' +
-      '"entities": [{ "id", "businessName", "category", "domain", "description" }], ' +
-      '"relations": [{ "from", "to", "label", "cardinality": "1:1|1:N|N:1|N:M" }] } — ' +
-      "relations must include a labelled entry for every detected relation, plus any new ones.",
-  });
+/** Validate a field-level anchor pair against real fields (drop when bogus). */
+function validKeys(
+  byId: Map<string, OntologyEntity>,
+  from: string,
+  to: string,
+  keys?: { from?: string; to?: string },
+): { from: string; to: string } | undefined {
+  if (!keys?.from || !keys?.to) return undefined;
+  const hasField = (id: string, name: string) =>
+    byId.get(id)?.fields.some((f) => f.name.toLowerCase() === name.toLowerCase());
+  return hasField(from, keys.from) && hasField(to, keys.to)
+    ? { from: keys.from, to: keys.to }
+    : undefined;
+}
 
-  const ids = new Set(args.entities.map((e) => e.id));
+/** Pure merge of the AI's output into the detected structure (testable). */
+export function applyEnrichment(
+  baseEntities: OntologyEntity[],
+  baseRelations: OntologyRelation[],
+  out: AiOntologyOut,
+): { summary: string; entities: OntologyEntity[]; relations: OntologyRelation[] } {
+  const ids = new Set(baseEntities.map((e) => e.id));
+  const byId = new Map(baseEntities.map((e) => [e.id, e]));
   const patchById = new Map<string, AiEntityPatch>();
   for (const p of out.entities ?? []) {
     if (p.id && ids.has(p.id)) patchById.set(p.id, p);
   }
-  const entities = args.entities.map((e) => {
+  const entities = baseEntities.map((e) => {
     const p = patchById.get(e.id);
     const category = ONTOLOGY_CATEGORIES.includes(p?.category as OntologyCategory)
       ? (p!.category as OntologyCategory)
@@ -388,14 +485,14 @@ export async function enrichOntology(args: {
   });
 
   const aiRels = (out.relations ?? []).filter(
-    (r): r is Required<AiRelation> =>
+    (r): r is AiRelation & { from: string; to: string } =>
       typeof r.from === "string" && typeof r.to === "string" && ids.has(r.from) && ids.has(r.to),
   );
   const findAi = (from: string, to: string) =>
     aiRels.find((r) => r.from === from && r.to === to) ??
     aiRels.find((r) => r.from === to && r.to === from);
 
-  const relations: OntologyRelation[] = args.relations.map((r) => {
+  const relations: OntologyRelation[] = baseRelations.map((r) => {
     const ai = findAi(r.from, r.to);
     if (!ai) return r;
     const reversed = ai.from === r.to;
@@ -406,6 +503,7 @@ export async function enrichOntology(args: {
       ...r,
       label: (ai.label ?? "").trim().slice(0, 40) || r.label,
       cardinality: (reversed ? flipCardinality(card) : card) ?? r.cardinality,
+      evidence: (ai.evidence ?? "").trim().slice(0, 160) || undefined,
     };
   });
 
@@ -425,10 +523,12 @@ export async function enrichOntology(args: {
       to: ai.to,
       label: (ai.label ?? "").trim().slice(0, 40) || "relates to",
       kind: "semantic",
+      keys: validKeys(byId, ai.from, ai.to, ai.keys),
       cardinality: CARDINALITIES.has(ai.cardinality ?? "")
         ? (ai.cardinality as OntologyCardinality)
         : undefined,
       confidence: "medium",
+      evidence: (ai.evidence ?? "").trim().slice(0, 160) || undefined,
     };
     covered.add(relKey(rel));
     relations.push(rel);
@@ -440,6 +540,41 @@ export async function enrichOntology(args: {
     entities,
     relations: relations.slice(0, MAX_RELATIONS),
   };
+}
+
+export async function enrichOntology(args: {
+  entities: OntologyEntity[];
+  relations: OntologyRelation[];
+  aiCtx?: OntologyAiContext;
+  model?: string;
+}): Promise<{ summary: string; entities: OntologyEntity[]; relations: OntologyRelation[] }> {
+  const out = await llmJson<AiOntologyOut>({
+    model: args.model,
+    systemPrompt:
+      "You are a data architect building a business ontology of an organisation's data estate. " +
+      "Classify entities, name their business domains and find every real relationship. Output JSON only. " +
+      "Rules: use ONLY the entity ids given; every entity gets a category from " +
+      `[${ONTOLOGY_CATEGORIES.join(", ")}], a short business domain ("Sales", "Customers", ` +
+      '"Operations"…), a business name and a description of at most 18 words. ' +
+      "Label EVERY detected relation with a verb phrase of at most 4 words plus a cardinality. " +
+      "Study the SAMPLE ROWS and DOCUMENT EXCERPTS carefully — they are real data. Add NEW " +
+      "relations between listed entities whenever the schema, sample values or document content " +
+      "supports them (a document that explains, defines or references a table's subject matter " +
+      "IS a relation). When the evidence points at a specific column or document, set " +
+      '"keys": { "from": "<column or document name on the from-side>", "to": "<column or ' +
+      'document name on the to-side>" } using EXACT names from the entity definitions. ' +
+      'Give every relation a short "evidence" phrase (max 20 words) quoting the signal you ' +
+      "used. Be honest: no speculative links, and never invent evidence. " +
+      "Group related entities under the same domain.",
+    userPrompt:
+      `${describeForPrompt(args.entities, args.relations, args.aiCtx)}\n\n` +
+      'Return JSON: { "summary": "2-3 sentence executive overview of this data estate", ' +
+      '"entities": [{ "id", "businessName", "category", "domain", "description" }], ' +
+      '"relations": [{ "from", "to", "label", "cardinality": "1:1|1:N|N:1|N:M", ' +
+      '"keys": { "from", "to" }?, "evidence" }] } — relations must include a labelled entry ' +
+      "for every detected relation, plus every new one the data supports.",
+  });
+  return applyEnrichment(args.entities, args.relations, out);
 }
 
 // ── Orchestrator ─────────────────────────────────────────────────────────
@@ -486,11 +621,27 @@ export async function buildOntology(args: {
     notes.push(`Showing the ${MAX_ONTOLOGY_ENTITIES} most connected of ${total} entities.`);
   }
 
+  // Real-data signal for the AI: sample rows keyed by entity id, and
+  // document excerpts keyed by the knowledge base's entity id.
+  const samples = new Map<string, Record<string, unknown>[]>();
+  for (const [table, rows] of args.inputs.tableSamples ?? []) {
+    if (rows.length > 0) samples.set(localId(table), rows);
+  }
+  const docExcerpts = new Map<string, { name: string; excerpt: string }[]>();
+  for (const kb of args.inputs.knowledgeBases) {
+    if (kb.docExcerpts?.length) docExcerpts.set(`kb:${kb.id}`, kb.docExcerpts);
+  }
+
   let summary = "";
   let aiEnriched = false;
   try {
     args.onProgress?.("enriching");
-    const enriched = await enrichOntology({ entities, relations, model: args.model });
+    const enriched = await enrichOntology({
+      entities,
+      relations,
+      aiCtx: { samples, docExcerpts, customSample: args.inputs.customSample },
+      model: args.model,
+    });
     entities = enriched.entities;
     relations = enriched.relations;
     summary = enriched.summary;

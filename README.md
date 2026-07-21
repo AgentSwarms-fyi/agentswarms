@@ -168,10 +168,17 @@ and reports. An editable dashboard is called a **BI project**:
   counts — then hit **Build ontology with AI**: relationships are
   first detected deterministically (semantic-layer join hints, `*_id` →
   target-table key matching across sources, data-prep lineage), then one
-  AI pass classifies every entity (master data / transactions / events /
+  AI pass — fed **real sample rows** from each selected table (schema
+  only, or 5–200 rows per table, default 50; plus an optional **custom
+  SQL query** whose result is sent as extra signal) and **real content
+  excerpts** from each selected knowledge base's documents —
+  classifies every entity (master data / transactions / events /
   reference / metrics / documents), groups them into business domains,
-  labels each relationship with a verb and cardinality, infers additional
-  cross-source links and writes an executive summary. The result renders
+  labels each relationship with a verb and cardinality, and infers
+  additional cross-source links down to the **field level** (a document
+  that explains a table's subject links to the exact column, with a
+  quoted **evidence** phrase for every relation — hover any edge to read
+  it) before writing an executive summary. The result renders
   as an interactive force-directed map — entity cards with source badges
   and row/column counts inside shaded domain clusters, typed edges
   (solid = join key, dotted = prep lineage, dashed = AI-inferred) with

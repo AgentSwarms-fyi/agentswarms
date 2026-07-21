@@ -223,6 +223,10 @@ export function BiBuilderPane({
   const kbListPromiseRef = useRef<Promise<OntoKb[]> | null>(null);
   const [ontoSpec, setOntoSpec] = useState<OntologySpec | null>(null);
   const [ontoBuilding, setOntoBuilding] = useState<OntologyBuildStage | null>(null);
+  /** Rows fetched per table as AI signal ("0" = schema only). */
+  const [ontoSampleRows, setOntoSampleRows] = useState("50");
+  /** Optional user SQL whose result is sent to the AI as extra signal. */
+  const [ontoSampleSql, setOntoSampleSql] = useState("");
   // Async build reads warehouse schemas through a ref so it sees fresh state.
   const whTablesRef = useRef(ctx.whTables);
   whTablesRef.current = ctx.whTables;
@@ -497,11 +501,67 @@ export function BiBuilderPane({
         return [{ id, name: conn?.name ?? "warehouse", tables: chosen }];
       });
 
-      let knowledgeBases: OntoKb[] = [];
+      // Real data for the AI: the chosen number of rows per local table…
+      const sampleLimit = Math.max(0, Math.min(200, Number(ontoSampleRows) || 0));
+      const tableSamples = new Map<string, Record<string, unknown>[]>();
+      if (sampleLimit > 0) {
+        for (const d of localDatasets.slice(0, 12)) {
+          try {
+            const res = await ctx.runSql(
+              { kind: "local" },
+              `SELECT * FROM \`${d.name}\` LIMIT ${sampleLimit}`,
+            );
+            if (res.rows.length > 0) tableSamples.set(d.name, res.rows);
+          } catch {
+            /* samples are AI signal only — skip tables that fail */
+          }
+        }
+      }
+
+      // …plus the user's custom query, when provided.
+      let customSample: { sql: string; rows: Record<string, unknown>[] } | undefined;
+      if (ontoSampleSql.trim()) {
+        try {
+          const res = await ctx.runSql({ kind: "local" }, ontoSampleSql.trim());
+          if (res.rows.length > 0) {
+            customSample = { sql: ontoSampleSql.trim(), rows: res.rows.slice(0, 200) };
+          } else {
+            toast.warning("The custom sample query returned no rows — it was skipped.");
+          }
+        } catch (e) {
+          toast.warning(`Custom sample query failed (${(e as Error).message}) — it was skipped.`);
+        }
+      }
+
+      // …and content excerpts from the selected knowledge bases' documents.
+      let knowledgeBases: (OntoKb & { docExcerpts?: { name: string; excerpt: string }[] })[] = [];
       if (ontoKbSel === "all" || ontoKbSel.size > 0) {
         try {
           const list = await ensureOntoKbList();
           knowledgeBases = list.filter((k) => selHas(ontoKbSel, k.id));
+          if (knowledgeBases.length > 0) {
+            const { data } = await supabase
+              .from("knowledge_documents")
+              .select("name, knowledge_base_id, content")
+              .in(
+                "knowledge_base_id",
+                knowledgeBases.map((k) => k.id),
+              )
+              .not("content", "is", null)
+              .limit(60);
+            const byKb = new Map<string, { name: string; excerpt: string }[]>();
+            for (const doc of data ?? []) {
+              const excerpt = (doc.content ?? "").trim().slice(0, 600);
+              if (!excerpt) continue;
+              const arr = byKb.get(doc.knowledge_base_id) ?? [];
+              if (arr.length < 6) arr.push({ name: doc.name, excerpt });
+              byKb.set(doc.knowledge_base_id, arr);
+            }
+            knowledgeBases = knowledgeBases.map((k) => ({
+              ...k,
+              docExcerpts: byKb.get(k.id) ?? [],
+            }));
+          }
         } catch {
           toast.warning("Couldn't load the knowledge bases — they were skipped.");
         }
@@ -528,6 +588,8 @@ export function BiBuilderPane({
           warehouses: whInputs,
           knowledgeBases,
           prepFlows,
+          tableSamples,
+          customSample,
         },
         model: ctx.model ?? undefined,
         onProgress: setOntoBuilding,
@@ -1222,6 +1284,39 @@ export function BiBuilderPane({
                       )}
                     </div>
                   </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Data sample for the AI
+                  </Label>
+                  <div className="flex items-center gap-2">
+                    <Select value={ontoSampleRows} onValueChange={setOntoSampleRows}>
+                      <SelectTrigger className="h-8 w-40 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="0" className="text-xs">
+                          Schema only — no rows
+                        </SelectItem>
+                        {["5", "10", "25", "50", "100", "200"].map((n) => (
+                          <SelectItem key={n} value={n} className="text-xs">
+                            {n} rows per table
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <span className="text-[10px] leading-tight text-muted-foreground">
+                      Real values sent to the AI to find relationships
+                    </span>
+                  </div>
+                  <Textarea
+                    value={ontoSampleSql}
+                    onChange={(e) => setOntoSampleSql(e.target.value)}
+                    rows={2}
+                    className="font-mono text-xs"
+                    placeholder="Optional custom SQL — its result is given to the AI as extra signal (runs on local & prepared datasets)"
+                  />
                 </div>
 
                 {ctx.onModelChange && (

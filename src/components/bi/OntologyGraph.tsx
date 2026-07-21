@@ -293,10 +293,16 @@ export function OntologyGraph({
   const [view, setView] = useState({ x: 0, y: 0, k: 1 });
   const [active, setActive] = useState<string | null>(null);
   const [pinned, setPinned] = useState<string | null>(null);
+  const [activeEdge, setActiveEdge] = useState<number | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const dragRef = useRef<{ x: number; y: number; vx: number; vy: number; moved: boolean } | null>(
-    null,
-  );
+  const dragRef = useRef<{
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    moved: boolean;
+    pointerId: number;
+  } | null>(null);
 
   const layout = useMemo(() => computeLayout(spec, expanded), [spec, expanded]);
 
@@ -431,13 +437,16 @@ export function OntologyGraph({
             height={size.h}
             className="block cursor-grab touch-none select-none active:cursor-grabbing"
             onPointerDown={(e) => {
-              (e.currentTarget as SVGSVGElement).setPointerCapture(e.pointerId);
+              // No capture yet — capturing on pointerdown retargets the
+              // pointerup away from cards, which kills click-to-pin and the
+              // drill-in toggles. Capture starts once a real drag moves.
               dragRef.current = {
                 x: e.clientX,
                 y: e.clientY,
                 vx: view.x,
                 vy: view.y,
                 moved: false,
+                pointerId: e.pointerId,
               };
             }}
             onPointerMove={(e) => {
@@ -445,7 +454,10 @@ export function OntologyGraph({
               if (!d) return;
               const dx = e.clientX - d.x;
               const dy = e.clientY - d.y;
-              if (Math.abs(dx) + Math.abs(dy) > 3) d.moved = true;
+              if (!d.moved && Math.abs(dx) + Math.abs(dy) > 3) {
+                d.moved = true;
+                (e.currentTarget as SVGSVGElement).setPointerCapture(d.pointerId);
+              }
               if (d.moved) setView((v) => ({ ...v, x: d.vx + dx, y: d.vy + dy }));
             }}
             onPointerUp={() => {
@@ -511,13 +523,21 @@ export function OntologyGraph({
                 if (e.rel.cardinality) parts.push(e.rel.cardinality);
                 const labelText = truncate(parts.join(" · "), 34);
                 const lw = labelText.length * 4.6 + 10;
+                const isActive = activeEdge === i;
                 return (
-                  <g key={i} opacity={dim ? 0.12 : e.rel.confidence === "high" ? 1 : 0.8}>
+                  <g
+                    key={i}
+                    opacity={dim ? 0.12 : e.rel.confidence === "high" || isActive ? 1 : 0.8}
+                    onPointerEnter={() => setActiveEdge(i)}
+                    onPointerLeave={() => setActiveEdge((cur) => (cur === i ? null : cur))}
+                  >
+                    {/* Wide invisible stroke so the thin edge is hoverable */}
+                    <path d={e.path} fill="none" stroke="transparent" strokeWidth={14} />
                     <path
                       d={e.path}
                       fill="none"
                       stroke={m.color}
-                      strokeWidth={1.4}
+                      strokeWidth={isActive ? 2.2 : 1.4}
                       strokeDasharray={m.dash}
                       markerEnd={`url(#onto-arrow-${e.rel.kind})`}
                     />
@@ -844,6 +864,38 @@ export function OntologyGraph({
             )}
           </div>
         )}
+
+        {/* Detail panel for a hovered relationship (evidence included) */}
+        {!focused &&
+          activeEdge !== null &&
+          layout.edges[activeEdge] &&
+          (() => {
+            const rel = layout.edges[activeEdge].rel;
+            const nameOf = (id: string) => layout.nodes.find((n) => n.id === id)?.entity.name ?? id;
+            const m = EDGE_META[rel.kind];
+            return (
+              <div className="pointer-events-none absolute bottom-2 left-2 z-10 w-64 rounded-lg border border-border bg-popover/95 p-2.5 shadow-lg backdrop-blur">
+                <p className="text-[11px] font-semibold leading-snug text-popover-foreground">
+                  {nameOf(rel.from)} <span style={{ color: m.color }}>—{rel.label}→</span>{" "}
+                  {nameOf(rel.to)}
+                </p>
+                <p className="mt-0.5 text-[9px] uppercase tracking-wider text-muted-foreground">
+                  {m.label}
+                  {rel.cardinality ? ` · ${rel.cardinality}` : ""} · {rel.confidence} confidence
+                </p>
+                {rel.keys && (
+                  <p className="mt-1 font-mono text-[9px] text-muted-foreground">
+                    {rel.keys.from} → {rel.keys.to}
+                  </p>
+                )}
+                {rel.evidence && (
+                  <p className="mt-1 text-[10px] italic leading-snug text-popover-foreground/90">
+                    “{rel.evidence}”
+                  </p>
+                )}
+              </div>
+            );
+          })()}
       </div>
 
       {/* Legend */}
