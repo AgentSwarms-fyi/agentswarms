@@ -23,6 +23,7 @@ import {
   Columns,
   NotebookPen,
   PieChart,
+  Code2,
 } from "lucide-react";
 
 import { Link, useLocation } from "@tanstack/react-router";
@@ -70,6 +71,7 @@ const opsItems = [
 
 const integrationItems = [
   { title: "Integrations", url: "/integrations", icon: Puzzle },
+  { title: "Web Embedding", url: "/embeds", icon: Code2 },
   { title: "Secrets", url: "/secrets", icon: KeyRound },
   { title: "MCP Servers", url: "/mcp", icon: Plug },
   { title: "Model Registry", url: "/model-registry", icon: Boxes },

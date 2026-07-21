@@ -1,14 +1,13 @@
-// "Web Embedding" section on /dashboard: create and manage iframe embeds of
-// standalone chat agents, multi-agent swarm tasks, and BI dashboards.
-// Each embed is authorized by a generated key (a capability token scoped to
-// one resource) plus a domain allow-list enforced server-side in
-// /api/embed* — see src/utils/embed.server.ts for the model.
+// Web Embedding workspace content (rendered by /embeds): create and manage
+// iframe embeds of standalone chat agents, multi-agent swarm tasks, and BI
+// dashboards. Each embed is authorized by a generated key (a capability
+// token scoped to one resource) plus a domain allow-list enforced
+// server-side in /api/embed* — see src/utils/embed.server.ts for the model.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   Bot,
   Check,
-  Code2,
   Copy,
   ExternalLink,
   Globe,
@@ -21,6 +20,7 @@ import {
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -163,122 +163,131 @@ export function EmbedSection() {
   }
 
   return (
-    <section className="rounded-xl border border-border bg-card p-6 shadow-sm sm:p-8">
-      <header className="mb-4 flex items-start justify-between gap-3">
-        <div>
-          <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
-            <Code2 className="h-4.5 w-4.5 text-primary" />
-            Web Embedding
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            Put your agents, swarms and dashboards on any website with an iframe — secured by a
-            per-embed key and a domain allow-list you control.
-          </p>
-        </div>
-      </header>
-
-      <div className="grid gap-3 sm:grid-cols-3">
+    <div className="space-y-6">
+      <div className="grid gap-4 sm:grid-cols-3">
         {(Object.keys(EMBED_META) as EmbedType[]).map((t) => {
           const meta = EMBED_META[t];
           return (
-            <div key={t} className="flex flex-col gap-3 rounded-xl bg-card p-4 ring-1 ring-border">
-              <div className="grid h-10 w-10 place-items-center rounded-lg bg-primary/10 text-primary">
-                <meta.icon className="h-5 w-5" strokeWidth={1.6} />
-              </div>
-              <div className="flex-1">
-                <p className="text-sm font-medium text-foreground">{meta.title}</p>
-                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{meta.desc}</p>
-              </div>
-              <Button size="sm" variant="outline" onClick={() => setDialogType(t)}>
-                <Plus className="mr-1 h-3.5 w-3.5" /> Create embed
-              </Button>
-            </div>
+            <Card key={t} className="flex flex-col border-border/50">
+              <CardHeader className="pb-2">
+                <div className="mb-2 grid h-10 w-10 place-items-center rounded-lg bg-primary/10 text-primary">
+                  <meta.icon className="h-5 w-5" strokeWidth={1.6} />
+                </div>
+                <CardTitle className="text-sm">{meta.title}</CardTitle>
+                <CardDescription className="text-xs leading-relaxed">{meta.desc}</CardDescription>
+              </CardHeader>
+              <CardContent className="mt-auto pt-2">
+                <Button size="sm" variant="outline" onClick={() => setDialogType(t)}>
+                  <Plus className="mr-1 h-3.5 w-3.5" /> Create embed
+                </Button>
+              </CardContent>
+            </Card>
           );
         })}
       </div>
 
-      {keys.length > 0 && (
-        <div className="mt-5 overflow-x-auto rounded-lg border border-border/60">
-          <table className="w-full text-left text-xs">
-            <thead className="border-b border-border/60 bg-muted/40 text-[11px] uppercase tracking-wider text-muted-foreground">
-              <tr>
-                <th className="px-3 py-2 font-medium">Embed</th>
-                <th className="px-3 py-2 font-medium">Resource</th>
-                <th className="px-3 py-2 font-medium">Allowed domains</th>
-                <th className="px-3 py-2 font-medium">Uses</th>
-                <th className="px-3 py-2 font-medium">Active</th>
-                <th className="px-3 py-2 text-right font-medium">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border/40">
-              {keys.map((k) => (
-                <tr key={k.id} className={cn(!k.is_active && "opacity-55")}>
-                  <td className="px-3 py-2">
-                    <div className="font-medium text-foreground">{k.name}</div>
-                    <div className="mt-0.5 flex items-center gap-1.5">
-                      <Badge variant="outline" className="text-[9px] uppercase">
-                        {k.resource_type === "bi_dashboard" ? "dashboard" : k.resource_type}
-                      </Badge>
-                      {k.resource_type === "bi_dashboard" && k.allow_ai && (
-                        <Badge variant="outline" className="gap-0.5 text-[9px] text-primary">
-                          <Sparkles className="h-2.5 w-2.5" /> AI
-                        </Badge>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-3 py-2 text-muted-foreground">{resourceName(k)}</td>
-                  <td className="px-3 py-2">
-                    <span className="flex items-center gap-1 text-muted-foreground">
-                      <Globe className="h-3 w-3 shrink-0" />
-                      {(k.allowed_domains ?? []).join(", ") || "none (parked)"}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2 tabular-nums text-muted-foreground">{k.use_count}</td>
-                  <td className="px-3 py-2">
-                    <Switch checked={k.is_active} onCheckedChange={() => void toggleActive(k)} />
-                  </td>
-                  <td className="px-3 py-2">
-                    <div className="flex items-center justify-end gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7"
-                        title="Copy iframe code"
-                        onClick={() => copySnippet(k)}
-                      >
-                        <Copy className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7"
-                        title="Preview"
-                        onClick={() =>
-                          window.open(
-                            `/embed/${EMBED_META[k.resource_type].path}/${k.key}?preview=1`,
-                            "_blank",
-                          )
-                        }
-                      >
-                        <ExternalLink className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                        title="Delete"
-                        onClick={() => void remove(k)}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <Card className="border-border/50">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm">Your embeds</CardTitle>
+          <CardDescription>
+            Disable a key to cut off its iframes instantly; deleting is permanent. Preview opens the
+            embed the way visitors see it.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {keys.length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              No embeds yet — create one above to get an iframe snippet.
+            </p>
+          ) : (
+            <div className="overflow-x-auto rounded-lg border border-border/60">
+              <table className="w-full text-left text-xs">
+                <thead className="border-b border-border/60 bg-muted/40 text-[11px] uppercase tracking-wider text-muted-foreground">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">Embed</th>
+                    <th className="px-3 py-2 font-medium">Resource</th>
+                    <th className="px-3 py-2 font-medium">Allowed domains</th>
+                    <th className="px-3 py-2 font-medium">Uses</th>
+                    <th className="px-3 py-2 font-medium">Active</th>
+                    <th className="px-3 py-2 text-right font-medium">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/40">
+                  {keys.map((k) => (
+                    <tr key={k.id} className={cn(!k.is_active && "opacity-55")}>
+                      <td className="px-3 py-2">
+                        <div className="font-medium text-foreground">{k.name}</div>
+                        <div className="mt-0.5 flex items-center gap-1.5">
+                          <Badge variant="outline" className="text-[9px] uppercase">
+                            {k.resource_type === "bi_dashboard" ? "dashboard" : k.resource_type}
+                          </Badge>
+                          {k.resource_type === "bi_dashboard" && k.allow_ai && (
+                            <Badge variant="outline" className="gap-0.5 text-[9px] text-primary">
+                              <Sparkles className="h-2.5 w-2.5" /> AI
+                            </Badge>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 text-muted-foreground">{resourceName(k)}</td>
+                      <td className="px-3 py-2">
+                        <span className="flex items-center gap-1 text-muted-foreground">
+                          <Globe className="h-3 w-3 shrink-0" />
+                          {(k.allowed_domains ?? []).join(", ") || "none (parked)"}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 tabular-nums text-muted-foreground">
+                        {k.use_count}
+                      </td>
+                      <td className="px-3 py-2">
+                        <Switch
+                          checked={k.is_active}
+                          onCheckedChange={() => void toggleActive(k)}
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            title="Copy iframe code"
+                            onClick={() => copySnippet(k)}
+                          >
+                            <Copy className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            title="Preview"
+                            onClick={() =>
+                              window.open(
+                                `/embed/${EMBED_META[k.resource_type].path}/${k.key}?preview=1`,
+                                "_blank",
+                              )
+                            }
+                          >
+                            <ExternalLink className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                            title="Delete"
+                            onClick={() => void remove(k)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <CreateEmbedDialog
         type={dialogType}
@@ -292,7 +301,7 @@ export function EmbedSection() {
         }}
       />
       <SnippetDialog embedKey={createdKey} onClose={() => setCreatedKey(null)} />
-    </section>
+    </div>
   );
 }
 

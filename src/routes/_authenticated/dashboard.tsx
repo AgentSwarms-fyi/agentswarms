@@ -25,9 +25,9 @@ import {
   NotebookPen,
   Image as ImageIcon,
   Columns,
+  Code2,
 } from "lucide-react";
 import { SWARM_TEMPLATES } from "@/lib/swarmTemplates";
-import { EmbedSection } from "@/components/embed/EmbedSection";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
@@ -389,8 +389,32 @@ function DashboardPage() {
           </div>
         </section>
 
-        {/* ───── Web embedding ───── */}
-        <EmbedSection />
+        {/* ───── Web embedding callout — the workspace lives at /embeds ───── */}
+        <div
+          className={cn(
+            cardCls,
+            "flex flex-col items-center gap-3 p-5 text-center sm:flex-row sm:text-left",
+          )}
+        >
+          <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
+            <Code2 className="h-6 w-6" />
+          </div>
+          <div className="flex-1">
+            <div className="font-semibold text-foreground">
+              Web Embedding
+              <span className="ml-2 rounded-full bg-primary/15 px-2 py-0.5 align-middle text-[9px] font-semibold uppercase tracking-wider text-primary">
+                New
+              </span>
+            </div>
+            <div className="text-sm text-muted-foreground">
+              Put your chat agents, multi-agent swarms and BI dashboards on any website with an
+              iframe — secured by embed keys and domain allow-lists.
+            </div>
+          </div>
+          <Button asChild>
+            <Link to="/embeds">Open Web Embedding</Link>
+          </Button>
+        </div>
 
         {/* ───── Featured swarms ───── */}
         <section className={cn(cardCls, "p-6 sm:p-8")}>
