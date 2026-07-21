@@ -176,7 +176,12 @@ and reports. An editable dashboard is called a **BI project**:
   and row/column counts inside shaded domain clusters, typed edges
   (solid = join key, dotted = prep lineage, dashed = AI-inferred) with
   key and cardinality labels, hover to spotlight a neighbourhood with a
-  detail panel, plus zoom/fit/pan. If the AI call fails the detected
+  detail panel, plus zoom/fit/pan. The map is **multi-layer**: drill
+  into any card (⊞ on the card, or Expand all) and tables unfold into
+  their full field list — key columns marked, semantic-type chips per
+  field — while knowledge bases unfold into their documents, join edges
+  re-anchor to the exact key field row on each side (ER-diagram style,
+  joined fields tinted), and the layout reflows around expanded cards. If the AI call fails the detected
   structure still renders with heuristic labels and a visible note. The
   whole map is stored in the widget, so it publishes, shares and exports
   to PDF like any other visual.

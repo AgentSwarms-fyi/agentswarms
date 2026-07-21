@@ -1,7 +1,17 @@
-// Renderer for the ONTOLOGY visual — an interactive knowledge map of the
-// data estate. Pure SVG (no foreignObject) so html2canvas/PDF export and
-// both themes keep working; positions come from a d3-force simulation run
-// synchronously (fixed ticks → deterministic, no animation jank).
+// Renderer for the ONTOLOGY visual — an interactive, multi-layer knowledge
+// map of the data estate. Pure SVG (no foreignObject) so html2canvas/PDF
+// export and both themes keep working; positions come from a d3-force
+// simulation run synchronously (fixed ticks → deterministic, no jank).
+//
+// Two levels of detail:
+//   collapsed — compact entity cards (name, source, counts) with typed,
+//               labelled edges between entities;
+//   expanded  — drill into any card (the ⊞ control or "Expand all"): tables
+//               unfold into their field list (key markers, semantic-type
+//               chips), knowledge bases unfold into their documents, and
+//               join edges re-anchor to the exact key field row on each
+//               side, ER-diagram style. The layout reflows around expanded
+//               cards.
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   forceCollide,
@@ -13,7 +23,7 @@ import {
   type SimulationLinkDatum,
   type SimulationNodeDatum,
 } from "d3-force";
-import { Maximize2, Minus, Plus } from "lucide-react";
+import { ChevronsDownUp, ChevronsUpDown, Maximize2, Minus, Plus } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -55,20 +65,41 @@ const EDGE_META: Record<OntologyRelation["kind"], { color: string; dash?: string
     semantic: { color: "#d97706", dash: "6 4", label: "AI-inferred" },
   };
 
+/** Field-chip tint by semantic tag (falls back to the raw type). */
+const FIELD_TAG_COLORS: Record<string, string> = {
+  location: "#76b7b2",
+  currency: "#59a14f",
+  percent: "#59a14f",
+  number: "#59a14f",
+  category: "#b07aa1",
+  date: "#f28e2b",
+  datetime: "#f28e2b",
+  id: "#4e79a7",
+  identifier: "#4e79a7",
+  boolean: "#9c755f",
+  document: "#b07aa1",
+};
+
 const CARD_W = 168;
 const CARD_H = 64;
+const XCARD_W = 238; // expanded card width
+const XHEADER_H = 56; // header zone inside an expanded card
+const ROW_H = 15; // one field/document row
+const MAX_ROWS = 24;
 
-type Node = SimulationNodeDatum & { id: string; entity: OntologyEntity };
+type Node = SimulationNodeDatum & { id: string; entity: OntologyEntity; w: number; h: number };
 type LayoutEdge = {
   rel: OntologyRelation;
-  x1: number;
-  y1: number;
-  x2: number;
-  y2: number;
   mx: number;
   my: number;
   path: string;
 };
+
+function nodeDims(e: OntologyEntity, expanded: boolean): { w: number; h: number } {
+  const rows = Math.min(e.fields.length, MAX_ROWS);
+  if (!expanded || rows === 0) return { w: CARD_W, h: CARD_H };
+  return { w: XCARD_W, h: XHEADER_H + 8 + rows * ROW_H + 8 };
+}
 
 function truncate(s: string, n: number): string {
   return s.length > n ? `${s.slice(0, n - 1)}…` : s;
@@ -81,18 +112,43 @@ function fmtCount(n?: number): string {
   return String(n);
 }
 
-/** Point where the segment from the card centre to (tx,ty) leaves the card. */
-function rectAnchor(cx: number, cy: number, tx: number, ty: number): { x: number; y: number } {
-  const dx = tx - cx;
-  const dy = ty - cy;
-  if (dx === 0 && dy === 0) return { x: cx, y: cy };
-  const sx = dx === 0 ? Infinity : CARD_W / 2 / Math.abs(dx);
-  const sy = dy === 0 ? Infinity : CARD_H / 2 / Math.abs(dy);
+/** Point where the segment from n's centre towards `other` leaves n's card. */
+function rectAnchor(n: Node, other: Node): { x: number; y: number } {
+  const dx = other.x! - n.x!;
+  const dy = other.y! - n.y!;
+  if (dx === 0 && dy === 0) return { x: n.x!, y: n.y! };
+  const sx = dx === 0 ? Infinity : n.w / 2 / Math.abs(dx);
+  const sy = dy === 0 ? Infinity : n.h / 2 / Math.abs(dy);
   const s = Math.min(sx, sy);
-  return { x: cx + dx * s, y: cy + dy * s };
+  return { x: n.x! + dx * s, y: n.y! + dy * s };
 }
 
-function computeLayout(spec: OntologySpec) {
+/** Row index of a key field on an expanded card (−1 when not shown). */
+function fieldRowIndex(e: OntologyEntity, key: string): number {
+  return e.fields.slice(0, MAX_ROWS).findIndex((f) => f.name.toLowerCase() === key.toLowerCase());
+}
+
+/** Edge endpoint — the key field's row on expanded cards, card border otherwise. */
+function anchorFor(
+  n: Node,
+  other: Node,
+  key: string | undefined,
+  expanded: Set<string>,
+): { x: number; y: number } {
+  if (key && expanded.has(n.id)) {
+    const idx = fieldRowIndex(n.entity, key);
+    if (idx >= 0) {
+      const side = (other.x ?? 0) >= (n.x ?? 0) ? 1 : -1;
+      return {
+        x: n.x! + (side * n.w) / 2,
+        y: n.y! - n.h / 2 + XHEADER_H + 8 + idx * ROW_H + ROW_H / 2,
+      };
+    }
+  }
+  return rectAnchor(n, other);
+}
+
+function computeLayout(spec: OntologySpec, expanded: Set<string>) {
   const ids = new Set(spec.entities.map((e) => e.id));
   const relations = spec.relations.filter((r) => ids.has(r.from) && ids.has(r.to));
 
@@ -107,9 +163,17 @@ function computeLayout(spec: OntologySpec) {
 
   const nodes: Node[] = spec.entities.map((e, i) => {
     const c = centerOf(e.domain);
-    // Deterministic ring seed around the domain centre.
-    const angle = (i * 2.399963) % (Math.PI * 2); // golden angle
-    return { id: e.id, entity: e, x: c.x + Math.cos(angle) * 60, y: c.y + Math.sin(angle) * 60 };
+    const { w, h } = nodeDims(e, expanded.has(e.id));
+    // Deterministic ring seed around the domain centre (golden angle).
+    const angle = (i * 2.399963) % (Math.PI * 2);
+    return {
+      id: e.id,
+      entity: e,
+      w,
+      h,
+      x: c.x + Math.cos(angle) * 60,
+      y: c.y + Math.sin(angle) * 60,
+    };
   });
   const links: (SimulationLinkDatum<Node> & { rel: OntologyRelation })[] = relations.map((r) => ({
     source: r.from,
@@ -122,11 +186,18 @@ function computeLayout(spec: OntologySpec) {
       "link",
       forceLink<Node, SimulationLinkDatum<Node>>(links)
         .id((n) => n.id)
-        .distance(235)
+        .distance((l) => {
+          const s = l.source as Node;
+          const t = l.target as Node;
+          return 120 + (s.w + t.w) / 2 + (s.h + t.h) / 4;
+        })
         .strength(0.3),
     )
     .force("charge", forceManyBody().strength(-520))
-    .force("collide", forceCollide(Math.hypot(CARD_W, CARD_H) / 2 + 14))
+    .force(
+      "collide",
+      forceCollide<Node>((n) => Math.hypot(n.w, n.h) / 2 + 14),
+    )
     .force("x", forceX<Node>((n) => centerOf(n.entity.domain).x).strength(0.16))
     .force("y", forceY<Node>((n) => centerOf(n.entity.domain).y).strength(0.16))
     .stop();
@@ -136,8 +207,8 @@ function computeLayout(spec: OntologySpec) {
   const edges: LayoutEdge[] = relations.map((r) => {
     const a = nodeById.get(r.from)!;
     const b = nodeById.get(r.to)!;
-    const p1 = rectAnchor(a.x!, a.y!, b.x!, b.y!);
-    const p2 = rectAnchor(b.x!, b.y!, a.x!, a.y!);
+    const p1 = anchorFor(a, b, r.keys?.from, expanded);
+    const p2 = anchorFor(b, a, r.keys?.to, expanded);
     // Slight perpendicular bow so parallel edges and labels don't overlap.
     const mx = (p1.x + p2.x) / 2;
     const my = (p1.y + p2.y) / 2;
@@ -149,34 +220,21 @@ function computeLayout(spec: OntologySpec) {
     const cy = my + (dx / len) * bow;
     return {
       rel: r,
-      x1: p1.x,
-      y1: p1.y,
-      x2: p2.x,
-      y2: p2.y,
-      mx: (mx + cx) / 2 + (mx - cx) / 2, // quadratic midpoint = 0.25*p1+0.5*c+0.25*p2
-      my: (my + cy) / 2 + (my - cy) / 2,
+      mx: 0.25 * p1.x + 0.5 * cx + 0.25 * p2.x,
+      my: 0.25 * p1.y + 0.5 * cy + 0.25 * p2.y,
       path: `M ${p1.x} ${p1.y} Q ${cx} ${cy} ${p2.x} ${p2.y}`,
     };
   });
-  // True quadratic midpoints for label placement.
-  for (const e of edges) {
-    const m = /M ([-\d.]+) ([-\d.]+) Q ([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+)/.exec(e.path);
-    if (m) {
-      const [x1, y1, cx, cy, x2, y2] = m.slice(1).map(Number);
-      e.mx = 0.25 * x1 + 0.5 * cx + 0.25 * x2;
-      e.my = 0.25 * y1 + 0.5 * cy + 0.25 * y2;
-    }
-  }
 
   // Domain hulls: padded bounding box of member cards.
   const hulls = domains
     .map((d, i) => {
       const members = nodes.filter((n) => n.entity.domain === d);
       if (members.length === 0) return null;
-      const minX = Math.min(...members.map((n) => n.x! - CARD_W / 2)) - 26;
-      const maxX = Math.max(...members.map((n) => n.x! + CARD_W / 2)) + 26;
-      const minY = Math.min(...members.map((n) => n.y! - CARD_H / 2)) - 34;
-      const maxY = Math.max(...members.map((n) => n.y! + CARD_H / 2)) + 22;
+      const minX = Math.min(...members.map((n) => n.x! - n.w / 2)) - 26;
+      const maxX = Math.max(...members.map((n) => n.x! + n.w / 2)) + 26;
+      const minY = Math.min(...members.map((n) => n.y! - n.h / 2)) - 34;
+      const maxY = Math.max(...members.map((n) => n.y! + n.h / 2)) + 22;
       return {
         domain: d,
         color: DOMAIN_COLORS[i % DOMAIN_COLORS.length],
@@ -189,10 +247,10 @@ function computeLayout(spec: OntologySpec) {
     })
     .filter((h): h is NonNullable<typeof h> => h !== null);
 
-  const allX = [...nodes.map((n) => n.x! - CARD_W / 2), ...hulls.map((h) => h.x)];
-  const allX2 = [...nodes.map((n) => n.x! + CARD_W / 2), ...hulls.map((h) => h.x + h.w)];
-  const allY = [...nodes.map((n) => n.y! - CARD_H / 2), ...hulls.map((h) => h.y)];
-  const allY2 = [...nodes.map((n) => n.y! + CARD_H / 2), ...hulls.map((h) => h.y + h.h)];
+  const allX = [...nodes.map((n) => n.x! - n.w / 2), ...hulls.map((h) => h.x)];
+  const allX2 = [...nodes.map((n) => n.x! + n.w / 2), ...hulls.map((h) => h.x + h.w)];
+  const allY = [...nodes.map((n) => n.y! - n.h / 2), ...hulls.map((h) => h.y)];
+  const allY2 = [...nodes.map((n) => n.y! + n.h / 2), ...hulls.map((h) => h.y + h.h)];
   const bbox =
     nodes.length > 0
       ? {
@@ -210,7 +268,15 @@ function computeLayout(spec: OntologySpec) {
     neighbors.get(r.to)?.add(r.from);
   }
 
-  return { nodes, edges, hulls, bbox, neighbors };
+  // Field rows that participate in a visible join — tinted on expanded cards.
+  const rowTints = new Map<string, string>(); // `${entityId}|${lower(field)}` → color
+  for (const r of relations) {
+    if (!r.keys) continue;
+    rowTints.set(`${r.from}|${r.keys.from.toLowerCase()}`, EDGE_META[r.kind].color);
+    rowTints.set(`${r.to}|${r.keys.to.toLowerCase()}`, EDGE_META[r.kind].color);
+  }
+
+  return { nodes, edges, hulls, bbox, neighbors, rowTints };
 }
 
 export function OntologyGraph({
@@ -227,11 +293,17 @@ export function OntologyGraph({
   const [view, setView] = useState({ x: 0, y: 0, k: 1 });
   const [active, setActive] = useState<string | null>(null);
   const [pinned, setPinned] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const dragRef = useRef<{ x: number; y: number; vx: number; vy: number; moved: boolean } | null>(
     null,
   );
 
-  const layout = useMemo(() => computeLayout(spec), [spec]);
+  const layout = useMemo(() => computeLayout(spec, expanded), [spec, expanded]);
+
+  const expandableIds = useMemo(
+    () => spec.entities.filter((e) => e.fields.length > 0).map((e) => e.id),
+    [spec.entities],
+  );
 
   useEffect(() => {
     const el = wrapRef.current;
@@ -262,7 +334,7 @@ export function OntologyGraph({
     };
   }, [size, layout.bbox]);
 
-  // Re-fit whenever the container size or the spec changes.
+  // Re-fit whenever the container size, the spec or the drill level changes.
   useEffect(() => setView(fit), [fit]);
 
   const focusId = pinned ?? active;
@@ -274,11 +346,20 @@ export function OntologyGraph({
   const zoomBy = (f: number) =>
     setView((v) => {
       const k = Math.max(0.15, Math.min(3, v.k * f));
-      // Zoom around the container centre.
       const cx = size.w / 2;
       const cy = size.h / 2;
       return { k, x: cx - ((cx - v.x) / v.k) * k, y: cy - ((cy - v.y) / v.k) * k };
     });
+
+  const toggleExpand = (id: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const allExpanded = expandableIds.length > 0 && expandableIds.every((id) => expanded.has(id));
 
   const focused = focusId ? layout.nodes.find((n) => n.id === focusId) : null;
   const sources = useMemo(() => new Set(spec.entities.map((e) => e.source)), [spec.entities]);
@@ -471,10 +552,15 @@ export function OntologyGraph({
                 const e = n.entity;
                 const cat = CATEGORY_META[e.category] ?? CATEGORY_META.master;
                 const isFocus = focusId === n.id;
+                const isOpen = expanded.has(n.id);
+                const rows = isOpen ? e.fields.slice(0, MAX_ROWS) : [];
+                const left = n.x! - n.w / 2;
+                const top = n.y! - n.h / 2;
+                const isKb = e.sourceKind === "knowledge";
                 return (
                   <g
                     key={n.id}
-                    transform={`translate(${n.x! - CARD_W / 2} ${n.y! - CARD_H / 2})`}
+                    transform={`translate(${left} ${top})`}
                     opacity={dimNode(n.id) ? 0.18 : 1}
                     className="cursor-pointer"
                     onPointerEnter={() => setActive(n.id)}
@@ -487,15 +573,15 @@ export function OntologyGraph({
                     }}
                   >
                     <rect
-                      width={CARD_W}
-                      height={CARD_H}
+                      width={n.w}
+                      height={n.h}
                       rx={10}
                       fill="var(--card)"
                       stroke={isFocus ? cat.color : "var(--border)"}
                       strokeWidth={isFocus ? 1.8 : 1}
                       style={{ filter: "drop-shadow(0 1px 2px rgb(0 0 0 / 0.12))" }}
                     />
-                    <rect x={0} y={6} width={3.5} height={CARD_H - 12} rx={1.75} fill={cat.color} />
+                    <rect x={0} y={6} width={3.5} height={n.h - 12} rx={1.75} fill={cat.color} />
                     {/* Category glyph disc */}
                     <circle cx={19} cy={17} r={8.5} fill={cat.color} fillOpacity={0.15} />
                     <text
@@ -509,7 +595,7 @@ export function OntologyGraph({
                       {cat.glyph}
                     </text>
                     <text x={33} y={16} fontSize={11} fontWeight={600} fill="var(--foreground)">
-                      {truncate(e.name, 18)}
+                      {truncate(e.name, isOpen ? 26 : 18)}
                     </text>
                     <text
                       x={33}
@@ -518,9 +604,9 @@ export function OntologyGraph({
                       fill="var(--muted-foreground)"
                       style={{ fontFamily: "ui-monospace, monospace" }}
                     >
-                      {truncate(e.table, 26)}
+                      {truncate(e.table, isOpen ? 38 : 26)}
                     </text>
-                    {/* Source badge */}
+                    {/* Source badge + counts */}
                     <rect
                       x={11}
                       y={37}
@@ -544,10 +630,128 @@ export function OntologyGraph({
                       fontSize={8}
                       fill="var(--muted-foreground)"
                     >
-                      {e.sourceKind === "knowledge"
+                      {isKb
                         ? `${fmtCount(e.rowCount)} docs`
                         : `${fmtCount(e.rowCount)} rows · ${e.columnCount} cols`}
                     </text>
+
+                    {/* Drill-in toggle (only when there is something inside) */}
+                    {e.fields.length > 0 && (
+                      <g
+                        transform={`translate(${n.w - 20} 7)`}
+                        onPointerUp={(ev) => {
+                          ev.stopPropagation();
+                          dragRef.current = null;
+                          toggleExpand(n.id);
+                        }}
+                      >
+                        <title>{isOpen ? "Collapse" : "Drill in"}</title>
+                        <rect
+                          width={13}
+                          height={13}
+                          rx={3.5}
+                          fill="var(--muted)"
+                          stroke="var(--border)"
+                          strokeWidth={0.8}
+                        />
+                        <line
+                          x1={3.5}
+                          y1={6.5}
+                          x2={9.5}
+                          y2={6.5}
+                          stroke="var(--muted-foreground)"
+                          strokeWidth={1.3}
+                          strokeLinecap="round"
+                        />
+                        {!isOpen && (
+                          <line
+                            x1={6.5}
+                            y1={3.5}
+                            x2={6.5}
+                            y2={9.5}
+                            stroke="var(--muted-foreground)"
+                            strokeWidth={1.3}
+                            strokeLinecap="round"
+                          />
+                        )}
+                      </g>
+                    )}
+
+                    {/* Expanded: field / document rows */}
+                    {isOpen && rows.length > 0 && (
+                      <g>
+                        <line
+                          x1={8}
+                          y1={XHEADER_H}
+                          x2={n.w - 8}
+                          y2={XHEADER_H}
+                          stroke="var(--border)"
+                          strokeWidth={1}
+                        />
+                        {rows.map((f, ri) => {
+                          const y = XHEADER_H + 8 + ri * ROW_H;
+                          const isKey = e.keyColumns.includes(f.name);
+                          const tint = layout.rowTints.get(`${n.id}|${f.name.toLowerCase()}`);
+                          const tag = f.semantic ?? f.type;
+                          const tagColor = FIELD_TAG_COLORS[tag] ?? "var(--muted-foreground)";
+                          return (
+                            <g key={f.name + ri} transform={`translate(0 ${y})`}>
+                              {tint && (
+                                <rect
+                                  x={6}
+                                  y={0.5}
+                                  width={n.w - 12}
+                                  height={ROW_H - 1}
+                                  rx={4}
+                                  fill={tint}
+                                  fillOpacity={0.1}
+                                />
+                              )}
+                              {isKey ? (
+                                <circle cx={16} cy={ROW_H / 2} r={2.6} fill="#eab308" />
+                              ) : (
+                                <circle
+                                  cx={16}
+                                  cy={ROW_H / 2}
+                                  r={1.6}
+                                  fill="var(--muted-foreground)"
+                                  fillOpacity={0.5}
+                                />
+                              )}
+                              <text
+                                x={24}
+                                y={ROW_H / 2 + 3}
+                                fontSize={8.5}
+                                fill="var(--foreground)"
+                                style={{ fontFamily: isKb ? undefined : "ui-monospace, monospace" }}
+                              >
+                                {truncate(f.name, isKb ? 32 : 22)}
+                              </text>
+                              <text
+                                x={n.w - 10}
+                                y={ROW_H / 2 + 3}
+                                textAnchor="end"
+                                fontSize={7.5}
+                                fontWeight={600}
+                                fill={tagColor}
+                              >
+                                {isKb ? "doc" : truncate(tag, 10)}
+                              </text>
+                            </g>
+                          );
+                        })}
+                        {e.fields.length > MAX_ROWS && (
+                          <text
+                            x={24}
+                            y={XHEADER_H + 8 + MAX_ROWS * ROW_H + 10}
+                            fontSize={7.5}
+                            fill="var(--muted-foreground)"
+                          >
+                            +{e.fields.length - MAX_ROWS} more
+                          </text>
+                        )}
+                      </g>
+                    )}
                   </g>
                 );
               })}
@@ -555,7 +759,7 @@ export function OntologyGraph({
           </svg>
         )}
 
-        {/* Zoom controls */}
+        {/* Zoom + drill controls */}
         <div className="absolute right-2 top-2 flex flex-col gap-1" data-html2canvas-ignore>
           <Button
             variant="outline"
@@ -584,6 +788,21 @@ export function OntologyGraph({
           >
             <Maximize2 className="h-3 w-3" />
           </Button>
+          {expandableIds.length > 0 && (
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-6 w-6 bg-card"
+              onClick={() => setExpanded(allExpanded ? new Set() : new Set(expandableIds))}
+              title={allExpanded ? "Collapse all" : "Expand all — show fields and documents"}
+            >
+              {allExpanded ? (
+                <ChevronsDownUp className="h-3 w-3" />
+              ) : (
+                <ChevronsUpDown className="h-3 w-3" />
+              )}
+            </Button>
+          )}
         </div>
 
         {/* Detail panel for the hovered / pinned entity */}
@@ -617,20 +836,11 @@ export function OntologyGraph({
                 Keys: <span className="font-mono">{focused.entity.keyColumns.join(", ")}</span>
               </p>
             )}
-            {focused.entity.fields.length > 0 && (
-              <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5">
-                {focused.entity.fields.slice(0, 8).map((f) => (
-                  <span key={f.name} className="font-mono text-[9px] text-muted-foreground">
-                    {f.name}
-                    <span className="text-muted-foreground/60">:{f.semantic ?? f.type}</span>
-                  </span>
-                ))}
-                {focused.entity.fields.length > 8 && (
-                  <span className="text-[9px] text-muted-foreground/60">
-                    +{focused.entity.fields.length - 8} more
-                  </span>
-                )}
-              </div>
+            {!expanded.has(focused.id) && focused.entity.fields.length > 0 && (
+              <p className="mt-1 text-[9px] italic text-muted-foreground/80">
+                Use the ⊞ on the card to drill into{" "}
+                {focused.entity.sourceKind === "knowledge" ? "its documents" : "its fields"}.
+              </p>
             )}
           </div>
         )}
@@ -667,6 +877,11 @@ export function OntologyGraph({
             </span>
           );
         })}
+        <span className="mx-0.5 h-3 w-px bg-border" />
+        <span className="flex items-center gap-1 text-[9px] text-muted-foreground">
+          <span className="inline-block h-2 w-2 rounded-full" style={{ background: "#eab308" }} />
+          Key column
+        </span>
       </div>
     </div>
   );

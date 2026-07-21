@@ -83,12 +83,12 @@ export type OntologySourceInputs = {
   semantics: Map<string, SemanticEntry>;
   preparedTables: Set<string>;
   warehouses: { id: string; name: string; tables: WarehouseTable[] }[];
-  knowledgeBases: { id: string; name: string; docCount: number }[];
+  knowledgeBases: { id: string; name: string; docCount: number; docs?: string[] }[];
   prepFlows: { name: string; outputTable: string | null; sources: string[] }[];
 };
 
 const MAX_ONTOLOGY_ENTITIES = 80;
-const MAX_FIELDS_PER_ENTITY = 14;
+const MAX_FIELDS_PER_ENTITY = 24;
 const MAX_RELATIONS = 160;
 const MAX_AI_EXTRA_RELATIONS = 40;
 
@@ -164,7 +164,10 @@ export function gatherEntities(inputs: OntologySourceInputs): OntologyEntity[] {
       rowCount: kb.docCount,
       columnCount: 0,
       keyColumns: [],
-      fields: [],
+      // Documents become the KB's drill-in rows (and AI signal for linking).
+      fields: (kb.docs ?? [])
+        .slice(0, MAX_FIELDS_PER_ENTITY)
+        .map((n) => ({ name: n, type: "document" })),
     });
   }
 

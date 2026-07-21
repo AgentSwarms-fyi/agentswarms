@@ -109,7 +109,7 @@ const ONTO_STAGE_LABEL: Record<OntologyBuildStage, string> = {
 
 export type SelOrAll = "all" | Set<string>;
 
-type OntoKb = { id: string; name: string; docCount: number };
+type OntoKb = { id: string; name: string; docCount: number; docs: string[] };
 
 export const selHas = (sel: SelOrAll, name: string) => sel === "all" || sel.has(name);
 
@@ -234,20 +234,21 @@ export function BiBuilderPane({
       const p = (async () => {
         const [kbsRes, docsRes] = await Promise.all([
           supabase.from("knowledge_bases").select("id, name"),
-          supabase.from("knowledge_documents").select("knowledge_base_id"),
+          supabase.from("knowledge_documents").select("name, knowledge_base_id"),
         ]);
         if (kbsRes.error || docsRes.error) {
           throw new Error((kbsRes.error ?? docsRes.error)!.message);
         }
-        const counts = new Map<string, number>();
+        const docsByKb = new Map<string, string[]>();
         for (const d of docsRes.data ?? []) {
-          counts.set(d.knowledge_base_id, (counts.get(d.knowledge_base_id) ?? 0) + 1);
+          const arr = docsByKb.get(d.knowledge_base_id) ?? [];
+          arr.push(d.name);
+          docsByKb.set(d.knowledge_base_id, arr);
         }
-        const list = (kbsRes.data ?? []).map((k) => ({
-          id: k.id,
-          name: k.name,
-          docCount: counts.get(k.id) ?? 0,
-        }));
+        const list = (kbsRes.data ?? []).map((k) => {
+          const docs = docsByKb.get(k.id) ?? [];
+          return { id: k.id, name: k.name, docCount: docs.length, docs: docs.slice(0, 30) };
+        });
         setOntoKbList(list);
         return list;
       })();
