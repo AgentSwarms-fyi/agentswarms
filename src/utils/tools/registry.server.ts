@@ -48,6 +48,9 @@ export type AgentToolContext = {
   // Optional — present when the chat route is handling a real conversation
   // (playground or swarm node). Required for memory_set/memory_get scratchpad.
   conversationId?: string | null;
+  // Optional — explicit retrieval re-ranker from the request body (swarm
+  // nodes); standalone agents carry theirs in tools.reranker instead.
+  reranker?: { provider: string; model: string };
 };
 
 // ============================================================================
@@ -87,6 +90,8 @@ export async function runKbSearch(
     extraKbIds,
     query: args.query,
     topK: Math.max(1, Math.min(args.top_k ?? 5, 8)),
+    userId: ctx.userId,
+    reranker: ctx.reranker,
   });
   if (cits.length === 0) {
     return JSON.stringify({

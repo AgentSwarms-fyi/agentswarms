@@ -506,6 +506,19 @@ const defaultGuardrails: Guardrails = {
 };
 
 type KnowledgeBase = { id: string; name: string };
+
+// Rerank-capable providers (Cohere/Jina-style POST /rerank) with model
+// suggestions; the dropdown filters to connected integrations.
+const RERANK_PROVIDERS: { id: string; label: string; models: string[] }[] = [
+  { id: "openrouter", label: "OpenRouter", models: ["llama-nemotron-rerank-vl-1b-v2"] },
+  {
+    id: "nvidia",
+    label: "NVIDIA NIM",
+    models: ["nvidia/llama-3.2-nv-rerankqa-1b-v2", "nvidia/nv-rerankqa-mistral-4b-v3"],
+  },
+  { id: "vllm", label: "vLLM", models: [] },
+  { id: "qwen", label: "Qwen", models: ["gte-rerank"] },
+];
 type DataTable = { id: string; name: string; is_sample: boolean; columns: unknown };
 
 // Per-agent memory configuration. Backed by the `agent_memory_config` table —
@@ -569,6 +582,16 @@ export function AgentForm({
   ]);
   const [selectedKbIds, setSelectedKbIds] = useState<Set<string>>(initialKbSet);
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
+  // Optional retrieval re-ranker (tools.reranker): a cross-encoder that
+  // reorders retrieved chunks before they reach the model.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const initialReranker = ((agent?.tools as any)?.reranker ?? null) as {
+    provider?: string;
+    model?: string;
+  } | null;
+  const [rerankProvider, setRerankProvider] = useState<string>(initialReranker?.provider ?? "none");
+  const [rerankModel, setRerankModel] = useState<string>(initialReranker?.model ?? "");
+  const [rerankCustom, setRerankCustom] = useState(false);
   const [loading, setLoading] = useState(false);
 
   // Guardrails + Tools state
@@ -810,6 +833,9 @@ export function AgentForm({
         .map((s) => s.trim())
         .filter((s) => s && availableMcpServers.some((srv) => srv.name === s)),
       knowledgeBaseIds: kbIds,
+      ...(rerankProvider !== "none" && rerankModel.trim()
+        ? { reranker: { provider: rerankProvider, model: rerankModel.trim() } }
+        : {}),
       skillIds,
       routeThroughGateway,
       webhooks: useN8n && n8nWebhook ? [{ type: "n8n_webhook", url: n8nWebhook }] : [],
@@ -1145,6 +1171,109 @@ export function AgentForm({
         </TabsContent>
 
         <TabsContent value="knowledge" className="space-y-4 mt-4">
+          <Card className="border-border/50">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <BookOpen className="h-4 w-4 text-primary" /> Retrieval Re-ranker
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-xs text-muted-foreground">
+                Optional second-stage ranking: retrieval over-fetches candidate chunks (3x) and a
+                cross-encoder model reorders them by true relevance before they reach the agent.
+                Applies to auto-RAG and the kb_search tool. If the re-rank call fails, the original
+                similarity order is kept.
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Provider</Label>
+                  <Select
+                    value={rerankProvider}
+                    onValueChange={(v) => {
+                      setRerankProvider(v);
+                      setRerankCustom(false);
+                      const first = RERANK_PROVIDERS.find((r) => r.id === v)?.models[0];
+                      setRerankModel(first ?? "");
+                    }}
+                  >
+                    <SelectTrigger className="h-9">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None (similarity order)</SelectItem>
+                      {RERANK_PROVIDERS.filter(
+                        (r) => connectedProviders.has(r.id) || r.id === rerankProvider,
+                      ).map((r) => (
+                        <SelectItem key={r.id} value={r.id}>
+                          {r.label}
+                          {!connectedProviders.has(r.id) ? " (not connected)" : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[10px] text-muted-foreground">
+                    Only connected integrations with a rerank API are listed.
+                  </p>
+                </div>
+                {rerankProvider !== "none" && (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Re-rank model</Label>
+                    {(() => {
+                      const suggestions =
+                        RERANK_PROVIDERS.find((r) => r.id === rerankProvider)?.models ?? [];
+                      const useCustom =
+                        rerankCustom ||
+                        suggestions.length === 0 ||
+                        (rerankModel !== "" && !suggestions.includes(rerankModel));
+                      return (
+                        <>
+                          {suggestions.length > 0 && (
+                            <Select
+                              value={useCustom ? "__custom__" : rerankModel || suggestions[0]}
+                              onValueChange={(v) => {
+                                if (v === "__custom__") {
+                                  setRerankCustom(true);
+                                } else {
+                                  setRerankCustom(false);
+                                  setRerankModel(v);
+                                }
+                              }}
+                            >
+                              <SelectTrigger className="h-9">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {suggestions.map((m) => (
+                                  <SelectItem key={m} value={m}>
+                                    {m}
+                                  </SelectItem>
+                                ))}
+                                <SelectItem value="__custom__">Custom model name…</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          )}
+                          {useCustom && (
+                            <Input
+                              value={rerankModel}
+                              onChange={(e) => setRerankModel(e.target.value)}
+                              placeholder="llama-nemotron-rerank-vl-1b-v2"
+                              className="h-9"
+                            />
+                          )}
+                        </>
+                      );
+                    })()}
+                  </div>
+                )}
+              </div>
+              {rerankProvider !== "none" && !rerankModel.trim() && (
+                <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                  Enter a model name — the re-ranker is skipped until both are set.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
           <Card className="border-border/50">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm flex items-center gap-2">

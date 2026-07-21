@@ -50,6 +50,19 @@ import { SkillPicker } from "@/components/skills/SkillPicker";
 import { isImageModelId } from "@/lib/providerSupport";
 import { allowedProviders, isModelAllowedByRules, useMyModelRules } from "@/hooks/use-iam";
 
+// Rerank-capable providers (Cohere/Jina-style POST /rerank); the picker
+// filters to connected integrations (OpenRouter always available).
+const NODE_RERANK_PROVIDERS: { id: string; label: string; models: string[] }[] = [
+  { id: "openrouter", label: "OpenRouter", models: ["llama-nemotron-rerank-vl-1b-v2"] },
+  {
+    id: "nvidia",
+    label: "NVIDIA NIM",
+    models: ["nvidia/llama-3.2-nv-rerankqa-1b-v2", "nvidia/nv-rerankqa-mistral-4b-v3"],
+  },
+  { id: "vllm", label: "vLLM", models: [] },
+  { id: "qwen", label: "Qwen", models: ["gte-rerank"] },
+];
+
 // Mirror the provider list shown in /agents AgentForm so swarm nodes can use
 // any LLM provider the user has connected.
 const PROVIDERS: { value: string; label: string }[] = [
@@ -384,6 +397,11 @@ export function NodeInspector({
     if (m.web_search) importedTools.push("web_search");
     if (m.web_browse || m.web_browser) importedTools.push("web_browse");
     if (a.knowledge_base_id) importedTools.push("kb_search");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const importedReranker = ((a.tools as any)?.reranker ?? null) as {
+      provider?: string;
+      model?: string;
+    } | null;
     onChange({
       label: a.name,
       systemPrompt: a.system_prompt || "",
@@ -391,6 +409,10 @@ export function NodeInspector({
       model: a.llm_model,
       temperature: a.temperature,
       knowledgeBaseId: a.knowledge_base_id,
+      reranker:
+        importedReranker?.provider && importedReranker.model
+          ? { provider: importedReranker.provider, model: importedReranker.model }
+          : null,
       enabledTools: importedTools,
       // Intentionally do NOT set agentId — snapshot copy means this node
       // runs independently and can't be silently changed by /agents edits.
@@ -1027,8 +1049,69 @@ export function NodeInspector({
                     </SelectContent>
                   </Select>
                   <p className="text-[10px] text-muted-foreground mt-1">
-                    Requires linking via an Agent in <strong>/agents</strong> for full RAG. Coming
-                    soon: pick KB inline.
+                    Retrieved chunks are injected into this node's context and via the kb_search
+                    tool when enabled.
+                  </p>
+                </Section>
+
+                <Section label="Retrieval re-ranker (optional)">
+                  <div className="grid grid-cols-2 gap-2">
+                    <Select
+                      value={data.reranker?.provider || "__none__"}
+                      onValueChange={(v) =>
+                        onChange({
+                          reranker:
+                            v === "__none__"
+                              ? null
+                              : {
+                                  provider: v,
+                                  model:
+                                    NODE_RERANK_PROVIDERS.find((r) => r.id === v)?.models[0] ??
+                                    data.reranker?.model ??
+                                    "",
+                                },
+                        })
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">None (similarity order)</SelectItem>
+                        {NODE_RERANK_PROVIDERS.filter(
+                          (r) =>
+                            connectedProviders.has(r.id) ||
+                            r.id === "openrouter" ||
+                            r.id === data.reranker?.provider,
+                        ).map((r) => (
+                          <SelectItem key={r.id} value={r.id}>
+                            {r.label}
+                            {!connectedProviders.has(r.id) && r.id !== "openrouter"
+                              ? " (not connected)"
+                              : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {data.reranker && (
+                      <Input
+                        value={data.reranker.model}
+                        onChange={(e) =>
+                          onChange({
+                            reranker: { provider: data.reranker!.provider, model: e.target.value },
+                          })
+                        }
+                        placeholder={
+                          NODE_RERANK_PROVIDERS.find((r) => r.id === data.reranker?.provider)
+                            ?.models[0] ?? "rerank model"
+                        }
+                      />
+                    )}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    A cross-encoder reorders retrieved chunks before this node sees them. Only
+                    connected integrations with a rerank API are listed; failures fall back to
+                    similarity order.
                   </p>
                 </Section>
 

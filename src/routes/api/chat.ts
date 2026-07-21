@@ -964,6 +964,7 @@ export const Route = createFileRoute("/api/chat")({
             // Per-call extra KB ids — used by swarm nodes that reference a
             // shared/sample knowledge base without having a saved agent.
             knowledgeBaseIds?: string[];
+            reranker?: { provider?: string; model?: string };
             // Per-call skill ids — used by swarm nodes to override the linked
             // agent's saved skill list. When omitted, the agent's saved
             // tools.skillIds are used.
@@ -1363,6 +1364,15 @@ export const Route = createFileRoute("/api/chat")({
               )
             : [];
 
+          // Explicit re-ranker from the request body (swarm nodes send it
+          // inline; standalone agents carry it in tools.reranker instead).
+          const bodyReranker =
+            body.reranker &&
+            typeof body.reranker.provider === "string" &&
+            typeof body.reranker.model === "string"
+              ? { provider: body.reranker.provider, model: body.reranker.model }
+              : undefined;
+
           // Skip auto-RAG (kb_search preamble) when the caller explicitly
           // passed an enabledTools allow-list that does NOT include kb_search.
           // This prevents swarm nodes that only enable kb_graph_search from
@@ -1384,6 +1394,8 @@ export const Route = createFileRoute("/api/chat")({
                     extraKbIds,
                     query,
                     topK: 5,
+                    userId,
+                    reranker: bodyReranker,
                   });
                   if (citations.length > 0) {
                     effectiveSystemPrompt = buildGroundingPrompt(citations, body.systemPrompt);
@@ -1777,6 +1789,7 @@ export const Route = createFileRoute("/api/chat")({
                     authToken,
                     sb: sbForTools,
                     conversationId: body.conversationId ?? null,
+                    reranker: bodyReranker,
                   },
                   temperature: body.temperature,
                   maxTokens: body.maxTokens,

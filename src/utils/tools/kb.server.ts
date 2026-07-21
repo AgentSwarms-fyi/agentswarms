@@ -89,9 +89,14 @@ export async function retrieveCitationsServer(opts: {
   topK?: number;
   extraKbIds?: string[];
   userId?: string | null;
+  /** Explicit re-ranker (swarm nodes) — agent tools config fills when absent. */
+  reranker?: { provider: string; model: string };
 }): Promise<Citation[]> {
   const { sb } = opts;
   const topK = Math.max(1, Math.min(opts.topK ?? 5, 8));
+  // Optional re-ranker (from the agent's tools.reranker) — when set we
+  // over-fetch candidates and let the model reorder them.
+  let reranker: { provider: string; model: string } | null = opts.reranker ?? null;
 
   // 1) Resolve KB ids — agent's own + any extras passed by the caller.
   const agentKbIds: string[] = [];
@@ -102,7 +107,13 @@ export async function retrieveCitationsServer(opts: {
       .eq("id", opts.agentId)
       .maybeSingle();
     if (agent) {
-      const tools = (agent.tools ?? {}) as { knowledgeBaseIds?: unknown };
+      const tools = (agent.tools ?? {}) as {
+        knowledgeBaseIds?: unknown;
+        reranker?: { provider?: string; model?: string };
+      };
+      if (!reranker && tools.reranker?.provider && tools.reranker.model) {
+        reranker = { provider: tools.reranker.provider, model: tools.reranker.model };
+      }
       const fromTools = Array.isArray(tools.knowledgeBaseIds)
         ? (tools.knowledgeBaseIds as unknown[]).filter((x): x is string => typeof x === "string")
         : [];
@@ -160,7 +171,7 @@ export async function retrieveCitationsServer(opts: {
       const { data: matches, error: matchErr } = await (sb as any).rpc("match_kb_chunks", {
         query_embedding: `[${queryEmbedding.join(",")}]`,
         kb_ids: kbIds,
-        match_count: topK,
+        match_count: reranker ? Math.min(topK * 3, 20) : topK,
       });
       if (matchErr) throw new Error(matchErr.message);
       const rows = (matches ?? []) as Array<{
@@ -285,7 +296,7 @@ export async function retrieveCitationsServer(opts: {
           scored.push({ doc, score, snippet });
         }
         scored.sort((a, b) => b.score - a.score);
-        keywordCits = scored.slice(0, topK).map((s, i) => ({
+        keywordCits = scored.slice(0, reranker ? Math.min(topK * 3, 20) : topK).map((s, i) => ({
           index: i + 1,
           documentId: s.doc.id,
           documentName: s.doc.name,
@@ -302,11 +313,84 @@ export async function retrieveCitationsServer(opts: {
   // 4) Merge — vector first (semantic priority), then keyword. Dedupe by doc.
   const seen = new Set<string>();
   const merged: Citation[] = [];
+  const mergeCap = reranker ? Math.min(topK * 3, 20) : topK;
   for (const c of [...vectorCits, ...keywordCits]) {
     if (seen.has(c.documentId)) continue;
     seen.add(c.documentId);
     merged.push({ ...c, index: merged.length + 1 });
-    if (merged.length >= topK) break;
+    if (merged.length >= mergeCap) break;
   }
-  return merged;
+
+  // 5) Optional re-rank: a cross-encoder scores query/snippet pairs and
+  // reorders the over-fetched pool; any failure falls back to the original
+  // similarity order so retrieval never breaks.
+  if (reranker && merged.length > 1 && opts.userId) {
+    const ranked = await rerankCandidates({
+      userId: opts.userId,
+      reranker,
+      query: opts.query,
+      candidates: merged,
+      topK,
+    });
+    if (ranked) return ranked;
+  }
+  return merged.slice(0, topK).map((c, i) => ({ ...c, index: i + 1 }));
+}
+
+/** Cohere/Jina-style POST {base}/rerank — supported by NVIDIA NIM, vLLM,
+ * and OpenRouter's rerank models. Returns null on any failure. */
+async function rerankCandidates(opts: {
+  userId: string;
+  reranker: { provider: string; model: string };
+  query: string;
+  candidates: Citation[];
+  topK: number;
+}): Promise<Citation[] | null> {
+  try {
+    const { resolveOpenAICompatTransport } = await import("@/utils/providers/credentials.server");
+    const t = await resolveOpenAICompatTransport({
+      userId: opts.userId,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      provider: opts.reranker.provider as any,
+    });
+    if (!t || (!t.apiKey && opts.reranker.provider !== "ollama")) return null;
+    const endpoint = t.endpointUrl.replace(/\/chat\/completions\/?$/, "/rerank");
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 20_000);
+    const res = await fetch(endpoint, {
+      method: "POST",
+      signal: ctrl.signal,
+      headers: {
+        "Content-Type": "application/json",
+        ...(t.apiKey ? { Authorization: `Bearer ${t.apiKey}` } : {}),
+        ...(t.extraHeaders ?? {}),
+      },
+      body: JSON.stringify({
+        model: opts.reranker.model,
+        query: opts.query,
+        documents: opts.candidates.map((c) => c.snippet),
+        top_n: opts.topK,
+      }),
+    }).finally(() => clearTimeout(timer));
+    if (!res.ok) {
+      console.warn(`[kb.server] rerank ${res.status} — keeping similarity order`);
+      return null;
+    }
+    const json = (await res.json()) as {
+      results?: { index: number; relevance_score?: number; score?: number }[];
+      data?: { index: number; relevance_score?: number; score?: number }[];
+    };
+    const items = json.results ?? json.data;
+    if (!Array.isArray(items) || items.length === 0) return null;
+    const ordered = [...items]
+      .sort((a, b) => (b.relevance_score ?? b.score ?? 0) - (a.relevance_score ?? a.score ?? 0))
+      .map((r) => opts.candidates[r.index])
+      .filter((c): c is Citation => Boolean(c))
+      .slice(0, opts.topK);
+    if (ordered.length === 0) return null;
+    return ordered.map((c, i) => ({ ...c, index: i + 1 }));
+  } catch (e) {
+    console.warn("[kb.server] rerank failed — keeping similarity order:", (e as Error).message);
+    return null;
+  }
 }

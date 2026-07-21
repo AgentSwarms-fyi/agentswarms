@@ -128,6 +128,8 @@ export type SwarmNodeData = {
   model?: string;
   temperature?: number;
   knowledgeBaseId?: string | null;
+  /** Optional retrieval re-ranker for this node's KB grounding. */
+  reranker?: { provider: string; model: string } | null;
   agentId?: string | null;
   // tools — when present, only these tool ids are exposed to this node's LLM call
   enabledTools?: SwarmToolId[];
@@ -465,6 +467,7 @@ async function callAgent(
       // without a saved agent). Server merges with whatever the agent itself
       // has configured.
       knowledgeBaseIds: node.data.knowledgeBaseId ? [node.data.knowledgeBaseId] : undefined,
+      reranker: node.data.reranker || undefined,
       // Per-node tool allow-list. Undefined → server returns the user's full
       // configured toolset; an empty array → tools disabled for this node.
       enabledTools: Array.isArray(node.data.enabledTools) ? node.data.enabledTools : undefined,
@@ -514,6 +517,7 @@ async function callAgent(
           messages: messagesPayload,
           agentId: node.data.agentId || undefined,
           knowledgeBaseIds: node.data.knowledgeBaseId ? [node.data.knowledgeBaseId] : undefined,
+          reranker: node.data.reranker || undefined,
           enabledTools: Array.isArray(node.data.enabledTools) ? node.data.enabledTools : undefined,
           skillIds:
             Array.isArray(node.data.skillIds) && node.data.skillIds.length > 0
