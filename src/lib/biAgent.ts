@@ -47,6 +47,21 @@ export type SavedMetric = {
 /** Value formatting applied to a chart's numeric output. */
 export type BiNumberFormat = "currency" | "percent";
 
+/** One conditional-formatting rule (first match wins). */
+export type BiCondRule = {
+  op: "gt" | "gte" | "lt" | "lte" | "eq" | "neq" | "between";
+  value: number;
+  /** Upper bound for "between" (inclusive). */
+  value2?: number;
+  /** Colour key from COND_COLORS (biChartMath). */
+  color: string;
+};
+
+/** Conditional cell colouring for the pivot (matrix) widget. */
+export type BiCondFormat =
+  | { mode: "scale"; color?: string }
+  | { mode: "rules"; rules: BiCondRule[] };
+
 /** Horizontal reference line on cartesian charts. */
 export type BiRefLine = { mode: "avg" | "value"; value?: number; label?: string };
 
@@ -84,7 +99,13 @@ export type ChartSpec = { format?: BiNumberFormat } & BiChartAnalytics &
     | { type: "treemap"; nameField: string; valueField: string }
     | { type: "heatmap"; xField: string; yField: string; valueField: string }
     | { type: "boxplot"; xField: string; yField: string }
-    | { type: "matrix"; rowField: string; colField: string; valueField: string }
+    | {
+        type: "matrix";
+        rowField: string;
+        colField: string;
+        valueField: string;
+        condFormat?: BiCondFormat;
+      }
     | { type: "map"; locationField: string; valueField: string }
     | { type: "bubblemap"; locationField: string; valueField: string }
     | { type: "ontology"; spec: OntologySpec }

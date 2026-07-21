@@ -3,7 +3,68 @@
 // Everything operates on widget snapshot rows, so it works identically in
 // the editor, shared views and the public page.
 
+import type { BiCondFormat, BiCondRule } from "@/lib/biAgent";
+
 export type DrillEntry = { field: string; value: string };
+
+// ── Conditional cell formatting (pivot/matrix) ──────────────────────────
+
+export const COND_COLORS: Record<string, { label: string; hex: string }> = {
+  emerald: { label: "Emerald", hex: "#59A14F" },
+  rose: { label: "Rose", hex: "#E15759" },
+  amber: { label: "Amber", hex: "#F28E2B" },
+  blue: { label: "Blue", hex: "#4E79A7" },
+  violet: { label: "Violet", hex: "#B07AA1" },
+  teal: { label: "Teal", hex: "#76B7B2" },
+  slate: { label: "Slate", hex: "#9c755f" },
+};
+
+export function condRuleMatches(v: number, r: BiCondRule): boolean {
+  switch (r.op) {
+    case "gt":
+      return v > r.value;
+    case "gte":
+      return v >= r.value;
+    case "lt":
+      return v < r.value;
+    case "lte":
+      return v <= r.value;
+    case "eq":
+      return v === r.value;
+    case "neq":
+      return v !== r.value;
+    case "between":
+      return v >= r.value && v <= (r.value2 ?? r.value);
+  }
+}
+
+/**
+ * Cell colours for a value under the given conditional format.
+ * Rules: first matching rule wins (tinted background + coloured text).
+ * Scale: background intensity from min→max (text colour untouched).
+ */
+export function condFill(
+  v: number,
+  cf: BiCondFormat | undefined,
+  min: number,
+  max: number,
+): { bg: string; fg?: string } | null {
+  if (!cf || !Number.isFinite(v)) return null;
+  if (cf.mode === "rules") {
+    for (const r of cf.rules ?? []) {
+      const hex = COND_COLORS[r.color]?.hex;
+      if (!hex || !Number.isFinite(r.value)) continue;
+      if (condRuleMatches(v, r)) {
+        return { bg: `color-mix(in oklch, ${hex} 22%, transparent)`, fg: hex };
+      }
+    }
+    return null;
+  }
+  const hex = COND_COLORS[cf.color ?? "blue"]?.hex ?? COND_COLORS.blue.hex;
+  const t = max > min ? (v - min) / (max - min) : 0.5;
+  const pct = Math.round(6 + 64 * Math.max(0, Math.min(1, t)));
+  return { bg: `color-mix(in oklch, ${hex} ${pct}%, transparent)` };
+}
 
 /** Rows matching every step of the drill path (string-compared). */
 export function drillRows(

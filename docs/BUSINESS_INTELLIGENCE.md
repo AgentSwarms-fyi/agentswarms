@@ -149,3 +149,12 @@ accent tint, or glass (translucent blur, made for image backgrounds).
 All AI calls also carry hard timeouts now (120s client / 100s upstream),
 so a stalled model provider surfaces as a clear error instead of an
 infinite spinner.
+
+## Pivot conditional formatting
+
+The pivot (matrix) widget supports **conditional formatting**: a
+**colour scale** (min → max background intensity in your chosen hue) or
+**rules** — value conditions (above / at least / below / at most /
+equals / not / between) checked top-down, first match tints the cell and
+colours its text. Totals stay uncoloured, and the pivot now honours the
+widget's currency / percent value format too.

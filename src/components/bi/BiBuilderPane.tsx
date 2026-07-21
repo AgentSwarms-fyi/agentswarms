@@ -57,7 +57,15 @@ import { keyFromSource, sourceFromKey, type BiDataContext } from "@/components/b
 import { OntologyGraph } from "@/components/bi/OntologyGraph";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
-import { runBiTurn, type BiDoc, type BiTurn, type ChartSpec } from "@/lib/biAgent";
+import {
+  runBiTurn,
+  type BiCondFormat,
+  type BiCondRule,
+  type BiDoc,
+  type BiTurn,
+  type ChartSpec,
+} from "@/lib/biAgent";
+import { COND_COLORS } from "@/lib/biChartMath";
 import { snapshotRows, widgetFromBiTurn, type BiWidget } from "@/lib/biDashboards";
 import { buildOntology, type OntologyBuildStage, type OntologySpec } from "@/lib/biOntology";
 import { listPrepFlows, parsePrepConfig, prepTables } from "@/lib/dataPrep";
@@ -216,6 +224,9 @@ export function BiBuilderPane({
   const [trendB, setTrendB] = useState(false);
   const [forecastN, setForecastN] = useState("");
   const [refMode, setRefMode] = useState("none");
+  const [matFmtMode, setMatFmtMode] = useState("none");
+  const [matScaleColor, setMatScaleColor] = useState("blue");
+  const [matRules, setMatRules] = useState<BiCondRule[]>([]);
   const [refValue, setRefValue] = useState("");
   const [refLabel, setRefLabel] = useState("");
   const [preview, setPreview] = useState<QueryResult | null>(null);
@@ -349,6 +360,10 @@ export function BiBuilderPane({
       setTrendB(Boolean(c.trend));
       setForecastN(c.forecast ? String(c.forecast) : "");
       setRefMode(c.refLine?.mode ?? "none");
+      const cf = c.type === "matrix" ? c.condFormat : undefined;
+      setMatFmtMode(cf?.mode ?? "none");
+      setMatScaleColor(cf?.mode === "scale" ? (cf.color ?? "blue") : "blue");
+      setMatRules(cf?.mode === "rules" ? cf.rules : []);
       setRefValue(c.refLine?.value !== undefined ? String(c.refLine.value) : "");
       setRefLabel(c.refLine?.label ?? "");
       setPreview(
@@ -394,6 +409,9 @@ export function BiBuilderPane({
       setRefMode("none");
       setRefValue("");
       setRefLabel("");
+      setMatFmtMode("none");
+      setMatScaleColor("blue");
+      setMatRules([]);
       setPreview(null);
     }
     setSelectedTables([]);
@@ -679,10 +697,16 @@ export function BiBuilderPane({
           return xField && yField && valueField
             ? { type: "heatmap", xField, yField, valueField }
             : null;
-        case "matrix":
-          return rowField && colField && valueField
-            ? { type: "matrix", rowField, colField, valueField }
-            : null;
+        case "matrix": {
+          if (!(rowField && colField && valueField)) return null;
+          let condFormat: BiCondFormat | undefined;
+          if (matFmtMode === "scale") condFormat = { mode: "scale", color: matScaleColor };
+          else if (matFmtMode === "rules") {
+            const rules = matRules.filter((r) => Number.isFinite(r.value));
+            if (rules.length > 0) condFormat = { mode: "rules", rules };
+          }
+          return { type: "matrix", rowField, colField, valueField, condFormat };
+        }
         case "map":
         case "bubblemap":
           return locationField && valueField
@@ -767,6 +791,9 @@ export function BiBuilderPane({
     refMode,
     refValue,
     refLabel,
+    matFmtMode,
+    matScaleColor,
+    matRules,
   ]);
 
   const canSubmit =
@@ -1615,6 +1642,166 @@ export function BiBuilderPane({
                           {fieldSelect("Rows", rowField, setRowField)}
                           {fieldSelect("Columns", colField, setColField)}
                           {fieldSelect("Value (numeric)", valueField, setValueField)}
+                          <div className="col-span-2 space-y-1.5">
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                              Conditional formatting
+                            </Label>
+                            <Select value={matFmtMode} onValueChange={setMatFmtMode}>
+                              <SelectTrigger className="h-8 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none" className="text-xs">
+                                  None
+                                </SelectItem>
+                                <SelectItem value="scale" className="text-xs">
+                                  Colour scale (min → max)
+                                </SelectItem>
+                                <SelectItem value="rules" className="text-xs">
+                                  Rules (first match wins)
+                                </SelectItem>
+                              </SelectContent>
+                            </Select>
+                            {matFmtMode === "scale" && (
+                              <div className="flex items-center gap-1.5 pt-0.5">
+                                {Object.entries(COND_COLORS).map(([id, c]) => (
+                                  <button
+                                    key={id}
+                                    type="button"
+                                    title={c.label}
+                                    onClick={() => setMatScaleColor(id)}
+                                    className={`h-6 w-8 rounded-md border ${
+                                      matScaleColor === id
+                                        ? "border-foreground"
+                                        : "border-border/60"
+                                    }`}
+                                    style={{
+                                      background: `linear-gradient(to right, color-mix(in oklch, ${c.hex} 10%, transparent), ${c.hex})`,
+                                    }}
+                                  />
+                                ))}
+                              </div>
+                            )}
+                            {matFmtMode === "rules" && (
+                              <div className="space-y-1.5 pt-0.5">
+                                {matRules.map((r, i) => (
+                                  <div key={i} className="flex flex-wrap items-center gap-1">
+                                    <Select
+                                      value={r.op}
+                                      onValueChange={(v) =>
+                                        setMatRules((rs) =>
+                                          rs.map((x, j) =>
+                                            j === i ? { ...x, op: v as BiCondRule["op"] } : x,
+                                          ),
+                                        )
+                                      }
+                                    >
+                                      <SelectTrigger className="h-7 w-24 text-[11px]">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {(
+                                          [
+                                            ["gt", "> above"],
+                                            ["gte", "≥ at least"],
+                                            ["lt", "< below"],
+                                            ["lte", "≤ at most"],
+                                            ["eq", "= equals"],
+                                            ["neq", "≠ not"],
+                                            ["between", "between"],
+                                          ] as const
+                                        ).map(([v, l]) => (
+                                          <SelectItem key={v} value={v} className="text-xs">
+                                            {l}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                    <Input
+                                      value={Number.isFinite(r.value) ? String(r.value) : ""}
+                                      onChange={(e) =>
+                                        setMatRules((rs) =>
+                                          rs.map((x, j) =>
+                                            j === i ? { ...x, value: Number(e.target.value) } : x,
+                                          ),
+                                        )
+                                      }
+                                      inputMode="decimal"
+                                      placeholder="value"
+                                      className="h-7 w-20 text-[11px]"
+                                    />
+                                    {r.op === "between" && (
+                                      <Input
+                                        value={
+                                          r.value2 !== undefined && Number.isFinite(r.value2)
+                                            ? String(r.value2)
+                                            : ""
+                                        }
+                                        onChange={(e) =>
+                                          setMatRules((rs) =>
+                                            rs.map((x, j) =>
+                                              j === i
+                                                ? { ...x, value2: Number(e.target.value) }
+                                                : x,
+                                            ),
+                                          )
+                                        }
+                                        inputMode="decimal"
+                                        placeholder="and"
+                                        className="h-7 w-20 text-[11px]"
+                                      />
+                                    )}
+                                    <div className="flex gap-0.5">
+                                      {Object.entries(COND_COLORS).map(([id, c]) => (
+                                        <button
+                                          key={id}
+                                          type="button"
+                                          title={c.label}
+                                          onClick={() =>
+                                            setMatRules((rs) =>
+                                              rs.map((x, j) => (j === i ? { ...x, color: id } : x)),
+                                            )
+                                          }
+                                          className={`h-5 w-5 rounded border ${
+                                            r.color === id
+                                              ? "border-foreground"
+                                              : "border-border/60"
+                                          }`}
+                                          style={{ background: c.hex }}
+                                        />
+                                      ))}
+                                    </div>
+                                    <button
+                                      type="button"
+                                      className="ml-auto text-muted-foreground hover:text-destructive"
+                                      onClick={() =>
+                                        setMatRules((rs) => rs.filter((_, j) => j !== i))
+                                      }
+                                    >
+                                      <X className="h-3 w-3" />
+                                    </button>
+                                  </div>
+                                ))}
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 gap-1 text-[11px]"
+                                  onClick={() =>
+                                    setMatRules((rs) => [
+                                      ...rs,
+                                      { op: "gt", value: 0, color: "emerald" },
+                                    ])
+                                  }
+                                >
+                                  <Plus className="h-3 w-3" /> Add rule
+                                </Button>
+                                <p className="text-[9px] text-muted-foreground">
+                                  Rules are checked top-down; the first match colours the cell.
+                                  Totals stay uncoloured.
+                                </p>
+                              </div>
+                            )}
+                          </div>
                         </>
                       )}
                       {(chartType === "map" || chartType === "bubblemap") && (
@@ -1804,7 +1991,6 @@ export function BiBuilderPane({
                       {chartType !== "table" &&
                         chartType !== "heatmap" &&
                         chartType !== "boxplot" &&
-                        chartType !== "matrix" &&
                         chartType !== "map" &&
                         chartType !== "bubblemap" &&
                         chartType !== "kpi" &&

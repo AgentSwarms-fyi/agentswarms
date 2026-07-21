@@ -309,6 +309,8 @@ function BiChartRenderInner({
         rowField={chart.rowField}
         colField={chart.colField}
         valueField={chart.valueField}
+        condFormat={chart.condFormat}
+        format={chart.format}
       />
     );
   }
