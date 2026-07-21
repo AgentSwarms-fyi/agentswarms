@@ -20,6 +20,11 @@ import {
   Cpu,
   LayoutTemplate,
   Workflow,
+  PieChart,
+  Database,
+  NotebookPen,
+  Image as ImageIcon,
+  Columns,
 } from "lucide-react";
 import { SWARM_TEMPLATES } from "@/lib/swarmTemplates";
 import { cn } from "@/lib/utils";
@@ -42,6 +47,75 @@ type Trace = {
 };
 
 const cardCls = "rounded-xl border border-border bg-card shadow-sm";
+
+// Curated feature highlights — the areas of the platform worth discovering
+// first, each with its own accent so the grid reads as a map, not a list.
+const FEATURES = [
+  {
+    title: "BI Workspace",
+    desc: "AI-generated dashboards, 20+ visuals, ontology maps, schedules & alerts.",
+    to: "/bi" as const,
+    icon: PieChart,
+    badge: "New",
+    color: "text-fuchsia-600 bg-fuchsia-50 dark:text-fuchsia-300 dark:bg-fuchsia-500/15",
+  },
+  {
+    title: "Data & SQL Agents",
+    desc: "Chat with CSVs, Postgres, MySQL and warehouses; visual prep flows.",
+    to: "/data-sql" as const,
+    icon: Database,
+    badge: null,
+    color: "text-sky-600 bg-sky-50 dark:text-sky-300 dark:bg-sky-500/15",
+  },
+  {
+    title: "Knowledge & RAG",
+    desc: "Vector search over your documents with BYOK embeddings and re-ranking.",
+    to: "/knowledge" as const,
+    icon: BookOpen,
+    badge: "New",
+    color: "text-emerald-600 bg-emerald-50 dark:text-emerald-300 dark:bg-emerald-500/15",
+  },
+  {
+    title: "Python Lab",
+    desc: "AI-assisted notebooks that run entirely in your browser.",
+    to: "/notebooks" as const,
+    icon: NotebookPen,
+    badge: "New",
+    color: "text-amber-600 bg-amber-50 dark:text-amber-300 dark:bg-amber-500/15",
+  },
+  {
+    title: "Playground",
+    desc: "Chat with any model or saved agent — tools, memory and RAG included.",
+    to: "/playground" as const,
+    icon: MessageSquare,
+    badge: null,
+    color: "text-violet-600 bg-violet-50 dark:text-violet-300 dark:bg-violet-500/15",
+  },
+  {
+    title: "Image Playground",
+    desc: "Generate and iterate on images with your connected providers.",
+    to: "/image-playground" as const,
+    icon: ImageIcon,
+    badge: null,
+    color: "text-rose-600 bg-rose-50 dark:text-rose-300 dark:bg-rose-500/15",
+  },
+  {
+    title: "Prompt Compare",
+    desc: "Run one prompt across models side by side and pick a winner.",
+    to: "/prompt-compare" as const,
+    icon: Columns,
+    badge: null,
+    color: "text-indigo-600 bg-indigo-50 dark:text-indigo-300 dark:bg-indigo-500/15",
+  },
+  {
+    title: "Integrations",
+    desc: "Bring your own keys: LLM providers, warehouses, MCP servers and secrets.",
+    to: "/integrations" as const,
+    icon: Puzzle,
+    badge: null,
+    color: "text-teal-600 bg-teal-50 dark:text-teal-300 dark:bg-teal-500/15",
+  },
+];
 
 function DashboardPage() {
   const [stats, setStats] = useState({
@@ -190,10 +264,17 @@ function DashboardPage() {
       search: { new: 1 } as Record<string, unknown>,
     },
     {
-      title: "Visual Playground",
-      desc: "Open a blank canvas and design a swarm.",
+      title: "Design a Swarm",
+      desc: "Open a blank canvas and wire agents together.",
       to: "/swarms" as const,
       icon: Workflow,
+      search: undefined,
+    },
+    {
+      title: "Open BI Workspace",
+      desc: "Let AI build dashboards over your data.",
+      to: "/bi" as const,
+      icon: PieChart,
       search: undefined,
     },
   ];
@@ -219,18 +300,26 @@ function DashboardPage() {
     <div className="dot-matrix-bg flex min-h-full font-sans">
       <div className="flex-1 space-y-6 p-6 sm:p-8">
         {/* ───── Central "Lab" anchor card ───── */}
-        <section className={cn(cardCls, "p-6 sm:p-8")}>
-          <header>
+        <section className={cn(cardCls, "relative overflow-hidden p-6 sm:p-8")}>
+          <div
+            aria-hidden
+            className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full bg-primary/10 blur-3xl"
+          />
+          <div
+            aria-hidden
+            className="pointer-events-none absolute -bottom-32 -left-16 h-64 w-64 rounded-full bg-indigo-500/10 blur-3xl"
+          />
+          <header className="relative">
             <h1 className="text-3xl font-semibold tracking-tight text-foreground">
               Welcome back, {userName}
             </h1>
             <p className="mt-1.5 text-base text-muted-foreground">
-              Pick up where you left off, or start from a template.
+              Pick up where you left off, or start something new.
             </p>
           </header>
 
           {/* Action Tiles */}
-          <div className="mt-6 grid gap-3 sm:grid-cols-3">
+          <div className="relative mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {actionTiles.map((tile) => (
               <Link
                 key={tile.title}
@@ -239,7 +328,7 @@ function DashboardPage() {
                 aria-label={tile.title}
                 className="group flex items-start gap-3 rounded-xl bg-card p-5 ring-1 ring-border transition hover:-translate-y-0.5 hover:shadow-md hover:ring-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
               >
-                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-muted text-foreground ring-1 ring-border">
+                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-muted text-foreground ring-1 ring-border transition-colors group-hover:bg-primary/10 group-hover:text-primary">
                   <tile.icon className="h-5 w-5" strokeWidth={1.6} />
                 </div>
                 <div className="min-w-0 flex-1">
@@ -254,7 +343,7 @@ function DashboardPage() {
           </div>
 
           {/* Featured Swarms */}
-          <div className="mt-8">
+          <div className="relative mt-8">
             <div className="mb-3 flex items-end justify-between">
               <div>
                 <h2 className="text-lg font-semibold tracking-tight text-foreground">
@@ -311,6 +400,51 @@ function DashboardPage() {
                 </Link>
               ))}
             </div>
+          </div>
+        </section>
+
+        {/* ───── Explore the platform ───── */}
+        <section className={cn(cardCls, "p-6 sm:p-8")}>
+          <header className="mb-4">
+            <h2 className="text-lg font-semibold tracking-tight text-foreground">
+              Explore the platform
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              The important pieces of AgentSwarms, one click away.
+            </p>
+          </header>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {FEATURES.map((f) => (
+              <Link
+                key={f.title}
+                to={f.to}
+                aria-label={f.title}
+                className="group flex flex-col gap-3 rounded-xl bg-card p-4 ring-1 ring-border transition hover:-translate-y-0.5 hover:shadow-md hover:ring-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+              >
+                <div className="flex items-start justify-between">
+                  <div
+                    className={cn(
+                      "grid h-10 w-10 place-items-center rounded-lg transition-transform group-hover:scale-105",
+                      f.color,
+                    )}
+                  >
+                    <f.icon className="h-5 w-5" strokeWidth={1.6} />
+                  </div>
+                  {f.badge && (
+                    <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-primary">
+                      {f.badge}
+                    </span>
+                  )}
+                </div>
+                <div>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-medium text-foreground">{f.title}</p>
+                    <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground opacity-0 transition group-hover:opacity-100" />
+                  </div>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{f.desc}</p>
+                </div>
+              </Link>
+            ))}
           </div>
         </section>
 

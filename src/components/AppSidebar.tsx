@@ -134,10 +134,7 @@ export function AppSidebar() {
         {renderGroup("Integrations", integrationItems)}
         {renderGroup("Observability", opsItems)}
         {isSuperadmin &&
-          renderGroup("Admin", [
-            { title: "Admin Analytics", url: "/admin/analytics", icon: ShieldCheck },
-            { title: "IAM", url: "/admin/iam", icon: ShieldCheck },
-          ])}
+          renderGroup("Admin", [{ title: "IAM", url: "/admin/iam", icon: ShieldCheck }])}
       </SidebarContent>
 
       <SidebarFooter className="p-2">

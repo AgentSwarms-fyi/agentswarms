@@ -87,7 +87,6 @@ import { Route as AuthenticatedCertificationExamRouteImport } from './routes/_au
 import { Route as AuthenticatedBiDashboardIdRouteImport } from './routes/_authenticated/bi_.$dashboardId'
 import { Route as AuthenticatedAnalyticsObservabilityRouteImport } from './routes/_authenticated/analytics_.observability'
 import { Route as AuthenticatedAdminIamRouteImport } from './routes/_authenticated/admin.iam'
-import { Route as AuthenticatedAdminAnalyticsRouteImport } from './routes/_authenticated/admin.analytics'
 import { Route as ApiPublicHooksRefreshModelRegistryRouteImport } from './routes/api/public/hooks/refresh-model-registry'
 import { Route as ApiPublicHooksGenerateExamSetRouteImport } from './routes/api/public/hooks/generate-exam-set'
 import { Route as AuthenticatedNotebooksPyPyNotebookIdRouteImport } from './routes/_authenticated/notebooks.py.$pyNotebookId'
@@ -493,12 +492,6 @@ const AuthenticatedAdminIamRoute = AuthenticatedAdminIamRouteImport.update({
   path: '/admin/iam',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
-const AuthenticatedAdminAnalyticsRoute =
-  AuthenticatedAdminAnalyticsRouteImport.update({
-    id: '/admin/analytics',
-    path: '/admin/analytics',
-    getParentRoute: () => AuthenticatedRoute,
-  } as any)
 const ApiPublicHooksRefreshModelRegistryRoute =
   ApiPublicHooksRefreshModelRegistryRouteImport.update({
     id: '/api/public/hooks/refresh-model-registry',
@@ -580,7 +573,6 @@ export interface FileRoutesByFullPath {
   '/email/unsubscribe': typeof EmailUnsubscribeRoute
   '/verify/$code': typeof VerifyCodeRoute
   '/docs/': typeof DocsIndexRoute
-  '/admin/analytics': typeof AuthenticatedAdminAnalyticsRoute
   '/admin/iam': typeof AuthenticatedAdminIamRoute
   '/analytics/observability': typeof AuthenticatedAnalyticsObservabilityRouteWithChildren
   '/bi/$dashboardId': typeof AuthenticatedBiDashboardIdRoute
@@ -662,7 +654,6 @@ export interface FileRoutesByTo {
   '/email/unsubscribe': typeof EmailUnsubscribeRoute
   '/verify/$code': typeof VerifyCodeRoute
   '/docs': typeof DocsIndexRoute
-  '/admin/analytics': typeof AuthenticatedAdminAnalyticsRoute
   '/admin/iam': typeof AuthenticatedAdminIamRoute
   '/analytics/observability': typeof AuthenticatedAnalyticsObservabilityRouteWithChildren
   '/bi/$dashboardId': typeof AuthenticatedBiDashboardIdRoute
@@ -748,7 +739,6 @@ export interface FileRoutesById {
   '/email/unsubscribe': typeof EmailUnsubscribeRoute
   '/verify/$code': typeof VerifyCodeRoute
   '/docs/': typeof DocsIndexRoute
-  '/_authenticated/admin/analytics': typeof AuthenticatedAdminAnalyticsRoute
   '/_authenticated/admin/iam': typeof AuthenticatedAdminIamRoute
   '/_authenticated/analytics_/observability': typeof AuthenticatedAnalyticsObservabilityRouteWithChildren
   '/_authenticated/bi_/$dashboardId': typeof AuthenticatedBiDashboardIdRoute
@@ -834,7 +824,6 @@ export interface FileRouteTypes {
     | '/email/unsubscribe'
     | '/verify/$code'
     | '/docs/'
-    | '/admin/analytics'
     | '/admin/iam'
     | '/analytics/observability'
     | '/bi/$dashboardId'
@@ -916,7 +905,6 @@ export interface FileRouteTypes {
     | '/email/unsubscribe'
     | '/verify/$code'
     | '/docs'
-    | '/admin/analytics'
     | '/admin/iam'
     | '/analytics/observability'
     | '/bi/$dashboardId'
@@ -1001,7 +989,6 @@ export interface FileRouteTypes {
     | '/email/unsubscribe'
     | '/verify/$code'
     | '/docs/'
-    | '/_authenticated/admin/analytics'
     | '/_authenticated/admin/iam'
     | '/_authenticated/analytics_/observability'
     | '/_authenticated/bi_/$dashboardId'
@@ -1618,13 +1605,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminIamRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
-    '/_authenticated/admin/analytics': {
-      id: '/_authenticated/admin/analytics'
-      path: '/admin/analytics'
-      fullPath: '/admin/analytics'
-      preLoaderRoute: typeof AuthenticatedAdminAnalyticsRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
     '/api/public/hooks/refresh-model-registry': {
       id: '/api/public/hooks/refresh-model-registry'
       path: '/api/public/hooks/refresh-model-registry'
@@ -1725,7 +1705,6 @@ interface AuthenticatedRouteChildren {
   AuthenticatedSkillsRoute: typeof AuthenticatedSkillsRoute
   AuthenticatedSwarmsRoute: typeof AuthenticatedSwarmsRoute
   AuthenticatedTracesRoute: typeof AuthenticatedTracesRoute
-  AuthenticatedAdminAnalyticsRoute: typeof AuthenticatedAdminAnalyticsRoute
   AuthenticatedAdminIamRoute: typeof AuthenticatedAdminIamRoute
   AuthenticatedAnalyticsObservabilityRoute: typeof AuthenticatedAnalyticsObservabilityRouteWithChildren
   AuthenticatedBiDashboardIdRoute: typeof AuthenticatedBiDashboardIdRoute
@@ -1756,7 +1735,6 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedSkillsRoute: AuthenticatedSkillsRoute,
   AuthenticatedSwarmsRoute: AuthenticatedSwarmsRoute,
   AuthenticatedTracesRoute: AuthenticatedTracesRoute,
-  AuthenticatedAdminAnalyticsRoute: AuthenticatedAdminAnalyticsRoute,
   AuthenticatedAdminIamRoute: AuthenticatedAdminIamRoute,
   AuthenticatedAnalyticsObservabilityRoute:
     AuthenticatedAnalyticsObservabilityRouteWithChildren,
