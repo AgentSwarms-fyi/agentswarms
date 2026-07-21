@@ -160,6 +160,24 @@ and reports. An editable dashboard is called a **BI project**:
 - **AI insights per visual** — every chart's menu has **AI insight**: the
   analyst reads that widget's data and drops a markdown card below it with
   what the data shows, caveats to watch, and suggested next steps.
+- **Ontology visual** — an AI-built knowledge map of your whole data
+  estate. Pick "Ontology" in the visual picker, choose the sources to
+  include (local &amp; prepared datasets, each connected warehouse,
+  knowledge bases) and hit **Build ontology with AI**: relationships are
+  first detected deterministically (semantic-layer join hints, `*_id` →
+  target-table key matching across sources, data-prep lineage), then one
+  AI pass classifies every entity (master data / transactions / events /
+  reference / metrics / documents), groups them into business domains,
+  labels each relationship with a verb and cardinality, infers additional
+  cross-source links and writes an executive summary. The result renders
+  as an interactive force-directed map — entity cards with source badges
+  and row/column counts inside shaded domain clusters, typed edges
+  (solid = join key, dotted = prep lineage, dashed = AI-inferred) with
+  key and cardinality labels, hover to spotlight a neighbourhood with a
+  detail panel, plus zoom/fit/pan. If the AI call fails the detected
+  structure still renders with heuristic labels and a visible note. The
+  whole map is stored in the widget, so it publishes, shares and exports
+  to PDF like any other visual.
 - **Pick the AI model** — the BI agent on Data & SQL and every generative
   feature in the BI Workspace (AI analyst, insights) runs on a text model
   picked from **your connected integrations**: one group per connected

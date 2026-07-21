@@ -13,6 +13,7 @@ import {
   LayoutDashboard,
   Link2,
   Loader2,
+  Network,
   PieChart,
   Plus,
   Table2,
@@ -240,13 +241,15 @@ function BiWorkspacePage() {
                             const Glyph =
                               t === "text"
                                 ? Type
-                                : t === "pie"
-                                  ? PieChart
-                                  : t === "kpi"
-                                    ? Gauge
-                                    : t === "table"
-                                      ? Table2
-                                      : BarChart3;
+                                : t === "ontology"
+                                  ? Network
+                                  : t === "pie"
+                                    ? PieChart
+                                    : t === "kpi"
+                                      ? Gauge
+                                      : t === "table"
+                                        ? Table2
+                                        : BarChart3;
                             return (
                               <span
                                 key={w.id}

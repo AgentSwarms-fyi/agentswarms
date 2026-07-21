@@ -35,6 +35,7 @@ import {
 } from "recharts";
 import { BoxPlot, GaugeChart, HeatmapGrid, MatrixTable } from "@/components/bi/BiChartParts";
 import { BiGeoMap } from "@/components/bi/BiGeoMap";
+import { OntologyGraph } from "@/components/bi/OntologyGraph";
 import type { BiNumberFormat, ChartSpec } from "@/lib/biAgent";
 
 /** Tableau-style categorical palette — calm, print-safe, colorblind-aware. */
@@ -194,6 +195,11 @@ export function BiChartRender({
   const fmt = (v: unknown) => fmtBiValue(v, chart.format);
   const tooltipFmt = (v: unknown) => fmt(v);
   const clickable = Boolean(onElementClick);
+
+  if (chart.type === "ontology") {
+    // Renders from the stored spec — rows are irrelevant for this visual.
+    return <OntologyGraph spec={chart.spec} large={large} fill={fill} />;
+  }
 
   if (chart.type === "kpi") {
     const v = rows[0]?.[chart.valueField];

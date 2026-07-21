@@ -205,6 +205,7 @@ export function defaultWidgetSize(widget: BiWidget): { w: number; h: number } {
   if (t === "gauge") return { w: 4, h: 4 };
   if (t === "map" || t === "bubblemap") return { w: 8, h: 6 };
   if (t === "matrix") return { w: 8, h: 6 };
+  if (t === "ontology") return { w: 12, h: 8 };
   return { w: 6, h: 6 };
 }
 

@@ -2,7 +2,7 @@
 // that appear on hover) and a body that renders the chart snapshot, a data
 // table, or markdown text. Used by the BI project editor, the read-only
 // shared view, and the public published page.
-import { BarChart3, Table2, Type } from "lucide-react";
+import { BarChart3, Network, Table2, Type } from "lucide-react";
 import { BiChartRender, fmtBiNumber } from "@/components/bi/BiChartRender";
 import { MarkdownMessage } from "@/components/playground/MarkdownMessage";
 import type { BiWidget } from "@/lib/biDashboards";
@@ -74,7 +74,9 @@ export function BiWidgetCard({
   const chart = widget.chart ?? { type: "table" as const };
   const rows = widget.rows ?? [];
   const columns = widget.columns ?? [];
-  const Icon = isText ? Type : chart.type === "table" ? Table2 : BarChart3;
+  // Ontology widgets render from the spec inside `chart` — no row snapshot.
+  const isOntology = chart.type === "ontology";
+  const Icon = isText ? Type : isOntology ? Network : chart.type === "table" ? Table2 : BarChart3;
 
   return (
     <div className="group/widget flex h-full w-full flex-col overflow-hidden rounded-xl border border-border/60 bg-card shadow-sm transition-shadow hover:shadow-md">
@@ -95,6 +97,8 @@ export function BiWidgetCard({
           <div className="h-full overflow-y-auto px-2 text-sm">
             <MarkdownMessage content={widget.text ?? ""} />
           </div>
+        ) : isOntology ? (
+          <BiChartRender chart={chart} rows={rows} fill />
         ) : rows.length === 0 ? (
           <div className="flex h-full items-center justify-center px-4 text-center text-xs text-muted-foreground">
             No data snapshot — run or refresh this widget to load data.

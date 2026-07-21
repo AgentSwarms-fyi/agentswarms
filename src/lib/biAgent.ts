@@ -13,6 +13,7 @@
 
 import { supabase } from "@/integrations/supabase/client";
 import { runQuery, type ColumnDef, type DatasetMeta, type QueryResult } from "@/lib/sqlEngine";
+import type { OntologySpec } from "@/lib/biOntology";
 import { parseModelChoice } from "@/utils/providers/modelChoice";
 
 export type ColumnMeta = {
@@ -65,6 +66,7 @@ export type ChartSpec = { format?: BiNumberFormat } & (
   | { type: "matrix"; rowField: string; colField: string; valueField: string }
   | { type: "map"; locationField: string; valueField: string }
   | { type: "bubblemap"; locationField: string; valueField: string }
+  | { type: "ontology"; spec: OntologySpec }
 );
 
 export type BiPlan = {
@@ -91,7 +93,7 @@ export type BiTurn = {
 
 // ── LLM via /api/bi (JSON-mode) ──────────────────────────────────────────
 
-async function llmJson<T>(opts: {
+export async function llmJson<T>(opts: {
   systemPrompt: string;
   userPrompt: string;
   model?: string;

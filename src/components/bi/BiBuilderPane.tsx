@@ -24,6 +24,7 @@ import {
   Loader2,
   Map as MapIcon,
   MapPin,
+  Network,
   PieChart,
   Play,
   Plus,
@@ -52,10 +53,13 @@ import { BiChatMessage } from "@/components/data-sql/BiChatMessage";
 import { BiChartRender, fmtBiNumber } from "@/components/bi/BiChartRender";
 import { BiModelSelect } from "@/components/bi/BiModelSelect";
 import { keyFromSource, sourceFromKey, type BiDataContext } from "@/components/bi/biDataContext";
+import { OntologyGraph } from "@/components/bi/OntologyGraph";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { runBiTurn, type BiDoc, type BiTurn, type ChartSpec } from "@/lib/biAgent";
 import { snapshotRows, widgetFromBiTurn, type BiWidget } from "@/lib/biDashboards";
+import { buildOntology, type OntologyBuildStage, type OntologySpec } from "@/lib/biOntology";
+import { listPrepFlows, parsePrepConfig, prepTables } from "@/lib/dataPrep";
 import type { QueryResult } from "@/lib/sqlEngine";
 import { warehouseTablesAsDatasets } from "@/lib/warehouseClient";
 import { WAREHOUSE_LABELS } from "@/utils/warehouse/types";
@@ -87,7 +91,14 @@ const VIZ_TYPES: {
   { value: "map", label: "Map", icon: MapIcon },
   { value: "bubblemap", label: "Bubbles", icon: MapPin },
   { value: "table", label: "Table", icon: Table2 },
+  { value: "ontology", label: "Ontology", icon: Network },
 ];
+
+const ONTO_STAGE_LABEL: Record<OntologyBuildStage, string> = {
+  scanning: "Scanning sources…",
+  detecting: "Detecting relationships…",
+  enriching: "AI is building the ontology…",
+};
 
 type SourceTable = { name: string; cols: string[] };
 
@@ -168,6 +179,18 @@ export function BiBuilderPane({
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
 
+  // ── Ontology state (chartType === "ontology") ───────────────────────
+  const [ontoSources, setOntoSources] = useState<{
+    local: boolean;
+    kb: boolean;
+    wh: Record<string, boolean>;
+  }>({ local: true, kb: true, wh: {} });
+  const [ontoSpec, setOntoSpec] = useState<OntologySpec | null>(null);
+  const [ontoBuilding, setOntoBuilding] = useState<OntologyBuildStage | null>(null);
+  // Async build reads warehouse schemas through a ref so it sees fresh state.
+  const whTablesRef = useRef(ctx.whTables);
+  whTablesRef.current = ctx.whTables;
+
   // ── AI tab state ────────────────────────────────────────────────────
   const [question, setQuestion] = useState("");
   const [turns, setTurns] = useState<BiTurn[]>([]);
@@ -208,6 +231,7 @@ export function BiBuilderPane({
       setSeriesField("seriesField" in c ? (c.seriesField ?? "") : "");
       setStacked(c.type === "bar" ? Boolean(c.stacked) : false);
       setNumFormat(c.format ?? "auto");
+      setOntoSpec(c.type === "ontology" ? c.spec : null);
       setPreview(
         initial.rows && initial.columns
           ? {
@@ -241,6 +265,7 @@ export function BiBuilderPane({
       setSeriesField("");
       setStacked(false);
       setNumFormat("auto");
+      setOntoSpec(null);
       setPreview(null);
     }
     setSelectedTables([]);
@@ -337,12 +362,96 @@ export function BiBuilderPane({
     }
   }
 
+  // Build the full data-estate map: wait for selected warehouse schemas,
+  // load knowledge bases + prep-flow lineage, then run the ontology
+  // pipeline (deterministic detection + AI enrichment).
+  async function buildOntologyNow() {
+    if (ontoBuilding) return;
+    setOntoBuilding("scanning");
+    try {
+      const whIds = ctx.warehouses.filter((w) => ontoSources.wh[w.id]).map((w) => w.id);
+      for (const id of whIds) ctx.ensureSchema(id);
+      const deadline = Date.now() + 25_000;
+      const pending = () =>
+        whIds.filter((id) => {
+          const t = whTablesRef.current[id];
+          return t === undefined || t === "loading";
+        });
+      while (pending().length > 0 && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 400));
+      }
+      const whInputs = whIds.flatMap((id) => {
+        const tables = whTablesRef.current[id];
+        if (!Array.isArray(tables)) return [];
+        const conn = ctx.warehouses.find((w) => w.id === id);
+        return [{ id, name: conn?.name ?? "warehouse", tables }];
+      });
+      if (whInputs.length < whIds.length) {
+        toast.warning("Some warehouse schemas didn't load in time — they were skipped.");
+      }
+
+      let knowledgeBases: { id: string; name: string; docCount: number }[] = [];
+      if (ontoSources.kb) {
+        const [kbsRes, docsRes] = await Promise.all([
+          supabase.from("knowledge_bases").select("id, name"),
+          supabase.from("knowledge_documents").select("knowledge_base_id"),
+        ]);
+        const counts = new Map<string, number>();
+        for (const d of docsRes.data ?? []) {
+          counts.set(d.knowledge_base_id, (counts.get(d.knowledge_base_id) ?? 0) + 1);
+        }
+        knowledgeBases = (kbsRes.data ?? []).map((k) => ({
+          id: k.id,
+          name: k.name,
+          docCount: counts.get(k.id) ?? 0,
+        }));
+      }
+
+      let prepFlows: { name: string; outputTable: string | null; sources: string[] }[] = [];
+      if (ontoSources.local) {
+        try {
+          prepFlows = (await listPrepFlows()).map((f) => ({
+            name: f.name,
+            outputTable: f.output_table_name,
+            sources: prepTables(parsePrepConfig(f.config)),
+          }));
+        } catch {
+          /* lineage is an enhancement — the ontology works without it */
+        }
+      }
+
+      const spec = await buildOntology({
+        inputs: {
+          datasets: ontoSources.local ? ctx.datasets : [],
+          semantics: ctx.semantics,
+          preparedTables: ctx.preparedTables ?? new Set(),
+          warehouses: whInputs,
+          knowledgeBases,
+          prepFlows,
+        },
+        model: ctx.model ?? undefined,
+        onProgress: setOntoBuilding,
+      });
+      setOntoSpec(spec);
+      if (!title.trim()) setTitle("Data ontology");
+      if (!spec.aiEnriched) {
+        toast.warning("AI enrichment failed — showing the detected structure instead.");
+      }
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setOntoBuilding(null);
+    }
+  }
+
   const chartSpec: ChartSpec | null = useMemo(() => {
     const format = numFormat === "auto" ? undefined : numFormat;
     const spec = ((): ChartSpec | null => {
       switch (chartType) {
         case "table":
           return { type: "table" };
+        case "ontology":
+          return ontoSpec ? { type: "ontology", spec: ontoSpec } : null;
         case "kpi":
           return valueField
             ? {
@@ -426,12 +535,32 @@ export function BiBuilderPane({
     seriesField,
     stacked,
     numFormat,
+    ontoSpec,
   ]);
 
-  const canSubmit = Boolean(title.trim() && sql.trim() && preview && chartSpec);
+  const canSubmit =
+    chartType === "ontology"
+      ? Boolean(title.trim() && chartSpec)
+      : Boolean(title.trim() && sql.trim() && preview && chartSpec);
 
   function submit() {
-    if (!canSubmit || !preview || !chartSpec) return;
+    if (!canSubmit || !chartSpec) return;
+    if (chartType === "ontology") {
+      // The whole map lives in the chart spec — no SQL, no row snapshot.
+      onSubmit({
+        id: initial?.id ?? crypto.randomUUID(),
+        kind: "chart",
+        title: title.trim(),
+        source: { kind: "local" },
+        chart: chartSpec,
+        columns: [],
+        rows: [],
+        refreshed_at: new Date().toISOString(),
+      });
+      toast.success(initial ? "Widget updated" : "Widget added to the dashboard");
+      return;
+    }
+    if (!preview) return;
     onSubmit({
       id: initial?.id ?? crypto.randomUUID(),
       kind: "chart",
@@ -724,306 +853,434 @@ export function BiBuilderPane({
                 Editing “{initial.title}”
               </Badge>
             )}
-            {sourceSelect}
 
-            {/* Tables — above the SQL, multi-select for joins */}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Tables — select one or more to join
-                </Label>
-                {schemaLoading && (
-                  <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                    <Loader2 className="h-3 w-3 animate-spin" /> loading…
-                  </span>
-                )}
-              </div>
-              <div className="max-h-44 space-y-0.5 overflow-y-auto rounded-md border border-border/60 p-1.5">
-                {sourceTables.length === 0 && !schemaLoading && (
-                  <p className="px-1 py-2 text-[11px] text-muted-foreground">
-                    No tables available for this source.
-                  </p>
-                )}
-                {sourceTables.map((t) => {
-                  const checked = selectedTables.includes(t.name);
-                  return (
-                    <div key={t.name} className="rounded px-1 py-0.5 hover:bg-muted/60">
-                      <Label className="flex cursor-pointer items-center gap-2 py-0.5 font-mono text-[11px] font-normal">
-                        <Checkbox checked={checked} onCheckedChange={() => toggleTable(t.name)} />
-                        <span className="truncate">{t.name}</span>
-                        {ctx.preparedTables?.has(t.name) && (
-                          <Badge variant="secondary" className="shrink-0 px-1 text-[9px]">
-                            prep
-                          </Badge>
-                        )}
-                      </Label>
-                      {checked && (
-                        <p
-                          className="ml-6 truncate text-[9px] text-muted-foreground"
-                          title={t.cols.join(", ")}
-                        >
-                          {t.cols.slice(0, 8).join(" · ")}
-                          {t.cols.length > 8 ? ` · +${t.cols.length - 8} more` : ""}
-                        </p>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-              {selectedTables.length > 1 && (
-                <p className="text-[10px] text-muted-foreground">
-                  A JOIN skeleton was written below — adjust the join keys if needed.
-                </p>
-              )}
-            </div>
-
-            {/* SQL */}
+            {/* Visualization — icon picker */}
             <div className="space-y-1.5">
               <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                SQL (SELECT only)
+                Visualisation
               </Label>
-              <Textarea
-                value={sql}
-                onChange={(e) => setSql(e.target.value)}
-                rows={5}
-                className="font-mono text-xs"
-                placeholder="Select tables above, or write your own query"
-              />
-              <div className="flex items-center gap-2">
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="h-7 gap-1.5 text-xs"
-                  onClick={() => void runPreview()}
-                  disabled={running || !sql.trim()}
-                >
-                  {running ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <Play className="h-3 w-3" />
-                  )}
-                  Run
-                </Button>
-                {preview && (
-                  <span className="text-[10px] text-muted-foreground">
-                    {preview.row_count} rows · {preview.columns.length} cols
-                    {preview.capped ? " (truncated)" : ""}
-                  </span>
-                )}
+              <div className="grid grid-cols-3 gap-1.5">
+                {VIZ_TYPES.map((v) => (
+                  <button
+                    key={v.value}
+                    type="button"
+                    title={v.label}
+                    onClick={() => setChartType(v.value)}
+                    className={cn(
+                      "flex flex-col items-center gap-1 rounded-lg border px-2 py-2.5 text-[10px] font-medium transition",
+                      chartType === v.value
+                        ? "border-primary bg-primary/10 text-primary shadow-sm"
+                        : "border-border/60 text-muted-foreground hover:border-primary/40 hover:bg-muted/50 hover:text-foreground",
+                    )}
+                  >
+                    <v.icon className="h-5 w-5" />
+                    {v.label}
+                  </button>
+                ))}
               </div>
-              {runError && (
-                <p className="rounded border border-destructive/40 bg-destructive/10 px-2 py-1 text-[11px] text-destructive">
-                  {runError}
-                </p>
-              )}
             </div>
 
-            {preview && (
-              <>
-                {/* Visualization — icon picker */}
+            {chartType === "ontology" ? (
+              <div className="space-y-3">
+                <div className="rounded-lg border border-border/60 bg-muted/30 p-2.5 text-[11px] leading-snug text-muted-foreground">
+                  A high-level map of your whole data estate — every table, prepared dataset,
+                  warehouse and knowledge base, and how they relate. The AI classifies entities into
+                  business domains, labels each relationship and writes a summary.
+                </div>
+
                 <div className="space-y-1.5">
                   <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Visualisation
+                    Sources to include
                   </Label>
-                  <div className="grid grid-cols-3 gap-1.5">
-                    {VIZ_TYPES.map((v) => (
-                      <button
-                        key={v.value}
-                        type="button"
-                        title={v.label}
-                        onClick={() => setChartType(v.value)}
-                        className={cn(
-                          "flex flex-col items-center gap-1 rounded-lg border px-2 py-2.5 text-[10px] font-medium transition",
-                          chartType === v.value
-                            ? "border-primary bg-primary/10 text-primary shadow-sm"
-                            : "border-border/60 text-muted-foreground hover:border-primary/40 hover:bg-muted/50 hover:text-foreground",
-                        )}
-                      >
-                        <v.icon className="h-5 w-5" />
-                        {v.label}
-                      </button>
-                    ))}
+                  <div className="space-y-0.5 rounded-md border border-border/60 p-1.5">
+                    <Label className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-[11px] font-normal hover:bg-muted/60">
+                      <Checkbox
+                        checked={ontoSources.local}
+                        onCheckedChange={(v) =>
+                          setOntoSources((s) => ({ ...s, local: Boolean(v) }))
+                        }
+                      />
+                      <span className="truncate">Local &amp; prepared datasets</span>
+                      <span className="ml-auto shrink-0 text-[9px] text-muted-foreground">
+                        {ctx.datasets.length} tables
+                      </span>
+                    </Label>
+                    {ctx.warehouses.map((w) => {
+                      const on = Boolean(ontoSources.wh[w.id]);
+                      const t = ctx.whTables[w.id];
+                      return (
+                        <Label
+                          key={w.id}
+                          className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-[11px] font-normal hover:bg-muted/60"
+                        >
+                          <Checkbox
+                            checked={on}
+                            onCheckedChange={(v) => {
+                              const next = Boolean(v);
+                              if (next) ctx.ensureSchema(w.id);
+                              setOntoSources((s) => ({ ...s, wh: { ...s.wh, [w.id]: next } }));
+                            }}
+                          />
+                          <span className="truncate">
+                            {w.name} — {WAREHOUSE_LABELS[w.provider]}
+                          </span>
+                          {on && (t === undefined || t === "loading") && (
+                            <Loader2 className="ml-auto h-3 w-3 shrink-0 animate-spin text-muted-foreground" />
+                          )}
+                        </Label>
+                      );
+                    })}
+                    <Label className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-[11px] font-normal hover:bg-muted/60">
+                      <Checkbox
+                        checked={ontoSources.kb}
+                        onCheckedChange={(v) => setOntoSources((s) => ({ ...s, kb: Boolean(v) }))}
+                      />
+                      <span className="truncate">Knowledge bases</span>
+                    </Label>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2">
-                  {(chartType === "bar" ||
-                    chartType === "hbar" ||
-                    chartType === "line" ||
-                    chartType === "area") && (
-                    <>
-                      {fieldSelect(chartType === "hbar" ? "Category" : "X axis", xField, setXField)}
-                      {fieldSelect("Value (numeric)", yField, setYField)}
-                      {chartType !== "hbar" &&
-                        optionalFieldSelect("Split by series", seriesField, setSeriesField)}
-                      {chartType === "bar" && seriesField && (
-                        <div className="flex items-end pb-1.5">
-                          <Label className="flex cursor-pointer items-center gap-2 text-xs font-normal normal-case tracking-normal text-foreground">
-                            <Checkbox
-                              checked={stacked}
-                              onCheckedChange={(v) => setStacked(Boolean(v))}
-                            />
-                            Stacked bars
-                          </Label>
-                        </div>
-                      )}
-                    </>
-                  )}
-                  {chartType === "waterfall" && (
-                    <>
-                      {fieldSelect("Stage / step", xField, setXField)}
-                      {fieldSelect("Change (+/- numeric)", yField, setYField)}
-                    </>
-                  )}
-                  {chartType === "boxplot" && (
-                    <>
-                      {fieldSelect("Category", xField, setXField)}
-                      {fieldSelect("Value (numeric)", yField, setYField)}
-                    </>
-                  )}
-                  {(chartType === "pie" || chartType === "funnel" || chartType === "treemap") && (
-                    <>
-                      {fieldSelect(
-                        chartType === "funnel" ? "Stage" : "Category",
-                        nameField,
-                        setNameField,
-                      )}
-                      {fieldSelect("Value (numeric)", valueField, setValueField)}
-                    </>
-                  )}
-                  {chartType === "combo" && (
-                    <>
-                      {fieldSelect("X axis", xField, setXField)}
-                      {fieldSelect("Bars (numeric)", yField, setYField)}
-                      {fieldSelect("Line (numeric)", lineField, setLineField)}
-                    </>
-                  )}
-                  {chartType === "scatter" && (
-                    <>
-                      {fieldSelect("X (numeric)", xField, setXField)}
-                      {fieldSelect("Y (numeric)", yField, setYField)}
-                      {optionalFieldSelect("Bubble size", sizeField, setSizeField)}
-                    </>
-                  )}
-                  {chartType === "heatmap" && (
-                    <>
-                      {fieldSelect("Columns (X)", xField, setXField)}
-                      {fieldSelect("Rows (Y)", yField, setYField)}
-                      {fieldSelect("Value (numeric)", valueField, setValueField)}
-                    </>
-                  )}
-                  {chartType === "matrix" && (
-                    <>
-                      {fieldSelect("Rows", rowField, setRowField)}
-                      {fieldSelect("Columns", colField, setColField)}
-                      {fieldSelect("Value (numeric)", valueField, setValueField)}
-                    </>
-                  )}
-                  {(chartType === "map" || chartType === "bubblemap") && (
-                    <>
-                      {fieldSelect("Location (country)", locationField, setLocationField)}
-                      {fieldSelect("Value (numeric)", valueField, setValueField)}
-                    </>
-                  )}
-                  {chartType !== "table" &&
-                    chartType !== "heatmap" &&
-                    chartType !== "boxplot" &&
-                    chartType !== "matrix" &&
-                    chartType !== "map" &&
-                    chartType !== "bubblemap" &&
-                    chartType !== "kpi" &&
-                    chartType !== "gauge" &&
-                    formatSelect}
-                  {(chartType === "kpi" || chartType === "gauge") && (
-                    <>
-                      {fieldSelect("Value column", valueField, setValueField)}
-                      {optionalFieldSelect("Target column", targetField, setTargetField)}
-                      {chartType === "gauge" && (
-                        <div className="space-y-1">
-                          <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                            Max (optional)
-                          </Label>
-                          <Input
-                            value={maxInput}
-                            onChange={(e) => setMaxInput(e.target.value)}
-                            className="h-8 text-xs"
-                            placeholder="auto"
-                            inputMode="decimal"
-                          />
-                        </div>
-                      )}
-                      <div className="space-y-1">
-                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                          Label
-                        </Label>
-                        <Input
-                          value={kpiLabel}
-                          onChange={(e) => setKpiLabel(e.target.value)}
-                          className="h-8 text-xs"
-                          placeholder="Total revenue"
-                        />
-                      </div>
-                      {formatSelect}
-                    </>
-                  )}
-                </div>
-                {(chartType === "map" || chartType === "bubblemap") && (
-                  <p className="text-[10px] text-muted-foreground">
-                    Locations are matched to countries by name or common shorthand (USA, UK…).
-                    Unmatched rows are counted on the map.
-                  </p>
+                {ctx.onModelChange && (
+                  <div className="space-y-1.5">
+                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      AI model
+                    </Label>
+                    <BiModelSelect
+                      value={ctx.model ?? null}
+                      onChange={ctx.onModelChange}
+                      className="w-full"
+                    />
+                  </div>
                 )}
 
-                {/* Preview */}
-                <div className="rounded-lg border border-border/60 bg-card p-2">
-                  {chartSpec && chartSpec.type !== "table" ? (
-                    <BiChartRender chart={chartSpec} rows={preview.rows} />
+                <Button
+                  className="w-full gap-1.5"
+                  onClick={() => void buildOntologyNow()}
+                  disabled={
+                    Boolean(ontoBuilding) ||
+                    (!ontoSources.local &&
+                      !ontoSources.kb &&
+                      !ctx.warehouses.some((w) => ontoSources.wh[w.id]))
+                  }
+                >
+                  {ontoBuilding ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
-                    <div className="max-h-48 overflow-auto rounded border border-border/50">
-                      <table className="w-full text-left">
-                        <thead>
-                          <tr>
-                            {preview.columns.map((c) => (
-                              <th
-                                key={c}
-                                className="sticky top-0 bg-muted px-2 py-1 text-[9px] font-medium uppercase tracking-wider text-muted-foreground"
-                              >
-                                {c}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {preview.rows.slice(0, 20).map((row, i) => (
-                            <tr key={i} className="border-t border-border/40">
-                              {preview.columns.map((c) => (
-                                <td key={c} className="px-2 py-1 font-mono text-[10px]">
-                                  {row[c] === null || row[c] === undefined
-                                    ? "null"
-                                    : typeof row[c] === "number"
-                                      ? fmtBiNumber(row[c])
-                                      : String(row[c])}
-                                </td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                    <Sparkles className="h-4 w-4" />
+                  )}
+                  {ontoBuilding
+                    ? ONTO_STAGE_LABEL[ontoBuilding]
+                    : ontoSpec
+                      ? "Rebuild ontology"
+                      : "Build ontology with AI"}
+                </Button>
+
+                {ontoSpec && (
+                  <>
+                    <div className="rounded-lg border border-border/60 bg-card p-2">
+                      <OntologyGraph spec={ontoSpec} />
                     </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        Widget title
+                      </Label>
+                      <Input
+                        value={title}
+                        onChange={(e) => setTitle(e.target.value)}
+                        placeholder="Data ontology"
+                        className="h-8 text-xs"
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : (
+              <>
+                {sourceSelect}
+
+                {/* Tables — above the SQL, multi-select for joins */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Tables — select one or more to join
+                    </Label>
+                    {schemaLoading && (
+                      <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                        <Loader2 className="h-3 w-3 animate-spin" /> loading…
+                      </span>
+                    )}
+                  </div>
+                  <div className="max-h-44 space-y-0.5 overflow-y-auto rounded-md border border-border/60 p-1.5">
+                    {sourceTables.length === 0 && !schemaLoading && (
+                      <p className="px-1 py-2 text-[11px] text-muted-foreground">
+                        No tables available for this source.
+                      </p>
+                    )}
+                    {sourceTables.map((t) => {
+                      const checked = selectedTables.includes(t.name);
+                      return (
+                        <div key={t.name} className="rounded px-1 py-0.5 hover:bg-muted/60">
+                          <Label className="flex cursor-pointer items-center gap-2 py-0.5 font-mono text-[11px] font-normal">
+                            <Checkbox
+                              checked={checked}
+                              onCheckedChange={() => toggleTable(t.name)}
+                            />
+                            <span className="truncate">{t.name}</span>
+                            {ctx.preparedTables?.has(t.name) && (
+                              <Badge variant="secondary" className="shrink-0 px-1 text-[9px]">
+                                prep
+                              </Badge>
+                            )}
+                          </Label>
+                          {checked && (
+                            <p
+                              className="ml-6 truncate text-[9px] text-muted-foreground"
+                              title={t.cols.join(", ")}
+                            >
+                              {t.cols.slice(0, 8).join(" · ")}
+                              {t.cols.length > 8 ? ` · +${t.cols.length - 8} more` : ""}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {selectedTables.length > 1 && (
+                    <p className="text-[10px] text-muted-foreground">
+                      A JOIN skeleton was written below — adjust the join keys if needed.
+                    </p>
                   )}
                 </div>
 
+                {/* SQL */}
                 <div className="space-y-1.5">
                   <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Widget title
+                    SQL (SELECT only)
                   </Label>
-                  <Input
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    placeholder="Revenue by month"
-                    className="h-8 text-xs"
+                  <Textarea
+                    value={sql}
+                    onChange={(e) => setSql(e.target.value)}
+                    rows={5}
+                    className="font-mono text-xs"
+                    placeholder="Select tables above, or write your own query"
                   />
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="h-7 gap-1.5 text-xs"
+                      onClick={() => void runPreview()}
+                      disabled={running || !sql.trim()}
+                    >
+                      {running ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Play className="h-3 w-3" />
+                      )}
+                      Run
+                    </Button>
+                    {preview && (
+                      <span className="text-[10px] text-muted-foreground">
+                        {preview.row_count} rows · {preview.columns.length} cols
+                        {preview.capped ? " (truncated)" : ""}
+                      </span>
+                    )}
+                  </div>
+                  {runError && (
+                    <p className="rounded border border-destructive/40 bg-destructive/10 px-2 py-1 text-[11px] text-destructive">
+                      {runError}
+                    </p>
+                  )}
                 </div>
+
+                {preview && (
+                  <>
+                    <div className="grid grid-cols-2 gap-2">
+                      {(chartType === "bar" ||
+                        chartType === "hbar" ||
+                        chartType === "line" ||
+                        chartType === "area") && (
+                        <>
+                          {fieldSelect(
+                            chartType === "hbar" ? "Category" : "X axis",
+                            xField,
+                            setXField,
+                          )}
+                          {fieldSelect("Value (numeric)", yField, setYField)}
+                          {chartType !== "hbar" &&
+                            optionalFieldSelect("Split by series", seriesField, setSeriesField)}
+                          {chartType === "bar" && seriesField && (
+                            <div className="flex items-end pb-1.5">
+                              <Label className="flex cursor-pointer items-center gap-2 text-xs font-normal normal-case tracking-normal text-foreground">
+                                <Checkbox
+                                  checked={stacked}
+                                  onCheckedChange={(v) => setStacked(Boolean(v))}
+                                />
+                                Stacked bars
+                              </Label>
+                            </div>
+                          )}
+                        </>
+                      )}
+                      {chartType === "waterfall" && (
+                        <>
+                          {fieldSelect("Stage / step", xField, setXField)}
+                          {fieldSelect("Change (+/- numeric)", yField, setYField)}
+                        </>
+                      )}
+                      {chartType === "boxplot" && (
+                        <>
+                          {fieldSelect("Category", xField, setXField)}
+                          {fieldSelect("Value (numeric)", yField, setYField)}
+                        </>
+                      )}
+                      {(chartType === "pie" ||
+                        chartType === "funnel" ||
+                        chartType === "treemap") && (
+                        <>
+                          {fieldSelect(
+                            chartType === "funnel" ? "Stage" : "Category",
+                            nameField,
+                            setNameField,
+                          )}
+                          {fieldSelect("Value (numeric)", valueField, setValueField)}
+                        </>
+                      )}
+                      {chartType === "combo" && (
+                        <>
+                          {fieldSelect("X axis", xField, setXField)}
+                          {fieldSelect("Bars (numeric)", yField, setYField)}
+                          {fieldSelect("Line (numeric)", lineField, setLineField)}
+                        </>
+                      )}
+                      {chartType === "scatter" && (
+                        <>
+                          {fieldSelect("X (numeric)", xField, setXField)}
+                          {fieldSelect("Y (numeric)", yField, setYField)}
+                          {optionalFieldSelect("Bubble size", sizeField, setSizeField)}
+                        </>
+                      )}
+                      {chartType === "heatmap" && (
+                        <>
+                          {fieldSelect("Columns (X)", xField, setXField)}
+                          {fieldSelect("Rows (Y)", yField, setYField)}
+                          {fieldSelect("Value (numeric)", valueField, setValueField)}
+                        </>
+                      )}
+                      {chartType === "matrix" && (
+                        <>
+                          {fieldSelect("Rows", rowField, setRowField)}
+                          {fieldSelect("Columns", colField, setColField)}
+                          {fieldSelect("Value (numeric)", valueField, setValueField)}
+                        </>
+                      )}
+                      {(chartType === "map" || chartType === "bubblemap") && (
+                        <>
+                          {fieldSelect("Location (country)", locationField, setLocationField)}
+                          {fieldSelect("Value (numeric)", valueField, setValueField)}
+                        </>
+                      )}
+                      {chartType !== "table" &&
+                        chartType !== "heatmap" &&
+                        chartType !== "boxplot" &&
+                        chartType !== "matrix" &&
+                        chartType !== "map" &&
+                        chartType !== "bubblemap" &&
+                        chartType !== "kpi" &&
+                        chartType !== "gauge" &&
+                        formatSelect}
+                      {(chartType === "kpi" || chartType === "gauge") && (
+                        <>
+                          {fieldSelect("Value column", valueField, setValueField)}
+                          {optionalFieldSelect("Target column", targetField, setTargetField)}
+                          {chartType === "gauge" && (
+                            <div className="space-y-1">
+                              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                                Max (optional)
+                              </Label>
+                              <Input
+                                value={maxInput}
+                                onChange={(e) => setMaxInput(e.target.value)}
+                                className="h-8 text-xs"
+                                placeholder="auto"
+                                inputMode="decimal"
+                              />
+                            </div>
+                          )}
+                          <div className="space-y-1">
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                              Label
+                            </Label>
+                            <Input
+                              value={kpiLabel}
+                              onChange={(e) => setKpiLabel(e.target.value)}
+                              className="h-8 text-xs"
+                              placeholder="Total revenue"
+                            />
+                          </div>
+                          {formatSelect}
+                        </>
+                      )}
+                    </div>
+                    {(chartType === "map" || chartType === "bubblemap") && (
+                      <p className="text-[10px] text-muted-foreground">
+                        Locations are matched to countries by name or common shorthand (USA, UK…).
+                        Unmatched rows are counted on the map.
+                      </p>
+                    )}
+
+                    {/* Preview */}
+                    <div className="rounded-lg border border-border/60 bg-card p-2">
+                      {chartSpec && chartSpec.type !== "table" ? (
+                        <BiChartRender chart={chartSpec} rows={preview.rows} />
+                      ) : (
+                        <div className="max-h-48 overflow-auto rounded border border-border/50">
+                          <table className="w-full text-left">
+                            <thead>
+                              <tr>
+                                {preview.columns.map((c) => (
+                                  <th
+                                    key={c}
+                                    className="sticky top-0 bg-muted px-2 py-1 text-[9px] font-medium uppercase tracking-wider text-muted-foreground"
+                                  >
+                                    {c}
+                                  </th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {preview.rows.slice(0, 20).map((row, i) => (
+                                <tr key={i} className="border-t border-border/40">
+                                  {preview.columns.map((c) => (
+                                    <td key={c} className="px-2 py-1 font-mono text-[10px]">
+                                      {row[c] === null || row[c] === undefined
+                                        ? "null"
+                                        : typeof row[c] === "number"
+                                          ? fmtBiNumber(row[c])
+                                          : String(row[c])}
+                                    </td>
+                                  ))}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        Widget title
+                      </Label>
+                      <Input
+                        value={title}
+                        onChange={(e) => setTitle(e.target.value)}
+                        placeholder="Revenue by month"
+                        className="h-8 text-xs"
+                      />
+                    </div>
+                  </>
+                )}
               </>
             )}
           </div>
