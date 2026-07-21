@@ -328,7 +328,7 @@ function LandingPage() {
                   AgentSwarms
                 </span>
                 <span className="mt-0.5 hidden truncate text-[10px] font-medium uppercase tracking-wider text-muted-foreground sm:inline">
-                  Open-Source Agentic AI
+                  Open-Source Agentic AI &amp; Business Intelligence
                 </span>
               </span>
             </Link>

@@ -121,8 +121,8 @@ export function AppSidebar() {
           {!collapsed && (
             <div className="flex flex-col leading-tight">
               <span className="text-lg font-bold tracking-tight">AgentSwarms</span>
-              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                School of Agentic AI
+              <span className="text-[9px] uppercase leading-snug tracking-wider text-muted-foreground">
+                Open-Source Agentic AI &amp; Business Intelligence
               </span>
             </div>
           )}

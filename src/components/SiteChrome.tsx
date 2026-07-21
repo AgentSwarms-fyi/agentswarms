@@ -26,16 +26,19 @@ export function SiteFooter() {
             <Link to="/" className="inline-flex items-center gap-2 font-semibold">
               <img
                 src={agentSwarmsLogo}
-                alt="AgentSwarms AI School logo"
+                alt="AgentSwarms logo"
                 width={24}
                 height={24}
                 className="h-6 w-6 shrink-0 rounded-md object-cover"
               />
               AgentSwarms
             </Link>
+            <p className="mt-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Open-Source Agentic AI &amp; Business Intelligence
+            </p>
             <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-              An interactive school for Agentic AI. Run real swarms in the browser, read the
-              side-panel lesson, then fork the template and make it your own.
+              Agents, multi-agent swarms and an AI-native BI suite — deployed on your own
+              infrastructure, with your database and your model keys. MIT licensed.
             </p>
           </div>
 
@@ -129,85 +132,8 @@ export function SiteFooter() {
         </div>
 
         <div className="mt-10 flex flex-col items-center justify-between gap-3 border-t border-border/40 pt-6 text-xs text-muted-foreground sm:flex-row">
-          <span>© {year} AgentSwarms — Learn Agentic AI by building it. Hosted in the EU.</span>
-          <a
-            href="https://dang.ai"
-            target="_blank"
-            rel="dofollow noopener"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "8px",
-              border: "1px solid #d8cdf8",
-              background: "#ffffff",
-              color: "#050505",
-              font: "700 14px/1.2 Arial,sans-serif",
-              textDecoration: "none",
-              borderRadius: "8px",
-              padding: "10px 12px",
-            }}
-          >
-            Featured on Dang.ai
-          </a>
-          <a
-            href="https://startupfa.me/s/agentswarms?utm_source=agentswarms.fyi"
-            target="_blank"
-            rel="noreferrer noopener"
-            className="inline-block"
-            aria-label="Featured on Startup Fame"
-          >
-            <img
-              src="https://startupfa.me/badges/featured-badge-small.webp"
-              alt="AgentSwarms - Featured on Startup Fame"
-              width={224}
-              height={36}
-              loading="lazy"
-            />
-          </a>
-          <a
-            href="https://launchboosts.com/project/agentswarms"
-            target="_blank"
-            rel="noreferrer noopener"
-            className="inline-block"
-            aria-label="Featured on LaunchBoosts"
-          >
-            <img
-              src="https://launchboosts.com/badges/featured-light.svg"
-              alt="Featured on LaunchBoosts"
-              width={180}
-              height={54}
-              loading="lazy"
-            />
-          </a>
-          <a
-            href="https://theresanaiforthat.com/ai/agentswarms/?ref=featured&v=10555105"
-            target="_blank"
-            rel="nofollow noreferrer"
-            className="inline-block"
-            aria-label="Featured on There's An AI For That"
-          >
-            <img
-              width={300}
-              src="https://media.theresanaiforthat.com/featured-on-taaft.png?width=600"
-              alt="Featured on There's An AI For That"
-              className="h-auto w-[220px] sm:w-[260px]"
-              loading="lazy"
-            />
-          </a>
-          <a
-            href="https://theresanaiforthat.com/ai/agentswarms/?ref=social-icon&v=10555105"
-            target="_blank"
-            rel="nofollow noreferrer"
-            className="inline-block"
-            aria-label="Featured on TAAFT"
-          >
-            <img
-              src="https://media.theresanaiforthat.com/social/icon_full.svg"
-              alt="Featured on TAAFT"
-              className="h-8 w-auto"
-              loading="lazy"
-            />
-          </a>
+          <span>© {year} AgentSwarms — open-source agentic AI &amp; business intelligence.</span>
+          <span>Self-hosted · MIT licensed · Your data, your models.</span>
         </div>
       </div>
     </footer>
