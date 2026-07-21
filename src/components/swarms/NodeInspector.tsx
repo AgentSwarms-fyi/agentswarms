@@ -49,6 +49,7 @@ import { PromptLibraryPicker } from "@/components/prompts/PromptLibraryPicker";
 import { SkillPicker } from "@/components/skills/SkillPicker";
 import { isImageModelId } from "@/lib/providerSupport";
 import { allowedProviders, isModelAllowedByRules, useMyModelRules } from "@/hooks/use-iam";
+import { useOllamaModels } from "@/hooks/use-ollama-models";
 
 // Rerank-capable providers (Cohere/Jina-style POST /rerank); the picker
 // filters to connected integrations (OpenRouter always available).
@@ -71,7 +72,7 @@ const PROVIDERS: { value: string; label: string }[] = [
   { value: "grok", label: "Grok (xAI)" },
   { value: "groq", label: "Groq (LPU inference)" },
   { value: "openrouter", label: "OpenRouter" },
-  { value: "ollama", label: "Custom Ollama" },
+  { value: "ollama", label: "Ollama (local)" },
   { value: "bedrock", label: "AWS Bedrock (your account)" },
   { value: "vertex", label: "Google Vertex AI (your account)" },
   { value: "anthropic", label: "Anthropic direct (your API key)" },
@@ -369,6 +370,8 @@ export function NodeInspector({
   // IAM model governance: hide providers/models the admin hasn't allowed.
   const myModelRules = useMyModelRules();
   const iamAllowedProviders = allowedProviders(myModelRules);
+  // Live model tags from a connected Ollama integration.
+  const ollamaLive = useOllamaModels(currentProvider === "ollama");
   // Show every connected provider + the node's current one (even if it was
   // disconnected after the fact, so the value isn't silently dropped).
   const availableProviders = PROVIDERS.filter(
@@ -376,7 +379,11 @@ export function NodeInspector({
   ).filter(
     (p) => !iamAllowedProviders || iamAllowedProviders.has(p.value) || p.value === currentProvider,
   );
-  const suggestedModels = (MODEL_SUGGESTIONS[currentProvider] || []).filter((m) =>
+  const baseModelSuggestions =
+    currentProvider === "ollama" && ollamaLive.models.length > 0
+      ? ollamaLive.models
+      : MODEL_SUGGESTIONS[currentProvider] || [];
+  const suggestedModels = baseModelSuggestions.filter((m) =>
     isModelAllowedByRules(myModelRules, currentProvider, m),
   );
 
@@ -577,7 +584,8 @@ export function NodeInspector({
                   // When provider changes, snap the model to the first
                   // suggestion for that provider so we don't end up with an
                   // OpenAI model still selected after switching to Anthropic.
-                  const first = MODEL_SUGGESTIONS[v]?.[0];
+                  const first =
+                    (v === "ollama" && ollamaLive.models[0]) || MODEL_SUGGESTIONS[v]?.[0];
                   onChange({ provider: v, ...(first ? { model: first } : {}) });
                 }}
               >

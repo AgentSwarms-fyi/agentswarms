@@ -40,9 +40,12 @@ import {
   Loader2,
   Boxes,
   Sparkles,
+  HardDrive,
 } from "lucide-react";
 import { testIntegrationKey, testN8nInstance } from "@/utils/integrations.functions";
 import { saveProviderCredential } from "@/utils/providers/credentials.functions";
+import { detectOllama } from "@/utils/providers/ollama.functions";
+import { invalidateOllamaModels } from "@/hooks/use-ollama-models";
 
 // Providers we can live-test against the real upstream API.
 // bedrock/azure/vertex/oci use signed requests and live in the encrypted
@@ -58,6 +61,7 @@ const TESTABLE_PROVIDERS = new Set([
   "qwen",
   "vllm",
   "nvidia",
+  "ollama",
 ]);
 
 // Providers whose credentials must be encrypted server-side (signed-request
@@ -395,6 +399,22 @@ const LLM_PROVIDERS = [
     ],
   },
   {
+    id: "ollama",
+    name: "Ollama (local)",
+    icon: HardDrive,
+    freeHighlight: true,
+    description:
+      "⭐ Run models fully locally, for free. If Ollama is running on this server we auto-detect it — connecting is one click. Otherwise point us at any reachable Ollama instance (IP + port). Installed models show up in every model picker automatically.",
+    fields: [
+      {
+        key: "endpoint",
+        label: "Server address (auto-detected when local)",
+        type: "text",
+        placeholder: "http://localhost:11434",
+      },
+    ],
+  },
+  {
     id: "vllm",
     name: "vLLM (self-hosted)",
     icon: Boxes,
@@ -667,7 +687,8 @@ function IntegrationsPage() {
               | "groq"
               | "qwen"
               | "vllm"
-              | "nvidia",
+              | "nvidia"
+              | "ollama",
             access_token: session.access_token,
             config: normalizedConfig,
           },
@@ -1105,15 +1126,60 @@ function ProviderConfigDialog({
   const [open, setOpen] = useState(false);
   const [testing, setTesting] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
+  // Ollama auto-detection: when the dialog opens we probe the default
+  // localhost:11434 FROM THE SERVER; a hit turns connecting into one click.
+  const [ollamaProbe, setOllamaProbe] = useState<null | {
+    running: boolean;
+    endpoint: string;
+    models: string[];
+    detail: string;
+  }>(null);
+
+  useEffect(() => {
+    if (!open || provider.id !== "ollama") return;
+    setOllamaProbe(null);
+    let cancelled = false;
+    void (async () => {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) return;
+      try {
+        const probe = await detectOllama({ data: { access_token: token } });
+        if (cancelled) return;
+        setOllamaProbe(probe);
+        if (probe.running) {
+          setConfig((c) => ({ ...c, endpoint: c.endpoint || probe.endpoint }));
+        }
+      } catch {
+        if (!cancelled) {
+          setOllamaProbe({
+            running: false,
+            endpoint: "",
+            models: [],
+            detail: "Detection failed — enter the address manually.",
+          });
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, provider.id]);
 
   const willTest = TESTABLE_PROVIDERS.has(provider.id);
 
   async function handleSubmit() {
     setTesting(true);
     setLastError(null);
-    const res = await onSave(provider.id, config);
+    // Ollama: an empty address means "use the auto-detected local daemon".
+    const effectiveConfig =
+      provider.id === "ollama" && !config.endpoint?.trim()
+        ? { ...config, endpoint: ollamaProbe?.endpoint || "http://localhost:11434" }
+        : config;
+    const res = await onSave(provider.id, effectiveConfig);
     setTesting(false);
     if (res.ok) {
+      if (provider.id === "ollama") invalidateOllamaModels();
       setOpen(false);
       setConfig({});
     } else {
@@ -1146,10 +1212,48 @@ function ProviderConfigDialog({
           <DialogTitle>Configure {provider.name}</DialogTitle>
         </DialogHeader>
         <p className="text-sm text-muted-foreground">{provider.description}</p>
-        {willTest && (
+        {willTest && provider.id !== "ollama" && (
           <p className="text-xs text-muted-foreground border-l-2 border-primary/40 pl-2">
             We'll make a real authenticated call to verify your credentials before saving.
           </p>
+        )}
+        {provider.id === "ollama" && (
+          <div
+            className={
+              ollamaProbe === null
+                ? "rounded-md border border-border/60 bg-muted/40 p-2.5"
+                : ollamaProbe.running
+                  ? "rounded-md border border-emerald-500/40 bg-emerald-500/10 p-2.5"
+                  : "rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5"
+            }
+          >
+            {ollamaProbe === null ? (
+              <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" /> Checking for Ollama on this server…
+              </p>
+            ) : ollamaProbe.running ? (
+              <>
+                <p className="flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                  <Check className="h-3 w-3" /> {ollamaProbe.detail}
+                </p>
+                {ollamaProbe.models.length > 0 && (
+                  <p className="mt-1 break-words font-mono text-[11px] text-muted-foreground">
+                    {ollamaProbe.models.slice(0, 8).join(" · ")}
+                    {ollamaProbe.models.length > 8 ? " · …" : ""}
+                  </p>
+                )}
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Just click Connect — or point the address at a different instance below.
+                </p>
+              </>
+            ) : (
+              <p className="text-xs text-amber-700 dark:text-amber-400">
+                No Ollama detected on this server ({ollamaProbe.detail}). Enter the IP address and
+                port of a reachable Ollama instance below, e.g.{" "}
+                <code className="text-[11px]">http://192.168.1.20:11434</code>.
+              </p>
+            )}
+          </div>
         )}
         <div className="space-y-4">
           {provider.fields.map((field) => (
@@ -1177,6 +1281,8 @@ function ProviderConfigDialog({
               <>
                 <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" /> Testing connection…
               </>
+            ) : provider.id === "ollama" ? (
+              "Connect"
             ) : willTest ? (
               "Test & Connect"
             ) : (

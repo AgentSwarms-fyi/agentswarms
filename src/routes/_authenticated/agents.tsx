@@ -55,7 +55,7 @@ const PROVIDERS = [
   { value: "openai", label: "OpenAI" },
   { value: "gemini", label: "Google Gemini" },
   { value: "grok", label: "Grok (xAI)" },
-  { value: "ollama", label: "Custom Ollama" },
+  { value: "ollama", label: "Ollama (local)" },
   { value: "oci_genai", label: "OCI Generative AI" },
   { value: "bedrock", label: "AWS Bedrock" },
   { value: "vertex", label: "Google Vertex AI" },

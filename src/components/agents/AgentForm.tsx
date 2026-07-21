@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { allowedProviders, isModelAllowedByRules, useMyModelRules } from "@/hooks/use-iam";
+import { useOllamaModels } from "@/hooks/use-ollama-models";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -330,7 +331,7 @@ const PROVIDERS = [
   { value: "grok", label: "Grok (xAI)" },
   { value: "groq", label: "Groq (LPU inference)" },
   { value: "openrouter", label: "OpenRouter" },
-  { value: "ollama", label: "Custom Ollama" },
+  { value: "ollama", label: "Ollama (local)" },
   { value: "bedrock", label: "AWS Bedrock (your account)" },
   { value: "vertex", label: "Google Vertex AI (your account)" },
   { value: "anthropic", label: "Anthropic direct (your API key)" },
@@ -568,6 +569,9 @@ export function AgentForm({
   const [systemPrompt, setSystemPrompt] = useState(agent?.system_prompt || "");
   const [provider, setProvider] = useState(agent?.llm_provider || "openrouter");
   const myModelRules = useMyModelRules();
+  // Live model tags from a connected Ollama integration — replaces the
+  // static suggestions whenever the user picks the ollama provider.
+  const ollamaLive = useOllamaModels(provider === "ollama");
   const [model, setModel] = useState(agent?.llm_model || "google/gemini-3-flash-preview");
   const [temperature, setTemperature] = useState(agent?.temperature || 0.7);
   const [maxTokens, setMaxTokens] = useState(agent?.max_tokens || 4096);
@@ -892,7 +896,11 @@ export function AgentForm({
   // IAM model governance: hide providers/models the administrator hasn't
   // allowed for this user (the server enforces the same rules on /api/chat).
   const iamAllowedProviders = allowedProviders(myModelRules);
-  const suggestedModels = (MODEL_SUGGESTIONS[provider] || []).filter((m) =>
+  const baseModelSuggestions =
+    provider === "ollama" && ollamaLive.models.length > 0
+      ? ollamaLive.models
+      : MODEL_SUGGESTIONS[provider] || [];
+  const suggestedModels = baseModelSuggestions.filter((m) =>
     isModelAllowedByRules(myModelRules, provider, m),
   );
   const availableProviders = PROVIDERS.filter(
@@ -976,7 +984,9 @@ export function AgentForm({
               value={provider}
               onValueChange={(v) => {
                 setProvider(v);
-                setModel(MODEL_SUGGESTIONS[v]?.[0] || "");
+                setModel(
+                  (v === "ollama" && ollamaLive.models[0]) || MODEL_SUGGESTIONS[v]?.[0] || "",
+                );
               }}
             >
               <SelectTrigger>
