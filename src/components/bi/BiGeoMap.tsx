@@ -5,7 +5,7 @@
 // Location values are matched to countries by name (case/diacritic
 // insensitive, with common aliases like "USA" or "UK"). Unmatched rows are
 // counted and surfaced instead of silently dropped.
-import { useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
 import { geoNaturalEarth1, geoPath } from "d3-geo";
 import { feature } from "topojson-client";
 import type { Feature, FeatureCollection, Geometry } from "geojson";
@@ -123,6 +123,24 @@ export function BiGeoMap({
   valueField: string;
   mode: "fill" | "bubble";
 }) {
+  // Styled hover tooltip (native SVG <title> is delayed and easy to miss —
+  // this matches the recharts tooltips used by every other visual).
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [hover, setHover] = useState<{ name: string; value: number; x: number; y: number } | null>(
+    null,
+  );
+
+  function showTip(e: React.PointerEvent, name: string, value: number) {
+    const rect = wrapRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setHover({
+      name,
+      value,
+      x: Math.min(e.clientX - rect.left + 12, rect.width - 130),
+      y: Math.max(4, e.clientY - rect.top - 34),
+    });
+  }
+
   const { values, unmatched, max } = useMemo(() => {
     const values = new Map<string, { shape: CountryShape; value: number }>();
     let unmatched = 0;
@@ -141,7 +159,7 @@ export function BiGeoMap({
   }, [rows, locationField, valueField]);
 
   return (
-    <div className="relative h-full w-full">
+    <div ref={wrapRef} className="relative h-full w-full">
       <svg
         viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
         className="h-full w-full"
@@ -151,19 +169,20 @@ export function BiGeoMap({
         {COUNTRY_SHAPES.map((s) => {
           const entry = values.get(s.key);
           const t = entry && max > 0 ? entry.value / max : 0;
+          const active = hover?.name === s.name;
           return (
             <path
               key={s.key}
               d={s.d}
               fill={entry && mode === "fill" ? "var(--primary)" : "var(--muted)"}
-              fillOpacity={entry && mode === "fill" ? 0.15 + 0.85 * t : 1}
+              fillOpacity={entry && mode === "fill" ? (active ? 1 : 0.15 + 0.85 * t) : 1}
               stroke="var(--card)"
               strokeWidth={0.6}
-            >
-              {entry && mode === "fill" && (
-                <title>{`${s.name}: ${fmtBiNumber(entry.value)}`}</title>
-              )}
-            </path>
+              onPointerMove={
+                entry && mode === "fill" ? (e) => showTip(e, s.name, entry.value) : undefined
+              }
+              onPointerLeave={entry && mode === "fill" ? () => setHover(null) : undefined}
+            />
           );
         })}
         {mode === "bubble" &&
@@ -171,6 +190,7 @@ export function BiGeoMap({
             .sort((a, b) => b.value - a.value)
             .map(({ shape, value }) => {
               const r = 4 + 22 * Math.sqrt(max > 0 ? value / max : 0);
+              const active = hover?.name === shape.name;
               return (
                 <circle
                   key={shape.key}
@@ -178,15 +198,26 @@ export function BiGeoMap({
                   cy={shape.centroid[1]}
                   r={r}
                   fill="var(--primary)"
-                  fillOpacity={0.45}
+                  fillOpacity={active ? 0.75 : 0.45}
                   stroke="var(--primary)"
-                  strokeWidth={1.25}
-                >
-                  <title>{`${shape.name}: ${fmtBiNumber(value)}`}</title>
-                </circle>
+                  strokeWidth={active ? 2 : 1.25}
+                  onPointerMove={(e) => showTip(e, shape.name, value)}
+                  onPointerLeave={() => setHover(null)}
+                />
               );
             })}
       </svg>
+      {hover && (
+        <div
+          className="pointer-events-none absolute z-10 rounded-lg border border-border bg-popover px-2.5 py-1.5 text-xs shadow-lg"
+          style={{ left: hover.x, top: hover.y }}
+        >
+          <span className="font-medium text-popover-foreground">{hover.name}</span>
+          <span className="ml-1.5 tabular-nums text-muted-foreground">
+            {fmtBiNumber(hover.value)}
+          </span>
+        </div>
+      )}
       <div className="pointer-events-none absolute bottom-1 left-2 flex items-center gap-2 text-[9px] text-muted-foreground">
         {mode === "fill" && max > 0 && (
           <span className="flex items-center gap-1">
