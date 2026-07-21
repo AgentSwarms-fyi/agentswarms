@@ -4,7 +4,7 @@ Thanks for taking the time to contribute!
 
 ## Getting set up
 
-Follow the [installation guide in the README](./README.md#installation-guide)
+Follow the [installation guide](./docs/INSTALL.md)
 to get a local dev environment running (Node/Bun, your own Supabase project,
 environment variables).
 

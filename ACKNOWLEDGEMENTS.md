@@ -1,0 +1,99 @@
+# Acknowledgements
+
+AgentSwarms is built on the shoulders of many excellent open-source
+projects. This page credits the ones we depend on directly, with their
+licenses and repositories. Thank you to every maintainer and contributor
+behind them.
+
+**License audit summary** — all 112 direct dependencies use permissive
+licenses (MIT, Apache-2.0, ISC, BSD-2-Clause, MIT-0). There are **no
+copyleft dependencies** (no GPL / LGPL / AGPL / MPL code is bundled), so
+AgentSwarms itself is safely released under the
+**[MIT License](./LICENSE)**. Apache-2.0 dependencies require their
+license and notice files to travel with their source, which `npm install`
+preserves inside `node_modules`. To regenerate the full list at any time:
+
+```bash
+node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json'));for(const n of Object.keys({...p.dependencies,...p.devDependencies}).sort()){try{console.log(n,'—',JSON.parse(fs.readFileSync('node_modules/'+n+'/package.json')).license)}catch{}}"
+```
+
+## Application framework
+
+| Project | License | Used for |
+| --- | --- | --- |
+| [React](https://github.com/facebook/react) | MIT | UI runtime |
+| [TanStack Start / Router / Query](https://github.com/TanStack/router) | MIT | Framework, file-based routing, server functions, data fetching |
+| [Vite](https://github.com/vitejs/vite) | MIT | Build tooling and dev server |
+| [Nitro](https://github.com/nitrojs/nitro) | MIT | Server runtime |
+| [Tailwind CSS](https://github.com/tailwindlabs/tailwindcss) | MIT | Styling |
+| [shadcn/ui](https://github.com/shadcn-ui/ui) + [Radix UI](https://github.com/radix-ui/primitives) | MIT | Accessible UI primitives and components |
+| [Framer Motion](https://github.com/motiondivision/motion) | MIT | Animations |
+| [Lucide](https://github.com/lucide-icons/lucide) | ISC | Icon set |
+| [Zod](https://github.com/colinhacks/zod) | MIT | Runtime validation |
+| [sonner](https://github.com/emilkowalski/sonner), [cmdk](https://github.com/pacocoursey/cmdk), [vaul](https://github.com/emilkowalski/vaul), [react-hook-form](https://github.com/react-hook-form/react-hook-form) | MIT | Toasts, command menu, drawers, forms |
+
+## Agents & AI
+
+| Project | License | Used for |
+| --- | --- | --- |
+| [LangChain.js / LangGraph](https://github.com/langchain-ai/langchainjs) | MIT | Agent runtime, RAG pipelines, swarm export targets |
+| [XYFlow (React Flow)](https://github.com/xyflow/xyflow) | MIT | The visual swarm canvas |
+| [Pyodide](https://github.com/pyodide/pyodide) | MPL-2.0 | In-browser Python notebooks — loaded at runtime from jsDelivr, not bundled |
+| [CodeMirror](https://github.com/codemirror/dev) | MIT | Code editors (SQL, Python, Markdown) |
+| [react-markdown](https://github.com/remarkjs/react-markdown) + [remark-gfm](https://github.com/remarkjs/remark-gfm) + [rehype-highlight](https://github.com/rehypejs/rehype-highlight) | MIT | Markdown rendering with syntax highlighting |
+
+## Business Intelligence & data
+
+| Project | License | Used for |
+| --- | --- | --- |
+| [Recharts](https://github.com/recharts/recharts) | MIT | Chart rendering |
+| [AlaSQL](https://github.com/AlaSQL/alasql) | MIT | The in-browser (and server-side refresh) SQL engine for local datasets |
+| [d3-force](https://github.com/d3/d3-force) / [d3-geo](https://github.com/d3/d3-geo) | ISC | Ontology graph layout, filled & bubble maps |
+| [topojson-client](https://github.com/topojson/topojson-client) + [world-atlas](https://github.com/topojson/world-atlas) | ISC | Map geometry (derived from the public-domain [Natural Earth](https://www.naturalearthdata.com/) dataset) |
+| [pdf-lib](https://github.com/Hopding/pdf-lib) | MIT | Dashboard PDF export |
+| [html2canvas-pro](https://github.com/yorickshan/html2canvas-pro) | MIT | Widget/dashboard rasterisation for PDF & PNG export |
+| [Papa Parse](https://github.com/mholt/PapaParse) | MIT | CSV parsing |
+| [node-sql-parser](https://github.com/taozhi8833998/node-sql-parser) | Apache-2.0 | SQL validation |
+| [pdfjs-dist](https://github.com/mozilla/pdf.js) | Apache-2.0 | PDF text extraction for knowledge bases |
+| [mammoth](https://github.com/mwilliamson/mammoth.js) | BSD-2-Clause | DOCX text extraction for knowledge bases |
+
+## Backend & connectivity
+
+| Project | License | Used for |
+| --- | --- | --- |
+| [Supabase](https://github.com/supabase/supabase) (+ [supabase-js](https://github.com/supabase/supabase-js)) | Apache-2.0 / MIT | Postgres, Auth, Storage, pgvector — the entire backend |
+| [node-postgres (pg)](https://github.com/brianc/node-postgres) | MIT | PostgreSQL / Redshift-compatible connections |
+| [mysql2](https://github.com/sidorares/node-mysql2) | MIT | MySQL / MariaDB connections |
+| [tedious](https://github.com/tediousjs/tedious) | MIT | Azure Synapse (T-SQL) connections |
+| [Nodemailer](https://github.com/nodemailer/nodemailer) | MIT-0 | Budget alert e-mails |
+| [React Email](https://github.com/resend/react-email) | MIT | E-mail templates |
+
+## Tooling
+
+[TypeScript](https://github.com/microsoft/TypeScript) (Apache-2.0),
+[ESLint](https://github.com/eslint/eslint) (MIT),
+[Prettier](https://github.com/prettier/prettier) (MIT),
+[date-fns](https://github.com/date-fns/date-fns) (MIT),
+[js-yaml](https://github.com/nodeca/js-yaml) (MIT).
+
+## Assets & fonts
+
+- **[Simple Icons](https://github.com/simple-icons/simple-icons)** (CC0-1.0) —
+  the PostgreSQL, MySQL, Snowflake, Databricks and BigQuery brand marks under
+  `src/assets/warehouses/`.
+- **[benc-uk/icon-collection](https://github.com/benc-uk/icon-collection)**
+  (MIT) — the Azure Synapse icon.
+- The Amazon Redshift mark is sourced from
+  [Wikimedia Commons](https://commons.wikimedia.org/).
+- **[Inter & Inter Tight](https://github.com/rsms/inter)** (SIL OFL 1.1) —
+  loaded from Google Fonts.
+- All third-party product names and logos (PostgreSQL, MySQL, Snowflake,
+  Databricks, Google BigQuery, Amazon Redshift, Azure Synapse, and model
+  provider marks) are trademarks of their respective owners, used solely to
+  identify the corresponding integration. No endorsement is implied.
+
+## Runtime services (not bundled)
+
+Pyodide and the pdf.js worker are fetched at runtime from
+[jsDelivr](https://www.jsdelivr.com/); fonts from Google Fonts. Self-hosters
+who need a fully offline build can vendor these locally.

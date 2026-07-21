@@ -28,6 +28,6 @@ branch — there isn't a separate matrix of supported versions to track.
   third-party APIs directly — treat them as secrets and never expose them
   to client-side code (anything without a `VITE_` prefix stays server-only
   by design).
-- See the [installation guide in the README](./README.md#installation-guide)
+- See the [installation guide](./docs/INSTALL.md)
   for how environment variables and Supabase Row Level Security are
   expected to be configured.

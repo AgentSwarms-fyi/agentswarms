@@ -1022,7 +1022,7 @@ function LandingPage() {
 
             <div className="mt-10 text-center">
               <a
-                href={`${GITHUB_URL}#installation-guide`}
+                href={`${GITHUB_URL}/blob/main/docs/INSTALL.md`}
                 target="_blank"
                 rel="noreferrer"
                 className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
