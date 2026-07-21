@@ -13,6 +13,7 @@ import {
   BarChart4,
   BarChartHorizontal,
   CandlestickChart,
+  ChevronRight,
   ChevronsUpDown,
   Filter,
   Flame,
@@ -100,6 +101,38 @@ const ONTO_STAGE_LABEL: Record<OntologyBuildStage, string> = {
   enriching: "AI is building the ontology…",
 };
 
+// ── Ontology source selection ─────────────────────────────────────────────
+// Each source group (local datasets, one per warehouse, knowledge bases)
+// holds "all" or an explicit set of member names/ids. "all" survives lists
+// that haven't loaded yet (warehouse schemas, KB list) — it resolves to the
+// full list at build time.
+
+export type SelOrAll = "all" | Set<string>;
+
+type OntoKb = { id: string; name: string; docCount: number };
+
+export const selHas = (sel: SelOrAll, name: string) => sel === "all" || sel.has(name);
+
+/** Tri-state group checkbox value; `names` is null while the list loads. */
+export function groupCheckState(
+  sel: SelOrAll | undefined,
+  names: string[] | null,
+): boolean | "indeterminate" {
+  if (!sel) return false;
+  if (sel === "all") return true;
+  if (sel.size === 0) return false;
+  if (!names || names.length === 0) return true;
+  const n = names.filter((x) => sel.has(x)).length;
+  return n === 0 ? false : n === names.length ? true : "indeterminate";
+}
+
+export function toggleName(sel: SelOrAll | undefined, names: string[], name: string): SelOrAll {
+  const set = sel === "all" ? new Set(names) : new Set(sel ?? []);
+  if (set.has(name)) set.delete(name);
+  else set.add(name);
+  return set;
+}
+
 type SourceTable = { name: string; cols: string[] };
 
 /** A knowledge-base document the analyst can pull unstructured context from. */
@@ -180,16 +213,78 @@ export function BiBuilderPane({
   const [runError, setRunError] = useState<string | null>(null);
 
   // ── Ontology state (chartType === "ontology") ───────────────────────
-  const [ontoSources, setOntoSources] = useState<{
-    local: boolean;
-    kb: boolean;
-    wh: Record<string, boolean>;
-  }>({ local: true, kb: true, wh: {} });
+  // Per-group selections: local tables and knowledge bases default to all,
+  // warehouses start excluded (no key) until the user picks them.
+  const [ontoLocalSel, setOntoLocalSel] = useState<SelOrAll>("all");
+  const [ontoKbSel, setOntoKbSel] = useState<SelOrAll>("all");
+  const [ontoWhSel, setOntoWhSel] = useState<Record<string, SelOrAll>>({});
+  const [ontoExpanded, setOntoExpanded] = useState<Set<string>>(new Set());
+  const [ontoKbList, setOntoKbList] = useState<OntoKb[] | "loading" | "error" | null>(null);
+  const kbListPromiseRef = useRef<Promise<OntoKb[]> | null>(null);
   const [ontoSpec, setOntoSpec] = useState<OntologySpec | null>(null);
   const [ontoBuilding, setOntoBuilding] = useState<OntologyBuildStage | null>(null);
   // Async build reads warehouse schemas through a ref so it sees fresh state.
   const whTablesRef = useRef(ctx.whTables);
   whTablesRef.current = ctx.whTables;
+
+  /** Load the KB list once (deduped) — used by the picker and the build. */
+  function ensureOntoKbList(): Promise<OntoKb[]> {
+    if (!kbListPromiseRef.current) {
+      setOntoKbList((cur) => (Array.isArray(cur) ? cur : "loading"));
+      const p = (async () => {
+        const [kbsRes, docsRes] = await Promise.all([
+          supabase.from("knowledge_bases").select("id, name"),
+          supabase.from("knowledge_documents").select("knowledge_base_id"),
+        ]);
+        if (kbsRes.error || docsRes.error) {
+          throw new Error((kbsRes.error ?? docsRes.error)!.message);
+        }
+        const counts = new Map<string, number>();
+        for (const d of docsRes.data ?? []) {
+          counts.set(d.knowledge_base_id, (counts.get(d.knowledge_base_id) ?? 0) + 1);
+        }
+        const list = (kbsRes.data ?? []).map((k) => ({
+          id: k.id,
+          name: k.name,
+          docCount: counts.get(k.id) ?? 0,
+        }));
+        setOntoKbList(list);
+        return list;
+      })();
+      p.catch(() => {
+        setOntoKbList("error");
+        kbListPromiseRef.current = null;
+      });
+      kbListPromiseRef.current = p;
+    }
+    return kbListPromiseRef.current;
+  }
+
+  // Preload the KB list as soon as the ontology panel is shown.
+  useEffect(() => {
+    if (tab === "build" && chartType === "ontology") void ensureOntoKbList().catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, chartType]);
+
+  function toggleOntoExpanded(key: string) {
+    setOntoExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  const localTableNames = ctx.datasets.map((d) => d.name);
+  const kbListArr = Array.isArray(ontoKbList) ? ontoKbList : null;
+  const kbIds = kbListArr ? kbListArr.map((k) => k.id) : null;
+  const ontoHasSelection =
+    ctx.datasets.some((d) => selHas(ontoLocalSel, d.name)) ||
+    (ontoKbSel === "all" ? (kbListArr ? kbListArr.length > 0 : true) : ontoKbSel.size > 0) ||
+    ctx.warehouses.some((w) => {
+      const s = ontoWhSel[w.id];
+      return s === "all" || (s instanceof Set && s.size > 0);
+    });
 
   // ── AI tab state ────────────────────────────────────────────────────
   const [question, setQuestion] = useState("");
@@ -369,7 +464,14 @@ export function BiBuilderPane({
     if (ontoBuilding) return;
     setOntoBuilding("scanning");
     try {
-      const whIds = ctx.warehouses.filter((w) => ontoSources.wh[w.id]).map((w) => w.id);
+      const localDatasets = ctx.datasets.filter((d) => selHas(ontoLocalSel, d.name));
+
+      const whIds = ctx.warehouses
+        .map((w) => w.id)
+        .filter((id) => {
+          const s = ontoWhSel[id];
+          return s === "all" || (s instanceof Set && s.size > 0);
+        });
       for (const id of whIds) ctx.ensureSchema(id);
       const deadline = Date.now() + 25_000;
       const pending = () =>
@@ -380,35 +482,32 @@ export function BiBuilderPane({
       while (pending().length > 0 && Date.now() < deadline) {
         await new Promise((r) => setTimeout(r, 400));
       }
+      const notLoaded = whIds.filter((id) => !Array.isArray(whTablesRef.current[id]));
+      if (notLoaded.length > 0) {
+        toast.warning("Some warehouse schemas didn't load in time — they were skipped.");
+      }
       const whInputs = whIds.flatMap((id) => {
         const tables = whTablesRef.current[id];
         if (!Array.isArray(tables)) return [];
+        const sel = ontoWhSel[id];
+        const chosen = tables.filter((t) => selHas(sel, `${t.schema}.${t.name}`));
+        if (chosen.length === 0) return [];
         const conn = ctx.warehouses.find((w) => w.id === id);
-        return [{ id, name: conn?.name ?? "warehouse", tables }];
+        return [{ id, name: conn?.name ?? "warehouse", tables: chosen }];
       });
-      if (whInputs.length < whIds.length) {
-        toast.warning("Some warehouse schemas didn't load in time — they were skipped.");
-      }
 
-      let knowledgeBases: { id: string; name: string; docCount: number }[] = [];
-      if (ontoSources.kb) {
-        const [kbsRes, docsRes] = await Promise.all([
-          supabase.from("knowledge_bases").select("id, name"),
-          supabase.from("knowledge_documents").select("knowledge_base_id"),
-        ]);
-        const counts = new Map<string, number>();
-        for (const d of docsRes.data ?? []) {
-          counts.set(d.knowledge_base_id, (counts.get(d.knowledge_base_id) ?? 0) + 1);
+      let knowledgeBases: OntoKb[] = [];
+      if (ontoKbSel === "all" || ontoKbSel.size > 0) {
+        try {
+          const list = await ensureOntoKbList();
+          knowledgeBases = list.filter((k) => selHas(ontoKbSel, k.id));
+        } catch {
+          toast.warning("Couldn't load the knowledge bases — they were skipped.");
         }
-        knowledgeBases = (kbsRes.data ?? []).map((k) => ({
-          id: k.id,
-          name: k.name,
-          docCount: counts.get(k.id) ?? 0,
-        }));
       }
 
       let prepFlows: { name: string; outputTable: string | null; sources: string[] }[] = [];
-      if (ontoSources.local) {
+      if (localDatasets.length > 0) {
         try {
           prepFlows = (await listPrepFlows()).map((f) => ({
             name: f.name,
@@ -422,7 +521,7 @@ export function BiBuilderPane({
 
       const spec = await buildOntology({
         inputs: {
-          datasets: ontoSources.local ? ctx.datasets : [],
+          datasets: localDatasets,
           semantics: ctx.semantics,
           preparedTables: ctx.preparedTables ?? new Set(),
           warehouses: whInputs,
@@ -883,8 +982,8 @@ export function BiBuilderPane({
             {chartType === "ontology" ? (
               <div className="space-y-3">
                 <div className="rounded-lg border border-border/60 bg-muted/30 p-2.5 text-[11px] leading-snug text-muted-foreground">
-                  A high-level map of your whole data estate — every table, prepared dataset,
-                  warehouse and knowledge base, and how they relate. The AI classifies entities into
+                  A high-level map of your whole data estate and how it relates. Expand a source to
+                  pick individual tables or knowledge bases; the AI classifies entities into
                   business domains, labels each relationship and writes a summary.
                 </div>
 
@@ -892,51 +991,235 @@ export function BiBuilderPane({
                   <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                     Sources to include
                   </Label>
-                  <div className="space-y-0.5 rounded-md border border-border/60 p-1.5">
-                    <Label className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-[11px] font-normal hover:bg-muted/60">
-                      <Checkbox
-                        checked={ontoSources.local}
-                        onCheckedChange={(v) =>
-                          setOntoSources((s) => ({ ...s, local: Boolean(v) }))
-                        }
-                      />
-                      <span className="truncate">Local &amp; prepared datasets</span>
-                      <span className="ml-auto shrink-0 text-[9px] text-muted-foreground">
-                        {ctx.datasets.length} tables
-                      </span>
-                    </Label>
-                    {ctx.warehouses.map((w) => {
-                      const on = Boolean(ontoSources.wh[w.id]);
-                      const t = ctx.whTables[w.id];
-                      return (
-                        <Label
-                          key={w.id}
-                          className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-[11px] font-normal hover:bg-muted/60"
+                  <div className="max-h-72 space-y-0.5 overflow-y-auto rounded-md border border-border/60 p-1.5">
+                    {/* Local & prepared datasets */}
+                    <div>
+                      <div className="flex items-center gap-1 rounded px-1 py-1 hover:bg-muted/60">
+                        <button
+                          type="button"
+                          className="flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground"
+                          onClick={() => toggleOntoExpanded("local")}
+                          title="Choose tables"
                         >
-                          <Checkbox
-                            checked={on}
-                            onCheckedChange={(v) => {
-                              const next = Boolean(v);
-                              if (next) ctx.ensureSchema(w.id);
-                              setOntoSources((s) => ({ ...s, wh: { ...s.wh, [w.id]: next } }));
-                            }}
+                          <ChevronRight
+                            className={cn(
+                              "h-3 w-3 transition-transform",
+                              ontoExpanded.has("local") && "rotate-90",
+                            )}
                           />
-                          <span className="truncate">
-                            {w.name} — {WAREHOUSE_LABELS[w.provider]}
+                        </button>
+                        <Label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-[11px] font-normal">
+                          <Checkbox
+                            checked={groupCheckState(ontoLocalSel, localTableNames)}
+                            onCheckedChange={() =>
+                              setOntoLocalSel(
+                                groupCheckState(ontoLocalSel, localTableNames) === true
+                                  ? new Set()
+                                  : "all",
+                              )
+                            }
+                          />
+                          <span className="truncate">Local &amp; prepared datasets</span>
+                          <span className="ml-auto shrink-0 text-[9px] tabular-nums text-muted-foreground">
+                            {ctx.datasets.filter((d) => selHas(ontoLocalSel, d.name)).length}/
+                            {ctx.datasets.length} tables
                           </span>
-                          {on && (t === undefined || t === "loading") && (
-                            <Loader2 className="ml-auto h-3 w-3 shrink-0 animate-spin text-muted-foreground" />
-                          )}
                         </Label>
+                      </div>
+                      {ontoExpanded.has("local") && (
+                        <div className="ml-4 space-y-0.5 border-l border-border/40 pl-2">
+                          {ctx.datasets.length === 0 && (
+                            <p className="px-1 py-1 text-[10px] text-muted-foreground">
+                              No local datasets — upload data on the Data &amp; SQL page.
+                            </p>
+                          )}
+                          {ctx.datasets.map((d) => (
+                            <Label
+                              key={d.name}
+                              className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 font-mono text-[10px] font-normal hover:bg-muted/60"
+                            >
+                              <Checkbox
+                                checked={selHas(ontoLocalSel, d.name)}
+                                onCheckedChange={() =>
+                                  setOntoLocalSel((s) => toggleName(s, localTableNames, d.name))
+                                }
+                              />
+                              <span className="truncate">{d.name}</span>
+                              {ctx.preparedTables?.has(d.name) && (
+                                <Badge variant="secondary" className="shrink-0 px-1 text-[9px]">
+                                  prep
+                                </Badge>
+                              )}
+                            </Label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Warehouses — schemas load on expand/select */}
+                    {ctx.warehouses.map((w) => {
+                      const t = ctx.whTables[w.id];
+                      const names = Array.isArray(t) ? t.map((x) => `${x.schema}.${x.name}`) : null;
+                      const sel = ontoWhSel[w.id];
+                      const st = groupCheckState(sel, names);
+                      return (
+                        <div key={w.id}>
+                          <div className="flex items-center gap-1 rounded px-1 py-1 hover:bg-muted/60">
+                            <button
+                              type="button"
+                              className="flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground"
+                              onClick={() => {
+                                ctx.ensureSchema(w.id);
+                                toggleOntoExpanded(w.id);
+                              }}
+                              title="Choose tables"
+                            >
+                              <ChevronRight
+                                className={cn(
+                                  "h-3 w-3 transition-transform",
+                                  ontoExpanded.has(w.id) && "rotate-90",
+                                )}
+                              />
+                            </button>
+                            <Label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-[11px] font-normal">
+                              <Checkbox
+                                checked={st}
+                                onCheckedChange={() => {
+                                  if (st === true) {
+                                    setOntoWhSel((prev) => {
+                                      const next = { ...prev };
+                                      delete next[w.id];
+                                      return next;
+                                    });
+                                  } else {
+                                    ctx.ensureSchema(w.id);
+                                    setOntoWhSel((prev) => ({ ...prev, [w.id]: "all" }));
+                                  }
+                                }}
+                              />
+                              <span className="truncate">
+                                {w.name} — {WAREHOUSE_LABELS[w.provider]}
+                              </span>
+                              {names && (
+                                <span className="ml-auto shrink-0 text-[9px] tabular-nums text-muted-foreground">
+                                  {names.filter((n) => (sel ? selHas(sel, n) : false)).length}/
+                                  {names.length} tables
+                                </span>
+                              )}
+                              {sel && (t === undefined || t === "loading") && (
+                                <Loader2 className="ml-auto h-3 w-3 shrink-0 animate-spin text-muted-foreground" />
+                              )}
+                            </Label>
+                          </div>
+                          {ontoExpanded.has(w.id) && (
+                            <div className="ml-4 space-y-0.5 border-l border-border/40 pl-2">
+                              {t === "error" && (
+                                <p className="px-1 py-1 text-[10px] text-destructive">
+                                  Couldn't load this warehouse's schema.
+                                </p>
+                              )}
+                              {(t === undefined || t === "loading") && (
+                                <p className="flex items-center gap-1.5 px-1 py-1 text-[10px] text-muted-foreground">
+                                  <Loader2 className="h-3 w-3 animate-spin" /> Loading schema…
+                                </p>
+                              )}
+                              {names?.map((n) => (
+                                <Label
+                                  key={n}
+                                  className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 font-mono text-[10px] font-normal hover:bg-muted/60"
+                                >
+                                  <Checkbox
+                                    checked={sel ? selHas(sel, n) : false}
+                                    onCheckedChange={() =>
+                                      setOntoWhSel((prev) => ({
+                                        ...prev,
+                                        [w.id]: toggleName(prev[w.id], names, n),
+                                      }))
+                                    }
+                                  />
+                                  <span className="truncate">{n}</span>
+                                </Label>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       );
                     })}
-                    <Label className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-[11px] font-normal hover:bg-muted/60">
-                      <Checkbox
-                        checked={ontoSources.kb}
-                        onCheckedChange={(v) => setOntoSources((s) => ({ ...s, kb: Boolean(v) }))}
-                      />
-                      <span className="truncate">Knowledge bases</span>
-                    </Label>
+
+                    {/* Knowledge bases */}
+                    <div>
+                      <div className="flex items-center gap-1 rounded px-1 py-1 hover:bg-muted/60">
+                        <button
+                          type="button"
+                          className="flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground"
+                          onClick={() => {
+                            void ensureOntoKbList().catch(() => {});
+                            toggleOntoExpanded("kb");
+                          }}
+                          title="Choose knowledge bases"
+                        >
+                          <ChevronRight
+                            className={cn(
+                              "h-3 w-3 transition-transform",
+                              ontoExpanded.has("kb") && "rotate-90",
+                            )}
+                          />
+                        </button>
+                        <Label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-[11px] font-normal">
+                          <Checkbox
+                            checked={groupCheckState(ontoKbSel, kbIds)}
+                            onCheckedChange={() =>
+                              setOntoKbSel(
+                                groupCheckState(ontoKbSel, kbIds) === true ? new Set() : "all",
+                              )
+                            }
+                          />
+                          <span className="truncate">Knowledge bases</span>
+                          {kbListArr && (
+                            <span className="ml-auto shrink-0 text-[9px] tabular-nums text-muted-foreground">
+                              {kbListArr.filter((k) => selHas(ontoKbSel, k.id)).length}/
+                              {kbListArr.length}
+                            </span>
+                          )}
+                        </Label>
+                      </div>
+                      {ontoExpanded.has("kb") && (
+                        <div className="ml-4 space-y-0.5 border-l border-border/40 pl-2">
+                          {ontoKbList === "loading" && (
+                            <p className="flex items-center gap-1.5 px-1 py-1 text-[10px] text-muted-foreground">
+                              <Loader2 className="h-3 w-3 animate-spin" /> Loading knowledge bases…
+                            </p>
+                          )}
+                          {ontoKbList === "error" && (
+                            <p className="px-1 py-1 text-[10px] text-destructive">
+                              Couldn't load your knowledge bases — collapse and expand to retry.
+                            </p>
+                          )}
+                          {kbListArr && kbListArr.length === 0 && (
+                            <p className="px-1 py-1 text-[10px] text-muted-foreground">
+                              No knowledge bases yet — create one on the Knowledge page.
+                            </p>
+                          )}
+                          {kbListArr?.map((k) => (
+                            <Label
+                              key={k.id}
+                              className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-[10px] font-normal hover:bg-muted/60"
+                            >
+                              <Checkbox
+                                checked={selHas(ontoKbSel, k.id)}
+                                onCheckedChange={() =>
+                                  setOntoKbSel((s) => toggleName(s, kbIds ?? [], k.id))
+                                }
+                              />
+                              <span className="truncate">{k.name}</span>
+                              <span className="ml-auto shrink-0 text-[9px] tabular-nums text-muted-foreground">
+                                {k.docCount} docs
+                              </span>
+                            </Label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -956,12 +1239,7 @@ export function BiBuilderPane({
                 <Button
                   className="w-full gap-1.5"
                   onClick={() => void buildOntologyNow()}
-                  disabled={
-                    Boolean(ontoBuilding) ||
-                    (!ontoSources.local &&
-                      !ontoSources.kb &&
-                      !ctx.warehouses.some((w) => ontoSources.wh[w.id]))
-                  }
+                  disabled={Boolean(ontoBuilding) || !ontoHasSelection}
                 >
                   {ontoBuilding ? (
                     <Loader2 className="h-4 w-4 animate-spin" />

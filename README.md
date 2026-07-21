@@ -161,9 +161,11 @@ and reports. An editable dashboard is called a **BI project**:
   analyst reads that widget's data and drops a markdown card below it with
   what the data shows, caveats to watch, and suggested next steps.
 - **Ontology visual** — an AI-built knowledge map of your whole data
-  estate. Pick "Ontology" in the visual picker, choose the sources to
-  include (local &amp; prepared datasets, each connected warehouse,
-  knowledge bases) and hit **Build ontology with AI**: relationships are
+  estate. Pick "Ontology" in the visual picker and choose the sources to
+  include — expand any group to select **individual tables** (local &amp;
+  prepared datasets, each connected warehouse's schema) or **individual
+  knowledge bases**, with tri-state group checkboxes and live selection
+  counts — then hit **Build ontology with AI**: relationships are
   first detected deterministically (semantic-layer join hints, `*_id` →
   target-table key matching across sources, data-prep lineage), then one
   AI pass classifies every entity (master data / transactions / events /
