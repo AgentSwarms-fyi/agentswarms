@@ -148,28 +148,47 @@ export const Route = createFileRoute("/api/bi")({
         }
         const gatewayModelLabel = provider === "openrouter" ? model : `${provider}/${model}`;
 
-        const r = await fetch(transport.endpointUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(transport.apiKey ? { Authorization: `Bearer ${transport.apiKey}` } : {}),
-            ...(transport.extraHeaders ?? {}),
-          },
-          body: JSON.stringify({
-            model,
-            messages: [
-              {
-                role: "system",
-                content:
-                  (body.systemPrompt || "You are a helpful assistant.") +
-                  "\n\nYou MUST respond with a single valid JSON object. No prose, no markdown, no commentary.",
-              },
-              { role: "user", content: body.userPrompt },
-            ],
-            response_format: { type: "json_object" },
-            temperature: typeof body.temperature === "number" ? body.temperature : 0.1,
-          }),
-        });
+        // Deadline on the upstream call — a hung provider must surface as a
+        // clear error, not an infinite client spinner.
+        const upstreamCtrl = new AbortController();
+        const upstreamTimer = setTimeout(() => upstreamCtrl.abort(), 100_000);
+
+        let r: Response;
+        try {
+          r = await fetch(transport.endpointUrl, {
+            method: "POST",
+            signal: upstreamCtrl.signal,
+            headers: {
+              "Content-Type": "application/json",
+              ...(transport.apiKey ? { Authorization: `Bearer ${transport.apiKey}` } : {}),
+              ...(transport.extraHeaders ?? {}),
+            },
+            body: JSON.stringify({
+              model,
+              messages: [
+                {
+                  role: "system",
+                  content:
+                    (body.systemPrompt || "You are a helpful assistant.") +
+                    "\n\nYou MUST respond with a single valid JSON object. No prose, no markdown, no commentary.",
+                },
+                { role: "user", content: body.userPrompt },
+              ],
+              response_format: { type: "json_object" },
+              temperature: typeof body.temperature === "number" ? body.temperature : 0.1,
+            }),
+          });
+        } catch (e) {
+          if ((e as Error).name === "AbortError") {
+            return json(
+              { error: `The model provider (${gatewayModelLabel}) did not respond within 100s.` },
+              504,
+            );
+          }
+          throw e;
+        } finally {
+          clearTimeout(upstreamTimer);
+        }
 
         if (!r.ok) {
           const errText = await r.text().catch(() => "");

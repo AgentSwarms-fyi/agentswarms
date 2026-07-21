@@ -11,7 +11,9 @@ import { BiFilterBar } from "@/components/bi/BiFilterBar";
 import { BiWidgetCard } from "@/components/bi/BiWidgetCard";
 import { DashboardGrid } from "@/components/bi/DashboardGrid";
 import {
+  dashSurfaceStyle,
   filterWidgetRows,
+  parseDashTheme,
   parseFilters,
   parseLayout,
   parseWidgets,
@@ -75,6 +77,7 @@ function PublicBiDashboardPage() {
     );
   }
 
+  const theme = parseDashTheme(dashboard.theme);
   const widgets = parseWidgets(dashboard.widgets);
   const layout = parseLayout(dashboard.layout, widgets);
   const filterConfigs = parseFilters(dashboard.filters);
@@ -113,14 +116,15 @@ function PublicBiDashboardPage() {
 
       <main
         className={isEmbed ? "p-3" : "mx-auto max-w-7xl p-6"}
-        style={
-          isEmbed
-            ? undefined
+        style={{
+          ...(isEmbed || theme.bg
+            ? {}
             : {
                 backgroundImage: "radial-gradient(circle, var(--border) 1px, transparent 1px)",
                 backgroundSize: "22px 22px",
-              }
-        }
+              }),
+          ...dashSurfaceStyle(theme),
+        }}
       >
         <BiFilterBar
           configs={filterConfigs}

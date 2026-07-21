@@ -17,6 +17,7 @@ import {
   Pencil,
   Plus,
   CalendarClock,
+  Palette,
   RefreshCw,
   Share2,
   Wand2,
@@ -38,6 +39,10 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuPortal,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -52,6 +57,7 @@ import { BiWidgetCard } from "@/components/bi/BiWidgetCard";
 import { DashboardGrid } from "@/components/bi/DashboardGrid";
 import { PublishDialog } from "@/components/bi/PublishDialog";
 import { ScheduleDialog } from "@/components/bi/ScheduleDialog";
+import { BiThemeDialog } from "@/components/bi/BiThemeDialog";
 import { GenerateDashboardDialog } from "@/components/bi/GenerateDashboardDialog";
 import type { BiDataContext } from "@/components/bi/biDataContext";
 import { useAuth } from "@/hooks/use-auth";
@@ -64,8 +70,11 @@ import {
   type SemanticEntry,
 } from "@/lib/biAgent";
 import {
+  WIDGET_ACCENTS,
   addWidgetToLayout,
   compactLayout,
+  dashSurfaceStyle,
+  parseDashTheme,
   filterWidgetRows,
   getDashboard,
   parseFilters,
@@ -79,8 +88,10 @@ import {
   type BiFilterConfig,
   type BiFilterState,
   type BiLayoutItem,
+  type BiDashTheme,
   type BiWidget,
   type BiWidgetSource,
+  type BiWidgetTheme,
 } from "@/lib/biDashboards";
 import { exportDashboardPdf } from "@/lib/biPdf";
 import { listPrepFlows } from "@/lib/dataPrep";
@@ -127,6 +138,7 @@ function BiProjectPage() {
   const [publishOpen, setPublishOpen] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [generateOpen, setGenerateOpen] = useState(false);
+  const [themeOpen, setThemeOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [insightBusyId, setInsightBusyId] = useState<string | null>(null);
@@ -138,6 +150,24 @@ function BiProjectPage() {
   const [filterConfigs, setFilterConfigs] = useState<BiFilterConfig[]>([]);
   const [filterState, setFilterState] = useState<BiFilterState>({});
   const [crossFilter, setCrossFilter] = useState<BiCrossFilter>(null);
+
+  const dashTheme = useMemo(
+    () => parseDashTheme(row !== null && row !== "missing" ? row.theme : undefined),
+    [row],
+  );
+
+  async function saveTheme(t: BiDashTheme) {
+    if (row === null || row === "missing") return;
+    await updateDashboard(row.id, { theme: t as Json });
+    setRow({ ...row, theme: t as Json });
+  }
+
+  function setWidgetTheme(id: string, patch: Partial<BiWidgetTheme>) {
+    const next = widgets.map((w) =>
+      w.id === id ? { ...w, theme: { ...(w.theme ?? {}), ...patch } } : w,
+    );
+    persist(next, layout);
+  }
 
   const isOwner = row !== null && row !== "missing" && row.user_id === user?.id;
   const readOnly = !isOwner;
@@ -622,6 +652,15 @@ function BiProjectPage() {
               >
                 <Wand2 className="h-3.5 w-3.5 text-primary" /> Generate
               </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 gap-1.5 px-2.5 text-xs"
+                onClick={() => setThemeOpen(true)}
+                title="Background image & font"
+              >
+                <Palette className="h-3.5 w-3.5" /> Theme
+              </Button>
             </>
           )}
           {readOnly && (
@@ -684,7 +723,7 @@ function BiProjectPage() {
             editable={!readOnly}
             onConfigsChange={persistFilterConfigs}
           />
-          <div ref={gridWrapRef}>
+          <div ref={gridWrapRef} className="rounded-xl" style={dashSurfaceStyle(dashTheme)}>
             <DashboardGrid
               layout={layout}
               editable={!readOnly}
@@ -748,6 +787,62 @@ function BiProjectPage() {
                             <DropdownMenuItem onClick={() => duplicateWidget(w.id)}>
                               <Copy className="mr-2 h-3.5 w-3.5" /> Duplicate
                             </DropdownMenuItem>
+                            <DropdownMenuSub>
+                              <DropdownMenuSubTrigger>
+                                <Palette className="mr-2 h-3.5 w-3.5" /> Appearance
+                              </DropdownMenuSubTrigger>
+                              <DropdownMenuPortal>
+                                <DropdownMenuSubContent className="w-48">
+                                  <p className="px-2 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                                    Accent
+                                  </p>
+                                  <div className="grid grid-cols-4 gap-1 px-2 pb-1.5">
+                                    {Object.entries(WIDGET_ACCENTS).map(([id, a]) => (
+                                      <button
+                                        key={id}
+                                        type="button"
+                                        title={a.label}
+                                        onClick={() =>
+                                          setWidgetTheme(w.id, {
+                                            accent: id === "default" ? undefined : id,
+                                          })
+                                        }
+                                        className={`h-6 rounded-md border ${
+                                          (w.theme?.accent ?? "default") === id
+                                            ? "border-foreground"
+                                            : "border-border/60"
+                                        }`}
+                                        style={{ background: a.color || "var(--primary)" }}
+                                      />
+                                    ))}
+                                  </div>
+                                  <p className="px-2 pb-1 pt-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                                    Card style
+                                  </p>
+                                  {(["default", "tint", "glass"] as const).map((c) => (
+                                    <DropdownMenuItem
+                                      key={c}
+                                      onClick={() =>
+                                        setWidgetTheme(w.id, {
+                                          card: c === "default" ? undefined : c,
+                                        })
+                                      }
+                                      className={
+                                        (w.theme?.card ?? "default") === c
+                                          ? "font-semibold"
+                                          : undefined
+                                      }
+                                    >
+                                      {c === "default"
+                                        ? "Default"
+                                        : c === "tint"
+                                          ? "Accent tint"
+                                          : "Glass (over image)"}
+                                    </DropdownMenuItem>
+                                  ))}
+                                </DropdownMenuSubContent>
+                              </DropdownMenuPortal>
+                            </DropdownMenuSub>
                             {w.kind === "chart" && (w.rows?.length ?? 0) > 0 && (
                               <DropdownMenuItem onClick={() => downloadWidgetCsv(w)}>
                                 <FileDown className="mr-2 h-3.5 w-3.5" /> Download CSV
@@ -835,6 +930,12 @@ function BiProjectPage() {
               for (const w of sorted) lay = addWidgetToLayout(lay, w);
               persist([...widgets, ...sorted], lay);
             }}
+          />
+          <BiThemeDialog
+            open={themeOpen}
+            onOpenChange={setThemeOpen}
+            theme={dashTheme}
+            onSave={saveTheme}
           />
         </>
       )}

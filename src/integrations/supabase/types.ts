@@ -334,6 +334,7 @@ export type Database = {
           public_slug: string | null;
           published: boolean;
           published_at: string | null;
+          theme: Json;
           updated_at: string;
           user_id: string;
           widgets: Json;
@@ -349,6 +350,7 @@ export type Database = {
           public_slug?: string | null;
           published?: boolean;
           published_at?: string | null;
+          theme?: Json;
           updated_at?: string;
           user_id: string;
           widgets?: Json;
@@ -364,6 +366,7 @@ export type Database = {
           public_slug?: string | null;
           published?: boolean;
           published_at?: string | null;
+          theme?: Json;
           updated_at?: string;
           user_id?: string;
           widgets?: Json;

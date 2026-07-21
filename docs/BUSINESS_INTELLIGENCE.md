@@ -135,3 +135,17 @@ and reports. An editable dashboard is called a **BI project**:
   snapshots — your warehouse credentials are never used on their behalf and
   never leave the server.
 
+
+## Theming
+
+Every dashboard has a **Theme** (editor toolbar): upload a **background
+image** — compressed client-side to ≤0.9MB and stored with the dashboard,
+so the public link, embeds and PDF export need no storage bucket — with
+cover/contain/tile fit and a darken slider for readability, plus a
+**dashboard font** (Inter, serif, humanist, mono, rounded). Each widget's
+menu has **Appearance**: an **accent colour** (recolours the chart primary
+and header icon via a scoped CSS variable) and a **card style** — default,
+accent tint, or glass (translucent blur, made for image backgrounds).
+All AI calls also carry hard timeouts now (120s client / 100s upstream),
+so a stalled model provider surfaces as a clear error instead of an
+infinite spinner.

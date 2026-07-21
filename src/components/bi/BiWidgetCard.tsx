@@ -6,7 +6,8 @@ import { useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, BarChart3, Network, Table2, Type } from "lucide-react";
 import { BiChartRender, fmtBiNumber, toBiNumber } from "@/components/bi/BiChartRender";
 import { MarkdownMessage } from "@/components/playground/MarkdownMessage";
-import type { BiWidget } from "@/lib/biDashboards";
+import { WIDGET_ACCENTS, type BiWidget } from "@/lib/biDashboards";
+import { cn } from "@/lib/utils";
 
 const TABLE_PAGE = 50;
 
@@ -166,11 +167,32 @@ export function BiWidgetCard({
   // Ontology widgets render from the spec inside `chart` — no row snapshot.
   const isOntology = chart.type === "ontology";
   const Icon = isText ? Type : isOntology ? Network : chart.type === "table" ? Table2 : BarChart3;
+  // Per-widget appearance: the accent recolours the chart primary via a
+  // scoped CSS variable; card styles suit plain, tinted or image-backed
+  // dashboards.
+  const accent = widget.theme?.accent ? WIDGET_ACCENTS[widget.theme.accent]?.color : "";
+  const cardStyle = widget.theme?.card ?? "default";
+  const surface = cn(
+    "group/widget flex h-full w-full flex-col overflow-hidden rounded-xl border shadow-sm transition-shadow hover:shadow-md",
+    cardStyle === "glass"
+      ? "border-border/40 bg-card/75 backdrop-blur-md"
+      : cardStyle === "tint"
+        ? "border-border/60"
+        : "border-border/60 bg-card",
+  );
+  const style: React.CSSProperties = {};
+  if (accent) style["--primary" as never] = accent as never;
+  if (cardStyle === "tint") {
+    style.background = `color-mix(in oklch, ${accent || "var(--primary)"} 7%, var(--card))`;
+  }
 
   return (
-    <div className="group/widget flex h-full w-full flex-col overflow-hidden rounded-xl border border-border/60 bg-card shadow-sm transition-shadow hover:shadow-md">
+    <div className={surface} style={style}>
       <div className="flex h-10 shrink-0 items-center gap-2 px-3.5 pt-1">
-        <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
+        <Icon
+          className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70"
+          style={accent ? { color: accent } : undefined}
+        />
         <span
           className="min-w-0 flex-1 truncate text-[13px] font-semibold"
           title={widget.narrative ? `${widget.title}\n\n${widget.narrative}` : widget.title}

@@ -126,20 +126,37 @@ export async function llmJson<T>(opts: {
 
   // opts.model may be an encoded "provider::model" choice (see modelChoice).
   const choice = parseModelChoice(opts.model);
-  const resp = await fetch("/api/bi", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({
-      systemPrompt: opts.systemPrompt,
-      userPrompt: opts.userPrompt,
-      provider: choice?.provider,
-      model: choice?.model,
-      temperature: opts.temperature,
-    }),
-  });
+  // Hard deadline: without it a stalled provider leaves every AI spinner
+  // (analyst, insights, ontology, generate) hanging forever.
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 120_000);
+  let resp: Response;
+  try {
+    resp = await fetch("/api/bi", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        systemPrompt: opts.systemPrompt,
+        userPrompt: opts.userPrompt,
+        provider: choice?.provider,
+        model: choice?.model,
+        temperature: opts.temperature,
+      }),
+      signal: ctrl.signal,
+    });
+  } catch (e) {
+    if ((e as Error).name === "AbortError") {
+      throw new Error(
+        "The AI call timed out after 120s — the selected model/provider isn't responding. Check the model picker and your Integrations.",
+      );
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 
   const data = (await resp.json().catch(() => ({}))) as {
     result?: T;

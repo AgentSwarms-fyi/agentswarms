@@ -3,6 +3,8 @@
 // widget stores its SQL, its source (local AlaSQL datasets or an external
 // warehouse connection), and a capped snapshot of the last result so shared
 // and published dashboards render without touching the owner's data sources.
+import type { CSSProperties } from "react";
+
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
 import type { BiTurn, ChartSpec } from "@/lib/biAgent";
@@ -25,6 +27,8 @@ export type BiWidget = {
   columns?: string[];
   rows?: Record<string, unknown>[];
   narrative?: string;
+  /** Per-widget appearance (accent colour + card surface). */
+  theme?: BiWidgetTheme;
   refreshed_at?: string;
   // text widgets (markdown)
   text?: string;
@@ -46,6 +50,8 @@ export type BiDashboardRow = {
   ai_model: string | null;
   /** Owner-defined dashboard filter definitions (BiFilterConfig[]). */
   filters: Json;
+  /** Dashboard theme (background image, font) — see BiDashTheme. */
+  theme: Json;
   created_at: string;
   updated_at: string;
 };
@@ -215,6 +221,84 @@ export function addWidgetToLayout(layout: BiLayoutItem[], widget: BiWidget): BiL
   return [...layout, { i: widget.id, x, y, w, h }];
 }
 
+// ── Dashboard & widget theming ──────────────────────────────────────────
+
+/** Dashboard-level theme, stored in bi_dashboards.theme (jsonb). */
+export type BiDashTheme = {
+  bg?: {
+    /** Compressed data-URL image (kept in-row so public pages & PDF work). */
+    url: string;
+    fit: "cover" | "contain" | "tile";
+    /** 0-0.8 dark overlay so widgets stay readable over busy images. */
+    dim: number;
+  };
+  font?: string;
+};
+
+/** Per-widget appearance, stored inside the widget json. */
+export type BiWidgetTheme = {
+  /** Accent id from WIDGET_ACCENTS — recolours the chart primary + header. */
+  accent?: string;
+  /** Card surface: default, soft accent tint, or glass (over backgrounds). */
+  card?: "default" | "tint" | "glass";
+};
+
+export const DASH_FONTS: Record<string, { label: string; stack: string }> = {
+  default: { label: "Inter (default)", stack: "" },
+  serif: { label: "Serif", stack: "Georgia, 'Times New Roman', serif" },
+  humanist: { label: "Humanist", stack: "'Segoe UI', 'Trebuchet MS', Verdana, sans-serif" },
+  mono: { label: "Mono", stack: "ui-monospace, 'Cascadia Code', Consolas, monospace" },
+  rounded: { label: "Rounded", stack: "'Comfortaa', 'Trebuchet MS', 'Segoe UI', sans-serif" },
+};
+
+export const WIDGET_ACCENTS: Record<string, { label: string; color: string }> = {
+  default: { label: "Default", color: "" },
+  blue: { label: "Blue", color: "#4E79A7" },
+  emerald: { label: "Emerald", color: "#59A14F" },
+  amber: { label: "Amber", color: "#F28E2B" },
+  violet: { label: "Violet", color: "#B07AA1" },
+  rose: { label: "Rose", color: "#E15759" },
+  teal: { label: "Teal", color: "#76B7B2" },
+  slate: { label: "Slate", color: "#9c755f" },
+};
+
+export function parseDashTheme(v: Json | undefined): BiDashTheme {
+  const t = (v ?? {}) as BiDashTheme;
+  const out: BiDashTheme = {};
+  if (t.bg && typeof t.bg.url === "string" && t.bg.url.length > 0) {
+    out.bg = {
+      url: t.bg.url,
+      fit: t.bg.fit === "contain" || t.bg.fit === "tile" ? t.bg.fit : "cover",
+      dim: Math.max(0, Math.min(0.8, Number(t.bg.dim) || 0)),
+    };
+  }
+  if (typeof t.font === "string" && t.font in DASH_FONTS) out.font = t.font;
+  return out;
+}
+
+/** Inline style for the dashboard canvas surface (editor, shared, public). */
+export function dashSurfaceStyle(theme: BiDashTheme): CSSProperties {
+  const style: CSSProperties = {};
+  if (theme.bg) {
+    const dim =
+      theme.bg.dim > 0
+        ? `linear-gradient(rgb(0 0 0 / ${theme.bg.dim}), rgb(0 0 0 / ${theme.bg.dim})), `
+        : "";
+    style.backgroundImage = `${dim}url(${theme.bg.url})`;
+    if (theme.bg.fit === "tile") {
+      style.backgroundRepeat = "repeat";
+    } else {
+      style.backgroundSize = theme.bg.fit;
+      style.backgroundPosition = "center";
+      style.backgroundRepeat = "no-repeat";
+      style.backgroundAttachment = "local";
+    }
+  }
+  const font = theme.font ? DASH_FONTS[theme.font]?.stack : "";
+  if (font) style.fontFamily = font;
+  return style;
+}
+
 // ── Row (de)serialisation ────────────────────────────────────────────────
 
 export function parseWidgets(v: Json): BiWidget[] {
@@ -331,6 +415,7 @@ export async function updateDashboard(
     widgets: Json;
     layout: Json;
     filters: Json;
+    theme: Json;
     published: boolean;
     public_slug: string | null;
     published_at: string | null;
