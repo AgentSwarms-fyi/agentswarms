@@ -13,7 +13,7 @@
 // Triggering: `ensureScheduler()` starts a 60s interval inside the running
 // node server (lazily, on first request that imports this module) and
 // `/api/bi/cron` lets external cron services drive it on serverless hosts.
-import alasql from "alasql";
+import { createRequire } from "node:module";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { loadWarehouseConnection } from "@/utils/warehouse/connections.server";
@@ -23,6 +23,21 @@ const WIDGET_ROW_CAP = 500;
 const LOCAL_ROWS_PER_TABLE_CAP = 20_000;
 const MIN_PROCESS_INTERVAL_MS = 30_000;
 const SCHEDULES_PER_RUN = 10;
+
+// AlaSQL ships a UMD build whose global-object dance breaks inside Vite's
+// SSR module runner ("Cannot set properties of undefined"). Loading it
+// lazily through Node's own CJS loader sidesteps the runner entirely, and
+// keeps server boot free of the dependency.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let alasqlModule: any = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function loadAlasql(): any {
+  if (!alasqlModule) {
+    const require = createRequire(import.meta.url);
+    alasqlModule = require("alasql");
+  }
+  return alasqlModule;
+}
 
 type WidgetJson = {
   id?: string;
@@ -62,8 +77,8 @@ export async function runLocalSqlForUser(
   if (error) throw new Error(error.message);
 
   // Fresh database per call — never share state across users/runs.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const db = new (alasql as any).Database();
+  const alasql = loadAlasql();
+  const db = new alasql.Database();
   for (const t of tables ?? []) {
     const rows: Record<string, unknown>[] = [];
     const PAGE = 1000;
