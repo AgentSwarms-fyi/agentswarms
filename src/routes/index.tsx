@@ -3,6 +3,8 @@ import { motion } from "framer-motion";
 import {
   Activity,
   ArrowRight,
+  BarChart3,
+  BellRing,
   ChevronDown,
   Container,
   Cpu,
@@ -10,11 +12,15 @@ import {
   GraduationCap,
   KeyRound,
   LayoutDashboard,
+  LineChart,
   LogOut,
   Menu,
   Network,
   Plug,
   Settings,
+  Share2,
+  ShieldCheck,
+  Wand2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -23,6 +29,7 @@ import { BrowserFrame } from "@/components/marketing/BrowserFrame";
 import { GlowCard } from "@/components/marketing/GlowCard";
 import { Reveal } from "@/components/marketing/Reveal";
 import { RealBuilderMock, DeckMock } from "@/components/marketing/HomeMocks";
+import { BiDashboardMock, GenerateFlowMock } from "@/components/marketing/BiMocks";
 import { SectionHeading } from "@/components/marketing/SectionHeading";
 import agentSwarmsLogo from "@/assets/agentswarms-logo.jpg";
 import playgroundPreview from "@/assets/playground-preview.png";
@@ -95,7 +102,7 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "Run AI agents and multi-agent swarms on your own infrastructure. Visual builder, RAG, tools, MCP, budgets, and full traces. One Supabase project, one Docker command, any model provider. MIT licensed.",
+          "Run AI agents, multi-agent swarms and AI-native BI on your own infrastructure. Visual builder, RAG, MCP, dashboards with an AI analyst, scheduled alerts, warehouse connectors, budgets, and full traces. One Supabase project, one Docker command, any model provider. MIT licensed.",
       },
       {
         name: "keywords",
@@ -106,7 +113,7 @@ export const Route = createFileRoute("/")({
       {
         property: "og:description",
         content:
-          "Deploy your own agentic AI platform: agents, swarms, RAG, tools, traces, budgets. Your Supabase, your model keys, one Docker command. Open source (MIT).",
+          "Deploy your own agentic AI platform: agents, swarms, RAG, and AI-native BI — dashboards, alerts, and an analyst that writes the SQL. Your Supabase, your model keys, one Docker command. Open source (MIT).",
       },
       { name: "twitter:title", content: "AgentSwarms — Self-Hosted Agentic AI Platform" },
       {
@@ -470,13 +477,14 @@ function LandingPage() {
                 transition={{ duration: 0.55, ease: [0.21, 0.47, 0.32, 0.98] }}
               >
                 <h1 className="font-display text-[2.5rem] font-semibold leading-[1.05] tracking-tight text-foreground sm:text-5xl lg:text-7xl">
-                  Run <span className="text-muted-foreground">agents &amp; swarms</span> on your own
-                  infrastructure
+                  Run <span className="text-muted-foreground">agents, swarms &amp; BI</span> on your
+                  own infrastructure
                 </h1>
                 <p className="max-w-xl text-lg leading-relaxed text-muted-foreground lg:text-xl">
                   The open-source agentic AI platform you deploy yourself: visual agent builder,
-                  multi-agent swarm canvas, RAG, tools, MCP, budgets, and full traces. One Supabase
-                  project. One Docker command. Any model provider.
+                  multi-agent swarm canvas, RAG, and a full AI-native BI suite — dashboards, alerts,
+                  and an analyst that writes the SQL. One Supabase project. One Docker command. Any
+                  model provider.
                 </p>
               </motion.div>
 
@@ -508,10 +516,10 @@ function LandingPage() {
                 {[
                   { n: "10+", l: "Model Providers" },
                   { n: "1", l: "Command Deploy" },
-                  { n: "50+", l: "Agents & Swarms" },
-                  { n: "100%", l: "Your Data" },
+                  { n: "19", l: "BI Visual Types" },
+                  { n: "7", l: "Data Connectors" },
                   { n: "MIT", l: "Licensed" },
-                  { n: "0", l: "Vendor Lock-in" },
+                  { n: "100%", l: "Your Data" },
                 ].map((s) => (
                   <div key={s.l} className="space-y-1">
                     <div className="text-xl font-bold tracking-tight text-foreground">{s.n}</div>
@@ -832,6 +840,148 @@ function LandingPage() {
           </div>
         </section>
 
+        {/* Business Intelligence — flagship band */}
+        <section id="bi" className="relative overflow-hidden border-t border-border/60 py-24">
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-[radial-gradient(55%_60%_at_50%_0%,color-mix(in_oklch,var(--primary)_8%,transparent),transparent)]" />
+          <div className="relative mx-auto max-w-7xl px-6">
+            <SectionHeading
+              className="mb-14 max-w-3xl"
+              eyebrow="Business Intelligence"
+              title="A full AI-native BI suite, self-hosted."
+              lede="Not a chart library bolted on — dashboards, an analyst that writes and runs the SQL, scheduled refreshes with data alerts, and an AI-built ontology of your whole data estate. All on the same instance as your agents."
+            />
+
+            <div className="grid items-center gap-12 lg:grid-cols-12">
+              <div className="space-y-6 lg:col-span-5">
+                <div className="space-y-4">
+                  {[
+                    {
+                      icon: Wand2,
+                      title: "One goal in, a dashboard out",
+                      body: "Describe the goal — the analyst plans the questions, writes the SQL, runs it, picks the charts and lays everything out. Ask follow-ups in plain English, blend in knowledge-base documents, and insert any answer as a widget.",
+                    },
+                    {
+                      icon: BellRing,
+                      title: "Dashboards that act",
+                      body: "Server-side scheduled refreshes (no browser needed) with data alerts — a rule fires once when a metric crosses its threshold, re-arms when it clears, and lands in your notification bell.",
+                    },
+                    {
+                      icon: Network,
+                      title: "An ontology of everything",
+                      body: "The AI maps every table, warehouse and knowledge base into a drillable knowledge graph — real sample data in, field-level relationships with quoted evidence out.",
+                    },
+                  ].map((f, i) => (
+                    <Reveal key={f.title} delay={0.06 * i}>
+                      <div className="flex gap-4">
+                        <div className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                          <f.icon className="h-5 w-5 text-primary" />
+                        </div>
+                        <div>
+                          <h3 className="text-base font-semibold">{f.title}</h3>
+                          <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                            {f.body}
+                          </p>
+                        </div>
+                      </div>
+                    </Reveal>
+                  ))}
+                </div>
+                <Reveal delay={0.2}>
+                  <GenerateFlowMock />
+                </Reveal>
+              </div>
+              <Reveal className="lg:col-span-7" delay={0.1}>
+                <div className="relative">
+                  <div className="pointer-events-none absolute -inset-6 rounded-3xl bg-[radial-gradient(60%_60%_at_50%_40%,color-mix(in_oklch,var(--primary)_12%,transparent),transparent)] blur-2xl" />
+                  <BiDashboardMock />
+                </div>
+              </Reveal>
+            </div>
+
+            {/* BI capability grid */}
+            <div className="mt-16 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {[
+                {
+                  icon: BarChart3,
+                  title: "19 visual types",
+                  body: "Bars to box plots, KPI targets, gauges, funnels, waterfalls, pivots, filled & bubble maps, treemaps, heatmaps — plus the AI-built ontology.",
+                },
+                {
+                  icon: LineChart,
+                  title: "Analyst-grade interactions",
+                  body: "Click-to-drill hierarchies, cross-filtering, date-grain switching, prior-period overlays, trend lines and σ-banded forecasts.",
+                },
+                {
+                  icon: Database,
+                  title: "Seven data connectors",
+                  body: "PostgreSQL, MySQL, Snowflake, BigQuery, Databricks, Redshift and Synapse — encrypted credentials, strictly read-only.",
+                },
+                {
+                  icon: Share2,
+                  title: "Publish anywhere",
+                  body: "Unguessable public links, chrome-less iframe embeds, IAM group sharing, and PDF / CSV / PNG export. Viewers get their own Ask-AI panel.",
+                },
+                {
+                  icon: Activity,
+                  title: "Visual data prep",
+                  body: "Drag-and-drop joins with auto-detected keys, semantic column types, live previews — materialised as reusable datasets.",
+                },
+                {
+                  icon: Cpu,
+                  title: "Your models, governed",
+                  body: "Every generative feature runs on the model you pick from your own integrations — BYOK, with IAM model rules enforced server-side.",
+                },
+              ].map((c, i) => (
+                <Reveal key={c.title} delay={0.05 * i}>
+                  <GlowCard className="h-full">
+                    <div className="mb-3 inline-flex rounded-lg bg-primary/10 p-2">
+                      <c.icon className="h-4 w-4 text-primary" />
+                    </div>
+                    <h3 className="text-base font-semibold">{c.title}</h3>
+                    <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{c.body}</p>
+                  </GlowCard>
+                </Reveal>
+              ))}
+            </div>
+
+            {/* Enterprise strip */}
+            <Reveal delay={0.1}>
+              <div className="mt-14 grid gap-px overflow-hidden rounded-2xl border border-border bg-border/60 sm:grid-cols-2 lg:grid-cols-4">
+                {[
+                  {
+                    icon: ShieldCheck,
+                    title: "IAM & model rules",
+                    body: "Groups, invites, per-group model allowlists, read-only resource grants.",
+                  },
+                  {
+                    icon: KeyRound,
+                    title: "SAML SSO",
+                    body: "Bring your identity provider; invite-only mode for locked-down instances.",
+                  },
+                  {
+                    icon: Settings,
+                    title: "Secrets vault",
+                    body: "Write-only secrets referenced as {{secret:NAME}} across connections.",
+                  },
+                  {
+                    icon: Activity,
+                    title: "Budgets & traces",
+                    body: "Per-user spend caps with alerts, and a full trace for every call.",
+                  },
+                ].map((e) => (
+                  <div key={e.title} className="bg-card p-5">
+                    <div className="flex items-center gap-2">
+                      <e.icon className="h-4 w-4 text-primary" />
+                      <h3 className="text-sm font-semibold">{e.title}</h3>
+                    </div>
+                    <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{e.body}</p>
+                  </div>
+                ))}
+              </div>
+            </Reveal>
+          </div>
+        </section>
+
         {/* Deploy — terminal + steps */}
         <section id="deploy" className="relative border-t border-border/60 bg-muted/30 py-24">
           <div className="pointer-events-none absolute inset-x-0 top-0 h-60 bg-[linear-gradient(to_bottom,color-mix(in_oklch,var(--primary)_3%,transparent),transparent)]" />
@@ -997,11 +1147,11 @@ function LandingPage() {
                 <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(60%_80%_at_50%_0%,color-mix(in_oklch,var(--primary)_12%,transparent),transparent)]" />
                 <div className="relative">
                   <h2 className="font-display text-3xl font-semibold tracking-[-0.02em] sm:text-4xl">
-                    Deploy your own agentic AI platform
+                    Agents, swarms and BI — deploy it all as your own
                   </h2>
                   <p className="mx-auto mt-4 max-w-xl text-muted-foreground">
-                    One Supabase project, one Docker command, any model provider. Demo agents are
-                    already seeded when you sign in.
+                    One Supabase project, one Docker command, any model provider. Demo agents and
+                    sample data are already seeded when you sign in.
                   </p>
                   <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
                     <Link to={showAuthed ? "/dashboard" : "/login"}>
