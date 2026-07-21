@@ -6,9 +6,13 @@ export type WarehouseProvider =
   | "snowflake"
   | "databricks"
   | "bigquery"
-  | "azure_synapse";
+  | "azure_synapse"
+  | "postgres"
+  | "mysql";
 
 export const WAREHOUSE_PROVIDERS: WarehouseProvider[] = [
+  "postgres",
+  "mysql",
   "redshift",
   "snowflake",
   "databricks",
@@ -22,6 +26,8 @@ export const WAREHOUSE_LABELS: Record<WarehouseProvider, string> = {
   databricks: "Databricks SQL",
   bigquery: "Google BigQuery",
   azure_synapse: "Azure Synapse (dedicated SQL pool)",
+  postgres: "PostgreSQL",
+  mysql: "MySQL / MariaDB",
 };
 
 /** Per-provider connection config. Stored encrypted — never sent back to the client. */
@@ -76,6 +82,25 @@ export type WarehouseConfig =
       database: string;
       username: string;
       password: string;
+    }
+  | {
+      provider: "postgres";
+      host: string;
+      port?: string;
+      database: string;
+      username: string;
+      password: string;
+      /** "require" enables TLS (rejectUnauthorized: false for managed hosts). */
+      ssl?: string;
+    }
+  | {
+      provider: "mysql";
+      host: string;
+      port?: string;
+      database: string;
+      username: string;
+      password: string;
+      ssl?: string;
     };
 
 export type WarehouseColumn = { name: string; type: string };

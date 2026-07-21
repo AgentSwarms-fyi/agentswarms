@@ -183,6 +183,23 @@ export function PublishDialog({
                 </Button>
               </div>
             )}
+            {dashboard.published && link && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="mt-1.5 h-7 gap-1 px-2 text-[11px] text-muted-foreground"
+                onClick={() => {
+                  void navigator.clipboard.writeText(
+                    `<iframe src="${link}?embed=1" width="100%" height="640" style="border:0;border-radius:8px" loading="lazy"></iframe>`,
+                  );
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 1500);
+                }}
+                title="Copy an <iframe> snippet that renders the dashboard chrome-less"
+              >
+                <Copy className="h-3 w-3" /> Copy embed code
+              </Button>
+            )}
           </div>
 
           <div className="rounded-lg border border-border/60 p-3">

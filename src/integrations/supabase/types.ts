@@ -271,6 +271,57 @@ export type Database = {
         };
         Relationships: [];
       };
+      bi_alerts: {
+        Row: {
+          aggregation: string;
+          column_name: string;
+          created_at: string;
+          dashboard_id: string;
+          id: string;
+          is_active: boolean;
+          label: string;
+          last_checked_at: string | null;
+          last_state: string;
+          last_value: number | null;
+          operator: string;
+          threshold: number;
+          user_id: string;
+          widget_id: string;
+        };
+        Insert: {
+          aggregation?: string;
+          column_name?: string;
+          created_at?: string;
+          dashboard_id: string;
+          id?: string;
+          is_active?: boolean;
+          label?: string;
+          last_checked_at?: string | null;
+          last_state?: string;
+          last_value?: number | null;
+          operator: string;
+          threshold?: number;
+          user_id: string;
+          widget_id: string;
+        };
+        Update: {
+          aggregation?: string;
+          column_name?: string;
+          created_at?: string;
+          dashboard_id?: string;
+          id?: string;
+          is_active?: boolean;
+          label?: string;
+          last_checked_at?: string | null;
+          last_state?: string;
+          last_value?: number | null;
+          operator?: string;
+          threshold?: number;
+          user_id?: string;
+          widget_id?: string;
+        };
+        Relationships: [];
+      };
       bi_dashboards: {
         Row: {
           ai_model: string | null;
@@ -316,6 +367,84 @@ export type Database = {
           updated_at?: string;
           user_id?: string;
           widgets?: Json;
+        };
+        Relationships: [];
+      };
+      bi_schedules: {
+        Row: {
+          at_hour: number;
+          cadence: string;
+          created_at: string;
+          dashboard_id: string;
+          enabled: boolean;
+          id: string;
+          last_error: string | null;
+          last_run_at: string | null;
+          last_status: string | null;
+          next_run_at: string;
+          user_id: string;
+          weekday: number;
+        };
+        Insert: {
+          at_hour?: number;
+          cadence?: string;
+          created_at?: string;
+          dashboard_id: string;
+          enabled?: boolean;
+          id?: string;
+          last_error?: string | null;
+          last_run_at?: string | null;
+          last_status?: string | null;
+          next_run_at?: string;
+          user_id: string;
+          weekday?: number;
+        };
+        Update: {
+          at_hour?: number;
+          cadence?: string;
+          created_at?: string;
+          dashboard_id?: string;
+          enabled?: boolean;
+          id?: string;
+          last_error?: string | null;
+          last_run_at?: string | null;
+          last_status?: string | null;
+          next_run_at?: string;
+          user_id?: string;
+          weekday?: number;
+        };
+        Relationships: [];
+      };
+      notifications: {
+        Row: {
+          body: string;
+          created_at: string;
+          id: string;
+          kind: string;
+          link: string | null;
+          read_at: string | null;
+          title: string;
+          user_id: string;
+        };
+        Insert: {
+          body?: string;
+          created_at?: string;
+          id?: string;
+          kind?: string;
+          link?: string | null;
+          read_at?: string | null;
+          title: string;
+          user_id: string;
+        };
+        Update: {
+          body?: string;
+          created_at?: string;
+          id?: string;
+          kind?: string;
+          link?: string | null;
+          read_at?: string | null;
+          title?: string;
+          user_id?: string;
         };
         Relationships: [];
       };

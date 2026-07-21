@@ -208,6 +208,16 @@ export function BiBuilderPane({
   const [seriesField, setSeriesField] = useState("");
   const [stacked, setStacked] = useState(false);
   const [numFormat, setNumFormat] = useState<"auto" | "currency" | "percent">("auto");
+  // Chart analytics (drill / time intelligence / reference line)
+  const [drillList, setDrillList] = useState<string[]>([]);
+  const [grainSel, setGrainSel] = useState("auto");
+  const [compareSel, setCompareSel] = useState("none");
+  const [runningB, setRunningB] = useState(false);
+  const [trendB, setTrendB] = useState(false);
+  const [forecastN, setForecastN] = useState("");
+  const [refMode, setRefMode] = useState("none");
+  const [refValue, setRefValue] = useState("");
+  const [refLabel, setRefLabel] = useState("");
   const [preview, setPreview] = useState<QueryResult | null>(null);
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
@@ -332,6 +342,15 @@ export function BiBuilderPane({
       setStacked(c.type === "bar" ? Boolean(c.stacked) : false);
       setNumFormat(c.format ?? "auto");
       setOntoSpec(c.type === "ontology" ? c.spec : null);
+      setDrillList(c.drillFields ?? []);
+      setGrainSel(c.dateGrain ?? "auto");
+      setCompareSel(c.compare ?? "none");
+      setRunningB(Boolean(c.running));
+      setTrendB(Boolean(c.trend));
+      setForecastN(c.forecast ? String(c.forecast) : "");
+      setRefMode(c.refLine?.mode ?? "none");
+      setRefValue(c.refLine?.value !== undefined ? String(c.refLine.value) : "");
+      setRefLabel(c.refLine?.label ?? "");
       setPreview(
         initial.rows && initial.columns
           ? {
@@ -366,6 +385,15 @@ export function BiBuilderPane({
       setStacked(false);
       setNumFormat("auto");
       setOntoSpec(null);
+      setDrillList([]);
+      setGrainSel("auto");
+      setCompareSel("none");
+      setRunningB(false);
+      setTrendB(false);
+      setForecastN("");
+      setRefMode("none");
+      setRefValue("");
+      setRefLabel("");
       setPreview(null);
     }
     setSelectedTables([]);
@@ -679,7 +707,39 @@ export function BiBuilderPane({
           return xField && yField ? { type: chartType, xField, yField } : null;
       }
     })();
-    return spec ? { ...spec, format } : null;
+    if (!spec) return null;
+    // Analytics options (each renderer applies what it supports).
+    const analytics: Partial<ChartSpec> = {};
+    if (
+      (spec.type === "bar" || spec.type === "hbar" || spec.type === "pie") &&
+      drillList.length > 1
+    ) {
+      analytics.drillFields = drillList;
+    }
+    if (spec.type === "line" || spec.type === "area") {
+      if (grainSel !== "auto") analytics.dateGrain = grainSel as ChartSpec["dateGrain"];
+      if (compareSel !== "none") analytics.compare = compareSel as ChartSpec["compare"];
+      if (runningB) analytics.running = true;
+      if (spec.type === "line") {
+        if (trendB) analytics.trend = true;
+        const f = Number(forecastN);
+        if (forecastN.trim() && Number.isFinite(f) && f > 0) {
+          analytics.forecast = Math.min(24, Math.round(f));
+        }
+      }
+    }
+    if (
+      refMode !== "none" &&
+      (spec.type === "bar" || spec.type === "line" || spec.type === "area")
+    ) {
+      const rv = Number(refValue);
+      if (refMode === "avg") analytics.refLine = { mode: "avg", label: refLabel || undefined };
+      else if (refValue.trim() && Number.isFinite(rv)) {
+        analytics.refLine = { mode: "value", value: rv, label: refLabel || undefined };
+      }
+    }
+    // Safe: spec is a valid member and analytics only adds wrapper fields.
+    return { ...spec, format, ...analytics } as ChartSpec;
   }, [
     chartType,
     xField,
@@ -698,6 +758,15 @@ export function BiBuilderPane({
     stacked,
     numFormat,
     ontoSpec,
+    drillList,
+    grainSel,
+    compareSel,
+    runningB,
+    trendB,
+    forecastN,
+    refMode,
+    refValue,
+    refLabel,
   ]);
 
   const canSubmit =
@@ -1552,6 +1621,184 @@ export function BiBuilderPane({
                         <>
                           {fieldSelect("Location (country)", locationField, setLocationField)}
                           {fieldSelect("Value (numeric)", valueField, setValueField)}
+                        </>
+                      )}
+
+                      {/* Drill hierarchy (bar/hbar/pie) */}
+                      {(chartType === "bar" || chartType === "hbar" || chartType === "pie") && (
+                        <div className="col-span-2 space-y-1">
+                          <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                            Drill hierarchy (top → detail)
+                          </Label>
+                          <div className="flex flex-wrap items-center gap-1">
+                            {drillList.map((f, i) => (
+                              <Badge
+                                key={f}
+                                variant="secondary"
+                                className="gap-1 px-1.5 text-[10px]"
+                              >
+                                {i + 1}. {f}
+                                <button
+                                  type="button"
+                                  onClick={() => setDrillList(drillList.filter((x) => x !== f))}
+                                >
+                                  <X className="h-2.5 w-2.5" />
+                                </button>
+                              </Badge>
+                            ))}
+                            <Select
+                              key={drillList.length}
+                              onValueChange={(v) =>
+                                !drillList.includes(v) && setDrillList([...drillList, v])
+                              }
+                            >
+                              <SelectTrigger className="h-7 w-28 text-[10px]">
+                                <SelectValue placeholder="+ add level" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {(preview?.columns ?? [])
+                                  .filter((c) => !drillList.includes(c))
+                                  .map((c) => (
+                                    <SelectItem key={c} value={c} className="text-xs">
+                                      {c}
+                                    </SelectItem>
+                                  ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <p className="text-[9px] text-muted-foreground">
+                            Two or more levels enable click-to-drill (the query must include every
+                            level's column).
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Time intelligence (line/area) */}
+                      {(chartType === "line" || chartType === "area") && (
+                        <>
+                          <div className="space-y-1">
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                              Date grain
+                            </Label>
+                            <Select value={grainSel} onValueChange={setGrainSel}>
+                              <SelectTrigger className="h-8 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {["auto", "day", "week", "month", "quarter", "year"].map((g) => (
+                                  <SelectItem key={g} value={g} className="text-xs">
+                                    {g}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                              Compare
+                            </Label>
+                            <Select value={compareSel} onValueChange={setCompareSel}>
+                              <SelectTrigger className="h-8 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none" className="text-xs">
+                                  None
+                                </SelectItem>
+                                <SelectItem value="prior_period" className="text-xs">
+                                  Prior period
+                                </SelectItem>
+                                <SelectItem value="prior_year" className="text-xs">
+                                  Prior year
+                                </SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="col-span-2 flex flex-wrap items-center gap-4">
+                            <Label className="flex cursor-pointer items-center gap-1.5 text-xs font-normal">
+                              <Checkbox
+                                checked={runningB}
+                                onCheckedChange={(v) => setRunningB(Boolean(v))}
+                              />
+                              Running total
+                            </Label>
+                            {chartType === "line" && (
+                              <Label className="flex cursor-pointer items-center gap-1.5 text-xs font-normal">
+                                <Checkbox
+                                  checked={trendB}
+                                  onCheckedChange={(v) => setTrendB(Boolean(v))}
+                                />
+                                Trend line
+                              </Label>
+                            )}
+                            {chartType === "line" && (
+                              <span className="flex items-center gap-1.5 text-xs">
+                                Forecast
+                                <Input
+                                  value={forecastN}
+                                  onChange={(e) => setForecastN(e.target.value)}
+                                  className="h-7 w-14 text-xs"
+                                  placeholder="0"
+                                  inputMode="numeric"
+                                />
+                                periods
+                              </span>
+                            )}
+                          </div>
+                        </>
+                      )}
+
+                      {/* Reference line (bar/line/area) */}
+                      {(chartType === "bar" || chartType === "line" || chartType === "area") && (
+                        <>
+                          <div className="space-y-1">
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                              Reference line
+                            </Label>
+                            <Select value={refMode} onValueChange={setRefMode}>
+                              <SelectTrigger className="h-8 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none" className="text-xs">
+                                  None
+                                </SelectItem>
+                                <SelectItem value="avg" className="text-xs">
+                                  Average
+                                </SelectItem>
+                                <SelectItem value="value" className="text-xs">
+                                  Target value
+                                </SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          {refMode === "value" && (
+                            <div className="space-y-1">
+                              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                                Target
+                              </Label>
+                              <Input
+                                value={refValue}
+                                onChange={(e) => setRefValue(e.target.value)}
+                                className="h-8 text-xs"
+                                inputMode="decimal"
+                                placeholder="e.g. 10000"
+                              />
+                            </div>
+                          )}
+                          {refMode !== "none" && (
+                            <div className="space-y-1">
+                              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                                Line label
+                              </Label>
+                              <Input
+                                value={refLabel}
+                                onChange={(e) => setRefLabel(e.target.value)}
+                                className="h-8 text-xs"
+                                placeholder="target"
+                              />
+                            </div>
+                          )}
                         </>
                       )}
                       {chartType !== "table" &&

@@ -7,7 +7,7 @@
 // `seriesField` (long → wide pivot, palette-coloured, optional stacking),
 // numeric output honours the spec's `format` (currency / percent), and
 // bar/pie/hbar elements are clickable for dashboard cross-filtering.
-import { useId } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -24,6 +24,7 @@ import {
   LineChart,
   Pie,
   PieChart,
+  ReferenceLine,
   ResponsiveContainer,
   Scatter,
   ScatterChart,
@@ -36,7 +37,34 @@ import {
 import { BoxPlot, GaugeChart, HeatmapGrid, MatrixTable } from "@/components/bi/BiChartParts";
 import { BiGeoMap } from "@/components/bi/BiGeoMap";
 import { OntologyGraph } from "@/components/bi/OntologyGraph";
-import type { BiNumberFormat, ChartSpec } from "@/lib/biAgent";
+import type { BiNumberFormat, BiRefLine, ChartSpec } from "@/lib/biAgent";
+import {
+  bucketRowsX,
+  cumulative,
+  drillRows,
+  forecastRows,
+  isMostlyDates,
+  linearFit,
+  priorPeriodOverlay,
+  priorYearOverlay,
+  type DateGrain,
+  type DrillEntry,
+} from "@/lib/biChartMath";
+import { cn } from "@/lib/utils";
+
+/** Y position for a configured reference line (null = don't draw). */
+function refLineY(
+  ref: BiRefLine | undefined,
+  data: Record<string, unknown>[],
+  yKey: string,
+): number | null {
+  if (!ref) return null;
+  if (ref.mode === "value") return Number.isFinite(ref.value) ? (ref.value as number) : null;
+  const nums = data.map((d) => Number(d[yKey])).filter((n) => Number.isFinite(n));
+  return nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : null;
+}
+
+const REF_COLOR = "#e15759";
 
 /** Tableau-style categorical palette — calm, print-safe, colorblind-aware. */
 export const PIE_COLORS = [
@@ -156,7 +184,7 @@ export function pivotSeries(
   return { data: xOrder.map((x) => byX.get(x)!), series };
 }
 
-export function BiChartRender({
+function BiChartRenderInner({
   chart,
   rows,
   large = false,
@@ -324,6 +352,22 @@ export function BiChartRender({
               formatter={tooltipFmt}
               cursor={{ fill: "var(--accent)", opacity: 0.35 }}
             />
+            {(() => {
+              const refY = refLineY(chart.refLine, barData, chart.yField);
+              return refY !== null ? (
+                <ReferenceLine
+                  y={refY}
+                  stroke={REF_COLOR}
+                  strokeDasharray="4 3"
+                  label={{
+                    value: chart.refLine?.label || (chart.refLine?.mode === "avg" ? "avg" : ""),
+                    fontSize: 10,
+                    fill: REF_COLOR,
+                    position: "insideTopRight",
+                  }}
+                />
+              ) : null;
+            })()}
             {pivoted ? (
               <>
                 <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: labelSize }} />
@@ -418,13 +462,33 @@ export function BiChartRender({
     const pivoted = chart.seriesField
       ? pivotSeries(rows, chart.xField, chart.yField, chart.seriesField)
       : null;
+    // Analytics overlays apply to single-series lines only.
+    let data = pivoted ? pivoted.data : aggregateByField(rows, chart.xField, [chart.yField]);
+    let hasForecast = false;
+    if (!pivoted) {
+      if (chart.running) data = cumulative(data, chart.yField);
+      if (chart.compare === "prior_period") {
+        data = priorPeriodOverlay(data, chart.yField, "__prior");
+      } else if (chart.compare === "prior_year") {
+        data = priorYearOverlay(data, chart.xField, chart.yField, "__prior");
+      }
+      if (chart.trend) {
+        const fit = linearFit(data.map((d) => Number(d[chart.yField])));
+        if (fit) data = data.map((d, i) => ({ ...d, __trend: fit.slope * i + fit.intercept }));
+      }
+      if (chart.forecast && chart.forecast > 0) {
+        const fc = forecastRows(data, chart.xField, chart.yField, chart.forecast);
+        if (fc) {
+          data = [...data, ...fc.rows];
+          hasForecast = true;
+        }
+      }
+    }
+    const refY = refLineY(chart.refLine, data, chart.yField);
     return (
       <div className={`${heightClass} w-full`}>
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart
-            data={pivoted ? pivoted.data : aggregateByField(rows, chart.xField, [chart.yField])}
-            margin={{ top: 12, right: 12, left: 0, bottom: 4 }}
-          >
+          <LineChart data={data} margin={{ top: 12, right: 12, left: 0, bottom: 4 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
             <XAxis dataKey={chart.xField} tick={tick} axisLine={false} tickLine={false} />
             <YAxis tick={tick} axisLine={false} tickLine={false} tickFormatter={fmt} width={48} />
@@ -434,6 +498,72 @@ export function BiChartRender({
               itemStyle={labelStyle}
               formatter={tooltipFmt}
             />
+            {refY !== null && (
+              <ReferenceLine
+                y={refY}
+                stroke={REF_COLOR}
+                strokeDasharray="4 3"
+                label={{
+                  value: chart.refLine?.label || (chart.refLine?.mode === "avg" ? "avg" : ""),
+                  fontSize: 10,
+                  fill: REF_COLOR,
+                  position: "insideTopRight",
+                }}
+              />
+            )}
+            {!pivoted && chart.compare && (
+              <Line
+                type="monotone"
+                dataKey="__prior"
+                name={chart.compare === "prior_year" ? "prior year" : "prior period"}
+                stroke="var(--muted-foreground)"
+                strokeDasharray="5 4"
+                strokeWidth={1.5}
+                dot={false}
+              />
+            )}
+            {!pivoted && chart.trend && (
+              <Line
+                type="linear"
+                dataKey="__trend"
+                name="trend"
+                stroke="#d97706"
+                strokeDasharray="6 4"
+                strokeWidth={1.5}
+                dot={false}
+              />
+            )}
+            {!pivoted && hasForecast && (
+              <>
+                <Line
+                  type="monotone"
+                  dataKey="__forecast"
+                  name="forecast"
+                  stroke={primaryStroke}
+                  strokeDasharray="4 4"
+                  strokeWidth={2}
+                  dot={false}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="__lo"
+                  stroke="var(--muted-foreground)"
+                  strokeDasharray="2 4"
+                  strokeWidth={1}
+                  dot={false}
+                  legendType="none"
+                />
+                <Line
+                  type="monotone"
+                  dataKey="__hi"
+                  stroke="var(--muted-foreground)"
+                  strokeDasharray="2 4"
+                  strokeWidth={1}
+                  dot={false}
+                  legendType="none"
+                />
+              </>
+            )}
             {pivoted ? (
               <>
                 <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: labelSize }} />
@@ -829,5 +959,146 @@ function TreemapCell(props: {
         </text>
       )}
     </g>
+  );
+}
+
+// ── Public renderer: analytics wrapper (drill-down + date grain) ─────────
+//
+// Wraps the raw renderer with runtime interactions that work on snapshots
+// everywhere (editor, shared view, public page): category drill-down with
+// breadcrumbs for bar/hbar/pie, and a date-grain toggle for line/area.
+export function BiChartRender({
+  chart,
+  rows,
+  large = false,
+  fill = false,
+  onElementClick,
+}: {
+  chart: ChartSpec;
+  rows: Record<string, unknown>[];
+  large?: boolean;
+  fill?: boolean;
+  onElementClick?: (column: string, value: string) => void;
+}) {
+  const [drillPath, setDrillPath] = useState<DrillEntry[]>([]);
+  const [grainOverride, setGrainOverride] = useState<"auto" | DateGrain | null>(null);
+
+  const drillFields = (chart.drillFields ?? []).filter(Boolean);
+  const drillable =
+    (chart.type === "bar" || chart.type === "hbar" || chart.type === "pie") &&
+    drillFields.length > 1;
+  const isTime = chart.type === "line" || chart.type === "area";
+  const xKey = "xField" in chart ? chart.xField : "nameField" in chart ? chart.nameField : null;
+  const grain = grainOverride ?? chart.dateGrain ?? "auto";
+
+  // Reset the drill when the widget's hierarchy changes.
+  const drillKey = drillFields.join("|");
+  useEffect(() => setDrillPath([]), [drillKey]);
+
+  const showGrainToggle = useMemo(
+    () => Boolean(isTime && xKey && isMostlyDates(rows, xKey)),
+    [isTime, xKey, rows],
+  );
+
+  const { effChart, effRows } = useMemo(() => {
+    let r = rows;
+    let c: ChartSpec = chart;
+    if (drillable && drillPath.length > 0) {
+      r = drillRows(r, drillPath);
+      const level = Math.min(drillPath.length, drillFields.length - 1);
+      const f = drillFields[level];
+      c =
+        chart.type === "pie" ? { ...chart, nameField: f } : ({ ...chart, xField: f } as ChartSpec);
+    }
+    if (isTime && xKey && showGrainToggle && grain !== "auto") {
+      r = bucketRowsX(r, xKey, grain as DateGrain);
+    }
+    return { effChart: c, effRows: r };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chart, rows, drillable, drillPath, drillKey, isTime, xKey, showGrainToggle, grain]);
+
+  const drillClick = drillable
+    ? (column: string, value: string) => {
+        if (drillPath.length < drillFields.length - 1) {
+          setDrillPath((p) => [...p, { field: drillFields[p.length], value }]);
+        } else {
+          onElementClick?.(column, value);
+        }
+      }
+    : onElementClick;
+
+  const hasControls = drillable || showGrainToggle;
+  const inner = (
+    <BiChartRenderInner
+      chart={effChart}
+      rows={effRows}
+      large={large}
+      fill={fill}
+      onElementClick={drillable || onElementClick ? drillClick : undefined}
+    />
+  );
+  if (!hasControls) return inner;
+
+  return (
+    <div className={cn("flex w-full flex-col", fill && "h-full")}>
+      <div className="flex h-5 shrink-0 items-center justify-between gap-2 overflow-hidden px-1 text-[10px]">
+        {drillable ? (
+          <div className="flex min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap text-muted-foreground">
+            <button
+              type="button"
+              className={cn(
+                "hover:text-foreground",
+                drillPath.length === 0 && "font-semibold text-foreground",
+              )}
+              onClick={() => setDrillPath([])}
+            >
+              All
+            </button>
+            {drillPath.map((p, i) => (
+              <span key={i} className="flex items-center gap-1">
+                <span className="text-muted-foreground/50">›</span>
+                <button
+                  type="button"
+                  className={cn(
+                    "max-w-28 truncate hover:text-foreground",
+                    i === drillPath.length - 1 && "font-semibold text-foreground",
+                  )}
+                  onClick={() => setDrillPath(drillPath.slice(0, i + 1))}
+                >
+                  {p.value}
+                </button>
+              </span>
+            ))}
+            {drillPath.length < drillFields.length - 1 && (
+              <span className="truncate text-muted-foreground/60">
+                · click to drill into {drillFields[drillPath.length + 1]}
+              </span>
+            )}
+          </div>
+        ) : (
+          <span />
+        )}
+        {showGrainToggle && (
+          <div className="flex shrink-0 gap-0.5" title="Date grain">
+            {(["auto", "day", "week", "month", "quarter", "year"] as const).map((g) => (
+              <button
+                key={g}
+                type="button"
+                onClick={() => setGrainOverride(g)}
+                className={cn(
+                  "rounded px-1 py-0.5 uppercase",
+                  grain === g
+                    ? "bg-primary/15 font-semibold text-primary"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {g === "auto" ? "auto" : g[0]}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="min-h-0 w-full flex-1">{inner}</div>
+    </div>
   );
 }

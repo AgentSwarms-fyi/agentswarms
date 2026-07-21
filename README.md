@@ -59,7 +59,7 @@ The "AgentSwarms" name and the hosted service remain with the project author.
 | 🤖 **Agent Playground**      | Build an agent, wire up tools, and chat with it in-browser, with full request/response traces.                                                                                                          |
 | 🐝 **Swarm canvas**          | Design multi-agent workflows visually (built on [XYFlow](https://xyflow.com)) and execute them end-to-end.                                                                                              |
 | 📚 **Knowledge Base / RAG**  | Upload documents, chunk and embed them (pgvector), and ground agents in your own data.                                                                                                                  |
-| 🏢 **Data warehouses**       | Connect Amazon Redshift, Snowflake, Databricks, Google BigQuery, or Azure Synapse (encrypted credentials, read-only). Query them from the Data & SQL page, from SQL agents, and feed BI charts.         |
+| 🏢 **Data warehouses & databases** | Connect **PostgreSQL** (Supabase, RDS, Neon…), **MySQL/MariaDB**, Amazon Redshift, Snowflake, Databricks, Google BigQuery, or Azure Synapse (encrypted credentials, read-only). Query them from the Data & SQL page, from SQL agents, and feed BI charts, ontologies and scheduled refreshes. |
 | 🔑 **Secrets Manager**       | Store credentials once (encrypted, write-only) and reference them anywhere as `{{secret:NAME}}` — warehouse connections, provider keys. Superadmins share secrets with users/groups via IAM.            |
 | 📊 **Business Intelligence** | A BI Workspace with drag-and-drop dashboards: build charts from local datasets or connected warehouses, generate visuals with the AI analyst, then publish with a public link or share with IAM groups. |
 | 🔍 **Observability**         | Inspect every tool call, token, and cost in a full execution trace.                                                                                                                                     |
@@ -146,6 +146,18 @@ and reports. An editable dashboard is called a **BI project**:
   **click any bar or pie slice to cross-filter** the rest of the dashboard.
   Both work on the stored snapshots — in the editor, the shared read-only
   view and the public link — and PDF export captures the filtered view.
+- **Generate whole dashboards with AI** — the editor's **Generate**
+  button takes one business goal ("monthly revenue review by plan"),
+  plans 5–8 analyst questions against your schema, runs each through the
+  GenBI pipeline with live per-question progress, and lays the finished
+  widgets out automatically (KPIs on top, charts in the middle, tables
+  at the bottom). Failed questions are skipped, never faked.
+- **Embed &amp; export** — Publish gains **Copy embed code**: an
+  `<iframe>` snippet pointing at `/share/bi/<slug>?embed=1`, a
+  chrome-less variant of the public page (filters and cross-filtering
+  still work). Every chart's menu can **download its data as CSV** and
+  the **widget as a PNG**; table widgets get click-to-sort headers,
+  50-row pagination and a totals row for numeric columns.
 - **Generate visuals with AI** — the same GenBI analyst as the Data & SQL
   page (plan → SQL → execute → chart → narrative) lives in the pane's **AI
   analyst** tab; insert any answer as a widget. On `/data-sql`, every
@@ -206,6 +218,25 @@ and reports. An editable dashboard is called a **BI project**:
   (the anonymous public link stays data-only, no AI).
 - **Refresh** re-runs every widget's SQL against its source and stores a
   capped **data snapshot** in the dashboard.
+- **Scheduled refresh &amp; data alerts** — the editor's **Schedule**
+  dialog refreshes a dashboard hourly / daily / weekly (UTC) entirely
+  server-side: warehouse widgets run with the owner's stored encrypted
+  credentials, local widgets through a server-side SQL engine over the
+  stored dataset rows. **Alert rules** (widget + column + aggregation +
+  operator + threshold, or plain row count) are evaluated after each
+  refresh — a rule notifies once when it trips and re-arms when the
+  condition clears; refresh failures notify too. Notifications land in
+  the header's **alerts bell** (60s polling). The scheduler runs inside
+  the node server (started on first app load); on serverless hosts point
+  an external cron at `POST /api/bi/cron` with a Bearer `BI_CRON_TOKEN`.
+- **Drill-down, trends &amp; time intelligence** — bar/column/pie charts
+  take an ordered **drill hierarchy** (click a bar to drill Year →
+  Quarter → Region…, breadcrumbs to climb back — works on snapshots in
+  the editor, shared and public views). Line/area charts get a **date
+  grain toggle** (day/week/month/quarter/year re-bucketing), **prior
+  period / prior year** comparison overlays, **running totals**, a linear
+  **trend line**, an N-period **forecast** with a ±1.96σ corridor, and
+  **reference lines** (average or target value) on bar/line/area.
 - **Export PDF** — one click renders the dashboard (layout preserved) into a
   downloadable A4 PDF report, entirely client-side.
 - **Data preparation** — a visual prep studio (BI Workspace → Data

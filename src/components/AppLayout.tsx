@@ -1,6 +1,7 @@
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { ApprovalInbox } from "@/components/ApprovalInbox";
+import { NotificationBell } from "@/components/NotificationBell";
 import { NotificationCenter } from "@/components/NotificationCenter";
 import { UserMenu } from "@/components/UserMenu";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -31,6 +32,7 @@ export function AppLayout() {
               </Link>
               <ThemeToggle />
               <ApprovalInbox />
+              <NotificationBell />
               <NotificationCenter />
               <UserMenu />
             </div>

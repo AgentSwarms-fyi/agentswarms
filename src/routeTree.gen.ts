@@ -80,6 +80,7 @@ import { Route as ApiExamStartRouteImport } from './routes/api/exam.start'
 import { Route as ApiExamEvaluateRouteImport } from './routes/api/exam.evaluate'
 import { Route as ApiEmailSendRouteImport } from './routes/api/email/send'
 import { Route as ApiCertificateIdRouteImport } from './routes/api/certificate.$id'
+import { Route as ApiBiCronRouteImport } from './routes/api/bi.cron'
 import { Route as ApiAuthSsoConfigRouteImport } from './routes/api/auth/sso-config'
 import { Route as AuthenticatedTemplatesTemplateIdRouteImport } from './routes/_authenticated/templates.$templateId'
 import { Route as AuthenticatedCertificationExamRouteImport } from './routes/_authenticated/certification.exam'
@@ -453,6 +454,11 @@ const ApiCertificateIdRoute = ApiCertificateIdRouteImport.update({
   path: '/api/certificate/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiBiCronRoute = ApiBiCronRouteImport.update({
+  id: '/cron',
+  path: '/cron',
+  getParentRoute: () => ApiBiRoute,
+} as any)
 const ApiAuthSsoConfigRoute = ApiAuthSsoConfigRouteImport.update({
   id: '/api/auth/sso-config',
   path: '/api/auth/sso-config',
@@ -555,7 +561,7 @@ export interface FileRoutesByFullPath {
   '/swarms': typeof AuthenticatedSwarmsRoute
   '/traces': typeof AuthenticatedTracesRoute
   '/api/a2a': typeof ApiA2aRoute
-  '/api/bi': typeof ApiBiRoute
+  '/api/bi': typeof ApiBiRouteWithChildren
   '/api/chat': typeof ApiChatRoute
   '/api/contact': typeof ApiContactRoute
   '/api/python-chat': typeof ApiPythonChatRoute
@@ -581,6 +587,7 @@ export interface FileRoutesByFullPath {
   '/certification/exam': typeof AuthenticatedCertificationExamRoute
   '/templates/$templateId': typeof AuthenticatedTemplatesTemplateIdRoute
   '/api/auth/sso-config': typeof ApiAuthSsoConfigRoute
+  '/api/bi/cron': typeof ApiBiCronRoute
   '/api/certificate/$id': typeof ApiCertificateIdRoute
   '/api/email/send': typeof ApiEmailSendRoute
   '/api/exam/evaluate': typeof ApiExamEvaluateRoute
@@ -636,7 +643,7 @@ export interface FileRoutesByTo {
   '/swarms': typeof AuthenticatedSwarmsRoute
   '/traces': typeof AuthenticatedTracesRoute
   '/api/a2a': typeof ApiA2aRoute
-  '/api/bi': typeof ApiBiRoute
+  '/api/bi': typeof ApiBiRouteWithChildren
   '/api/chat': typeof ApiChatRoute
   '/api/contact': typeof ApiContactRoute
   '/api/python-chat': typeof ApiPythonChatRoute
@@ -662,6 +669,7 @@ export interface FileRoutesByTo {
   '/certification/exam': typeof AuthenticatedCertificationExamRoute
   '/templates/$templateId': typeof AuthenticatedTemplatesTemplateIdRoute
   '/api/auth/sso-config': typeof ApiAuthSsoConfigRoute
+  '/api/bi/cron': typeof ApiBiCronRoute
   '/api/certificate/$id': typeof ApiCertificateIdRoute
   '/api/email/send': typeof ApiEmailSendRoute
   '/api/exam/evaluate': typeof ApiExamEvaluateRoute
@@ -721,7 +729,7 @@ export interface FileRoutesById {
   '/_authenticated/swarms': typeof AuthenticatedSwarmsRoute
   '/_authenticated/traces': typeof AuthenticatedTracesRoute
   '/api/a2a': typeof ApiA2aRoute
-  '/api/bi': typeof ApiBiRoute
+  '/api/bi': typeof ApiBiRouteWithChildren
   '/api/chat': typeof ApiChatRoute
   '/api/contact': typeof ApiContactRoute
   '/api/python-chat': typeof ApiPythonChatRoute
@@ -747,6 +755,7 @@ export interface FileRoutesById {
   '/_authenticated/certification/exam': typeof AuthenticatedCertificationExamRoute
   '/_authenticated/templates/$templateId': typeof AuthenticatedTemplatesTemplateIdRoute
   '/api/auth/sso-config': typeof ApiAuthSsoConfigRoute
+  '/api/bi/cron': typeof ApiBiCronRoute
   '/api/certificate/$id': typeof ApiCertificateIdRoute
   '/api/email/send': typeof ApiEmailSendRoute
   '/api/exam/evaluate': typeof ApiExamEvaluateRoute
@@ -832,6 +841,7 @@ export interface FileRouteTypes {
     | '/certification/exam'
     | '/templates/$templateId'
     | '/api/auth/sso-config'
+    | '/api/bi/cron'
     | '/api/certificate/$id'
     | '/api/email/send'
     | '/api/exam/evaluate'
@@ -913,6 +923,7 @@ export interface FileRouteTypes {
     | '/certification/exam'
     | '/templates/$templateId'
     | '/api/auth/sso-config'
+    | '/api/bi/cron'
     | '/api/certificate/$id'
     | '/api/email/send'
     | '/api/exam/evaluate'
@@ -997,6 +1008,7 @@ export interface FileRouteTypes {
     | '/_authenticated/certification/exam'
     | '/_authenticated/templates/$templateId'
     | '/api/auth/sso-config'
+    | '/api/bi/cron'
     | '/api/certificate/$id'
     | '/api/email/send'
     | '/api/exam/evaluate'
@@ -1034,7 +1046,7 @@ export interface RootRouteChildren {
   RobotsDottxtRoute: typeof RobotsDottxtRoute
   TermsRoute: typeof TermsRoute
   ApiA2aRoute: typeof ApiA2aRoute
-  ApiBiRoute: typeof ApiBiRoute
+  ApiBiRoute: typeof ApiBiRouteWithChildren
   ApiChatRoute: typeof ApiChatRoute
   ApiContactRoute: typeof ApiContactRoute
   ApiPythonChatRoute: typeof ApiPythonChatRoute
@@ -1557,6 +1569,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiCertificateIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/bi/cron': {
+      id: '/api/bi/cron'
+      path: '/cron'
+      fullPath: '/api/bi/cron'
+      preLoaderRoute: typeof ApiBiCronRouteImport
+      parentRoute: typeof ApiBiRoute
+    }
     '/api/auth/sso-config': {
       id: '/api/auth/sso-config'
       path: '/api/auth/sso-config'
@@ -1784,6 +1803,16 @@ const DocsRouteChildren: DocsRouteChildren = {
 
 const DocsRouteWithChildren = DocsRoute._addFileChildren(DocsRouteChildren)
 
+interface ApiBiRouteChildren {
+  ApiBiCronRoute: typeof ApiBiCronRoute
+}
+
+const ApiBiRouteChildren: ApiBiRouteChildren = {
+  ApiBiCronRoute: ApiBiCronRoute,
+}
+
+const ApiBiRouteWithChildren = ApiBiRoute._addFileChildren(ApiBiRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRoute: AuthenticatedRouteWithChildren,
@@ -1800,7 +1829,7 @@ const rootRouteChildren: RootRouteChildren = {
   RobotsDottxtRoute: RobotsDottxtRoute,
   TermsRoute: TermsRoute,
   ApiA2aRoute: ApiA2aRoute,
-  ApiBiRoute: ApiBiRoute,
+  ApiBiRoute: ApiBiRouteWithChildren,
   ApiChatRoute: ApiChatRoute,
   ApiContactRoute: ApiContactRoute,
   ApiPythonChatRoute: ApiPythonChatRoute,

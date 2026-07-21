@@ -16,8 +16,10 @@ import {
   MoreVertical,
   Pencil,
   Plus,
+  CalendarClock,
   RefreshCw,
   Share2,
+  Wand2,
   Sparkles,
   Trash2,
   Type,
@@ -49,6 +51,8 @@ import { useBiModelPref } from "@/components/bi/BiModelSelect";
 import { BiWidgetCard } from "@/components/bi/BiWidgetCard";
 import { DashboardGrid } from "@/components/bi/DashboardGrid";
 import { PublishDialog } from "@/components/bi/PublishDialog";
+import { ScheduleDialog } from "@/components/bi/ScheduleDialog";
+import { GenerateDashboardDialog } from "@/components/bi/GenerateDashboardDialog";
 import type { BiDataContext } from "@/components/bi/biDataContext";
 import { useAuth } from "@/hooks/use-auth";
 import type { Json } from "@/integrations/supabase/types";
@@ -121,6 +125,8 @@ function BiProjectPage() {
   const [textOpen, setTextOpen] = useState(false);
   const [textInitial, setTextInitial] = useState<BiWidget | null>(null);
   const [publishOpen, setPublishOpen] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [generateOpen, setGenerateOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [insightBusyId, setInsightBusyId] = useState<string | null>(null);
@@ -394,6 +400,37 @@ function BiProjectPage() {
     }
   }
 
+  function downloadWidgetCsv(w: BiWidget) {
+    const cols = w.columns ?? [];
+    const dataRows = w.rows ?? [];
+    const esc = (v: unknown) => {
+      const s = v === null || v === undefined ? "" : String(v);
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const csv = [cols.join(","), ...dataRows.map((r) => cols.map((c) => esc(r[c])).join(","))].join(
+      "\n",
+    );
+    const blob = new Blob([csv], { type: "text/csv" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `${w.title.replace(/[^\w-]+/g, "_") || "widget"}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  async function downloadWidgetPng(w: BiWidget) {
+    const el = gridWrapRef.current?.querySelector(
+      `[data-widget-id="${w.id}"]`,
+    ) as HTMLElement | null;
+    if (!el) return toast.error("Widget not found on the grid");
+    const { default: html2canvas } = await import("html2canvas-pro");
+    const canvas = await html2canvas(el, { backgroundColor: null, scale: 2, logging: false });
+    const a = document.createElement("a");
+    a.href = canvas.toDataURL("image/png");
+    a.download = `${w.title.replace(/[^\w-]+/g, "_") || "widget"}.png`;
+    a.click();
+  }
+
   async function handleExport() {
     if (row === null || row === "missing" || !gridWrapRef.current) return;
     setExporting(true);
@@ -567,6 +604,24 @@ function BiProjectPage() {
                 )}
                 Refresh
               </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 gap-1.5 px-2.5 text-xs"
+                onClick={() => setScheduleOpen(true)}
+                title="Scheduled refresh & data alerts"
+              >
+                <CalendarClock className="h-3.5 w-3.5" /> Schedule
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 gap-1.5 px-2.5 text-xs"
+                onClick={() => setGenerateOpen(true)}
+                title="Generate a whole dashboard from a goal with AI"
+              >
+                <Wand2 className="h-3.5 w-3.5 text-primary" /> Generate
+              </Button>
             </>
           )}
           {readOnly && (
@@ -693,6 +748,14 @@ function BiProjectPage() {
                             <DropdownMenuItem onClick={() => duplicateWidget(w.id)}>
                               <Copy className="mr-2 h-3.5 w-3.5" /> Duplicate
                             </DropdownMenuItem>
+                            {w.kind === "chart" && (w.rows?.length ?? 0) > 0 && (
+                              <DropdownMenuItem onClick={() => downloadWidgetCsv(w)}>
+                                <FileDown className="mr-2 h-3.5 w-3.5" /> Download CSV
+                              </DropdownMenuItem>
+                            )}
+                            <DropdownMenuItem onClick={() => void downloadWidgetPng(w)}>
+                              <FileDown className="mr-2 h-3.5 w-3.5" /> Download PNG
+                            </DropdownMenuItem>
                             <DropdownMenuItem
                               className="text-destructive focus:text-destructive"
                               onClick={() => removeWidget(w.id)}
@@ -747,6 +810,31 @@ function BiProjectPage() {
             dashboard={row}
             accessToken={token}
             onUpdated={(patch) => setRow({ ...row, ...patch })}
+          />
+          {user?.id && (
+            <ScheduleDialog
+              open={scheduleOpen}
+              onOpenChange={setScheduleOpen}
+              dashboardId={row.id}
+              userId={user.id}
+              widgets={widgets}
+            />
+          )}
+          <GenerateDashboardDialog
+            open={generateOpen}
+            onOpenChange={setGenerateOpen}
+            ctx={ctx}
+            onDone={(newWidgets) => {
+              // KPIs first, charts in the middle, tables at the bottom.
+              const rank = (w: BiWidget) => {
+                const t = w.chart?.type;
+                return t === "kpi" || t === "gauge" ? 0 : t === "table" ? 2 : 1;
+              };
+              const sorted = [...newWidgets].sort((a, b) => rank(a) - rank(b));
+              let lay = layout;
+              for (const w of sorted) lay = addWidgetToLayout(lay, w);
+              persist([...widgets, ...sorted], lay);
+            }}
           />
         </>
       )}

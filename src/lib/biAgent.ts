@@ -47,27 +47,48 @@ export type SavedMetric = {
 /** Value formatting applied to a chart's numeric output. */
 export type BiNumberFormat = "currency" | "percent";
 
-export type ChartSpec = { format?: BiNumberFormat } & (
-  | { type: "table" }
-  | { type: "kpi"; valueField: string; label?: string; targetField?: string }
-  | { type: "bar"; xField: string; yField: string; seriesField?: string; stacked?: boolean }
-  | { type: "hbar"; xField: string; yField: string }
-  | { type: "line"; xField: string; yField: string; seriesField?: string }
-  | { type: "area"; xField: string; yField: string; seriesField?: string }
-  | { type: "pie"; nameField: string; valueField: string }
-  | { type: "combo"; xField: string; barField: string; lineField: string }
-  | { type: "scatter"; xField: string; yField: string; sizeField?: string }
-  | { type: "funnel"; nameField: string; valueField: string }
-  | { type: "waterfall"; xField: string; yField: string }
-  | { type: "gauge"; valueField: string; label?: string; targetField?: string; max?: number }
-  | { type: "treemap"; nameField: string; valueField: string }
-  | { type: "heatmap"; xField: string; yField: string; valueField: string }
-  | { type: "boxplot"; xField: string; yField: string }
-  | { type: "matrix"; rowField: string; colField: string; valueField: string }
-  | { type: "map"; locationField: string; valueField: string }
-  | { type: "bubblemap"; locationField: string; valueField: string }
-  | { type: "ontology"; spec: OntologySpec }
-);
+/** Horizontal reference line on cartesian charts. */
+export type BiRefLine = { mode: "avg" | "value"; value?: number; label?: string };
+
+/** Analytics options shared by all chart specs (each renderer applies what it supports). */
+export type BiChartAnalytics = {
+  /** Category drill hierarchy (bar/hbar/pie); level 0 = the configured field. */
+  drillFields?: string[];
+  /** Default date bucketing for time series (line/area); viewers can toggle. */
+  dateGrain?: "auto" | "day" | "week" | "month" | "quarter" | "year";
+  /** Overlay of the previous bucket / same bucket last year (line/area, single series). */
+  compare?: "prior_period" | "prior_year";
+  /** Cumulative running total (line/area, single series). */
+  running?: boolean;
+  /** Linear trend line (line, single series). */
+  trend?: boolean;
+  /** Forecast this many buckets ahead with a ±1.96σ corridor (line, single series). */
+  forecast?: number;
+  refLine?: BiRefLine;
+};
+
+export type ChartSpec = { format?: BiNumberFormat } & BiChartAnalytics &
+  (
+    | { type: "table" }
+    | { type: "kpi"; valueField: string; label?: string; targetField?: string }
+    | { type: "bar"; xField: string; yField: string; seriesField?: string; stacked?: boolean }
+    | { type: "hbar"; xField: string; yField: string }
+    | { type: "line"; xField: string; yField: string; seriesField?: string }
+    | { type: "area"; xField: string; yField: string; seriesField?: string }
+    | { type: "pie"; nameField: string; valueField: string }
+    | { type: "combo"; xField: string; barField: string; lineField: string }
+    | { type: "scatter"; xField: string; yField: string; sizeField?: string }
+    | { type: "funnel"; nameField: string; valueField: string }
+    | { type: "waterfall"; xField: string; yField: string }
+    | { type: "gauge"; valueField: string; label?: string; targetField?: string; max?: number }
+    | { type: "treemap"; nameField: string; valueField: string }
+    | { type: "heatmap"; xField: string; yField: string; valueField: string }
+    | { type: "boxplot"; xField: string; yField: string }
+    | { type: "matrix"; rowField: string; colField: string; valueField: string }
+    | { type: "map"; locationField: string; valueField: string }
+    | { type: "bubblemap"; locationField: string; valueField: string }
+    | { type: "ontology"; spec: OntologySpec }
+  );
 
 export type BiPlan = {
   intent: string;
@@ -676,4 +697,35 @@ export async function saveMetric(args: {
 export async function deleteMetric(metricId: string): Promise<void> {
   const { error } = await supabase.from("user_saved_metrics").delete().eq("id", metricId);
   if (error) throw new Error(error.message);
+}
+
+// ── AI-generated dashboards ────────────────────────────────────────────
+
+/** Turn a business goal into a dashboard title + analyst questions. */
+export async function planDashboard(args: {
+  goal: string;
+  datasets: DatasetMeta[];
+  semantics: Map<string, SemanticEntry>;
+  metrics: SavedMetric[];
+  model?: string;
+}): Promise<{ title: string; questions: string[] }> {
+  const schema = describeSchema(args.datasets, args.semantics, args.metrics);
+  const out = await llmJson<{ title?: string; questions?: string[] }>({
+    model: args.model,
+    systemPrompt:
+      "You design BI dashboards. Given a business goal and the available schema, plan a " +
+      "dashboard as a set of 5-8 analyst questions, each answerable with ONE SQL query " +
+      "against the schema. Mix widget shapes: start with 2-3 single-number KPI questions " +
+      '("total X", "average Y"), then trends over time, rankings and breakdowns. ' +
+      "Only reference tables and columns that exist. Output JSON only.",
+    userPrompt:
+      `${schema}\n\nGOAL: ${args.goal}\n\n` +
+      'Return JSON: { "title": "short dashboard title", "questions": ["...", ...] }',
+  });
+  return {
+    title: (out.title ?? "").trim().slice(0, 60) || args.goal.slice(0, 60),
+    questions: (out.questions ?? [])
+      .filter((q): q is string => typeof q === "string" && q.trim().length > 0)
+      .slice(0, 8),
+  };
 }

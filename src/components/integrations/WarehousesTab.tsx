@@ -17,6 +17,8 @@ import snowflakeLogo from "@/assets/warehouses/snowflake.svg";
 import databricksLogo from "@/assets/warehouses/databricks.svg";
 import bigqueryLogo from "@/assets/warehouses/bigquery.svg";
 import synapseLogo from "@/assets/warehouses/synapse.svg";
+import postgresLogo from "@/assets/warehouses/postgres.svg";
+import mysqlLogo from "@/assets/warehouses/mysql.svg";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -69,12 +71,50 @@ const PROVIDER_LOGOS: Record<WarehouseProvider, string> = {
   databricks: databricksLogo,
   bigquery: bigqueryLogo,
   azure_synapse: synapseLogo,
+  postgres: postgresLogo,
+  mysql: mysqlLogo,
 };
 
 const PROVIDER_META: Record<
   WarehouseProvider,
   { description: string; fields: Field[]; note?: string }
 > = {
+  postgres: {
+    description: "Connect any PostgreSQL database directly (Supabase, RDS, Neon, self-hosted).",
+    fields: [
+      { key: "host", label: "Host", placeholder: "db.example.com" },
+      { key: "port", label: "Port", placeholder: "5432", optional: true },
+      { key: "database", label: "Database", placeholder: "postgres" },
+      { key: "username", label: "Username" },
+      { key: "password", label: "Password", type: "password" },
+      {
+        key: "ssl",
+        label: "SSL",
+        optional: true,
+        placeholder: "require",
+        hint: 'Set to "require" for managed hosts (TLS without CA verification).',
+      },
+    ],
+    note: "Use a read-only role — only SELECT statements are ever sent.",
+  },
+  mysql: {
+    description: "Connect any MySQL or MariaDB database directly (RDS, PlanetScale, self-hosted).",
+    fields: [
+      { key: "host", label: "Host", placeholder: "mysql.example.com" },
+      { key: "port", label: "Port", placeholder: "3306", optional: true },
+      { key: "database", label: "Database" },
+      { key: "username", label: "Username" },
+      { key: "password", label: "Password", type: "password" },
+      {
+        key: "ssl",
+        label: "SSL",
+        optional: true,
+        placeholder: "require",
+        hint: 'Set to "require" for managed hosts (TLS without CA verification).',
+      },
+    ],
+    note: "Use a read-only user — only SELECT statements are ever sent.",
+  },
   redshift: {
     description: "Query via the Redshift Data API — serverless workgroups or provisioned clusters.",
     fields: [

@@ -542,6 +542,83 @@ async function synapseQuery(
   });
 }
 
+// ── PostgreSQL / MySQL (generic OLTP databases) ─────────────────────────────
+
+/** Rough type bucket so downstream tooling (ontology, prep) sees semantics. */
+function pgTypeName(oid: number): string {
+  if ([20, 21, 23, 26, 700, 701, 1700].includes(oid)) return "numeric";
+  if ([1082, 1114, 1184, 1083].includes(oid)) return "date";
+  if (oid === 16) return "boolean";
+  return "text";
+}
+
+async function pgQuery(
+  config: Extract<WarehouseConfig, { provider: "postgres" }>,
+  sql: string,
+  maxRows: number,
+): Promise<{ columns: WarehouseColumn[]; data: unknown[][]; truncated: boolean }> {
+  const { Client } = await import("pg");
+  const client = new Client({
+    host: config.host,
+    port: Number(config.port) || 5432,
+    database: config.database,
+    user: config.username,
+    password: config.password,
+    ssl: config.ssl === "require" ? { rejectUnauthorized: false } : undefined,
+    connectionTimeoutMillis: 15_000,
+    query_timeout: 60_000,
+  });
+  await client.connect();
+  try {
+    const res = await client.query(sql);
+    const columns: WarehouseColumn[] = (res.fields ?? []).map((f) => ({
+      name: f.name,
+      type: pgTypeName(f.dataTypeID),
+    }));
+    const all = (res.rows ?? []) as Record<string, unknown>[];
+    const data = all.slice(0, maxRows).map((r) => columns.map((c) => r[c.name]));
+    return { columns, data, truncated: all.length > maxRows };
+  } finally {
+    await client.end();
+  }
+}
+
+function mysqlTypeName(t: number | undefined): string {
+  if (t === undefined) return "text";
+  if ([0, 1, 2, 3, 4, 5, 8, 9, 246].includes(t)) return "numeric";
+  if ([7, 10, 11, 12, 13, 17, 18, 19].includes(t)) return "date";
+  return "text";
+}
+
+async function mysqlQuery(
+  config: Extract<WarehouseConfig, { provider: "mysql" }>,
+  sql: string,
+  maxRows: number,
+): Promise<{ columns: WarehouseColumn[]; data: unknown[][]; truncated: boolean }> {
+  const mysql = await import("mysql2/promise");
+  const conn = await mysql.createConnection({
+    host: config.host,
+    port: Number(config.port) || 3306,
+    database: config.database,
+    user: config.username,
+    password: config.password,
+    ssl: config.ssl === "require" ? { rejectUnauthorized: false } : undefined,
+    connectTimeout: 15_000,
+  });
+  try {
+    const [rows, fields] = await conn.query(sql);
+    const columns: WarehouseColumn[] = (fields ?? []).map((f) => ({
+      name: f.name,
+      type: mysqlTypeName(f.type),
+    }));
+    const all = (Array.isArray(rows) ? rows : []) as Record<string, unknown>[];
+    const data = all.slice(0, maxRows).map((r) => columns.map((c) => r[c.name]));
+    return { columns, data, truncated: all.length > maxRows };
+  } finally {
+    await conn.end();
+  }
+}
+
 // ── Public entry points ──────────────────────────────────────────────────────
 
 export async function executeWarehouseQuery(
@@ -570,6 +647,12 @@ export async function executeWarehouseQuery(
     case "azure_synapse":
       raw = await synapseQuery(config, safeSql, cappedRows);
       break;
+    case "postgres":
+      raw = await pgQuery(config, safeSql, cappedRows);
+      break;
+    case "mysql":
+      raw = await mysqlQuery(config, safeSql, cappedRows);
+      break;
   }
 
   return {
@@ -597,6 +680,15 @@ export async function listWarehouseTables(config: WarehouseConfig): Promise<Ware
       sql = COLUMNS_QUERY(scope);
       break;
     }
+    case "postgres":
+      sql = COLUMNS_QUERY("information_schema.columns");
+      break;
+    case "mysql":
+      sql = COLUMNS_QUERY(
+        "information_schema.columns",
+        "AND table_schema NOT IN ('mysql', 'performance_schema')",
+      );
+      break;
     case "redshift":
     case "azure_synapse":
       sql = COLUMNS_QUERY("information_schema.columns");

@@ -24,11 +24,17 @@ export const Route = createFileRoute("/share/bi/$slug")({
   head: () => ({
     meta: [{ title: "Shared dashboard — AgentSwarms" }],
   }),
+  // ?embed=1 renders a chrome-less grid for <iframe> embedding.
+  validateSearch: (s: Record<string, unknown>) => ({
+    embed: s.embed === "1" || s.embed === 1 || s.embed === true ? ("1" as const) : undefined,
+  }),
   component: PublicBiDashboardPage,
 });
 
 function PublicBiDashboardPage() {
   const { slug } = Route.useParams();
+  const { embed } = Route.useSearch();
+  const isEmbed = embed === "1";
   const fetchFn = useServerFn(biGetPublicDashboard);
   const [dashboard, setDashboard] = useState<PublicDashboard | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -82,33 +88,39 @@ function PublicBiDashboardPage() {
   );
 
   return (
-    <div className="min-h-screen bg-muted/30">
-      <header className="border-b border-border bg-background px-6 py-5">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-end justify-between gap-3">
-          <div>
-            <p className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-widest text-primary">
-              <BarChart3 className="h-3 w-3" /> AgentSwarms BI
-            </p>
-            <h1 className="text-3xl font-bold tracking-tight">{dashboard.name}</h1>
-            {dashboard.description && (
-              <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-                {dashboard.description}
+    <div className={isEmbed ? "min-h-screen bg-background" : "min-h-screen bg-muted/30"}>
+      {!isEmbed && (
+        <header className="border-b border-border bg-background px-6 py-5">
+          <div className="mx-auto flex max-w-7xl flex-wrap items-end justify-between gap-3">
+            <div>
+              <p className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-widest text-primary">
+                <BarChart3 className="h-3 w-3" /> AgentSwarms BI
               </p>
-            )}
+              <h1 className="text-3xl font-bold tracking-tight">{dashboard.name}</h1>
+              {dashboard.description && (
+                <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+                  {dashboard.description}
+                </p>
+              )}
+            </div>
+            <p className="flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/50 px-3 py-1 text-xs text-muted-foreground">
+              <Clock className="h-3 w-3" />
+              Data as of {new Date(dashboard.updated_at).toLocaleString()}
+            </p>
           </div>
-          <p className="flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/50 px-3 py-1 text-xs text-muted-foreground">
-            <Clock className="h-3 w-3" />
-            Data as of {new Date(dashboard.updated_at).toLocaleString()}
-          </p>
-        </div>
-      </header>
+        </header>
+      )}
 
       <main
-        className="mx-auto max-w-7xl p-6"
-        style={{
-          backgroundImage: "radial-gradient(circle, var(--border) 1px, transparent 1px)",
-          backgroundSize: "22px 22px",
-        }}
+        className={isEmbed ? "p-3" : "mx-auto max-w-7xl p-6"}
+        style={
+          isEmbed
+            ? undefined
+            : {
+                backgroundImage: "radial-gradient(circle, var(--border) 1px, transparent 1px)",
+                backgroundSize: "22px 22px",
+              }
+        }
       >
         <BiFilterBar
           configs={filterConfigs}
@@ -144,13 +156,15 @@ function PublicBiDashboardPage() {
         />
       </main>
 
-      <footer className="border-t border-border/50 bg-background px-6 py-5 text-center text-xs text-muted-foreground">
-        Built with{" "}
-        <Link to="/" className="font-medium text-primary underline-offset-4 hover:underline">
-          AgentSwarms
-        </Link>{" "}
-        — the self-hosted agentic AI platform
-      </footer>
+      {!isEmbed && (
+        <footer className="border-t border-border/50 bg-background px-6 py-5 text-center text-xs text-muted-foreground">
+          Built with{" "}
+          <Link to="/" className="font-medium text-primary underline-offset-4 hover:underline">
+            AgentSwarms
+          </Link>{" "}
+          — the self-hosted agentic AI platform
+        </footer>
+      )}
     </div>
   );
 }
