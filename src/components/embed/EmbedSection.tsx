@@ -1,0 +1,497 @@
+// "Web Embedding" section on /dashboard: create and manage iframe embeds of
+// standalone chat agents, multi-agent swarm tasks, and BI dashboards.
+// Each embed is authorized by a generated key (a capability token scoped to
+// one resource) plus a domain allow-list enforced server-side in
+// /api/embed* — see src/utils/embed.server.ts for the model.
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
+import {
+  Bot,
+  Check,
+  Code2,
+  Copy,
+  ExternalLink,
+  Globe,
+  Network,
+  PieChart,
+  Plus,
+  Sparkles,
+  Trash2,
+} from "lucide-react";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/use-auth";
+import { cn } from "@/lib/utils";
+
+type EmbedType = "agent" | "swarm" | "bi_dashboard";
+
+type EmbedKey = {
+  id: string;
+  name: string;
+  key: string;
+  resource_type: EmbedType;
+  resource_id: string;
+  allowed_domains: string[];
+  allow_ai: boolean;
+  is_active: boolean;
+  use_count: number;
+  created_at: string;
+};
+
+type ResourceOption = { id: string; name: string };
+
+const EMBED_META: Record<
+  EmbedType,
+  { title: string; desc: string; icon: typeof Bot; path: string; height: number }
+> = {
+  agent: {
+    title: "Embed Standalone Chat Agent",
+    desc: "A streaming chat widget for one of your agents — grounded in its knowledge base, guarded by its guardrails. Workspace tools stay disabled.",
+    icon: Bot,
+    path: "agent",
+    height: 640,
+  },
+  swarm: {
+    title: "Embed Multi-Agent Task (Swarm)",
+    desc: "Visitors describe a task and watch your swarm execute it step by step. Node prompts and wiring never leave your server.",
+    icon: Network,
+    path: "swarm",
+    height: 720,
+  },
+  bi_dashboard: {
+    title: "Embed Dashboard (With/Without AI Analyst)",
+    desc: "A live, filterable BI dashboard rendered from snapshots — optionally with the Ask-AI analyst answering viewer questions.",
+    icon: PieChart,
+    path: "bi",
+    height: 800,
+  },
+};
+
+function genKey(): string {
+  const alphabet = "0123456789abcdefghijklmnopqrstuvwxyz";
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return "emk_" + Array.from(bytes, (b) => alphabet[b % 36]).join("");
+}
+
+function snippetFor(key: EmbedKey): string {
+  const meta = EMBED_META[key.resource_type];
+  const src = `${window.location.origin}/embed/${meta.path}/${key.key}`;
+  return `<iframe\n  src="${src}"\n  width="100%"\n  height="${meta.height}"\n  style="border:0;border-radius:12px;overflow:hidden"\n  allow="clipboard-write"\n></iframe>`;
+}
+
+export function EmbedSection() {
+  const { user } = useAuth();
+  const [keys, setKeys] = useState<EmbedKey[]>([]);
+  const [resources, setResources] = useState<Record<EmbedType, ResourceOption[]>>({
+    agent: [],
+    swarm: [],
+    bi_dashboard: [],
+  });
+  const [dialogType, setDialogType] = useState<EmbedType | null>(null);
+  const [createdKey, setCreatedKey] = useState<EmbedKey | null>(null);
+
+  const load = useCallback(async () => {
+    const [k, a, s, d] = await Promise.all([
+      supabase
+        .from("embed_keys")
+        .select(
+          "id, name, key, resource_type, resource_id, allowed_domains, allow_ai, is_active, use_count, created_at",
+        )
+        .order("created_at", { ascending: false }),
+      supabase.from("agents").select("id, name").order("name"),
+      supabase.from("swarms").select("id, name").order("name"),
+      supabase.from("bi_dashboards").select("id, name").order("name"),
+    ]);
+    setKeys((k.data ?? []) as EmbedKey[]);
+    setResources({
+      agent: a.data ?? [],
+      swarm: s.data ?? [],
+      bi_dashboard: (d.data ?? []) as ResourceOption[],
+    });
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const resourceName = useCallback(
+    (k: EmbedKey) =>
+      resources[k.resource_type]?.find((r) => r.id === k.resource_id)?.name ?? "(deleted)",
+    [resources],
+  );
+
+  async function toggleActive(k: EmbedKey) {
+    const { error } = await supabase
+      .from("embed_keys")
+      .update({ is_active: !k.is_active })
+      .eq("id", k.id);
+    if (error) return toast.error(error.message);
+    setKeys((prev) => prev.map((x) => (x.id === k.id ? { ...x, is_active: !k.is_active } : x)));
+    toast.success(!k.is_active ? "Embed enabled" : "Embed disabled — iframes stop working now");
+  }
+
+  async function remove(k: EmbedKey) {
+    if (!window.confirm(`Delete embed "${k.name}"? Existing iframes will stop working.`)) return;
+    const { error } = await supabase.from("embed_keys").delete().eq("id", k.id);
+    if (error) return toast.error(error.message);
+    setKeys((prev) => prev.filter((x) => x.id !== k.id));
+    toast.success("Embed deleted");
+  }
+
+  function copySnippet(k: EmbedKey) {
+    void navigator.clipboard.writeText(snippetFor(k));
+    toast.success("Embed code copied");
+  }
+
+  return (
+    <section className="rounded-xl border border-border bg-card p-6 shadow-sm sm:p-8">
+      <header className="mb-4 flex items-start justify-between gap-3">
+        <div>
+          <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
+            <Code2 className="h-4.5 w-4.5 text-primary" />
+            Web Embedding
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            Put your agents, swarms and dashboards on any website with an iframe — secured by a
+            per-embed key and a domain allow-list you control.
+          </p>
+        </div>
+      </header>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        {(Object.keys(EMBED_META) as EmbedType[]).map((t) => {
+          const meta = EMBED_META[t];
+          return (
+            <div key={t} className="flex flex-col gap-3 rounded-xl bg-card p-4 ring-1 ring-border">
+              <div className="grid h-10 w-10 place-items-center rounded-lg bg-primary/10 text-primary">
+                <meta.icon className="h-5 w-5" strokeWidth={1.6} />
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-medium text-foreground">{meta.title}</p>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{meta.desc}</p>
+              </div>
+              <Button size="sm" variant="outline" onClick={() => setDialogType(t)}>
+                <Plus className="mr-1 h-3.5 w-3.5" /> Create embed
+              </Button>
+            </div>
+          );
+        })}
+      </div>
+
+      {keys.length > 0 && (
+        <div className="mt-5 overflow-x-auto rounded-lg border border-border/60">
+          <table className="w-full text-left text-xs">
+            <thead className="border-b border-border/60 bg-muted/40 text-[11px] uppercase tracking-wider text-muted-foreground">
+              <tr>
+                <th className="px-3 py-2 font-medium">Embed</th>
+                <th className="px-3 py-2 font-medium">Resource</th>
+                <th className="px-3 py-2 font-medium">Allowed domains</th>
+                <th className="px-3 py-2 font-medium">Uses</th>
+                <th className="px-3 py-2 font-medium">Active</th>
+                <th className="px-3 py-2 text-right font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border/40">
+              {keys.map((k) => (
+                <tr key={k.id} className={cn(!k.is_active && "opacity-55")}>
+                  <td className="px-3 py-2">
+                    <div className="font-medium text-foreground">{k.name}</div>
+                    <div className="mt-0.5 flex items-center gap-1.5">
+                      <Badge variant="outline" className="text-[9px] uppercase">
+                        {k.resource_type === "bi_dashboard" ? "dashboard" : k.resource_type}
+                      </Badge>
+                      {k.resource_type === "bi_dashboard" && k.allow_ai && (
+                        <Badge variant="outline" className="gap-0.5 text-[9px] text-primary">
+                          <Sparkles className="h-2.5 w-2.5" /> AI
+                        </Badge>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2 text-muted-foreground">{resourceName(k)}</td>
+                  <td className="px-3 py-2">
+                    <span className="flex items-center gap-1 text-muted-foreground">
+                      <Globe className="h-3 w-3 shrink-0" />
+                      {(k.allowed_domains ?? []).join(", ") || "none (parked)"}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 tabular-nums text-muted-foreground">{k.use_count}</td>
+                  <td className="px-3 py-2">
+                    <Switch checked={k.is_active} onCheckedChange={() => void toggleActive(k)} />
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="flex items-center justify-end gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        title="Copy iframe code"
+                        onClick={() => copySnippet(k)}
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        title="Preview"
+                        onClick={() =>
+                          window.open(
+                            `/embed/${EMBED_META[k.resource_type].path}/${k.key}?preview=1`,
+                            "_blank",
+                          )
+                        }
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                        title="Delete"
+                        onClick={() => void remove(k)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <CreateEmbedDialog
+        type={dialogType}
+        resources={dialogType ? resources[dialogType] : []}
+        userId={user?.id}
+        onClose={() => setDialogType(null)}
+        onCreated={(k) => {
+          setDialogType(null);
+          setCreatedKey(k);
+          void load();
+        }}
+      />
+      <SnippetDialog embedKey={createdKey} onClose={() => setCreatedKey(null)} />
+    </section>
+  );
+}
+
+function CreateEmbedDialog({
+  type,
+  resources,
+  userId,
+  onClose,
+  onCreated,
+}: {
+  type: EmbedType | null;
+  resources: ResourceOption[];
+  userId: string | undefined;
+  onClose: () => void;
+  onCreated: (k: EmbedKey) => void;
+}) {
+  const [resourceId, setResourceId] = useState("");
+  const [name, setName] = useState("");
+  const [domains, setDomains] = useState("");
+  const [allowAi, setAllowAi] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (type) {
+      setResourceId("");
+      setName("");
+      setDomains("");
+      setAllowAi(false);
+    }
+  }, [type]);
+
+  const meta = type ? EMBED_META[type] : null;
+  const parsedDomains = useMemo(
+    () =>
+      domains
+        .split(/[,\s]+/)
+        .map((d) => d.trim().toLowerCase())
+        .filter(Boolean),
+    [domains],
+  );
+
+  async function create() {
+    if (!type || !userId) return;
+    if (!resourceId) return toast.error("Pick what to embed");
+    if (parsedDomains.length === 0) {
+      return toast.error('Add at least one allowed domain (or "*" for any site)');
+    }
+    setSaving(true);
+    const row = {
+      user_id: userId,
+      name:
+        name.trim() ||
+        `${resources.find((r) => r.id === resourceId)?.name ?? "Embed"} · ${new Date().toLocaleDateString()}`,
+      key: genKey(),
+      resource_type: type,
+      resource_id: resourceId,
+      allowed_domains: parsedDomains,
+      allow_ai: type === "bi_dashboard" ? allowAi : false,
+    };
+    const { data, error } = await supabase
+      .from("embed_keys")
+      .insert(row)
+      .select(
+        "id, name, key, resource_type, resource_id, allowed_domains, allow_ai, is_active, use_count, created_at",
+      )
+      .single();
+    setSaving(false);
+    if (error || !data) return toast.error(error?.message ?? "Could not create the embed");
+    toast.success("Embed created");
+    onCreated(data as EmbedKey);
+  }
+
+  return (
+    <Dialog open={type !== null} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{meta?.title}</DialogTitle>
+          <DialogDescription>
+            The embed works only on the domains you list. You can disable or delete the key at any
+            time.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label className="text-xs">
+              {type === "agent" ? "Agent" : type === "swarm" ? "Swarm" : "Dashboard"}
+            </Label>
+            <Select value={resourceId} onValueChange={setResourceId}>
+              <SelectTrigger className="h-9">
+                <SelectValue placeholder="Choose…" />
+              </SelectTrigger>
+              <SelectContent>
+                {resources.length === 0 ? (
+                  <SelectItem value="__none__" disabled>
+                    Nothing to embed yet
+                  </SelectItem>
+                ) : (
+                  resources.map((r) => (
+                    <SelectItem key={r.id} value={r.id}>
+                      {r.name}
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Embed name</Label>
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Support widget on acme.com"
+              className="h-9"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Allowed domains</Label>
+            <Input
+              value={domains}
+              onChange={(e) => setDomains(e.target.value)}
+              placeholder="acme.com, *.acme.com — or * for any site"
+              className="h-9"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Browsers report the embedding page's origin; the server only serves these domains. Use{" "}
+              <code>*</code> to allow any site (also lets the URL open directly).
+            </p>
+          </div>
+          {type === "bi_dashboard" && (
+            <div className="flex items-center justify-between rounded-lg border border-border/60 p-3">
+              <div>
+                <p className="text-xs font-medium">Enable AI analyst</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Viewers can ask questions; answers use your credentials and the dashboard's reader
+                  model.
+                </p>
+              </div>
+              <Switch checked={allowAi} onCheckedChange={setAllowAi} />
+            </div>
+          )}
+          <Button className="w-full" onClick={() => void create()} disabled={saving}>
+            {saving ? "Creating…" : "Create embed key"}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function SnippetDialog({ embedKey, onClose }: { embedKey: EmbedKey | null; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const snippet = embedKey ? snippetFor(embedKey) : "";
+  return (
+    <Dialog open={embedKey !== null} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Your embed is ready</DialogTitle>
+          <DialogDescription>
+            Paste this snippet into any page on{" "}
+            {embedKey?.allowed_domains.join(", ") || "your allowed domains"}.
+          </DialogDescription>
+        </DialogHeader>
+        <pre className="max-h-56 overflow-auto rounded-lg border border-border/60 bg-muted/40 p-3 text-[11px] leading-relaxed">
+          {snippet}
+        </pre>
+        <div className="flex gap-2">
+          <Button
+            className="flex-1"
+            onClick={() => {
+              void navigator.clipboard.writeText(snippet);
+              setCopied(true);
+              setTimeout(() => setCopied(false), 1500);
+            }}
+          >
+            {copied ? (
+              <>
+                <Check className="mr-1.5 h-3.5 w-3.5" /> Copied
+              </>
+            ) : (
+              <>
+                <Copy className="mr-1.5 h-3.5 w-3.5" /> Copy embed code
+              </>
+            )}
+          </Button>
+          {embedKey && (
+            <Button
+              variant="outline"
+              onClick={() =>
+                window.open(
+                  `/embed/${EMBED_META[embedKey.resource_type].path}/${embedKey.key}?preview=1`,
+                  "_blank",
+                )
+              }
+            >
+              <ExternalLink className="mr-1.5 h-3.5 w-3.5" /> Preview
+            </Button>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}

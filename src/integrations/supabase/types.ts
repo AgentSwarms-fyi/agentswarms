@@ -650,6 +650,54 @@ export type Database = {
           },
         ];
       };
+      embed_keys: {
+        Row: {
+          allow_ai: boolean;
+          allowed_domains: string[];
+          created_at: string;
+          id: string;
+          is_active: boolean;
+          key: string;
+          last_used_at: string | null;
+          name: string;
+          resource_id: string;
+          resource_type: string;
+          updated_at: string;
+          use_count: number;
+          user_id: string;
+        };
+        Insert: {
+          allow_ai?: boolean;
+          allowed_domains?: string[];
+          created_at?: string;
+          id?: string;
+          is_active?: boolean;
+          key: string;
+          last_used_at?: string | null;
+          name: string;
+          resource_id: string;
+          resource_type: string;
+          updated_at?: string;
+          use_count?: number;
+          user_id: string;
+        };
+        Update: {
+          allow_ai?: boolean;
+          allowed_domains?: string[];
+          created_at?: string;
+          id?: string;
+          is_active?: boolean;
+          key?: string;
+          last_used_at?: string | null;
+          name?: string;
+          resource_id?: string;
+          resource_type?: string;
+          updated_at?: string;
+          use_count?: number;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       email_send_log: {
         Row: {
           created_at: string;

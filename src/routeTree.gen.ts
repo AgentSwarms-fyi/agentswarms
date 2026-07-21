@@ -39,6 +39,7 @@ import { Route as DocsAnalyticsRouteImport } from './routes/docs.analytics'
 import { Route as DocsAgentsRouteImport } from './routes/docs.agents'
 import { Route as DocsAccountRouteImport } from './routes/docs.account'
 import { Route as ApiPythonChatRouteImport } from './routes/api/python-chat'
+import { Route as ApiEmbedRouteImport } from './routes/api/embed'
 import { Route as ApiContactRouteImport } from './routes/api/contact'
 import { Route as ApiChatRouteImport } from './routes/api/chat'
 import { Route as ApiBiRouteImport } from './routes/api/bi'
@@ -68,6 +69,9 @@ import { Route as AuthenticatedAccountRouteImport } from './routes/_authenticate
 import { Route as AuthenticatedTemplatesIndexRouteImport } from './routes/_authenticated/templates.index'
 import { Route as AuthenticatedCertificationIndexRouteImport } from './routes/_authenticated/certification.index'
 import { Route as ShareBiSlugRouteImport } from './routes/share.bi.$slug'
+import { Route as EmbedSwarmKeyRouteImport } from './routes/embed.swarm.$key'
+import { Route as EmbedBiKeyRouteImport } from './routes/embed.bi.$key'
+import { Route as EmbedAgentKeyRouteImport } from './routes/embed.agent.$key'
 import { Route as ApiWarehouseSchemaRouteImport } from './routes/api/warehouse/schema'
 import { Route as ApiWarehouseQueryRouteImport } from './routes/api/warehouse/query'
 import { Route as ApiTemplatesProvisionRouteImport } from './routes/api/templates.provision'
@@ -78,6 +82,7 @@ import { Route as ApiKbBuildGraphRouteImport } from './routes/api/kb/build-graph
 import { Route as ApiExamSubmitMcqRouteImport } from './routes/api/exam.submit-mcq'
 import { Route as ApiExamStartRouteImport } from './routes/api/exam.start'
 import { Route as ApiExamEvaluateRouteImport } from './routes/api/exam.evaluate'
+import { Route as ApiEmbedChatRouteImport } from './routes/api/embed.chat'
 import { Route as ApiEmailSendRouteImport } from './routes/api/email/send'
 import { Route as ApiCertificateIdRouteImport } from './routes/api/certificate.$id'
 import { Route as ApiBiCronRouteImport } from './routes/api/bi.cron'
@@ -241,6 +246,11 @@ const ApiPythonChatRoute = ApiPythonChatRouteImport.update({
   path: '/api/python-chat',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiEmbedRoute = ApiEmbedRouteImport.update({
+  id: '/api/embed',
+  path: '/api/embed',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiContactRoute = ApiContactRouteImport.update({
   id: '/api/contact',
   path: '/api/contact',
@@ -393,6 +403,21 @@ const ShareBiSlugRoute = ShareBiSlugRouteImport.update({
   path: '/share/bi/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
+const EmbedSwarmKeyRoute = EmbedSwarmKeyRouteImport.update({
+  id: '/embed/swarm/$key',
+  path: '/embed/swarm/$key',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EmbedBiKeyRoute = EmbedBiKeyRouteImport.update({
+  id: '/embed/bi/$key',
+  path: '/embed/bi/$key',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EmbedAgentKeyRoute = EmbedAgentKeyRouteImport.update({
+  id: '/embed/agent/$key',
+  path: '/embed/agent/$key',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiWarehouseSchemaRoute = ApiWarehouseSchemaRouteImport.update({
   id: '/api/warehouse/schema',
   path: '/api/warehouse/schema',
@@ -442,6 +467,11 @@ const ApiExamEvaluateRoute = ApiExamEvaluateRouteImport.update({
   id: '/api/exam/evaluate',
   path: '/api/exam/evaluate',
   getParentRoute: () => rootRouteImport,
+} as any)
+const ApiEmbedChatRoute = ApiEmbedChatRouteImport.update({
+  id: '/chat',
+  path: '/chat',
+  getParentRoute: () => ApiEmbedRoute,
 } as any)
 const ApiEmailSendRoute = ApiEmailSendRouteImport.update({
   id: '/api/email/send',
@@ -557,6 +587,7 @@ export interface FileRoutesByFullPath {
   '/api/bi': typeof ApiBiRouteWithChildren
   '/api/chat': typeof ApiChatRoute
   '/api/contact': typeof ApiContactRoute
+  '/api/embed': typeof ApiEmbedRouteWithChildren
   '/api/python-chat': typeof ApiPythonChatRoute
   '/docs/account': typeof DocsAccountRoute
   '/docs/agents': typeof DocsAgentsRoute
@@ -582,6 +613,7 @@ export interface FileRoutesByFullPath {
   '/api/bi/cron': typeof ApiBiCronRoute
   '/api/certificate/$id': typeof ApiCertificateIdRoute
   '/api/email/send': typeof ApiEmailSendRoute
+  '/api/embed/chat': typeof ApiEmbedChatRoute
   '/api/exam/evaluate': typeof ApiExamEvaluateRoute
   '/api/exam/start': typeof ApiExamStartRoute
   '/api/exam/submit-mcq': typeof ApiExamSubmitMcqRoute
@@ -592,6 +624,9 @@ export interface FileRoutesByFullPath {
   '/api/templates/provision': typeof ApiTemplatesProvisionRoute
   '/api/warehouse/query': typeof ApiWarehouseQueryRoute
   '/api/warehouse/schema': typeof ApiWarehouseSchemaRoute
+  '/embed/agent/$key': typeof EmbedAgentKeyRoute
+  '/embed/bi/$key': typeof EmbedBiKeyRoute
+  '/embed/swarm/$key': typeof EmbedSwarmKeyRoute
   '/share/bi/$slug': typeof ShareBiSlugRoute
   '/certification/': typeof AuthenticatedCertificationIndexRoute
   '/templates/': typeof AuthenticatedTemplatesIndexRoute
@@ -638,6 +673,7 @@ export interface FileRoutesByTo {
   '/api/bi': typeof ApiBiRouteWithChildren
   '/api/chat': typeof ApiChatRoute
   '/api/contact': typeof ApiContactRoute
+  '/api/embed': typeof ApiEmbedRouteWithChildren
   '/api/python-chat': typeof ApiPythonChatRoute
   '/docs/account': typeof DocsAccountRoute
   '/docs/agents': typeof DocsAgentsRoute
@@ -663,6 +699,7 @@ export interface FileRoutesByTo {
   '/api/bi/cron': typeof ApiBiCronRoute
   '/api/certificate/$id': typeof ApiCertificateIdRoute
   '/api/email/send': typeof ApiEmailSendRoute
+  '/api/embed/chat': typeof ApiEmbedChatRoute
   '/api/exam/evaluate': typeof ApiExamEvaluateRoute
   '/api/exam/start': typeof ApiExamStartRoute
   '/api/exam/submit-mcq': typeof ApiExamSubmitMcqRoute
@@ -673,6 +710,9 @@ export interface FileRoutesByTo {
   '/api/templates/provision': typeof ApiTemplatesProvisionRoute
   '/api/warehouse/query': typeof ApiWarehouseQueryRoute
   '/api/warehouse/schema': typeof ApiWarehouseSchemaRoute
+  '/embed/agent/$key': typeof EmbedAgentKeyRoute
+  '/embed/bi/$key': typeof EmbedBiKeyRoute
+  '/embed/swarm/$key': typeof EmbedSwarmKeyRoute
   '/share/bi/$slug': typeof ShareBiSlugRoute
   '/certification': typeof AuthenticatedCertificationIndexRoute
   '/templates': typeof AuthenticatedTemplatesIndexRoute
@@ -723,6 +763,7 @@ export interface FileRoutesById {
   '/api/bi': typeof ApiBiRouteWithChildren
   '/api/chat': typeof ApiChatRoute
   '/api/contact': typeof ApiContactRoute
+  '/api/embed': typeof ApiEmbedRouteWithChildren
   '/api/python-chat': typeof ApiPythonChatRoute
   '/docs/account': typeof DocsAccountRoute
   '/docs/agents': typeof DocsAgentsRoute
@@ -748,6 +789,7 @@ export interface FileRoutesById {
   '/api/bi/cron': typeof ApiBiCronRoute
   '/api/certificate/$id': typeof ApiCertificateIdRoute
   '/api/email/send': typeof ApiEmailSendRoute
+  '/api/embed/chat': typeof ApiEmbedChatRoute
   '/api/exam/evaluate': typeof ApiExamEvaluateRoute
   '/api/exam/start': typeof ApiExamStartRoute
   '/api/exam/submit-mcq': typeof ApiExamSubmitMcqRoute
@@ -758,6 +800,9 @@ export interface FileRoutesById {
   '/api/templates/provision': typeof ApiTemplatesProvisionRoute
   '/api/warehouse/query': typeof ApiWarehouseQueryRoute
   '/api/warehouse/schema': typeof ApiWarehouseSchemaRoute
+  '/embed/agent/$key': typeof EmbedAgentKeyRoute
+  '/embed/bi/$key': typeof EmbedBiKeyRoute
+  '/embed/swarm/$key': typeof EmbedSwarmKeyRoute
   '/share/bi/$slug': typeof ShareBiSlugRoute
   '/_authenticated/certification/': typeof AuthenticatedCertificationIndexRoute
   '/_authenticated/templates/': typeof AuthenticatedTemplatesIndexRoute
@@ -808,6 +853,7 @@ export interface FileRouteTypes {
     | '/api/bi'
     | '/api/chat'
     | '/api/contact'
+    | '/api/embed'
     | '/api/python-chat'
     | '/docs/account'
     | '/docs/agents'
@@ -833,6 +879,7 @@ export interface FileRouteTypes {
     | '/api/bi/cron'
     | '/api/certificate/$id'
     | '/api/email/send'
+    | '/api/embed/chat'
     | '/api/exam/evaluate'
     | '/api/exam/start'
     | '/api/exam/submit-mcq'
@@ -843,6 +890,9 @@ export interface FileRouteTypes {
     | '/api/templates/provision'
     | '/api/warehouse/query'
     | '/api/warehouse/schema'
+    | '/embed/agent/$key'
+    | '/embed/bi/$key'
+    | '/embed/swarm/$key'
     | '/share/bi/$slug'
     | '/certification/'
     | '/templates/'
@@ -889,6 +939,7 @@ export interface FileRouteTypes {
     | '/api/bi'
     | '/api/chat'
     | '/api/contact'
+    | '/api/embed'
     | '/api/python-chat'
     | '/docs/account'
     | '/docs/agents'
@@ -914,6 +965,7 @@ export interface FileRouteTypes {
     | '/api/bi/cron'
     | '/api/certificate/$id'
     | '/api/email/send'
+    | '/api/embed/chat'
     | '/api/exam/evaluate'
     | '/api/exam/start'
     | '/api/exam/submit-mcq'
@@ -924,6 +976,9 @@ export interface FileRouteTypes {
     | '/api/templates/provision'
     | '/api/warehouse/query'
     | '/api/warehouse/schema'
+    | '/embed/agent/$key'
+    | '/embed/bi/$key'
+    | '/embed/swarm/$key'
     | '/share/bi/$slug'
     | '/certification'
     | '/templates'
@@ -973,6 +1028,7 @@ export interface FileRouteTypes {
     | '/api/bi'
     | '/api/chat'
     | '/api/contact'
+    | '/api/embed'
     | '/api/python-chat'
     | '/docs/account'
     | '/docs/agents'
@@ -998,6 +1054,7 @@ export interface FileRouteTypes {
     | '/api/bi/cron'
     | '/api/certificate/$id'
     | '/api/email/send'
+    | '/api/embed/chat'
     | '/api/exam/evaluate'
     | '/api/exam/start'
     | '/api/exam/submit-mcq'
@@ -1008,6 +1065,9 @@ export interface FileRouteTypes {
     | '/api/templates/provision'
     | '/api/warehouse/query'
     | '/api/warehouse/schema'
+    | '/embed/agent/$key'
+    | '/embed/bi/$key'
+    | '/embed/swarm/$key'
     | '/share/bi/$slug'
     | '/_authenticated/certification/'
     | '/_authenticated/templates/'
@@ -1036,6 +1096,7 @@ export interface RootRouteChildren {
   ApiBiRoute: typeof ApiBiRouteWithChildren
   ApiChatRoute: typeof ApiChatRoute
   ApiContactRoute: typeof ApiContactRoute
+  ApiEmbedRoute: typeof ApiEmbedRouteWithChildren
   ApiPythonChatRoute: typeof ApiPythonChatRoute
   EmailUnsubscribeRoute: typeof EmailUnsubscribeRoute
   VerifyCodeRoute: typeof VerifyCodeRoute
@@ -1052,6 +1113,9 @@ export interface RootRouteChildren {
   ApiTemplatesProvisionRoute: typeof ApiTemplatesProvisionRoute
   ApiWarehouseQueryRoute: typeof ApiWarehouseQueryRoute
   ApiWarehouseSchemaRoute: typeof ApiWarehouseSchemaRoute
+  EmbedAgentKeyRoute: typeof EmbedAgentKeyRoute
+  EmbedBiKeyRoute: typeof EmbedBiKeyRoute
+  EmbedSwarmKeyRoute: typeof EmbedSwarmKeyRoute
   ShareBiSlugRoute: typeof ShareBiSlugRoute
   ApiPublicHooksGenerateExamSetRoute: typeof ApiPublicHooksGenerateExamSetRoute
   ApiPublicHooksRefreshModelRegistryRoute: typeof ApiPublicHooksRefreshModelRegistryRoute
@@ -1269,6 +1333,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPythonChatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/embed': {
+      id: '/api/embed'
+      path: '/api/embed'
+      fullPath: '/api/embed'
+      preLoaderRoute: typeof ApiEmbedRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/contact': {
       id: '/api/contact'
       path: '/api/contact'
@@ -1472,6 +1543,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShareBiSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/embed/swarm/$key': {
+      id: '/embed/swarm/$key'
+      path: '/embed/swarm/$key'
+      fullPath: '/embed/swarm/$key'
+      preLoaderRoute: typeof EmbedSwarmKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/embed/bi/$key': {
+      id: '/embed/bi/$key'
+      path: '/embed/bi/$key'
+      fullPath: '/embed/bi/$key'
+      preLoaderRoute: typeof EmbedBiKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/embed/agent/$key': {
+      id: '/embed/agent/$key'
+      path: '/embed/agent/$key'
+      fullPath: '/embed/agent/$key'
+      preLoaderRoute: typeof EmbedAgentKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/warehouse/schema': {
       id: '/api/warehouse/schema'
       path: '/api/warehouse/schema'
@@ -1541,6 +1633,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/api/exam/evaluate'
       preLoaderRoute: typeof ApiExamEvaluateRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/api/embed/chat': {
+      id: '/api/embed/chat'
+      path: '/chat'
+      fullPath: '/api/embed/chat'
+      preLoaderRoute: typeof ApiEmbedChatRouteImport
+      parentRoute: typeof ApiEmbedRoute
     }
     '/api/email/send': {
       id: '/api/email/send'
@@ -1791,6 +1890,18 @@ const ApiBiRouteChildren: ApiBiRouteChildren = {
 
 const ApiBiRouteWithChildren = ApiBiRoute._addFileChildren(ApiBiRouteChildren)
 
+interface ApiEmbedRouteChildren {
+  ApiEmbedChatRoute: typeof ApiEmbedChatRoute
+}
+
+const ApiEmbedRouteChildren: ApiEmbedRouteChildren = {
+  ApiEmbedChatRoute: ApiEmbedChatRoute,
+}
+
+const ApiEmbedRouteWithChildren = ApiEmbedRoute._addFileChildren(
+  ApiEmbedRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRoute: AuthenticatedRouteWithChildren,
@@ -1810,6 +1921,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiBiRoute: ApiBiRouteWithChildren,
   ApiChatRoute: ApiChatRoute,
   ApiContactRoute: ApiContactRoute,
+  ApiEmbedRoute: ApiEmbedRouteWithChildren,
   ApiPythonChatRoute: ApiPythonChatRoute,
   EmailUnsubscribeRoute: EmailUnsubscribeRoute,
   VerifyCodeRoute: VerifyCodeRoute,
@@ -1826,6 +1938,9 @@ const rootRouteChildren: RootRouteChildren = {
   ApiTemplatesProvisionRoute: ApiTemplatesProvisionRoute,
   ApiWarehouseQueryRoute: ApiWarehouseQueryRoute,
   ApiWarehouseSchemaRoute: ApiWarehouseSchemaRoute,
+  EmbedAgentKeyRoute: EmbedAgentKeyRoute,
+  EmbedBiKeyRoute: EmbedBiKeyRoute,
+  EmbedSwarmKeyRoute: EmbedSwarmKeyRoute,
   ShareBiSlugRoute: ShareBiSlugRoute,
   ApiPublicHooksGenerateExamSetRoute: ApiPublicHooksGenerateExamSetRoute,
   ApiPublicHooksRefreshModelRegistryRoute:

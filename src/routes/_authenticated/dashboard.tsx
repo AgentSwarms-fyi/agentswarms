@@ -27,6 +27,7 @@ import {
   Columns,
 } from "lucide-react";
 import { SWARM_TEMPLATES } from "@/lib/swarmTemplates";
+import { EmbedSection } from "@/components/embed/EmbedSection";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
@@ -387,6 +388,9 @@ function DashboardPage() {
             ))}
           </div>
         </section>
+
+        {/* ───── Web embedding ───── */}
+        <EmbedSection />
 
         {/* ───── Featured swarms ───── */}
         <section className={cn(cardCls, "p-6 sm:p-8")}>

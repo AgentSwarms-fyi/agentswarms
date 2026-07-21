@@ -348,6 +348,19 @@ export function estimateNodeCost(model: string, tokensIn: number, tokensOut: num
   return _estimateTextCost(model, tokensIn, tokensOut);
 }
 
+// ── Embed transport ──────────────────────────────────────────────────────
+// When a swarm runs inside a public iframe embed (/embed/swarm/<key>), node
+// calls go to /api/embed/chat authenticated by the embed key instead of
+// /api/chat with a user session. The server ignores any client-supplied
+// config in that mode and loads each node's real prompt/model/KB wiring
+// from the owner's stored swarm row — so the sanitized graph the embed page
+// holds never needs (or gets) the sensitive fields.
+let embedTransport: { key: string; parentOrigin?: string } | null = null;
+
+export function setSwarmEmbedTransport(t: { key: string; parentOrigin?: string } | null): void {
+  embedTransport = t;
+}
+
 // Prefer the server's human-readable `message` (e.g. the IAM
 // "model_not_allowed" explanation) over raw JSON in node error banners.
 function extractChatError(body: string): string {
@@ -448,52 +461,66 @@ async function callAgent(
     messagesPayload = [{ role: "user", content: userMessage }];
   }
 
-  let resp = await fetch("/api/chat", {
+  // Embed mode sends only the messages + node reference — the server loads
+  // the node's real config from the owner's stored swarm and ignores any
+  // client-supplied behaviour fields.
+  const endpoint = embedTransport ? "/api/embed/chat" : "/api/chat";
+  const requestHeaders: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(!embedTransport && token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+  const chatBody = embedTransport
+    ? {
+        embedKey: embedTransport.key,
+        parentOrigin: embedTransport.parentOrigin,
+        nodeId: node.id,
+        messages: messagesPayload,
+      }
+    : {
+        provider,
+        model,
+        systemPrompt: node.data.systemPrompt || "",
+        temperature: typeof node.data.temperature === "number" ? node.data.temperature : 0.4,
+        maxTokens: 8192,
+        messages: messagesPayload,
+        agentId: node.data.agentId || undefined,
+        // Per-node KB id (e.g. swarm template referencing a shared sample KB
+        // without a saved agent). Server merges with whatever the agent itself
+        // has configured.
+        knowledgeBaseIds: node.data.knowledgeBaseId ? [node.data.knowledgeBaseId] : undefined,
+        reranker: node.data.reranker || undefined,
+        // Per-node tool allow-list. Undefined → server returns the user's full
+        // configured toolset; an empty array → tools disabled for this node.
+        enabledTools: Array.isArray(node.data.enabledTools) ? node.data.enabledTools : undefined,
+        // Per-node skill library attachments — server resolves and prepends.
+        skillIds:
+          Array.isArray(node.data.skillIds) && node.data.skillIds.length > 0
+            ? node.data.skillIds
+            : undefined,
+        // Per-node tool configuration (provider+key for web tools, allow-lists
+        // for n8n/MCP). Server merges this over the agent's saved configs.
+        toolConfigs:
+          node.data.toolConfigs && typeof node.data.toolConfigs === "object"
+            ? node.data.toolConfigs
+            : undefined,
+        // Per-node guardrails — merged OVER the linked agent's saved guardrails.
+        // Sent only when the user actually configured something for this node.
+        guardrails:
+          node.data.guardrails &&
+          typeof node.data.guardrails === "object" &&
+          Object.keys(node.data.guardrails).length > 0
+            ? node.data.guardrails
+            : undefined,
+        // Memory wiring — see comment at top of callAgent for semantics.
+        conversationId,
+        memoryOverrides,
+      };
+
+  let resp = await fetch(endpoint, {
     method: "POST",
     signal: combinedSignal,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({
-      provider,
-      model,
-      systemPrompt: node.data.systemPrompt || "",
-      temperature: typeof node.data.temperature === "number" ? node.data.temperature : 0.4,
-      maxTokens: 8192,
-      messages: messagesPayload,
-      agentId: node.data.agentId || undefined,
-      // Per-node KB id (e.g. swarm template referencing a shared sample KB
-      // without a saved agent). Server merges with whatever the agent itself
-      // has configured.
-      knowledgeBaseIds: node.data.knowledgeBaseId ? [node.data.knowledgeBaseId] : undefined,
-      reranker: node.data.reranker || undefined,
-      // Per-node tool allow-list. Undefined → server returns the user's full
-      // configured toolset; an empty array → tools disabled for this node.
-      enabledTools: Array.isArray(node.data.enabledTools) ? node.data.enabledTools : undefined,
-      // Per-node skill library attachments — server resolves and prepends.
-      skillIds:
-        Array.isArray(node.data.skillIds) && node.data.skillIds.length > 0
-          ? node.data.skillIds
-          : undefined,
-      // Per-node tool configuration (provider+key for web tools, allow-lists
-      // for n8n/MCP). Server merges this over the agent's saved configs.
-      toolConfigs:
-        node.data.toolConfigs && typeof node.data.toolConfigs === "object"
-          ? node.data.toolConfigs
-          : undefined,
-      // Per-node guardrails — merged OVER the linked agent's saved guardrails.
-      // Sent only when the user actually configured something for this node.
-      guardrails:
-        node.data.guardrails &&
-        typeof node.data.guardrails === "object" &&
-        Object.keys(node.data.guardrails).length > 0
-          ? node.data.guardrails
-          : undefined,
-      // Memory wiring — see comment at top of callAgent for semantics.
-      conversationId,
-      memoryOverrides,
-    }),
+    headers: requestHeaders,
+    body: JSON.stringify(chatBody),
   });
 
   // Retry once on transient 5xx / 502 gateway errors before giving up.
@@ -502,40 +529,10 @@ async function callAgent(
     const is5xx = resp.status >= 500 && resp.status < 600;
     if (is5xx) {
       await new Promise((r) => setTimeout(r, 2000));
-      const retry = await fetch("/api/chat", {
+      const retry = await fetch(endpoint, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          provider,
-          model,
-          systemPrompt: node.data.systemPrompt || "",
-          temperature: typeof node.data.temperature === "number" ? node.data.temperature : 0.4,
-          maxTokens: 8192,
-          messages: messagesPayload,
-          agentId: node.data.agentId || undefined,
-          knowledgeBaseIds: node.data.knowledgeBaseId ? [node.data.knowledgeBaseId] : undefined,
-          reranker: node.data.reranker || undefined,
-          enabledTools: Array.isArray(node.data.enabledTools) ? node.data.enabledTools : undefined,
-          skillIds:
-            Array.isArray(node.data.skillIds) && node.data.skillIds.length > 0
-              ? node.data.skillIds
-              : undefined,
-          toolConfigs:
-            node.data.toolConfigs && typeof node.data.toolConfigs === "object"
-              ? node.data.toolConfigs
-              : undefined,
-          guardrails:
-            node.data.guardrails &&
-            typeof node.data.guardrails === "object" &&
-            Object.keys(node.data.guardrails).length > 0
-              ? node.data.guardrails
-              : undefined,
-          conversationId,
-          memoryOverrides,
-        }),
+        headers: requestHeaders,
+        body: JSON.stringify(chatBody),
         signal: combinedSignal,
       });
       if (retry.ok && retry.body) {
@@ -939,6 +936,9 @@ export async function runSwarm(
         }
 
         if (node.data.kind === "approval") {
+          if (embedTransport) {
+            throw new Error("Approval steps are not supported in embedded swarms.");
+          }
           const { data: userData } = await supabase.auth.getUser();
           if (!userData.user) throw new Error("Not signed in");
           const approvalContent = gatherInputs(node, ctx, lastOutput);
