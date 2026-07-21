@@ -126,3 +126,9 @@ export const backfillKbEmbeddings = createServerFn({ method: "POST" })
     });
     return { ...result, skipped: false as const };
   });
+
+/** Whether the operator's built-in OpenAI embedding key is configured —
+ * lets the RAG settings UI label "Built-in" honestly. */
+export const kbEmbedStatus = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async () => ({ builtinConfigured: Boolean(process.env.OPENAI_API_KEY) }));

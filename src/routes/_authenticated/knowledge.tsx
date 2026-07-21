@@ -54,7 +54,11 @@ import { LearnPanel } from "@/components/LearnPanel";
 import { learnKnowledge } from "@/lib/learnContent";
 import { AddSourceDialog } from "@/components/knowledge/AddSourceDialog";
 import { KnowledgeGraphTab } from "@/components/knowledge/KnowledgeGraphTab";
-import { embedKbDocuments, backfillKbEmbeddings } from "@/utils/tools/kbEmbed.functions";
+import {
+  embedKbDocuments,
+  backfillKbEmbeddings,
+  kbEmbedStatus,
+} from "@/utils/tools/kbEmbed.functions";
 import { formatDistanceToNow } from "date-fns";
 
 export const Route = createFileRoute("/_authenticated/knowledge")({
@@ -152,6 +156,11 @@ const EMBED_PROVIDERS: { id: string; label: string; models: string[] }[] = [
     label: "OpenAI (your integration)",
     models: ["text-embedding-3-small", "text-embedding-3-large"],
   },
+  {
+    id: "openrouter",
+    label: "OpenRouter",
+    models: ["nemotron-3-embed-1b-20260716", "llama-nemotron-rerank-vl-1b-v2"],
+  },
   { id: "gemini", label: "Google Gemini", models: ["gemini-embedding-001"] },
   { id: "ollama", label: "Ollama", models: ["nomic-embed-text", "mxbai-embed-large"] },
   { id: "vllm", label: "vLLM", models: [] },
@@ -170,6 +179,7 @@ const CHUNKING_STRATEGIES = [
 function KnowledgePage() {
   const { user } = useAuth();
   const embedFn = useServerFn(embedKbDocuments);
+  const embedStatusFn = useServerFn(kbEmbedStatus);
   const backfillFn = useServerFn(backfillKbEmbeddings);
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
@@ -207,6 +217,7 @@ function KnowledgePage() {
   const [vectorStore, setVectorStore] = useState("local");
   const [embeddingModel, setEmbeddingModel] = useState("text-embedding-3-small");
   const [embedProvider, setEmbedProvider] = useState("openai_builtin");
+  const [builtinConfigured, setBuiltinConfigured] = useState<boolean | null>(null);
   const [customEmbedModel, setCustomEmbedModel] = useState("");
   const [chunkStrategy, setChunkStrategy] = useState("recursive");
   const [chunkSize, setChunkSize] = useState(512);
@@ -235,6 +246,20 @@ function KnowledgePage() {
   const embedProviderOptions = EMBED_PROVIDERS.filter(
     (p) => p.id === "openai_builtin" || connectedProviders.has(p.id),
   );
+
+  // Prefer a provider that can actually embed: if the operator key is
+  // missing, fall over to the first connected embedding-capable integration.
+  useEffect(() => {
+    if (builtinConfigured !== false || embedProvider !== "openai_builtin") return;
+    const alt = EMBED_PROVIDERS.find(
+      (p) => p.id !== "openai_builtin" && connectedProviders.has(p.id),
+    );
+    if (alt) {
+      setEmbedProvider(alt.id);
+      if (alt.models[0]) setEmbeddingModel(alt.models[0]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [builtinConfigured, connectedProviders]);
   const embedModelSuggestions = EMBED_PROVIDERS.find((p) => p.id === embedProvider)?.models ?? [];
   const effectiveEmbedModel = customEmbedModel.trim() || embeddingModel;
   const currentEmbeddingDef = ALL_EMBEDDING_MODELS.find((m) => m.value === embeddingModel);
@@ -245,6 +270,10 @@ function KnowledgePage() {
   useEffect(() => {
     loadBases();
     loadConnectedProviders();
+    embedStatusFn({})
+      .then((r) => setBuiltinConfigured(r.builtinConfigured))
+      .catch(() => setBuiltinConfigured(null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
     if (selectedBase) {
@@ -659,10 +688,32 @@ function KnowledgePage() {
                           {embedProviderOptions.map((p) => (
                             <SelectItem key={p.id} value={p.id}>
                               {p.label}
+                              {p.id === "openai_builtin" && builtinConfigured === false
+                                ? " — not configured"
+                                : ""}
                             </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
+                      {embedProvider === "openai_builtin" && builtinConfigured === false && (
+                        <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-xs text-destructive">
+                          <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
+                          <span>
+                            The operator's OPENAI_API_KEY is not set on this instance, so the
+                            built-in provider can't embed. Connect an embedding-capable provider
+                            under Integrations instead.
+                          </span>
+                        </div>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        Only providers with an embeddings API are listed. Chat-only providers (e.g.
+                        Anthropic, Grok, Groq) can't embed documents — connect OpenRouter, OpenAI,
+                        Gemini, Ollama, vLLM, NVIDIA or Qwen under{" "}
+                        <Link to="/integrations" className="text-primary underline">
+                          Integrations
+                        </Link>{" "}
+                        to see them here.
+                      </p>
                       <Label className="pt-1">Embedding Model</Label>
                       {embedModelSuggestions.length > 0 && (
                         <Select
