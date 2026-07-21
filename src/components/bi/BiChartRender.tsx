@@ -370,10 +370,18 @@ function BiChartRenderInner({
                 />
               ) : null;
             })()}
+            {/* NOTE: recharts only discovers chart elements among direct
+                children (arrays ok) — a React fragment hides them entirely,
+                so multi-series children must be emitted as a keyed array. */}
             {pivoted ? (
-              <>
-                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: labelSize }} />
-                {pivoted.series.map((s, i) => (
+              [
+                <Legend
+                  key="__legend"
+                  iconType="circle"
+                  iconSize={8}
+                  wrapperStyle={{ fontSize: labelSize }}
+                />,
+                ...pivoted.series.map((s, i) => (
                   <Bar
                     key={s}
                     dataKey={s}
@@ -390,8 +398,8 @@ function BiChartRenderInner({
                     onClick={handleClick}
                     cursor={clickable ? "pointer" : undefined}
                   />
-                ))}
-              </>
+                )),
+              ]
             ) : (
               <Bar
                 dataKey={chart.yField}
@@ -535,9 +543,11 @@ function BiChartRenderInner({
                 dot={false}
               />
             )}
-            {!pivoted && hasForecast && (
-              <>
+            {/* Arrays, not fragments: recharts ignores fragment children. */}
+            {!pivoted &&
+              hasForecast && [
                 <Line
+                  key="__forecast"
                   type="monotone"
                   dataKey="__forecast"
                   name="forecast"
@@ -545,8 +555,9 @@ function BiChartRenderInner({
                   strokeDasharray="4 4"
                   strokeWidth={2}
                   dot={false}
-                />
+                />,
                 <Line
+                  key="__lo"
                   type="monotone"
                   dataKey="__lo"
                   stroke="var(--muted-foreground)"
@@ -554,8 +565,9 @@ function BiChartRenderInner({
                   strokeWidth={1}
                   dot={false}
                   legendType="none"
-                />
+                />,
                 <Line
+                  key="__hi"
                   type="monotone"
                   dataKey="__hi"
                   stroke="var(--muted-foreground)"
@@ -563,13 +575,17 @@ function BiChartRenderInner({
                   strokeWidth={1}
                   dot={false}
                   legendType="none"
-                />
-              </>
-            )}
+                />,
+              ]}
             {pivoted ? (
-              <>
-                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: labelSize }} />
-                {pivoted.series.map((s, i) => (
+              [
+                <Legend
+                  key="__legend"
+                  iconType="circle"
+                  iconSize={8}
+                  wrapperStyle={{ fontSize: labelSize }}
+                />,
+                ...pivoted.series.map((s, i) => (
                   <Line
                     key={s}
                     type="monotone"
@@ -579,8 +595,8 @@ function BiChartRenderInner({
                     dot={false}
                     activeDot={{ r: 4, strokeWidth: 0 }}
                   />
-                ))}
-              </>
+                )),
+              ]
             ) : (
               <Line
                 type="monotone"
@@ -623,10 +639,16 @@ function BiChartRenderInner({
               itemStyle={labelStyle}
               formatter={tooltipFmt}
             />
+            {/* Arrays, not fragments: recharts ignores fragment children. */}
             {pivoted ? (
-              <>
-                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: labelSize }} />
-                {pivoted.series.map((s, i) => (
+              [
+                <Legend
+                  key="__legend"
+                  iconType="circle"
+                  iconSize={8}
+                  wrapperStyle={{ fontSize: labelSize }}
+                />,
+                ...pivoted.series.map((s, i) => (
                   <Area
                     key={s}
                     type="monotone"
@@ -637,8 +659,8 @@ function BiChartRenderInner({
                     fill={PIE_COLORS[i % PIE_COLORS.length]}
                     fillOpacity={0.25}
                   />
-                ))}
-              </>
+                )),
+              ]
             ) : (
               <Area
                 type="monotone"

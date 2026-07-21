@@ -341,66 +341,6 @@ function DashboardPage() {
               </Link>
             ))}
           </div>
-
-          {/* Featured Swarms */}
-          <div className="relative mt-8">
-            <div className="mb-3 flex items-end justify-between">
-              <div>
-                <h2 className="text-lg font-semibold tracking-tight text-foreground">
-                  Get started with a featured swarm
-                </h2>
-                <p className="text-sm text-muted-foreground">
-                  Curated templates with knowledge bases, tools, and prompts pre-wired.
-                </p>
-              </div>
-              <Button
-                asChild
-                variant="ghost"
-                size="sm"
-                className="gap-1 text-muted-foreground hover:text-foreground"
-              >
-                <Link to="/templates">
-                  Browse all
-                  <ArrowUpRight className="h-3.5 w-3.5" />
-                </Link>
-              </Button>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {featuredTemplates.map((tpl) => (
-                <Link
-                  key={tpl.id}
-                  to="/swarms"
-                  search={openCanvasSearch(tpl.id)}
-                  aria-label={`Open swarm on canvas: ${tpl.title}`}
-                  className="group flex flex-col gap-2 rounded-xl bg-card p-4 ring-1 ring-border transition hover:-translate-y-0.5 hover:shadow-md hover:ring-primary/40"
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="grid h-9 w-9 place-items-center rounded-lg bg-primary/10 text-primary transition-transform group-hover:scale-105">
-                      <Network className="h-4 w-4" strokeWidth={1.8} />
-                    </div>
-                    <Badge
-                      variant="secondary"
-                      className="bg-muted text-[10px] font-medium text-muted-foreground ring-1 ring-border"
-                    >
-                      {tpl.category}
-                    </Badge>
-                  </div>
-                  <div className="mt-1">
-                    <p className="line-clamp-1 text-sm font-medium text-foreground">{tpl.title}</p>
-                    <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{tpl.tagline}</p>
-                  </div>
-                  <div className="mt-auto flex items-center justify-between pt-2">
-                    <span className="text-[11px] font-medium text-muted-foreground">
-                      {tpl.nodes.length} nodes
-                    </span>
-                    <span className="inline-flex items-center gap-1 text-xs font-medium text-primary opacity-0 transition group-hover:opacity-100">
-                      Open canvas <ArrowUpRight className="h-3 w-3" />
-                    </span>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          </div>
         </section>
 
         {/* ───── Explore the platform ───── */}
@@ -442,6 +382,66 @@ function DashboardPage() {
                     <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground opacity-0 transition group-hover:opacity-100" />
                   </div>
                   <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{f.desc}</p>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
+
+        {/* ───── Featured swarms ───── */}
+        <section className={cn(cardCls, "p-6 sm:p-8")}>
+          <div className="mb-3 flex items-end justify-between">
+            <div>
+              <h2 className="text-lg font-semibold tracking-tight text-foreground">
+                Get started with a featured swarm
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                Curated templates with knowledge bases, tools, and prompts pre-wired.
+              </p>
+            </div>
+            <Button
+              asChild
+              variant="ghost"
+              size="sm"
+              className="gap-1 text-muted-foreground hover:text-foreground"
+            >
+              <Link to="/templates">
+                Browse all
+                <ArrowUpRight className="h-3.5 w-3.5" />
+              </Link>
+            </Button>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {featuredTemplates.map((tpl) => (
+              <Link
+                key={tpl.id}
+                to="/swarms"
+                search={openCanvasSearch(tpl.id)}
+                aria-label={`Open swarm on canvas: ${tpl.title}`}
+                className="group flex flex-col gap-2 rounded-xl bg-card p-4 ring-1 ring-border transition hover:-translate-y-0.5 hover:shadow-md hover:ring-primary/40"
+              >
+                <div className="flex items-start justify-between">
+                  <div className="grid h-9 w-9 place-items-center rounded-lg bg-primary/10 text-primary transition-transform group-hover:scale-105">
+                    <Network className="h-4 w-4" strokeWidth={1.8} />
+                  </div>
+                  <Badge
+                    variant="secondary"
+                    className="bg-muted text-[10px] font-medium text-muted-foreground ring-1 ring-border"
+                  >
+                    {tpl.category}
+                  </Badge>
+                </div>
+                <div className="mt-1">
+                  <p className="line-clamp-1 text-sm font-medium text-foreground">{tpl.title}</p>
+                  <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{tpl.tagline}</p>
+                </div>
+                <div className="mt-auto flex items-center justify-between pt-2">
+                  <span className="text-[11px] font-medium text-muted-foreground">
+                    {tpl.nodes.length} nodes
+                  </span>
+                  <span className="inline-flex items-center gap-1 text-xs font-medium text-primary opacity-0 transition group-hover:opacity-100">
+                    Open canvas <ArrowUpRight className="h-3 w-3" />
+                  </span>
                 </div>
               </Link>
             ))}
