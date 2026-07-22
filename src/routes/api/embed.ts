@@ -152,6 +152,11 @@ export const Route = createFileRoute("/api/embed")({
           if (!dash || dash.user_id !== keyRow.user_id) {
             return json({ error: "The embedded dashboard no longer exists." }, 404);
           }
+          // Usage analytics: embed views are stamped with the service role.
+          void supabaseAdmin
+            .rpc("bi_touch_view", { _dashboard_id: dash.id })
+            .then(() => {})
+            .then(undefined, () => {});
           return json({
             type: "bi_dashboard",
             name: dash.name,

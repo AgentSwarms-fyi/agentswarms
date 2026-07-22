@@ -14,6 +14,7 @@ import { BiWidgetCard } from "@/components/bi/BiWidgetCard";
 import { DashboardGrid } from "@/components/bi/DashboardGrid";
 import {
   dashSurfaceStyle,
+  defaultFilterState,
   filterWidgetRows,
   parseDashTheme,
   parseFilters,
@@ -54,7 +55,10 @@ function EmbedBiPage() {
     resolveEmbed(key, isPreview).then((r) => {
       if (!r.ok) setError(r.error);
       else if (r.data.type !== "bi_dashboard") setError("This embed key is not for a dashboard.");
-      else setCfg(r.data);
+      else {
+        setCfg(r.data);
+        setFilterState(defaultFilterState(parseFilters(r.data.filters as Json)));
+      }
     });
   }, [key, isPreview]);
 

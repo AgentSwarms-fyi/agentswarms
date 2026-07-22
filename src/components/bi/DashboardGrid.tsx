@@ -2,11 +2,14 @@
 // drag-to-resize. Purpose-built (no grid-layout dependency — the usual
 // react-grid-layout stack relies on findDOMNode, removed in React 19).
 // Live push-down while dragging, top-gravity compaction on release.
+// Below STACK_BREAKPOINT the grid stacks into a single reading column
+// (ordered top-left → bottom-right) so dashboards work on phones.
 import { useEffect, useRef, useState } from "react";
 import { GRID_COLS, compactLayout, pushDown, type BiLayoutItem } from "@/lib/biDashboards";
 
 const ROW_H = 56;
 const GAP = 12;
+const STACK_BREAKPOINT = 560;
 
 type DragState = {
   id: string;
@@ -118,6 +121,27 @@ export function DashboardGrid({
 
   if (layout.length === 0) {
     return <div ref={containerRef}>{emptyState ?? null}</div>;
+  }
+
+  // Mobile: one full-width column in reading order; drag/resize disabled
+  // (layout edits need the 12-column canvas). Same container node keeps the
+  // ResizeObserver alive across mode switches.
+  if (width > 0 && width < STACK_BREAKPOINT) {
+    const ordered = [...layout].sort((a, b) => a.y - b.y || a.x - b.x);
+    return (
+      <div ref={containerRef} className="flex w-full flex-col" style={{ gap: GAP }}>
+        {ordered.map((it) => (
+          <div
+            key={it.i}
+            data-widget-id={it.i}
+            className="w-full"
+            style={{ height: Math.max(it.h, 3) * ROW_H }}
+          >
+            {renderItem(it.i)}
+          </div>
+        ))}
+      </div>
+    );
   }
 
   return (

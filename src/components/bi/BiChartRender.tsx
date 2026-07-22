@@ -6,7 +6,9 @@
 // restrained categorical palette. Bar/line/area support multi-series via
 // `seriesField` (long → wide pivot, palette-coloured, optional stacking),
 // numeric output honours the spec's `format` (currency / percent), and
-// bar/pie/hbar elements are clickable for dashboard cross-filtering.
+// every categorical mark (bars, slices, cells, countries, points, stages)
+// is clickable for dashboard cross-filtering, and bar/hbar/pie/treemap
+// support drill hierarchies.
 import { useEffect, useId, useMemo, useState } from "react";
 import {
   Area,
@@ -102,19 +104,62 @@ export function fmtBiNumber(v: unknown): string {
   return n.toFixed(2).replace(/\.?0+$/, "");
 }
 
+/** Options accepted by fmtBiValue — ChartSpec is structurally compatible,
+ * so call sites can pass the chart itself. */
+export type BiFormatOptions = {
+  format?: BiNumberFormat | "number";
+  /** ISO 4217 code for currency (default USD). */
+  currency?: string;
+  /** Fixed fraction digits (0-4); undefined = auto/compact. */
+  decimals?: number;
+};
+
+function intlNumber(n: number, opts: Intl.NumberFormatOptions): string {
+  try {
+    // Viewer's browser locale drives separators and currency symbols.
+    return new Intl.NumberFormat(undefined, opts).format(n);
+  } catch {
+    // Bad currency codes etc. — fall back to the plain compact formatter.
+    return fmtBiNumber(n);
+  }
+}
+
 /**
  * fmtBiNumber plus the chart's value format:
- *   currency → "$1.2M" (negatives as "-$…")
+ *   currency → locale-aware with the widget's currency code ("€1.2M", "¥5万"…)
  *   percent  → "12.3%" (the value is treated as already being in percent
  *              units — 12.3 formats as 12.3%, not 0.12%)
+ * `decimals` pins the fraction digits; otherwise large values use compact
+ * notation and small ones show up to two trimmed decimals.
  */
-export function fmtBiValue(v: unknown, format?: BiNumberFormat): string {
+export function fmtBiValue(v: unknown, opts?: BiNumberFormat | BiFormatOptions): string {
+  const o: BiFormatOptions = typeof opts === "string" ? { format: opts } : (opts ?? {});
   const n = toBiNumber(v);
   if (n === null) return fmtBiNumber(v);
-  if (format === "currency") {
-    return n < 0 ? `-$${fmtBiNumber(Math.abs(n))}` : `$${fmtBiNumber(n)}`;
+  const decimals =
+    typeof o.decimals === "number" && o.decimals >= 0
+      ? Math.min(4, Math.round(o.decimals))
+      : undefined;
+  if (o.format === "currency") {
+    const compact = decimals === undefined && Math.abs(n) >= 10_000;
+    return intlNumber(n, {
+      style: "currency",
+      currency: (o.currency || "USD").toUpperCase(),
+      notation: compact ? "compact" : "standard",
+      maximumFractionDigits: decimals ?? (compact ? 2 : 2),
+      minimumFractionDigits: decimals ?? 0,
+    });
   }
-  if (format === "percent") return `${fmtBiNumber(n)}%`;
+  if (o.format === "percent") {
+    const body =
+      decimals === undefined
+        ? fmtBiNumber(n)
+        : intlNumber(n, { maximumFractionDigits: decimals, minimumFractionDigits: decimals });
+    return `${body}%`;
+  }
+  if (decimals !== undefined) {
+    return intlNumber(n, { maximumFractionDigits: decimals, minimumFractionDigits: decimals });
+  }
   return fmtBiNumber(n);
 }
 
@@ -220,7 +265,7 @@ function BiChartRenderInner({
   const axisStroke = "var(--muted-foreground)";
   const primaryStroke = "var(--primary)";
   const tick = { fontSize: tickSize, fill: axisStroke } as const;
-  const fmt = (v: unknown) => fmtBiValue(v, chart.format);
+  const fmt = (v: unknown) => fmtBiValue(v, chart);
   const tooltipFmt = (v: unknown) => fmt(v);
   const clickable = Boolean(onElementClick);
 
@@ -282,7 +327,7 @@ function BiChartRenderInner({
         target={target !== undefined && Number.isFinite(target) ? target : undefined}
         max={chart.max}
         label={chart.label || chart.valueField}
-        format={chart.format}
+        format={chart}
       />
     );
   }
@@ -294,6 +339,7 @@ function BiChartRenderInner({
         xField={chart.xField}
         yField={chart.yField}
         valueField={chart.valueField}
+        onElementClick={onElementClick}
       />
     );
   }
@@ -309,8 +355,9 @@ function BiChartRenderInner({
         rowField={chart.rowField}
         colField={chart.colField}
         valueField={chart.valueField}
+        rowSubField={chart.rowSubField}
         condFormat={chart.condFormat}
-        format={chart.format}
+        format={chart}
       />
     );
   }
@@ -322,6 +369,9 @@ function BiChartRenderInner({
         locationField={chart.locationField}
         valueField={chart.valueField}
         mode={chart.type === "map" ? "fill" : "bubble"}
+        onElementClick={
+          onElementClick ? (value) => onElementClick(chart.locationField, value) : undefined
+        }
       />
     );
   }
@@ -495,10 +545,25 @@ function BiChartRenderInner({
       }
     }
     const refY = refLineY(chart.refLine, data, chart.yField);
+    // Category clicks on the x-axis position cross-filter by the x value.
+    const lineClick = onElementClick
+      ? (state: { activeLabel?: string | number } | null) => {
+          if (state && state.activeLabel !== undefined && state.activeLabel !== null) {
+            onElementClick(chart.xField, String(state.activeLabel));
+          }
+        }
+      : undefined;
     return (
-      <div className={`${heightClass} w-full`}>
+      <div
+        className={`${heightClass} w-full`}
+        style={onElementClick ? { cursor: "pointer" } : undefined}
+      >
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data} margin={{ top: 12, right: 12, left: 0, bottom: 4 }}>
+          <LineChart
+            data={data}
+            margin={{ top: 12, right: 12, left: 0, bottom: 4 }}
+            onClick={lineClick}
+          >
             <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
             <XAxis dataKey={chart.xField} tick={tick} axisLine={false} tickLine={false} />
             <YAxis tick={tick} axisLine={false} tickLine={false} tickFormatter={fmt} width={48} />
@@ -617,12 +682,23 @@ function BiChartRenderInner({
     const pivoted = chart.seriesField
       ? pivotSeries(rows, chart.xField, chart.yField, chart.seriesField)
       : null;
+    const areaClick = onElementClick
+      ? (state: { activeLabel?: string | number } | null) => {
+          if (state && state.activeLabel !== undefined && state.activeLabel !== null) {
+            onElementClick(chart.xField, String(state.activeLabel));
+          }
+        }
+      : undefined;
     return (
-      <div className={`${heightClass} w-full`}>
+      <div
+        className={`${heightClass} w-full`}
+        style={onElementClick ? { cursor: "pointer" } : undefined}
+      >
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart
             data={pivoted ? pivoted.data : aggregateByField(rows, chart.xField, [chart.yField])}
             margin={{ top: 12, right: 12, left: 0, bottom: 4 }}
+            onClick={areaClick}
           >
             <defs>
               <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
@@ -728,12 +804,23 @@ function BiChartRenderInner({
   }
 
   if (chart.type === "combo") {
+    const comboClick = onElementClick
+      ? (state: { activeLabel?: string | number } | null) => {
+          if (state && state.activeLabel !== undefined && state.activeLabel !== null) {
+            onElementClick(chart.xField, String(state.activeLabel));
+          }
+        }
+      : undefined;
     return (
-      <div className={`${heightClass} w-full`}>
+      <div
+        className={`${heightClass} w-full`}
+        style={onElementClick ? { cursor: "pointer" } : undefined}
+      >
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart
             data={aggregateByField(rows, chart.xField, [chart.barField, chart.lineField])}
             margin={{ top: 12, right: 8, left: 0, bottom: 4 }}
+            onClick={comboClick}
           >
             <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
             <XAxis dataKey={chart.xField} tick={tick} axisLine={false} tickLine={false} />
@@ -831,7 +918,30 @@ function BiChartRenderInner({
                 name === chart.yField ? fmt(v) : fmtBiNumber(v)
               }
             />
-            <Scatter data={points} fill={primaryStroke} fillOpacity={0.65} />
+            <Scatter
+              data={points}
+              fill={primaryStroke}
+              fillOpacity={0.65}
+              cursor={onElementClick ? "pointer" : undefined}
+              onClick={
+                onElementClick
+                  ? (pt: unknown) => {
+                      // Cross-filter by the point's label column — the first
+                      // string field that isn't one of the plotted axes.
+                      const p = ((pt as { payload?: Record<string, unknown> })?.payload ??
+                        pt) as Record<string, unknown>;
+                      const entry = Object.entries(p).find(
+                        ([k, v]) =>
+                          typeof v === "string" &&
+                          k !== chart.xField &&
+                          k !== chart.yField &&
+                          k !== chart.sizeField,
+                      );
+                      if (entry) onElementClick(entry[0], entry[1] as string);
+                    }
+                  : undefined
+              }
+            />
           </ScatterChart>
         </ResponsiveContainer>
       </div>
@@ -856,8 +966,17 @@ function BiChartRenderInner({
               data={funnelData}
               isAnimationActive={false}
             >
-              {funnelData.map((_, i) => (
-                <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+              {funnelData.map((d, i) => (
+                <Cell
+                  key={i}
+                  fill={PIE_COLORS[i % PIE_COLORS.length]}
+                  cursor={onElementClick ? "pointer" : undefined}
+                  onClick={
+                    onElementClick
+                      ? () => onElementClick(chart.nameField, String(d[chart.nameField]))
+                      : undefined
+                  }
+                />
               ))}
               <LabelList
                 dataKey={chart.nameField}
@@ -902,9 +1021,23 @@ function BiChartRenderInner({
               }}
             />
             <Bar dataKey="base" stackId="wf" fill="transparent" isAnimationActive={false} />
-            <Bar dataKey="delta" stackId="wf" radius={[3, 3, 0, 0]} maxBarSize={40}>
+            {/* isAnimationActive must match the base bar — mixing an animated
+                and a non-animated Bar in one stack can leave the animated one
+                stuck at its initial (empty) frame. */}
+            <Bar
+              dataKey="delta"
+              stackId="wf"
+              radius={[3, 3, 0, 0]}
+              maxBarSize={40}
+              isAnimationActive={false}
+            >
               {wf.map((d, i) => (
-                <Cell key={i} fill={d.value >= 0 ? "#59A14F" : "#E15759"} />
+                <Cell
+                  key={i}
+                  fill={d.value >= 0 ? "#59A14F" : "#E15759"}
+                  cursor={onElementClick ? "pointer" : undefined}
+                  onClick={onElementClick ? () => onElementClick(chart.xField, d.name) : undefined}
+                />
               ))}
             </Bar>
           </ComposedChart>
@@ -929,7 +1062,13 @@ function BiChartRenderInner({
             nameKey="name"
             stroke="var(--card)"
             isAnimationActive={false}
-            content={<TreemapCell />}
+            content={
+              <TreemapCell
+                onCellClick={
+                  onElementClick ? (name) => onElementClick(chart.nameField, name) : undefined
+                }
+              />
+            }
           >
             <Tooltip
               contentStyle={tooltipStyle}
@@ -954,11 +1093,15 @@ function TreemapCell(props: {
   height?: number;
   index?: number;
   name?: string;
+  onCellClick?: (name: string) => void;
 }) {
-  const { x = 0, y = 0, width = 0, height = 0, index = 0, name = "" } = props;
+  const { x = 0, y = 0, width = 0, height = 0, index = 0, name = "", onCellClick } = props;
   if (width <= 0 || height <= 0) return null;
   return (
-    <g>
+    <g
+      onClick={onCellClick ? () => onCellClick(name) : undefined}
+      cursor={onCellClick ? "pointer" : undefined}
+    >
       <rect
         x={x}
         y={y}
@@ -990,7 +1133,7 @@ function TreemapCell(props: {
 //
 // Wraps the raw renderer with runtime interactions that work on snapshots
 // everywhere (editor, shared view, public page): category drill-down with
-// breadcrumbs for bar/hbar/pie, and a date-grain toggle for line/area.
+// breadcrumbs for bar/hbar/pie/treemap, and a date-grain toggle for line/area.
 export function BiChartRender({
   chart,
   rows,
@@ -1009,7 +1152,10 @@ export function BiChartRender({
 
   const drillFields = (chart.drillFields ?? []).filter(Boolean);
   const drillable =
-    (chart.type === "bar" || chart.type === "hbar" || chart.type === "pie") &&
+    (chart.type === "bar" ||
+      chart.type === "hbar" ||
+      chart.type === "pie" ||
+      chart.type === "treemap") &&
     drillFields.length > 1;
   const isTime = chart.type === "line" || chart.type === "area";
   const xKey = "xField" in chart ? chart.xField : "nameField" in chart ? chart.nameField : null;
@@ -1032,7 +1178,9 @@ export function BiChartRender({
       const level = Math.min(drillPath.length, drillFields.length - 1);
       const f = drillFields[level];
       c =
-        chart.type === "pie" ? { ...chart, nameField: f } : ({ ...chart, xField: f } as ChartSpec);
+        chart.type === "pie" || chart.type === "treemap"
+          ? ({ ...chart, nameField: f } as ChartSpec)
+          : ({ ...chart, xField: f } as ChartSpec);
     }
     if (isTime && xKey && showGrainToggle && grain !== "auto") {
       r = bucketRowsX(r, xKey, grain as DateGrain);

@@ -8,6 +8,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   AreaChart,
+  BadgeCheck,
   BarChart2,
   BarChart3,
   BarChart4,
@@ -65,11 +66,29 @@ import {
   type BiTurn,
   type ChartSpec,
 } from "@/lib/biAgent";
+import type { BiColumnFormat, SavedMetric } from "@/lib/biAgent";
 import { COND_COLORS } from "@/lib/biChartMath";
 import { snapshotRows, widgetFromBiTurn, type BiWidget } from "@/lib/biDashboards";
 import { buildOntology, type OntologyBuildStage, type OntologySpec } from "@/lib/biOntology";
 import { listPrepFlows, parsePrepConfig, prepTables } from "@/lib/dataPrep";
 import type { QueryResult } from "@/lib/sqlEngine";
+
+// Common ISO 4217 codes offered in format pickers (any code still works
+// via saved specs; Intl validates at render time with a safe fallback).
+const CURRENCY_CODES = [
+  "USD",
+  "EUR",
+  "GBP",
+  "JPY",
+  "CNY",
+  "INR",
+  "AUD",
+  "CAD",
+  "CHF",
+  "BRL",
+  "SGD",
+  "AED",
+];
 import { warehouseTablesAsDatasets } from "@/lib/warehouseClient";
 import { WAREHOUSE_LABELS } from "@/utils/warehouse/types";
 
@@ -209,6 +228,7 @@ export function BiBuilderPane({
   const [lineField, setLineField] = useState("");
   const [sizeField, setSizeField] = useState("");
   const [rowField, setRowField] = useState("");
+  const [rowSubField, setRowSubField] = useState("");
   const [colField, setColField] = useState("");
   const [locationField, setLocationField] = useState("");
   const [targetField, setTargetField] = useState("");
@@ -216,6 +236,10 @@ export function BiBuilderPane({
   const [seriesField, setSeriesField] = useState("");
   const [stacked, setStacked] = useState(false);
   const [numFormat, setNumFormat] = useState<"auto" | "currency" | "percent">("auto");
+  const [currencyCode, setCurrencyCode] = useState("USD");
+  const [decimalsSel, setDecimalsSel] = useState("auto");
+  // Table widgets: per-column display formats keyed by column name.
+  const [colFormats, setColFormats] = useState<Record<string, BiColumnFormat>>({});
   // Chart analytics (drill / time intelligence / reference line)
   const [drillList, setDrillList] = useState<string[]>([]);
   const [grainSel, setGrainSel] = useState("auto");
@@ -345,6 +369,7 @@ export function BiBuilderPane({
       setLineField(c.type === "combo" ? c.lineField : "");
       setSizeField(c.type === "scatter" ? (c.sizeField ?? "") : "");
       setRowField(c.type === "matrix" ? c.rowField : "");
+      setRowSubField(c.type === "matrix" ? (c.rowSubField ?? "") : "");
       setColField(c.type === "matrix" ? c.colField : "");
       setLocationField("locationField" in c ? c.locationField : "");
       setTargetField("targetField" in c ? (c.targetField ?? "") : "");
@@ -352,6 +377,9 @@ export function BiBuilderPane({
       setSeriesField("seriesField" in c ? (c.seriesField ?? "") : "");
       setStacked(c.type === "bar" ? Boolean(c.stacked) : false);
       setNumFormat(c.format ?? "auto");
+      setCurrencyCode(c.currency ?? "USD");
+      setDecimalsSel(c.decimals !== undefined ? String(c.decimals) : "auto");
+      setColFormats(c.columnFormats ?? {});
       setOntoSpec(c.type === "ontology" ? c.spec : null);
       setDrillList(c.drillFields ?? []);
       setGrainSel(c.dateGrain ?? "auto");
@@ -399,6 +427,9 @@ export function BiBuilderPane({
       setSeriesField("");
       setStacked(false);
       setNumFormat("auto");
+      setCurrencyCode("USD");
+      setDecimalsSel("auto");
+      setColFormats({});
       setOntoSpec(null);
       setDrillList([]);
       setGrainSel("auto");
@@ -471,12 +502,27 @@ export function BiBuilderPane({
     }
   }
 
-  async function runPreview() {
-    if (!sql.trim()) return;
+  /** Certified metric quick-insert: seed a runnable query and preview it. */
+  function insertMetric(m: SavedMetric) {
+    const table =
+      ctx.datasets.find((d) => d.id === m.table_id)?.name ??
+      selectedTables[0] ??
+      ctx.datasets[0]?.name;
+    if (!table) return;
+    const q = `SELECT ${m.sql_expression} AS \`${m.name}\` FROM \`${table}\``;
+    setSql(q);
+    lastSeeded.current = q;
+    if (!title.trim()) setTitle(m.name);
+    void runPreview(q);
+  }
+
+  async function runPreview(overrideSql?: string) {
+    const q = (overrideSql ?? sql).trim();
+    if (!q) return;
     setRunning(true);
     setRunError(null);
     try {
-      const res = await ctx.runSql(sourceFromKey(sourceKey, ctx.warehouses), sql.trim());
+      const res = await ctx.runSql(sourceFromKey(sourceKey, ctx.warehouses), q);
       setPreview(res);
       const firstString =
         res.columns.find((c) => typeof res.rows[0]?.[c] === "string") ?? res.columns[0] ?? "";
@@ -705,7 +751,14 @@ export function BiBuilderPane({
             const rules = matRules.filter((r) => Number.isFinite(r.value));
             if (rules.length > 0) condFormat = { mode: "rules", rules };
           }
-          return { type: "matrix", rowField, colField, valueField, condFormat };
+          return {
+            type: "matrix",
+            rowField,
+            colField,
+            valueField,
+            rowSubField: rowSubField && rowSubField !== rowField ? rowSubField : undefined,
+            condFormat,
+          };
         }
         case "map":
         case "bubblemap":
@@ -735,7 +788,10 @@ export function BiBuilderPane({
     // Analytics options (each renderer applies what it supports).
     const analytics: Partial<ChartSpec> = {};
     if (
-      (spec.type === "bar" || spec.type === "hbar" || spec.type === "pie") &&
+      (spec.type === "bar" ||
+        spec.type === "hbar" ||
+        spec.type === "pie" ||
+        spec.type === "treemap") &&
       drillList.length > 1
     ) {
       analytics.drillFields = drillList;
@@ -762,6 +818,16 @@ export function BiBuilderPane({
         analytics.refLine = { mode: "value", value: rv, label: refLabel || undefined };
       }
     }
+    // Display formatting (locale-aware; see fmtBiValue).
+    if (format === "currency" && currencyCode && currencyCode !== "USD") {
+      analytics.currency = currencyCode;
+    }
+    if (decimalsSel !== "auto" && Number.isFinite(Number(decimalsSel))) {
+      analytics.decimals = Number(decimalsSel);
+    }
+    if (spec.type === "table" && Object.keys(colFormats).length > 0) {
+      analytics.columnFormats = colFormats;
+    }
     // Safe: spec is a valid member and analytics only adds wrapper fields.
     return { ...spec, format, ...analytics } as ChartSpec;
   }, [
@@ -774,6 +840,7 @@ export function BiBuilderPane({
     lineField,
     sizeField,
     rowField,
+    rowSubField,
     colField,
     locationField,
     targetField,
@@ -781,6 +848,9 @@ export function BiBuilderPane({
     seriesField,
     stacked,
     numFormat,
+    currencyCode,
+    decimalsSel,
+    colFormats,
     ontoSpec,
     drillList,
     grainSel,
@@ -1042,8 +1112,115 @@ export function BiBuilderPane({
           </SelectItem>
         </SelectContent>
       </Select>
+      {(numFormat === "currency" || numFormat === "percent") && (
+        <div className="flex gap-1.5">
+          {numFormat === "currency" && (
+            <Select value={currencyCode} onValueChange={setCurrencyCode}>
+              <SelectTrigger className="h-7 flex-1 text-[11px]" title="Currency (ISO 4217)">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {CURRENCY_CODES.map((c) => (
+                  <SelectItem key={c} value={c} className="text-xs">
+                    {c}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          <Select value={decimalsSel} onValueChange={setDecimalsSel}>
+            <SelectTrigger className="h-7 flex-1 text-[11px]" title="Fixed decimal places">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto" className="text-xs">
+                Auto decimals
+              </SelectItem>
+              {["0", "1", "2", "3"].map((d) => (
+                <SelectItem key={d} value={d} className="text-xs">
+                  {d} decimals
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+      <p className="text-[10px] text-muted-foreground">
+        Formats follow each viewer's locale (separators & symbols).
+      </p>
     </div>
   );
+
+  // Table widgets: per-column format editor over the preview's columns.
+  const columnFormatEditor =
+    chartType === "table" && (preview?.columns ?? []).length > 0 ? (
+      <div className="space-y-1">
+        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Column formats
+        </Label>
+        <div className="space-y-1">
+          {(preview?.columns ?? []).map((c) => {
+            const cf = colFormats[c] ?? {};
+            const val = cf.format ?? "auto";
+            return (
+              <div key={c} className="flex items-center gap-1.5">
+                <span className="min-w-0 flex-1 truncate text-[11px]" title={c}>
+                  {c}
+                </span>
+                <Select
+                  value={val}
+                  onValueChange={(v) =>
+                    setColFormats((prev) => {
+                      const next = { ...prev };
+                      if (v === "auto") delete next[c];
+                      else next[c] = { ...next[c], format: v as BiColumnFormat["format"] };
+                      return next;
+                    })
+                  }
+                >
+                  <SelectTrigger className="h-7 w-24 text-[11px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto" className="text-xs">
+                      Auto
+                    </SelectItem>
+                    <SelectItem value="number" className="text-xs">
+                      Number
+                    </SelectItem>
+                    <SelectItem value="currency" className="text-xs">
+                      Currency
+                    </SelectItem>
+                    <SelectItem value="percent" className="text-xs">
+                      Percent
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                {cf.format === "currency" && (
+                  <Select
+                    value={cf.currency ?? "USD"}
+                    onValueChange={(v) =>
+                      setColFormats((prev) => ({ ...prev, [c]: { ...prev[c], currency: v } }))
+                    }
+                  >
+                    <SelectTrigger className="h-7 w-20 text-[11px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CURRENCY_CODES.map((cc) => (
+                        <SelectItem key={cc} value={cc} className="text-xs">
+                          {cc}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    ) : null;
 
   const sourceSelect = (
     <div className="space-y-1.5">
@@ -1527,6 +1704,27 @@ export function BiBuilderPane({
                   <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                     SQL (SELECT only)
                   </Label>
+                  {sourceKey === "local" && ctx.metrics.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1 pb-0.5">
+                      <span
+                        className="flex items-center gap-1 text-[10px] text-muted-foreground"
+                        title="Certified metrics saved from Data & SQL — click to insert as a query"
+                      >
+                        <BadgeCheck className="h-3 w-3 text-primary" /> Metrics:
+                      </span>
+                      {ctx.metrics.slice(0, 8).map((m) => (
+                        <button
+                          key={m.id}
+                          type="button"
+                          title={`${m.sql_expression}${m.description ? ` — ${m.description}` : ""}`}
+                          onClick={() => insertMetric(m)}
+                          className="rounded-full border border-primary/30 bg-primary/5 px-2 py-0.5 text-[10px] font-medium text-primary transition-colors hover:bg-primary/10"
+                        >
+                          {m.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <Textarea
                     value={sql}
                     onChange={(e) => setSql(e.target.value)}
@@ -1642,6 +1840,11 @@ export function BiBuilderPane({
                           {fieldSelect("Rows", rowField, setRowField)}
                           {fieldSelect("Columns", colField, setColField)}
                           {fieldSelect("Value (numeric)", valueField, setValueField)}
+                          {optionalFieldSelect(
+                            "Row detail (expandable)",
+                            rowSubField,
+                            setRowSubField,
+                          )}
                           <div className="col-span-2 space-y-1.5">
                             <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                               Conditional formatting
@@ -1811,8 +2014,11 @@ export function BiBuilderPane({
                         </>
                       )}
 
-                      {/* Drill hierarchy (bar/hbar/pie) */}
-                      {(chartType === "bar" || chartType === "hbar" || chartType === "pie") && (
+                      {/* Drill hierarchy (bar/hbar/pie/treemap) */}
+                      {(chartType === "bar" ||
+                        chartType === "hbar" ||
+                        chartType === "pie" ||
+                        chartType === "treemap") && (
                         <div className="col-span-2 space-y-1">
                           <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                             Drill hierarchy (top → detail)
@@ -1996,6 +2202,7 @@ export function BiBuilderPane({
                         chartType !== "kpi" &&
                         chartType !== "gauge" &&
                         formatSelect}
+                      {columnFormatEditor}
                       {(chartType === "kpi" || chartType === "gauge") && (
                         <>
                           {fieldSelect("Value column", valueField, setValueField)}

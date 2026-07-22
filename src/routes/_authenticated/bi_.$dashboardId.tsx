@@ -12,14 +12,17 @@ import {
   Copy,
   FileDown,
   Globe,
+  History,
   Loader2,
   MoreVertical,
+  SearchCode,
   Pencil,
   Plus,
   CalendarClock,
   Palette,
   RefreshCw,
   Share2,
+  ShieldCheck,
   Wand2,
   Sparkles,
   Trash2,
@@ -51,7 +54,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { AskDashboardDialog } from "@/components/bi/AskDashboardDialog";
 import { BiBuilderPane, type BuilderTab } from "@/components/bi/BiBuilderPane";
+import { BiExploreDialog, extractBaseTable } from "@/components/bi/BiExploreDialog";
 import { BiFilterBar } from "@/components/bi/BiFilterBar";
+import { BiHistoryDialog } from "@/components/bi/BiHistoryDialog";
 import { useBiModelPref } from "@/components/bi/BiModelSelect";
 import { BiWidgetCard } from "@/components/bi/BiWidgetCard";
 import { DashboardGrid } from "@/components/bi/DashboardGrid";
@@ -70,20 +75,28 @@ import {
   type SemanticEntry,
 } from "@/lib/biAgent";
 import {
+  AUTO_SNAPSHOT_MS,
   WIDGET_ACCENTS,
   addWidgetToLayout,
+  applyRowFilters,
   compactLayout,
   dashSurfaceStyle,
   parseDashTheme,
   filterWidgetRows,
   getDashboard,
+  getMyDashboardRowFilters,
+  defaultFilterState,
+  latestDashboardVersionAt,
   parseFilters,
   parseLayout,
   parseWidgets,
   pushDown,
+  saveDashboardVersion,
   snapshotRows,
+  touchDashboardView,
   updateDashboard,
   type BiCrossFilter,
+  type BiRowFilter,
   type BiDashboardRow,
   type BiFilterConfig,
   type BiFilterState,
@@ -139,6 +152,7 @@ function BiProjectPage() {
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [generateOpen, setGenerateOpen] = useState(false);
   const [themeOpen, setThemeOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [insightBusyId, setInsightBusyId] = useState<string | null>(null);
@@ -149,6 +163,8 @@ function BiProjectPage() {
   // Dashboard filters: definitions persist, selections are runtime-only.
   const [filterConfigs, setFilterConfigs] = useState<BiFilterConfig[]>([]);
   const [filterState, setFilterState] = useState<BiFilterState>({});
+  // Drill-through target — non-null opens the explore dialog.
+  const [exploreWidget, setExploreWidget] = useState<BiWidget | null>(null);
   const [crossFilter, setCrossFilter] = useState<BiCrossFilter>(null);
 
   const dashTheme = useMemo(
@@ -172,8 +188,38 @@ function BiProjectPage() {
   const isOwner = row !== null && row !== "missing" && row.user_id === user?.id;
   const readOnly = !isOwner;
 
-  // ── Load dashboard ──────────────────────────────────────────────────
-  useEffect(() => {
+  // The dashboard as currently edited (persisted row + local edits) — what a
+  // manual version save should snapshot. Mirrored into a ref so debounced
+  // save callbacks always see the latest state.
+  const liveRow: BiDashboardRow | null =
+    row !== null && row !== "missing"
+      ? {
+          ...row,
+          name,
+          widgets: widgets as unknown as Json,
+          layout: layout as unknown as Json,
+          filters: filterConfigs as unknown as Json,
+        }
+      : null;
+  const liveRowRef = useRef<BiDashboardRow | null>(null);
+  liveRowRef.current = liveRow;
+
+  // ── Version history: throttled auto-snapshots ───────────────────────
+  // On each autosave we snapshot the state as of the start of the current
+  // 10-minute window (originalRef), so History can rewind past a session.
+  const originalRef = useRef<BiDashboardRow | null>(null);
+  const lastSnapshotAt = useRef(Number.MAX_SAFE_INTEGER); // blocked until seeded
+
+  const maybeAutoSnapshot = useCallback(() => {
+    const base = originalRef.current;
+    if (!base || Date.now() - lastSnapshotAt.current < AUTO_SNAPSHOT_MS) return;
+    lastSnapshotAt.current = Date.now();
+    originalRef.current = liveRowRef.current;
+    void saveDashboardVersion(base, null).catch(() => {});
+  }, []);
+
+  // ── Load dashboard (also re-run after a version restore) ────────────
+  const loadDashboard = useCallback(() => {
     getDashboard(dashboardId)
       .then((r) => {
         if (!r) return setRow("missing");
@@ -182,13 +228,57 @@ function BiProjectPage() {
         const w = parseWidgets(r.widgets);
         setWidgets(w);
         setLayout(parseLayout(r.layout, w));
-        setFilterConfigs(parseFilters(r.filters));
+        const cfgs = parseFilters(r.filters);
+        setFilterConfigs(cfgs);
+        setFilterState(defaultFilterState(cfgs));
+        originalRef.current = r;
       })
       .catch((e) => {
         toast.error((e as Error).message);
         setRow("missing");
       });
   }, [dashboardId]);
+
+  useEffect(() => loadDashboard(), [loadDashboard]);
+
+  // Seed the snapshot throttle from the newest stored version so frequent
+  // short sessions don't each mint a version.
+  useEffect(() => {
+    if (!isOwner) return;
+    latestDashboardVersionAt(dashboardId)
+      .then((t) => (lastSnapshotAt.current = t))
+      .catch(() => (lastSnapshotAt.current = 0));
+  }, [isOwner, dashboardId]);
+
+  // Usage analytics: count each dashboard open once (owners and grantees
+  // alike). Keyed by id — the route component is reused across param changes.
+  const viewTouched = useRef<string | null>(null);
+  useEffect(() => {
+    if (viewTouched.current === dashboardId || row === null || row === "missing" || !user?.id)
+      return;
+    viewTouched.current = dashboardId;
+    touchDashboardView(dashboardId);
+  }, [row, user?.id, dashboardId]);
+
+  // Row-level security: viewers get the row filters attached to their IAM
+  // grants (null = unrestricted). Applied to every widget snapshot before
+  // rendering, filter options and the Ask AI context.
+  const [rowFilters, setRowFilters] = useState<BiRowFilter[] | null>(null);
+  // Viewers wait for their grant filters before any data renders, so
+  // restricted rows never flash unfiltered while the query is in flight.
+  const [filtersReady, setFiltersReady] = useState(false);
+  useEffect(() => {
+    setRowFilters(null); // never carry filters across dashboards
+    setFiltersReady(false);
+    if (row === null || row === "missing" || !user?.id) return;
+    if (row.user_id === user.id) return setFiltersReady(true);
+    getMyDashboardRowFilters(dashboardId)
+      .then((f) => {
+        setRowFilters(f);
+        setFiltersReady(true);
+      })
+      .catch(() => setFiltersReady(true));
+  }, [row, user?.id, dashboardId]);
 
   // ── Load connected data sources (owner only) ────────────────────────
   useEffect(() => {
@@ -294,14 +384,17 @@ function BiProjectPage() {
           widgets: nextWidgets as unknown as Json,
           layout: nextLayout as unknown as Json,
         })
-          .then(() => setSaveState("saved"))
+          .then(() => {
+            setSaveState("saved");
+            maybeAutoSnapshot();
+          })
           .catch((e) => {
             setSaveState("error");
             toast.error(`Save failed: ${(e as Error).message}`);
           });
       }, 700);
     },
-    [dashboardId, readOnly],
+    [dashboardId, readOnly, maybeAutoSnapshot],
   );
 
   function persistFilterConfigs(next: BiFilterConfig[]) {
@@ -507,9 +600,32 @@ function BiProjectPage() {
     );
   }
 
-  // Widgets with dashboard filters + the cross-filter applied to snapshots.
+  // Grant row filters must be resolved before a viewer sees any data.
+  if (readOnly && !filtersReady) {
+    return (
+      <div className="space-y-4 p-6">
+        <Skeleton className="h-10 w-72" />
+        <div className="grid grid-cols-2 gap-4">
+          <Skeleton className="h-64" />
+          <Skeleton className="h-64" />
+        </div>
+      </div>
+    );
+  }
+
+  // Mandatory grant row filters first (viewers can't clear them), then
+  // dashboard filters + the cross-filter. securedWidgets also feeds the
+  // filter bar and Ask AI so restricted rows never reach the viewer's UI
+  // or the AI context.
+  const securedWidgets = rowFilters
+    ? widgets.map((w) =>
+        w.kind === "chart" && (w.rows?.length ?? 0) > 0
+          ? { ...w, rows: applyRowFilters(w.rows ?? [], rowFilters) }
+          : w,
+      )
+    : widgets;
   const widgetById = new Map(
-    widgets.map((w) => [
+    securedWidgets.map((w) => [
       w.id,
       w.kind === "chart" && (w.rows?.length ?? 0) > 0
         ? { ...w, rows: filterWidgetRows(w, filterConfigs, filterState, crossFilter) }
@@ -566,6 +682,16 @@ function BiProjectPage() {
         {readOnly && (
           <Badge variant="outline" className="text-[10px] font-medium">
             Read-only
+          </Badge>
+        )}
+        {readOnly && rowFilters && (
+          <Badge
+            className="gap-1 border-0 bg-sky-500/15 text-[10px] font-medium text-sky-600 hover:bg-sky-500/15 dark:text-sky-400"
+            title={`Your administrator limited this view to: ${rowFilters
+              .map((f) => `${f.column} ∈ ${f.values.join(", ")}`)
+              .join(" · ")}`}
+          >
+            <ShieldCheck className="h-2.5 w-2.5" /> Filtered view
           </Badge>
         )}
 
@@ -661,20 +787,31 @@ function BiProjectPage() {
               >
                 <Palette className="h-3.5 w-3.5" /> Theme
               </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 gap-1.5 px-2.5 text-xs"
+                onClick={() => setHistoryOpen(true)}
+                title="Version history — snapshots & restore"
+              >
+                <History className="h-3.5 w-3.5" /> History
+              </Button>
             </>
           )}
-          {readOnly && (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-8 gap-1.5 px-2.5 text-xs"
-              onClick={() => setAskOpen(true)}
-              disabled={layout.length === 0}
-              title="Ask AI questions about this dashboard's data"
-            >
-              <Sparkles className="h-3.5 w-3.5 text-primary" /> Ask AI
-            </Button>
-          )}
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-8 gap-1.5 px-2.5 text-xs"
+            onClick={() => setAskOpen(true)}
+            disabled={layout.length === 0}
+            title={
+              crossFilter
+                ? `Ask AI about your selection (${crossFilter.column} = ${crossFilter.value})`
+                : "Ask AI questions about this dashboard's data"
+            }
+          >
+            <Sparkles className="h-3.5 w-3.5 text-primary" /> Ask AI
+          </Button>
           <Button
             size="sm"
             variant="ghost"
@@ -715,7 +852,7 @@ function BiProjectPage() {
         >
           <BiFilterBar
             configs={filterConfigs}
-            widgets={widgets}
+            widgets={securedWidgets}
             state={filterState}
             onStateChange={setFilterState}
             cross={crossFilter}
@@ -782,6 +919,11 @@ function BiProjectPage() {
                                   <Sparkles className="mr-2 h-3.5 w-3.5 text-primary" />
                                 )}
                                 AI insight
+                              </DropdownMenuItem>
+                            )}
+                            {w.kind === "chart" && extractBaseTable(w.sql) && (
+                              <DropdownMenuItem onClick={() => setExploreWidget(w)}>
+                                <SearchCode className="mr-2 h-3.5 w-3.5" /> Explore data
                               </DropdownMenuItem>
                             )}
                             <DropdownMenuItem onClick={() => duplicateWidget(w.id)}>
@@ -937,16 +1079,30 @@ function BiProjectPage() {
             theme={dashTheme}
             onSave={saveTheme}
           />
+          {liveRow && (
+            <BiHistoryDialog
+              open={historyOpen}
+              onOpenChange={setHistoryOpen}
+              row={liveRow}
+              onRestored={loadDashboard}
+            />
+          )}
         </>
       )}
 
-      {readOnly && (
-        <AskDashboardDialog
-          open={askOpen}
-          onOpenChange={setAskOpen}
-          dashboardName={row.name}
-          widgets={widgets}
-          model={row.ai_model}
+      <AskDashboardDialog
+        open={askOpen}
+        onOpenChange={setAskOpen}
+        dashboardName={row.name}
+        widgets={securedWidgets}
+        model={row.ai_model}
+        context={crossFilter}
+      />
+      {!readOnly && (
+        <BiExploreDialog
+          widget={exploreWidget}
+          context={crossFilter}
+          onClose={() => setExploreWidget(null)}
         />
       )}
     </div>

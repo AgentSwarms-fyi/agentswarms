@@ -82,7 +82,22 @@ export type BiChartAnalytics = {
   refLine?: BiRefLine;
 };
 
-export type ChartSpec = { format?: BiNumberFormat } & BiChartAnalytics &
+/** Per-column display format for table widgets. */
+export type BiColumnFormat = {
+  format?: BiNumberFormat | "number";
+  currency?: string;
+  decimals?: number;
+};
+
+export type ChartSpec = {
+  format?: BiNumberFormat;
+  /** ISO 4217 code used when format is "currency" (default USD). */
+  currency?: string;
+  /** Fixed fraction digits (0-4); undefined = auto/compact. */
+  decimals?: number;
+  /** Table widgets only: per-column formats keyed by column name. */
+  columnFormats?: Record<string, BiColumnFormat>;
+} & BiChartAnalytics &
   (
     | { type: "table" }
     | { type: "kpi"; valueField: string; label?: string; targetField?: string }
@@ -104,6 +119,8 @@ export type ChartSpec = { format?: BiNumberFormat } & BiChartAnalytics &
         rowField: string;
         colField: string;
         valueField: string;
+        /** Optional second row level — rows become expandable groups with subtotals. */
+        rowSubField?: string;
         condFormat?: BiCondFormat;
       }
     | { type: "map"; locationField: string; valueField: string }

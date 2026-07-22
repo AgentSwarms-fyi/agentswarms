@@ -52,6 +52,9 @@ export type BiDashboardRow = {
   filters: Json;
   /** Dashboard theme (background image, font) — see BiDashTheme. */
   theme: Json;
+  /** Usage analytics: opens across editor, shares and embeds. */
+  view_count: number;
+  last_viewed_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -63,17 +66,35 @@ export type BiDashboardRow = {
 // affected only when it actually contains the filter's column (standard BI
 // semantics), so unrelated widgets stay untouched.
 
-export type BiFilterKind = "select" | "daterange";
+export type BiFilterKind = "select" | "daterange" | "numrange";
+
+/** Relative-date presets resolved to concrete ranges at load time. */
+export type BiDatePreset = "last7" | "last30" | "last90" | "mtd" | "qtd" | "ytd";
+
+/** A saved default selection, applied whenever a viewer opens the dashboard. */
+export type BiFilterDefault = {
+  values?: string[];
+  from?: string;
+  to?: string;
+  min?: number;
+  max?: number;
+  /** Takes precedence over from/to — recomputed against "today" on load. */
+  preset?: BiDatePreset;
+};
 
 export type BiFilterConfig = {
   id: string;
   label: string;
   column: string;
   kind: BiFilterKind;
+  default?: BiFilterDefault;
 };
 
 /** Runtime selections, keyed by filter id. */
-export type BiFilterState = Record<string, { values?: string[]; from?: string; to?: string }>;
+export type BiFilterState = Record<
+  string,
+  { values?: string[]; from?: string; to?: string; min?: number; max?: number }
+>;
 
 /** Click-to-filter: set by clicking a bar/slice; excludes its own widget. */
 export type BiCrossFilter = { widgetId: string; column: string; value: string } | null;
@@ -86,8 +107,67 @@ export function parseFilters(v: Json): BiFilterConfig[] {
       typeof f === "object" &&
       typeof (f as BiFilterConfig).id === "string" &&
       typeof (f as BiFilterConfig).column === "string" &&
-      ((f as BiFilterConfig).kind === "select" || (f as BiFilterConfig).kind === "daterange"),
+      ((f as BiFilterConfig).kind === "select" ||
+        (f as BiFilterConfig).kind === "daterange" ||
+        (f as BiFilterConfig).kind === "numrange"),
   );
+}
+
+/** Concrete YYYY-MM-DD range for a relative-date preset (as of today). */
+export function presetRange(preset: BiDatePreset): { from: string; to: string } {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const iso = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const today = new Date();
+  const to = iso(today);
+  const back = (days: number) => {
+    const d = new Date(today);
+    d.setDate(d.getDate() - days);
+    return iso(d);
+  };
+  switch (preset) {
+    case "last7":
+      return { from: back(6), to };
+    case "last30":
+      return { from: back(29), to };
+    case "last90":
+      return { from: back(89), to };
+    case "mtd":
+      return { from: `${today.getFullYear()}-${pad(today.getMonth() + 1)}-01`, to };
+    case "qtd": {
+      const qm = Math.floor(today.getMonth() / 3) * 3 + 1;
+      return { from: `${today.getFullYear()}-${pad(qm)}-01`, to };
+    }
+    case "ytd":
+      return { from: `${today.getFullYear()}-01-01`, to };
+  }
+}
+
+export const DATE_PRESETS: { id: BiDatePreset; label: string }[] = [
+  { id: "last7", label: "Last 7 days" },
+  { id: "last30", label: "Last 30 days" },
+  { id: "last90", label: "Last 90 days" },
+  { id: "mtd", label: "Month to date" },
+  { id: "qtd", label: "Quarter to date" },
+  { id: "ytd", label: "Year to date" },
+];
+
+/** Initial runtime state from each filter's saved default (presets resolve
+ * against today, so "last 30 days" is always the CURRENT last 30 days). */
+export function defaultFilterState(configs: BiFilterConfig[]): BiFilterState {
+  const state: BiFilterState = {};
+  for (const cfg of configs) {
+    const d = cfg.default;
+    if (!d) continue;
+    if (cfg.kind === "select" && d.values && d.values.length > 0) {
+      state[cfg.id] = { values: [...d.values] };
+    } else if (cfg.kind === "daterange") {
+      if (d.preset) state[cfg.id] = presetRange(d.preset);
+      else if (d.from || d.to) state[cfg.id] = { from: d.from, to: d.to };
+    } else if (cfg.kind === "numrange" && (d.min !== undefined || d.max !== undefined)) {
+      state[cfg.id] = { min: d.min, max: d.max };
+    }
+  }
+  return state;
 }
 
 /** Normalise any value to a comparable YYYY-MM-DD string (or null). */
@@ -139,6 +219,15 @@ export function filterWidgetRows(
     if (cfg.kind === "select" && st.values && st.values.length > 0) {
       const wanted = new Set(st.values);
       rows = rows.filter((r) => wanted.has(String(r[cfg.column])));
+    } else if (cfg.kind === "numrange" && (st.min !== undefined || st.max !== undefined)) {
+      rows = rows.filter((r) => {
+        const raw = r[cfg.column];
+        const n = typeof raw === "number" ? raw : raw != null ? Number(raw) : NaN;
+        if (!Number.isFinite(n)) return false;
+        if (st.min !== undefined && n < st.min) return false;
+        if (st.max !== undefined && n > st.max) return false;
+        return true;
+      });
     } else if (cfg.kind === "daterange" && (st.from || st.to)) {
       rows = rows.filter((r) => {
         const day = toIsoDay(r[cfg.column]);
@@ -154,6 +243,49 @@ export function filterWidgetRows(
     rows = rows.filter((r) => String(r[cross.column]) === cross.value);
   }
   return rows;
+}
+
+// ── Row-level security (grant row filters) ───────────────────────────────
+
+/** A mandatory row scope attached to a dashboard share grant. */
+export type BiRowFilter = { column: string; values: string[] };
+
+/**
+ * Merge the viewer's applicable grants into the row filters to enforce.
+ * Returns null (unrestricted) when the viewer has no grants — the owner —
+ * or when at least one applicable grant carries no filter: an unrestricted
+ * grant always wins over a filtered one, matching permissive-union RLS.
+ */
+export function mergeGrantRowFilters(grants: { row_filter: Json | null }[]): BiRowFilter[] | null {
+  if (grants.length === 0) return null;
+  const filters: BiRowFilter[] = [];
+  for (const g of grants) {
+    const rf = g.row_filter as { column?: unknown; values?: unknown } | null;
+    const column = typeof rf?.column === "string" ? rf.column.trim() : "";
+    const values = Array.isArray(rf?.values)
+      ? rf.values.map((v) => String(v)).filter((s) => s !== "")
+      : [];
+    if (!column || values.length === 0) return null;
+    filters.push({ column, values });
+  }
+  return filters;
+}
+
+/**
+ * Apply mandatory grant row filters to a snapshot. A row passes when it
+ * satisfies ANY grant's filter (union of scopes). A filter only constrains
+ * rows that actually carry its column — widgets that never select the
+ * column are left intact, mirroring how model-level RLS scopes only the
+ * tables it is defined on.
+ */
+export function applyRowFilters(
+  rows: Record<string, unknown>[],
+  filters: BiRowFilter[] | null,
+): Record<string, unknown>[] {
+  if (!filters || filters.length === 0 || rows.length === 0) return rows;
+  return rows.filter((r) =>
+    filters.some((f) => !(f.column in r) || f.values.includes(String(r[f.column]))),
+  );
 }
 
 // ── Layout math (pure, shared by editor + viewer) ────────────────────────
@@ -447,4 +579,114 @@ export async function appendWidgetToDashboard(
 
 export function publicDashboardUrl(slug: string): string {
   return `${window.location.origin}/share/bi/${slug}`;
+}
+
+/**
+ * Row filters this viewer must respect for a dashboard. RLS on
+ * iam_resource_grants only returns grants that apply to the caller (their
+ * user grants + their groups'), so merging what comes back yields exactly
+ * this viewer's scope. null = unrestricted (owner, or an unfiltered grant).
+ */
+export async function getMyDashboardRowFilters(dashboardId: string): Promise<BiRowFilter[] | null> {
+  const { data, error } = await supabase
+    .from("iam_resource_grants")
+    .select("row_filter")
+    .eq("resource_type", "bi_dashboard")
+    .eq("resource_id", dashboardId);
+  if (error || !data) return null;
+  return mergeGrantRowFilters(data);
+}
+
+/** Count a dashboard view (owner or grantee); fire-and-forget, never throws. */
+export function touchDashboardView(dashboardId: string): void {
+  void supabase.rpc("bi_touch_view", { _dashboard_id: dashboardId }).then(
+    () => {},
+    () => {},
+  );
+}
+
+// ── Version history ──────────────────────────────────────────────────────
+
+export type BiVersionRow = {
+  id: string;
+  dashboard_id: string;
+  label: string | null;
+  name: string;
+  widgets: Json;
+  layout: Json;
+  filters: Json;
+  theme: Json;
+  created_at: string;
+};
+
+/** Keep the newest N versions per dashboard; older ones are pruned on save. */
+export const VERSION_KEEP = 30;
+/** Minimum spacing between automatic snapshots. */
+export const AUTO_SNAPSHOT_MS = 10 * 60 * 1000;
+
+/** Epoch ms of the newest stored version (0 = none) — seeds the snapshot throttle. */
+export async function latestDashboardVersionAt(dashboardId: string): Promise<number> {
+  const { data } = await supabase
+    .from("bi_dashboard_versions")
+    .select("created_at")
+    .eq("dashboard_id", dashboardId)
+    .order("created_at", { ascending: false })
+    .limit(1);
+  return data?.[0] ? new Date(data[0].created_at).getTime() : 0;
+}
+
+export async function listDashboardVersions(dashboardId: string): Promise<BiVersionRow[]> {
+  const { data, error } = await supabase
+    .from("bi_dashboard_versions")
+    .select("id, dashboard_id, label, name, widgets, layout, filters, theme, created_at")
+    .eq("dashboard_id", dashboardId)
+    .order("created_at", { ascending: false })
+    .limit(VERSION_KEEP);
+  if (error) throw new Error(error.message);
+  return (data ?? []) as BiVersionRow[];
+}
+
+/** Snapshot the dashboard's current persisted state into the history. */
+export async function saveDashboardVersion(
+  row: BiDashboardRow,
+  label: string | null,
+): Promise<void> {
+  const { error } = await supabase.from("bi_dashboard_versions").insert({
+    dashboard_id: row.id,
+    user_id: row.user_id,
+    label: label?.trim() || null,
+    name: row.name,
+    widgets: row.widgets,
+    layout: row.layout,
+    filters: row.filters,
+    theme: row.theme,
+  });
+  if (error) throw new Error(error.message);
+  // Prune beyond the retention window (best effort — RLS scopes to owner).
+  const { data } = await supabase
+    .from("bi_dashboard_versions")
+    .select("id")
+    .eq("dashboard_id", row.id)
+    .order("created_at", { ascending: false })
+    .range(VERSION_KEEP, VERSION_KEEP + 49);
+  if (data && data.length > 0) {
+    await supabase
+      .from("bi_dashboard_versions")
+      .delete()
+      .in(
+        "id",
+        data.map((d) => d.id),
+      );
+  }
+}
+
+/** Restore a version onto the dashboard (does not delete newer versions). */
+export async function restoreDashboardVersion(v: BiVersionRow): Promise<void> {
+  await updateDashboard(v.dashboard_id, {
+    name: v.name,
+    widgets: v.widgets,
+    layout: v.layout,
+    filters: v.filters,
+    theme: v.theme,
+  });
 }

@@ -26,6 +26,7 @@ export function AskDashboardDialog({
   dashboardName,
   widgets,
   model,
+  context,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -33,6 +34,8 @@ export function AskDashboardDialog({
   widgets: BiWidget[];
   /** Reader model chosen by the publisher (null = server default). */
   model: string | null;
+  /** Active cross-filter/drill selection — seeds a follow-up question. */
+  context?: { column: string; value: string } | null;
 }) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [question, setQuestion] = useState("");
@@ -42,9 +45,13 @@ export function AskDashboardDialog({
   useEffect(() => {
     if (open) {
       setTurns([]);
-      setQuestion("");
+      setQuestion(
+        context
+          ? `Focusing on ${context.column} = “${context.value}”: what stands out, and how does it compare to the rest?`
+          : "",
+      );
     }
-  }, [open]);
+  }, [open, context]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -113,9 +120,19 @@ export function AskDashboardDialog({
           className="min-h-40 flex-1 space-y-3 overflow-y-auto rounded-md border border-border/50 bg-muted/20 p-3"
         >
           {turns.length === 0 && (
-            <p className="py-10 text-center text-xs text-muted-foreground">
-              e.g. “Which region is underperforming?” or “Summarise the key trends.”
-            </p>
+            <div className="space-y-2 py-10 text-center">
+              {context && (
+                <p className="text-[11px] text-muted-foreground">
+                  Seeded from your selection:{" "}
+                  <span className="rounded bg-primary/10 px-1.5 py-0.5 font-medium text-primary">
+                    {context.column} = {context.value}
+                  </span>
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                e.g. “Which region is underperforming?” or “Summarise the key trends.”
+              </p>
+            </div>
           )}
           {turns.map((t, i) => (
             <div key={i} className="space-y-2">

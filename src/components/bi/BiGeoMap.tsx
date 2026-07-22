@@ -117,11 +117,14 @@ export function BiGeoMap({
   locationField,
   valueField,
   mode,
+  onElementClick,
 }: {
   rows: Record<string, unknown>[];
   locationField: string;
   valueField: string;
   mode: "fill" | "bubble";
+  /** Cross-filtering: called with the ROW's raw location value (not the atlas name). */
+  onElementClick?: (value: string) => void;
 }) {
   // Styled hover tooltip (native SVG <title> is delayed and easy to miss —
   // this matches the recharts tooltips used by every other visual).
@@ -142,7 +145,7 @@ export function BiGeoMap({
   }
 
   const { values, unmatched, max } = useMemo(() => {
-    const values = new Map<string, { shape: CountryShape; value: number }>();
+    const values = new Map<string, { shape: CountryShape; value: number; raw: string }>();
     let unmatched = 0;
     for (const row of rows) {
       const shape = lookupCountry(row[locationField]);
@@ -152,7 +155,11 @@ export function BiGeoMap({
         continue;
       }
       const prev = values.get(shape.key);
-      values.set(shape.key, { shape, value: (prev?.value ?? 0) + v });
+      values.set(shape.key, {
+        shape,
+        value: (prev?.value ?? 0) + v,
+        raw: prev?.raw ?? String(row[locationField]),
+      });
     }
     const max = Math.max(...[...values.values()].map((e) => e.value), 0);
     return { values, unmatched, max };
@@ -182,13 +189,15 @@ export function BiGeoMap({
                 entry && mode === "fill" ? (e) => showTip(e, s.name, entry.value) : undefined
               }
               onPointerLeave={entry && mode === "fill" ? () => setHover(null) : undefined}
+              onClick={entry && onElementClick ? () => onElementClick(entry.raw) : undefined}
+              cursor={entry && onElementClick ? "pointer" : undefined}
             />
           );
         })}
         {mode === "bubble" &&
           [...values.values()]
             .sort((a, b) => b.value - a.value)
-            .map(({ shape, value }) => {
+            .map(({ shape, value, raw }) => {
               const r = 4 + 22 * Math.sqrt(max > 0 ? value / max : 0);
               const active = hover?.name === shape.name;
               return (
@@ -203,6 +212,8 @@ export function BiGeoMap({
                   strokeWidth={active ? 2 : 1.25}
                   onPointerMove={(e) => showTip(e, shape.name, value)}
                   onPointerLeave={() => setHover(null)}
+                  onClick={onElementClick ? () => onElementClick(raw) : undefined}
+                  cursor={onElementClick ? "pointer" : undefined}
                 />
               );
             })}

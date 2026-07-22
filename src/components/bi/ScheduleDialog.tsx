@@ -3,7 +3,7 @@
 // (see utils/bi/refresh.server.ts) picks them up with the service role.
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { CalendarClock, Loader2, Plus, Trash2 } from "lucide-react";
+import { CalendarClock, Loader2, Plus, Trash2, Mail } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,6 +33,7 @@ type ScheduleRow = {
   cadence: string;
   at_hour: number;
   weekday: number;
+  email_report: boolean;
   last_run_at: string | null;
   last_status: string | null;
   last_error: string | null;
@@ -47,6 +48,7 @@ type AlertRow = {
   operator: string;
   threshold: number;
   is_active: boolean;
+  email_enabled: boolean;
   last_state: string;
   last_value: number | null;
 };
@@ -189,6 +191,12 @@ export function ScheduleDialog({
     await supabase.from("bi_alerts").update({ is_active: on }).eq("id", a.id);
   }
 
+  async function toggleAlertEmail(a: AlertRow) {
+    const next = !a.email_enabled;
+    await supabase.from("bi_alerts").update({ email_enabled: next }).eq("id", a.id);
+    setAlerts((prev) => prev.map((x) => (x.id === a.id ? { ...x, email_enabled: next } : x)));
+  }
+
   const widgetTitle = (id: string) => widgets.find((w) => w.id === id)?.title ?? "deleted widget";
 
   return (
@@ -286,6 +294,16 @@ export function ScheduleDialog({
                   )}
                 </div>
               )}
+              {schedule?.enabled && (
+                <Label className="mt-2 flex cursor-pointer items-center gap-2 text-[11px] font-normal">
+                  <Switch
+                    checked={Boolean(schedule.email_report)}
+                    onCheckedChange={(on) => void upsertSchedule({ email_report: on })}
+                    className="scale-75"
+                  />
+                  Email me a report after each refresh (KPIs + refresh summary)
+                </Label>
+              )}
             </div>
 
             {/* Alerts */}
@@ -317,6 +335,19 @@ export function ScheduleDialog({
                         triggered{a.last_value !== null ? ` · ${a.last_value}` : ""}
                       </Badge>
                     )}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={`h-6 w-6 ${a.email_enabled ? "text-primary" : "text-muted-foreground"}`}
+                      title={
+                        a.email_enabled
+                          ? "Email on trigger: on — click to disable"
+                          : "Also email me when this alert triggers"
+                      }
+                      onClick={() => void toggleAlertEmail(a)}
+                    >
+                      <Mail className="h-3 w-3" />
+                    </Button>
                     <Button
                       variant="ghost"
                       size="icon"

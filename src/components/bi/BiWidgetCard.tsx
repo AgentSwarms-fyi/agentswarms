@@ -4,19 +4,23 @@
 // shared view, and the public published page.
 import { useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, BarChart3, Network, Table2, Type } from "lucide-react";
-import { BiChartRender, fmtBiNumber, toBiNumber } from "@/components/bi/BiChartRender";
+import { BiChartRender, fmtBiValue, toBiNumber } from "@/components/bi/BiChartRender";
 import { MarkdownMessage } from "@/components/playground/MarkdownMessage";
+import type { BiColumnFormat } from "@/lib/biAgent";
 import { WIDGET_ACCENTS, type BiWidget } from "@/lib/biDashboards";
 import { cn } from "@/lib/utils";
 
 const TABLE_PAGE = 50;
 
-function WidgetDataTable({
+export function WidgetDataTable({
   columns,
   rows,
+  columnFormats,
 }: {
   columns: string[];
   rows: Record<string, unknown>[];
+  /** Per-column display formats configured in the builder. */
+  columnFormats?: Record<string, BiColumnFormat>;
 }) {
   const [sort, setSort] = useState<{ col: string; dir: 1 | -1 } | null>(null);
   const [page, setPage] = useState(0);
@@ -97,7 +101,7 @@ function WidgetDataTable({
                     {row[c] === null || row[c] === undefined ? (
                       <span className="text-muted-foreground/60">—</span>
                     ) : typeof row[c] === "number" ? (
-                      fmtBiNumber(row[c])
+                      fmtBiValue(row[c], columnFormats?.[c])
                     ) : (
                       String(row[c])
                     )}
@@ -114,7 +118,11 @@ function WidgetDataTable({
                     key={c}
                     className={`px-2.5 py-1.5 text-xs ${numeric.has(c) ? "text-right tabular-nums" : ""}`}
                   >
-                    {numeric.has(c) ? fmtBiNumber(totals.get(c)) : i === 0 ? "Total" : ""}
+                    {numeric.has(c)
+                      ? fmtBiValue(totals.get(c), columnFormats?.[c])
+                      : i === 0
+                        ? "Total"
+                        : ""}
                   </td>
                 ))}
               </tr>
@@ -215,7 +223,7 @@ export function BiWidgetCard({
             No data snapshot — run or refresh this widget to load data.
           </div>
         ) : chart.type === "table" ? (
-          <WidgetDataTable columns={columns} rows={rows} />
+          <WidgetDataTable columns={columns} rows={rows} columnFormats={chart.columnFormats} />
         ) : (
           <BiChartRender chart={chart} rows={rows} fill onElementClick={onElementClick} />
         )}

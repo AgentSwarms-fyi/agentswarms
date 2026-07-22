@@ -12,6 +12,7 @@ import { BiWidgetCard } from "@/components/bi/BiWidgetCard";
 import { DashboardGrid } from "@/components/bi/DashboardGrid";
 import {
   dashSurfaceStyle,
+  defaultFilterState,
   filterWidgetRows,
   parseDashTheme,
   parseFilters,
@@ -45,8 +46,11 @@ function PublicBiDashboardPage() {
 
   useEffect(() => {
     fetchFn({ data: { slug } }).then((res) => {
-      if (res.ok) setDashboard(res.dashboard);
-      else setError(res.error);
+      if (res.ok) {
+        setDashboard(res.dashboard);
+        // Apply the owner's saved filter defaults (presets resolve to today).
+        setFilterState(defaultFilterState(parseFilters(res.dashboard.filters)));
+      } else setError(res.error);
     });
   }, [slug, fetchFn]);
 

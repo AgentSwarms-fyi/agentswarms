@@ -96,14 +96,20 @@ export const biGetPublicDashboard = createServerFn({ method: "POST" })
       try {
         const { data: row, error } = await supabaseAdmin
           .from("bi_dashboards")
-          .select("name, description, widgets, layout, filters, theme, updated_at, published")
+          .select("id, name, description, widgets, layout, filters, theme, updated_at, published")
           .eq("public_slug", data.slug)
           .maybeSingle();
         if (error) return { ok: false, error: error.message };
         if (!row || !row.published) {
           return { ok: false, error: "This dashboard does not exist or is no longer published." };
         }
-        const { published: _published, ...dashboard } = row;
+        // Usage analytics: anonymous public views are stamped with the
+        // service role (bi_touch_view trusts service-role callers).
+        void supabaseAdmin
+          .rpc("bi_touch_view", { _dashboard_id: row.id })
+          .then(() => {})
+          .then(undefined, () => {});
+        const { id: _id, published: _published, ...dashboard } = row;
         return { ok: true, dashboard };
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : "Failed" };

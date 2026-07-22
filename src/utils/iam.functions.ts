@@ -47,6 +47,8 @@ export type IamGrantRow = {
   resource_owner_id: string | null;
   principal_type: "user" | "group";
   principal_id: string;
+  /** BI dashboards only: restrict the grantee to rows matching column ∈ values. */
+  row_filter: { column: string; values: string[] } | null;
 };
 
 export type IamResourceOption = {
@@ -536,7 +538,7 @@ export const iamListGrants = createServerFn({ method: "POST" })
 
     const { data: grants, error } = await supabaseAdmin
       .from("iam_resource_grants")
-      .select("id, resource_type, resource_id, principal_type, principal_id")
+      .select("id, resource_type, resource_id, principal_type, principal_id, row_filter")
       .order("created_at", { ascending: false });
     if (error) return { ok: false, error: error.message };
 
@@ -585,6 +587,7 @@ export const iamListGrants = createServerFn({ method: "POST" })
               : g.resource_type === "bi_dashboard"
                 ? dashboardById.get(g.resource_id)
                 : tableById.get(g.resource_id);
+        const rf = g.row_filter as { column?: unknown; values?: unknown } | null;
         return {
           id: g.id,
           resource_type: g.resource_type as IamGrantRow["resource_type"],
@@ -593,6 +596,10 @@ export const iamListGrants = createServerFn({ method: "POST" })
           resource_owner_id: res?.user_id ?? null,
           principal_type: g.principal_type as IamGrantRow["principal_type"],
           principal_id: g.principal_id,
+          row_filter:
+            rf && typeof rf.column === "string" && Array.isArray(rf.values)
+              ? { column: rf.column, values: rf.values.map(String) }
+              : null,
         };
       }),
     };
@@ -607,12 +614,22 @@ export const iamCreateGrant = createServerFn({ method: "POST" })
         resource_id: z.string().uuid(),
         principal_type: z.enum(["user", "group"]),
         principal_id: z.string().uuid(),
+        row_filter: z
+          .object({
+            column: z.string().trim().min(1),
+            values: z.array(z.string().trim().min(1)).min(1).max(100),
+          })
+          .nullish(),
       })
       .parse(input),
   )
   .handler(async ({ data }): Promise<IamError | { ok: true }> => {
     const guard = await requireSuperadmin(data.access_token);
     if (!guard.ok) return guard;
+    if (data.row_filter && data.resource_type !== "bi_dashboard") {
+      return { ok: false, error: "Row filters only apply to BI dashboard grants" };
+    }
+    // Merge on conflict so re-granting updates the row filter in place.
     const { error } = await supabaseAdmin.from("iam_resource_grants").upsert(
       {
         resource_type: data.resource_type,
@@ -620,11 +637,9 @@ export const iamCreateGrant = createServerFn({ method: "POST" })
         principal_type: data.principal_type,
         principal_id: data.principal_id,
         created_by: guard.userId,
+        row_filter: data.row_filter ?? null,
       },
-      {
-        onConflict: "resource_type,resource_id,principal_type,principal_id",
-        ignoreDuplicates: true,
-      },
+      { onConflict: "resource_type,resource_id,principal_type,principal_id" },
     );
     if (error) return { ok: false, error: error.message };
     return { ok: true };

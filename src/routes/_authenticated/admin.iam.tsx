@@ -13,6 +13,7 @@ import {
   Copy,
   Database as DatabaseIcon,
   BookOpen,
+  Filter,
   KeyRound,
   Plus,
   RefreshCw,
@@ -1077,6 +1078,10 @@ function AccessTab({
   const [shareResourceKey, setShareResourceKey] = useState("");
   const [sharePrincipalType, setSharePrincipalType] = useState<"group" | "user">("group");
   const [sharePrincipalId, setSharePrincipalId] = useState("");
+  // Optional row-level filter (BI dashboards only).
+  const [shareFilterColumn, setShareFilterColumn] = useState("");
+  const [shareFilterValues, setShareFilterValues] = useState("");
+  const shareIsDashboard = shareResourceKey.startsWith("bi_dashboard:");
 
   const principalName = (type: string, id: string) =>
     type === "group"
@@ -1306,6 +1311,14 @@ function AccessTab({
                   "knowledge_base" | "data_table" | "secret" | "bi_dashboard",
                   string,
                 ];
+                const filterValues = shareFilterValues
+                  .split(",")
+                  .map((v) => v.trim())
+                  .filter(Boolean);
+                const row_filter =
+                  shareIsDashboard && shareFilterColumn.trim() && filterValues.length > 0
+                    ? { column: shareFilterColumn.trim(), values: filterValues }
+                    : undefined;
                 const res = await createGrant({
                   data: {
                     access_token: token,
@@ -1313,18 +1326,45 @@ function AccessTab({
                     resource_id,
                     principal_type: sharePrincipalType,
                     principal_id: sharePrincipalId,
+                    row_filter,
                   },
                 });
                 if (!res.ok) return toast.error(res.error);
                 toast.success("Share created");
                 setShareResourceKey("");
                 setSharePrincipalId("");
+                setShareFilterColumn("");
+                setShareFilterValues("");
                 reload();
               }}
             >
               Share
             </Button>
           </div>
+
+          {shareIsDashboard && (
+            <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed border-border bg-muted/30 px-3 py-2">
+              <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Filter className="h-3.5 w-3.5" /> Row-level filter (optional)
+              </span>
+              <Input
+                className="h-8 w-44 text-xs"
+                value={shareFilterColumn}
+                onChange={(e) => setShareFilterColumn(e.target.value)}
+                placeholder="Column, e.g. Region"
+              />
+              <Input
+                className="h-8 w-72 text-xs"
+                value={shareFilterValues}
+                onChange={(e) => setShareFilterValues(e.target.value)}
+                placeholder="Allowed values, comma-separated — e.g. EMEA, APAC"
+              />
+              <span className="text-[11px] text-muted-foreground">
+                The grantee only sees dashboard rows where the column matches one of these values.
+                Re-sharing with the same principal updates the filter.
+              </span>
+            </div>
+          )}
 
           {grants.length === 0 ? (
             <p className="text-sm text-muted-foreground">No shares yet.</p>
@@ -1363,10 +1403,25 @@ function AccessTab({
                         : "—"}
                     </TableCell>
                     <TableCell>
-                      <Badge variant="secondary" className="text-[10px]">
-                        {g.principal_type === "group" ? "group" : "user"} ·{" "}
-                        {principalName(g.principal_type, g.principal_id)}
-                      </Badge>
+                      <div className="flex flex-wrap items-center gap-1">
+                        <Badge variant="secondary" className="text-[10px]">
+                          {g.principal_type === "group" ? "group" : "user"} ·{" "}
+                          {principalName(g.principal_type, g.principal_id)}
+                        </Badge>
+                        {g.row_filter && (
+                          <Badge
+                            variant="outline"
+                            className="gap-1 text-[10px] font-normal"
+                            title={`Only rows where ${g.row_filter.column} is one of: ${g.row_filter.values.join(", ")}`}
+                          >
+                            <Filter className="h-2.5 w-2.5" />
+                            {g.row_filter.column} ∈{" "}
+                            {g.row_filter.values.length > 3
+                              ? `${g.row_filter.values.slice(0, 3).join(", ")} +${g.row_filter.values.length - 3}`
+                              : g.row_filter.values.join(", ")}
+                          </Badge>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <Button

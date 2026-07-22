@@ -268,9 +268,21 @@ function BiWorkspacePage() {
                         </div>
                       )}
                       <div className="mt-auto flex items-center justify-between border-t border-border/40 pt-3 text-xs text-muted-foreground">
-                        <span>
-                          {widgetCount} widget{widgetCount === 1 ? "" : "s"} · updated{" "}
-                          {formatDistanceToNow(new Date(d.updated_at), { addSuffix: true })}
+                        <span
+                          title={
+                            d.last_viewed_at
+                              ? `Last viewed ${formatDistanceToNow(new Date(d.last_viewed_at), { addSuffix: true })}`
+                              : undefined
+                          }
+                        >
+                          {widgetCount} widget{widgetCount === 1 ? "" : "s"}
+                          {(d.view_count ?? 0) > 0 && (
+                            <>
+                              {" "}
+                              · {d.view_count} view{d.view_count === 1 ? "" : "s"}
+                            </>
+                          )}{" "}
+                          · updated {formatDistanceToNow(new Date(d.updated_at), { addSuffix: true })}
                         </span>
                         <span
                           className="flex items-center gap-1 opacity-0 transition group-hover:opacity-100"

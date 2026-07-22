@@ -1,10 +1,22 @@
-// Dashboard filter bar: renders the owner-defined filters (value slicers +
-// date ranges) plus the active cross-filter chip. Selections are runtime
-// state applied client-side to widget snapshots — works identically in the
-// editor, the shared read-only view and the public page.
+// Dashboard filter bar: renders the owner-defined filters (value slicers,
+// date ranges with relative presets, numeric ranges) plus the active
+// cross-filter chip. Selections are runtime state applied client-side to
+// widget snapshots — works identically in the editor, the shared read-only
+// view and the public page. Owners can pin any selection as the filter's
+// saved default, applied whenever a viewer opens the dashboard.
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { CalendarDays, ChevronDown, Filter, ListFilter, Plus, Trash2, X } from "lucide-react";
+import {
+  CalendarDays,
+  ChevronDown,
+  Filter,
+  Hash,
+  ListFilter,
+  Pin,
+  Plus,
+  Trash2,
+  X,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -28,13 +40,77 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  DATE_PRESETS,
   filterOptions,
+  presetRange,
   type BiCrossFilter,
   type BiFilterConfig,
+  type BiFilterDefault,
   type BiFilterKind,
   type BiFilterState,
   type BiWidget,
 } from "@/lib/biDashboards";
+
+/** Footer shared by every chip: clear, save-default (owners), remove. */
+function ChipFooter({
+  onClear,
+  editable,
+  hasDefault,
+  onSaveDefault,
+  onClearDefault,
+  onRemove,
+}: {
+  onClear: () => void;
+  editable: boolean;
+  hasDefault: boolean;
+  onSaveDefault?: () => void;
+  onClearDefault?: () => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="mt-1.5 space-y-1 border-t border-border/50 pt-1.5">
+      <div className="flex items-center justify-between">
+        <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px]" onClick={onClear}>
+          Clear
+        </Button>
+        {editable && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 px-2 text-[10px] text-muted-foreground hover:text-destructive"
+            onClick={onRemove}
+            title="Remove this filter from the dashboard"
+          >
+            <Trash2 className="mr-1 h-2.5 w-2.5" /> Remove filter
+          </Button>
+        )}
+      </div>
+      {editable && (
+        <div className="flex items-center justify-between">
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 px-2 text-[10px] text-muted-foreground"
+            onClick={onSaveDefault}
+            title="Viewers will see this selection applied when they open the dashboard"
+          >
+            <Pin className="mr-1 h-2.5 w-2.5" /> Save as default
+          </Button>
+          {hasDefault && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 px-2 text-[10px] text-muted-foreground"
+              onClick={onClearDefault}
+            >
+              Clear default
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function BiFilterBar({
   configs,
@@ -62,8 +138,22 @@ export function BiFilterBar({
     cross !== null ||
     configs.some((c) => {
       const st = state[c.id];
-      return st && ((st.values?.length ?? 0) > 0 || st.from || st.to);
+      return (
+        st &&
+        ((st.values?.length ?? 0) > 0 ||
+          st.from ||
+          st.to ||
+          st.min !== undefined ||
+          st.max !== undefined)
+      );
     });
+
+  // Owners: persist a filter's saved default into its config.
+  const setDefault = (cfgId: string, def: BiFilterDefault | null) => {
+    onConfigsChange?.(
+      configs.map((c) => (c.id === cfgId ? { ...c, default: def === null ? undefined : def } : c)),
+    );
+  };
 
   if (configs.length === 0 && !editable && !cross) return null;
 
@@ -79,6 +169,18 @@ export function BiFilterBar({
             selected={state[cfg.id]?.values ?? []}
             onChange={(values) => onStateChange({ ...state, [cfg.id]: { values } })}
             editable={editable}
+            onSetDefault={(def) => setDefault(cfg.id, def)}
+            onRemove={() => onConfigsChange?.(configs.filter((c) => c.id !== cfg.id))}
+          />
+        ) : cfg.kind === "numrange" ? (
+          <NumFilterChip
+            key={cfg.id}
+            cfg={cfg}
+            min={state[cfg.id]?.min}
+            max={state[cfg.id]?.max}
+            onChange={(min, max) => onStateChange({ ...state, [cfg.id]: { min, max } })}
+            editable={editable}
+            onSetDefault={(def) => setDefault(cfg.id, def)}
             onRemove={() => onConfigsChange?.(configs.filter((c) => c.id !== cfg.id))}
           />
         ) : (
@@ -94,6 +196,7 @@ export function BiFilterBar({
               })
             }
             editable={editable}
+            onSetDefault={(def) => setDefault(cfg.id, def)}
             onRemove={() => onConfigsChange?.(configs.filter((c) => c.id !== cfg.id))}
           />
         ),
@@ -147,6 +250,7 @@ function SelectFilterChip({
   selected,
   onChange,
   editable,
+  onSetDefault,
   onRemove,
 }: {
   cfg: BiFilterConfig;
@@ -154,6 +258,7 @@ function SelectFilterChip({
   selected: string[];
   onChange: (values: string[]) => void;
   editable: boolean;
+  onSetDefault: (def: BiFilterDefault | null) => void;
   onRemove: () => void;
 }) {
   const options = useMemo(() => filterOptions(cfg.column, widgets), [cfg.column, widgets]);
@@ -197,27 +302,90 @@ function SelectFilterChip({
             );
           })}
         </div>
-        <div className="mt-1.5 flex items-center justify-between border-t border-border/50 pt-1.5">
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-6 px-2 text-[10px]"
-            onClick={() => onChange([])}
-          >
-            Clear
-          </Button>
-          {editable && (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-6 px-2 text-[10px] text-muted-foreground hover:text-destructive"
-              onClick={onRemove}
-              title="Remove this filter from the dashboard"
-            >
-              <Trash2 className="mr-1 h-2.5 w-2.5" /> Remove filter
-            </Button>
-          )}
+        <ChipFooter
+          onClear={() => onChange([])}
+          editable={editable}
+          hasDefault={Boolean(cfg.default)}
+          onSaveDefault={() => onSetDefault(selected.length > 0 ? { values: selected } : null)}
+          onClearDefault={() => onSetDefault(null)}
+          onRemove={onRemove}
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function NumFilterChip({
+  cfg,
+  min,
+  max,
+  onChange,
+  editable,
+  onSetDefault,
+  onRemove,
+}: {
+  cfg: BiFilterConfig;
+  min: number | undefined;
+  max: number | undefined;
+  onChange: (min: number | undefined, max: number | undefined) => void;
+  editable: boolean;
+  onSetDefault: (def: BiFilterDefault | null) => void;
+  onRemove: () => void;
+}) {
+  const active = min !== undefined || max !== undefined;
+  const parse = (v: string) => {
+    const n = Number(v);
+    return v.trim() !== "" && Number.isFinite(n) ? n : undefined;
+  };
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          size="sm"
+          variant={active ? "secondary" : "outline"}
+          className="h-6 gap-1 px-2 text-[10px]"
+        >
+          <Hash className="h-2.5 w-2.5" />
+          {cfg.label || cfg.column}
+          {active ? `: ${min ?? "…"} – ${max ?? "…"}` : ""}
+          <ChevronDown className="h-2.5 w-2.5 text-muted-foreground" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-56 space-y-2 p-3">
+        <div className="flex gap-2">
+          <div className="flex-1 space-y-1">
+            <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              Min
+            </Label>
+            <Input
+              type="number"
+              value={min ?? ""}
+              onChange={(e) => onChange(parse(e.target.value), max)}
+              className="h-7 text-xs"
+              placeholder="any"
+            />
+          </div>
+          <div className="flex-1 space-y-1">
+            <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              Max
+            </Label>
+            <Input
+              type="number"
+              value={max ?? ""}
+              onChange={(e) => onChange(min, parse(e.target.value))}
+              className="h-7 text-xs"
+              placeholder="any"
+            />
+          </div>
         </div>
+        <ChipFooter
+          onClear={() => onChange(undefined, undefined)}
+          editable={editable}
+          hasDefault={Boolean(cfg.default)}
+          onSaveDefault={() => onSetDefault(active ? { min, max } : null)}
+          onClearDefault={() => onSetDefault(null)}
+          onRemove={onRemove}
+        />
       </PopoverContent>
     </Popover>
   );
@@ -229,6 +397,7 @@ function DateFilterChip({
   to,
   onChange,
   editable,
+  onSetDefault,
   onRemove,
 }: {
   cfg: BiFilterConfig;
@@ -236,9 +405,16 @@ function DateFilterChip({
   to: string;
   onChange: (from: string, to: string) => void;
   editable: boolean;
+  onSetDefault: (def: BiFilterDefault | null) => void;
   onRemove: () => void;
 }) {
   const active = Boolean(from || to);
+  // Which preset (if any) the current selection matches — drives both the
+  // highlighted preset button and preset-relative default saving.
+  const activePreset = DATE_PRESETS.find((p) => {
+    const r = presetRange(p.id);
+    return r.from === from && r.to === to;
+  })?.id;
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -254,6 +430,22 @@ function DateFilterChip({
         </Button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-60 space-y-2 p-3">
+        <div className="flex flex-wrap gap-1">
+          {DATE_PRESETS.map((p) => (
+            <Button
+              key={p.id}
+              size="sm"
+              variant={activePreset === p.id ? "secondary" : "outline"}
+              className="h-6 px-2 text-[10px]"
+              onClick={() => {
+                const r = presetRange(p.id);
+                onChange(r.from, r.to);
+              }}
+            >
+              {p.label}
+            </Button>
+          ))}
+        </div>
         <div className="space-y-1">
           <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">From</Label>
           <Input
@@ -272,26 +464,22 @@ function DateFilterChip({
             className="h-7 text-xs"
           />
         </div>
-        <div className="flex items-center justify-between border-t border-border/50 pt-1.5">
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-6 px-2 text-[10px]"
-            onClick={() => onChange("", "")}
-          >
-            Clear
-          </Button>
-          {editable && (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-6 px-2 text-[10px] text-muted-foreground hover:text-destructive"
-              onClick={onRemove}
-            >
-              <Trash2 className="mr-1 h-2.5 w-2.5" /> Remove filter
-            </Button>
-          )}
-        </div>
+        <ChipFooter
+          onClear={() => onChange("", "")}
+          editable={editable}
+          hasDefault={Boolean(cfg.default)}
+          onSaveDefault={() =>
+            onSetDefault(
+              activePreset
+                ? { preset: activePreset }
+                : from || to
+                  ? { from: from || undefined, to: to || undefined }
+                  : null,
+            )
+          }
+          onClearDefault={() => onSetDefault(null)}
+          onRemove={onRemove}
+        />
       </PopoverContent>
     </Popover>
   );
@@ -369,7 +557,8 @@ function AddFilterDialog({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="select">Values (multi-select)</SelectItem>
-                <SelectItem value="daterange">Date range</SelectItem>
+                <SelectItem value="daterange">Date range (with presets)</SelectItem>
+                <SelectItem value="numrange">Numeric range (min / max)</SelectItem>
               </SelectContent>
             </Select>
           </div>

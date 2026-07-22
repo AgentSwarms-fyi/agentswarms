@@ -273,6 +273,7 @@ export type Database = {
       };
       bi_alerts: {
         Row: {
+          email_enabled: boolean;
           aggregation: string;
           column_name: string;
           created_at: string;
@@ -289,6 +290,7 @@ export type Database = {
           widget_id: string;
         };
         Insert: {
+          email_enabled?: boolean;
           aggregation?: string;
           column_name?: string;
           created_at?: string;
@@ -305,6 +307,7 @@ export type Database = {
           widget_id: string;
         };
         Update: {
+          email_enabled?: boolean;
           aggregation?: string;
           column_name?: string;
           created_at?: string;
@@ -322,6 +325,45 @@ export type Database = {
         };
         Relationships: [];
       };
+      bi_dashboard_versions: {
+        Row: {
+          created_at: string;
+          dashboard_id: string;
+          filters: Json;
+          id: string;
+          label: string | null;
+          layout: Json;
+          name: string;
+          theme: Json;
+          user_id: string;
+          widgets: Json;
+        };
+        Insert: {
+          created_at?: string;
+          dashboard_id: string;
+          filters?: Json;
+          id?: string;
+          label?: string | null;
+          layout: Json;
+          name: string;
+          theme?: Json;
+          user_id: string;
+          widgets: Json;
+        };
+        Update: {
+          created_at?: string;
+          dashboard_id?: string;
+          filters?: Json;
+          id?: string;
+          label?: string | null;
+          layout?: Json;
+          name?: string;
+          theme?: Json;
+          user_id?: string;
+          widgets?: Json;
+        };
+        Relationships: [];
+      };
       bi_dashboards: {
         Row: {
           ai_model: string | null;
@@ -329,6 +371,7 @@ export type Database = {
           description: string | null;
           filters: Json;
           id: string;
+          last_viewed_at: string | null;
           layout: Json;
           name: string;
           public_slug: string | null;
@@ -337,6 +380,7 @@ export type Database = {
           theme: Json;
           updated_at: string;
           user_id: string;
+          view_count: number;
           widgets: Json;
         };
         Insert: {
@@ -345,6 +389,7 @@ export type Database = {
           description?: string | null;
           filters?: Json;
           id?: string;
+          last_viewed_at?: string | null;
           layout?: Json;
           name: string;
           public_slug?: string | null;
@@ -353,6 +398,7 @@ export type Database = {
           theme?: Json;
           updated_at?: string;
           user_id: string;
+          view_count?: number;
           widgets?: Json;
         };
         Update: {
@@ -361,6 +407,7 @@ export type Database = {
           description?: string | null;
           filters?: Json;
           id?: string;
+          last_viewed_at?: string | null;
           layout?: Json;
           name?: string;
           public_slug?: string | null;
@@ -369,12 +416,14 @@ export type Database = {
           theme?: Json;
           updated_at?: string;
           user_id?: string;
+          view_count?: number;
           widgets?: Json;
         };
         Relationships: [];
       };
       bi_schedules: {
         Row: {
+          email_report: boolean;
           at_hour: number;
           cadence: string;
           created_at: string;
@@ -389,6 +438,7 @@ export type Database = {
           weekday: number;
         };
         Insert: {
+          email_report?: boolean;
           at_hour?: number;
           cadence?: string;
           created_at?: string;
@@ -403,6 +453,7 @@ export type Database = {
           weekday?: number;
         };
         Update: {
+          email_report?: boolean;
           at_hour?: number;
           cadence?: string;
           created_at?: string;
@@ -1050,6 +1101,7 @@ export type Database = {
           principal_type: string;
           resource_id: string;
           resource_type: string;
+          row_filter: Json | null;
         };
         Insert: {
           created_at?: string;
@@ -1059,6 +1111,7 @@ export type Database = {
           principal_type: string;
           resource_id: string;
           resource_type: string;
+          row_filter?: Json | null;
         };
         Update: {
           created_at?: string;
@@ -1068,6 +1121,7 @@ export type Database = {
           principal_type?: string;
           resource_id?: string;
           resource_type?: string;
+          row_filter?: Json | null;
         };
         Relationships: [];
       };
@@ -2429,6 +2483,10 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      bi_touch_view: {
+        Args: { _dashboard_id: string };
+        Returns: undefined;
+      };
       cleanup_old_observability_data: { Args: never; Returns: undefined };
       has_resource_access: {
         Args: { rtype: string; rid: string; uid: string };
