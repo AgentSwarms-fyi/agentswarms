@@ -1,10 +1,12 @@
-// "Generate with AI" — one goal in, a whole dashboard out. Plans 5-8
-// analyst questions from the goal + schema, runs each through the existing
-// GenBI pipeline (plan → SQL → execute → chart → narrative) and hands the
-// finished widgets back to the editor for auto-layout.
+// "Generate with AI" — one goal in, a whole dashboard out. The user picks
+// ONE source table; the analyst plans 5-8 questions against that table's
+// schema, runs each through the existing GenBI pipeline (plan → SQL →
+// execute → chart → narrative) and hands the finished widgets back to the
+// editor for auto-layout. Scoping to a single table keeps every generated
+// query grounded instead of speculative cross-table joins.
 import { useState } from "react";
 import { toast } from "sonner";
-import { Check, Loader2, Wand2, X as XIcon } from "lucide-react";
+import { Check, Loader2, Table2, Wand2, X as XIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -15,6 +17,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { BiModelSelect } from "@/components/bi/BiModelSelect";
 import type { BiDataContext } from "@/components/bi/biDataContext";
@@ -36,25 +45,35 @@ export function GenerateDashboardDialog({
   onDone: (widgets: BiWidget[], title: string) => void;
 }) {
   const [goal, setGoal] = useState("");
+  const [table, setTable] = useState("");
   const [busy, setBusy] = useState(false);
   const [steps, setSteps] = useState<Step[]>([]);
   const [phase, setPhase] = useState("");
 
+  // The chosen source table, falling back to the first dataset so the
+  // picker is never empty-selected.
+  const selectedTable = ctx.datasets.some((d) => d.name === table)
+    ? table
+    : (ctx.datasets[0]?.name ?? "");
+
   async function run() {
     const g = goal.trim();
     if (!g || busy) return;
-    if (ctx.datasets.length === 0) {
+    const scoped = ctx.datasets.filter((d) => d.name === selectedTable);
+    if (scoped.length === 0) {
       return toast.error("No local datasets — upload data on the Data & SQL page first.");
     }
+    // Saved metrics only make sense when they belong to the chosen table.
+    const scopedMetrics = ctx.metrics.filter((m) => m.table_id === scoped[0].id);
     setBusy(true);
     setSteps([]);
     setPhase("Planning the dashboard…");
     try {
       const plan = await planDashboard({
         goal: g,
-        datasets: ctx.datasets,
+        datasets: scoped,
         semantics: ctx.semantics,
-        metrics: ctx.metrics,
+        metrics: scopedMetrics,
         model: ctx.model ?? undefined,
       });
       if (plan.questions.length === 0) throw new Error("The model returned no questions");
@@ -68,9 +87,9 @@ export function GenerateDashboardDialog({
         setSteps(progress);
         const turn = await runBiTurn({
           question: plan.questions[i],
-          datasets: ctx.datasets,
+          datasets: scoped,
           semantics: ctx.semantics,
-          metrics: ctx.metrics,
+          metrics: scopedMetrics,
           model: ctx.model ?? undefined,
           onUpdate: () => {},
         });
@@ -104,11 +123,34 @@ export function GenerateDashboardDialog({
             <Wand2 className="h-4 w-4 text-primary" /> Generate dashboard with AI
           </DialogTitle>
           <DialogDescription className="text-xs">
-            Describe the goal — the analyst plans the questions, writes and runs the SQL, picks the
-            charts and lays everything out. Uses your local &amp; prepared datasets.
+            Pick a source table and describe the goal — the analyst plans the questions, writes
+            and runs the SQL against that table, picks the charts and lays everything out.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
+          <div className="space-y-1">
+            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Source table
+            </Label>
+            <Select value={selectedTable} onValueChange={setTable} disabled={busy}>
+              <SelectTrigger className="h-9 w-full text-xs">
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <Table2 className="h-3.5 w-3.5 shrink-0 text-teal-600 dark:text-teal-400" />
+                  <SelectValue placeholder="Pick a table…" />
+                </span>
+              </SelectTrigger>
+              <SelectContent>
+                {ctx.datasets.map((d) => (
+                  <SelectItem key={d.id} value={d.name} className="text-xs">
+                    <span className="font-mono">{d.name}</span>
+                    <span className="ml-1.5 text-muted-foreground">
+                      · {d.row_count.toLocaleString()} rows
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           <Textarea
             value={goal}
             onChange={(e) => setGoal(e.target.value)}
