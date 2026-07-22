@@ -347,8 +347,12 @@ export function defaultWidgetSize(widget: BiWidget): { w: number; h: number } {
   return { w: 6, h: 6 };
 }
 
-export function addWidgetToLayout(layout: BiLayoutItem[], widget: BiWidget): BiLayoutItem[] {
-  const { w, h } = defaultWidgetSize(widget);
+export function addWidgetToLayout(
+  layout: BiLayoutItem[],
+  widget: BiWidget,
+  sizeOverride?: { w: number; h: number },
+): BiLayoutItem[] {
+  const { w, h } = sizeOverride ?? defaultWidgetSize(widget);
   const { x, y } = findFreePosition(layout, w, h);
   return [...layout, { i: widget.id, x, y, w, h }];
 }

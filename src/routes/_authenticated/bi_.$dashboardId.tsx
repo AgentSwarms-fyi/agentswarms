@@ -1062,14 +1062,18 @@ function BiProjectPage() {
             onOpenChange={setGenerateOpen}
             ctx={ctx}
             onDone={(newWidgets) => {
-              // KPIs first, charts in the middle, tables at the bottom.
+              // Executive summary first (full width), then KPIs, charts,
+              // tables at the bottom.
               const rank = (w: BiWidget) => {
+                if (w.kind === "text") return -1;
                 const t = w.chart?.type;
                 return t === "kpi" || t === "gauge" ? 0 : t === "table" ? 2 : 1;
               };
               const sorted = [...newWidgets].sort((a, b) => rank(a) - rank(b));
               let lay = layout;
-              for (const w of sorted) lay = addWidgetToLayout(lay, w);
+              for (const w of sorted) {
+                lay = addWidgetToLayout(lay, w, w.kind === "text" ? { w: 12, h: 3 } : undefined);
+              }
               persist([...widgets, ...sorted], lay);
             }}
           />

@@ -421,9 +421,15 @@ export async function suggestChart(args: {
   result: QueryResult;
   plan: BiPlan;
   model?: string;
+  /** Chart type the planner asked for — honored when the result shape allows it. */
+  preferChart?: string;
 }): Promise<ChartSpec> {
   if (args.result.row_count === 0) return { type: "table" };
-  if (args.result.row_count === 1 && args.result.columns.length === 1) {
+  if (
+    args.result.row_count === 1 &&
+    args.result.columns.length === 1 &&
+    args.preferChart !== "gauge"
+  ) {
     return {
       type: "kpi",
       valueField: args.result.columns[0],
@@ -431,6 +437,10 @@ export async function suggestChart(args: {
     };
   }
   const sample = args.result.rows.slice(0, 5);
+  const preferLine = args.preferChart
+    ? `\n\nThe dashboard planner proposed a '${args.preferChart}' chart for this question — ` +
+      "use it when the returned columns support it; otherwise pick the best fit."
+    : "";
   const out = await llmJson<ChartSpec>({
     model: args.model,
     systemPrompt:
@@ -449,7 +459,7 @@ export async function suggestChart(args: {
       "- 'heatmap': { xField, yField, valueField } — intensity across two categorical dimensions\n" +
       "- 'table': {} — fallback\n" +
       "All field values MUST be exact column names from the data.",
-    userPrompt: `QUESTION: ${args.question}\nINTENT: ${args.plan.intent}\nCOLUMNS: ${args.result.columns.join(", ")}\nSAMPLE ROWS: ${JSON.stringify(sample)}\nROW COUNT: ${args.result.row_count}\n\nReturn JSON like { "type": "bar", "xField": "...", "yField": "..." }`,
+    userPrompt: `QUESTION: ${args.question}\nINTENT: ${args.plan.intent}\nCOLUMNS: ${args.result.columns.join(", ")}\nSAMPLE ROWS: ${JSON.stringify(sample)}\nROW COUNT: ${args.result.row_count}${preferLine}\n\nReturn JSON like { "type": "bar", "xField": "...", "yField": "..." }`,
   });
   return out;
 }
@@ -551,6 +561,8 @@ export async function runBiTurn(args: {
   dialect?: string;
   /** OpenRouter model id for every LLM step (server default when omitted). */
   model?: string;
+  /** Chart type the dashboard planner proposed (honored when the shape allows). */
+  preferChart?: string;
 }): Promise<BiTurn> {
   const docExcerpts = args.documents?.length
     ? extractDocExcerpts(args.question, args.documents)
@@ -595,6 +607,7 @@ export async function runBiTurn(args: {
         result: turn.result,
         plan: turn.plan,
         model: args.model,
+        preferChart: args.preferChart,
       }),
       summarizeResult({
         question: args.question,
@@ -782,5 +795,81 @@ export async function planDashboard(args: {
     questions: (out.questions ?? [])
       .filter((q): q is string => typeof q === "string" && q.trim().length > 0)
       .slice(0, 8),
+  };
+}
+
+// ── Widget suggestion (analyze table → proposed visuals) ─────────────────
+
+export type WidgetSuggestion = {
+  id: string;
+  title: string;
+  /** Proposed chart type (bar/line/kpi/pie/heatmap/scatter/…). */
+  chartType: string;
+  /** The analyst question that produces this widget. */
+  question: string;
+  /** One-line reason this visual is worth building. */
+  rationale: string;
+};
+
+const SUGGESTABLE_CHARTS =
+  "kpi, bar, hbar, line, area, pie, combo, scatter, funnel, waterfall, gauge, treemap, heatmap, boxplot, matrix, table";
+
+/**
+ * Analyze a table's structure + semantics and propose a set of dashboard
+ * widgets (plus an executive summary), maximizing the variety of chart
+ * types the data can support. The user then picks which to generate.
+ */
+export async function suggestDashboardWidgets(args: {
+  datasets: DatasetMeta[];
+  semantics: Map<string, SemanticEntry>;
+  metrics: SavedMetric[];
+  /** Optional focus/goal to steer the suggestions. */
+  focus?: string;
+  model?: string;
+}): Promise<{ title: string; summary: string; suggestions: WidgetSuggestion[] }> {
+  const schema = describeSchema(args.datasets, args.semantics, args.metrics);
+  const out = await llmJson<{
+    title?: string;
+    summary?: string;
+    widgets?: Array<{ title?: string; chartType?: string; question?: string; rationale?: string }>;
+  }>({
+    model: args.model,
+    systemPrompt:
+      "You are a senior BI analyst designing a dashboard from a single table. " +
+      "First assess the columns: identify measures (numeric facts), dimensions " +
+      "(categorical), dates, geographies and identifiers. Then propose 8-14 widgets " +
+      "that together tell the story of this data, MAXIMIZING the variety of chart types " +
+      "the columns can actually support — do not use the same type repeatedly when a " +
+      `richer one fits. Available chart types: ${SUGGESTABLE_CHARTS}. Guidance: use 'kpi' ` +
+      "for headline single numbers (2-4 of them); 'line'/'area' for measures over a date; " +
+      "'bar'/'hbar' for rankings and category comparisons; 'pie'/'treemap' for part-of-whole; " +
+      "'heatmap'/'matrix' for a measure across two dimensions; 'scatter' for two-measure " +
+      "correlation; 'boxplot' for distribution across groups; 'funnel'/'waterfall' where the " +
+      "data is sequential/additive; 'map'/'bubblemap' ONLY if a real geography column exists. " +
+      "Each widget needs a concrete analyst question answerable with ONE SQL query on this " +
+      "schema, using ONLY columns that exist. Also write a 2-4 sentence executive summary of " +
+      "what this dataset contains and the key things the dashboard reveals. Output JSON only.",
+    userPrompt:
+      `${schema}\n\n${args.focus ? `FOCUS: ${args.focus}\n\n` : ""}` +
+      'Return JSON: { "title": "short dashboard title", "summary": "executive summary (markdown ok)", ' +
+      '"widgets": [ { "title": "widget title", "chartType": "bar", "question": "analyst question", ' +
+      '"rationale": "why this visual" }, ... ] }',
+  });
+
+  const suggestions: WidgetSuggestion[] = (out.widgets ?? [])
+    .filter((w) => w && typeof w.question === "string" && w.question.trim().length > 0)
+    .slice(0, 14)
+    .map((w) => ({
+      id: crypto.randomUUID(),
+      title: (w.title ?? w.question ?? "").trim().slice(0, 80),
+      chartType: (w.chartType ?? "").trim().toLowerCase(),
+      question: (w.question ?? "").trim(),
+      rationale: (w.rationale ?? "").trim().slice(0, 160),
+    }));
+
+  return {
+    title: (out.title ?? "").trim().slice(0, 60) || args.datasets[0]?.name || "Dashboard",
+    summary: (out.summary ?? "").trim(),
+    suggestions,
   };
 }

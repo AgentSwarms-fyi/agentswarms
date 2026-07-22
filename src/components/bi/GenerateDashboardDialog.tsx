@@ -1,14 +1,37 @@
-// "Generate with AI" — one goal in, a whole dashboard out. The user picks
-// ONE source table; the analyst plans 5-8 questions against that table's
-// schema, runs each through the existing GenBI pipeline (plan → SQL →
-// execute → chart → narrative) and hands the finished widgets back to the
-// editor for auto-layout. Scoping to a single table keeps every generated
-// query grounded instead of speculative cross-table joins.
+// "Generate with AI" — analyze a table, propose visual widgets, let the
+// user pick, then build. Two steps:
+//   1. Analyze: pick ONE source table (+ optional focus). The analyst reads
+//      the column structure and semantics and proposes 8-14 widgets that
+//      maximize the variety of chart types the data supports, plus an
+//      executive summary.
+//   2. Review & generate: the user sees the summary and a checklist of
+//      suggested visuals (chart-type icon, title, rationale), selects the
+//      ones they want, and generates them through the existing GenBI
+//      pipeline. The executive summary is added as a full-width text
+//      widget at the top of the dashboard.
 import { useState } from "react";
 import { toast } from "sonner";
-import { Check, Loader2, Table2, Wand2, X as XIcon } from "lucide-react";
+import {
+  AreaChart,
+  BarChart3,
+  BarChartHorizontal,
+  Check,
+  Gauge,
+  Grid3x3,
+  LayoutList,
+  LineChart,
+  Loader2,
+  PieChart,
+  ScatterChart,
+  Sparkles,
+  Table2,
+  Wand2,
+  X as XIcon,
+} from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -17,6 +40,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
   SelectContent,
@@ -27,10 +51,46 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { BiModelSelect } from "@/components/bi/BiModelSelect";
 import type { BiDataContext } from "@/components/bi/biDataContext";
-import { planDashboard, runBiTurn } from "@/lib/biAgent";
+import {
+  runBiTurn,
+  suggestDashboardWidgets,
+  type WidgetSuggestion,
+} from "@/lib/biAgent";
 import { widgetFromBiTurn, type BiWidget } from "@/lib/biDashboards";
 
-type Step = { question: string; status: "pending" | "running" | "done" | "error" };
+/** Icon per proposed chart type, so the checklist reads at a glance. */
+function ChartTypeIcon({ type }: { type: string }) {
+  const cls = "h-3.5 w-3.5 text-primary";
+  switch (type) {
+    case "kpi":
+      return <Gauge className={cls} />;
+    case "gauge":
+      return <Gauge className={cls} />;
+    case "line":
+    case "combo":
+      return <LineChart className={cls} />;
+    case "area":
+      return <AreaChart className={cls} />;
+    case "hbar":
+      return <BarChartHorizontal className={cls} />;
+    case "pie":
+    case "treemap":
+    case "funnel":
+      return <PieChart className={cls} />;
+    case "scatter":
+    case "boxplot":
+      return <ScatterChart className={cls} />;
+    case "heatmap":
+    case "matrix":
+      return <Grid3x3 className={cls} />;
+    case "table":
+      return <LayoutList className={cls} />;
+    default:
+      return <BarChart3 className={cls} />;
+  }
+}
+
+type GenStep = { id: string; title: string; status: "pending" | "running" | "done" | "error" };
 
 export function GenerateDashboardDialog({
   open,
@@ -44,171 +104,321 @@ export function GenerateDashboardDialog({
   /** Finished widgets (≥1) plus the AI's dashboard title. */
   onDone: (widgets: BiWidget[], title: string) => void;
 }) {
-  const [goal, setGoal] = useState("");
+  const [phase, setPhase] = useState<"configure" | "review">("configure");
   const [table, setTable] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [steps, setSteps] = useState<Step[]>([]);
-  const [phase, setPhase] = useState("");
+  const [focus, setFocus] = useState("");
+  const [analyzing, setAnalyzing] = useState(false);
+  const [generating, setGenerating] = useState(false);
 
-  // The chosen source table, falling back to the first dataset so the
-  // picker is never empty-selected.
+  const [title, setTitle] = useState("");
+  const [summary, setSummary] = useState("");
+  const [suggestions, setSuggestions] = useState<WidgetSuggestion[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [steps, setSteps] = useState<GenStep[]>([]);
+
   const selectedTable = ctx.datasets.some((d) => d.name === table)
     ? table
     : (ctx.datasets[0]?.name ?? "");
+  const scoped = ctx.datasets.filter((d) => d.name === selectedTable);
+  const scopedMetrics =
+    scoped.length > 0 ? ctx.metrics.filter((m) => m.table_id === scoped[0].id) : [];
 
-  async function run() {
-    const g = goal.trim();
-    if (!g || busy) return;
-    const scoped = ctx.datasets.filter((d) => d.name === selectedTable);
+  function reset() {
+    setPhase("configure");
+    setFocus("");
+    setSummary("");
+    setSuggestions([]);
+    setSelected(new Set());
+    setSteps([]);
+  }
+
+  async function analyze() {
     if (scoped.length === 0) {
       return toast.error("No local datasets — upload data on the Data & SQL page first.");
     }
-    // Saved metrics only make sense when they belong to the chosen table.
-    const scopedMetrics = ctx.metrics.filter((m) => m.table_id === scoped[0].id);
-    setBusy(true);
-    setSteps([]);
-    setPhase("Planning the dashboard…");
+    setAnalyzing(true);
     try {
-      const plan = await planDashboard({
-        goal: g,
+      const res = await suggestDashboardWidgets({
         datasets: scoped,
         semantics: ctx.semantics,
         metrics: scopedMetrics,
+        focus: focus.trim() || undefined,
         model: ctx.model ?? undefined,
       });
-      if (plan.questions.length === 0) throw new Error("The model returned no questions");
-      let progress: Step[] = plan.questions.map((q) => ({ question: q, status: "pending" }));
-      setSteps(progress);
-      setPhase("");
+      if (res.suggestions.length === 0) {
+        throw new Error("The model proposed no widgets — try adding a focus, or another table.");
+      }
+      setTitle(res.title);
+      setSummary(res.summary);
+      setSuggestions(res.suggestions);
+      setSelected(new Set(res.suggestions.map((s) => s.id)));
+      setPhase("review");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setAnalyzing(false);
+    }
+  }
 
+  function toggle(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function generate() {
+    const picks = suggestions.filter((s) => selected.has(s.id));
+    if (picks.length === 0) return toast.error("Select at least one widget to generate");
+    setGenerating(true);
+    let progress: GenStep[] = picks.map((p) => ({ id: p.id, title: p.title, status: "pending" }));
+    setSteps(progress);
+    try {
       const widgets: BiWidget[] = [];
-      for (let i = 0; i < plan.questions.length; i++) {
+      for (let i = 0; i < picks.length; i++) {
         progress = progress.map((s, j) => (j === i ? { ...s, status: "running" } : s));
         setSteps(progress);
         const turn = await runBiTurn({
-          question: plan.questions[i],
+          question: picks[i].question,
           datasets: scoped,
           semantics: ctx.semantics,
           metrics: scopedMetrics,
           model: ctx.model ?? undefined,
+          preferChart: picks[i].chartType || undefined,
           onUpdate: () => {},
         });
         const widget = widgetFromBiTurn(turn, { kind: "local" });
         const ok = Boolean(widget && turn.status === "done" && (turn.result?.row_count ?? 0) > 0);
-        if (ok && widget) widgets.push(widget);
+        if (ok && widget) {
+          widget.title = picks[i].title || widget.title;
+          widgets.push(widget);
+        }
         progress = progress.map((s, j) => (j === i ? { ...s, status: ok ? "done" : "error" } : s));
         setSteps(progress);
       }
       if (widgets.length === 0) {
-        throw new Error("No question produced a usable result — try rephrasing the goal.");
+        throw new Error("No selected widget produced a usable result — try different ones.");
       }
-      onDone(widgets, plan.title);
-      toast.success(`Generated ${widgets.length} widgets`);
+      // Executive summary as a full-width text widget at the top.
+      const finalWidgets: BiWidget[] = summary.trim()
+        ? [
+            {
+              id: crypto.randomUUID(),
+              kind: "text",
+              title: "Executive summary",
+              text: `## ${title}\n\n${summary.trim()}`,
+            },
+            ...widgets,
+          ]
+        : widgets;
+      onDone(finalWidgets, title);
+      toast.success(`Generated ${widgets.length} widget${widgets.length === 1 ? "" : "s"}`);
       onOpenChange(false);
-      setGoal("");
-      setSteps([]);
+      reset();
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
-      setBusy(false);
-      setPhase("");
+      setGenerating(false);
     }
   }
 
+  const busy = analyzing || generating;
+  const allSelected = suggestions.length > 0 && selected.size === suggestions.length;
+
   return (
-    <Dialog open={open} onOpenChange={(v) => !busy && onOpenChange(v)}>
-      <DialogContent className="max-w-md">
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (busy) return;
+        onOpenChange(v);
+        if (!v) reset();
+      }}
+    >
+      <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-base">
             <Wand2 className="h-4 w-4 text-primary" /> Generate dashboard with AI
           </DialogTitle>
           <DialogDescription className="text-xs">
-            Pick a source table and describe the goal — the analyst plans the questions, writes
-            and runs the SQL against that table, picks the charts and lays everything out.
+            {phase === "configure"
+              ? "Pick a table — the analyst reads its structure and proposes visuals you can choose from."
+              : "Review the summary and pick the visuals to build."}
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-3">
-          <div className="space-y-1">
-            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Source table
-            </Label>
-            <Select value={selectedTable} onValueChange={setTable} disabled={busy}>
-              <SelectTrigger className="h-9 w-full text-xs">
-                <span className="flex min-w-0 items-center gap-1.5">
-                  <Table2 className="h-3.5 w-3.5 shrink-0 text-teal-600 dark:text-teal-400" />
-                  <SelectValue placeholder="Pick a table…" />
-                </span>
-              </SelectTrigger>
-              <SelectContent>
-                {ctx.datasets.map((d) => (
-                  <SelectItem key={d.id} value={d.name} className="text-xs">
-                    <span className="font-mono">{d.name}</span>
-                    <span className="ml-1.5 text-muted-foreground">
-                      · {d.row_count.toLocaleString()} rows
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <Textarea
-            value={goal}
-            onChange={(e) => setGoal(e.target.value)}
-            rows={2}
-            placeholder='e.g. "Monthly revenue review by plan and region"'
-            className="text-xs"
-            disabled={busy}
-          />
-          {ctx.onModelChange && (
+
+        {phase === "configure" && (
+          <div className="space-y-3">
             <div className="space-y-1">
               <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                AI model
+                Source table
               </Label>
-              <BiModelSelect
-                value={ctx.model ?? null}
-                onChange={ctx.onModelChange}
-                className="w-full"
+              <Select value={selectedTable} onValueChange={setTable} disabled={busy}>
+                <SelectTrigger className="h-9 w-full text-xs">
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <Table2 className="h-3.5 w-3.5 shrink-0 text-teal-600 dark:text-teal-400" />
+                    <SelectValue placeholder="Pick a table…" />
+                  </span>
+                </SelectTrigger>
+                <SelectContent>
+                  {ctx.datasets.map((d) => (
+                    <SelectItem key={d.id} value={d.name} className="text-xs">
+                      <span className="font-mono">{d.name}</span>
+                      <span className="ml-1.5 text-muted-foreground">
+                        · {d.row_count.toLocaleString()} rows
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Focus (optional)
+              </Label>
+              <Textarea
+                value={focus}
+                onChange={(e) => setFocus(e.target.value)}
+                rows={2}
+                placeholder="Steer the suggestions, e.g. 'revenue and retention by plan'. Leave blank to cover the whole table."
+                className="text-xs"
+                disabled={busy}
               />
             </div>
-          )}
-          {phase && (
-            <p className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" /> {phase}
-            </p>
-          )}
-          {steps.length > 0 && (
-            <div className="max-h-56 space-y-1 overflow-y-auto rounded-md border border-border/60 p-2">
-              {steps.map((s, i) => (
-                <div key={i} className="flex items-start gap-2 text-[11px]">
-                  {s.status === "running" ? (
-                    <Loader2 className="mt-0.5 h-3 w-3 shrink-0 animate-spin text-primary" />
-                  ) : s.status === "done" ? (
-                    <Check className="mt-0.5 h-3 w-3 shrink-0 text-emerald-500" />
-                  ) : s.status === "error" ? (
-                    <XIcon className="mt-0.5 h-3 w-3 shrink-0 text-red-500" />
-                  ) : (
-                    <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/40" />
-                  )}
-                  <span
-                    className={
-                      s.status === "error" ? "text-muted-foreground line-through" : undefined
-                    }
-                  >
-                    {s.question}
-                  </span>
-                </div>
-              ))}
+            {ctx.onModelChange && (
+              <div className="space-y-1">
+                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  AI model
+                </Label>
+                <BiModelSelect
+                  value={ctx.model ?? null}
+                  onChange={ctx.onModelChange}
+                  className="w-full"
+                />
+              </div>
+            )}
+            <Button className="w-full gap-1.5" onClick={() => void analyze()} disabled={busy}>
+              {analyzing ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" /> Analyzing table…
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-4 w-4" /> Analyze & suggest widgets
+                </>
+              )}
+            </Button>
+          </div>
+        )}
+
+        {phase === "review" && (
+          <>
+            <div className="rounded-lg border border-border bg-muted/30 p-3">
+              <p className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <Sparkles className="h-3 w-3 text-primary" /> Executive summary
+              </p>
+              <p className="text-sm font-semibold">{title}</p>
+              {summary && (
+                <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
+                  {summary}
+                </p>
+              )}
             </div>
-          )}
-          <Button
-            className="w-full gap-1.5"
-            onClick={() => void run()}
-            disabled={busy || !goal.trim()}
-          >
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
-            {busy ? "Generating…" : "Generate dashboard"}
-          </Button>
-        </div>
+
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">
+                {selected.size} of {suggestions.length} selected
+              </span>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 text-[11px]"
+                disabled={generating}
+                onClick={() =>
+                  setSelected(allSelected ? new Set() : new Set(suggestions.map((s) => s.id)))
+                }
+              >
+                {allSelected ? "Clear all" : "Select all"}
+              </Button>
+            </div>
+
+            <ScrollArea className="min-h-0 flex-1">
+              <div className="space-y-1.5 pr-2">
+                {suggestions.map((s) => {
+                  const step = steps.find((st) => st.id === s.id);
+                  return (
+                    <label
+                      key={s.id}
+                      className={`flex cursor-pointer items-start gap-2.5 rounded-lg border p-2.5 transition-colors ${
+                        selected.has(s.id)
+                          ? "border-primary/40 bg-primary/5"
+                          : "border-border hover:bg-muted/40"
+                      }`}
+                    >
+                      <Checkbox
+                        checked={selected.has(s.id)}
+                        onCheckedChange={() => toggle(s.id)}
+                        disabled={generating}
+                        className="mt-0.5"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <ChartTypeIcon type={s.chartType} />
+                          <span className="truncate text-xs font-medium">{s.title}</span>
+                          {step?.status === "running" && (
+                            <Loader2 className="h-3 w-3 shrink-0 animate-spin text-primary" />
+                          )}
+                          {step?.status === "done" && (
+                            <Check className="h-3 w-3 shrink-0 text-emerald-500" />
+                          )}
+                          {step?.status === "error" && (
+                            <XIcon className="h-3 w-3 shrink-0 text-red-500" />
+                          )}
+                        </div>
+                        {s.rationale && (
+                          <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+                            {s.rationale}
+                          </p>
+                        )}
+                      </div>
+                      <Badge variant="outline" className="shrink-0 text-[9px] font-normal">
+                        {s.chartType || "auto"}
+                      </Badge>
+                    </label>
+                  );
+                })}
+              </div>
+            </ScrollArea>
+
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                className="gap-1.5"
+                disabled={generating}
+                onClick={() => setPhase("configure")}
+              >
+                Back
+              </Button>
+              <Button
+                className="flex-1 gap-1.5"
+                onClick={() => void generate()}
+                disabled={generating || selected.size === 0}
+              >
+                {generating ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" /> Generating…
+                  </>
+                ) : (
+                  <>
+                    <Wand2 className="h-4 w-4" /> Generate {selected.size} widget
+                    {selected.size === 1 ? "" : "s"}
+                  </>
+                )}
+              </Button>
+            </div>
+          </>
+        )}
       </DialogContent>
     </Dialog>
   );
