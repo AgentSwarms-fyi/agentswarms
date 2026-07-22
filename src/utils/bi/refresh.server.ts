@@ -581,5 +581,10 @@ export function ensureScheduler(): void {
     processDueSchedules().catch((e) =>
       console.warn("[bi-scheduler] processing failed:", (e as Error).message),
     );
+    // Catalog crawls share the same tick (lazy import avoids a cycle and
+    // keeps the catalog module graph out of server boot).
+    void import("@/utils/catalog/schedule.server")
+      .then((m) => m.processDueCatalogCrawls())
+      .catch((e) => console.warn("[catalog-scheduler] processing failed:", (e as Error).message));
   }, 60_000).unref?.();
 }

@@ -116,12 +116,16 @@ export const Route = createFileRoute("/api/bi")({
 
         const startedAt = Date.now();
         // Model precedence: explicit choice → the integration's
-        // default_model → the instance default (OpenRouter only).
+        // default_model → the operator's OPENROUTER_DEFAULT_MODEL → the
+        // instance default (OpenRouter only). The env override matters on
+        // shared operator keys that only carry credit for specific models.
         let model = body.model || "";
         if (!model) {
           model = (await getProviderDefaultModel(user.id, provider as ProviderId)) ?? "";
         }
-        if (!model && provider === "openrouter") model = DEFAULT_MODEL;
+        if (!model && provider === "openrouter") {
+          model = process.env.OPENROUTER_DEFAULT_MODEL || DEFAULT_MODEL;
+        }
         if (!model) {
           return json(
             {

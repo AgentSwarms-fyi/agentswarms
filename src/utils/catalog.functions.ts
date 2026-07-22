@@ -9,10 +9,11 @@ import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 
 import type { Database, Json } from "@/integrations/supabase/types";
-import { decryptJson, encryptJson } from "@/utils/providers/crypto.server";
+import { encryptJson } from "@/utils/providers/crypto.server";
 import { resolveSecretRefsInObject } from "@/utils/secrets.server";
 import { loadWarehouseConnection } from "@/utils/warehouse/connections.server";
-import { runCrawl, type CrawlStats } from "@/utils/catalog/crawler.server";
+import { loadStorageConfig, runCrawl, type CrawlStats } from "@/utils/catalog/crawler.server";
+import { nextCrawlAt } from "@/utils/catalog/schedule.server";
 import { testObjectStore, type ObjectStoreConfig } from "@/utils/catalog/objectStore.server";
 
 function userClient(accessToken: string) {
@@ -58,23 +59,37 @@ function normalizeStorage(cfg: StorageConfigInput): ObjectStoreConfig {
   };
 }
 
-/** Resolve {{secret:NAME}} refs and decrypt a stored bucket config. */
-async function loadStorageConfig(
-  userId: string,
-  source: { credentials: Json | null; name: string },
-): Promise<ObjectStoreConfig> {
-  const enc = source.credentials as { ciphertext?: string; iv?: string } | null;
-  if (!enc?.ciphertext || !enc?.iv) {
-    throw new Error(`Source "${source.name}" has no stored credentials`);
-  }
-  const cfg = await decryptJson<ObjectStoreConfig>(enc.ciphertext, enc.iv);
-  return (await resolveSecretRefsInObject(
-    userId,
-    cfg as unknown as Record<string, unknown>,
-  )) as unknown as ObjectStoreConfig;
-}
-
 type CatalogError = { ok: false; error: string };
+
+/** Set a source's crawl cadence (manual disables scheduled crawls). */
+export const catalogSetSchedule = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        access_token: z.string().min(1),
+        source_id: z.string().uuid(),
+        schedule: z.enum(["manual", "daily", "weekly"]),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }): Promise<CatalogError | { ok: true; next_crawl_at: string | null }> => {
+    try {
+      const { sb } = await requireUser(data.access_token);
+      const next = nextCrawlAt(data.schedule);
+      const { error, count } = await sb
+        .from("catalog_sources")
+        .update(
+          { crawl_schedule: data.schedule, next_crawl_at: next, updated_at: new Date().toISOString() },
+          { count: "exact" },
+        )
+        .eq("id", data.source_id);
+      if (error) return { ok: false, error: error.message };
+      if (!count) return { ok: false, error: "Source not found" };
+      return { ok: true, next_crawl_at: next };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : "Failed" };
+    }
+  });
 
 export const catalogCreateSource = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) =>

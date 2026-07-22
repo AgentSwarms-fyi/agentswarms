@@ -514,11 +514,14 @@ export type Database = {
           id: string;
           last_crawled_at: string;
           name: string;
+          owner: string | null;
           pii: boolean;
           row_count: number | null;
+          schema_hash: string | null;
           schema_name: string | null;
           size_bytes: number | null;
           source_id: string;
+          status: string;
           tags: string[];
           user_id: string;
         };
@@ -533,11 +536,14 @@ export type Database = {
           id?: string;
           last_crawled_at?: string;
           name: string;
+          owner?: string | null;
           pii?: boolean;
           row_count?: number | null;
+          schema_hash?: string | null;
           schema_name?: string | null;
           size_bytes?: number | null;
           source_id: string;
+          status?: string;
           tags?: string[];
           user_id: string;
         };
@@ -552,11 +558,14 @@ export type Database = {
           id?: string;
           last_crawled_at?: string;
           name?: string;
+          owner?: string | null;
           pii?: boolean;
           row_count?: number | null;
+          schema_hash?: string | null;
           schema_name?: string | null;
           size_bytes?: number | null;
           source_id?: string;
+          status?: string;
           tags?: string[];
           user_id?: string;
         };
@@ -566,6 +575,7 @@ export type Database = {
         Row: {
           config: Json;
           connection_id: string | null;
+          crawl_schedule: string;
           crawl_stats: Json;
           created_at: string;
           credentials: Json | null;
@@ -574,6 +584,7 @@ export type Database = {
           last_crawl_at: string | null;
           last_error: string | null;
           name: string;
+          next_crawl_at: string | null;
           status: string;
           updated_at: string;
           user_id: string;
@@ -581,6 +592,7 @@ export type Database = {
         Insert: {
           config?: Json;
           connection_id?: string | null;
+          crawl_schedule?: string;
           crawl_stats?: Json;
           created_at?: string;
           credentials?: Json | null;
@@ -589,6 +601,7 @@ export type Database = {
           last_crawl_at?: string | null;
           last_error?: string | null;
           name: string;
+          next_crawl_at?: string | null;
           status?: string;
           updated_at?: string;
           user_id: string;
@@ -596,6 +609,7 @@ export type Database = {
         Update: {
           config?: Json;
           connection_id?: string | null;
+          crawl_schedule?: string;
           crawl_stats?: Json;
           created_at?: string;
           credentials?: Json | null;
@@ -604,6 +618,7 @@ export type Database = {
           last_crawl_at?: string | null;
           last_error?: string | null;
           name?: string;
+          next_crawl_at?: string | null;
           status?: string;
           updated_at?: string;
           user_id?: string;

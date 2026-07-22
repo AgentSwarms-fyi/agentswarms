@@ -229,7 +229,16 @@ export async function sampleObject(
 
 // ── Schema inference from sampled bytes ──────────────────────────────────
 
-export type InferredColumn = { name: string; type: string; sample?: string };
+export type InferredColumn = {
+  name: string;
+  type: string;
+  sample?: string;
+  /** Sample-based profile stats (percentage 0–100 / counts within the sample). */
+  null_pct?: number;
+  distinct_count?: number;
+  min?: number;
+  max?: number;
+};
 
 export function fileFormat(key: string): string | null {
   const base = key.toLowerCase();
@@ -254,25 +263,46 @@ function valueType(v: unknown): string {
   return "string";
 }
 
+/**
+ * Per-column sample profile: null %, distinct count and numeric min/max
+ * computed over the given records. Shared by the bucket schema inference
+ * and the warehouse preview-based profiler.
+ */
+export function computeColumnStats(
+  records: Record<string, unknown>[],
+  name: string,
+): Pick<InferredColumn, "type" | "sample" | "null_pct" | "distinct_count" | "min" | "max"> {
+  const raw = records.map((r) => r[name]);
+  const values = raw.filter((v) => v !== null && v !== undefined && v !== "");
+  const types = new Set(values.slice(0, 100).map(valueType));
+  const type = types.size === 1 ? [...types][0] : "string";
+  const first = values[0];
+  const distinct = new Set(values.map((v) => (typeof v === "object" ? JSON.stringify(v) : String(v))));
+  const out: ReturnType<typeof computeColumnStats> = {
+    type,
+    sample:
+      first === undefined
+        ? undefined
+        : String(typeof first === "object" ? JSON.stringify(first) : first).slice(0, 80),
+    null_pct: records.length > 0 ? Math.round(((records.length - values.length) / records.length) * 100) : undefined,
+    distinct_count: distinct.size,
+  };
+  if (type === "number") {
+    const nums = values.map(Number).filter(Number.isFinite);
+    if (nums.length > 0) {
+      out.min = Math.min(...nums);
+      out.max = Math.max(...nums);
+    }
+  }
+  return out;
+}
+
 function columnsFromRecords(records: Record<string, unknown>[]): InferredColumn[] {
   const names: string[] = [];
   for (const r of records) {
     for (const k of Object.keys(r)) if (!names.includes(k)) names.push(k);
   }
-  return names.slice(0, 200).map((name) => {
-    const values = records.map((r) => r[name]).filter((v) => v !== null && v !== undefined && v !== "");
-    const types = new Set(values.slice(0, 100).map(valueType));
-    const type = types.size === 1 ? [...types][0] : types.size === 0 ? "string" : "string";
-    const first = values[0];
-    return {
-      name,
-      type,
-      sample:
-        first === undefined
-          ? undefined
-          : String(typeof first === "object" ? JSON.stringify(first) : first).slice(0, 80),
-    };
-  });
+  return names.slice(0, 200).map((name) => ({ name, ...computeColumnStats(records, name) }));
 }
 
 /**

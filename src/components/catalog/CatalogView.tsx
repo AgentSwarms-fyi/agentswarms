@@ -9,6 +9,8 @@ import { useServerFn } from "@tanstack/react-start";
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
 import {
+  BadgeCheck,
+  CalendarClock,
   Cloud,
   Database,
   FileText,
@@ -23,6 +25,7 @@ import {
   Search,
   Server,
   ShieldAlert,
+  Sparkles,
   Table2,
   Tag,
   Trash2,
@@ -34,6 +37,11 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuPortal,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -63,18 +71,25 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
+import { useBiModelPref } from "@/components/bi/BiModelSelect";
 import {
   fmtBytes,
   fmtCount,
+  generateAssetDocs,
   isPiiColumnName,
   listCatalogAssets,
   listCatalogSources,
   updateCatalogAsset,
   type CatalogAsset,
+  type CatalogAssetStatus,
   type CatalogSource,
 } from "@/lib/dataCatalog";
 import { hydrateFromSupabase } from "@/lib/sqlEngine";
-import { catalogCrawlSource, catalogDeleteSource } from "@/utils/catalog.functions";
+import {
+  catalogCrawlSource,
+  catalogDeleteSource,
+  catalogSetSchedule,
+} from "@/utils/catalog.functions";
 import { AddSourceWizard } from "@/components/catalog/AddSourceWizard";
 
 const LOCAL_SOURCE_ID = "local";
@@ -92,6 +107,7 @@ export function CatalogView({
   const token = session?.access_token ?? "";
   const crawlFn = useServerFn(catalogCrawlSource);
   const deleteFn = useServerFn(catalogDeleteSource);
+  const catalogSetScheduleFn = useServerFn(catalogSetSchedule);
 
   const [sources, setSources] = useState<CatalogSource[]>([]);
   const [assets, setAssets] = useState<CatalogAsset[]>([]);
@@ -101,6 +117,7 @@ export function CatalogView({
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [piiOnly, setPiiOnly] = useState(false);
+  const [certOnly, setCertOnly] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [crawlingIds, setCrawlingIds] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<UnifiedAsset | null>(null);
@@ -142,6 +159,8 @@ export function CatalogView({
               file_count: null,
               description: null,
               tags: d.is_sample ? ["sample"] : [],
+              owner: null,
+              status: "draft" as const,
               pii: columns.some((c) => c.pii),
               last_crawled_at: new Date().toISOString(),
               local: true,
@@ -168,19 +187,31 @@ export function CatalogView({
       if (sourceFilter !== "all" && a.source_id !== sourceFilter) return false;
       if (typeFilter !== "all" && a.asset_type !== typeFilter) return false;
       if (piiOnly && !a.pii) return false;
+      if (certOnly && a.status !== "certified") return false;
       if (!q) return true;
-      const hay = `${a.fqn} ${a.name} ${a.schema_name ?? ""} ${a.tags.join(" ")} ${a.description ?? ""} ${a.columns.map((c) => c.name).join(" ")}`.toLowerCase();
+      const hay = `${a.fqn} ${a.name} ${a.schema_name ?? ""} ${a.tags.join(" ")} ${a.owner ?? ""} ${a.description ?? ""} ${a.columns.map((c) => c.name).join(" ")}`.toLowerCase();
       return q.split(/\s+/).every((part) => hay.includes(part));
     });
-  }, [allAssets, search, sourceFilter, typeFilter, piiOnly]);
+  }, [allAssets, search, sourceFilter, typeFilter, piiOnly, certOnly]);
 
   async function recrawl(source: CatalogSource) {
     setCrawlingIds((s) => new Set(s).add(source.id));
     try {
       const res = await crawlFn({ data: { access_token: token, source_id: source.id } });
       if (!res.ok) throw new Error(res.error);
+      const c = res.stats.changes;
+      const drift =
+        c && c.added.length + c.removed.length + c.changed.length > 0
+          ? ` · ${[
+              c.added.length ? `${c.added.length} added` : null,
+              c.removed.length ? `${c.removed.length} removed` : null,
+              c.changed.length ? `${c.changed.length} schema-changed` : null,
+            ]
+              .filter(Boolean)
+              .join(", ")}`
+          : "";
       toast.success(
-        `Crawled "${source.name}" — ${res.stats.assets} assets, ${res.stats.columns} columns`,
+        `Crawled "${source.name}" — ${res.stats.assets} assets, ${res.stats.columns} columns${drift}`,
       );
       await reload();
     } catch (e) {
@@ -193,6 +224,19 @@ export function CatalogView({
         return next;
       });
     }
+  }
+
+  async function setSchedule(source: CatalogSource, schedule: CatalogSource["crawl_schedule"]) {
+    const res = await catalogSetScheduleFn({
+      data: { access_token: token, source_id: source.id, schedule },
+    });
+    if (!res.ok) return toast.error(res.error);
+    toast.success(
+      schedule === "manual"
+        ? "Scheduled crawls disabled"
+        : `Crawling ${schedule} — you'll be notified when the schema changes`,
+    );
+    await reload();
   }
 
   async function removeSource(source: CatalogSource) {
@@ -323,6 +367,12 @@ export function CatalogView({
                 >
                   {sourceIcon(s)}
                   <span className="truncate">{s.name}</span>
+                  {s.crawl_schedule !== "manual" && (
+                    <CalendarClock
+                      className="h-3 w-3 shrink-0 text-muted-foreground"
+                      aria-label={`crawls ${s.crawl_schedule}`}
+                    />
+                  )}
                   {statusDot(s)}
                   <span className="ml-auto text-[10px] text-muted-foreground">
                     {assetCountBySource.get(s.id) ?? 0}
@@ -342,7 +392,7 @@ export function CatalogView({
                       )}
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-40">
+                  <DropdownMenuContent align="end" className="w-44">
                     <DropdownMenuItem
                       className="gap-2 text-xs"
                       disabled={crawlingIds.has(s.id)}
@@ -350,6 +400,31 @@ export function CatalogView({
                     >
                       <RefreshCw className="h-3.5 w-3.5" /> Re-crawl
                     </DropdownMenuItem>
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger className="gap-2 text-xs">
+                        <CalendarClock className="h-3.5 w-3.5" /> Schedule
+                        <span className="ml-auto text-[10px] text-muted-foreground">
+                          {s.crawl_schedule}
+                        </span>
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuPortal>
+                        <DropdownMenuSubContent className="w-36">
+                          {(["manual", "daily", "weekly"] as const).map((opt) => (
+                            <DropdownMenuItem
+                              key={opt}
+                              className="gap-2 text-xs capitalize"
+                              onClick={() => void setSchedule(s, opt)}
+                            >
+                              {opt}
+                              {s.crawl_schedule === opt && (
+                                <BadgeCheck className="ml-auto h-3 w-3 text-primary" />
+                              )}
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuPortal>
+                    </DropdownMenuSub>
+                    <DropdownMenuSeparator />
                     <DropdownMenuItem
                       className="gap-2 text-xs text-destructive focus:text-destructive"
                       onClick={() => void removeSource(s)}
@@ -411,6 +486,15 @@ export function CatalogView({
           >
             <ShieldAlert className="h-3.5 w-3.5" /> PII
           </Button>
+          <Button
+            size="sm"
+            variant={certOnly ? "default" : "outline"}
+            className="h-8 gap-1.5 px-2.5 text-xs"
+            onClick={() => setCertOnly((v) => !v)}
+            title="Only certified assets"
+          >
+            <BadgeCheck className="h-3.5 w-3.5" /> Certified
+          </Button>
           <span className="ml-auto text-[11px] text-muted-foreground">
             {filtered.length} of {allAssets.length} assets
           </span>
@@ -467,6 +551,22 @@ export function CatalogView({
                             </p>
                           )}
                         </div>
+                        {a.status === "certified" && (
+                          <Badge
+                            variant="outline"
+                            className="h-4 gap-0.5 border-emerald-500/50 px-1 text-[9px] text-emerald-600 dark:text-emerald-400"
+                          >
+                            <BadgeCheck className="h-2.5 w-2.5" /> Certified
+                          </Badge>
+                        )}
+                        {a.status === "deprecated" && (
+                          <Badge
+                            variant="outline"
+                            className="h-4 px-1 text-[9px] text-muted-foreground line-through"
+                          >
+                            deprecated
+                          </Badge>
+                        )}
                         {a.pii && (
                           <Badge
                             variant="outline"
@@ -570,20 +670,31 @@ function AssetSheet({
   queryable: boolean;
   onQuery: () => void;
   onClose: () => void;
-  onSaved: (patch: { description: string | null; tags: string[] }) => void;
+  onSaved: (patch: Partial<CatalogAsset>) => void;
 }) {
+  const { session } = useAuth();
+  const [biModel] = useBiModelPref();
   const [description, setDescription] = useState("");
   const [tagsInput, setTagsInput] = useState("");
+  const [owner, setOwner] = useState("");
+  const [status, setStatus] = useState<CatalogAssetStatus>("draft");
   const [saving, setSaving] = useState(false);
+  const [aiBusy, setAiBusy] = useState(false);
 
   useEffect(() => {
     setDescription(asset?.description ?? "");
     setTagsInput(asset?.tags.join(", ") ?? "");
+    setOwner(asset?.owner ?? "");
+    setStatus(asset?.status ?? "draft");
   }, [asset]);
 
   if (!asset) return null;
   const dirty =
-    description !== (asset.description ?? "") || tagsInput !== asset.tags.join(", ");
+    description !== (asset.description ?? "") ||
+    tagsInput !== asset.tags.join(", ") ||
+    owner !== (asset.owner ?? "") ||
+    status !== asset.status;
+  const hasStats = asset.columns.some((c) => c.null_pct !== undefined);
 
   async function save() {
     if (!asset || asset.local) return;
@@ -594,13 +705,37 @@ function AssetSheet({
         .map((t) => t.trim())
         .filter(Boolean)
         .slice(0, 12);
-      await updateCatalogAsset(asset.id, { description: description.trim() || null, tags });
-      onSaved({ description: description.trim() || null, tags });
+      const patch = {
+        description: description.trim() || null,
+        tags,
+        owner: owner.trim() || null,
+        status,
+      };
+      await updateCatalogAsset(asset.id, patch);
+      onSaved(patch);
       toast.success("Saved");
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function aiDocs() {
+    if (!asset || asset.local || !session?.access_token) return;
+    if (asset.columns.length === 0) {
+      return toast.error("No column metadata to document — crawl this asset first.");
+    }
+    setAiBusy(true);
+    try {
+      const res = await generateAssetDocs(session.access_token, asset, biModel);
+      setDescription(res.description);
+      onSaved({ description: res.description, columns: res.columns });
+      toast.success("Documentation generated");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setAiBusy(false);
     }
   }
 
@@ -610,6 +745,14 @@ function AssetSheet({
         <SheetHeader className="pb-3">
           <SheetTitle className="flex items-center gap-2 font-mono text-base">
             {asset.name}
+            {asset.status === "certified" && (
+              <Badge
+                variant="outline"
+                className="h-5 gap-1 border-emerald-500/50 px-1.5 text-[10px] text-emerald-600 dark:text-emerald-400"
+              >
+                <BadgeCheck className="h-3 w-3" /> Certified
+              </Badge>
+            )}
             {asset.pii && (
               <Badge
                 variant="outline"
@@ -625,7 +768,7 @@ function AssetSheet({
         <div className="grid grid-cols-4 gap-2 border-y border-border py-2.5 text-center">
           {[
             ["Source", sourceName],
-            ["Type", `${asset.asset_type}${asset.format ? ` · ${asset.format}` : ""}`],
+            ["Type", `${asset.asset_type}${asset.format ? ` \u00b7 ${asset.format}` : ""}`],
             ["Rows", fmtCount(asset.row_count)],
             [
               asset.file_count ? "Files" : "Size",
@@ -649,61 +792,155 @@ function AssetSheet({
               </p>
               {asset.columns.length === 0 ? (
                 <p className="text-xs text-muted-foreground">
-                  No column metadata — {asset.format === "parquet" || asset.format === "compressed"
+                  No column metadata \u2014{" "}
+                  {asset.format === "parquet" || asset.format === "compressed"
                     ? "binary formats aren't sampled."
                     : "this asset wasn't sampled during the crawl."}
                 </p>
               ) : (
-                <div className="overflow-hidden rounded-md border border-border">
-                  <table className="w-full text-left">
-                    <thead className="bg-muted/50">
-                      <tr>
-                        <th className="px-2 py-1 text-[10px] font-medium text-muted-foreground">
-                          Name
-                        </th>
-                        <th className="px-2 py-1 text-[10px] font-medium text-muted-foreground">
-                          Type
-                        </th>
-                        <th className="px-2 py-1 text-[10px] font-medium text-muted-foreground">
-                          Sample
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {asset.columns.map((c) => (
-                        <tr key={c.name} className="border-t border-border/50">
-                          <td className="px-2 py-1 font-mono text-[11px]">
-                            <span className="flex items-center gap-1">
-                              {c.name}
-                              {c.pii && (
-                                <ShieldAlert
-                                  className="h-3 w-3 text-amber-500"
-                                  aria-label="likely PII"
-                                />
-                              )}
-                            </span>
-                          </td>
-                          <td className="px-2 py-1 text-[11px] text-muted-foreground">{c.type}</td>
-                          <td
-                            className="max-w-40 truncate px-2 py-1 text-[11px] text-muted-foreground"
-                            title={c.sample}
-                          >
-                            {c.sample ?? ""}
-                          </td>
+                <>
+                  <div className="overflow-hidden rounded-md border border-border">
+                    <table className="w-full text-left">
+                      <thead className="bg-muted/50">
+                        <tr>
+                          <th className="px-2 py-1 text-[10px] font-medium text-muted-foreground">
+                            Name
+                          </th>
+                          <th className="px-2 py-1 text-[10px] font-medium text-muted-foreground">
+                            Type
+                          </th>
+                          {hasStats && (
+                            <>
+                              <th className="px-2 py-1 text-right text-[10px] font-medium text-muted-foreground">
+                                Nulls
+                              </th>
+                              <th className="px-2 py-1 text-right text-[10px] font-medium text-muted-foreground">
+                                Distinct
+                              </th>
+                            </>
+                          )}
+                          <th className="px-2 py-1 text-[10px] font-medium text-muted-foreground">
+                            Sample
+                          </th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody>
+                        {asset.columns.map((c) => (
+                          <tr key={c.name} className="border-t border-border/50 align-top">
+                            <td className="max-w-44 px-2 py-1 font-mono text-[11px]">
+                              <span className="flex items-center gap-1">
+                                {c.name}
+                                {c.pii && (
+                                  <ShieldAlert
+                                    className="h-3 w-3 shrink-0 text-amber-500"
+                                    aria-label="likely PII"
+                                  />
+                                )}
+                              </span>
+                              {c.description && (
+                                <p
+                                  className="truncate font-sans text-[10px] font-normal text-muted-foreground"
+                                  title={c.description}
+                                >
+                                  {c.description}
+                                </p>
+                              )}
+                            </td>
+                            <td className="px-2 py-1 text-[11px] text-muted-foreground">
+                              {c.type}
+                              {c.min !== undefined && c.max !== undefined && (
+                                <p className="text-[9px] text-muted-foreground/70">
+                                  {fmtCount(c.min)}\u2013{fmtCount(c.max)}
+                                </p>
+                              )}
+                            </td>
+                            {hasStats && (
+                              <>
+                                <td className="px-2 py-1 text-right text-[11px] tabular-nums text-muted-foreground">
+                                  {c.null_pct !== undefined ? `${c.null_pct}%` : "\u2014"}
+                                </td>
+                                <td className="px-2 py-1 text-right text-[11px] tabular-nums text-muted-foreground">
+                                  {c.distinct_count !== undefined ? fmtCount(c.distinct_count) : "\u2014"}
+                                </td>
+                              </>
+                            )}
+                            <td
+                              className="max-w-32 truncate px-2 py-1 text-[11px] text-muted-foreground"
+                              title={c.sample}
+                            >
+                              {c.sample ?? ""}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {hasStats && (
+                    <p className="mt-1 text-[10px] text-muted-foreground/70">
+                      Profile stats come from a sample of up to 200 rows.
+                    </p>
+                  )}
+                </>
               )}
             </div>
 
             {!asset.local && (
               <>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <Label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Status
+                    </Label>
+                    <Select value={status} onValueChange={(v) => setStatus(v as CatalogAssetStatus)}>
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="draft" className="text-xs">
+                          Draft
+                        </SelectItem>
+                        <SelectItem value="certified" className="text-xs">
+                          Certified \u2014 trusted for analysis
+                        </SelectItem>
+                        <SelectItem value="deprecated" className="text-xs">
+                          Deprecated \u2014 avoid using
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Owner
+                    </Label>
+                    <Input
+                      value={owner}
+                      onChange={(e) => setOwner(e.target.value)}
+                      placeholder="team or person"
+                      className="h-8 text-xs"
+                    />
+                  </div>
+                </div>
                 <div>
-                  <Label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Description
-                  </Label>
+                  <div className="mb-1.5 flex items-center justify-between">
+                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Description
+                    </Label>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 gap-1 px-1.5 text-[10px] text-primary hover:text-primary"
+                      disabled={aiBusy}
+                      onClick={() => void aiDocs()}
+                      title="Generate asset + column descriptions with your BI model"
+                    >
+                      {aiBusy ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Sparkles className="h-3 w-3" />
+                      )}
+                      AI docs
+                    </Button>
+                  </div>
                   <Textarea
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
