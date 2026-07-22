@@ -42,34 +42,38 @@ export function SiteFooter() {
             </p>
           </div>
 
-          {/* Learn */}
+          {/* Learn — the handbook, blog, lessons and glossary live on the
+              hosted project site at agentswarms.fyi, so link out to them. */}
           <div>
             <h4 className="text-sm font-semibold text-foreground">Learn</h4>
             <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
               <li>
-                <Link to="/curriculum" className="hover:text-foreground">
-                  Curriculum overview
-                </Link>
-              </li>
-              <li>
-                <Link to="/learn" className="hover:text-foreground">
+                <a href="https://agentswarms.fyi/learn" className="hover:text-foreground">
                   Full handbook
-                </Link>
+                </a>
               </li>
               <li>
-                <Link to="/interview-questions" className="hover:text-foreground">
-                  Interview Questions
-                </Link>
+                <a href="https://agentswarms.fyi/blog" className="hover:text-foreground">
+                  Blog
+                </a>
               </li>
               <li>
-                <Link to="/" hash="curriculum" className="hover:text-foreground">
+                <a href="https://agentswarms.fyi/lessons" className="hover:text-foreground">
                   Lessons
-                </Link>
+                </a>
               </li>
               <li>
-                <Link to="/learn" hash="glossary" className="hover:text-foreground">
+                <a href="https://agentswarms.fyi/learn#glossary" className="hover:text-foreground">
                   Glossary
-                </Link>
+                </a>
+              </li>
+              <li>
+                <a
+                  href="https://agentswarms.fyi/interview-questions"
+                  className="hover:text-foreground"
+                >
+                  Interview Questions
+                </a>
               </li>
             </ul>
           </div>
@@ -157,12 +161,6 @@ export function SiteHeader() {
           <span>AgentSwarms</span>
         </Link>
         <div className="flex items-center gap-4 text-sm text-muted-foreground sm:gap-5">
-          <Link to="/curriculum" className="hidden hover:text-foreground sm:inline">
-            Curriculum
-          </Link>
-          <Link to="/interview-questions" className="hidden hover:text-foreground sm:inline">
-            Interview Questions
-          </Link>
           <Link
             to="/learn"
             className="hidden items-center gap-1 hover:text-foreground md:inline-flex"

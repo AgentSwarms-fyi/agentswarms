@@ -1,40 +1,50 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   ArrowRight,
-  BookOpen,
   Brain,
   CheckCircle2,
   Compass,
-  GraduationCap,
   Layers,
   Network,
+  PieChart,
   ShieldCheck,
   Target,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SiteFooter, SiteHeader } from "@/components/SiteChrome";
 
+const GITHUB_URL = "https://github.com/AgentSwarms-fyi/agentswarms";
+
+// lucide-react no longer ships brand icons, so the GitHub mark is inlined.
+function Github({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
+      <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" />
+    </svg>
+  );
+}
+
 export const Route = createFileRoute("/about")({
   head: () => ({
     meta: [
-      { title: "About AgentSwarms — Learning-first Agentic AI platform" },
+      { title: "About AgentSwarms — Open-source, self-hosted agentic AI & BI" },
       {
         name: "description",
         content:
-          "Why AgentSwarms exists and how it differs from Langflow, Dify, and Flowise. An education-first playground for agents and multi-agent swarms.",
+          "Why AgentSwarms exists: one open-source, self-hosted platform that unifies AI agents, multi-agent swarms and an AI-native BI suite — on your own infrastructure, with your database and your model keys. MIT licensed.",
       },
       { property: "og:title", content: "About AgentSwarms" },
       {
         property: "og:description",
         content:
-          "A learning-first interactive platform for Agentic AI — guided lessons, runnable templates, real case studies.",
+          "One open-source platform for agents, multi-agent swarms and AI-native BI — self-hosted, BYOK, MIT licensed.",
       },
       { property: "og:url", content: "https://agentswarms.fyi/about" },
       { name: "twitter:card", content: "summary_large_image" },
       { name: "twitter:title", content: "About AgentSwarms" },
       {
         name: "twitter:description",
-        content: "A learning-first interactive platform for Agentic AI.",
+        content: "Open-source, self-hosted platform for agents, swarms and AI-native BI.",
       },
       {
         property: "og:image",
@@ -57,7 +67,7 @@ export const Route = createFileRoute("/about")({
           name: "About AgentSwarms",
           url: "https://agentswarms.fyi/about",
           description:
-            "Why AgentSwarms exists and how it differs from Langflow, Dify, and Flowise — an education-first playground for agents and multi-agent swarms.",
+            "One open-source, self-hosted platform that unifies AI agents, multi-agent swarms and an AI-native BI suite — on your own infrastructure, with your own model keys.",
           isPartOf: { "@type": "WebSite", name: "AgentSwarms", url: "https://agentswarms.fyi/" },
         }),
       },
@@ -68,48 +78,48 @@ export const Route = createFileRoute("/about")({
 
 const principles = [
   {
-    icon: GraduationCap,
-    title: "Learning is the product",
-    body: "Most agent builders ship a canvas and call it a day. We start from the lesson — every node, every template, every tour exists to teach a concept that maps to real production systems.",
-  },
-  {
-    icon: BookOpen,
-    title: "Concepts, then clicks",
-    body: "You read a one-page explainer, then run the exact pattern live: RAG, tool use, planner-executor, HITL, multi-agent swarms, text-to-SQL. No copy-pasting from random tutorials.",
-  },
-  {
     icon: ShieldCheck,
-    title: "Production realism, not toy demos",
-    body: "Approvals, budgets, traces, RLS-protected SQL agents, table allow-lists. The platform mirrors patterns used inside Uber QueryGPT, Snowflake Cortex, Salesforce Agentforce.",
+    title: "You own the platform",
+    body: "Everything runs on infrastructure you control — your database, your model keys, your budgets. No usage caps, no per-seat pricing, no black boxes. Row-level security protects every record, and provider keys are encrypted at rest.",
+  },
+  {
+    icon: Network,
+    title: "A real builder, not a toy",
+    body: "A visual Agent Builder and drag-and-drop swarm canvas with tools, memory, RAG, guardrails, evals and human-approval gates — the full prototyping loop. Connect MCP servers, delegate to remote A2A agents, and export any swarm to LangGraph, CrewAI or the OpenAI Agents SDK.",
+  },
+  {
+    icon: PieChart,
+    title: "Agents and BI, unified",
+    body: "The same instance that runs your agents also runs a full AI-native BI suite — dashboards, an analyst that writes and runs the SQL, scheduled refreshes with data alerts, and warehouse connectors. One data estate, one login, one stack to operate.",
   },
 ];
 
 const comparisons = [
   {
     them: "Langflow / Flowise",
-    they: "Visual LangChain pipeline builders. Powerful, but assume you already know what RAG, planners, and tool use are.",
-    we: "We teach those concepts first with guided lessons, then let you build them — so the visual canvas actually makes sense.",
+    they: "Open-source visual builders for LLM pipelines. Great for wiring up a chain, but they stop at the graph.",
+    we: "We add multi-agent swarms with approvals, evals and budgets — and a full BI suite on the same self-hosted instance.",
   },
   {
     them: "Dify",
-    they: "Production AI app platform with strong RAG and team workflows. Dense and operationally focused.",
-    we: "We optimize for understanding: every template ships with a step-by-step tour, glossary entry, and case study.",
+    they: "A capable AI-app platform, but heavier to self-host and centred on hosted deployment.",
+    we: "One Docker command on Supabase's free tier, bring-your-own-keys, with dashboards and an AI analyst built in.",
   },
   {
-    them: "Closed courses (Udacity, Coursera)",
-    they: "Linear video lessons with sandboxed code. Great theory; weak hands-on environments.",
-    we: "Lessons are wired into a real, multi-provider playground. You read, click, run, and remix in one place.",
+    them: "A framework + a BI tool + a gateway",
+    they: "The usual stack: LangGraph or CrewAI, plus Metabase or Superset, plus a model gateway, plus an observability tool — glued together yourself.",
+    we: "AgentSwarms is one platform — agents, BI, gateway, traces and IAM together — and you can still export swarms to those frameworks when you outgrow the canvas.",
   },
 ];
 
 const features = [
-  "8 learning tracks from prompts to multi-agent swarms, plus an in-browser Python notebook lab",
-  "Runnable templates: RAG bot, SQL analyst, RevOps swarm, planner-executor",
-  "Multi-provider model gateway: OpenAI, Anthropic, Gemini, Bedrock, Azure, OCI, Qwen, Grok",
-  "Built-in HITL approvals inbox + per-agent budget caps",
-  "Text-to-SQL agents with AST validation and table allow-listing",
-  "Trace inspector with token, latency, and cost per call",
-  "0 setup to start (Learn Mode) — bring your own API keys when you scale (Build Mode)",
+  "Visual Agent Builder + drag-and-drop multi-agent swarm canvas with routers, conditions, loops and functions",
+  "RAG, tools, MCP servers, remote A2A agents, and export to LangGraph / CrewAI / the OpenAI Agents SDK",
+  "AI-native BI: dashboards, an analyst that writes the SQL, 19+ chart types, scheduled refresh and data alerts",
+  "Seven database & warehouse connectors: PostgreSQL, MySQL, Snowflake, BigQuery, Databricks, Redshift, Synapse",
+  "Human-in-the-loop approvals, per-user budgets with alerts, and a full trace for every model call",
+  "IAM with groups & model rules, SAML SSO, and a write-only encrypted secrets vault",
+  "One Docker command on any Node host (or Cloudflare Workers), Supabase as the backend, any model provider",
 ];
 
 export default function AboutPage() {
@@ -125,11 +135,12 @@ export default function AboutPage() {
               <Compass className="h-3.5 w-3.5" /> About
             </div>
             <h1 className="text-4xl font-bold tracking-tight sm:text-6xl">
-              We're building the school for <span className="text-primary">Agentic AI.</span>
+              One open platform for agents, swarms &amp; <span className="text-primary">BI.</span>
             </h1>
             <p className="mx-auto mt-6 max-w-2xl text-lg text-muted-foreground">
-              AgentSwarms is an interactive, education-first platform for anyone who wants to
-              actually understand — and ship — agents, tools, guardrails, and multi-agent swarms.
+              AgentSwarms unifies AI agents, multi-agent swarms and an AI-native BI suite in a
+              single platform you run yourself — on your own infrastructure, with your database and
+              your model keys.
             </p>
             <div className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-emerald-600/40 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:border-emerald-500/30 dark:text-emerald-400">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
@@ -142,12 +153,13 @@ export default function AboutPage() {
         <section className="py-20">
           <div className="mx-auto max-w-3xl px-6 text-center">
             <Target className="mx-auto h-8 w-8 text-primary" />
-            <h2 className="mt-4 text-3xl font-bold tracking-tight">Our mission</h2>
+            <h2 className="mt-4 text-3xl font-bold tracking-tight">Why we built it</h2>
             <p className="mt-4 text-lg leading-relaxed text-muted-foreground">
-              Most people learning Agentic AI today read scattered blog posts, watch YouTube demos,
-              then get stuck the moment they try to build something real. We're closing that gap
-              with a single, guided, hands-on environment where every concept comes paired with a
-              runnable example you can fork and remix.
+              Most teams stitch together an agent framework, a separate BI tool, a vector store, a
+              model gateway and an observability stack — then rent it all from vendors with usage
+              caps and per-seat pricing. We think the whole stack should be one thing you own:
+              deploy it with a single command, point it at your Supabase and your model keys, and
+              run agents and dashboards side by side, with full traces and nothing hidden.
             </p>
           </div>
         </section>
@@ -163,7 +175,7 @@ export default function AboutPage() {
                 What makes AgentSwarms different
               </h2>
             </div>
-            <div className="mt-12 grid gap-5 sm:grid-cols-2">
+            <div className="mt-12 grid gap-5 sm:grid-cols-3">
               {principles.map((p) => (
                 <div
                   key={p.title}
@@ -188,11 +200,11 @@ export default function AboutPage() {
                 <Brain className="h-3.5 w-3.5" /> Where we fit
               </div>
               <h2 className="text-3xl font-bold tracking-tight">
-                How we compare to Langflow, Dify, and the rest
+                How we compare to the usual stack
               </h2>
               <p className="mx-auto mt-3 max-w-2xl text-muted-foreground">
-                Those are great tools. We're not trying to replace them — we're the layer that gets
-                you ready to use them.
+                Those are good tools. We're the option that gives you agents, swarms and BI as one
+                self-hosted platform you fully own.
               </p>
             </div>
             <div className="mt-10 space-y-4">
@@ -245,20 +257,20 @@ export default function AboutPage() {
         {/* CTA */}
         <section className="py-20">
           <div className="mx-auto max-w-2xl px-6 text-center">
-            <h2 className="text-3xl font-bold tracking-tight">Want to help shape what we build?</h2>
+            <h2 className="text-3xl font-bold tracking-tight">Built in the open.</h2>
             <p className="mt-3 text-muted-foreground">
-              We're early. Tell us what's missing, what's confusing, what would make this the
-              platform you'd recommend to a friend.
+              AgentSwarms is MIT licensed. Star it, fork it, open an issue, or tell us what would
+              make it the platform you'd deploy for your team.
             </p>
             <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-              <Link to="/contact">
+              <a href={GITHUB_URL} target="_blank" rel="noreferrer">
                 <Button size="lg" className="gap-2">
-                  Talk to us <ArrowRight className="h-4 w-4" />
+                  <Github className="h-4 w-4" /> View on GitHub
                 </Button>
-              </Link>
-              <Link to="/login">
-                <Button variant="outline" size="lg">
-                  Try it free
+              </a>
+              <Link to="/contact">
+                <Button variant="outline" size="lg" className="gap-2">
+                  Talk to us <ArrowRight className="h-4 w-4" />
                 </Button>
               </Link>
             </div>

@@ -36,7 +36,6 @@ import { RealBuilderMock, DeckMock } from "@/components/marketing/HomeMocks";
 import { BiDashboardMock, GenerateFlowMock } from "@/components/marketing/BiMocks";
 import { SectionHeading } from "@/components/marketing/SectionHeading";
 import agentSwarmsLogo from "@/assets/agentswarms-logo.jpg";
-import playgroundPreview from "@/assets/playground-preview.png";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -49,7 +48,7 @@ import { useAuth } from "@/hooks/use-auth";
 
 // Public source repository for this build. Self-hosters running a fork
 // should point this at their own repo.
-const GITHUB_URL = "https://github.com/rohan044/agentswarms";
+const GITHUB_URL = "https://github.com/AgentSwarms-fyi/agentswarms";
 
 // lucide-react no longer ships brand icons, so the GitHub mark is inlined.
 function Github({ className }: { className?: string }) {
@@ -1123,14 +1122,14 @@ function LandingPage() {
                       on the line, so the meter is yours too.
                     </p>
                   </div>
-                  <BrowserFrame url="localhost:8080/playground" className="">
-                    <img
-                      src={playgroundPreview}
-                      alt="The AgentSwarms playground with an agent conversation and trace inspector"
-                      loading="lazy"
-                      className="block w-full"
-                    />
-                  </BrowserFrame>
+                  <img
+                    src="/traces.png"
+                    alt="An AgentSwarms execution trace — every tool call, token count and cost for an agent run"
+                    loading="lazy"
+                    width={1632}
+                    height={845}
+                    className="block w-full rounded-xl border border-border shadow-2xl"
+                  />
                 </div>
               </Reveal>
 
