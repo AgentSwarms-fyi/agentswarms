@@ -79,16 +79,189 @@ export type PrepColumn = {
   type: PrepColumnType;
 };
 
+// ── Calculated fields ─────────────────────────────────────────────────────
+// A user-authored SQL expression evaluated over the projected output columns
+// (the aliases produced by the join step). Compiles to `(expr) AS name`.
+
+export type PrepCalc = {
+  id: string;
+  /** Output column name (safe identifier). */
+  name: string;
+  /** SQL expression referencing output column names, e.g. `\`amount\` / \`qty\``. */
+  expr: string;
+  type: PrepColumnType;
+};
+
+/** Function palette shown in the formula editor (grouped, click-to-insert). */
+export type PrepFnDef = { label: string; snippet: string; hint: string };
+export const PREP_FUNCTIONS: { group: string; fns: PrepFnDef[] }[] = [
+  {
+    group: "Math",
+    fns: [
+      { label: "+ − × ÷ %", snippet: "( + )", hint: "Arithmetic and modulo (%)" },
+      { label: "ROUND", snippet: "ROUND(, 2)", hint: "Round to N decimal places" },
+      { label: "ABS", snippet: "ABS()", hint: "Absolute value" },
+      { label: "CEIL", snippet: "CEIL()", hint: "Round up to whole number" },
+      { label: "FLOOR", snippet: "FLOOR()", hint: "Round down to whole number" },
+      { label: "POWER", snippet: "POWER(, 2)", hint: "Raise to a power" },
+      { label: "SQRT", snippet: "SQRT()", hint: "Square root" },
+    ],
+  },
+  {
+    group: "Text",
+    fns: [
+      { label: "CONCAT", snippet: "CONCAT(, )", hint: "Join text values together" },
+      { label: "UPPER", snippet: "UPPER()", hint: "Convert to UPPERCASE" },
+      { label: "LOWER", snippet: "LOWER()", hint: "Convert to lowercase" },
+      { label: "TRIM", snippet: "TRIM()", hint: "Remove leading/trailing spaces" },
+      { label: "SUBSTRING", snippet: "SUBSTRING(, 1, 3)", hint: "Extract part of text" },
+      { label: "REPLACE", snippet: "REPLACE(, 'a', 'b')", hint: "Find and replace text" },
+      { label: "LEN", snippet: "LEN()", hint: "Character count" },
+    ],
+  },
+  {
+    group: "Date",
+    fns: [
+      { label: "YEAR", snippet: "YEAR()", hint: "Extract the year" },
+      { label: "MONTH", snippet: "MONTH()", hint: "Extract the month (1–12)" },
+      { label: "DAY", snippet: "DAY()", hint: "Extract the day of month" },
+      {
+        label: "DATE_TRUNC",
+        snippet: "DATE_TRUNC('month', )",
+        hint: "Truncate to year/quarter/month/day",
+      },
+    ],
+  },
+  {
+    group: "Logic",
+    fns: [
+      {
+        label: "CASE",
+        snippet: "CASE WHEN  > 0 THEN 'yes' ELSE 'no' END",
+        hint: "Conditional / if-then-else",
+      },
+      { label: "COALESCE", snippet: "COALESCE(, )", hint: "First non-empty value" },
+    ],
+  },
+];
+
+// ── Row filters ────────────────────────────────────────────────────────────
+
+export const PREP_FILTER_OPS = [
+  { value: "=", label: "equals", needsValue: true },
+  { value: "!=", label: "not equals", needsValue: true },
+  { value: ">", label: "greater than", needsValue: true },
+  { value: ">=", label: "≥ at least", needsValue: true },
+  { value: "<", label: "less than", needsValue: true },
+  { value: "<=", label: "≤ at most", needsValue: true },
+  { value: "contains", label: "contains", needsValue: true },
+  { value: "starts_with", label: "starts with", needsValue: true },
+  { value: "ends_with", label: "ends with", needsValue: true },
+  { value: "is_null", label: "is empty", needsValue: false },
+  { value: "is_not_null", label: "is not empty", needsValue: false },
+] as const;
+export type PrepFilterOp = (typeof PREP_FILTER_OPS)[number]["value"];
+
+export type PrepFilter = { id: string; column: string; op: PrepFilterOp; value: string };
+export type PrepFilters = { combine: "AND" | "OR"; conditions: PrepFilter[] };
+
+// ── Aggregate / summarize ──────────────────────────────────────────────────
+
+export const PREP_AGG_FNS = [
+  { value: "sum", label: "Sum" },
+  { value: "avg", label: "Average" },
+  { value: "count", label: "Count rows" },
+  { value: "count_distinct", label: "Count distinct" },
+  { value: "min", label: "Minimum" },
+  { value: "max", label: "Maximum" },
+] as const;
+export type PrepAggFn = (typeof PREP_AGG_FNS)[number]["value"];
+/** Whether a measure aggregates a specific column (false only for count rows). */
+export function aggNeedsColumn(fn: PrepAggFn): boolean {
+  return fn !== "count";
+}
+export type PrepMeasure = { id: string; column: string; fn: PrepAggFn; name: string };
+export type PrepAggregate = { enabled: boolean; groupBy: string[]; measures: PrepMeasure[] };
+
 export type PrepFlowConfig = {
   base: string | null;
   joins: PrepJoin[];
   columns: PrepColumn[];
+  calcs: PrepCalc[];
+  filters: PrepFilters;
+  aggregate: PrepAggregate;
 };
 
 export type PrepTableInfo = { name: string; columns: ColumnDef[] };
 
 export function emptyPrepConfig(): PrepFlowConfig {
-  return { base: null, joins: [], columns: [] };
+  return {
+    base: null,
+    joins: [],
+    columns: [],
+    calcs: [],
+    filters: { combine: "AND", conditions: [] },
+    aggregate: { enabled: false, groupBy: [], measures: [] },
+  };
+}
+
+/** Column names available to downstream steps (filters, group-by, measures). */
+export function preAggOutputNames(cfg: PrepFlowConfig): string[] {
+  return [
+    ...cfg.columns.filter((c) => c.include).map((c) => c.outputName),
+    ...cfg.calcs.map((c) => c.name),
+  ];
+}
+
+/**
+ * The final output schema after every step (calcs, then — if summarizing —
+ * the group-by dimensions and measures replace the row-level columns).
+ */
+export function effectiveOutputColumns(
+  cfg: PrepFlowConfig,
+): { name: string; type: PrepColumnType }[] {
+  const rowLevel: { name: string; type: PrepColumnType }[] = [
+    ...cfg.columns.filter((c) => c.include).map((c) => ({ name: c.outputName, type: c.type })),
+    ...cfg.calcs.map((c) => ({ name: c.name, type: c.type })),
+  ];
+  const agg = cfg.aggregate;
+  if (agg?.enabled && (agg.groupBy.length > 0 || agg.measures.length > 0)) {
+    const typeOf = (n: string): PrepColumnType =>
+      rowLevel.find((r) => r.name === n)?.type ?? "text";
+    const out: { name: string; type: PrepColumnType }[] = [];
+    for (const g of agg.groupBy) out.push({ name: g, type: typeOf(g) });
+    for (const m of agg.measures) {
+      const type: PrepColumnType =
+        m.fn === "count" || m.fn === "count_distinct"
+          ? "integer"
+          : m.fn === "sum" || m.fn === "avg"
+            ? "decimal"
+            : typeOf(m.column); // min/max preserve the source column's type
+      out.push({ name: m.name, type });
+    }
+    return out;
+  }
+  return rowLevel;
+}
+
+/**
+ * Drop filters / group-by / measures that reference columns no longer present
+ * (e.g. after a table or column is removed). Keeps a loaded flow valid.
+ */
+export function reconcileDerived(cfg: PrepFlowConfig): PrepFlowConfig {
+  const avail = new Set(preAggOutputNames(cfg));
+  return {
+    ...cfg,
+    filters: {
+      ...cfg.filters,
+      conditions: cfg.filters.conditions.filter((f) => avail.has(f.column)),
+    },
+    aggregate: {
+      ...cfg.aggregate,
+      groupBy: cfg.aggregate.groupBy.filter((g) => avail.has(g)),
+      measures: cfg.aggregate.measures.filter((m) => !aggNeedsColumn(m.fn) || avail.has(m.column)),
+    },
+  };
 }
 
 export function prepTables(cfg: PrepFlowConfig): string[] {
@@ -153,18 +326,18 @@ export function addTableToFlow(
 export function removeTableFromFlow(cfg: PrepFlowConfig, name: string): PrepFlowConfig {
   if (cfg.base === name) {
     if (cfg.joins.length > 0) return cfg; // UI prevents this; keep config valid
-    return { base: null, joins: [], columns: [] };
+    return emptyPrepConfig();
   }
   const joins = cfg.joins.filter((j) => j.table !== name);
   // Any join that anchored on the removed table falls back to the base.
   const repaired = joins.map((j) =>
     j.leftTable === name ? { ...j, leftTable: cfg.base ?? "", leftColumn: "", rightColumn: "" } : j,
   );
-  return {
+  return reconcileDerived({
     ...cfg,
     joins: repaired,
     columns: cfg.columns.filter((c) => c.table !== name),
-  };
+  });
 }
 
 function safeIdent(raw: string): string {
@@ -220,6 +393,13 @@ export function syncColumns(cfg: PrepFlowConfig, allTables: PrepTableInfo[]): Pr
 // ── SQL compilation ─────────────────────────────────────────────────────
 
 const q = (ident: string) => `\`${ident}\``;
+const sqlStr = (v: string) => `'${v.replace(/'/g, "''")}'`;
+const isNumericLiteral = (v: string) => /^-?\d+(\.\d+)?$/.test(v.trim());
+const indent = (s: string) =>
+  s
+    .split("\n")
+    .map((l) => "  " + l)
+    .join("\n");
 
 export type PrepValidation = { ok: true } | { ok: false; error: string };
 
@@ -236,24 +416,128 @@ export function validatePrepConfig(cfg: PrepFlowConfig): PrepValidation {
   if (!cfg.columns.some((c) => c.include)) {
     return { ok: false, error: "Include at least one output column." };
   }
-  const names = cfg.columns.filter((c) => c.include).map((c) => c.outputName.toLowerCase());
-  const dupe = names.find((n, i) => names.indexOf(n) !== i);
-  if (dupe) return { ok: false, error: `Two output columns are named "${dupe}" — rename one.` };
-  if (names.some((n) => !n.trim())) return { ok: false, error: "Output columns need names." };
+
+  // Column + calculated-field names must be unique and non-empty (they share
+  // one SELECT level, so a collision or blank alias is a hard error).
+  const rowNames = preAggOutputNames(cfg);
+  if (rowNames.some((n) => !n.trim())) {
+    return { ok: false, error: "Every column and calculated field needs a name." };
+  }
+  const lower = rowNames.map((n) => n.toLowerCase());
+  const dupe = lower.find((n, i) => lower.indexOf(n) !== i);
+  if (dupe) return { ok: false, error: `Two fields are named "${dupe}" — rename one.` };
+
+  for (const c of cfg.calcs) {
+    if (!c.expr.trim()) {
+      return { ok: false, error: `Calculated field "${c.name || "(unnamed)"}" needs a formula.` };
+    }
+  }
+
+  const avail = new Set(rowNames);
+  for (const f of cfg.filters.conditions) {
+    if (!f.column || !avail.has(f.column)) {
+      return { ok: false, error: `A filter refers to a column that no longer exists.` };
+    }
+    const op = PREP_FILTER_OPS.find((o) => o.value === f.op);
+    if (op?.needsValue && !f.value.trim()) {
+      return { ok: false, error: `Enter a value for the "${f.column}" filter.` };
+    }
+  }
+
+  const agg = cfg.aggregate;
+  if (agg.enabled) {
+    if (agg.groupBy.length === 0 && agg.measures.length === 0) {
+      return { ok: false, error: "Add a group-by field or a measure to summarize." };
+    }
+    for (const g of agg.groupBy) {
+      if (!avail.has(g)) return { ok: false, error: `Group-by field "${g}" no longer exists.` };
+    }
+    for (const m of agg.measures) {
+      if (!m.name.trim()) return { ok: false, error: "Every measure needs a name." };
+      if (aggNeedsColumn(m.fn) && (!m.column || !avail.has(m.column))) {
+        return { ok: false, error: `Measure "${m.name}" refers to a missing column.` };
+      }
+    }
+    const outNames = effectiveOutputColumns(cfg).map((c) => c.name.toLowerCase());
+    const aggDupe = outNames.find((n, i) => outNames.indexOf(n) !== i);
+    if (aggDupe) {
+      return { ok: false, error: `Two summarized fields are named "${aggDupe}" — rename one.` };
+    }
+  }
+
   return { ok: true };
 }
 
+function measureSql(m: PrepMeasure): string {
+  switch (m.fn) {
+    case "count":
+      return "COUNT(*)";
+    case "count_distinct":
+      return `COUNT(DISTINCT ${q(m.column)})`;
+    default:
+      return `${m.fn.toUpperCase()}(${q(m.column)})`; // sum / avg / min / max
+  }
+}
+
+function filterSql(f: PrepFilter): string {
+  const col = q(f.column);
+  switch (f.op) {
+    case "is_null":
+      return `${col} IS NULL`;
+    case "is_not_null":
+      return `${col} IS NOT NULL`;
+    case "contains":
+      return `${col} LIKE ${sqlStr(`%${f.value}%`)}`;
+    case "starts_with":
+      return `${col} LIKE ${sqlStr(`${f.value}%`)}`;
+    case "ends_with":
+      return `${col} LIKE ${sqlStr(`%${f.value}`)}`;
+    default: {
+      const v = isNumericLiteral(f.value) ? f.value.trim() : sqlStr(f.value);
+      return `${col} ${f.op} ${v}`;
+    }
+  }
+}
+
+/**
+ * Compile the flow to a single read-only SELECT. Each step wraps the previous
+ * as a derived table so aliases resolve cleanly:
+ *   join → (calculated fields) → (row filters) → (aggregate / summarize)
+ */
 export function buildPrepSql(cfg: PrepFlowConfig): string {
   const selects = cfg.columns
     .filter((c) => c.include)
     .map((c) => `${q(c.table)}.${q(c.column)} AS ${q(c.outputName)}`);
-  const lines = [`SELECT ${selects.join(", ")}`, `FROM ${q(cfg.base!)}`];
-  for (const j of cfg.joins) {
-    lines.push(
-      `${j.type} ${q(j.table)} ON ${q(j.leftTable)}.${q(j.leftColumn)} = ${q(j.table)}.${q(j.rightColumn)}`,
-    );
+  let sql = [
+    `SELECT ${selects.join(", ")}`,
+    `FROM ${q(cfg.base!)}`,
+    ...cfg.joins.map(
+      (j) =>
+        `${j.type} ${q(j.table)} ON ${q(j.leftTable)}.${q(j.leftColumn)} = ${q(j.table)}.${q(j.rightColumn)}`,
+    ),
+  ].join("\n");
+
+  if (cfg.calcs.length > 0) {
+    const extra = cfg.calcs.map((c) => `(${c.expr.trim()}) AS ${q(c.name)}`).join(", ");
+    sql = `SELECT *, ${extra}\nFROM (\n${indent(sql)}\n) AS _prep_calc`;
   }
-  return lines.join("\n");
+
+  if (cfg.filters.conditions.length > 0) {
+    const where = cfg.filters.conditions.map(filterSql).join(`\n  ${cfg.filters.combine} `);
+    sql = `SELECT *\nFROM (\n${indent(sql)}\n) AS _prep_flt\nWHERE ${where}`;
+  }
+
+  const agg = cfg.aggregate;
+  if (agg.enabled && (agg.groupBy.length > 0 || agg.measures.length > 0)) {
+    const sel = [
+      ...agg.groupBy.map(q),
+      ...agg.measures.map((m) => `${measureSql(m)} AS ${q(m.name)}`),
+    ].join(", ");
+    const groupBy = agg.groupBy.length > 0 ? `\nGROUP BY ${agg.groupBy.map(q).join(", ")}` : "";
+    sql = `SELECT ${sel}\nFROM (\n${indent(sql)}\n) AS _prep_agg${groupBy}`;
+  }
+
+  return sql;
 }
 
 // ── Type casting ────────────────────────────────────────────────────────
@@ -309,22 +593,75 @@ export type CastResult = {
 };
 
 export function castRows(rows: Record<string, unknown>[], cfg: PrepFlowConfig): CastResult {
-  const included = cfg.columns.filter((c) => c.include);
+  const cols = effectiveOutputColumns(cfg);
   const failures: Record<string, number> = {};
   const out = rows.map((row) => {
     const r: Record<string, unknown> = {};
-    for (const c of included) {
-      const { value, failed } = castValue(row[c.outputName], c.type);
-      if (failed) failures[c.outputName] = (failures[c.outputName] ?? 0) + 1;
-      r[c.outputName] = value;
+    for (const c of cols) {
+      const { value, failed } = castValue(row[c.name], c.type);
+      if (failed) failures[c.name] = (failures[c.name] ?? 0) + 1;
+      r[c.name] = value;
     }
     return r;
   });
   return {
     rows: out,
-    columns: included.map((c) => ({ name: c.outputName, type: PREP_TYPE_META[c.type].storage })),
+    columns: cols.map((c) => ({ name: c.name, type: PREP_TYPE_META[c.type].storage })),
     failures,
   };
+}
+
+// ── Column profiling ──────────────────────────────────────────────────────
+// Lightweight per-column stats computed over a preview sample so the user can
+// spot nulls, cardinality and numeric ranges while shaping the data.
+
+export type PrepColProfile = {
+  total: number;
+  nulls: number;
+  distinct: number;
+  numeric: boolean;
+  min?: number;
+  max?: number;
+  avg?: number;
+};
+
+export function profilePrepColumns(
+  rows: Record<string, unknown>[],
+  cols: { name: string; type: PrepColumnType }[],
+): Record<string, PrepColProfile> {
+  const out: Record<string, PrepColProfile> = {};
+  for (const c of cols) {
+    const numeric =
+      c.type === "integer" || c.type === "decimal" || c.type === "currency" || c.type === "percent";
+    let nulls = 0;
+    let min = Infinity;
+    let max = -Infinity;
+    let sum = 0;
+    let n = 0;
+    const seen = new Set<string>();
+    for (const row of rows) {
+      const v = row[c.name];
+      if (v === null || v === undefined || v === "") {
+        nulls++;
+        continue;
+      }
+      seen.add(typeof v === "object" ? JSON.stringify(v) : String(v));
+      if (numeric && typeof v === "number" && Number.isFinite(v)) {
+        min = Math.min(min, v);
+        max = Math.max(max, v);
+        sum += v;
+        n++;
+      }
+    }
+    out[c.name] = {
+      total: rows.length,
+      nulls,
+      distinct: seen.size,
+      numeric,
+      ...(numeric && n > 0 ? { min, max, avg: sum / n } : {}),
+    };
+  }
+  return out;
 }
 
 // ── Run & save ──────────────────────────────────────────────────────────
@@ -361,9 +698,9 @@ export async function runAndSavePrep(args: {
   // Record semantic tags (location, category, currency…) in the semantic
   // layer so the BI agent and chart tooling know what the columns mean.
   const columnMeta: Record<string, { semantic_type?: string }> = {};
-  for (const c of args.cfg.columns) {
+  for (const c of effectiveOutputColumns(args.cfg)) {
     const semantic = PREP_TYPE_META[c.type].semantic;
-    if (c.include && semantic) columnMeta[c.outputName] = { semantic_type: semantic };
+    if (semantic) columnMeta[c.name] = { semantic_type: semantic };
   }
   try {
     await saveSemantics({
@@ -401,10 +738,22 @@ export type PrepFlowRow = {
 
 export function parsePrepConfig(v: Json): PrepFlowConfig {
   const cfg = (v ?? {}) as Partial<PrepFlowConfig>;
+  const filters = (cfg.filters ?? {}) as Partial<PrepFilters>;
+  const aggregate = (cfg.aggregate ?? {}) as Partial<PrepAggregate>;
   return {
     base: typeof cfg.base === "string" ? cfg.base : null,
     joins: Array.isArray(cfg.joins) ? (cfg.joins as PrepJoin[]) : [],
     columns: Array.isArray(cfg.columns) ? (cfg.columns as PrepColumn[]) : [],
+    calcs: Array.isArray(cfg.calcs) ? (cfg.calcs as PrepCalc[]) : [],
+    filters: {
+      combine: filters.combine === "OR" ? "OR" : "AND",
+      conditions: Array.isArray(filters.conditions) ? (filters.conditions as PrepFilter[]) : [],
+    },
+    aggregate: {
+      enabled: Boolean(aggregate.enabled),
+      groupBy: Array.isArray(aggregate.groupBy) ? (aggregate.groupBy as string[]) : [],
+      measures: Array.isArray(aggregate.measures) ? (aggregate.measures as PrepMeasure[]) : [],
+    },
   };
 }
 
