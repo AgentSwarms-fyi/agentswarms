@@ -141,11 +141,14 @@ export function HeatmapGrid({
   }
 
   return (
-    <div className="h-full overflow-auto">
-      <table className="border-separate" style={{ borderSpacing: 2 }}>
+    <div className="h-full w-full overflow-auto">
+      {/* w-full/h-full let the table fill the widget; the fixed cell sizes
+          below act as minimums (HTML cell width/height are floors), so
+          columns/rows stretch to fill and only scroll when they overflow. */}
+      <table className="h-full w-full border-separate" style={{ borderSpacing: 2 }}>
         <thead>
           <tr>
-            <th />
+            <th className="w-0" />
             {xs.map((x) => (
               <th
                 key={x}
@@ -164,7 +167,7 @@ export function HeatmapGrid({
           {ys.map((y) => (
             <tr key={y}>
               <th
-                className={`max-w-28 truncate pr-1.5 text-right text-[9px] font-medium text-muted-foreground ${
+                className={`w-0 max-w-28 truncate whitespace-nowrap pr-1.5 text-right text-[9px] font-medium text-muted-foreground ${
                   onElementClick ? "cursor-pointer hover:text-foreground" : ""
                 }`}
                 title={y}
@@ -180,7 +183,7 @@ export function HeatmapGrid({
                     key={x}
                     title={v === undefined ? `${y} · ${x}: —` : `${y} · ${x}: ${fmtBiNumber(v)}`}
                     onClick={onElementClick ? () => onElementClick(yField, y) : undefined}
-                    className={`h-7 min-w-11 rounded-sm text-center text-[9px] tabular-nums ${
+                    className={`h-7 min-w-11 rounded-sm text-center text-[10px] tabular-nums ${
                       t > 0.55 ? "text-primary-foreground" : "text-foreground/80"
                     } ${onElementClick ? "cursor-pointer" : ""}`}
                     style={{
