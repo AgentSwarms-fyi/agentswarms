@@ -34,7 +34,7 @@ export function SiteFooter() {
               AgentSwarms
             </Link>
             <p className="mt-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Open-Source Agentic AI &amp; Business Intelligence
+              Unified Agentic AI &amp; Business Intelligence
             </p>
             <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
               Agents, multi-agent swarms and an AI-native BI suite — deployed on your own

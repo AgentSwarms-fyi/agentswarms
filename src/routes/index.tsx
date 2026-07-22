@@ -33,7 +33,6 @@ import { BiDashboardMock, GenerateFlowMock } from "@/components/marketing/BiMock
 import { SectionHeading } from "@/components/marketing/SectionHeading";
 import agentSwarmsLogo from "@/assets/agentswarms-logo.jpg";
 import playgroundPreview from "@/assets/playground-preview.png";
-import playgroundVideo from "@/assets/playground.mp4.asset.json";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -328,7 +327,7 @@ function LandingPage() {
                   AgentSwarms
                 </span>
                 <span className="mt-0.5 hidden truncate text-[10px] font-medium uppercase tracking-wider text-muted-foreground sm:inline">
-                  Open-Source Agentic AI &amp; Business Intelligence
+                  Unified Agentic AI &amp; Business Intelligence
                 </span>
               </span>
             </Link>
@@ -762,30 +761,6 @@ function LandingPage() {
                 </div>
               </div>
             </motion.div>
-          </div>
-        </section>
-
-        {/* Product preview */}
-        <section className="-mt-8 overflow-hidden pb-16 sm:-mt-12">
-          <div className="mx-auto max-w-6xl px-6">
-            <Reveal className="relative">
-              <div className="pointer-events-none absolute -inset-x-8 -top-12 bottom-0 bg-[radial-gradient(50%_50%_at_50%_30%,color-mix(in_oklch,var(--primary)_10%,transparent),transparent)] blur-2xl" />
-              <BrowserFrame url="localhost:8080/swarms" className="relative">
-                <video
-                  src={playgroundVideo.url}
-                  poster={playgroundPreview}
-                  autoPlay
-                  loop
-                  muted
-                  playsInline
-                  preload="metadata"
-                  aria-label="AgentSwarms — building and running a multi-agent flow on a self-hosted instance"
-                  width={1920}
-                  height={953}
-                  className="block w-full"
-                />
-              </BrowserFrame>
-            </Reveal>
           </div>
         </section>
 

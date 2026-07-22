@@ -25,6 +25,7 @@ import {
   NotebookPen,
   PieChart,
   Code2,
+  type LucideIcon,
 } from "lucide-react";
 
 import { Link, useLocation } from "@tanstack/react-router";
@@ -46,24 +47,40 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useIsSuperadmin } from "@/hooks/use-iam";
 
-const buildItems = [
-  { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
-  { title: "Real-World Examples", url: "/templates", icon: Sparkles },
-  { title: "Python Lab", url: "/notebooks", icon: NotebookPen },
-  { title: "Agentic Patterns", url: "/patterns", icon: Workflow },
+// Grouped by what the user is trying to do, so the (long) nav stays scannable.
+type NavItem = { title: string; url: string; icon: LucideIcon };
+
+const overviewItems: NavItem[] = [{ title: "Dashboard", url: "/dashboard", icon: LayoutDashboard }];
+
+const buildItems: NavItem[] = [
   { title: "Agent Builder", url: "/agents", icon: Bot },
   { title: "Agent Swarms", url: "/swarms", icon: Network },
+];
+
+const experimentItems: NavItem[] = [
   { title: "Playground", url: "/playground", icon: MessageSquare },
   { title: "Prompt Compare", url: "/prompt-compare", icon: Columns },
   { title: "Image Playground", url: "/image-playground", icon: ImageIcon },
+];
+
+const dataItems: NavItem[] = [
+  { title: "Data Catalog", url: "/data-sql", icon: Database },
+  { title: "BI Workspace", url: "/bi", icon: PieChart },
+  { title: "Python Lab", url: "/notebooks", icon: NotebookPen },
+];
+
+const libraryItems: NavItem[] = [
   { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
   { title: "Prompt Library", url: "/prompts", icon: BookMarked },
   { title: "Skill Library", url: "/skills", icon: Wand2 },
-  { title: "Data Catalog", url: "/data-sql", icon: Database },
-  { title: "BI Workspace", url: "/bi", icon: PieChart },
 ];
 
-const opsItems = [
+const learnItems: NavItem[] = [
+  { title: "Real-World Examples", url: "/templates", icon: Sparkles },
+  { title: "Agentic Patterns", url: "/patterns", icon: Workflow },
+];
+
+const opsItems: NavItem[] = [
   { title: "Analytics", url: "/analytics", icon: BarChart3 },
   { title: "Swarm Traces", url: "/analytics/observability", icon: Network },
   { title: "Traces & Logs", url: "/traces", icon: ScrollText },
@@ -71,7 +88,7 @@ const opsItems = [
   { title: "Budgets", url: "/budgets", icon: Settings },
 ];
 
-const integrationItems = [
+const integrationItems: NavItem[] = [
   { title: "Integrations", url: "/integrations", icon: Puzzle },
   { title: "Web Embedding", url: "/embeds", icon: Code2 },
   { title: "Secrets", url: "/secrets", icon: KeyRound },
@@ -88,7 +105,7 @@ export function AppSidebar() {
 
   const isActive = (path: string) => location.pathname === path;
 
-  const renderGroup = (label: string, items: typeof buildItems) => (
+  const renderGroup = (label: string, items: NavItem[]) => (
     <SidebarGroup>
       <SidebarGroupLabel>{label}</SidebarGroupLabel>
       <SidebarGroupContent>
@@ -126,7 +143,7 @@ export function AppSidebar() {
             <div className="flex flex-col leading-tight">
               <span className="text-lg font-bold tracking-tight">AgentSwarms</span>
               <span className="text-[9px] uppercase leading-snug tracking-wider text-muted-foreground">
-                Open-Source Agentic AI &amp; Business Intelligence
+                Unified Agentic AI &amp; Business Intelligence
               </span>
             </div>
           )}
@@ -134,7 +151,12 @@ export function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent>
+        {renderGroup("Overview", overviewItems)}
         {renderGroup("Build", buildItems)}
+        {renderGroup("Experiment", experimentItems)}
+        {renderGroup("Data & BI", dataItems)}
+        {renderGroup("Library", libraryItems)}
+        {renderGroup("Learn", learnItems)}
         {renderGroup("Integrations", integrationItems)}
         {renderGroup("Observability", opsItems)}
         {isSuperadmin &&
