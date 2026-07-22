@@ -418,7 +418,8 @@ export function CatalogView({
                     <Button
                       size="icon"
                       variant="ghost"
-                      className="h-6 w-6 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100"
+                      className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
+                      title="Re-crawl, schedule, remove"
                     >
                       {crawlingIds.has(s.id) ? (
                         <Loader2 className="h-3 w-3 animate-spin" />
@@ -1034,6 +1035,16 @@ function AssetSheet({
                 </>
               )}
             </div>
+
+            {asset.local && (
+              <p className="rounded-md border border-dashed border-border bg-muted/20 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+                Local tables are cataloged automatically and read-only here. Curation — status,
+                owner, tags, description and AI-generated docs — lives on crawled sources: connect
+                a warehouse or bucket with <span className="font-medium">Add</span> in the Sources
+                rail, and manage crawls from the <span className="font-medium">⋯</span> menu on
+                each source.
+              </p>
+            )}
 
             {!asset.local && (
               <>
