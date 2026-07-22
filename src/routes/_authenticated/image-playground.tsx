@@ -54,11 +54,11 @@ const MODEL_NOTES: Record<string, { tagline: string; bestFor: string }> = {
     tagline: "Fast, cheap, dependable.",
     bestFor: "Quick drafts, iterating on a concept, simple edits.",
   },
-  "google/gemini-3.1-flash-image-preview": {
+  "google/gemini-3.1-flash-image": {
     tagline: "Fast with pro-level quality.",
     bestFor: "Finished social posts, product shots, detailed edits with quick turnaround.",
   },
-  "google/gemini-3-pro-image-preview": {
+  "google/gemini-3-pro-image": {
     tagline: "Highest quality, slower and pricier.",
     bestFor: "Hero images, marketing assets, complex compositions with text and fine detail.",
   },

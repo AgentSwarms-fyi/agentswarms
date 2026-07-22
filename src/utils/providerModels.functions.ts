@@ -118,7 +118,15 @@ export const listProviderImageModels = createServerFn({ method: "POST" })
           models.push({ id: m.id, name: m.name ?? null });
           if (models.length >= 200) break;
         }
-        return { ok: true, models };
+        // Drop stale preview/experimental variants when the released model
+        // is also listed (e.g. "…-image-preview" alongside "…-image"), so
+        // the picker shows one entry per model instead of duplicates.
+        const ids = new Set(models.map((m) => m.id));
+        const deduped = models.filter((m) => {
+          const base = m.id.replace(/[-_](preview|exp|experimental|beta|latest)$/i, "");
+          return base === m.id || !ids.has(base);
+        });
+        return { ok: true, models: deduped };
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : "Failed to list models" };
       }
