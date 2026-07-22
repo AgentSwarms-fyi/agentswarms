@@ -51,6 +51,11 @@ export type AgentToolContext = {
   // Optional — explicit retrieval re-ranker from the request body (swarm
   // nodes); standalone agents carry theirs in tools.reranker instead.
   reranker?: { provider: string; model: string };
+  // Set ONLY on headless (API-key / scheduled) runs, where `sb` is the
+  // service-role client (RLS disabled). Data loaders MUST then explicitly
+  // restrict results to this owner's rows + public samples — the sole tenant
+  // guard in the absence of a user JWT. Never set on the normal RLS path.
+  scopeUserId?: string;
 };
 
 // ============================================================================
@@ -92,6 +97,7 @@ export async function runKbSearch(
     topK: Math.max(1, Math.min(args.top_k ?? 5, 8)),
     userId: ctx.userId,
     reranker: ctx.reranker,
+    scopeUserId: ctx.scopeUserId,
   });
   if (cits.length === 0) {
     return JSON.stringify({

@@ -69,16 +69,26 @@ export const listDataTablesTool: ToolDef = {
   },
 };
 
+// Only allow a well-formed UUID into a PostgREST `.or()` filter string, so a
+// scope id can never inject filter syntax.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 async function loadUserTables(
   ctx: AgentToolContext,
   allowSet?: Set<string> | null,
 ): Promise<LoadedTable[]> {
-  // No explicit ownership filter: this client runs under the user's JWT, so
-  // RLS returns exactly what they may read — own tables, public samples, and
-  // tables shared with them via IAM grants.
-  const { data: tables } = await ctx.sb
-    .from("user_data_tables")
-    .select("id, name, columns, user_id, is_sample");
+  // Normal (RLS) path: no explicit ownership filter — this client runs under
+  // the user's JWT, so RLS returns exactly what they may read (own tables,
+  // public samples, IAM-shared tables).
+  // Headless path (ctx.scopeUserId set): `sb` is the service-role client with
+  // RLS OFF, so we MUST restrict to the owner's own tables + public samples —
+  // the only tenant boundary here.
+  let query = ctx.sb.from("user_data_tables").select("id, name, columns, user_id, is_sample");
+  if (ctx.scopeUserId) {
+    if (!UUID_RE.test(ctx.scopeUserId)) return [];
+    query = query.or(`user_id.eq.${ctx.scopeUserId},is_sample.eq.true`);
+  }
+  const { data: tables } = await query;
   if (!tables) return [];
   const filtered =
     allowSet && allowSet.size > 0 ? tables.filter((t) => allowSet.has(t.name)) : tables;

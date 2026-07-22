@@ -6,16 +6,22 @@
 // this app's own /api/chat internally (service secret + owner id) for LLM
 // nodes, and calls the deterministic node cores directly.
 //
-// v1 supported nodes: input, agent, condition, router, foreach, extract,
-// set_var, merge, http, tool (non-RLS), output, approval (auto-decided).
-// Not yet headless: loop, evaluate, retrieve, function, a2a, and the RLS-scoped
-// tools (kb_search / sql_query) — they need the owner's JWT and error clearly.
+// Supported nodes: input, agent, condition, router, loop, evaluate, foreach,
+// extract, set_var, merge, http, retrieve, tool (incl. owner-scoped kb_search /
+// sql_query), output, approval (auto-decided), subswarm.
+// Owner-scoped data access: on headless runs the tool loaders run under the
+// service-role client but with ctx.scopeUserId set, which restricts results to
+// the owner's own tables/KBs + public samples (never another tenant's).
+// Still owner-login-only: `function` (custom JS — RCE risk in the server realm),
+// `a2a_remote` (needs the owner's JWT for the /api/a2a proxy), and kb/sql tools
+// embedded inside an agent node (agent tool context isn't owner-scoped yet).
 import type { Node, Edge } from "@xyflow/react";
 import {
   interpolate,
   resolveStatePath,
   gatherInputs,
   topoLevels,
+  hasDoneSignal,
   type SwarmNodeData,
 } from "@/lib/swarmRuntime";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
@@ -25,6 +31,13 @@ import {
   RLS_TOOL_IDS,
   type ToolNodeParams,
 } from "@/utils/swarmNodes.server";
+import type { AgentToolContext } from "@/utils/tools/registry.server";
+
+// Tool context for headless data tools: service-role client with scopeUserId
+// set, which forces the loaders to restrict data to the owner + public samples.
+function dataToolCtx(userId: string): AgentToolContext {
+  return { userId, sb: supabaseAdmin as never, scopeUserId: userId };
+}
 
 export type ExecuteResult = {
   status: "success" | "error";
@@ -43,6 +56,11 @@ const HEADLESS_SAFE_TOOLS = new Set([
   "weather",
   "mcp_call_tool",
 ]);
+
+// Data tools that read the owner's rows. Safe headless ONLY because the tool
+// context carries scopeUserId, which forces the loaders to restrict results to
+// the owner's own tables/KBs + public samples (see AgentToolContext.scopeUserId).
+const HEADLESS_SCOPED_TOOLS = new Set(["sql_query", "kb_search"]);
 
 // ── internal /api/chat call ─────────────────────────────────────────────────
 async function serverChat(args: {
@@ -288,9 +306,10 @@ export async function executeSwarmServer(opts: {
         }
         if (kind === "tool") {
           const toolId = d.toolId;
-          if (!toolId || !HEADLESS_SAFE_TOOLS.has(toolId)) {
+          const isScoped = !!toolId && HEADLESS_SCOPED_TOOLS.has(toolId);
+          if (!toolId || (!HEADLESS_SAFE_TOOLS.has(toolId) && !isScoped)) {
             throw new Error(
-              `Tool "${toolId ?? "?"}" isn't available in headless runs yet (needs the owner's login). Supported: ${[...HEADLESS_SAFE_TOOLS].join(", ")}.`,
+              `Tool "${toolId ?? "?"}" isn't available in headless runs yet (needs the owner's login). Supported: ${[...HEADLESS_SAFE_TOOLS, ...HEADLESS_SCOPED_TOOLS].join(", ")}.`,
             );
           }
           const args: Record<string, string> = {};
@@ -299,15 +318,67 @@ export async function executeSwarmServer(opts: {
           const params: ToolNodeParams = {
             tool_id: toolId as ToolNodeParams["tool_id"],
             args,
+            knowledge_base_id: d.knowledgeBaseId ?? undefined,
+            sql_tables: d.toolConfigs?.sql_table_names,
             mcp_servers: d.toolConfigs?.mcp_server_names,
             web_config: d.toolConfigs?.web_search || d.toolConfigs?.web_browse,
           };
-          const res = await runToolNodeCore(
-            { userId: opts.userId, sb: supabaseAdmin as never },
-            params,
-          );
+          const res = await runToolNodeCore(dataToolCtx(opts.userId), params);
           if (!res.ok) throw new Error(`Tool node failed: ${res.error}`);
           write(res.result);
+          continue;
+        }
+        if (kind === "retrieve") {
+          const kbId = d.knowledgeBaseId;
+          if (!kbId) throw new Error("Retrieve node has no knowledge base selected.");
+          const query = interpolate(d.retrieveQuery || "{{input}}", ctx);
+          const res = await runToolNodeCore(dataToolCtx(opts.userId), {
+            tool_id: "kb_search",
+            args: { query, top_k: String(d.retrieveTopK ?? 5) },
+            knowledge_base_id: kbId,
+          });
+          if (!res.ok) throw new Error(`Retrieve node failed: ${res.error}`);
+          write(res.result);
+          continue;
+        }
+        if (kind === "loop") {
+          const max = Math.max(1, Math.min(d.maxIters ?? 3, 6));
+          const loopInput = gatherInputs(node, ctx, lastOutput);
+          const loopPrompt = interpolate(d.systemPrompt || "{{input}}", { ...ctx, input: loopInput });
+          let result = "";
+          for (let i = 0; i < max; i++) {
+            result = await serverChat({
+              origin: opts.origin,
+              userId: opts.userId,
+              node,
+              systemPrompt: loopPrompt,
+              userMessage: `Original input:\n${loopInput}\n\nPrevious attempt:\n${result || "(none)"}`,
+            });
+            if (hasDoneSignal(result)) break;
+          }
+          write(result);
+          continue;
+        }
+        if (kind === "evaluate") {
+          const inputText = gatherInputs(node, ctx, lastOutput);
+          const metrics = (d.evalMetrics ?? []).filter((m) => m.enabled);
+          if (metrics.length === 0) throw new Error("Evaluate node has no enabled metrics.");
+          const threshold = typeof d.evalPassThreshold === "number" ? d.evalPassThreshold : 0.7;
+          const metricsBlock = metrics
+            .map((m) => `- **${m.name}** (id: "${m.id}", weight: ${m.weight}): ${m.description}`)
+            .join("\n");
+          const ref = d.evalReferenceInput?.trim();
+          const refBlock = ref && ctx[ref] ? `\n\n## Reference / Original Question\n${ctx[ref]}` : "";
+          const rubric = d.evalRubric?.trim() ? `\n\n## Evaluation Rubric\n${d.evalRubric}` : "";
+          const sys = `You are a strict, impartial LLM evaluation judge. Score the CANDIDATE OUTPUT against each metric on a 0.0–1.0 scale.\n\n## Metrics\n${metricsBlock}${rubric}\n\n## Output format\nReturn ONLY valid JSON — no fences:\n{\n  "metrics": {\n${metrics.map((m) => `    "${m.id}": { "score": <0.0-1.0>, "reason": "<why>" }`).join(",\n")}\n  },\n  "overall_score": <weighted average>,\n  "pass": <true if overall_score >= ${threshold}>,\n  "summary": "<2-3 sentences>"\n}`;
+          const result = await serverChat({
+            origin: opts.origin,
+            userId: opts.userId,
+            node,
+            systemPrompt: sys,
+            userMessage: `## Candidate Output\n${inputText}${refBlock}\n\nReturn the JSON scorecard.`,
+          });
+          write(stripFence(result));
           continue;
         }
         if (kind === "extract") {
@@ -472,7 +543,17 @@ export async function executeSwarmServer(opts: {
           write(subResult.output);
           continue;
         }
-        // Unsupported in headless v1.
+        if (kind === "function") {
+          throw new Error(
+            "Function (custom JS) nodes can't run in headless (API/scheduled) runs — arbitrary code isn't executed on the server. Run this swarm from the canvas.",
+          );
+        }
+        if (kind === "a2a_remote") {
+          throw new Error(
+            "A2A remote-agent nodes aren't available in headless runs yet — they need your login to authorize the remote call.",
+          );
+        }
+        // Anything else we don't explicitly handle.
         throw new Error(
           `Node type "${kind}" isn't supported in headless (API/scheduled) runs yet. Run it from the canvas, or remove it from the deployed swarm.`,
         );

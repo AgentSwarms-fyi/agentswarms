@@ -91,6 +91,10 @@ export async function retrieveCitationsServer(opts: {
   userId?: string | null;
   /** Explicit re-ranker (swarm nodes) — agent tools config fills when absent. */
   reranker?: { provider: string; model: string };
+  // Set ONLY on headless runs where `sb` is the service-role client (RLS off):
+  // resolved KB ids are then restricted to this owner's own KBs + public
+  // samples, so a swarm can't point a node at another tenant's KB id.
+  scopeUserId?: string;
 }): Promise<Citation[]> {
   const { sb } = opts;
   const topK = Math.max(1, Math.min(opts.topK ?? 5, 8));
@@ -121,8 +125,25 @@ export async function retrieveCitationsServer(opts: {
       agentKbIds.push(...fromTools);
     }
   }
-  const kbIds = Array.from(new Set([...agentKbIds, ...(opts.extraKbIds ?? [])]));
+  let kbIds = Array.from(new Set([...agentKbIds, ...(opts.extraKbIds ?? [])]));
   if (kbIds.length === 0) return [];
+
+  // Headless tenant guard: with RLS off, restrict the resolved KB ids to the
+  // owner's own KBs + public samples. Prevents a deployed swarm from pointing a
+  // node at another user's knowledge_base_id.
+  if (opts.scopeUserId) {
+    const { data: owned } = await sb
+      .from("knowledge_bases")
+      .select("id, user_id, is_sample")
+      .in("id", kbIds);
+    const allowed = new Set(
+      (owned ?? [])
+        .filter((k) => k.user_id === opts.scopeUserId || k.is_sample)
+        .map((k) => k.id),
+    );
+    kbIds = kbIds.filter((id) => allowed.has(id));
+    if (kbIds.length === 0) return [];
+  }
 
   // 2) Vector search via pgvector — best-effort. The query must be embedded
   // with the same model/provider the documents were embedded with, so read
