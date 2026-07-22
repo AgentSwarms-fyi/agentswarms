@@ -586,5 +586,9 @@ export function ensureScheduler(): void {
     void import("@/utils/catalog/schedule.server")
       .then((m) => m.processDueCatalogCrawls())
       .catch((e) => console.warn("[catalog-scheduler] processing failed:", (e as Error).message));
+    // Audit retention purge (internally throttled to once an hour).
+    void import("@/utils/audit.server")
+      .then((m) => m.purgeAuditEvents())
+      .catch((e) => console.warn("[audit-purge] failed:", (e as Error).message));
   }, 60_000).unref?.();
 }

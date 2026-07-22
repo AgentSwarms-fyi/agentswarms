@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
+import { TeamSpend } from "@/components/observability/TeamSpend";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -328,6 +329,9 @@ function AnalyticsPage() {
           </p>
         </div>
       </div>
+
+      {/* Admin-only: instance-wide spend by user and group */}
+      <TeamSpend />
 
       {/* KPI Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">

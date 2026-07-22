@@ -95,6 +95,7 @@ import type { BiWidgetSource } from "@/lib/biDashboards";
 import { SuggestedQuestions } from "@/components/data-sql/SuggestedQuestions";
 import { SemanticLayerEditor } from "@/components/data-sql/SemanticLayerEditor";
 import { CatalogView } from "@/components/catalog/CatalogView";
+import { extractTableRefs } from "@/lib/dataCatalog";
 
 export const Route = createFileRoute("/_authenticated/data-sql")({
   head: () => ({
@@ -405,6 +406,7 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
           // its own load effect has hydrated the in-browser engine.
           await hydrateFromSupabase();
           r = runQuery(seed.sql);
+          auditLocalQuery(seed.sql);
         } else {
           r = await runWarehouseSql(seed.dataSource, seed.sql);
         }
@@ -501,12 +503,29 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
     }
   }
 
+  // Audit trail: local queries never touch the server, so the browser
+  // records them itself (RLS only allows inserting your own events).
+  function auditLocalQuery(sqlText: string) {
+    if (!user?.id) return;
+    void supabase
+      .from("audit_events")
+      .insert({
+        user_id: user.id,
+        action: "dataset.query",
+        resource_type: "dataset",
+        resource_name: extractTableRefs(sqlText).join(", ").slice(0, 200) || null,
+        detail: { sql: sqlText.slice(0, 200) },
+      })
+      .then(() => {});
+  }
+
   async function handleRun() {
     if (!sql.trim()) return;
     setRunning(true);
     setQueryError(null);
     try {
       const r = dataSource === "local" ? runQuery(sql) : await runWarehouseSql(dataSource, sql);
+      if (dataSource === "local") auditLocalQuery(sql);
       setResult(r);
     } catch (e) {
       setQueryError((e as Error).message);

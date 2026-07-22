@@ -5,6 +5,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { executeWarehouseQuery, MAX_WAREHOUSE_ROWS } from "@/utils/warehouse/drivers.server";
+import { auditEvent } from "@/utils/audit.server";
 import { loadWarehouseConnection } from "@/utils/warehouse/connections.server";
 
 function getServerSupabase(authToken: string) {
@@ -57,6 +58,18 @@ export const Route = createFileRoute("/api/warehouse/query")({
             body.sql,
             typeof body.max_rows === "number" ? body.max_rows : MAX_WAREHOUSE_ROWS,
           );
+          auditEvent({
+            userId,
+            action: "warehouse.query",
+            resourceType: "warehouse",
+            resourceName: conn.name,
+            detail: {
+              provider: conn.provider,
+              rows: result.row_count,
+              duration_ms: result.duration_ms,
+              sql: body.sql.slice(0, 200),
+            },
+          });
           return json(200, { ...result, connection: conn.name, provider: conn.provider });
         } catch (e) {
           return json(400, {

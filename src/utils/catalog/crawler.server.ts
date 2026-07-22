@@ -14,6 +14,7 @@ import { createHash } from "node:crypto";
 
 import type { Database, Json } from "@/integrations/supabase/types";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { auditEvent } from "@/utils/audit.server";
 import { decryptJson } from "@/utils/providers/crypto.server";
 import { resolveSecretRefsInObject } from "@/utils/secrets.server";
 import { executeWarehouseQuery, listWarehouseTables } from "@/utils/warehouse/drivers.server";
@@ -494,6 +495,19 @@ export async function runCrawl(
       duration_ms: Date.now() - started,
       changes,
     };
+    auditEvent({
+      userId,
+      action: "catalog.crawl",
+      resourceType: "catalog_source",
+      resourceName: source.name,
+      resourceId: source.id,
+      detail: {
+        assets: stats.assets,
+        added: changes.added.length,
+        removed: changes.removed.length,
+        changed: changes.changed.length,
+      },
+    });
     await supabaseAdmin
       .from("catalog_sources")
       .update({

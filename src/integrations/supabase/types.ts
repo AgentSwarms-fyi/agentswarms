@@ -271,6 +271,39 @@ export type Database = {
         };
         Relationships: [];
       };
+      audit_events: {
+        Row: {
+          action: string;
+          created_at: string;
+          detail: Json;
+          id: string;
+          resource_id: string | null;
+          resource_name: string | null;
+          resource_type: string | null;
+          user_id: string;
+        };
+        Insert: {
+          action: string;
+          created_at?: string;
+          detail?: Json;
+          id?: string;
+          resource_id?: string | null;
+          resource_name?: string | null;
+          resource_type?: string | null;
+          user_id: string;
+        };
+        Update: {
+          action?: string;
+          created_at?: string;
+          detail?: Json;
+          id?: string;
+          resource_id?: string | null;
+          resource_name?: string | null;
+          resource_type?: string | null;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       bi_alerts: {
         Row: {
           email_enabled: boolean;
@@ -1278,6 +1311,7 @@ export type Database = {
       iam_settings: {
         Row: {
           allow_public_signup: boolean;
+          audit_retention_days: number;
           id: boolean;
           sso_enabled: boolean;
           sso_enforced: boolean;
@@ -1285,6 +1319,7 @@ export type Database = {
         };
         Insert: {
           allow_public_signup?: boolean;
+          audit_retention_days?: number;
           id?: boolean;
           sso_enabled?: boolean;
           sso_enforced?: boolean;
@@ -1292,6 +1327,7 @@ export type Database = {
         };
         Update: {
           allow_public_signup?: boolean;
+          audit_retention_days?: number;
           id?: boolean;
           sso_enabled?: boolean;
           sso_enforced?: boolean;
@@ -2633,6 +2669,15 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      admin_spend_by_user: {
+        Args: { _since: string };
+        Returns: {
+          user_id: string;
+          calls: number;
+          tokens: number;
+          cost: number;
+        }[];
+      };
       bi_touch_view: {
         Args: { _dashboard_id: string };
         Returns: undefined;

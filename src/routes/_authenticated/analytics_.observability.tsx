@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { format } from "date-fns";
+import { AuditLog } from "@/components/observability/AuditLog";
 
 export const Route = createFileRoute("/_authenticated/analytics_/observability")({
   component: ObservabilityList,
@@ -29,6 +30,7 @@ type Run = {
 function ObservabilityList() {
   const { user, loading: authLoading } = useAuth();
   const [runs, setRuns] = useState<Run[] | null>(null);
+  const [tab, setTab] = useState<"runs" | "audit">("runs");
   const location = useLocation();
   const isDetailRoute = location.pathname.startsWith("/analytics/observability/");
 
@@ -55,14 +57,40 @@ function ObservabilityList() {
   return (
     <div className="p-6 space-y-4">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Swarm Observability</h1>
+        <h1 className="text-3xl font-bold tracking-tight">Observability</h1>
         <p className="text-muted-foreground mt-1 text-sm">
-          {runs.length} swarm run{runs.length === 1 ? "" : "s"} · click a row to inspect agent-level traces · auto-deleted after 30 days
+          Swarm runs with agent-level traces, and the audit trail of user activity.
         </p>
         <p className="text-muted-foreground mt-1 text-xs">
           Looking for single-agent or playground traces? See <Link to="/traces" className="underline">Traces &amp; Logs</Link>.
         </p>
       </div>
+
+      <div className="flex w-fit rounded-lg border border-border bg-muted/50 p-0.5">
+        {(
+          [
+            ["runs", "Swarm runs"],
+            ["audit", "Audit log"],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setTab(id)}
+            className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+              tab === id
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "audit" && <AuditLog />}
+
+      {tab === "runs" && (
       <Card>
         <Table>
           <TableHeader>
@@ -115,6 +143,7 @@ function ObservabilityList() {
           </TableBody>
         </Table>
       </Card>
+      )}
     </div>
   );
 }
