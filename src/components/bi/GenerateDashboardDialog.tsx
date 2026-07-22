@@ -51,11 +51,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { BiModelSelect } from "@/components/bi/BiModelSelect";
 import type { BiDataContext } from "@/components/bi/biDataContext";
-import {
-  runBiTurn,
-  suggestDashboardWidgets,
-  type WidgetSuggestion,
-} from "@/lib/biAgent";
+import { runBiTurn, suggestDashboardWidgets, type WidgetSuggestion } from "@/lib/biAgent";
 import { widgetFromBiTurn, type BiWidget } from "@/lib/biDashboards";
 
 /** Icon per proposed chart type, so the checklist reads at a glance. */
@@ -90,7 +86,12 @@ function ChartTypeIcon({ type }: { type: string }) {
   }
 }
 
-type GenStep = { id: string; title: string; status: "pending" | "running" | "done" | "error" };
+type GenStep = {
+  id: string;
+  title: string;
+  status: "pending" | "running" | "done" | "error";
+  error?: string;
+};
 
 export function GenerateDashboardDialog({
   open,
@@ -180,26 +181,48 @@ export function GenerateDashboardDialog({
       for (let i = 0; i < picks.length; i++) {
         progress = progress.map((s, j) => (j === i ? { ...s, status: "running" } : s));
         setSteps(progress);
-        const turn = await runBiTurn({
-          question: picks[i].question,
-          datasets: scoped,
-          semantics: ctx.semantics,
-          metrics: scopedMetrics,
-          model: ctx.model ?? undefined,
-          preferChart: picks[i].chartType || undefined,
-          onUpdate: () => {},
-        });
-        const widget = widgetFromBiTurn(turn, { kind: "local" });
-        const ok = Boolean(widget && turn.status === "done" && (turn.result?.row_count ?? 0) > 0);
-        if (ok && widget) {
-          widget.title = picks[i].title || widget.title;
-          widgets.push(widget);
+        let ok = false;
+        let reason = "";
+        try {
+          const turn = await runBiTurn({
+            question: picks[i].question,
+            datasets: scoped,
+            semantics: ctx.semantics,
+            metrics: scopedMetrics,
+            model: ctx.model ?? undefined,
+            preferChart: picks[i].chartType || undefined,
+            onUpdate: () => {},
+          });
+          const widget = widgetFromBiTurn(turn, { kind: "local" });
+          ok = Boolean(widget && turn.status === "done" && (turn.result?.row_count ?? 0) > 0);
+          if (ok && widget) {
+            widget.title = picks[i].title || widget.title;
+            widgets.push(widget);
+          } else {
+            // runBiTurn resolves (never throws) with the reason on the turn.
+            reason =
+              turn.error ||
+              (turn.status !== "done" ? `Failed during ${turn.status}` : "") ||
+              ((turn.result?.row_count ?? 0) === 0 ? "The query returned no rows" : "") ||
+              "Couldn't build a chart from the result";
+          }
+        } catch (e) {
+          reason = (e as Error).message;
         }
-        progress = progress.map((s, j) => (j === i ? { ...s, status: ok ? "done" : "error" } : s));
+        progress = progress.map((s, j) =>
+          j === i ? { ...s, status: ok ? "done" : "error", error: ok ? undefined : reason } : s,
+        );
         setSteps(progress);
       }
+
+      const failed = progress.filter((s) => s.status === "error");
       if (widgets.length === 0) {
-        throw new Error("No selected widget produced a usable result — try different ones.");
+        // Keep the dialog open so the per-widget reasons stay visible.
+        throw new Error(
+          failed[0]?.error
+            ? `No widgets could be built — ${failed[0].error}`
+            : "No selected widget produced a usable result — try different ones.",
+        );
       }
       // Executive summary as a full-width text widget at the top.
       const finalWidgets: BiWidget[] = summary.trim()
@@ -214,7 +237,15 @@ export function GenerateDashboardDialog({
           ]
         : widgets;
       onDone(finalWidgets, title);
-      toast.success(`Generated ${widgets.length} widget${widgets.length === 1 ? "" : "s"}`);
+      if (failed.length > 0) {
+        toast.warning(
+          `Added ${widgets.length}. ${failed.length} couldn't be built (${failed
+            .map((f) => f.title)
+            .join(", ")})${failed[0]?.error ? ` — ${failed[0].error}` : ""}`,
+        );
+      } else {
+        toast.success(`Generated ${widgets.length} widget${widgets.length === 1 ? "" : "s"}`);
+      }
       onOpenChange(false);
       reset();
     } catch (e) {
@@ -343,8 +374,8 @@ export function GenerateDashboardDialog({
               </Button>
             </div>
 
-            <ScrollArea className="min-h-0 flex-1">
-              <div className="space-y-1.5 pr-2">
+            <ScrollArea className="max-h-[46vh] min-h-0 flex-1">
+              <div className="space-y-1.5 pr-3">
                 {suggestions.map((s) => {
                   const step = steps.find((st) => st.id === s.id);
                   return (
@@ -373,13 +404,22 @@ export function GenerateDashboardDialog({
                             <Check className="h-3 w-3 shrink-0 text-emerald-500" />
                           )}
                           {step?.status === "error" && (
-                            <XIcon className="h-3 w-3 shrink-0 text-red-500" />
+                            <XIcon
+                              className="h-3 w-3 shrink-0 text-red-500"
+                              aria-label={step.error}
+                            />
                           )}
                         </div>
-                        {s.rationale && (
-                          <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
-                            {s.rationale}
+                        {step?.status === "error" && step.error ? (
+                          <p className="mt-0.5 text-[11px] leading-snug text-red-600 dark:text-red-400">
+                            {step.error}
                           </p>
+                        ) : (
+                          s.rationale && (
+                            <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+                              {s.rationale}
+                            </p>
+                          )
                         )}
                       </div>
                       <Badge variant="outline" className="shrink-0 text-[9px] font-normal">
