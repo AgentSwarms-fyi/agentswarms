@@ -141,7 +141,9 @@ export function PublishDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-5">
+        {/* min-w-0: this is a CSS-grid child of DialogContent; without it a long
+            public link's intrinsic width propagates up and overflows the dialog. */}
+        <div className="min-w-0 space-y-5">
           <div className="rounded-lg border border-border/60 p-3">
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
@@ -160,14 +162,14 @@ export function PublishDialog({
               )}
             </div>
             {dashboard.published && link && (
-              <div className="mt-3 flex items-center gap-1.5">
+              <div className="mt-3 flex min-w-0 items-center gap-1.5">
                 <code className="min-w-0 flex-1 truncate rounded bg-muted px-2 py-1.5 text-[11px]">
                   {link}
                 </code>
                 <Button
                   size="sm"
                   variant="secondary"
-                  className="h-7 gap-1 text-xs"
+                  className="h-7 shrink-0 gap-1 text-xs"
                   onClick={() => {
                     void navigator.clipboard.writeText(link);
                     setCopied(true);
