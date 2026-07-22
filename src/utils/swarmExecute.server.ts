@@ -11,10 +11,12 @@
 // sql_query), output, approval (auto-decided), subswarm.
 // Owner-scoped data access: on headless runs the tool loaders run under the
 // service-role client but with ctx.scopeUserId set, which restricts results to
-// the owner's own tables/KBs + public samples (never another tenant's).
-// Still owner-login-only: `function` (custom JS — RCE risk in the server realm),
-// `a2a_remote` (needs the owner's JWT for the /api/a2a proxy), and kb/sql tools
-// embedded inside an agent node (agent tool context isn't owner-scoped yet).
+// what the owner may read — their own tables/KBs, public samples, and
+// IAM-shared resources (mirrors RLS); never another tenant's.
+// Agent nodes may also use kb_search / sql_query directly: /api/chat's internal
+// path caps their toolset to the headless-safe set and owner-scopes it.
+// Still owner-login-only: `function` (custom JS — RCE risk in the server realm)
+// and `a2a_remote` (needs the owner's JWT for the /api/a2a proxy).
 import type { Node, Edge } from "@xyflow/react";
 import {
   interpolate,
@@ -28,13 +30,13 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import {
   runHttpNodeCore,
   runToolNodeCore,
-  RLS_TOOL_IDS,
   type ToolNodeParams,
 } from "@/utils/swarmNodes.server";
 import type { AgentToolContext } from "@/utils/tools/registry.server";
 
 // Tool context for headless data tools: service-role client with scopeUserId
-// set, which forces the loaders to restrict data to the owner + public samples.
+// set, which forces the loaders to restrict data to what the owner may read
+// (own + public samples + IAM-shared).
 function dataToolCtx(userId: string): AgentToolContext {
   return { userId, sb: supabaseAdmin as never, scopeUserId: userId };
 }
@@ -59,7 +61,8 @@ const HEADLESS_SAFE_TOOLS = new Set([
 
 // Data tools that read the owner's rows. Safe headless ONLY because the tool
 // context carries scopeUserId, which forces the loaders to restrict results to
-// the owner's own tables/KBs + public samples (see AgentToolContext.scopeUserId).
+// what the owner may read — own + public samples + IAM-shared (see
+// AgentToolContext.scopeUserId).
 const HEADLESS_SCOPED_TOOLS = new Set(["sql_query", "kb_search"]);
 
 // ── internal /api/chat call ─────────────────────────────────────────────────
@@ -74,10 +77,10 @@ async function serverChat(args: {
   const secret = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!secret) throw new Error("Server is missing SUPABASE_SERVICE_ROLE_KEY");
   const d = args.node.data;
-  // Strip RLS-scoped tools — there's no user JWT in a headless run.
-  const enabledTools = Array.isArray(d.enabledTools)
-    ? d.enabledTools.filter((t) => !RLS_TOOL_IDS.has(t))
-    : undefined;
+  // Pass the node's tools through as-is: /api/chat's internal path caps them to
+  // the headless-safe set and owner-scopes the data tools (scopeUserId), so
+  // agent-embedded kb_search / sql_query work without a user JWT.
+  const enabledTools = Array.isArray(d.enabledTools) ? d.enabledTools : undefined;
   const res = await fetch(`${args.origin}/api/chat`, {
     method: "POST",
     signal: args.signal,

@@ -1014,8 +1014,10 @@ export const Route = createFileRoute("/api/chat")({
           const authToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : undefined;
           // Internal server-to-server calls (headless swarm runs): authenticated
           // by the service-role secret, they name the swarm owner in the body.
-          // Callers must strip RLS-scoped tools + memory (no user JWT here), so
-          // this path never issues a user-data query as the service role.
+          // Memory is disabled and the toolset is capped to the headless-safe
+          // set; the data tools (kb_search/sql_query) run under the service role
+          // but with scopeUserId set, so they only read the owner's own +
+          // sample + IAM-shared data (never another tenant's).
           const internalSecret = request.headers.get("x-internal-run-secret");
           const isInternalRun =
             !!internalSecret &&
@@ -1531,13 +1533,37 @@ export const Route = createFileRoute("/api/chat")({
             // the shared tool-calling loop. This is what makes "I enabled
             // web_search on a Gemini/OpenAI/Grok agent and it can't search"
             // finally work.
-            const sbForTools = authToken ? getServerSupabase(authToken) : null;
+            // Headless (internal) runs have no user JWT, so tools run under the
+            // service-role client — but ONLY the data tools that honour
+            // scopeUserId (below) may do so safely. Cap the allow-list to that
+            // set server-side so an unscoped tool (kb_graph_search, memory, …)
+            // can never be wired on a headless run, whatever the caller sent.
+            const HEADLESS_AGENT_TOOL_ALLOW = new Set<ToolableId>([
+              "web_search",
+              "web_browse",
+              "calculator",
+              "datetime",
+              "weather",
+              "mcp_call_tool",
+              "sql_query",
+              "kb_search",
+            ]);
+            const sbForTools = authToken
+              ? getServerSupabase(authToken)
+              : isInternalRun
+                ? supabaseAdmin
+                : null;
             const explicitAllow = Array.isArray(body.enabledTools)
               ? (body.enabledTools.filter((t) =>
                   (TOOLABLE_IDS as readonly string[]).includes(t),
                 ) as ToolableId[])
               : undefined;
-            const allowList = explicitAllow ?? deriveEnabledToolsFromAgent();
+            const rawAllowList = explicitAllow ?? deriveEnabledToolsFromAgent();
+            const allowList = isInternalRun
+              ? (rawAllowList ?? []).filter((t) => HEADLESS_AGENT_TOOL_ALLOW.has(t))
+              : rawAllowList;
+            // Owner-scope tool data access on headless runs (RLS is off there).
+            const toolScopeUserId = isInternalRun && userId ? userId : undefined;
             const transport = await resolveOpenAICompatTransport({
               userId,
               provider,
@@ -1804,7 +1830,7 @@ export const Route = createFileRoute("/api/chat")({
             if (transport && transport.apiKey && sbForTools && allowList && allowList.length > 0) {
               const mergedConfigs = resolveToolConfigs();
               const resolved = await resolveAgentTools(
-                { userId, agentId: body.agentId, authToken, sb: sbForTools },
+                { userId, agentId: body.agentId, authToken, sb: sbForTools, scopeUserId: toolScopeUserId },
                 { enabledTools: allowList, toolConfigs: mergedConfigs, extraKbIds },
               );
               if (resolved.tools.length > 0) {
@@ -1823,6 +1849,7 @@ export const Route = createFileRoute("/api/chat")({
                     sb: sbForTools,
                     conversationId: body.conversationId ?? null,
                     reranker: bodyReranker,
+                    scopeUserId: toolScopeUserId,
                   },
                   temperature: body.temperature,
                   maxTokens: body.maxTokens,

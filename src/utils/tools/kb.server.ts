@@ -128,17 +128,19 @@ export async function retrieveCitationsServer(opts: {
   let kbIds = Array.from(new Set([...agentKbIds, ...(opts.extraKbIds ?? [])]));
   if (kbIds.length === 0) return [];
 
-  // Headless tenant guard: with RLS off, restrict the resolved KB ids to the
-  // owner's own KBs + public samples. Prevents a deployed swarm from pointing a
-  // node at another user's knowledge_base_id.
+  // Headless tenant guard: with RLS off, restrict the resolved KB ids to what
+  // the owner may read — own KBs, public samples, and KBs shared to them via an
+  // IAM grant (mirrors the RLS policy). Prevents a deployed swarm from pointing
+  // a node at a KB the owner has no access to.
   if (opts.scopeUserId) {
-    const { data: owned } = await sb
-      .from("knowledge_bases")
-      .select("id, user_id, is_sample")
-      .in("id", kbIds);
+    const { resolveGrantedResourceIds } = await import("@/utils/iam.server");
+    const [{ data: owned }, granted] = await Promise.all([
+      sb.from("knowledge_bases").select("id, user_id, is_sample").in("id", kbIds),
+      resolveGrantedResourceIds(sb, opts.scopeUserId, "knowledge_base"),
+    ]);
     const allowed = new Set(
       (owned ?? [])
-        .filter((k) => k.user_id === opts.scopeUserId || k.is_sample)
+        .filter((k) => k.user_id === opts.scopeUserId || k.is_sample || granted.has(k.id))
         .map((k) => k.id),
     );
     kbIds = kbIds.filter((id) => allowed.has(id));

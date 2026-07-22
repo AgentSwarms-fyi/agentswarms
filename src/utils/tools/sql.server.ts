@@ -81,12 +81,18 @@ async function loadUserTables(
   // the user's JWT, so RLS returns exactly what they may read (own tables,
   // public samples, IAM-shared tables).
   // Headless path (ctx.scopeUserId set): `sb` is the service-role client with
-  // RLS OFF, so we MUST restrict to the owner's own tables + public samples —
-  // the only tenant boundary here.
+  // RLS OFF, so we MUST restrict to what the owner may read — their own tables,
+  // public samples, and tables shared to them via an IAM grant (mirroring the
+  // RLS policy). This is the only tenant boundary here.
   let query = ctx.sb.from("user_data_tables").select("id, name, columns, user_id, is_sample");
   if (ctx.scopeUserId) {
     if (!UUID_RE.test(ctx.scopeUserId)) return [];
-    query = query.or(`user_id.eq.${ctx.scopeUserId},is_sample.eq.true`);
+    const { resolveGrantedResourceIds } = await import("@/utils/iam.server");
+    const granted = await resolveGrantedResourceIds(ctx.sb, ctx.scopeUserId, "data_table");
+    const orParts = [`user_id.eq.${ctx.scopeUserId}`, `is_sample.eq.true`];
+    const grantedIds = [...granted].filter((id) => UUID_RE.test(id));
+    if (grantedIds.length) orParts.push(`id.in.(${grantedIds.join(",")})`);
+    query = query.or(orParts.join(","));
   }
   const { data: tables } = await query;
   if (!tables) return [];

@@ -103,3 +103,33 @@ export function isModelAllowed(rules: ModelRule[], provider: string, model: stri
     return false;
   });
 }
+
+// Resource ids of `resourceType` the user may read via an IAM grant — directly
+// or through any group they belong to. Mirrors the `has_resource_access` RLS
+// helper, computed explicitly for headless paths where RLS is bypassed (the
+// caller passes a service-role client as `sb`). Grant tables are small, so we
+// fetch and filter in JS (same approach as getEffectiveModelRules).
+export async function resolveGrantedResourceIds(
+  sb: SupabaseClient<Database>,
+  userId: string,
+  resourceType: "data_table" | "knowledge_base",
+): Promise<Set<string>> {
+  const [{ data: memberships }, { data: grants }] = await Promise.all([
+    sb.from("iam_group_members").select("group_id").eq("user_id", userId),
+    sb
+      .from("iam_resource_grants")
+      .select("principal_type, principal_id, resource_id")
+      .eq("resource_type", resourceType),
+  ]);
+  const groupIds = new Set((memberships ?? []).map((m) => m.group_id));
+  const ids = new Set<string>();
+  for (const g of grants ?? []) {
+    if (
+      (g.principal_type === "user" && g.principal_id === userId) ||
+      (g.principal_type === "group" && groupIds.has(g.principal_id))
+    ) {
+      ids.add(g.resource_id);
+    }
+  }
+  return ids;
+}
