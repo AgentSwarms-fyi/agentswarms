@@ -771,16 +771,41 @@ function BiProjectPage() {
   async function handleExport() {
     if (row === null || row === "missing" || !gridWrapRef.current) return;
     setExporting(true);
+    // Snapshot every page (with the active page's live edits) so the export
+    // loop can render each in turn without capturing/mutating state.
+    const restore = { id: activePageId, widgets, layout };
+    const exportPages: BiPage[] = pages.map((p) =>
+      p.id === activePageId ? { ...p, widgets, layout } : p,
+    );
     try {
       await exportDashboardPdf({
         title: row.name,
         description: row.description,
-        container: gridWrapRef.current,
+        pageCount: exportPages.length,
+        preparePage: async (i) => {
+          const pg = exportPages[i];
+          // Make this page the live grid, then let it (and its charts) render.
+          setActivePageId(pg.id);
+          activePageIdRef.current = pg.id;
+          setWidgets(pg.widgets);
+          setLayout(pg.layout);
+          await new Promise((r) => setTimeout(r, 550));
+          if (!gridWrapRef.current) throw new Error("Dashboard grid isn't ready");
+          return {
+            container: gridWrapRef.current,
+            name: exportPages.length > 1 ? pg.name : undefined,
+          };
+        },
       });
       toast.success("PDF downloaded");
     } catch (e) {
       toast.error(`Export failed: ${(e as Error).message}`);
     } finally {
+      // Restore the page the user was on (with its live edits).
+      setActivePageId(restore.id);
+      activePageIdRef.current = restore.id;
+      setWidgets(restore.widgets);
+      setLayout(restore.layout);
       setExporting(false);
     }
   }
