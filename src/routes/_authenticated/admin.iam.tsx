@@ -1074,14 +1074,24 @@ function AccessTab({
     setDirty(false);
   }, [principalType, principalId, rules]);
 
-  // Share builder state
-  const [shareResourceKey, setShareResourceKey] = useState("");
+  // Share builder state: pick the resource TYPE first, then the resource —
+  // one flat dropdown across every KB/table/secret/dashboard gets unwieldy.
+  type ShareResourceType = "knowledge_base" | "data_table" | "secret" | "bi_dashboard";
+  const [shareResourceType, setShareResourceType] = useState<ShareResourceType>("knowledge_base");
+  const [shareResourceId, setShareResourceId] = useState("");
   const [sharePrincipalType, setSharePrincipalType] = useState<"group" | "user">("group");
   const [sharePrincipalId, setSharePrincipalId] = useState("");
   // Optional row-level filter (BI dashboards only).
   const [shareFilterColumn, setShareFilterColumn] = useState("");
   const [shareFilterValues, setShareFilterValues] = useState("");
-  const shareIsDashboard = shareResourceKey.startsWith("bi_dashboard:");
+  const shareIsDashboard = shareResourceType === "bi_dashboard";
+  const shareTypeOptions: { value: ShareResourceType; label: string }[] = [
+    { value: "knowledge_base", label: "📚 Knowledge base" },
+    { value: "data_table", label: "🗃 SQL data table" },
+    { value: "secret", label: "🔑 Secret" },
+    { value: "bi_dashboard", label: "📊 BI dashboard" },
+  ];
+  const shareableOfType = resources.filter((r) => r.resource_type === shareResourceType);
 
   const principalName = (type: string, id: string) =>
     type === "group"
@@ -1243,23 +1253,37 @@ function AccessTab({
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-wrap gap-2">
-            <Select value={shareResourceKey} onValueChange={setShareResourceKey}>
-              <SelectTrigger className="w-72">
-                <SelectValue placeholder="Pick a resource…" />
+            <Select
+              value={shareResourceType}
+              onValueChange={(v) => {
+                setShareResourceType(v as ShareResourceType);
+                setShareResourceId("");
+              }}
+            >
+              <SelectTrigger className="w-44">
+                <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {resources.map((r) => (
-                  <SelectItem
-                    key={`${r.resource_type}:${r.id}`}
-                    value={`${r.resource_type}:${r.id}`}
-                  >
-                    {r.resource_type === "knowledge_base"
-                      ? "📚 "
-                      : r.resource_type === "secret"
-                        ? "🔑 "
-                        : r.resource_type === "bi_dashboard"
-                          ? "📊 "
-                          : "🗃 "}
+                {shareTypeOptions.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={shareResourceId} onValueChange={setShareResourceId}>
+              <SelectTrigger className="w-72">
+                <SelectValue
+                  placeholder={
+                    shareableOfType.length === 0
+                      ? "Nothing of this type to share"
+                      : `Pick from ${shareableOfType.length}…`
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {shareableOfType.map((r) => (
+                  <SelectItem key={r.id} value={r.id}>
                     {r.name}
                     {r.owner_user_id
                       ? ` — ${userById.get(r.owner_user_id)?.email ?? "unknown owner"}`
@@ -1305,12 +1329,8 @@ function AccessTab({
             </Select>
             <Button
               size="sm"
-              disabled={!shareResourceKey || !sharePrincipalId}
+              disabled={!shareResourceId || !sharePrincipalId}
               onClick={async () => {
-                const [resource_type, resource_id] = shareResourceKey.split(":") as [
-                  "knowledge_base" | "data_table" | "secret" | "bi_dashboard",
-                  string,
-                ];
                 const filterValues = shareFilterValues
                   .split(",")
                   .map((v) => v.trim())
@@ -1322,8 +1342,8 @@ function AccessTab({
                 const res = await createGrant({
                   data: {
                     access_token: token,
-                    resource_type,
-                    resource_id,
+                    resource_type: shareResourceType,
+                    resource_id: shareResourceId,
                     principal_type: sharePrincipalType,
                     principal_id: sharePrincipalId,
                     row_filter,
@@ -1331,7 +1351,7 @@ function AccessTab({
                 });
                 if (!res.ok) return toast.error(res.error);
                 toast.success("Share created");
-                setShareResourceKey("");
+                setShareResourceId("");
                 setSharePrincipalId("");
                 setShareFilterColumn("");
                 setShareFilterValues("");
