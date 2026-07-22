@@ -1120,6 +1120,346 @@ export const SWARM_TEMPLATES: SwarmTemplate[] = [
       },
     ],
   },
+
+  // ──────────────────────────────────────────────────────────────────
+  // API Enrichment — HTTP → Extract → Set Variable → agent
+  // Demonstrates the deterministic data nodes + JSON-path variables.
+  // ──────────────────────────────────────────────────────────────────
+  {
+    id: "api-enrichment",
+    title: "API Enrichment (HTTP → Extract)",
+    tagline: "Fetch a GitHub profile, extract fields, write an intro",
+    description:
+      "The deterministic data nodes in action: an HTTP node calls a public REST API, an Extract node turns the JSON response into typed fields, a Set Variable node composes a headline from a JSON path, and an agent writes a short intro. No API key needed — GitHub's public API is keyless.",
+    category: "Operations",
+    exampleInput: "torvalds",
+    nodes: [
+      {
+        id: "in",
+        type: "input",
+        position: { x: 40, y: 240 },
+        data: { kind: "input", label: "GitHub username", outputVar: "input", avatar: "📨" },
+      },
+      {
+        id: "fetch",
+        type: "http",
+        position: { x: 300, y: 240 },
+        data: {
+          kind: "http",
+          label: "Fetch profile",
+          avatar: "🌐",
+          httpMethod: "GET",
+          httpUrl: "https://api.github.com/users/{{input}}",
+          httpHeaders: [{ key: "Accept", value: "application/vnd.github+json" }],
+          inputs: ["input"],
+          outputVar: "profile_json",
+        },
+      },
+      {
+        id: "extract",
+        type: "extract",
+        position: { x: 560, y: 240 },
+        data: {
+          kind: "extract",
+          label: "Extract fields",
+          avatar: "🧩",
+          provider: "openrouter",
+          model: FLASH,
+          temperature: 0.1,
+          extractSchema: [
+            { name: "name", type: "string", description: "the person's full name" },
+            { name: "bio", type: "string", description: "their short bio (or null)" },
+            { name: "followers", type: "number", description: "follower count" },
+            { name: "public_repos", type: "number", description: "number of public repositories" },
+          ],
+          inputs: ["profile_json"],
+          outputVar: "profile",
+        },
+      },
+      {
+        id: "headline",
+        type: "set_var",
+        position: { x: 820, y: 240 },
+        data: {
+          kind: "set_var",
+          label: "Compose headline",
+          avatar: "🔧",
+          stateAssignments: [
+            {
+              key: "headline",
+              value:
+                "{{profile.name}} — {{profile.followers}} followers, {{profile.public_repos}} repos",
+            },
+          ],
+          inputs: ["profile"],
+          outputVar: "headline_set",
+        },
+      },
+      {
+        id: "writer",
+        type: "agent",
+        position: { x: 1080, y: 240 },
+        data: {
+          kind: "agent",
+          label: "Intro writer",
+          avatar: "✍️",
+          provider: "openrouter",
+          model: PRO,
+          temperature: 0.5,
+          systemPrompt:
+            "You write a warm two-sentence introduction for an open-source developer. Use only the facts provided (a headline and a JSON profile with a bio). Do not invent facts.\n\nHeadline: {{headline}}",
+          inputs: ["profile"],
+          outputVar: "intro",
+        },
+      },
+      {
+        id: "out",
+        type: "output",
+        position: { x: 1340, y: 240 },
+        data: { kind: "output", label: "Developer intro", avatar: "✅", inputs: ["intro"] },
+      },
+    ],
+    edges: [
+      baseEdge("e1", "in", "fetch"),
+      baseEdge("e2", "fetch", "extract"),
+      baseEdge("e3", "extract", "headline"),
+      baseEdge("e4", "headline", "writer"),
+      baseEdge("e5", "writer", "out"),
+    ],
+    tour: [
+      {
+        nodeId: "fetch",
+        title: "Step 1 — HTTP Request",
+        what: "Calls https://api.github.com/users/{{input}} — the {{input}} is filled from the run input.",
+        why: "The HTTP node runs server-side, so it isn't blocked by browser CORS and can carry secrets via {{secret:NAME}} without exposing them.",
+        watchFor:
+          "The raw JSON profile landing in the `profile_json` variable (see the Flow variables panel).",
+      },
+      {
+        nodeId: "extract",
+        title: "Step 2 — Extract",
+        what: "Turns the messy JSON into exactly four typed fields (name, bio, followers, public_repos).",
+        why: "Downstream nodes get clean, predictable values instead of parsing raw API output themselves.",
+        watchFor:
+          "The `profile` variable becoming a small JSON object with just the fields you asked for.",
+      },
+      {
+        nodeId: "headline",
+        title: "Step 3 — Set Variable",
+        what: "Builds a `headline` string using JSON-path templating: {{profile.name}}, {{profile.followers}}.",
+        why: "Set Variable lets you compose and reshape flow state without an LLM call.",
+        watchFor: "The `headline` key appearing in the Flow variables panel.",
+      },
+      {
+        nodeId: "writer",
+        title: "Step 4 — Intro writer",
+        what: "An agent writes the final intro, with {{headline}} interpolated straight into its prompt.",
+        why: "Shows that flow-state variables resolve inside agent prompts too, not just the data nodes.",
+        watchFor: "A friendly two-sentence intro grounded only in the fetched facts.",
+      },
+    ],
+  },
+
+  // ──────────────────────────────────────────────────────────────────
+  // Batch Summarizer — For-Each maps an agent over an array
+  // ──────────────────────────────────────────────────────────────────
+  {
+    id: "batch-summarizer",
+    title: "Batch Summarizer (For-Each)",
+    tagline: "Summarize each line of a list, then synthesize",
+    description:
+      "The For-Each node maps an agent body over every element of an array. Paste one item per line; each is summarized in its own LLM call, the results are collected into a JSON array, and a synthesizer writes a combined executive brief.",
+    category: "Research",
+    exampleInput:
+      "The James Webb telescope detected some of the earliest known galaxies\nA new battery chemistry doubles EV range in cold weather\nResearchers trained a model to fold proteins faster than AlphaFold",
+    nodes: [
+      {
+        id: "in",
+        type: "input",
+        position: { x: 40, y: 240 },
+        data: { kind: "input", label: "Items (one per line)", outputVar: "input", avatar: "📨" },
+      },
+      {
+        id: "each",
+        type: "foreach",
+        position: { x: 340, y: 240 },
+        data: {
+          kind: "foreach",
+          label: "Summarize each",
+          avatar: "🔁",
+          provider: "openrouter",
+          model: FLASH,
+          temperature: 0.3,
+          maxIters: 25,
+          foreachItemVar: "item",
+          foreachInput: "input",
+          systemPrompt:
+            'Summarize this item in one punchy sentence and add a 1-5 "impact" score. Return JSON only: {"summary": "...", "impact": <1-5>}.\n\nItem: {{item}}',
+          inputs: ["input"],
+          outputVar: "summaries",
+        },
+      },
+      {
+        id: "synth",
+        type: "agent",
+        position: { x: 640, y: 240 },
+        data: {
+          kind: "agent",
+          label: "Synthesizer",
+          avatar: "🧠",
+          provider: "openrouter",
+          model: PRO,
+          temperature: 0.4,
+          systemPrompt:
+            "You are given a JSON array of per-item summaries, each with an impact score. Write a 3-bullet executive brief ordered by impact (highest first), then a one-line overall takeaway.",
+          inputs: ["summaries"],
+          outputVar: "brief",
+        },
+      },
+      {
+        id: "out",
+        type: "output",
+        position: { x: 920, y: 240 },
+        data: { kind: "output", label: "Executive brief", avatar: "✅", inputs: ["brief"] },
+      },
+    ],
+    edges: [
+      baseEdge("e1", "in", "each"),
+      baseEdge("e2", "each", "synth"),
+      baseEdge("e3", "synth", "out"),
+    ],
+    tour: [
+      {
+        nodeId: "each",
+        title: "Step 1 — For Each",
+        what: "Splits the input into an array (one item per line) and runs its agent body once per item.",
+        why: "Batch/fan-out patterns — processing each row, file, or search result — are a first-class primitive, not a hack.",
+        watchFor:
+          "The loop-iteration events ticking up in the event log, then a JSON array in the `summaries` variable.",
+      },
+      {
+        nodeId: "synth",
+        title: "Step 2 — Synthesizer",
+        what: "Reads the collected `summaries` array and writes one combined brief.",
+        why: "For-Each collects per-item results into a single value the next node can reason over.",
+        watchFor: "A 3-bullet brief ordered by the impact scores each item was given.",
+      },
+    ],
+  },
+
+  // ──────────────────────────────────────────────────────────────────
+  // Deterministic Web Research — Tool node (no LLM) → Extract → agent
+  // ──────────────────────────────────────────────────────────────────
+  {
+    id: "tool-research",
+    title: "Deterministic Web Research (Tool → Extract)",
+    tagline: "Web search with no LLM, then extract + brief",
+    description:
+      "The Tool node runs the web_search tool directly — no LLM turn, no tokens. An Extract node pulls the results into typed fields and an agent writes a short brief. Web search uses your workspace Firecrawl key if set, otherwise falls back to DuckDuckGo.",
+    category: "Research",
+    exampleInput: "electric vehicle battery recycling startups",
+    nodes: [
+      {
+        id: "in",
+        type: "input",
+        position: { x: 40, y: 240 },
+        data: { kind: "input", label: "Search topic", outputVar: "input", avatar: "📨" },
+      },
+      {
+        id: "search",
+        type: "tool",
+        position: { x: 320, y: 240 },
+        data: {
+          kind: "tool",
+          label: "Web search",
+          avatar: "🛠️",
+          toolId: "web_search",
+          toolArgs: { query: "{{input}}" },
+          inputs: ["input"],
+          outputVar: "results",
+        },
+      },
+      {
+        id: "extract",
+        type: "extract",
+        position: { x: 600, y: 240 },
+        data: {
+          kind: "extract",
+          label: "Top findings",
+          avatar: "🧩",
+          provider: "openrouter",
+          model: FLASH,
+          temperature: 0.1,
+          extractSchema: [
+            {
+              name: "top_titles",
+              type: "array",
+              description: "titles of the most relevant results",
+            },
+            {
+              name: "key_themes",
+              type: "array",
+              description: "2-4 recurring themes across the results",
+            },
+          ],
+          inputs: ["results"],
+          outputVar: "findings",
+        },
+      },
+      {
+        id: "brief",
+        type: "agent",
+        position: { x: 880, y: 240 },
+        data: {
+          kind: "agent",
+          label: "Analyst",
+          avatar: "🧠",
+          provider: "openrouter",
+          model: PRO,
+          temperature: 0.4,
+          systemPrompt:
+            "Write a 4-sentence research brief from the extracted findings (titles + themes). Make clear it is based on a quick web scan, not exhaustive research.",
+          inputs: ["findings"],
+          outputVar: "summary",
+        },
+      },
+      {
+        id: "out",
+        type: "output",
+        position: { x: 1160, y: 240 },
+        data: { kind: "output", label: "Research brief", avatar: "✅", inputs: ["summary"] },
+      },
+    ],
+    edges: [
+      baseEdge("e1", "in", "search"),
+      baseEdge("e2", "search", "extract"),
+      baseEdge("e3", "extract", "brief"),
+      baseEdge("e4", "brief", "out"),
+    ],
+    tour: [
+      {
+        nodeId: "search",
+        title: "Step 1 — Tool (deterministic)",
+        what: "Runs web_search directly with your topic — no LLM decides whether or how to call it.",
+        why: "When you always want a specific tool run, a deterministic Tool node is cheaper and more predictable than asking an agent to call it.",
+        watchFor: "Raw search results in the `results` variable, produced with zero tokens.",
+      },
+      {
+        nodeId: "extract",
+        title: "Step 2 — Extract",
+        what: "Distills the raw results into top titles and recurring themes.",
+        why: "Keeps the final agent focused on clean signal instead of raw tool output.",
+        watchFor: "The `findings` variable holding two arrays.",
+      },
+      {
+        nodeId: "brief",
+        title: "Step 3 — Analyst",
+        what: "Writes the final brief from the structured findings.",
+        why: "The only LLM-reasoning step in the chain — everything before it is deterministic.",
+        watchFor: "A concise, appropriately-hedged 4-sentence brief.",
+      },
+    ],
+  },
 ];
 
 export function getSwarmTemplate(id: string): SwarmTemplate | undefined {

@@ -1625,12 +1625,20 @@ Evaluate the candidate output above against each metric and return the JSON scor
           return;
         }
 
-        // Default: agent node
+        // Default: agent node. Flow-state variables ({{var}}, {{var.path}}) are
+        // resolved in the system prompt too, so a prompt can reference upstream
+        // outputs directly (not just via declared inputs).
         const userMsg = node.data.systemPrompt
           ? interpolate(`{{__user__}}`, { ...ctx, __user__: gatherInputs(node, ctx, lastOutput) })
           : gatherInputs(node, ctx, lastOutput);
+        const agentNode = node.data.systemPrompt
+          ? {
+              ...node,
+              data: { ...node.data, systemPrompt: interpolate(node.data.systemPrompt, ctx) },
+            }
+          : node;
         const out = await callAgent(
-          node,
+          agentNode,
           userMsg,
           (tok) => onEvent({ type: "node_token", nodeId: node.id, token: tok }),
           signal,
