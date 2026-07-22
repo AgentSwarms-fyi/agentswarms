@@ -382,6 +382,7 @@ export type Database = {
           label: string | null;
           layout: Json;
           name: string;
+          pages: Json;
           theme: Json;
           user_id: string;
           widgets: Json;
@@ -394,6 +395,7 @@ export type Database = {
           label?: string | null;
           layout: Json;
           name: string;
+          pages?: Json;
           theme?: Json;
           user_id: string;
           widgets: Json;
@@ -406,6 +408,7 @@ export type Database = {
           label?: string | null;
           layout?: Json;
           name?: string;
+          pages?: Json;
           theme?: Json;
           user_id?: string;
           widgets?: Json;
@@ -422,6 +425,7 @@ export type Database = {
           last_viewed_at: string | null;
           layout: Json;
           name: string;
+          pages: Json;
           public_slug: string | null;
           published: boolean;
           published_at: string | null;
@@ -458,6 +462,7 @@ export type Database = {
           last_viewed_at?: string | null;
           layout?: Json;
           name?: string;
+          pages?: Json;
           public_slug?: string | null;
           published?: boolean;
           published_at?: string | null;

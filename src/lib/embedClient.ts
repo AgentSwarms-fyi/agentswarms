@@ -47,6 +47,7 @@ export type EmbedResolve =
       description: string | null;
       widgets: unknown;
       layout: unknown;
+      pages: unknown;
       filters: unknown;
       theme: unknown;
       updated_at: string;

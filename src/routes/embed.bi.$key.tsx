@@ -19,10 +19,12 @@ import {
   parseDashTheme,
   parseFilters,
   parseLayout,
+  parsePages,
   parseWidgets,
   type BiCrossFilter,
   type BiFilterState,
 } from "@/lib/biDashboards";
+import { cn } from "@/lib/utils";
 import type { Json } from "@/integrations/supabase/types";
 import { EmbedErrorCard } from "@/routes/embed.agent.$key";
 import { askEmbedDashboard, resolveEmbed, type EmbedResolve } from "@/lib/embedClient";
@@ -45,6 +47,7 @@ function EmbedBiPage() {
   const [error, setError] = useState<string | null>(null);
   const [filterState, setFilterState] = useState<BiFilterState>({});
   const [cross, setCross] = useState<BiCrossFilter>(null);
+  const [activePageIndex, setActivePageIndex] = useState(0);
   const [askOpen, setAskOpen] = useState(false);
   const [turns, setTurns] = useState<AskTurn[]>([]);
   const [question, setQuestion] = useState("");
@@ -100,9 +103,16 @@ function EmbedBiPage() {
   }
 
   const theme = parseDashTheme(cfg.theme as Json);
-  const widgets = parseWidgets(cfg.widgets as Json);
-  const layout = parseLayout(cfg.layout as Json, widgets);
   const filterConfigs = parseFilters(cfg.filters as Json);
+  const topWidgets = parseWidgets(cfg.widgets as Json);
+  const pages = parsePages(
+    cfg.pages as Json,
+    topWidgets,
+    parseLayout(cfg.layout as Json, topWidgets),
+  );
+  const activePage = pages[Math.min(activePageIndex, pages.length - 1)] ?? pages[0];
+  const widgets = activePage.widgets;
+  const layout = activePage.layout;
   const widgetById = new Map(
     widgets.map((w) => [
       w.id,
@@ -115,6 +125,28 @@ function EmbedBiPage() {
   return (
     <div className="min-h-screen bg-background">
       <main className="p-3" style={dashSurfaceStyle(theme)}>
+        {pages.length > 1 && (
+          <div className="mb-3 flex items-center gap-1 overflow-x-auto pb-1">
+            {pages.map((p, i) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => {
+                  setActivePageIndex(i);
+                  setCross(null);
+                }}
+                className={cn(
+                  "h-8 shrink-0 rounded-md px-3 text-xs",
+                  i === activePageIndex
+                    ? "border border-border bg-background font-medium shadow-sm"
+                    : "text-muted-foreground hover:bg-background/60",
+                )}
+              >
+                {p.name}
+              </button>
+            ))}
+          </div>
+        )}
         <BiFilterBar
           configs={filterConfigs}
           widgets={widgets}

@@ -81,6 +81,7 @@ export type PublicDashboard = {
   description: string | null;
   widgets: Json;
   layout: Json;
+  pages: Json;
   filters: Json;
   theme: Json;
   updated_at: string;
@@ -96,7 +97,9 @@ export const biGetPublicDashboard = createServerFn({ method: "POST" })
       try {
         const { data: row, error } = await supabaseAdmin
           .from("bi_dashboards")
-          .select("id, name, description, widgets, layout, filters, theme, updated_at, published")
+          .select(
+            "id, name, description, widgets, layout, pages, filters, theme, updated_at, published",
+          )
           .eq("public_slug", data.slug)
           .maybeSingle();
         if (error) return { ok: false, error: error.message };

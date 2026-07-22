@@ -17,10 +17,12 @@ import {
   parseDashTheme,
   parseFilters,
   parseLayout,
+  parsePages,
   parseWidgets,
   type BiCrossFilter,
   type BiFilterState,
 } from "@/lib/biDashboards";
+import { cn } from "@/lib/utils";
 import { biGetPublicDashboard, type PublicDashboard } from "@/utils/bi.functions";
 
 export const Route = createFileRoute("/share/bi/$slug")({
@@ -43,6 +45,7 @@ function PublicBiDashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [filterState, setFilterState] = useState<BiFilterState>({});
   const [cross, setCross] = useState<BiCrossFilter>(null);
+  const [activePageIndex, setActivePageIndex] = useState(0);
 
   useEffect(() => {
     fetchFn({ data: { slug } }).then((res) => {
@@ -82,9 +85,14 @@ function PublicBiDashboardPage() {
   }
 
   const theme = parseDashTheme(dashboard.theme);
-  const widgets = parseWidgets(dashboard.widgets);
-  const layout = parseLayout(dashboard.layout, widgets);
   const filterConfigs = parseFilters(dashboard.filters);
+  // Multi-page: render one page at a time; pages come from `pages`, falling
+  // back to the legacy top-level widgets/layout for pre-migration dashboards.
+  const topWidgets = parseWidgets(dashboard.widgets);
+  const pages = parsePages(dashboard.pages, topWidgets, parseLayout(dashboard.layout, topWidgets));
+  const activePage = pages[Math.min(activePageIndex, pages.length - 1)] ?? pages[0];
+  const widgets = activePage.widgets;
+  const layout = activePage.layout;
   const widgetById = new Map(
     widgets.map((w) => [
       w.id,
@@ -130,6 +138,28 @@ function PublicBiDashboardPage() {
           ...dashSurfaceStyle(theme),
         }}
       >
+        {pages.length > 1 && (
+          <div className="mb-3 flex items-center gap-1 overflow-x-auto pb-1">
+            {pages.map((p, i) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => {
+                  setActivePageIndex(i);
+                  setCross(null);
+                }}
+                className={cn(
+                  "h-8 shrink-0 rounded-md px-3 text-xs",
+                  i === activePageIndex
+                    ? "border border-border bg-background font-medium shadow-sm"
+                    : "text-muted-foreground hover:bg-background/60",
+                )}
+              >
+                {p.name}
+              </button>
+            ))}
+          </div>
+        )}
         <BiFilterBar
           configs={filterConfigs}
           widgets={widgets}

@@ -43,6 +43,9 @@ export type BiDashboardRow = {
   description: string | null;
   widgets: Json;
   layout: Json;
+  /** Ordered pages ({ id, name, widgets, layout }[]). Source of truth for the
+   *  dashboard's content; top-level widgets/layout mirror page 1. */
+  pages: Json;
   published: boolean;
   public_slug: string | null;
   published_at: string | null;
@@ -479,6 +482,51 @@ export function parseLayout(v: Json, widgets: BiWidget[]): BiLayoutItem[] {
   return layout;
 }
 
+// ── Multi-page dashboards ────────────────────────────────────────────────────
+// A dashboard is an ordered list of pages, each with its own widgets + layout.
+// The dashboard-level theme and filters stay global (shared across pages).
+export type BiPage = {
+  id: string;
+  name: string;
+  widgets: BiWidget[];
+  layout: BiLayoutItem[];
+};
+
+/**
+ * Parse the `pages` column. Backward-compatible: dashboards saved before
+ * multi-page support (empty/absent `pages`) collapse to a single "Page 1"
+ * built from the top-level widgets/layout the caller already parsed.
+ */
+export function parsePages(
+  rawPages: Json | undefined,
+  fallbackWidgets: BiWidget[],
+  fallbackLayout: BiLayoutItem[],
+): BiPage[] {
+  if (Array.isArray(rawPages) && rawPages.length > 0) {
+    const pages: BiPage[] = [];
+    for (const p of rawPages as unknown[]) {
+      if (!p || typeof p !== "object") continue;
+      const obj = p as { id?: unknown; name?: unknown; widgets?: Json; layout?: Json };
+      const widgets = parseWidgets((obj.widgets ?? []) as Json);
+      pages.push({
+        id: typeof obj.id === "string" && obj.id ? obj.id : crypto.randomUUID(),
+        name:
+          typeof obj.name === "string" && obj.name.trim() ? obj.name : `Page ${pages.length + 1}`,
+        widgets,
+        layout: parseLayout((obj.layout ?? []) as Json, widgets),
+      });
+    }
+    if (pages.length > 0) return pages;
+  }
+  return [
+    { id: crypto.randomUUID(), name: "Page 1", widgets: fallbackWidgets, layout: fallbackLayout },
+  ];
+}
+
+export function makeEmptyPage(name: string): BiPage {
+  return { id: crypto.randomUUID(), name, widgets: [], layout: [] };
+}
+
 export function snapshotRows(rows: Record<string, unknown>[]): Record<string, unknown>[] {
   return rows.slice(0, WIDGET_ROW_CAP);
 }
@@ -552,6 +600,7 @@ export async function updateDashboard(
     description: string | null;
     widgets: Json;
     layout: Json;
+    pages: Json;
     filters: Json;
     theme: Json;
     published: boolean;
@@ -620,6 +669,7 @@ export type BiVersionRow = {
   name: string;
   widgets: Json;
   layout: Json;
+  pages: Json;
   filters: Json;
   theme: Json;
   created_at: string;
@@ -644,7 +694,7 @@ export async function latestDashboardVersionAt(dashboardId: string): Promise<num
 export async function listDashboardVersions(dashboardId: string): Promise<BiVersionRow[]> {
   const { data, error } = await supabase
     .from("bi_dashboard_versions")
-    .select("id, dashboard_id, label, name, widgets, layout, filters, theme, created_at")
+    .select("id, dashboard_id, label, name, widgets, layout, pages, filters, theme, created_at")
     .eq("dashboard_id", dashboardId)
     .order("created_at", { ascending: false })
     .limit(VERSION_KEEP);
@@ -664,6 +714,7 @@ export async function saveDashboardVersion(
     name: row.name,
     widgets: row.widgets,
     layout: row.layout,
+    pages: row.pages,
     filters: row.filters,
     theme: row.theme,
   });
@@ -692,6 +743,7 @@ export async function restoreDashboardVersion(v: BiVersionRow): Promise<void> {
     name: v.name,
     widgets: v.widgets,
     layout: v.layout,
+    pages: v.pages,
     filters: v.filters,
     theme: v.theme,
   });

@@ -52,6 +52,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 import { AskDashboardDialog } from "@/components/bi/AskDashboardDialog";
 import { BiBuilderPane, type BuilderTab } from "@/components/bi/BiBuilderPane";
 import { BiExploreDialog, extractBaseTable } from "@/components/bi/BiExploreDialog";
@@ -89,7 +90,9 @@ import {
   latestDashboardVersionAt,
   parseFilters,
   parseLayout,
+  parsePages,
   parseWidgets,
+  makeEmptyPage,
   pushDown,
   saveDashboardVersion,
   snapshotRows,
@@ -101,6 +104,7 @@ import {
   type BiFilterConfig,
   type BiFilterState,
   type BiLayoutItem,
+  type BiPage,
   type BiDashTheme,
   type BiWidget,
   type BiWidgetSource,
@@ -120,14 +124,125 @@ export const Route = createFileRoute("/_authenticated/bi_/$dashboardId")({
   component: BiProjectPage,
 });
 
+// Page tabs strip shown above the dashboard grid. Owners can switch, add,
+// rename (double-click), and delete pages; viewers just switch.
+function BiPageTabs({
+  pages,
+  activePageId,
+  readOnly,
+  onSwitch,
+  onAdd,
+  onRename,
+  onDelete,
+}: {
+  pages: BiPage[];
+  activePageId: string;
+  readOnly: boolean;
+  onSwitch: (id: string) => void;
+  onAdd: () => void;
+  onRename: (id: string, name: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  // Viewers of a single-page dashboard see no tab chrome.
+  if (readOnly && pages.length <= 1) return null;
+  return (
+    <div className="mb-3 flex items-center gap-1 overflow-x-auto pb-1">
+      {pages.map((p) => {
+        const active = p.id === activePageId;
+        if (!readOnly && editingId === p.id) {
+          return (
+            <input
+              key={p.id}
+              autoFocus
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={() => {
+                onRename(p.id, draft);
+                setEditingId(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  onRename(p.id, draft);
+                  setEditingId(null);
+                } else if (e.key === "Escape") {
+                  setEditingId(null);
+                }
+              }}
+              className="h-8 w-36 shrink-0 rounded-md border border-primary bg-background px-2 text-xs outline-none"
+            />
+          );
+        }
+        return (
+          <div
+            key={p.id}
+            role="button"
+            tabIndex={0}
+            onClick={() => onSwitch(p.id)}
+            onDoubleClick={() => {
+              if (!readOnly) {
+                setDraft(p.name);
+                setEditingId(p.id);
+              }
+            }}
+            title={readOnly ? p.name : "Click to open · double-click to rename"}
+            className={cn(
+              "group flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-3 text-xs",
+              active
+                ? "border border-border bg-background font-medium shadow-sm"
+                : "text-muted-foreground hover:bg-background/60",
+            )}
+          >
+            <span className="max-w-[10rem] truncate">{p.name}</span>
+            {!readOnly && pages.length > 1 && (
+              <button
+                type="button"
+                className="text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
+                title="Delete page"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (window.confirm(`Delete "${p.name}" and its widgets? This can't be undone.`)) {
+                    onDelete(p.id);
+                  }
+                }}
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+        );
+      })}
+      {!readOnly && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-8 shrink-0 gap-1 text-xs text-muted-foreground"
+          onClick={onAdd}
+        >
+          <Plus className="h-3.5 w-3.5" /> Add page
+        </Button>
+      )}
+    </div>
+  );
+}
+
 function BiProjectPage() {
   const { dashboardId } = Route.useParams();
   const { user, session } = useAuth();
   const token = session?.access_token ?? null;
 
   const [row, setRow] = useState<BiDashboardRow | "missing" | null>(null);
+  // Multi-page: `widgets`/`layout` are the live editing copy of the ACTIVE page;
+  // `pages` holds every page (its active entry is synced on save / page-switch).
   const [widgets, setWidgets] = useState<BiWidget[]>([]);
   const [layout, setLayout] = useState<BiLayoutItem[]>([]);
+  const [pages, setPages] = useState<BiPage[]>([]);
+  const [activePageId, setActivePageId] = useState<string>("");
+  const pagesRef = useRef<BiPage[]>([]);
+  pagesRef.current = pages;
+  const activePageIdRef = useRef<string>("");
+  activePageIdRef.current = activePageId;
   const [name, setName] = useState("");
   const [saveState, setSaveState] = useState<"saved" | "saving" | "error">("saved");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -198,6 +313,9 @@ function BiProjectPage() {
           name,
           widgets: widgets as unknown as Json,
           layout: layout as unknown as Json,
+          pages: pages.map((p) =>
+            p.id === activePageId ? { ...p, widgets, layout } : p,
+          ) as unknown as Json,
           filters: filterConfigs as unknown as Json,
         }
       : null;
@@ -226,8 +344,13 @@ function BiProjectPage() {
         setRow(r);
         setName(r.name);
         const w = parseWidgets(r.widgets);
-        setWidgets(w);
-        setLayout(parseLayout(r.layout, w));
+        const pgs = parsePages(r.pages, w, parseLayout(r.layout, w));
+        setPages(pgs);
+        pagesRef.current = pgs;
+        setActivePageId(pgs[0].id);
+        activePageIdRef.current = pgs[0].id;
+        setWidgets(pgs[0].widgets);
+        setLayout(pgs[0].layout);
         const cfgs = parseFilters(r.filters);
         setFilterConfigs(cfgs);
         setFilterState(defaultFilterState(cfgs));
@@ -372,17 +495,18 @@ function BiProjectPage() {
   );
 
   // ── Persistence (debounced autosave) ────────────────────────────────
-  const persist = useCallback(
-    (nextWidgets: BiWidget[], nextLayout: BiLayoutItem[]) => {
-      setWidgets(nextWidgets);
-      setLayout(nextLayout);
+  // Write the whole `pages` array; also mirror page 1 into the legacy
+  // widgets/layout columns so older readers keep working.
+  const savePages = useCallback(
+    (nextPages: BiPage[]) => {
       if (readOnly) return;
       setSaveState("saving");
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(() => {
         updateDashboard(dashboardId, {
-          widgets: nextWidgets as unknown as Json,
-          layout: nextLayout as unknown as Json,
+          pages: nextPages as unknown as Json,
+          widgets: (nextPages[0]?.widgets ?? []) as unknown as Json,
+          layout: (nextPages[0]?.layout ?? []) as unknown as Json,
         })
           .then(() => {
             setSaveState("saved");
@@ -395,6 +519,96 @@ function BiProjectPage() {
       }, 700);
     },
     [dashboardId, readOnly, maybeAutoSnapshot],
+  );
+
+  const persist = useCallback(
+    (nextWidgets: BiWidget[], nextLayout: BiLayoutItem[]) => {
+      setWidgets(nextWidgets);
+      setLayout(nextLayout);
+      const nextPages = pagesRef.current.map((p) =>
+        p.id === activePageIdRef.current ? { ...p, widgets: nextWidgets, layout: nextLayout } : p,
+      );
+      setPages(nextPages);
+      pagesRef.current = nextPages;
+      savePages(nextPages);
+    },
+    [savePages],
+  );
+
+  // Capture the active page's live edits back into the pages array.
+  const captureActivePage = useCallback(
+    (): BiPage[] =>
+      pagesRef.current.map((p) =>
+        p.id === activePageIdRef.current ? { ...p, widgets, layout } : p,
+      ),
+    [widgets, layout],
+  );
+
+  const switchPage = useCallback(
+    (targetId: string) => {
+      if (targetId === activePageIdRef.current) return;
+      const captured = captureActivePage();
+      const target = captured.find((p) => p.id === targetId);
+      if (!target) return;
+      setPages(captured);
+      pagesRef.current = captured;
+      setActivePageId(targetId);
+      activePageIdRef.current = targetId;
+      setWidgets(target.widgets);
+      setLayout(target.layout);
+      setCrossFilter(null);
+      setPane(null);
+    },
+    [captureActivePage],
+  );
+
+  const addPage = useCallback(() => {
+    if (readOnly) return;
+    const np = makeEmptyPage(`Page ${pagesRef.current.length + 1}`);
+    const nextPages = [...captureActivePage(), np];
+    setPages(nextPages);
+    pagesRef.current = nextPages;
+    setActivePageId(np.id);
+    activePageIdRef.current = np.id;
+    setWidgets([]);
+    setLayout([]);
+    setCrossFilter(null);
+    setPane(null);
+    savePages(nextPages);
+  }, [readOnly, captureActivePage, savePages]);
+
+  const renamePage = useCallback(
+    (id: string, nextName: string) => {
+      const nm = nextName.trim();
+      if (readOnly || !nm) return;
+      const nextPages = captureActivePage().map((p) => (p.id === id ? { ...p, name: nm } : p));
+      setPages(nextPages);
+      pagesRef.current = nextPages;
+      savePages(nextPages);
+    },
+    [readOnly, captureActivePage, savePages],
+  );
+
+  const deletePage = useCallback(
+    (id: string) => {
+      if (readOnly || pagesRef.current.length <= 1) return;
+      const captured = captureActivePage();
+      const idx = captured.findIndex((p) => p.id === id);
+      const nextPages = captured.filter((p) => p.id !== id);
+      setPages(nextPages);
+      pagesRef.current = nextPages;
+      if (id === activePageIdRef.current) {
+        const fallback = nextPages[Math.max(0, idx - 1)];
+        setActivePageId(fallback.id);
+        activePageIdRef.current = fallback.id;
+        setWidgets(fallback.widgets);
+        setLayout(fallback.layout);
+        setCrossFilter(null);
+        setPane(null);
+      }
+      savePages(nextPages);
+    },
+    [readOnly, captureActivePage, savePages],
   );
 
   function persistFilterConfigs(next: BiFilterConfig[]) {
@@ -850,6 +1064,15 @@ function BiProjectPage() {
             backgroundSize: "22px 22px",
           }}
         >
+          <BiPageTabs
+            pages={pages}
+            activePageId={activePageId}
+            readOnly={readOnly}
+            onSwitch={switchPage}
+            onAdd={addPage}
+            onRename={renamePage}
+            onDelete={deletePage}
+          />
           <BiFilterBar
             configs={filterConfigs}
             widgets={securedWidgets}

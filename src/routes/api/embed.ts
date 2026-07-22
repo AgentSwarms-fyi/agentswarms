@@ -145,7 +145,7 @@ export const Route = createFileRoute("/api/embed")({
           const { data: dash } = await supabaseAdmin
             .from("bi_dashboards")
             .select(
-              "id, name, description, widgets, layout, filters, theme, updated_at, ai_model, user_id",
+              "id, name, description, widgets, layout, pages, filters, theme, updated_at, ai_model, user_id",
             )
             .eq("id", keyRow.resource_id)
             .maybeSingle();
@@ -163,6 +163,7 @@ export const Route = createFileRoute("/api/embed")({
             description: dash.description,
             widgets: dash.widgets,
             layout: dash.layout,
+            pages: dash.pages,
             filters: dash.filters,
             theme: dash.theme,
             updated_at: dash.updated_at,
