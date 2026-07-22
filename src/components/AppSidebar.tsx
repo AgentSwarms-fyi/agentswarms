@@ -58,7 +58,7 @@ const buildItems = [
   { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
   { title: "Prompt Library", url: "/prompts", icon: BookMarked },
   { title: "Skill Library", url: "/skills", icon: Wand2 },
-  { title: "Data & SQL Agents", url: "/data-sql", icon: Database },
+  { title: "Data Catalog", url: "/data-sql", icon: Database },
   { title: "BI Workspace", url: "/bi", icon: PieChart },
 ];
 

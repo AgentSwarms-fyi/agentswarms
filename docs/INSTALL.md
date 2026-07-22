@@ -313,6 +313,13 @@ VS Code: click the encoding in the status bar → "Save with Encoding" →
 "UTF-8". (On Windows, `Set-Content -Encoding utf8` in Windows PowerShell
 5.x writes a BOM — use an editor or PowerShell 7+ instead.)
 
+**"PROVIDER_CREDS_SECRET is not configured" when saving a warehouse
+connection, secret, or Data Catalog source.** Stored credentials are
+AES-256-GCM encrypted with a key derived from the `PROVIDER_CREDS_SECRET`
+env var, and it has no default. Add any long random string to `.env`
+(e.g. `openssl rand -hex 32`) and restart `npm run dev`. Rotating the
+value later invalidates previously saved credentials — re-enter them.
+
 **"Unsupported provider: lovable_ai" when messaging an agent.** Your
 database schema predates the `20260719000000_fix_new_user_seed_provider`
 migration (the signup trigger used to seed sample agents on a provider

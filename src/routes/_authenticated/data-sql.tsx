@@ -94,19 +94,87 @@ import { BiModelSelect, useBiModelPref } from "@/components/bi/BiModelSelect";
 import type { BiWidgetSource } from "@/lib/biDashboards";
 import { SuggestedQuestions } from "@/components/data-sql/SuggestedQuestions";
 import { SemanticLayerEditor } from "@/components/data-sql/SemanticLayerEditor";
+import { CatalogView } from "@/components/catalog/CatalogView";
 
 export const Route = createFileRoute("/_authenticated/data-sql")({
   head: () => ({
     meta: [
-      { title: "Data & SQL Agents — AgentSwarms" },
+      { title: "Data Catalog — AgentSwarms" },
       {
         name: "description",
-        content: "Query your CSV data with SQL and let AI agents answer questions over it.",
+        content:
+          "Catalog every data source — crawl warehouses and buckets, browse schemas, and query with SQL + AI agents.",
       },
     ],
   }),
-  component: DataSqlPage,
+  component: DataCatalogRoute,
 });
+
+// Seed passed from the Catalog's "Query in Workbench" into the IDE below.
+type WorkbenchSeed = { sql: string; dataSource: string; nonce: number };
+
+/**
+ * Page shell: Catalog (sources, crawled assets, governance) and the
+ * original Data & SQL workbench (database explorer + SQL editor + BI
+ * agent / SQL chat) as sibling views. Both stay mounted once visited so
+ * chat history and editor state survive switching.
+ */
+function DataCatalogRoute() {
+  const [view, setView] = useState<"catalog" | "workbench">("catalog");
+  const [wbMounted, setWbMounted] = useState(false);
+  const [seed, setSeed] = useState<WorkbenchSeed | null>(null);
+
+  const switchBtn = (v: "catalog" | "workbench", icon: React.ReactNode, label: string) => (
+    <button
+      type="button"
+      onClick={() => {
+        if (v === "workbench") setWbMounted(true);
+        setView(v);
+      }}
+      className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+        view === v
+          ? "bg-background text-foreground shadow-sm"
+          : "text-muted-foreground hover:text-foreground"
+      }`}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+
+  return (
+    <div className="flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden">
+      <div className="flex items-center gap-3 border-b border-border bg-background px-3 py-1.5">
+        <h1 className="text-sm font-semibold">Data Catalog</h1>
+        <div className="flex rounded-lg border border-border bg-muted/50 p-0.5">
+          {switchBtn("catalog", <BookOpen className="h-3.5 w-3.5" />, "Catalog")}
+          {switchBtn("workbench", <Wrench className="h-3.5 w-3.5" />, "Workbench")}
+        </div>
+        <p className="ml-auto hidden text-[11px] text-muted-foreground lg:block">
+          {view === "catalog"
+            ? "Connect sources, crawl schemas, browse and govern every data asset"
+            : "Database explorer · SQL editor · BI agent & SQL chat"}
+        </p>
+      </div>
+      <div className="min-h-0 flex-1">
+        <div className={view === "catalog" ? "h-full" : "hidden"}>
+          <CatalogView
+            onQueryAsset={(s) => {
+              setSeed({ ...s, nonce: Date.now() });
+              setWbMounted(true);
+              setView("workbench");
+            }}
+          />
+        </div>
+        {wbMounted && (
+          <div className={view === "workbench" ? "h-full" : "hidden"}>
+            <DataSqlPage seed={seed} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 type ChatMessage =
   | { role: "user"; content: string }
@@ -205,7 +273,7 @@ function highlightSql(src: string): string {
   );
 }
 
-function DataSqlPage() {
+function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
   const { user, session } = useAuth();
   const [datasets, setDatasets] = useState<DatasetMeta[]>([]);
   const [loadingTables, setLoadingTables] = useState(true);
@@ -317,6 +385,15 @@ function DataSqlPage() {
       duration_ms: j.duration_ms ?? 0,
     };
   }
+
+  // Apply a query seeded from the Catalog tab (source + SQL).
+  useEffect(() => {
+    if (!seed) return;
+    setDataSource(seed.dataSource);
+    setSql(seed.sql);
+    if (seed.dataSource !== "local") void loadWarehouseSchema(seed.dataSource);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seed?.nonce]);
 
   const activeWarehouse =
     dataSource !== "local" ? (warehouses.find((w) => w.id === dataSource) ?? null) : null;
@@ -751,7 +828,7 @@ function DataSqlPage() {
   const lineCount = Math.max(sql.split("\n").length, 1);
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] w-full max-w-full overflow-hidden bg-slate-50 text-slate-900 dark:bg-background dark:text-foreground">
+    <div className="flex h-full w-full max-w-full overflow-hidden bg-slate-50 text-slate-900 dark:bg-background dark:text-foreground">
       {/* ── Left: Database Explorer ─────────────────────────────── */}
       <aside className="w-64 shrink-0 border-r border-slate-200 bg-white dark:border-border dark:bg-card flex flex-col">
         <div className="px-3 py-3 border-b border-slate-200 dark:border-border flex items-center justify-between">

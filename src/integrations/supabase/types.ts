@@ -502,6 +502,114 @@ export type Database = {
         };
         Relationships: [];
       };
+      catalog_assets: {
+        Row: {
+          asset_type: string;
+          columns: Json;
+          created_at: string;
+          description: string | null;
+          file_count: number | null;
+          format: string | null;
+          fqn: string;
+          id: string;
+          last_crawled_at: string;
+          name: string;
+          pii: boolean;
+          row_count: number | null;
+          schema_name: string | null;
+          size_bytes: number | null;
+          source_id: string;
+          tags: string[];
+          user_id: string;
+        };
+        Insert: {
+          asset_type: string;
+          columns?: Json;
+          created_at?: string;
+          description?: string | null;
+          file_count?: number | null;
+          format?: string | null;
+          fqn: string;
+          id?: string;
+          last_crawled_at?: string;
+          name: string;
+          pii?: boolean;
+          row_count?: number | null;
+          schema_name?: string | null;
+          size_bytes?: number | null;
+          source_id: string;
+          tags?: string[];
+          user_id: string;
+        };
+        Update: {
+          asset_type?: string;
+          columns?: Json;
+          created_at?: string;
+          description?: string | null;
+          file_count?: number | null;
+          format?: string | null;
+          fqn?: string;
+          id?: string;
+          last_crawled_at?: string;
+          name?: string;
+          pii?: boolean;
+          row_count?: number | null;
+          schema_name?: string | null;
+          size_bytes?: number | null;
+          source_id?: string;
+          tags?: string[];
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      catalog_sources: {
+        Row: {
+          config: Json;
+          connection_id: string | null;
+          crawl_stats: Json;
+          created_at: string;
+          credentials: Json | null;
+          id: string;
+          kind: string;
+          last_crawl_at: string | null;
+          last_error: string | null;
+          name: string;
+          status: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          config?: Json;
+          connection_id?: string | null;
+          crawl_stats?: Json;
+          created_at?: string;
+          credentials?: Json | null;
+          id?: string;
+          kind: string;
+          last_crawl_at?: string | null;
+          last_error?: string | null;
+          name: string;
+          status?: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          config?: Json;
+          connection_id?: string | null;
+          crawl_stats?: Json;
+          created_at?: string;
+          credentials?: Json | null;
+          id?: string;
+          kind?: string;
+          last_crawl_at?: string | null;
+          last_error?: string | null;
+          name?: string;
+          status?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       budget_settings: {
         Row: {
           alert_thresholds: number[];
