@@ -9,7 +9,7 @@ import { z } from "zod";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { resolveOpenAICompatTransport } from "@/utils/providers/credentials.server";
-import { isBiCompatProvider } from "@/utils/providers/modelChoice";
+import { isBiCompatProvider, isTextModelId } from "@/utils/providers/modelChoice";
 import type { ProviderId } from "@/utils/providers/types";
 
 export type ProviderModelInfo = { id: string; name: string | null };
@@ -21,10 +21,6 @@ const IMAGE_OUT_MODALITY_RE = /->[^>]*image/i;
 const IMAGE_ID_RE =
   /(^|\/|[-.])(gpt-image|imagen|image|dall-e|flux|stable-diffusion|sdxl|photon|recraft|ideogram)([-.\d]|$)/i;
 const NEVER_IMAGE_RE = /embed|whisper|tts|audio|moderation|transcri|rerank/i;
-
-// Obvious non-chat model ids (embeddings, speech, image gen…) for providers
-// whose /models response carries no modality metadata.
-const NON_TEXT_RE = /embed|whisper|tts|audio|moderation|dall-e|realtime|transcri|image-gen/i;
 
 type RawModel = { id?: string; name?: string; architecture?: { modality?: string } };
 
@@ -75,10 +71,14 @@ export const listProviderModels = createServerFn({ method: "POST" })
         for (const m of res.raw) {
           if (!m.id || seen.has(m.id)) continue;
           const modality = m.architecture?.modality;
-          // Text-output models only: OpenRouter publishes modality strings
-          // ("text->text", "text+image->text"); others get an id heuristic.
-          if (modality && !/->text$/.test(modality)) continue;
-          if (!modality && NON_TEXT_RE.test(m.id)) continue;
+          // Text-output models only. OpenRouter publishes modality strings
+          // ("text->text", "text+image->text") — trust them; providers without
+          // modality metadata fall back to the shared id heuristic.
+          if (modality) {
+            if (!/->text$/.test(modality)) continue;
+          } else if (!isTextModelId(m.id)) {
+            continue;
+          }
           seen.add(m.id);
           models.push({ id: m.id, name: m.name ?? null });
           if (models.length >= 600) break;

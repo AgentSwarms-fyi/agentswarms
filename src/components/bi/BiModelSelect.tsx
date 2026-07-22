@@ -15,17 +15,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { Link } from "@tanstack/react-router";
-import { Check, ChevronsUpDown, Cpu, Plug } from "lucide-react";
+import { Check, ChevronsUpDown, Cpu, Plug, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
@@ -42,6 +34,7 @@ import { listProviderModels, type ProviderModelInfo } from "@/utils/providerMode
 import {
   encodeModelChoice,
   isBiCompatProvider,
+  isTextModelId,
   parseModelChoice,
 } from "@/utils/providers/modelChoice";
 import { PROVIDER_LABELS, type ProviderId } from "@/utils/providers/types";
@@ -158,6 +151,7 @@ export function BiModelSelect({
   const listModelsFn = useServerFn(listProviderModels);
 
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const [models, setModels] = useState<ProviderModelInfo[] | null>(null);
   const [integrations, setIntegrations] = useState<ConnectedIntegration[] | null>(
     integrationsCache,
@@ -233,7 +227,11 @@ export function BiModelSelect({
     if (!integration) return [];
     const out: { value: string; display: string; sub: string }[] = [];
     const seen = new Set<string>();
-    if (integration.default_model && allowed(integration.provider, integration.default_model)) {
+    if (
+      integration.default_model &&
+      isTextModelId(integration.default_model) &&
+      allowed(integration.provider, integration.default_model)
+    ) {
       seen.add(integration.default_model);
       out.push({
         value: encodeModelChoice(integration.provider, integration.default_model),
@@ -254,6 +252,7 @@ export function BiModelSelect({
     for (const m of live) {
       if (seen.has(m.id)) continue;
       seen.add(m.id);
+      if (!isTextModelId(m.id)) continue;
       if (!allowed(integration.provider, m.id)) continue;
       out.push({
         value: encodeModelChoice(integration.provider, m.id),
@@ -289,6 +288,12 @@ export function BiModelSelect({
       ? "Server default"
       : "Select model…";
 
+  const q = query.trim().toLowerCase();
+  const filteredEntries = q
+    ? entries.filter((e) => `${e.display} ${e.sub}`.toLowerCase().includes(q))
+    : entries;
+  const showUnset = allowUnset && (!q || "server default".includes(q));
+
   return (
     <div className={cn("flex min-w-0 gap-1.5", className)}>
       <Select
@@ -314,7 +319,13 @@ export function BiModelSelect({
         </SelectContent>
       </Select>
 
-      <Popover open={open} onOpenChange={setOpen}>
+      <Popover
+        open={open}
+        onOpenChange={(o) => {
+          setOpen(o);
+          if (!o) setQuery("");
+        }}
+      >
         <PopoverTrigger asChild>
           <Button
             variant="outline"
@@ -337,27 +348,45 @@ export function BiModelSelect({
           </Button>
         </PopoverTrigger>
         <PopoverContent align="end" className="w-80 p-0">
-          <Command>
-            <CommandInput placeholder="Search models…" className="h-9 text-xs" />
-            <CommandList className="max-h-64">
-              <CommandEmpty>
-                {models === null
-                  ? "Loading models from your integration…"
-                  : entries.length === 0
-                    ? "No models found — set a default model for this integration under Integrations."
-                    : "No model matches."}
-              </CommandEmpty>
-              <CommandGroup
-                heading={provider ? (PROVIDER_LABELS[provider as ProviderId] ?? provider) : ""}
-              >
-                {allowUnset && (
-                  <CommandItem
-                    value="__server_default__"
-                    onSelect={() => {
+          {/* Plain search + list (no cmdk): the Command component pulls a
+              separately-optimized copy of React in dev, which crashes the
+              picker with "Cannot read properties of null (reading 'useRef')". */}
+          <div className="flex items-center gap-2 border-b px-3">
+            <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search models…"
+              autoFocus
+              className="h-9 w-full bg-transparent text-xs outline-none placeholder:text-muted-foreground"
+            />
+          </div>
+          <div className="max-h-64 overflow-y-auto p-1">
+            {provider && (
+              <p className="px-2 py-1.5 text-[10px] font-medium text-muted-foreground">
+                {PROVIDER_LABELS[provider as ProviderId] ?? provider}
+              </p>
+            )}
+            {models === null ? (
+              <p className="px-2 py-6 text-center text-xs text-muted-foreground">
+                Loading models from your integration…
+              </p>
+            ) : filteredEntries.length === 0 && !showUnset ? (
+              <p className="px-2 py-6 text-center text-xs text-muted-foreground">
+                {entries.length === 0
+                  ? "No models found — set a default model for this integration under Integrations."
+                  : "No model matches."}
+              </p>
+            ) : (
+              <>
+                {showUnset && (
+                  <button
+                    type="button"
+                    onClick={() => {
                       onChange(null);
                       setOpen(false);
                     }}
-                    className="text-xs"
+                    className="flex w-full items-center rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent"
                   >
                     <Check
                       className={cn("mr-2 h-3.5 w-3.5", value ? "opacity-0" : "opacity-100")}
@@ -368,17 +397,17 @@ export function BiModelSelect({
                         whatever the instance falls back to
                       </span>
                     </span>
-                  </CommandItem>
+                  </button>
                 )}
-                {entries.map((e) => (
-                  <CommandItem
+                {filteredEntries.map((e) => (
+                  <button
                     key={e.value}
-                    value={`${e.display} ${e.sub}`}
-                    onSelect={() => {
+                    type="button"
+                    onClick={() => {
                       onChange(e.value);
                       setOpen(false);
                     }}
-                    className="text-xs"
+                    className="flex w-full items-center rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent"
                   >
                     <Check
                       className={cn(
@@ -392,11 +421,11 @@ export function BiModelSelect({
                         {e.sub}
                       </span>
                     </span>
-                  </CommandItem>
+                  </button>
                 ))}
-              </CommandGroup>
-            </CommandList>
-          </Command>
+              </>
+            )}
+          </div>
         </PopoverContent>
       </Popover>
     </div>
