@@ -44,6 +44,7 @@ import {
   Users,
   UserPlus,
   Mail,
+  Plus,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useApproverDirectory } from "@/hooks/use-approver-directory";
@@ -497,7 +498,9 @@ export function NodeInspector({
           data.kind === "loop" ||
           data.kind === "condition" ||
           data.kind === "router" ||
-          data.kind === "evaluate") && (
+          data.kind === "evaluate" ||
+          data.kind === "foreach" ||
+          data.kind === "extract") && (
           <>
             {/* Helper banner — clarifies how loop/condition differ from a plain agent.
                 Agent nodes get no banner (the defaults are self-explanatory). */}
@@ -552,35 +555,38 @@ export function NodeInspector({
             {/* Import from agent library — snapshot copy.
                 Hidden for condition/evaluate nodes: importing a full agent's prompt + tools
                 doesn't make sense for specialized judge nodes. */}
-            {data.kind !== "condition" && data.kind !== "router" && data.kind !== "evaluate" && (
-              <Section label="Import from agent library">
-                <Select value="" onValueChange={importFromLibrary}>
-                  <SelectTrigger>
-                    <SelectValue
-                      placeholder={
-                        agentLibrary.length === 0
-                          ? "No saved agents yet — build one in /agents"
-                          : "Pick an agent to copy in"
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {agentLibrary.map((a) => (
-                      <SelectItem key={a.id} value={a.id}>
-                        <span className="flex items-center gap-2">
-                          <Library className="h-3 w-3 text-primary" />
-                          <span className="truncate">{a.name}</span>
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-[10px] text-muted-foreground mt-1">
-                  Copies prompt, model, tools, and KB into this node. Independent of the source —
-                  future edits to the agent won't affect this swarm.
-                </p>
-              </Section>
-            )}
+            {data.kind !== "condition" &&
+              data.kind !== "router" &&
+              data.kind !== "evaluate" &&
+              data.kind !== "extract" && (
+                <Section label="Import from agent library">
+                  <Select value="" onValueChange={importFromLibrary}>
+                    <SelectTrigger>
+                      <SelectValue
+                        placeholder={
+                          agentLibrary.length === 0
+                            ? "No saved agents yet — build one in /agents"
+                            : "Pick an agent to copy in"
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {agentLibrary.map((a) => (
+                        <SelectItem key={a.id} value={a.id}>
+                          <span className="flex items-center gap-2">
+                            <Library className="h-3 w-3 text-primary" />
+                            <span className="truncate">{a.name}</span>
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    Copies prompt, model, tools, and KB into this node. Independent of the source —
+                    future edits to the agent won't affect this swarm.
+                  </p>
+                </Section>
+              )}
 
             <Section label="Provider">
               <Select
@@ -666,14 +672,16 @@ export function NodeInspector({
               />
             </Section>
 
-            {data.kind !== "evaluate" && (
+            {data.kind !== "evaluate" && data.kind !== "extract" && (
               <Section
                 label={
                   data.kind === "condition"
                     ? "Condition prompt (asks YES/NO)"
                     : data.kind === "router"
                       ? "Router prompt (picks 1 of N route labels)"
-                      : "System prompt"
+                      : data.kind === "foreach"
+                        ? "Per-item prompt (body run for each item)"
+                        : "System prompt"
                 }
               >
                 {data.kind !== "condition" && data.kind !== "router" && (
@@ -725,17 +733,20 @@ export function NodeInspector({
               </Section>
             )}
 
-            {data.kind !== "condition" && data.kind !== "router" && data.kind !== "evaluate" && (
-              <Section label="Skills (from Skill Library)">
-                <SkillPicker
-                  value={Array.isArray(data.skillIds) ? data.skillIds : []}
-                  onChange={(ids) => onChange({ skillIds: ids })}
-                />
-                <p className="text-[10px] text-muted-foreground mt-1.5">
-                  Attached skills are prepended to this node's system prompt at run time.
-                </p>
-              </Section>
-            )}
+            {data.kind !== "condition" &&
+              data.kind !== "router" &&
+              data.kind !== "evaluate" &&
+              data.kind !== "extract" && (
+                <Section label="Skills (from Skill Library)">
+                  <SkillPicker
+                    value={Array.isArray(data.skillIds) ? data.skillIds : []}
+                    onChange={(ids) => onChange({ skillIds: ids })}
+                  />
+                  <p className="text-[10px] text-muted-foreground mt-1.5">
+                    Attached skills are prepended to this node's system prompt at run time.
+                  </p>
+                </Section>
+              )}
 
             {data.kind === "loop" && (
               <Section label={`Max iterations: ${data.maxIters ?? 3}`}>
@@ -753,393 +764,406 @@ export function NodeInspector({
             )}
 
             {/* Tools + KB hidden for condition/router/evaluate nodes — specialized judges don't need them. */}
-            {data.kind !== "condition" && data.kind !== "router" && data.kind !== "evaluate" && (
-              <>
-                {/* Warn when this node's provider doesn't support tool calling.
+            {data.kind !== "condition" &&
+              data.kind !== "router" &&
+              data.kind !== "evaluate" &&
+              data.kind !== "extract" && (
+                <>
+                  {/* Warn when this node's provider doesn't support tool calling.
                     The chat API only runs the tool loop for OpenAI-compatible
                     providers + the built-in gateway; everything else (Bedrock,
                     Vertex, Azure, OCI, direct Anthropic) silently ignores
                     enabledTools and streams plain text. */}
-                {(data.enabledTools ?? []).length > 0 &&
-                  providerLacksToolSupport(data.provider) && (
-                    <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-2">
-                      <p className="text-[11px] text-amber-400 leading-snug">
-                        <strong>⚠ Tools may be ignored.</strong> The selected provider (
-                        {data.provider}) doesn&apos;t support tool calling in this app yet — only
-                        OpenAI-compatible providers (OpenAI, Gemini, Grok, Groq, OpenRouter, Ollama,
-                        Qwen, vLLM, NVIDIA NIM) and the built-in gateway run the tool loop. This
-                        node will stream plain text without invoking tools.
-                      </p>
-                    </div>
-                  )}
+                  {(data.enabledTools ?? []).length > 0 &&
+                    providerLacksToolSupport(data.provider) && (
+                      <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-2">
+                        <p className="text-[11px] text-amber-400 leading-snug">
+                          <strong>⚠ Tools may be ignored.</strong> The selected provider (
+                          {data.provider}) doesn&apos;t support tool calling in this app yet — only
+                          OpenAI-compatible providers (OpenAI, Gemini, Grok, Groq, OpenRouter,
+                          Ollama, Qwen, vLLM, NVIDIA NIM) and the built-in gateway run the tool
+                          loop. This node will stream plain text without invoking tools.
+                        </p>
+                      </div>
+                    )}
 
-                {/* Curated per-node tool toggles */}
-                <Section label="Tools (server-side, executed during run)">
-                  <div className="space-y-2">
-                    {TOOL_CATALOG.map((t) => {
-                      const Icon = t.icon;
-                      const on = enabled.has(t.id);
-                      return (
-                        <div
-                          key={t.id}
-                          className="rounded-md border border-border/50 bg-background/40 p-2"
-                        >
-                          <div className="flex items-start gap-2">
-                            <Icon
-                              className={`h-3.5 w-3.5 mt-0.5 shrink-0 ${on ? "text-primary" : "text-muted-foreground"}`}
-                            />
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="text-xs font-medium">{t.label}</span>
-                                <Switch checked={on} onCheckedChange={(v) => toggleTool(t.id, v)} />
+                  {/* Curated per-node tool toggles */}
+                  <Section label="Tools (server-side, executed during run)">
+                    <div className="space-y-2">
+                      {TOOL_CATALOG.map((t) => {
+                        const Icon = t.icon;
+                        const on = enabled.has(t.id);
+                        return (
+                          <div
+                            key={t.id}
+                            className="rounded-md border border-border/50 bg-background/40 p-2"
+                          >
+                            <div className="flex items-start gap-2">
+                              <Icon
+                                className={`h-3.5 w-3.5 mt-0.5 shrink-0 ${on ? "text-primary" : "text-muted-foreground"}`}
+                              />
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="text-xs font-medium">{t.label}</span>
+                                  <Switch
+                                    checked={on}
+                                    onCheckedChange={(v) => toggleTool(t.id, v)}
+                                  />
+                                </div>
+                                <p className="text-[10px] text-muted-foreground mt-0.5">{t.desc}</p>
                               </div>
-                              <p className="text-[10px] text-muted-foreground mt-0.5">{t.desc}</p>
                             </div>
-                          </div>
 
-                          {/* Per-tool configuration. Real, not cosmetic — values are
+                            {/* Per-tool configuration. Real, not cosmetic — values are
                           forwarded to /api/chat → resolveAgentTools. */}
-                          {on &&
-                            (t.id === "web_search" || t.id === "web_browse") &&
-                            (() => {
-                              const webId: "web_search" | "web_browse" = t.id;
-                              const provider = tc[webId]?.provider || "firecrawl_builtin";
-                              return (
-                                <div className="mt-2 pt-2 border-t border-border/40 space-y-2">
-                                  <div>
-                                    <Label className="text-[10px] text-muted-foreground mb-1 block">
-                                      Provider
-                                    </Label>
-                                    <Select
-                                      value={provider}
-                                      onValueChange={(v) =>
-                                        patchWebTool(webId, {
-                                          provider: v,
-                                          ...(v === "firecrawl_builtin" ? { api_key: "" } : {}),
-                                        })
-                                      }
-                                    >
-                                      <SelectTrigger className="h-8 text-xs">
-                                        <SelectValue />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        <SelectItem value="firecrawl_builtin">
-                                          Firecrawl (built-in)
-                                        </SelectItem>
-                                        <SelectItem value="firecrawl_custom">
-                                          Firecrawl (custom API key)
-                                        </SelectItem>
-                                        {webId === "web_search" && (
-                                          <>
-                                            <SelectItem value="brave">Brave Search</SelectItem>
-                                            <SelectItem value="tavily">Tavily</SelectItem>
-                                            <SelectItem value="serpapi">SerpAPI</SelectItem>
-                                          </>
-                                        )}
-                                        {webId === "web_browse" && (
-                                          <SelectItem value="scrapingbee">ScrapingBee</SelectItem>
-                                        )}
-                                      </SelectContent>
-                                    </Select>
-                                  </div>
-                                  {provider !== "firecrawl_builtin" && (
+                            {on &&
+                              (t.id === "web_search" || t.id === "web_browse") &&
+                              (() => {
+                                const webId: "web_search" | "web_browse" = t.id;
+                                const provider = tc[webId]?.provider || "firecrawl_builtin";
+                                return (
+                                  <div className="mt-2 pt-2 border-t border-border/40 space-y-2">
                                     <div>
                                       <Label className="text-[10px] text-muted-foreground mb-1 block">
-                                        API key
+                                        Provider
                                       </Label>
-                                      <Input
-                                        type="password"
-                                        className="h-8 text-xs font-mono"
-                                        placeholder="Paste API key for selected provider"
-                                        value={tc[webId]?.api_key || ""}
-                                        onChange={(e) =>
-                                          patchWebTool(webId, { api_key: e.target.value })
+                                      <Select
+                                        value={provider}
+                                        onValueChange={(v) =>
+                                          patchWebTool(webId, {
+                                            provider: v,
+                                            ...(v === "firecrawl_builtin" ? { api_key: "" } : {}),
+                                          })
                                         }
-                                      />
-                                    </div>
-                                  )}
-                                  {provider === "firecrawl_builtin" && (
-                                    <p className="text-[10px] text-muted-foreground">
-                                      Uses the workspace Firecrawl key from{" "}
-                                      <span className="font-medium text-foreground">
-                                        Connectors
-                                      </span>
-                                      . Falls back to DuckDuckGo for search if Firecrawl is
-                                      unavailable.
-                                    </p>
-                                  )}
-                                </div>
-                              );
-                            })()}
-
-                          {on && t.id === "n8n_run_workflow" && (
-                            <div className="mt-2 pt-2 border-t border-border/40 space-y-1">
-                              <Label className="text-[10px] text-muted-foreground block">
-                                Allowed workflow IDs (optional)
-                              </Label>
-                              <Input
-                                className="h-8 text-xs font-mono"
-                                placeholder="wf_abc123, wf_xyz789"
-                                value={(tc.n8n_workflow_ids ?? []).join(", ")}
-                                onChange={(e) =>
-                                  patchToolConfig({
-                                    n8n_workflow_ids: e.target.value
-                                      .split(",")
-                                      .map((s) => s.trim())
-                                      .filter(Boolean),
-                                  })
-                                }
-                              />
-                              <p className="text-[10px] text-muted-foreground">
-                                Comma-separated. Empty = any workflow on the connected n8n instance.
-                                Connect n8n in{" "}
-                                <span className="font-medium text-foreground">Integrations</span>.
-                              </p>
-                            </div>
-                          )}
-
-                          {on && t.id === "mcp_call_tool" && (
-                            <div className="mt-2 pt-2 border-t border-border/40 space-y-1.5">
-                              <Label className="text-[10px] text-muted-foreground block">
-                                Allowed MCP servers (optional)
-                              </Label>
-                              {!mcpServersLoaded ? (
-                                <p className="text-[10px] text-muted-foreground">Loading…</p>
-                              ) : availableMcpServers.length === 0 ? (
-                                <p className="text-[10px] text-muted-foreground">
-                                  No MCP servers connected. Add one under{" "}
-                                  <a href="/mcp" className="text-primary underline">
-                                    /mcp
-                                  </a>
-                                  .
-                                </p>
-                              ) : (
-                                <>
-                                  {(() => {
-                                    const validNames = new Set(
-                                      availableMcpServers.map((s) => s.name),
-                                    );
-                                    const selected = new Set(
-                                      (tc.mcp_server_names ?? []).filter((n) => validNames.has(n)),
-                                    );
-                                    return (
-                                      <>
-                                        <div className="grid gap-1">
-                                          {availableMcpServers.map((srv) => {
-                                            const checked = selected.has(srv.name);
-                                            return (
-                                              <label
-                                                key={srv.id}
-                                                className="flex items-center gap-2 rounded-md border border-border/40 bg-muted/20 px-2 py-1 cursor-pointer hover:border-primary/40"
-                                              >
-                                                <input
-                                                  type="checkbox"
-                                                  className="h-3 w-3 accent-primary"
-                                                  checked={checked}
-                                                  onChange={(e) => {
-                                                    const next = new Set(selected);
-                                                    if (e.target.checked) next.add(srv.name);
-                                                    else next.delete(srv.name);
-                                                    patchToolConfig({
-                                                      mcp_server_names: Array.from(next),
-                                                    });
-                                                  }}
-                                                />
-                                                <span className="text-[11px] font-medium truncate flex-1">
-                                                  {srv.name}
-                                                </span>
-                                                <span className="text-[9px] text-muted-foreground capitalize">
-                                                  {srv.status}
-                                                </span>
-                                              </label>
-                                            );
-                                          })}
-                                        </div>
-                                        <p className="text-[10px] text-muted-foreground">
-                                          Empty = any connected server is allowed.
-                                        </p>
-                                      </>
-                                    );
-                                  })()}
-                                </>
-                              )}
-                            </div>
-                          )}
-
-                          {on && t.id === "kb_search" && !data.knowledgeBaseId && (
-                            <div className="mt-2 pt-2 border-t border-border/40">
-                              <p className="text-[10px] text-destructive">
-                                Pick a knowledge base below for this tool to return results.
-                              </p>
-                            </div>
-                          )}
-
-                          {on && t.id === "sql_query" && (
-                            <div className="mt-2 pt-2 border-t border-border/40 space-y-1">
-                              <Label className="text-[10px] text-muted-foreground block">
-                                Allowed tables (optional)
-                              </Label>
-                              {!dataTablesLoaded ? (
-                                <p className="text-[10px] text-muted-foreground">Loading tables…</p>
-                              ) : availableDataTables.length === 0 ? (
-                                <p className="text-[10px] text-muted-foreground">
-                                  No tables yet. Upload a CSV in{" "}
-                                  <span className="font-medium text-foreground">
-                                    Data &amp; SQL Agents
-                                  </span>
-                                  .
-                                </p>
-                              ) : (
-                                <>
-                                  <div className="max-h-32 overflow-y-auto space-y-1 rounded-md border border-border/40 bg-background/40 p-2">
-                                    {availableDataTables.map((dt) => {
-                                      const list = tc.sql_table_names ?? [];
-                                      const checked = list.includes(dt.name);
-                                      return (
-                                        <label
-                                          key={dt.id}
-                                          className="flex items-start gap-2 cursor-pointer text-[10px]"
-                                        >
-                                          <input
-                                            type="checkbox"
-                                            className="mt-0.5"
-                                            checked={checked}
-                                            onChange={(e) => {
-                                              const next = e.target.checked
-                                                ? Array.from(new Set([...list, dt.name]))
-                                                : list.filter((n) => n !== dt.name);
-                                              patchToolConfig({ sql_table_names: next });
-                                            }}
-                                          />
-                                          <span className="font-mono truncate flex-1">
-                                            {dt.name}
-                                          </span>
-                                          {dt.is_sample && (
-                                            <Badge variant="outline" className="text-[9px]">
-                                              sample
-                                            </Badge>
+                                      >
+                                        <SelectTrigger className="h-8 text-xs">
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="firecrawl_builtin">
+                                            Firecrawl (built-in)
+                                          </SelectItem>
+                                          <SelectItem value="firecrawl_custom">
+                                            Firecrawl (custom API key)
+                                          </SelectItem>
+                                          {webId === "web_search" && (
+                                            <>
+                                              <SelectItem value="brave">Brave Search</SelectItem>
+                                              <SelectItem value="tavily">Tavily</SelectItem>
+                                              <SelectItem value="serpapi">SerpAPI</SelectItem>
+                                            </>
                                           )}
-                                        </label>
-                                      );
-                                    })}
+                                          {webId === "web_browse" && (
+                                            <SelectItem value="scrapingbee">ScrapingBee</SelectItem>
+                                          )}
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                    {provider !== "firecrawl_builtin" && (
+                                      <div>
+                                        <Label className="text-[10px] text-muted-foreground mb-1 block">
+                                          API key
+                                        </Label>
+                                        <Input
+                                          type="password"
+                                          className="h-8 text-xs font-mono"
+                                          placeholder="Paste API key for selected provider"
+                                          value={tc[webId]?.api_key || ""}
+                                          onChange={(e) =>
+                                            patchWebTool(webId, { api_key: e.target.value })
+                                          }
+                                        />
+                                      </div>
+                                    )}
+                                    {provider === "firecrawl_builtin" && (
+                                      <p className="text-[10px] text-muted-foreground">
+                                        Uses the workspace Firecrawl key from{" "}
+                                        <span className="font-medium text-foreground">
+                                          Connectors
+                                        </span>
+                                        . Falls back to DuckDuckGo for search if Firecrawl is
+                                        unavailable.
+                                      </p>
+                                    )}
                                   </div>
+                                );
+                              })()}
+
+                            {on && t.id === "n8n_run_workflow" && (
+                              <div className="mt-2 pt-2 border-t border-border/40 space-y-1">
+                                <Label className="text-[10px] text-muted-foreground block">
+                                  Allowed workflow IDs (optional)
+                                </Label>
+                                <Input
+                                  className="h-8 text-xs font-mono"
+                                  placeholder="wf_abc123, wf_xyz789"
+                                  value={(tc.n8n_workflow_ids ?? []).join(", ")}
+                                  onChange={(e) =>
+                                    patchToolConfig({
+                                      n8n_workflow_ids: e.target.value
+                                        .split(",")
+                                        .map((s) => s.trim())
+                                        .filter(Boolean),
+                                    })
+                                  }
+                                />
+                                <p className="text-[10px] text-muted-foreground">
+                                  Comma-separated. Empty = any workflow on the connected n8n
+                                  instance. Connect n8n in{" "}
+                                  <span className="font-medium text-foreground">Integrations</span>.
+                                </p>
+                              </div>
+                            )}
+
+                            {on && t.id === "mcp_call_tool" && (
+                              <div className="mt-2 pt-2 border-t border-border/40 space-y-1.5">
+                                <Label className="text-[10px] text-muted-foreground block">
+                                  Allowed MCP servers (optional)
+                                </Label>
+                                {!mcpServersLoaded ? (
+                                  <p className="text-[10px] text-muted-foreground">Loading…</p>
+                                ) : availableMcpServers.length === 0 ? (
                                   <p className="text-[10px] text-muted-foreground">
-                                    {(tc.sql_table_names ?? []).length === 0
-                                      ? "No selection — node can query every table you can read."
-                                      : `Node will only see ${(tc.sql_table_names ?? []).length} selected table${(tc.sql_table_names ?? []).length === 1 ? "" : "s"}.`}
+                                    No MCP servers connected. Add one under{" "}
+                                    <a href="/mcp" className="text-primary underline">
+                                      /mcp
+                                    </a>
+                                    .
                                   </p>
-                                </>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <p className="text-[10px] text-muted-foreground mt-2">
-                    Each enabled tool is offered to the model during this node's run. Tools whose
-                    backing service isn't connected are silently skipped.
-                  </p>
-                </Section>
+                                ) : (
+                                  <>
+                                    {(() => {
+                                      const validNames = new Set(
+                                        availableMcpServers.map((s) => s.name),
+                                      );
+                                      const selected = new Set(
+                                        (tc.mcp_server_names ?? []).filter((n) =>
+                                          validNames.has(n),
+                                        ),
+                                      );
+                                      return (
+                                        <>
+                                          <div className="grid gap-1">
+                                            {availableMcpServers.map((srv) => {
+                                              const checked = selected.has(srv.name);
+                                              return (
+                                                <label
+                                                  key={srv.id}
+                                                  className="flex items-center gap-2 rounded-md border border-border/40 bg-muted/20 px-2 py-1 cursor-pointer hover:border-primary/40"
+                                                >
+                                                  <input
+                                                    type="checkbox"
+                                                    className="h-3 w-3 accent-primary"
+                                                    checked={checked}
+                                                    onChange={(e) => {
+                                                      const next = new Set(selected);
+                                                      if (e.target.checked) next.add(srv.name);
+                                                      else next.delete(srv.name);
+                                                      patchToolConfig({
+                                                        mcp_server_names: Array.from(next),
+                                                      });
+                                                    }}
+                                                  />
+                                                  <span className="text-[11px] font-medium truncate flex-1">
+                                                    {srv.name}
+                                                  </span>
+                                                  <span className="text-[9px] text-muted-foreground capitalize">
+                                                    {srv.status}
+                                                  </span>
+                                                </label>
+                                              );
+                                            })}
+                                          </div>
+                                          <p className="text-[10px] text-muted-foreground">
+                                            Empty = any connected server is allowed.
+                                          </p>
+                                        </>
+                                      );
+                                    })()}
+                                  </>
+                                )}
+                              </div>
+                            )}
 
-                <Section label="Knowledge base (optional, for grounding)">
-                  <Select
-                    value={data.knowledgeBaseId || "__none__"}
-                    onValueChange={(v) =>
-                      onChange({ knowledgeBaseId: v === "__none__" ? null : v })
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">None</SelectItem>
-                      {knowledgeBases.map((kb) => (
-                        <SelectItem key={kb.id} value={kb.id}>
-                          {kb.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-[10px] text-muted-foreground mt-1">
-                    Retrieved chunks are injected into this node's context and via the kb_search
-                    tool when enabled.
-                  </p>
-                </Section>
+                            {on && t.id === "kb_search" && !data.knowledgeBaseId && (
+                              <div className="mt-2 pt-2 border-t border-border/40">
+                                <p className="text-[10px] text-destructive">
+                                  Pick a knowledge base below for this tool to return results.
+                                </p>
+                              </div>
+                            )}
 
-                <Section label="Retrieval re-ranker (optional)">
-                  <div className="grid grid-cols-2 gap-2">
+                            {on && t.id === "sql_query" && (
+                              <div className="mt-2 pt-2 border-t border-border/40 space-y-1">
+                                <Label className="text-[10px] text-muted-foreground block">
+                                  Allowed tables (optional)
+                                </Label>
+                                {!dataTablesLoaded ? (
+                                  <p className="text-[10px] text-muted-foreground">
+                                    Loading tables…
+                                  </p>
+                                ) : availableDataTables.length === 0 ? (
+                                  <p className="text-[10px] text-muted-foreground">
+                                    No tables yet. Upload a CSV in{" "}
+                                    <span className="font-medium text-foreground">
+                                      Data &amp; SQL Agents
+                                    </span>
+                                    .
+                                  </p>
+                                ) : (
+                                  <>
+                                    <div className="max-h-32 overflow-y-auto space-y-1 rounded-md border border-border/40 bg-background/40 p-2">
+                                      {availableDataTables.map((dt) => {
+                                        const list = tc.sql_table_names ?? [];
+                                        const checked = list.includes(dt.name);
+                                        return (
+                                          <label
+                                            key={dt.id}
+                                            className="flex items-start gap-2 cursor-pointer text-[10px]"
+                                          >
+                                            <input
+                                              type="checkbox"
+                                              className="mt-0.5"
+                                              checked={checked}
+                                              onChange={(e) => {
+                                                const next = e.target.checked
+                                                  ? Array.from(new Set([...list, dt.name]))
+                                                  : list.filter((n) => n !== dt.name);
+                                                patchToolConfig({ sql_table_names: next });
+                                              }}
+                                            />
+                                            <span className="font-mono truncate flex-1">
+                                              {dt.name}
+                                            </span>
+                                            {dt.is_sample && (
+                                              <Badge variant="outline" className="text-[9px]">
+                                                sample
+                                              </Badge>
+                                            )}
+                                          </label>
+                                        );
+                                      })}
+                                    </div>
+                                    <p className="text-[10px] text-muted-foreground">
+                                      {(tc.sql_table_names ?? []).length === 0
+                                        ? "No selection — node can query every table you can read."
+                                        : `Node will only see ${(tc.sql_table_names ?? []).length} selected table${(tc.sql_table_names ?? []).length === 1 ? "" : "s"}.`}
+                                    </p>
+                                  </>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[10px] text-muted-foreground mt-2">
+                      Each enabled tool is offered to the model during this node's run. Tools whose
+                      backing service isn't connected are silently skipped.
+                    </p>
+                  </Section>
+
+                  <Section label="Knowledge base (optional, for grounding)">
                     <Select
-                      value={data.reranker?.provider || "__none__"}
+                      value={data.knowledgeBaseId || "__none__"}
                       onValueChange={(v) =>
-                        onChange({
-                          reranker:
-                            v === "__none__"
-                              ? null
-                              : {
-                                  provider: v,
-                                  model:
-                                    NODE_RERANK_PROVIDERS.find((r) => r.id === v)?.models[0] ??
-                                    data.reranker?.model ??
-                                    "",
-                                },
-                        })
+                        onChange({ knowledgeBaseId: v === "__none__" ? null : v })
                       }
                     >
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="__none__">None (similarity order)</SelectItem>
-                        {NODE_RERANK_PROVIDERS.filter(
-                          (r) =>
-                            connectedProviders.has(r.id) ||
-                            r.id === "openrouter" ||
-                            r.id === data.reranker?.provider,
-                        ).map((r) => (
-                          <SelectItem key={r.id} value={r.id}>
-                            {r.label}
-                            {!connectedProviders.has(r.id) && r.id !== "openrouter"
-                              ? " (not connected)"
-                              : ""}
+                        <SelectItem value="__none__">None</SelectItem>
+                        {knowledgeBases.map((kb) => (
+                          <SelectItem key={kb.id} value={kb.id}>
+                            {kb.name}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
-                    {data.reranker && (
-                      <Input
-                        value={data.reranker.model}
-                        onChange={(e) =>
+                    <p className="text-[10px] text-muted-foreground mt-1">
+                      Retrieved chunks are injected into this node's context and via the kb_search
+                      tool when enabled.
+                    </p>
+                  </Section>
+
+                  <Section label="Retrieval re-ranker (optional)">
+                    <div className="grid grid-cols-2 gap-2">
+                      <Select
+                        value={data.reranker?.provider || "__none__"}
+                        onValueChange={(v) =>
                           onChange({
-                            reranker: { provider: data.reranker!.provider, model: e.target.value },
+                            reranker:
+                              v === "__none__"
+                                ? null
+                                : {
+                                    provider: v,
+                                    model:
+                                      NODE_RERANK_PROVIDERS.find((r) => r.id === v)?.models[0] ??
+                                      data.reranker?.model ??
+                                      "",
+                                  },
                           })
                         }
-                        placeholder={
-                          NODE_RERANK_PROVIDERS.find((r) => r.id === data.reranker?.provider)
-                            ?.models[0] ?? "rerank model"
-                        }
-                      />
-                    )}
-                  </div>
-                  <p className="text-[10px] text-muted-foreground mt-1">
-                    A cross-encoder reorders retrieved chunks before this node sees them. Only
-                    connected integrations with a rerank API are listed; failures fall back to
-                    similarity order.
-                  </p>
-                </Section>
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">None (similarity order)</SelectItem>
+                          {NODE_RERANK_PROVIDERS.filter(
+                            (r) =>
+                              connectedProviders.has(r.id) ||
+                              r.id === "openrouter" ||
+                              r.id === data.reranker?.provider,
+                          ).map((r) => (
+                            <SelectItem key={r.id} value={r.id}>
+                              {r.label}
+                              {!connectedProviders.has(r.id) && r.id !== "openrouter"
+                                ? " (not connected)"
+                                : ""}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {data.reranker && (
+                        <Input
+                          value={data.reranker.model}
+                          onChange={(e) =>
+                            onChange({
+                              reranker: {
+                                provider: data.reranker!.provider,
+                                model: e.target.value,
+                              },
+                            })
+                          }
+                          placeholder={
+                            NODE_RERANK_PROVIDERS.find((r) => r.id === data.reranker?.provider)
+                              ?.models[0] ?? "rerank model"
+                          }
+                        />
+                      )}
+                    </div>
+                    <p className="text-[10px] text-muted-foreground mt-1">
+                      A cross-encoder reorders retrieved chunks before this node sees them. Only
+                      connected integrations with a rerank API are listed; failures fall back to
+                      similarity order.
+                    </p>
+                  </Section>
 
-                {/* Per-node guardrails. Real enforcement — values are forwarded to
+                  {/* Per-node guardrails. Real enforcement — values are forwarded to
                 /api/chat where they merge OVER the linked agent's saved
                 guardrails (so a node can be STRICTER than its source agent). */}
-                <GuardrailsSection data={data} onChange={onChange} />
+                  <GuardrailsSection data={data} onChange={onChange} />
 
-                {/* Per-node memory configuration. Forwarded as memoryOverrides to
+                  {/* Per-node memory configuration. Forwarded as memoryOverrides to
                 /api/chat. STM scope is per-conversation; LTM scope decides
                 whether facts are shared with the agent's normal sessions or
                 isolated to this swarm run. */}
-                <MemorySection data={data} onChange={onChange} />
-              </>
-            )}
+                  <MemorySection data={data} onChange={onChange} />
+                </>
+              )}
           </>
         )}
 
@@ -1195,6 +1219,18 @@ export function NodeInspector({
         {data.kind === "function" && <FunctionPanel data={data} onChange={onChange} />}
 
         {data.kind === "evaluate" && <EvaluatePanel data={data} onChange={onChange} />}
+
+        {data.kind === "set_var" && <SetVarPanel data={data} onChange={onChange} />}
+
+        {data.kind === "http" && <HttpPanel data={data} onChange={onChange} />}
+
+        {data.kind === "tool" && (
+          <ToolPanel data={data} onChange={onChange} knowledgeBases={knowledgeBases} />
+        )}
+
+        {data.kind === "foreach" && <ForEachPanel data={data} onChange={onChange} />}
+
+        {data.kind === "extract" && <ExtractPanel data={data} onChange={onChange} />}
 
         <Section label="Inputs (variables read from upstream)">
           <Input
@@ -1691,6 +1727,447 @@ function ApproverPicker({
         </p>
       </div>
     </Section>
+  );
+}
+
+// ───────────────────── Set Variable panel ─────────────────────
+function SetVarPanel({
+  data,
+  onChange,
+}: {
+  data: SwarmNodeData;
+  onChange: (patch: Partial<SwarmNodeData>) => void;
+}) {
+  const rows = data.stateAssignments ?? [];
+  const update = (i: number, patch: Partial<{ key: string; value: string }>) =>
+    onChange({ stateAssignments: rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)) });
+  return (
+    <>
+      <div className="rounded-md border border-cyan-500/30 bg-cyan-500/5 p-2.5 text-[11px] leading-relaxed">
+        <p className="font-medium text-foreground mb-0.5">🔧 Set Variable</p>
+        <p className="text-muted-foreground">
+          Writes named keys into the shared <strong>flow state</strong>. Each value is a template —
+          use <code className="font-mono">{"{{input}}"}</code>,{" "}
+          <code className="font-mono">{"{{other_var}}"}</code>, or a JSON path{" "}
+          <code className="font-mono">{"{{var.items[0].name}}"}</code>.
+        </p>
+      </div>
+      <Section label="Assignments">
+        {rows.map((r, i) => (
+          <div key={i} className="flex gap-1.5 mb-1.5">
+            <Input
+              value={r.key}
+              onChange={(e) => update(i, { key: e.target.value.replace(/[^a-zA-Z0-9_]/g, "") })}
+              placeholder="key"
+              className="w-28 font-mono text-xs"
+            />
+            <Input
+              value={r.value}
+              onChange={(e) => update(i, { value: e.target.value })}
+              placeholder="{{input}}"
+              className="flex-1 font-mono text-xs"
+            />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0"
+              onClick={() => onChange({ stateAssignments: rows.filter((_, idx) => idx !== i) })}
+            >
+              <Trash2 className="h-3.5 w-3.5 text-destructive" />
+            </Button>
+          </div>
+        ))}
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 text-xs"
+          onClick={() => onChange({ stateAssignments: [...rows, { key: "", value: "" }] })}
+        >
+          <Plus className="h-3.5 w-3.5 mr-1" /> Add assignment
+        </Button>
+      </Section>
+    </>
+  );
+}
+
+// ───────────────────── HTTP Request panel ─────────────────────
+function HttpPanel({
+  data,
+  onChange,
+}: {
+  data: SwarmNodeData;
+  onChange: (patch: Partial<SwarmNodeData>) => void;
+}) {
+  const method = data.httpMethod || "GET";
+  const headers = data.httpHeaders ?? [];
+  const updateHeader = (i: number, patch: Partial<{ key: string; value: string }>) =>
+    onChange({ httpHeaders: headers.map((h, idx) => (idx === i ? { ...h, ...patch } : h)) });
+  const hasBody = method !== "GET" && method !== "DELETE";
+  return (
+    <>
+      <div className="rounded-md border border-lime-500/30 bg-lime-500/5 p-2.5 text-[11px] leading-relaxed">
+        <p className="font-medium text-foreground mb-0.5">🌐 HTTP Request</p>
+        <p className="text-muted-foreground">
+          Deterministic call (runs server-side). URL, headers and body support{" "}
+          <code className="font-mono">{"{{var}}"}</code> flow-state templating and{" "}
+          <code className="font-mono">{"{{secret:NAME}}"}</code> — secrets are resolved on the
+          server and never sent to the browser.
+        </p>
+      </div>
+      <Section label="Method & URL">
+        <div className="flex gap-1.5">
+          <Select
+            value={method}
+            onValueChange={(v) => onChange({ httpMethod: v as SwarmNodeData["httpMethod"] })}
+          >
+            <SelectTrigger className="w-24">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {["GET", "POST", "PUT", "PATCH", "DELETE"].map((m) => (
+                <SelectItem key={m} value={m}>
+                  {m}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Input
+            value={data.httpUrl || ""}
+            onChange={(e) => onChange({ httpUrl: e.target.value })}
+            placeholder="https://api.example.com/{{input}}"
+            className="flex-1 font-mono text-xs"
+          />
+        </div>
+      </Section>
+      <Section label="Headers">
+        {headers.map((h, i) => (
+          <div key={i} className="flex gap-1.5 mb-1.5">
+            <Input
+              value={h.key}
+              onChange={(e) => updateHeader(i, { key: e.target.value })}
+              placeholder="Authorization"
+              className="w-32 font-mono text-xs"
+            />
+            <Input
+              value={h.value}
+              onChange={(e) => updateHeader(i, { value: e.target.value })}
+              placeholder="Bearer {{secret:MY_KEY}}"
+              className="flex-1 font-mono text-xs"
+            />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0"
+              onClick={() => onChange({ httpHeaders: headers.filter((_, idx) => idx !== i) })}
+            >
+              <Trash2 className="h-3.5 w-3.5 text-destructive" />
+            </Button>
+          </div>
+        ))}
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 text-xs"
+          onClick={() => onChange({ httpHeaders: [...headers, { key: "", value: "" }] })}
+        >
+          <Plus className="h-3.5 w-3.5 mr-1" /> Add header
+        </Button>
+      </Section>
+      {hasBody && (
+        <Section label="Request body">
+          <Textarea
+            value={data.httpBody || ""}
+            onChange={(e) => onChange({ httpBody: e.target.value })}
+            rows={4}
+            placeholder={'{"q": "{{input}}"}'}
+            className="font-mono text-xs"
+          />
+        </Section>
+      )}
+      <Section label="Response JSON path (optional)">
+        <Input
+          value={data.httpResponsePath || ""}
+          onChange={(e) => onChange({ httpResponsePath: e.target.value })}
+          placeholder="data.items[0].name"
+          className="font-mono text-xs"
+        />
+        <p className="text-[10px] text-muted-foreground mt-1">
+          Leave empty to store the raw response body. A path drills into a JSON response.
+        </p>
+      </Section>
+      <Section label="Timeout (seconds)">
+        <Input
+          type="number"
+          min={1}
+          max={120}
+          value={data.httpTimeoutMs ? Math.round(data.httpTimeoutMs / 1000) : 30}
+          onChange={(e) =>
+            onChange({ httpTimeoutMs: Math.max(1, Number(e.target.value) || 30) * 1000 })
+          }
+          className="w-28"
+        />
+      </Section>
+    </>
+  );
+}
+
+// ───────────────────── Tool node panel ─────────────────────
+const TOOL_NODE_OPTIONS: {
+  id: SwarmToolId;
+  label: string;
+  args: { key: string; placeholder: string; textarea?: boolean }[];
+}[] = [
+  { id: "web_search", label: "Web Search", args: [{ key: "query", placeholder: "{{input}}" }] },
+  { id: "web_browse", label: "Web Browse", args: [{ key: "url", placeholder: "https://…" }] },
+  {
+    id: "sql_query",
+    label: "SQL Query",
+    args: [{ key: "sql", placeholder: "SELECT * FROM my_table LIMIT 10", textarea: true }],
+  },
+  {
+    id: "kb_search",
+    label: "Knowledge Base Search",
+    args: [{ key: "query", placeholder: "{{input}}" }],
+  },
+  { id: "calculator", label: "Calculator", args: [{ key: "expression", placeholder: "2*(3+4)" }] },
+  {
+    id: "datetime",
+    label: "Date & Time",
+    args: [{ key: "timezone", placeholder: "America/New_York" }],
+  },
+  { id: "weather", label: "Weather", args: [{ key: "location", placeholder: "Paris" }] },
+  {
+    id: "mcp_call_tool",
+    label: "MCP Tool Call",
+    args: [
+      { key: "server_name", placeholder: "my-server" },
+      { key: "tool_name", placeholder: "search" },
+      { key: "arguments", placeholder: '{"key": "{{input}}"}', textarea: true },
+    ],
+  },
+];
+
+function ToolPanel({
+  data,
+  onChange,
+  knowledgeBases,
+}: {
+  data: SwarmNodeData;
+  onChange: (patch: Partial<SwarmNodeData>) => void;
+  knowledgeBases: { id: string; name: string }[];
+}) {
+  const toolId = (data.toolId as SwarmToolId) || "web_search";
+  const opt = TOOL_NODE_OPTIONS.find((o) => o.id === toolId) ?? TOOL_NODE_OPTIONS[0];
+  const args = data.toolArgs ?? {};
+  const setArg = (k: string, v: string) => onChange({ toolArgs: { ...args, [k]: v } });
+  return (
+    <>
+      <div className="rounded-md border border-rose-500/30 bg-rose-500/5 p-2.5 text-[11px] leading-relaxed">
+        <p className="font-medium text-foreground mb-0.5">🛠️ Tool (deterministic)</p>
+        <p className="text-muted-foreground">
+          Runs one built-in tool directly — no LLM turn, no tokens. Argument values accept{" "}
+          <code className="font-mono">{"{{var}}"}</code> flow-state templating. The raw tool result
+          (JSON) is written to this node&apos;s output variable.
+        </p>
+      </div>
+      <Section label="Tool">
+        <Select
+          value={toolId}
+          onValueChange={(v) => onChange({ toolId: v as SwarmToolId, toolArgs: {} })}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {TOOL_NODE_OPTIONS.map((o) => (
+              <SelectItem key={o.id} value={o.id}>
+                {o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </Section>
+      {opt.args.map((arg) => (
+        <Section key={arg.key} label={arg.key}>
+          {arg.textarea ? (
+            <Textarea
+              value={args[arg.key] ?? ""}
+              onChange={(e) => setArg(arg.key, e.target.value)}
+              rows={3}
+              placeholder={arg.placeholder}
+              className="font-mono text-xs"
+            />
+          ) : (
+            <Input
+              value={args[arg.key] ?? ""}
+              onChange={(e) => setArg(arg.key, e.target.value)}
+              placeholder={arg.placeholder}
+              className="font-mono text-xs"
+            />
+          )}
+        </Section>
+      ))}
+      {toolId === "kb_search" && (
+        <Section label="Knowledge base">
+          <Select
+            value={data.knowledgeBaseId || "__none__"}
+            onValueChange={(v) => onChange({ knowledgeBaseId: v === "__none__" ? null : v })}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">None (required for results)</SelectItem>
+              {knowledgeBases.map((kb) => (
+                <SelectItem key={kb.id} value={kb.id}>
+                  {kb.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Section>
+      )}
+    </>
+  );
+}
+
+// ───────────────────── For-Each panel ─────────────────────
+function ForEachPanel({
+  data,
+  onChange,
+}: {
+  data: SwarmNodeData;
+  onChange: (patch: Partial<SwarmNodeData>) => void;
+}) {
+  return (
+    <>
+      <div className="rounded-md border border-amber-600/30 bg-amber-600/5 p-2.5 text-[11px] leading-relaxed">
+        <p className="font-medium text-foreground mb-0.5">🔁 For Each</p>
+        <p className="text-muted-foreground">
+          Reads an array from a variable and runs the agent body above{" "}
+          <strong>once per element</strong>. Results are collected into this node&apos;s output as a
+          JSON array.
+        </p>
+      </div>
+      <Section label="Array source variable">
+        <Input
+          value={data.foreachInput || ""}
+          onChange={(e) => onChange({ foreachInput: e.target.value.replace(/[^a-zA-Z0-9_]/g, "") })}
+          placeholder="items (defaults to the first input)"
+          className="font-mono text-xs"
+        />
+        <p className="text-[10px] text-muted-foreground mt-1">
+          Should hold a JSON array. Newline-separated text also works.
+        </p>
+      </Section>
+      <Section label="Item variable name">
+        <Input
+          value={data.foreachItemVar || "item"}
+          onChange={(e) =>
+            onChange({ foreachItemVar: e.target.value.replace(/[^a-zA-Z0-9_]/g, "") })
+          }
+          placeholder="item"
+          className="font-mono text-xs"
+        />
+        <p className="text-[10px] text-muted-foreground mt-1">
+          Reference it in the per-item prompt as <code className="font-mono">{"{{item}}"}</code>.{" "}
+          <code className="font-mono">{"{{index}}"}</code> is also available.
+        </p>
+      </Section>
+      <Section label={`Max items: ${data.maxIters ?? 25}`}>
+        <Slider
+          value={[data.maxIters ?? 25]}
+          min={1}
+          max={100}
+          step={1}
+          onValueChange={([v]) => onChange({ maxIters: v })}
+        />
+      </Section>
+    </>
+  );
+}
+
+// ───────────────────── Extract (structured output) panel ─────────────────────
+function ExtractPanel({
+  data,
+  onChange,
+}: {
+  data: SwarmNodeData;
+  onChange: (patch: Partial<SwarmNodeData>) => void;
+}) {
+  const fields = data.extractSchema ?? [];
+  const update = (
+    i: number,
+    patch: Partial<{
+      name: string;
+      type: "string" | "number" | "boolean" | "array";
+      description: string;
+    }>,
+  ) => onChange({ extractSchema: fields.map((f, idx) => (idx === i ? { ...f, ...patch } : f)) });
+  return (
+    <>
+      <div className="rounded-md border border-sky-600/30 bg-sky-600/5 p-2.5 text-[11px] leading-relaxed">
+        <p className="font-medium text-foreground mb-0.5">🧩 Extract (JSON)</p>
+        <p className="text-muted-foreground">
+          The model reads the input and returns <strong>only</strong> a JSON object with these
+          fields. Reference results downstream with{" "}
+          <code className="font-mono">{"{{outputVar.fieldName}}"}</code>.
+        </p>
+      </div>
+      <Section label="Fields to extract">
+        {fields.map((f, i) => (
+          <div
+            key={i}
+            className="rounded-md border border-border/50 bg-background/40 p-2 mb-1.5 space-y-1.5"
+          >
+            <div className="flex gap-1.5">
+              <Input
+                value={f.name}
+                onChange={(e) => update(i, { name: e.target.value.replace(/[^a-zA-Z0-9_]/g, "") })}
+                placeholder="field_name"
+                className="flex-1 font-mono text-xs"
+              />
+              <Select value={f.type} onValueChange={(v) => update(i, { type: v as typeof f.type })}>
+                <SelectTrigger className="w-24 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {["string", "number", "boolean", "array"].map((t) => (
+                    <SelectItem key={t} value={t}>
+                      {t}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 shrink-0"
+                onClick={() => onChange({ extractSchema: fields.filter((_, idx) => idx !== i) })}
+              >
+                <Trash2 className="h-3.5 w-3.5 text-destructive" />
+              </Button>
+            </div>
+            <Input
+              value={f.description ?? ""}
+              onChange={(e) => update(i, { description: e.target.value })}
+              placeholder="what to extract for this field"
+              className="text-xs"
+            />
+          </div>
+        ))}
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 text-xs"
+          onClick={() =>
+            onChange({ extractSchema: [...fields, { name: "", type: "string", description: "" }] })
+          }
+        >
+          <Plus className="h-3.5 w-3.5 mr-1" /> Add field
+        </Button>
+      </Section>
+    </>
   );
 }
 

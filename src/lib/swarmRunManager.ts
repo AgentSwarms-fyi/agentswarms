@@ -40,6 +40,8 @@ export type ManagedRunView = {
   tokensIn: number;
   tokensOut: number;
   costUsd: number;
+  /** Latest shared flow-state snapshot (for the variable inspector). */
+  state: Record<string, string>;
 };
 
 type InternalRun = {
@@ -126,6 +128,7 @@ export async function startRun(params: StartRunParams): Promise<string> {
       tokensIn: 0,
       tokensOut: 0,
       costUsd: 0,
+      state: {},
     },
   };
   runs.set(runId, run);
@@ -203,6 +206,7 @@ function applyEvent(run: InternalRun, e: SwarmRunEvent) {
   const nodeStatus = { ...run.view.nodeStatus };
   const nodeOutput = { ...run.view.nodeOutput };
   let { tokensIn, tokensOut, costUsd } = run.view;
+  let state = run.view.state;
 
   switch (e.type) {
     case "node_start":
@@ -234,6 +238,9 @@ function applyEvent(run: InternalRun, e: SwarmRunEvent) {
       tokensOut += e.tokensOut;
       costUsd += e.costUsd;
       break;
+    case "state_snapshot":
+      state = e.state;
+      break;
     case "run_done":
       patch(run, { finalOutput: e.finalOutput });
       break;
@@ -249,6 +256,7 @@ function applyEvent(run: InternalRun, e: SwarmRunEvent) {
     tokensIn,
     tokensOut,
     costUsd,
+    state,
   });
   patch(run, { status: deriveStatus(run) });
   emit();

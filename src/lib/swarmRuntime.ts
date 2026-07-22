@@ -72,7 +72,13 @@ export type SwarmNodeKind =
   | "evaluate"
   | "output"
   | "a2a_remote"
-  | "function";
+  | "function"
+  // Tier-1 flow-engine nodes:
+  | "set_var" // write named values into shared flow state
+  | "http" // deterministic outbound HTTP request
+  | "tool" // deterministic single-tool call (no LLM)
+  | "foreach" // map an agent body over each item of an array
+  | "extract"; // LLM structured-output / parameter extraction
 
 // The curated set of tool ids a swarm node can opt into. Mirrors
 // `TOOLABLE_IDS` in registry.server.ts. Kept as plain string union here so
@@ -189,6 +195,31 @@ export type SwarmNodeData = {
   evalCustomInstructions?: string; // additional user instructions for the judge
   evalPassThreshold?: number; // 0–1; overall score must meet this to "pass"
   evalReferenceInput?: string; // variable name holding the original question/context
+  // set_var — write named keys into shared flow state. Each value is a template
+  // ({{var}}, {{var.path}}) resolved against the current state.
+  stateAssignments?: { key: string; value: string }[];
+  // http — deterministic outbound request. url/headers/body support {{var}}
+  // flow-state templating (client-side) and {{secret:NAME}} (resolved server-side).
+  httpMethod?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  httpUrl?: string;
+  httpHeaders?: { key: string; value: string }[];
+  httpBody?: string;
+  httpResponsePath?: string; // optional JSON path to extract from the response body
+  httpTimeoutMs?: number;
+  // tool — run one built-in tool deterministically (no LLM). `toolArgs` values
+  // are templated against flow state before the call.
+  toolId?: SwarmToolId;
+  toolArgs?: Record<string, string>;
+  // foreach — map this node's agent body over each element of an array read
+  // from `foreachInput`; each element is exposed as `foreachItemVar`.
+  foreachInput?: string;
+  foreachItemVar?: string;
+  // extract — LLM structured output. Produces a JSON object with these fields.
+  extractSchema?: {
+    name: string;
+    type: "string" | "number" | "boolean" | "array";
+    description?: string;
+  }[];
   // visual / runtime
   avatar?: string;
   status?: "idle" | "running" | "done" | "error" | "waiting" | "skipped";
@@ -270,6 +301,9 @@ export type SwarmRunEvent =
       model: string;
     }
   | { type: "approval_pending"; nodeId: string; approvalId: string }
+  // Snapshot of the shared flow state after a node runs — powers the variable
+  // inspector. Values are truncated for transport.
+  | { type: "state_snapshot"; state: Record<string, string> }
   | { type: "run_done"; finalOutput: string }
   | { type: "run_error"; error: string };
 
@@ -310,10 +344,45 @@ function topoLevels(nodes: Node<SwarmNodeData>[], edges: Edge[]): Node<SwarmNode
   return levels;
 }
 
-// Substitute {{var}} placeholders in a template with values from the context.
+// Resolve a variable expression against flow state. Supports a bare name
+// (`foo`), an optional `state.` prefix, and a JSON path into a value that
+// happens to be JSON — `foo.bar`, `foo[0]`, `foo.items[2].name`. Returns the
+// resolved string, or undefined when it can't be resolved.
+function resolveStatePath(ctx: Record<string, string>, expr: string): string | undefined {
+  // Leave {{secret:NAME}} refs untouched — resolved server-side.
+  if (/^secret\s*:/i.test(expr)) return undefined;
+  const cleaned = expr.trim().replace(/^state\./, "");
+  const head = cleaned.match(/^([a-zA-Z0-9_]+)(.*)$/);
+  if (!head) return undefined;
+  const base = head[1];
+  const rest = head[2];
+  if (!(base in ctx)) return undefined;
+  let val: unknown = ctx[base];
+  if (!rest) return typeof val === "string" ? val : JSON.stringify(val);
+  if (typeof val === "string") {
+    try {
+      val = JSON.parse(val);
+    } catch {
+      return undefined;
+    }
+  }
+  const tokens = rest.match(/\.[a-zA-Z0-9_]+|\[\d+\]/g) ?? [];
+  for (const t of tokens) {
+    if (val == null || typeof val !== "object") return undefined;
+    val = t.startsWith(".")
+      ? (val as Record<string, unknown>)[t.slice(1)]
+      : (val as unknown[])[parseInt(t.slice(1, -1), 10)];
+  }
+  if (val === undefined) return undefined;
+  return typeof val === "string" ? val : JSON.stringify(val);
+}
+
+// Substitute {{var}} / {{var.path}} placeholders in a template with values from
+// flow state. Unresolved refs (incl. {{secret:NAME}}) are left as-is.
 function interpolate(template: string, ctx: Record<string, string>): string {
-  return template.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_, name) => {
-    return ctx[name] ?? `{{${name}}}`;
+  return template.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_, expr: string) => {
+    const resolved = resolveStatePath(ctx, expr);
+    return resolved !== undefined ? resolved : `{{${expr.trim()}}}`;
   });
 }
 
@@ -1240,6 +1309,235 @@ export async function runSwarm(
           return;
         }
 
+        // ── Set Variable: write named keys into shared flow state ──
+        if (node.data.kind === "set_var") {
+          const written: Record<string, string> = {};
+          for (const a of node.data.stateAssignments ?? []) {
+            const key = (a.key || "").trim();
+            if (!key) continue;
+            const val = interpolate(a.value ?? "", ctx);
+            ctx[key] = val;
+            written[key] = val;
+          }
+          const outStr = JSON.stringify(written);
+          const v = node.data.outputVar || `out_${node.id}`;
+          ctx[v] = outStr;
+          lastOutput = outStr;
+          onEvent({ type: "node_done", nodeId: node.id, output: outStr });
+          return;
+        }
+
+        // ── HTTP: deterministic outbound request (runs server-side) ──
+        if (node.data.kind === "http") {
+          if (embedTransport) throw new Error("HTTP nodes are not supported in embedded swarms.");
+          const method = node.data.httpMethod || "GET";
+          const url = interpolate(node.data.httpUrl || "", ctx);
+          const headers = (node.data.httpHeaders ?? [])
+            .filter((h) => (h.key || "").trim())
+            .map((h) => ({ key: h.key, value: interpolate(h.value ?? "", ctx) }));
+          const body = node.data.httpBody ? interpolate(node.data.httpBody, ctx) : undefined;
+          const { data: sess } = await supabase.auth.getSession();
+          const token = sess.session?.access_token;
+          if (!token) throw new Error("Not signed in");
+          const { executeHttpNode } = await import("@/utils/swarmNodes.functions");
+          const res = await executeHttpNode({
+            data: {
+              access_token: token,
+              method,
+              url,
+              headers,
+              body,
+              timeout_ms: node.data.httpTimeoutMs,
+            },
+          });
+          if (!res.ok) throw new Error(`HTTP node failed: ${res.error}`);
+          if (res.status >= 400) {
+            onEvent({
+              type: "node_warning",
+              nodeId: node.id,
+              warning: `HTTP ${method} ${url} returned ${res.status}.`,
+            });
+          }
+          let out = res.body;
+          const path = node.data.httpResponsePath?.trim();
+          if (path) {
+            const expr = path.startsWith("[") ? `__resp${path}` : `__resp.${path}`;
+            const picked = resolveStatePath({ __resp: res.body }, expr);
+            if (picked !== undefined) out = picked;
+          }
+          if (out) onEvent({ type: "node_token", nodeId: node.id, token: out.slice(0, 500) });
+          const v = node.data.outputVar || `out_${node.id}`;
+          ctx[v] = out;
+          lastOutput = out;
+          onEvent({ type: "node_done", nodeId: node.id, output: out });
+          return;
+        }
+
+        // ── Tool: run one built-in tool deterministically (no LLM) ──
+        if (node.data.kind === "tool") {
+          if (embedTransport) throw new Error("Tool nodes are not supported in embedded swarms.");
+          const toolId = node.data.toolId;
+          if (!toolId) {
+            throw new Error("Tool node has no tool selected — open the inspector and pick one.");
+          }
+          const args: Record<string, string> = {};
+          for (const [k, val] of Object.entries(node.data.toolArgs ?? {})) {
+            args[k] = interpolate(String(val ?? ""), ctx);
+          }
+          const { data: sess } = await supabase.auth.getSession();
+          const token = sess.session?.access_token;
+          if (!token) throw new Error("Not signed in");
+          const { executeToolNode } = await import("@/utils/swarmNodes.functions");
+          const res = await executeToolNode({
+            data: {
+              access_token: token,
+              tool_id: toolId,
+              args,
+              knowledge_base_id: node.data.knowledgeBaseId ?? undefined,
+              sql_tables: node.data.toolConfigs?.sql_table_names,
+              mcp_servers: node.data.toolConfigs?.mcp_server_names,
+              web_config: node.data.toolConfigs?.web_search || node.data.toolConfigs?.web_browse,
+            },
+          });
+          if (!res.ok) throw new Error(`Tool node failed: ${res.error}`);
+          if (res.result)
+            onEvent({ type: "node_token", nodeId: node.id, token: res.result.slice(0, 500) });
+          const v = node.data.outputVar || `out_${node.id}`;
+          ctx[v] = res.result;
+          lastOutput = res.result;
+          onEvent({ type: "node_done", nodeId: node.id, output: res.result });
+          return;
+        }
+
+        // ── For-Each: map this node's agent body over each array element ──
+        if (node.data.kind === "foreach") {
+          const srcName = node.data.foreachInput?.trim() || node.data.inputs?.[0] || "input";
+          const raw = ctx[srcName] ?? lastOutput;
+          let arr: unknown[];
+          try {
+            const parsed = JSON.parse(raw);
+            arr = Array.isArray(parsed) ? parsed : [parsed];
+          } catch {
+            arr = raw
+              .split(/\r?\n/)
+              .map((s) => s.trim())
+              .filter(Boolean);
+          }
+          const cap = Math.max(1, Math.min(node.data.maxIters ?? 25, 100));
+          const itemVar = node.data.foreachItemVar?.trim() || "item";
+          const total = Math.min(arr.length, cap);
+          const results: unknown[] = [];
+          for (let i = 0; i < total; i++) {
+            if (signal?.aborted) throw new Error("Run aborted");
+            const item = arr[i];
+            const itemStr = typeof item === "string" ? item : JSON.stringify(item);
+            const bodyCtx = { ...ctx, [itemVar]: itemStr, index: String(i) };
+            onEvent({
+              type: "loop_iteration_start",
+              nodeId: node.id,
+              iteration: i + 1,
+              maxIterations: total,
+            });
+            const bodyNode: Node<SwarmNodeData> = {
+              ...node,
+              data: {
+                ...node.data,
+                systemPrompt: interpolate(
+                  node.data.systemPrompt || `Process this item: {{${itemVar}}}`,
+                  bodyCtx,
+                ),
+              },
+            };
+            const out = await callAgent(
+              bodyNode,
+              itemStr,
+              (tok) => onEvent({ type: "node_token", nodeId: node.id, token: tok }),
+              signal,
+              swarmRunId,
+              captureUsage(node.id),
+              captureMeta(node.id),
+              captureThinking(node.id),
+            );
+            let parsedOut: unknown = out;
+            try {
+              parsedOut = JSON.parse(out);
+            } catch {
+              /* keep the string */
+            }
+            results.push(parsedOut);
+            onEvent({
+              type: "loop_iteration_done",
+              nodeId: node.id,
+              iteration: i + 1,
+              output: out,
+              done: false,
+            });
+          }
+          const outStr = JSON.stringify(results);
+          const v = node.data.outputVar || `out_${node.id}`;
+          ctx[v] = outStr;
+          lastOutput = outStr;
+          onEvent({ type: "node_done", nodeId: node.id, output: outStr });
+          return;
+        }
+
+        // ── Extract: LLM structured output into a JSON object ──
+        if (node.data.kind === "extract") {
+          const inputText = gatherInputs(node, ctx, lastOutput);
+          const fields = (node.data.extractSchema ?? []).filter((f) => (f.name || "").trim());
+          if (fields.length === 0) {
+            throw new Error(
+              "Extract node has no fields — open the inspector and add at least one field.",
+            );
+          }
+          const fieldLines = fields
+            .map((f) => `- "${f.name}" (${f.type})${f.description ? ": " + f.description : ""}`)
+            .join("\n");
+          const shape = `{\n${fields
+            .map(
+              (f) =>
+                `  "${f.name}": ${
+                  f.type === "number"
+                    ? "<number>"
+                    : f.type === "boolean"
+                      ? "<true|false>"
+                      : f.type === "array"
+                        ? "<array>"
+                        : "<string>"
+                }`,
+            )
+            .join(",\n")}\n}`;
+          const sys = `You extract structured data. Read the INPUT and return ONLY a JSON object with exactly these fields — no prose, no markdown fences:\n${fieldLines}\n\nOutput shape:\n${shape}\n\nUse null for any value you cannot find.`;
+          const extractNode: Node<SwarmNodeData> = {
+            ...node,
+            data: {
+              ...node.data,
+              systemPrompt: sys,
+              provider: node.data.provider || "openrouter",
+              model: node.data.model || "openai/gpt-4o-mini",
+              temperature: typeof node.data.temperature === "number" ? node.data.temperature : 0.1,
+            },
+          };
+          const result = await callAgent(
+            extractNode,
+            `INPUT:\n${inputText}`,
+            (tok) => onEvent({ type: "node_token", nodeId: node.id, token: tok }),
+            signal,
+            swarmRunId,
+            captureUsage(node.id),
+            captureMeta(node.id),
+            captureThinking(node.id),
+          );
+          let clean = result.trim();
+          const m = clean.match(/```(?:json)?\s*([\s\S]*?)```/);
+          if (m) clean = m[1].trim();
+          const v = node.data.outputVar || `out_${node.id}`;
+          ctx[v] = clean;
+          lastOutput = clean;
+          onEvent({ type: "node_done", nodeId: node.id, output: clean });
+          return;
+        }
+
         if (node.data.kind === "evaluate") {
           const inputText = gatherInputs(node, ctx, lastOutput);
           const metrics = (node.data.evalMetrics ?? []).filter((m) => m.enabled);
@@ -1390,6 +1688,13 @@ Evaluate the candidate output above against each metric and return the JSON scor
           throw new Error(`${failures.length} parallel nodes failed:\n${messages.join("\n")}`);
         }
       }
+
+      // Publish a snapshot of shared flow state for the variable inspector.
+      const snapshot: Record<string, string> = {};
+      for (const [k, val] of Object.entries(ctx)) {
+        snapshot[k] = typeof val === "string" && val.length > 4000 ? val.slice(0, 4000) + "…" : val;
+      }
+      onEvent({ type: "state_snapshot", state: snapshot });
 
       // After the level completes, update lastOutput to the latest ctx value
       // from this level (for the next level's fallback). Pick the last node

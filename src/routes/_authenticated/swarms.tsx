@@ -91,6 +91,11 @@ import {
   ClipboardCheck,
   MoreVertical,
   Compass,
+  Variable,
+  Globe,
+  Wrench,
+  Repeat2,
+  Braces,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -389,6 +394,56 @@ const nodeTypes = {
       kindLabel="Evaluate"
     />
   ),
+  set_var: (p: NodeProps<Node<SwarmNodeData>>) => (
+    <GenericNode
+      {...p}
+      accentBorder="border-cyan-500/50"
+      accentText="text-cyan-300"
+      accentBg="bg-cyan-500/10"
+      Icon={Variable}
+      kindLabel="Set Variable"
+    />
+  ),
+  http: (p: NodeProps<Node<SwarmNodeData>>) => (
+    <GenericNode
+      {...p}
+      accentBorder="border-lime-500/50"
+      accentText="text-lime-300"
+      accentBg="bg-lime-500/10"
+      Icon={Globe}
+      kindLabel="HTTP"
+    />
+  ),
+  tool: (p: NodeProps<Node<SwarmNodeData>>) => (
+    <GenericNode
+      {...p}
+      accentBorder="border-rose-500/50"
+      accentText="text-rose-300"
+      accentBg="bg-rose-500/10"
+      Icon={Wrench}
+      kindLabel="Tool"
+    />
+  ),
+  foreach: (p: NodeProps<Node<SwarmNodeData>>) => (
+    <GenericNode
+      {...p}
+      accentBorder="border-amber-600/50"
+      accentText="text-amber-300"
+      accentBg="bg-amber-600/10"
+      Icon={Repeat2}
+      kindLabel="For Each"
+    />
+  ),
+  extract: (p: NodeProps<Node<SwarmNodeData>>) => (
+    <GenericNode
+      {...p}
+      accentBorder="border-sky-600/50"
+      accentText="text-sky-300"
+      accentBg="bg-sky-600/10"
+      Icon={Braces}
+      kindLabel="Extract"
+    />
+  ),
 };
 
 // Stable empty array so the derived `events` prop keeps a constant identity
@@ -438,12 +493,18 @@ const PALETTE_ACCENTS: Record<SwarmNodeData["kind"], { chip: string; Icon: typeo
   function: { chip: "bg-zinc-500/10 text-zinc-500", Icon: Code2 },
   evaluate: { chip: "bg-teal-500/10 text-teal-500", Icon: ClipboardCheck },
   output: { chip: "bg-emerald-500/10 text-emerald-500", Icon: ArrowLeftToLine },
+  set_var: { chip: "bg-cyan-500/10 text-cyan-500", Icon: Variable },
+  http: { chip: "bg-lime-500/10 text-lime-500", Icon: Globe },
+  tool: { chip: "bg-rose-500/10 text-rose-500", Icon: Wrench },
+  foreach: { chip: "bg-amber-600/10 text-amber-600", Icon: Repeat2 },
+  extract: { chip: "bg-sky-600/10 text-sky-600", Icon: Braces },
 };
 
 const PALETTE_GROUPS: { label: string; kinds: SwarmNodeData["kind"][] }[] = [
   { label: "Flow", kinds: ["input", "output", "approval"] },
   { label: "Agents", kinds: ["agent", "router", "a2a_remote"] },
-  { label: "Logic", kinds: ["condition", "loop", "function", "evaluate"] },
+  { label: "Logic", kinds: ["condition", "loop", "foreach", "evaluate"] },
+  { label: "Data & Tools", kinds: ["set_var", "extract", "http", "tool", "function"] },
 ];
 
 const PALETTE: PaletteItem[] = [
@@ -580,6 +641,69 @@ const PALETTE: PaletteItem[] = [
         },
       ],
       evalPassThreshold: 0.7,
+    },
+  },
+  {
+    kind: "set_var",
+    label: "Set Variable",
+    avatar: "🔧",
+    description: "Write named values into flow state",
+    defaults: {
+      inputs: ["input"],
+      stateAssignments: [{ key: "my_var", value: "{{input}}" }],
+    },
+  },
+  {
+    kind: "extract",
+    label: "Extract (JSON)",
+    avatar: "🧩",
+    description: "LLM structured output → JSON fields",
+    defaults: {
+      provider: "openrouter",
+      model: "openai/gpt-4o-mini",
+      temperature: 0.1,
+      inputs: ["input"],
+      extractSchema: [
+        { name: "summary", type: "string", description: "One-sentence summary of the input" },
+      ],
+    },
+  },
+  {
+    kind: "http",
+    label: "HTTP Request",
+    avatar: "🌐",
+    description: "Call any REST API (deterministic)",
+    defaults: {
+      httpMethod: "GET",
+      httpUrl: "https://api.example.com/{{input}}",
+      httpHeaders: [{ key: "Accept", value: "application/json" }],
+      inputs: ["input"],
+    },
+  },
+  {
+    kind: "tool",
+    label: "Tool (deterministic)",
+    avatar: "🛠️",
+    description: "Run one tool without an LLM",
+    defaults: {
+      toolId: "web_search",
+      toolArgs: { query: "{{input}}" },
+      inputs: ["input"],
+    },
+  },
+  {
+    kind: "foreach",
+    label: "For Each",
+    avatar: "🔁",
+    description: "Map an agent over each array item",
+    defaults: {
+      provider: "openrouter",
+      model: "google/gemini-3-flash-preview",
+      temperature: 0.3,
+      maxIters: 25,
+      foreachItemVar: "item",
+      systemPrompt: "Process this item and return the result:\n{{item}}",
+      inputs: ["input"],
     },
   },
   {
@@ -1723,6 +1847,7 @@ function SwarmsCanvas({
               traceRunId={traceRunId}
               traceEnabled={traceEnabled}
               onTraceEnabledChange={setTraceEnabled}
+              state={activeRun?.state}
             />
           </div>
         </div>

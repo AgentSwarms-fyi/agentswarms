@@ -68,6 +68,8 @@ type Props = {
   traceRunId?: string | null;
   traceEnabled?: boolean;
   onTraceEnabledChange?: (v: boolean) => void;
+  /** Live shared flow-state snapshot for the variable inspector. */
+  state?: Record<string, string>;
 };
 
 export function RunPanel({
@@ -83,6 +85,7 @@ export function RunPanel({
   traceRunId,
   traceEnabled,
   onTraceEnabledChange,
+  state,
 }: Props) {
   const [collapsed, setCollapsed] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -244,6 +247,8 @@ export function RunPanel({
           </div>
         )}
 
+        {!collapsed && <StateInspector state={state} />}
+
         {!collapsed && images.length > 0 && (
           <div className="border-t border-border p-3 overflow-y-auto">
             <MediaGallery images={images} compact />
@@ -329,6 +334,8 @@ export function RunPanel({
         ))}
       </div>
 
+      <StateInspector state={state} />
+
       {images.length > 0 && (
         <div className="border-t border-border p-3 max-h-72 overflow-y-auto">
           <MediaGallery images={images} compact />
@@ -377,6 +384,44 @@ function UsageMeter({ usage }: { usage: UsageSummary }) {
         ↑{usage.tokensIn.toLocaleString()} ↓{usage.tokensOut.toLocaleString()}
       </span>
       <span className="text-emerald-400">~${usage.costUsd.toFixed(4)}</span>
+    </div>
+  );
+}
+
+// Live variable inspector — shows the shared flow-state map produced during a
+// run (outputs keyed by each node's outputVar, plus anything a Set Variable
+// node wrote). Collapsed by default so it doesn't crowd the dock.
+function StateInspector({ state }: { state?: Record<string, string> }) {
+  const [open, setOpen] = useState(false);
+  const entries = useMemo(() => Object.entries(state ?? {}), [state]);
+  if (entries.length === 0) return null;
+  return (
+    <div className="border-t border-border">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-2 px-3 py-1.5 text-[11px] text-muted-foreground hover:text-foreground"
+      >
+        {open ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />}
+        <span className="font-semibold uppercase tracking-wider">Flow variables</span>
+        <Badge variant="outline" className="h-4 px-1.5 text-[9px]">
+          {entries.length}
+        </Badge>
+      </button>
+      {open && (
+        <div className="max-h-40 overflow-y-auto px-3 pb-2 space-y-1">
+          {entries.map(([k, v]) => (
+            <div key={k} className="grid grid-cols-[minmax(0,10rem)_1fr] gap-2 text-[11px]">
+              <span className="truncate font-mono text-primary" title={k}>
+                {k}
+              </span>
+              <span className="truncate font-mono text-muted-foreground" title={v}>
+                {v}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
