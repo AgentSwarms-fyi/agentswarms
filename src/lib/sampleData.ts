@@ -16,6 +16,10 @@ import ecomReturnsCsvUrl from "@/assets/sample-data/ecom_returns.csv?url";
 import nbaSeasonsCsvUrl from "@/assets/sample-data/nba_team_seasons.csv?url";
 import worldHealthCsvUrl from "@/assets/sample-data/world_health_indicators.csv?url";
 import globalElectricityCsvUrl from "@/assets/sample-data/global_electricity.csv?url";
+import f1DriverStandingsCsvUrl from "@/assets/sample-data/f1_driver_standings.csv?url";
+import f1ConstructorStandingsCsvUrl from "@/assets/sample-data/f1_constructor_standings.csv?url";
+import f1WorldChampionsCsvUrl from "@/assets/sample-data/f1_world_champions.csv?url";
+import f1ConstructorChampionsCsvUrl from "@/assets/sample-data/f1_constructor_champions.csv?url";
 import { parseCsv } from "@/lib/sqlEngine";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -64,6 +68,19 @@ export const WORLD_HEALTH_FILENAME = "World_Health_Indicators.csv";
 export const GLOBAL_ELECTRICITY_TABLE_NAME = "global_electricity";
 export const GLOBAL_ELECTRICITY_FILENAME = "Global_Electricity.csv";
 
+// Eleventh–fourteenth — Formula 1 (Ergast/Jolpica public API, no auth):
+// the 2025 driver + constructor standings and the full 1950-2025 world &
+// constructor champions history. Back the "Formula 1 Analytics" sample
+// multi-page dashboard.
+export const F1_DRIVER_STANDINGS_TABLE_NAME = "f1_driver_standings";
+export const F1_DRIVER_STANDINGS_FILENAME = "F1_Driver_Standings.csv";
+export const F1_CONSTRUCTOR_STANDINGS_TABLE_NAME = "f1_constructor_standings";
+export const F1_CONSTRUCTOR_STANDINGS_FILENAME = "F1_Constructor_Standings.csv";
+export const F1_WORLD_CHAMPIONS_TABLE_NAME = "f1_world_champions";
+export const F1_WORLD_CHAMPIONS_FILENAME = "F1_World_Champions.csv";
+export const F1_CONSTRUCTOR_CHAMPIONS_TABLE_NAME = "f1_constructor_champions";
+export const F1_CONSTRUCTOR_CHAMPIONS_FILENAME = "F1_Constructor_Champions.csv";
+
 type SampleSpec = { tableName: string; filename: string; csvUrl: string };
 
 const SAMPLES: SampleSpec[] = [
@@ -96,6 +113,26 @@ const SAMPLES: SampleSpec[] = [
     tableName: GLOBAL_ELECTRICITY_TABLE_NAME,
     filename: GLOBAL_ELECTRICITY_FILENAME,
     csvUrl: globalElectricityCsvUrl,
+  },
+  {
+    tableName: F1_DRIVER_STANDINGS_TABLE_NAME,
+    filename: F1_DRIVER_STANDINGS_FILENAME,
+    csvUrl: f1DriverStandingsCsvUrl,
+  },
+  {
+    tableName: F1_CONSTRUCTOR_STANDINGS_TABLE_NAME,
+    filename: F1_CONSTRUCTOR_STANDINGS_FILENAME,
+    csvUrl: f1ConstructorStandingsCsvUrl,
+  },
+  {
+    tableName: F1_WORLD_CHAMPIONS_TABLE_NAME,
+    filename: F1_WORLD_CHAMPIONS_FILENAME,
+    csvUrl: f1WorldChampionsCsvUrl,
+  },
+  {
+    tableName: F1_CONSTRUCTOR_CHAMPIONS_TABLE_NAME,
+    filename: F1_CONSTRUCTOR_CHAMPIONS_FILENAME,
+    csvUrl: f1ConstructorChampionsCsvUrl,
   },
 ];
 

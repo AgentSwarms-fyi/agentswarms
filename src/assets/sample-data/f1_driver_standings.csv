@@ -1,0 +1,22 @@
+position,driver,code,nationality,team,points,wins
+1,Lando Norris,NOR,British,McLaren,423,7
+2,Max Verstappen,VER,Dutch,Red Bull,421,8
+3,Oscar Piastri,PIA,Australian,McLaren,410,7
+4,George Russell,RUS,British,Mercedes,319,2
+5,Charles Leclerc,LEC,Monegasque,Ferrari,242,0
+6,Lewis Hamilton,HAM,British,Ferrari,156,0
+7,Andrea Kimi Antonelli,ANT,Italian,Mercedes,150,0
+8,Alexander Albon,ALB,Thai,Williams,73,0
+9,Carlos Sainz,SAI,Spanish,Williams,64,0
+10,Fernando Alonso,ALO,Spanish,Aston Martin,56,0
+11,Nico Hülkenberg,HUL,German,Sauber,51,0
+12,Isack Hadjar,HAD,French,RB F1 Team,51,0
+13,Oliver Bearman,BEA,British,Haas F1 Team,41,0
+14,Liam Lawson,LAW,New Zealander,RB F1 Team,38,0
+15,Esteban Ocon,OCO,French,Haas F1 Team,38,0
+16,Lance Stroll,STR,Canadian,Aston Martin,33,0
+17,Yuki Tsunoda,TSU,Japanese,Red Bull,33,0
+18,Pierre Gasly,GAS,French,Alpine F1 Team,22,0
+19,Gabriel Bortoleto,BOR,Brazilian,Sauber,19,0
+20,Franco Colapinto,COL,Argentine,Alpine F1 Team,0,0
+21,Jack Doohan,DOO,Australian,Alpine F1 Team,0,0
