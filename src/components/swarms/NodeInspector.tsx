@@ -19,15 +19,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
 import {
   Trash2,
   X,
@@ -52,8 +43,6 @@ import {
   GitBranch,
   Users,
   UserPlus,
-  Check,
-  ChevronsUpDown,
   Mail,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
@@ -1499,7 +1488,10 @@ function ApproverPicker({
 }) {
   const { user } = useAuth();
   const { directory, loading } = useApproverDirectory(true);
-  const [open, setOpen] = useState(false);
+  // Plain inline search + checkbox list (no Popover / cmdk) — the same pattern
+  // the MCP-server and SQL-table pickers in this file use. Avoids pulling a
+  // combobox dependency into the swarm canvas bundle.
+  const [query, setQuery] = useState("");
 
   const userIds = Array.isArray(data.approverUserIds) ? data.approverUserIds : [];
   const groupIds = Array.isArray(data.approverGroupIds) ? data.approverGroupIds : [];
@@ -1532,6 +1524,15 @@ function ApproverPicker({
     : false;
   const runnerNotified = meSelected || meInSelectedGroup;
   const total = userIds.length + groupIds.length;
+
+  const q = query.trim().toLowerCase();
+  const filteredGroups = groups.filter((g) => !q || g.name.toLowerCase().includes(q));
+  const filteredUsers = users.filter(
+    (u) =>
+      !q ||
+      (u.display_name ?? "").toLowerCase().includes(q) ||
+      (u.email ?? "").toLowerCase().includes(q),
+  );
 
   return (
     <Section
@@ -1591,67 +1592,17 @@ function ApproverPicker({
           </p>
         )}
 
+        {/* Search + quick "Add me" */}
         <div className="flex items-center gap-2">
-          <Popover open={open} onOpenChange={setOpen}>
-            <PopoverTrigger asChild>
-              <Button variant="outline" size="sm" className="h-8 flex-1 justify-between text-xs">
-                <span className="flex items-center gap-1.5">
-                  <UserPlus className="h-3.5 w-3.5" /> Add approvers
-                </span>
-                <ChevronsUpDown className="h-3.5 w-3.5 opacity-60" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-72 p-0" align="start">
-              <Command>
-                <CommandInput placeholder="Search users or groups…" className="h-9" />
-                <CommandList>
-                  <CommandEmpty>{loading ? "Loading directory…" : "No matches."}</CommandEmpty>
-                  {groups.length > 0 && (
-                    <CommandGroup heading="Groups">
-                      {groups.map((g) => {
-                        const on = groupIds.includes(g.id);
-                        return (
-                          <CommandItem
-                            key={g.id}
-                            value={`group ${g.name}`}
-                            onSelect={() => toggleGroup(g.id)}
-                          >
-                            <Users className="mr-2 h-3.5 w-3.5 text-violet-400" />
-                            <span className="flex-1 truncate">{g.name}</span>
-                            <span className="text-[10px] text-muted-foreground mr-2">
-                              {g.member_user_ids.length}
-                            </span>
-                            {on && <Check className="h-3.5 w-3.5 text-primary" />}
-                          </CommandItem>
-                        );
-                      })}
-                    </CommandGroup>
-                  )}
-                  <CommandGroup heading="People">
-                    {users.map((u) => {
-                      const on = userIds.includes(u.user_id);
-                      return (
-                        <CommandItem
-                          key={u.user_id}
-                          value={`user ${u.display_name ?? ""} ${u.email ?? ""}`}
-                          onSelect={() => toggleUser(u.user_id)}
-                        >
-                          <UserPlus className="mr-2 h-3.5 w-3.5 text-primary" />
-                          <span className="flex-1 truncate">
-                            {u.display_name || u.email || u.user_id.slice(0, 8)}
-                            {user && u.user_id === user.id && (
-                              <span className="ml-1 text-muted-foreground">(you)</span>
-                            )}
-                          </span>
-                          {on && <Check className="h-3.5 w-3.5 text-primary" />}
-                        </CommandItem>
-                      );
-                    })}
-                  </CommandGroup>
-                </CommandList>
-              </Command>
-            </PopoverContent>
-          </Popover>
+          <div className="relative flex-1">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search users or groups…"
+              className="h-8 pl-7 text-xs"
+            />
+          </div>
           {user && !meSelected && (
             <Button
               variant="outline"
@@ -1662,6 +1613,70 @@ function ApproverPicker({
             >
               Add me
             </Button>
+          )}
+        </div>
+
+        {/* Checkbox list */}
+        <div className="max-h-56 overflow-y-auto rounded-md border border-border/40 bg-background/40 p-1 space-y-0.5">
+          {loading ? (
+            <p className="p-2 text-[10px] text-muted-foreground">Loading directory…</p>
+          ) : filteredGroups.length === 0 && filteredUsers.length === 0 ? (
+            <p className="p-2 text-[10px] text-muted-foreground">
+              {users.length === 0 && groups.length === 0
+                ? "No other users or groups found. Create users/groups in Admin → IAM."
+                : "No matches."}
+            </p>
+          ) : (
+            <>
+              {filteredGroups.length > 0 && (
+                <p className="px-1.5 pt-1 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Groups
+                </p>
+              )}
+              {filteredGroups.map((g) => (
+                <label
+                  key={g.id}
+                  className="flex items-center gap-2 rounded-md px-1.5 py-1 cursor-pointer hover:bg-muted/40"
+                >
+                  <input
+                    type="checkbox"
+                    className="h-3 w-3 accent-primary"
+                    checked={groupIds.includes(g.id)}
+                    onChange={() => toggleGroup(g.id)}
+                  />
+                  <Users className="h-3.5 w-3.5 shrink-0 text-violet-400" />
+                  <span className="flex-1 truncate text-xs">{g.name}</span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {g.member_user_ids.length}
+                  </span>
+                </label>
+              ))}
+              {filteredUsers.length > 0 && (
+                <p className="px-1.5 pt-1 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  People
+                </p>
+              )}
+              {filteredUsers.map((u) => (
+                <label
+                  key={u.user_id}
+                  className="flex items-center gap-2 rounded-md px-1.5 py-1 cursor-pointer hover:bg-muted/40"
+                >
+                  <input
+                    type="checkbox"
+                    className="h-3 w-3 accent-primary"
+                    checked={userIds.includes(u.user_id)}
+                    onChange={() => toggleUser(u.user_id)}
+                  />
+                  <UserPlus className="h-3.5 w-3.5 shrink-0 text-primary" />
+                  <span className="flex-1 truncate text-xs">
+                    {u.display_name || u.email || u.user_id.slice(0, 8)}
+                    {user && u.user_id === user.id && (
+                      <span className="ml-1 text-muted-foreground">(you)</span>
+                    )}
+                  </span>
+                </label>
+              ))}
+            </>
           )}
         </div>
 
