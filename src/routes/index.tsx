@@ -5,10 +5,13 @@ import {
   ArrowRight,
   BarChart3,
   BellRing,
+  Bot,
   ChevronDown,
+  Code2,
   Container,
   Cpu,
   Database,
+  Gauge,
   GraduationCap,
   KeyRound,
   LayoutDashboard,
@@ -21,6 +24,7 @@ import {
   Share2,
   ShieldCheck,
   Wand2,
+  Workflow,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -808,6 +812,84 @@ function LandingPage() {
                     </div>
                     <h3 className="text-lg font-semibold">{c.title}</h3>
                     <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{c.body}</p>
+                  </GlowCard>
+                </Reveal>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* Multi-agent swarms — flagship band */}
+        <section id="swarms" className="relative overflow-hidden border-t border-border/60 py-24">
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-[radial-gradient(55%_60%_at_50%_0%,color-mix(in_oklch,var(--primary)_8%,transparent),transparent)]" />
+          <div className="relative mx-auto max-w-7xl px-6">
+            <SectionHeading
+              className="mb-14 max-w-3xl"
+              eyebrow="Multi-Agent Swarms"
+              title="Design agent teams on a visual canvas."
+              lede="Drag agents, routers, conditions, loops, sandboxed functions, evals and human-approval gates onto a canvas, wire typed inputs to outputs, and run the whole flow live with a full trace — no orchestration code. Export to LangGraph or CrewAI when you outgrow it."
+            />
+
+            <Reveal>
+              <div className="relative">
+                <div className="pointer-events-none absolute -inset-6 rounded-3xl bg-[radial-gradient(60%_55%_at_50%_40%,color-mix(in_oklch,var(--primary)_12%,transparent),transparent)] blur-2xl" />
+                <BrowserFrame url="localhost:8080/swarms" className="relative">
+                  {/* Served from public/ (not a bundled import) so a missing
+                      file degrades to an empty frame instead of breaking the
+                      build. Drop the screenshot at public/swarm-canvas.png. */}
+                  <img
+                    src="/swarm-canvas.png"
+                    alt="The AgentSwarms swarm canvas — an Earnings Call Analyst Desk flow of agents, a human-approval gate, and typed inputs and outputs"
+                    loading="lazy"
+                    width={1856}
+                    height={902}
+                    className="block w-full"
+                  />
+                </BrowserFrame>
+              </div>
+            </Reveal>
+
+            {/* Node-type grid */}
+            <div className="mt-16 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {[
+                {
+                  icon: Bot,
+                  title: "Agents & routers",
+                  body: "Agent nodes make LLM calls with tools, memory and guardrails; router agents read the input and pick one of N downstream paths.",
+                },
+                {
+                  icon: Workflow,
+                  title: "Conditions & loops",
+                  body: "YES/NO condition gates branch the flow, and loop nodes retry a step until it returns DONE — real control flow, no code.",
+                },
+                {
+                  icon: Code2,
+                  title: "Sandboxed functions",
+                  body: "Function nodes run sandboxed JavaScript transforms with a 2-second timeout to reshape data as it passes between agents.",
+                },
+                {
+                  icon: ShieldCheck,
+                  title: "Human-approval gates",
+                  body: "Approval nodes pause the run for a person to review and release, with risk flags surfaced inline before anything ships.",
+                },
+                {
+                  icon: Gauge,
+                  title: "LLM-as-a-judge evals",
+                  body: "Evaluate nodes score outputs judge-style, so quality gates live inside the flow instead of a separate pipeline.",
+                },
+                {
+                  icon: Share2,
+                  title: "Remote agents & export",
+                  body: "Delegate to remote A2A agents, or export any swarm to LangGraph, CrewAI or the OpenAI Agents SDK when you outgrow the canvas.",
+                },
+              ].map((c, i) => (
+                <Reveal key={c.title} delay={0.05 * i}>
+                  <GlowCard className="h-full">
+                    <div className="mb-3 inline-flex rounded-lg bg-primary/10 p-2">
+                      <c.icon className="h-4 w-4 text-primary" />
+                    </div>
+                    <h3 className="text-base font-semibold">{c.title}</h3>
+                    <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{c.body}</p>
                   </GlowCard>
                 </Reveal>
               ))}
