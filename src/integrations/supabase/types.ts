@@ -2237,6 +2237,42 @@ export type Database = {
         };
         Relationships: [];
       };
+      swarm_versions: {
+        Row: {
+          created_at: string;
+          edges: Json;
+          id: string;
+          kind: string;
+          label: string;
+          node_count: number;
+          nodes: Json;
+          swarm_id: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          edges?: Json;
+          id?: string;
+          kind?: string;
+          label?: string;
+          node_count?: number;
+          nodes?: Json;
+          swarm_id: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          edges?: Json;
+          id?: string;
+          kind?: string;
+          label?: string;
+          node_count?: number;
+          nodes?: Json;
+          swarm_id?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       swarm_run_edges: {
         Row: {
           bytes: number;

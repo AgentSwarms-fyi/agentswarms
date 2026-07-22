@@ -101,6 +101,7 @@ import {
   Workflow,
   Rocket,
   MessagesSquare,
+  History,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -108,7 +109,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "@/hooks/use-theme";
 import { LearnPanel } from "@/components/LearnPanel";
 import { learnSwarms } from "@/lib/learnContent";
-import { type SwarmNodeData } from "@/lib/swarmRuntime";
+import { type SwarmNodeData, topoLevels } from "@/lib/swarmRuntime";
 import {
   startRun as startManagedRun,
   cancelRun as cancelManagedRun,
@@ -135,6 +136,8 @@ import { downloadSwarmAsStrands } from "@/lib/swarmExportStrands";
 import { SwarmGallery } from "@/components/swarms/SwarmGallery";
 import { SwarmDeployDialog } from "@/components/swarms/SwarmDeployDialog";
 import { SwarmChatDialog } from "@/components/swarms/SwarmChatDialog";
+import { SwarmVersionsDialog } from "@/components/swarms/SwarmVersionsDialog";
+import { snapshotSwarmVersion, graphHash } from "@/lib/swarmVersions";
 
 export const Route = createFileRoute("/_authenticated/swarms")({
   component: SwarmsPage,
@@ -859,6 +862,10 @@ function SwarmsCanvas({
   const [runInput, setRunInput] = useState("");
   const [deployOpen, setDeployOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  // Fingerprint of the graph last snapshotted, so an unchanged Save doesn't
+  // create a duplicate autosave version.
+  const lastVersionHashRef = useRef<string | null>(null);
   // Values for the typed input form (when the input node declares inputFields).
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
   const [traceEnabled, setTraceEnabled] = useState(true);
@@ -1210,6 +1217,31 @@ function SwarmsCanvas({
     setSelectedNodeId(null);
   }, [selectedNodeId, setNodes, setEdges]);
 
+  // Clone the selected node (config and all) a little down-right of the original.
+  const duplicateSelected = useCallback(() => {
+    if (!selectedNodeId) return;
+    setNodes((nds: Node<SwarmNodeData>[]) => {
+      const src = nds.find((n) => n.id === selectedNodeId);
+      if (!src) return nds;
+      const id = `n_${Date.now()}_${idCounter.current++}`;
+      const clone: Node<SwarmNodeData> = {
+        ...src,
+        id,
+        position: { x: src.position.x + 48, y: src.position.y + 48 },
+        selected: false,
+        data: {
+          ...src.data,
+          status: "idle",
+          lastOutput: undefined,
+          // Give the copy its own default output variable so the two don't
+          // clobber each other's auto output in flow state.
+          outputVar: src.data.outputVar ? `${src.data.outputVar}_copy` : `out_${id.slice(-4)}`,
+        },
+      };
+      return [...nds, clone];
+    });
+  }, [selectedNodeId, setNodes]);
+
   const handleSave = async () => {
     if (!user) return;
     setSaving(true);
@@ -1246,6 +1278,16 @@ function SwarmsCanvas({
       setSwarmId(created.id);
       setSwarmList((prev) => [...prev, { id: created.id, name: created.name }]);
       dirtyRef.current = false;
+      // Seed version history with the initial snapshot.
+      void snapshotSwarmVersion({
+        swarmId: created.id,
+        userId: user.id,
+        nodes,
+        edges,
+        label: "Initial version",
+        kind: "auto",
+      });
+      lastVersionHashRef.current = graphHash(nodes, edges);
       toast.success("Swarm saved to your library");
       return;
     }
@@ -1260,9 +1302,78 @@ function SwarmsCanvas({
     } else {
       setSwarmList((prev) => prev.map((s) => (s.id === swarmId ? { ...s, name: swarmName } : s)));
       dirtyRef.current = false;
+      // Auto-snapshot into history, but skip if the graph is unchanged since the
+      // last snapshot so repeated saves don't pile up identical versions.
+      const hash = graphHash(nodes, edges);
+      if (hash !== lastVersionHashRef.current) {
+        void snapshotSwarmVersion({
+          swarmId,
+          userId: user.id,
+          nodes,
+          edges,
+          label: `Autosave ${new Date().toLocaleTimeString()}`,
+          kind: "auto",
+        });
+        lastVersionHashRef.current = hash;
+      }
       toast.success("Swarm saved");
     }
   };
+
+  const handleRestoreVersion = async (vNodes: Node<SwarmNodeData>[], vEdges: Edge[]) => {
+    // Snapshot the current graph first so restoring is itself reversible.
+    if (swarmId && user) {
+      await snapshotSwarmVersion({
+        swarmId,
+        userId: user.id,
+        nodes,
+        edges,
+        label: `Before restore ${new Date().toLocaleTimeString()}`,
+        kind: "restore",
+      });
+    }
+    setNodes(vNodes);
+    setEdges(vEdges.map(withDefaultEdgeStyle));
+    setSelectedNodeId(null);
+    setActiveRunId(null);
+    dirtyRef.current = true;
+    idCounter.current = vNodes.length + 1;
+    lastVersionHashRef.current = null; // force the next Save to snapshot the restored graph
+    toast.success("Version restored — hit Save to keep it.");
+  };
+
+  // Auto-arrange nodes left-to-right by dependency level (a simple layered
+  // layout using the same topo-sort the runtime uses to schedule nodes).
+  const handleTidyLayout = useCallback(() => {
+    if (nodes.length === 0) return;
+    let levels: Node<SwarmNodeData>[][];
+    try {
+      levels = topoLevels(nodes, edges);
+    } catch {
+      toast.error("Can't auto-arrange — the graph has a cycle.");
+      return;
+    }
+    const COL = 300;
+    const ROW = 150;
+    const pos = new Map<string, { x: number; y: number }>();
+    levels.forEach((lvl, ci) => {
+      lvl.forEach((n, ri) => {
+        pos.set(n.id, { x: ci * COL, y: (ri - (lvl.length - 1) / 2) * ROW });
+      });
+    });
+    setNodes((nds: Node<SwarmNodeData>[]) =>
+      nds.map((n) => (pos.has(n.id) ? { ...n, position: pos.get(n.id)! } : n)),
+    );
+    dirtyRef.current = true;
+    setTimeout(() => {
+      try {
+        reactFlow.fitView({ padding: 0.2, duration: 300 });
+      } catch {
+        /* fitView is best-effort */
+      }
+    }, 60);
+    toast.success("Canvas tidied");
+  }, [nodes, edges, setNodes, reactFlow]);
 
   const handleLoadTemplate = (templateId: string) => {
     const tpl = getSwarmTemplate(templateId);
@@ -1842,6 +1953,17 @@ function SwarmsCanvas({
                   </Badge>
                 )}
 
+                {/* ── Tidy layout ── */}
+                <Button
+                  onClick={handleTidyLayout}
+                  variant="outline"
+                  size="sm"
+                  className="h-8 w-8 p-0 bg-card/80 backdrop-blur"
+                  title="Auto-arrange nodes"
+                >
+                  <LayoutGrid className="h-3.5 w-3.5" />
+                </Button>
+
                 {/* ── Save ── */}
                 <Button
                   onClick={handleSave}
@@ -1857,6 +1979,19 @@ function SwarmsCanvas({
                   )}
                   Save
                 </Button>
+
+                {/* ── History (saved swarms only) ── */}
+                {swarmId && (
+                  <Button
+                    onClick={() => setHistoryOpen(true)}
+                    variant="outline"
+                    size="sm"
+                    className="h-8 w-8 p-0 bg-card/80 backdrop-blur"
+                    title="Version history"
+                  >
+                    <History className="h-3.5 w-3.5" />
+                  </Button>
+                )}
 
                 {/* ── Chat + Deploy (saved swarms only) ── */}
                 {swarmId && (
@@ -1979,6 +2114,7 @@ function SwarmsCanvas({
             agentLibrary={agentLibrary}
             onChange={updateSelectedNode}
             onDelete={deleteSelected}
+            onDuplicate={duplicateSelected}
             onClose={() => setSelectedNodeId(null)}
           />
         )}
@@ -1998,6 +2134,15 @@ function SwarmsCanvas({
         edges={edges}
         open={chatOpen}
         onOpenChange={setChatOpen}
+      />
+      <SwarmVersionsDialog
+        swarmId={swarmId}
+        swarmName={swarmName}
+        nodes={nodes}
+        edges={edges}
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        onRestore={handleRestoreVersion}
       />
     </>
   );

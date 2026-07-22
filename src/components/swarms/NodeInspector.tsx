@@ -52,6 +52,7 @@ import {
   UserPlus,
   Mail,
   Plus,
+  CopyPlus,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useApproverDirectory } from "@/hooks/use-approver-directory";
@@ -302,6 +303,7 @@ type Props = {
   agentLibrary: ImportableAgent[];
   onChange: (patch: Partial<SwarmNodeData>) => void;
   onDelete: () => void;
+  onDuplicate?: () => void;
   onClose: () => void;
 };
 
@@ -311,6 +313,7 @@ export function NodeInspector({
   agentLibrary,
   onChange,
   onDelete,
+  onDuplicate,
   onClose,
 }: Props) {
   const data = node.data;
@@ -481,6 +484,17 @@ export function NodeInspector({
           <p className="text-sm font-semibold truncate">{data.label}</p>
         </div>
         <div className="flex items-center gap-1">
+          {onDuplicate && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={onDuplicate}
+              title="Duplicate node"
+            >
+              <CopyPlus className="h-3.5 w-3.5" />
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="icon"
