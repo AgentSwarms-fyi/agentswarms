@@ -2108,6 +2108,102 @@ export type Database = {
         };
         Relationships: [];
       };
+      swarm_api_keys: {
+        Row: {
+          created_at: string;
+          id: string;
+          is_active: boolean;
+          key_hash: string;
+          key_prefix: string;
+          last_used_at: string | null;
+          name: string;
+          reject_approvals: boolean;
+          swarm_id: string;
+          updated_at: string;
+          use_count: number;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          id?: string;
+          is_active?: boolean;
+          key_hash: string;
+          key_prefix: string;
+          last_used_at?: string | null;
+          name: string;
+          reject_approvals?: boolean;
+          swarm_id: string;
+          updated_at?: string;
+          use_count?: number;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          is_active?: boolean;
+          key_hash?: string;
+          key_prefix?: string;
+          last_used_at?: string | null;
+          name?: string;
+          reject_approvals?: boolean;
+          swarm_id?: string;
+          updated_at?: string;
+          use_count?: number;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      swarm_schedules: {
+        Row: {
+          created_at: string;
+          id: string;
+          input: string;
+          input_state: Json;
+          interval_minutes: number;
+          is_active: boolean;
+          last_run_at: string | null;
+          last_run_error: string | null;
+          last_run_status: string | null;
+          name: string;
+          reject_approvals: boolean;
+          swarm_id: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          id?: string;
+          input?: string;
+          input_state?: Json;
+          interval_minutes?: number;
+          is_active?: boolean;
+          last_run_at?: string | null;
+          last_run_error?: string | null;
+          last_run_status?: string | null;
+          name?: string;
+          reject_approvals?: boolean;
+          swarm_id: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          input?: string;
+          input_state?: Json;
+          interval_minutes?: number;
+          is_active?: boolean;
+          last_run_at?: string | null;
+          last_run_error?: string | null;
+          last_run_status?: string | null;
+          name?: string;
+          reject_approvals?: boolean;
+          swarm_id?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       swarm_run_edges: {
         Row: {
           bytes: number;
