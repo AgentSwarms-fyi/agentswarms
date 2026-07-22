@@ -96,6 +96,8 @@ import {
   Wrench,
   Repeat2,
   Braces,
+  Merge,
+  Library,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -444,6 +446,26 @@ const nodeTypes = {
       kindLabel="Extract"
     />
   ),
+  merge: (p: NodeProps<Node<SwarmNodeData>>) => (
+    <GenericNode
+      {...p}
+      accentBorder="border-slate-400/50"
+      accentText="text-slate-300"
+      accentBg="bg-slate-400/10"
+      Icon={Merge}
+      kindLabel="Merge"
+    />
+  ),
+  retrieve: (p: NodeProps<Node<SwarmNodeData>>) => (
+    <GenericNode
+      {...p}
+      accentBorder="border-emerald-600/50"
+      accentText="text-emerald-300"
+      accentBg="bg-emerald-600/10"
+      Icon={Library}
+      kindLabel="Retrieve"
+    />
+  ),
 };
 
 // Stable empty array so the derived `events` prop keeps a constant identity
@@ -498,13 +520,15 @@ const PALETTE_ACCENTS: Record<SwarmNodeData["kind"], { chip: string; Icon: typeo
   tool: { chip: "bg-rose-500/10 text-rose-500", Icon: Wrench },
   foreach: { chip: "bg-amber-600/10 text-amber-600", Icon: Repeat2 },
   extract: { chip: "bg-sky-600/10 text-sky-600", Icon: Braces },
+  merge: { chip: "bg-slate-400/10 text-slate-400", Icon: Merge },
+  retrieve: { chip: "bg-emerald-600/10 text-emerald-600", Icon: Library },
 };
 
 const PALETTE_GROUPS: { label: string; kinds: SwarmNodeData["kind"][] }[] = [
   { label: "Flow", kinds: ["input", "output", "approval"] },
   { label: "Agents", kinds: ["agent", "router", "a2a_remote"] },
-  { label: "Logic", kinds: ["condition", "loop", "foreach", "evaluate"] },
-  { label: "Data & Tools", kinds: ["set_var", "extract", "http", "tool", "function"] },
+  { label: "Logic", kinds: ["condition", "loop", "foreach", "merge", "evaluate"] },
+  { label: "Data & Tools", kinds: ["set_var", "extract", "retrieve", "http", "tool", "function"] },
 ];
 
 const PALETTE: PaletteItem[] = [
@@ -703,6 +727,27 @@ const PALETTE: PaletteItem[] = [
       maxIters: 25,
       foreachItemVar: "item",
       systemPrompt: "Process this item and return the result:\n{{item}}",
+      inputs: ["input"],
+    },
+  },
+  {
+    kind: "merge",
+    label: "Merge (aggregator)",
+    avatar: "🔀",
+    description: "Combine several inputs into one value",
+    defaults: {
+      mergeMode: "concat",
+      inputs: ["input"],
+    },
+  },
+  {
+    kind: "retrieve",
+    label: "Retrieve (KB)",
+    avatar: "📚",
+    description: "Search a knowledge base (no LLM)",
+    defaults: {
+      retrieveQuery: "{{input}}",
+      retrieveTopK: 5,
       inputs: ["input"],
     },
   },

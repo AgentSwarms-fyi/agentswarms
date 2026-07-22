@@ -78,7 +78,10 @@ export type SwarmNodeKind =
   | "http" // deterministic outbound HTTP request
   | "tool" // deterministic single-tool call (no LLM)
   | "foreach" // map an agent body over each item of an array
-  | "extract"; // LLM structured-output / parameter extraction
+  | "extract" // LLM structured-output / parameter extraction
+  // Tier-2 authoring nodes:
+  | "merge" // combine several inputs into one value (variable aggregator)
+  | "retrieve"; // standalone knowledge-base retrieval (no LLM)
 
 // The curated set of tool ids a swarm node can opt into. Mirrors
 // `TOOLABLE_IDS` in registry.server.ts. Kept as plain string union here so
@@ -220,6 +223,13 @@ export type SwarmNodeData = {
     type: "string" | "number" | "boolean" | "array";
     description?: string;
   }[];
+  // merge — variable aggregator. Combines this node's declared inputs into one
+  // value using the chosen strategy.
+  mergeMode?: "concat" | "array" | "object" | "first";
+  mergeSeparator?: string; // for "concat" (default "\n\n")
+  // retrieve — standalone KB retrieval (no LLM). Uses knowledgeBaseId.
+  retrieveQuery?: string; // template, default "{{input}}"
+  retrieveTopK?: number;
   // error handling (applies to agent/http/tool/foreach/extract/evaluate/a2a/
   // function/loop). retryCount>0 retries transient failures; onError decides
   // what happens once retries are exhausted.
@@ -1547,6 +1557,73 @@ export async function runSwarm(
           ctx[v] = clean;
           lastOutput = clean;
           onEvent({ type: "node_done", nodeId: node.id, output: clean });
+          return;
+        }
+
+        // ── Merge (variable aggregator): combine inputs into one value ──
+        if (node.data.kind === "merge") {
+          const names = node.data.inputs ?? [];
+          const mode = node.data.mergeMode || "concat";
+          const parse = (s: string): unknown => {
+            try {
+              return JSON.parse(s);
+            } catch {
+              return s;
+            }
+          };
+          let out: string;
+          if (mode === "array") {
+            out = JSON.stringify(names.map((n) => parse(ctx[n] ?? "")));
+          } else if (mode === "object") {
+            out = JSON.stringify(Object.fromEntries(names.map((n) => [n, parse(ctx[n] ?? "")])));
+          } else if (mode === "first") {
+            const firstName = names.find((n) => (ctx[n] ?? "").trim() !== "");
+            out = firstName ? (ctx[firstName] ?? "") : "";
+          } else {
+            const sep = node.data.mergeSeparator ?? "\n\n";
+            out = names
+              .map((n) => ctx[n] ?? "")
+              .filter((val) => val.trim() !== "")
+              .join(sep);
+          }
+          const v = node.data.outputVar || `out_${node.id}`;
+          ctx[v] = out;
+          lastOutput = out;
+          onEvent({ type: "node_done", nodeId: node.id, output: out });
+          return;
+        }
+
+        // ── Retrieve: standalone KB search (no LLM) ──
+        if (node.data.kind === "retrieve") {
+          if (embedTransport) {
+            throw new Error("Retrieve nodes are not supported in embedded swarms.");
+          }
+          if (!node.data.knowledgeBaseId) {
+            throw new Error(
+              "Retrieve node has no knowledge base selected — open the inspector and pick one.",
+            );
+          }
+          const query = interpolate(node.data.retrieveQuery || "{{input}}", ctx);
+          const { data: sess } = await supabase.auth.getSession();
+          const token = sess.session?.access_token;
+          if (!token) throw new Error("Not signed in");
+          const { executeToolNode } = await import("@/utils/swarmNodes.functions");
+          const res = await executeToolNode({
+            data: {
+              access_token: token,
+              tool_id: "kb_search",
+              args: { query, top_k: String(node.data.retrieveTopK ?? 5) },
+              knowledge_base_id: node.data.knowledgeBaseId,
+            },
+          });
+          if (!res.ok) throw new Error(`Retrieve node failed: ${res.error}`);
+          if (res.result) {
+            onEvent({ type: "node_token", nodeId: node.id, token: res.result.slice(0, 500) });
+          }
+          const v = node.data.outputVar || `out_${node.id}`;
+          ctx[v] = res.result;
+          lastOutput = res.result;
+          onEvent({ type: "node_done", nodeId: node.id, output: res.result });
           return;
         }
 

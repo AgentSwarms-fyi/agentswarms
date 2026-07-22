@@ -1232,6 +1232,12 @@ export function NodeInspector({
 
         {data.kind === "extract" && <ExtractPanel data={data} onChange={onChange} />}
 
+        {data.kind === "merge" && <MergePanel data={data} onChange={onChange} />}
+
+        {data.kind === "retrieve" && (
+          <RetrievePanel data={data} onChange={onChange} knowledgeBases={knowledgeBases} />
+        )}
+
         {ERROR_POLICY_KINDS.has(data.kind) && (
           <ErrorPolicySection
             data={data}
@@ -1747,6 +1753,7 @@ const ERROR_POLICY_KINDS = new Set<SwarmNodeData["kind"]>([
   "evaluate",
   "http",
   "tool",
+  "retrieve",
   "a2a_remote",
   "function",
 ]);
@@ -1862,6 +1869,112 @@ function ErrorPolicySection({
         )}
       </div>
     </Section>
+  );
+}
+
+// ───────────────────── Merge (variable aggregator) panel ─────────────────────
+function MergePanel({
+  data,
+  onChange,
+}: {
+  data: SwarmNodeData;
+  onChange: (patch: Partial<SwarmNodeData>) => void;
+}) {
+  const mode = data.mergeMode || "concat";
+  return (
+    <>
+      <div className="rounded-md border border-slate-400/30 bg-slate-400/5 p-2.5 text-[11px] leading-relaxed">
+        <p className="font-medium text-foreground mb-0.5">🔀 Merge (aggregator)</p>
+        <p className="text-muted-foreground">
+          Combines this node&apos;s <strong>Inputs</strong> (listed below) into one value.
+          &quot;First non-empty&quot; is handy after a Condition/Router where only one branch ran.
+        </p>
+      </div>
+      <Section label="Combine strategy">
+        <Select value={mode} onValueChange={(v) => onChange({ mergeMode: v as typeof mode })}>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="concat">Concatenate (text)</SelectItem>
+            <SelectItem value="first">First non-empty</SelectItem>
+            <SelectItem value="array">JSON array of inputs</SelectItem>
+            <SelectItem value="object">JSON object keyed by input name</SelectItem>
+          </SelectContent>
+        </Select>
+      </Section>
+      {mode === "concat" && (
+        <Section label="Separator">
+          <Input
+            value={data.mergeSeparator ?? "\\n\\n"}
+            onChange={(e) => onChange({ mergeSeparator: e.target.value.replace(/\\n/g, "\n") })}
+            placeholder="\n\n"
+            className="font-mono text-xs"
+          />
+        </Section>
+      )}
+    </>
+  );
+}
+
+// ───────────────────── Retrieve (KB search) panel ─────────────────────
+function RetrievePanel({
+  data,
+  onChange,
+  knowledgeBases,
+}: {
+  data: SwarmNodeData;
+  onChange: (patch: Partial<SwarmNodeData>) => void;
+  knowledgeBases: { id: string; name: string }[];
+}) {
+  return (
+    <>
+      <div className="rounded-md border border-emerald-600/30 bg-emerald-600/5 p-2.5 text-[11px] leading-relaxed">
+        <p className="font-medium text-foreground mb-0.5">📚 Retrieve (Knowledge Base)</p>
+        <p className="text-muted-foreground">
+          Searches a knowledge base directly — no LLM turn. The matching snippets (JSON) are written
+          to the output variable for a downstream agent to ground on.
+        </p>
+      </div>
+      <Section label="Knowledge base">
+        <Select
+          value={data.knowledgeBaseId || "__none__"}
+          onValueChange={(v) => onChange({ knowledgeBaseId: v === "__none__" ? null : v })}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__none__">None (required)</SelectItem>
+            {knowledgeBases.map((kb) => (
+              <SelectItem key={kb.id} value={kb.id}>
+                {kb.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </Section>
+      <Section label="Query">
+        <Input
+          value={data.retrieveQuery ?? "{{input}}"}
+          onChange={(e) => onChange({ retrieveQuery: e.target.value })}
+          placeholder="{{input}}"
+          className="font-mono text-xs"
+        />
+        <p className="text-[10px] text-muted-foreground mt-1">
+          Supports <code className="font-mono">{"{{var}}"}</code> templating.
+        </p>
+      </Section>
+      <Section label={`Top K: ${data.retrieveTopK ?? 5}`}>
+        <Slider
+          value={[data.retrieveTopK ?? 5]}
+          min={1}
+          max={12}
+          step={1}
+          onValueChange={([v]) => onChange({ retrieveTopK: v })}
+        />
+      </Section>
+    </>
   );
 }
 
