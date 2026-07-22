@@ -81,7 +81,8 @@ export type SwarmNodeKind =
   | "extract" // LLM structured-output / parameter extraction
   // Tier-2 authoring nodes:
   | "merge" // combine several inputs into one value (variable aggregator)
-  | "retrieve"; // standalone knowledge-base retrieval (no LLM)
+  | "retrieve" // standalone knowledge-base retrieval (no LLM)
+  | "subswarm"; // run another saved swarm as a single node
 
 // The curated set of tool ids a swarm node can opt into. Mirrors
 // `TOOLABLE_IDS` in registry.server.ts. Kept as plain string union here so
@@ -240,6 +241,9 @@ export type SwarmNodeData = {
   // retrieve — standalone KB retrieval (no LLM). Uses knowledgeBaseId.
   retrieveQuery?: string; // template, default "{{input}}"
   retrieveTopK?: number;
+  // subswarm — run another saved swarm as a node (its final output becomes this
+  // node's output). Executes in isolation with the gathered input.
+  subSwarmId?: string | null;
   // error handling (applies to agent/http/tool/foreach/extract/evaluate/a2a/
   // function/loop). retryCount>0 retries transient failures; onError decides
   // what happens once retries are exhausted.
@@ -346,6 +350,9 @@ export type SwarmRunOptions = {
   // Extra flow-state seeded before the run — used by the typed input form so
   // each named field is available as {{fieldName}} from the first node onward.
   initialState?: Record<string, string>;
+  // Nesting depth for Execute-Swarm (subswarm) nodes; guards against runaway
+  // recursion / self-reference. Root run = 0.
+  depth?: number;
 };
 
 // Topologically order nodes into LEVELS — each level contains nodes whose
@@ -798,6 +805,7 @@ export async function runSwarm(
   opts: SwarmRunOptions,
 ): Promise<void> {
   const { initialInput, onEvent: rawOnEvent, signal, tracer, dbRunId, initialState } = opts;
+  const depth = opts.depth ?? 0;
   // Stable id for the entire run — used as a synthetic conversation key for
   // any node that opts into "swarm-scoped" memory so STM/scratchpad persists
   // across nodes within this single execution.
@@ -1639,6 +1647,50 @@ export async function runSwarm(
           ctx[v] = res.result;
           lastOutput = res.result;
           onEvent({ type: "node_done", nodeId: node.id, output: res.result });
+          return;
+        }
+
+        // ── Execute Swarm: run another saved swarm as a node ──
+        if (node.data.kind === "subswarm") {
+          if (depth >= 3) {
+            throw new Error("Execute Swarm nesting is too deep (max 3 levels).");
+          }
+          const subId = node.data.subSwarmId;
+          if (!subId) {
+            throw new Error("Execute Swarm node has no swarm selected — open the inspector.");
+          }
+          const { data: sub, error: subErr } = await supabase
+            .from("swarms")
+            .select("nodes, edges")
+            .eq("id", subId)
+            .maybeSingle();
+          if (subErr || !sub) throw new Error("Referenced swarm not found or not accessible.");
+          const subInput = gatherInputs(node, ctx, lastOutput);
+          let subFinal = "";
+          let subFailure: string | null = null;
+          await runSwarm(
+            (sub.nodes as unknown as Node<SwarmNodeData>[]) ?? [],
+            (sub.edges as unknown as Edge[]) ?? [],
+            {
+              initialInput: subInput,
+              signal,
+              depth: depth + 1,
+              onEvent: (e) => {
+                if (e.type === "node_token") {
+                  onEvent({ type: "node_token", nodeId: node.id, token: e.token });
+                } else if (e.type === "run_done") {
+                  subFinal = e.finalOutput;
+                } else if (e.type === "run_error") {
+                  subFailure = e.error;
+                }
+              },
+            },
+          );
+          if (subFailure) throw new Error(`Sub-swarm failed: ${subFailure}`);
+          const v = node.data.outputVar || `out_${node.id}`;
+          ctx[v] = subFinal;
+          lastOutput = subFinal;
+          onEvent({ type: "node_done", nodeId: node.id, output: subFinal });
           return;
         }
 

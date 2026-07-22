@@ -39,7 +39,16 @@ async function handle(request: Request) {
     const prepRan = await processDuePrepFlows(bearer === cronToken);
     const crawled = await processDueCatalogCrawls(bearer === cronToken);
     await purgeAuditEvents(bearer === cronToken);
-    return json({ ok: true, processed: ran, prep_flows: prepRan, catalog_crawls: crawled });
+    const swarmRan = await import("@/utils/swarmSchedules.server").then((m) =>
+      m.processDueSwarmSchedules(bearer === cronToken, new URL(request.url).origin),
+    );
+    return json({
+      ok: true,
+      processed: ran,
+      prep_flows: prepRan,
+      catalog_crawls: crawled,
+      swarm_schedules: swarmRan,
+    });
   } catch (e) {
     return json({ error: (e as Error).message }, 500);
   }

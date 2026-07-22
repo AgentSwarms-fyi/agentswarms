@@ -1249,6 +1249,8 @@ export function NodeInspector({
 
         {data.kind === "input" && <InputFieldsPanel data={data} onChange={onChange} />}
 
+        {data.kind === "subswarm" && <SubSwarmPanel data={data} onChange={onChange} />}
+
         {ERROR_POLICY_KINDS.has(data.kind) && (
           <ErrorPolicySection
             data={data}
@@ -1871,6 +1873,7 @@ const ERROR_POLICY_KINDS = new Set<SwarmNodeData["kind"]>([
   "http",
   "tool",
   "retrieve",
+  "subswarm",
   "a2a_remote",
   "function",
 ]);
@@ -2089,6 +2092,68 @@ function InputFieldsPanel({
         </Button>
       </div>
     </Section>
+  );
+}
+
+// ───────────────────── Execute Swarm (sub-flow) panel ─────────────────────
+function SubSwarmPanel({
+  data,
+  onChange,
+}: {
+  data: SwarmNodeData;
+  onChange: (patch: Partial<SwarmNodeData>) => void;
+}) {
+  const [swarms, setSwarms] = useState<{ id: string; name: string }[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    supabase
+      .from("swarms")
+      .select("id, name")
+      .order("updated_at", { ascending: false })
+      .then(({ data: rows }) => {
+        if (!cancelled) {
+          setSwarms(rows ?? []);
+          setLoaded(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return (
+    <>
+      <div className="rounded-md border border-purple-500/30 bg-purple-500/5 p-2.5 text-[11px] leading-relaxed">
+        <p className="font-medium text-foreground mb-0.5">🧩 Execute Swarm</p>
+        <p className="text-muted-foreground">
+          Runs another saved swarm as a single step — its final output becomes this node&apos;s
+          output. Great for reusing a sub-pipeline. Runs in isolation (nesting is capped at 3
+          levels).
+        </p>
+      </div>
+      <Section label="Swarm to run">
+        <Select
+          value={data.subSwarmId || "__none__"}
+          onValueChange={(v) => onChange({ subSwarmId: v === "__none__" ? null : v })}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder={loaded ? "Pick a swarm" : "Loading…"} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__none__">None</SelectItem>
+            {swarms.map((s) => (
+              <SelectItem key={s.id} value={s.id}>
+                {s.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-[10px] text-muted-foreground mt-1">
+          The gathered input is passed as the sub-swarm&apos;s initial input. Save the sub-swarm
+          first so its latest version runs.
+        </p>
+      </Section>
+    </>
   );
 }
 

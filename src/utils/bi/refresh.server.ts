@@ -775,5 +775,9 @@ export function ensureScheduler(): void {
     void import("@/utils/audit.server")
       .then((m) => m.purgeAuditEvents())
       .catch((e) => console.warn("[audit-purge] failed:", (e as Error).message));
+    // Scheduled swarm runs (lazy import keeps the executor out of server boot).
+    void import("@/utils/swarmSchedules.server")
+      .then((m) => m.processDueSwarmSchedules())
+      .catch((e) => console.warn("[swarm-scheduler] processing failed:", (e as Error).message));
   }, 60_000).unref?.();
 }

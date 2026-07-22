@@ -141,13 +141,17 @@ export async function executeSwarmServer(opts: {
   initialState?: Record<string, string>;
   rejectApprovals: boolean;
   source: "api" | "schedule";
+  depth?: number;
 }): Promise<ExecuteResult> {
   const nodes = (Array.isArray(opts.swarm.nodes) ? opts.swarm.nodes : []) as Node<SwarmNodeData>[];
   const edges = (Array.isArray(opts.swarm.edges) ? opts.swarm.edges : []) as Edge[];
+  const depth = opts.depth ?? 0;
 
-  // Record the run for observability (Recent runs / traces).
+  // Record the run for observability (Recent runs / traces). Only the top-level
+  // run gets a row; nested Execute-Swarm runs don't clutter the history.
   let runId: string | null = null;
-  try {
+  if (depth === 0)
+    try {
     const { data } = await supabaseAdmin
       .from("swarm_runs")
       .insert({
@@ -441,6 +445,31 @@ export async function executeSwarmServer(opts: {
             userMessage: gatherInputs(node, ctx, lastOutput),
           });
           write(out);
+          continue;
+        }
+        if (kind === "subswarm") {
+          if (depth >= 3) throw new Error("Execute Swarm nesting is too deep (max 3 levels).");
+          const subId = d.subSwarmId;
+          if (!subId) throw new Error("Execute Swarm node has no swarm selected.");
+          const { data: sub } = await supabaseAdmin
+            .from("swarms")
+            .select("id, name, nodes, edges, user_id")
+            .eq("id", subId)
+            .maybeSingle();
+          if (!sub || sub.user_id !== opts.userId) {
+            throw new Error("Referenced swarm not found or not owned by you.");
+          }
+          const subResult = await executeSwarmServer({
+            swarm: sub,
+            userId: opts.userId,
+            origin: opts.origin,
+            input: gatherInputs(node, ctx, lastOutput),
+            rejectApprovals: opts.rejectApprovals,
+            source: opts.source,
+            depth: depth + 1,
+          });
+          if (subResult.status === "error") throw new Error(`Sub-swarm failed: ${subResult.error}`);
+          write(subResult.output);
           continue;
         }
         // Unsupported in headless v1.

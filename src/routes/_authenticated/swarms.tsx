@@ -98,6 +98,8 @@ import {
   Braces,
   Merge,
   Library,
+  Workflow,
+  Rocket,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -130,6 +132,7 @@ import { downloadSwarmAsLangGraph } from "@/lib/swarmExportLangGraph";
 import { downloadSwarmAsCrewAI, downloadSwarmAsOpenAIAgents } from "@/lib/swarmExportFrameworks";
 import { downloadSwarmAsStrands } from "@/lib/swarmExportStrands";
 import { SwarmGallery } from "@/components/swarms/SwarmGallery";
+import { SwarmDeployDialog } from "@/components/swarms/SwarmDeployDialog";
 
 export const Route = createFileRoute("/_authenticated/swarms")({
   component: SwarmsPage,
@@ -466,6 +469,16 @@ const nodeTypes = {
       kindLabel="Retrieve"
     />
   ),
+  subswarm: (p: NodeProps<Node<SwarmNodeData>>) => (
+    <GenericNode
+      {...p}
+      accentBorder="border-purple-500/50"
+      accentText="text-purple-300"
+      accentBg="bg-purple-500/10"
+      Icon={Workflow}
+      kindLabel="Execute Swarm"
+    />
+  ),
 };
 
 // Stable empty array so the derived `events` prop keeps a constant identity
@@ -522,11 +535,12 @@ const PALETTE_ACCENTS: Record<SwarmNodeData["kind"], { chip: string; Icon: typeo
   extract: { chip: "bg-sky-600/10 text-sky-600", Icon: Braces },
   merge: { chip: "bg-slate-400/10 text-slate-400", Icon: Merge },
   retrieve: { chip: "bg-emerald-600/10 text-emerald-600", Icon: Library },
+  subswarm: { chip: "bg-purple-500/10 text-purple-500", Icon: Workflow },
 };
 
 const PALETTE_GROUPS: { label: string; kinds: SwarmNodeData["kind"][] }[] = [
   { label: "Flow", kinds: ["input", "output", "approval"] },
-  { label: "Agents", kinds: ["agent", "router", "a2a_remote"] },
+  { label: "Agents", kinds: ["agent", "router", "a2a_remote", "subswarm"] },
   { label: "Logic", kinds: ["condition", "loop", "foreach", "merge", "evaluate"] },
   { label: "Data & Tools", kinds: ["set_var", "extract", "retrieve", "http", "tool", "function"] },
 ];
@@ -752,6 +766,13 @@ const PALETTE: PaletteItem[] = [
     },
   },
   {
+    kind: "subswarm",
+    label: "Execute Swarm",
+    avatar: "🧩",
+    description: "Run another saved swarm as a node",
+    defaults: { subSwarmId: null, inputs: ["input"] },
+  },
+  {
     kind: "output",
     label: "Output",
     avatar: "✅",
@@ -834,6 +855,7 @@ function SwarmsCanvas({
   // of being orphaned when this component unmounts. We derive the live view
   // from that store and reflect it onto the canvas.
   const [runInput, setRunInput] = useState("");
+  const [deployOpen, setDeployOpen] = useState(false);
   // Values for the typed input form (when the input node declares inputFields).
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
   const [traceEnabled, setTraceEnabled] = useState(true);
@@ -1832,6 +1854,19 @@ function SwarmsCanvas({
                   )}
                   Save
                 </Button>
+
+                {/* ── Deploy (saved swarms only) ── */}
+                {swarmId && (
+                  <Button
+                    onClick={() => setDeployOpen(true)}
+                    variant="outline"
+                    size="sm"
+                    className="h-8"
+                    title="Deploy via API key or schedule"
+                  >
+                    <Rocket className="h-3.5 w-3.5 mr-1.5" /> Deploy
+                  </Button>
+                )}
 
                 {/* ── Run ── */}
                 <Button onClick={handleRunOrFocus} className="h-8 shadow-lg" size="sm">
