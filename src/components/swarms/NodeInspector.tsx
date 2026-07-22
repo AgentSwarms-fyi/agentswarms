@@ -1232,6 +1232,14 @@ export function NodeInspector({
 
         {data.kind === "extract" && <ExtractPanel data={data} onChange={onChange} />}
 
+        {ERROR_POLICY_KINDS.has(data.kind) && (
+          <ErrorPolicySection
+            data={data}
+            onChange={onChange}
+            showTimeout={LLM_TIMEOUT_KINDS.has(data.kind)}
+          />
+        )}
+
         <Section label="Inputs (variables read from upstream)">
           <Input
             value={(data.inputs ?? []).join(", ")}
@@ -1725,6 +1733,133 @@ function ApproverPicker({
               ? "You'll be notified too, because you picked yourself or a group you belong to."
               : "You (the runner) won't be notified — add yourself or a group you're in if you want to be.")}
         </p>
+      </div>
+    </Section>
+  );
+}
+
+// ───────────────────── Per-node error handling ─────────────────────
+const ERROR_POLICY_KINDS = new Set<SwarmNodeData["kind"]>([
+  "agent",
+  "loop",
+  "foreach",
+  "extract",
+  "evaluate",
+  "http",
+  "tool",
+  "a2a_remote",
+  "function",
+]);
+const LLM_TIMEOUT_KINDS = new Set<SwarmNodeData["kind"]>([
+  "agent",
+  "loop",
+  "foreach",
+  "extract",
+  "evaluate",
+  "a2a_remote",
+]);
+
+function ErrorPolicySection({
+  data,
+  onChange,
+  showTimeout,
+}: {
+  data: SwarmNodeData;
+  onChange: (patch: Partial<SwarmNodeData>) => void;
+  showTimeout: boolean;
+}) {
+  const retries = data.retryCount ?? 0;
+  const onErr = data.onError ?? "fail";
+  const active = retries > 0 || onErr === "continue" || (data.nodeTimeoutMs ?? 0) > 0;
+  return (
+    <Section
+      label={
+        <span className="flex items-center gap-1.5">
+          <AlertCircle className="h-3 w-3 text-primary" />
+          Error handling
+          {active && (
+            <Badge variant="outline" className="text-[9px] border-primary/40 text-primary ml-1">
+              set
+            </Badge>
+          )}
+        </span>
+      }
+    >
+      <div className="rounded-md border border-border/50 bg-background/40 p-2.5 space-y-3">
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <Label className="text-[10px] text-muted-foreground mb-1 block">Retries</Label>
+            <Input
+              type="number"
+              min={0}
+              max={5}
+              value={retries}
+              onChange={(e) =>
+                onChange({ retryCount: Math.max(0, Math.min(5, Number(e.target.value) || 0)) })
+              }
+              className="h-8 text-xs"
+            />
+          </div>
+          <div>
+            <Label className="text-[10px] text-muted-foreground mb-1 block">Retry delay (s)</Label>
+            <Input
+              type="number"
+              min={0}
+              max={30}
+              value={data.retryDelayMs ? Math.round(data.retryDelayMs / 1000) : 1}
+              onChange={(e) =>
+                onChange({ retryDelayMs: Math.max(0, Number(e.target.value) || 0) * 1000 })
+              }
+              className="h-8 text-xs"
+              disabled={retries === 0}
+            />
+          </div>
+        </div>
+        <div>
+          <Label className="text-[10px] text-muted-foreground mb-1 block">On failure</Label>
+          <Select
+            value={onErr}
+            onValueChange={(v) => onChange({ onError: v as "fail" | "continue" })}
+          >
+            <SelectTrigger className="h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="fail">Fail the run (default)</SelectItem>
+              <SelectItem value="continue">Continue with a fallback value</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        {onErr === "continue" && (
+          <div>
+            <Label className="text-[10px] text-muted-foreground mb-1 block">Fallback output</Label>
+            <Textarea
+              rows={2}
+              value={data.errorFallback ?? ""}
+              onChange={(e) => onChange({ errorFallback: e.target.value })}
+              placeholder="Value written to the output variable if this node keeps failing"
+              className="text-xs"
+            />
+          </div>
+        )}
+        {showTimeout && (
+          <div>
+            <Label className="text-[10px] text-muted-foreground mb-1 block">
+              Timeout (s, 0 = default 240s)
+            </Label>
+            <Input
+              type="number"
+              min={0}
+              max={600}
+              value={data.nodeTimeoutMs ? Math.round(data.nodeTimeoutMs / 1000) : 0}
+              onChange={(e) => {
+                const s = Math.max(0, Number(e.target.value) || 0);
+                onChange({ nodeTimeoutMs: s > 0 ? s * 1000 : undefined });
+              }}
+              className="h-8 text-xs"
+            />
+          </div>
+        )}
       </div>
     </Section>
   );

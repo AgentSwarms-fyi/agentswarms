@@ -220,6 +220,14 @@ export type SwarmNodeData = {
     type: "string" | "number" | "boolean" | "array";
     description?: string;
   }[];
+  // error handling (applies to agent/http/tool/foreach/extract/evaluate/a2a/
+  // function/loop). retryCount>0 retries transient failures; onError decides
+  // what happens once retries are exhausted.
+  retryCount?: number;
+  retryDelayMs?: number;
+  onError?: "fail" | "continue"; // "fail" (default) aborts; "continue" uses errorFallback
+  errorFallback?: string; // value written to outputVar when onError = "continue"
+  nodeTimeoutMs?: number; // per-node LLM-call timeout override (0/undefined = default)
   // visual / runtime
   avatar?: string;
   status?: "idle" | "running" | "done" | "error" | "waiting" | "skipped";
@@ -467,7 +475,11 @@ async function callAgent(
 ): Promise<string> {
   // Combine user-level abort signal with a per-node timeout so hung calls
   // don't block the swarm forever.
-  const timeoutSignal = AbortSignal.timeout(DEFAULT_NODE_TIMEOUT_MS);
+  const timeoutMs =
+    typeof node.data.nodeTimeoutMs === "number" && node.data.nodeTimeoutMs > 0
+      ? node.data.nodeTimeoutMs
+      : DEFAULT_NODE_TIMEOUT_MS;
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
   const combinedSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
   // Resolve memory wiring for this node:
   //   - "agent" (default): no override; chat.ts uses the agent's saved config.
@@ -1653,6 +1665,49 @@ Evaluate the candidate output above against each metric and return the JSON scor
         onEvent({ type: "node_done", nodeId: node.id, output: out });
       }; // end executeNode
 
+      // Wrap a node's execution with its retry + on-error policy. On transient
+      // failure it retries (with a delay); once retries are exhausted it either
+      // rethrows (onError "fail", the default — aborts the run) or writes a
+      // fallback value and continues (onError "continue").
+      const runNodeWithPolicy = async (node: Node<SwarmNodeData>) => {
+        const retries = Math.max(0, Math.min(node.data.retryCount ?? 0, 5));
+        const delay = Math.max(0, Math.min(node.data.retryDelayMs ?? 1000, 30_000));
+        let lastErr: unknown;
+        for (let attempt = 0; attempt <= retries; attempt++) {
+          try {
+            await executeNode(node);
+            return;
+          } catch (err) {
+            lastErr = err;
+            if (signal?.aborted) throw err;
+            if (attempt < retries) {
+              const msg = err instanceof Error ? err.message : String(err);
+              onEvent({
+                type: "node_warning",
+                nodeId: node.id,
+                warning: `Attempt ${attempt + 1}/${retries + 1} failed (${msg.slice(0, 120)}); retrying…`,
+              });
+              if (delay > 0) await new Promise((r) => setTimeout(r, delay));
+            }
+          }
+        }
+        if ((node.data.onError ?? "fail") === "continue") {
+          const msg = lastErr instanceof Error ? lastErr.message : String(lastErr);
+          const fallback = node.data.errorFallback ?? "";
+          const v = node.data.outputVar || `out_${node.id}`;
+          ctx[v] = fallback;
+          lastOutput = fallback;
+          onEvent({
+            type: "node_warning",
+            nodeId: node.id,
+            warning: `Node failed after ${retries + 1} attempt(s) — continuing with fallback. (${msg.slice(0, 160)})`,
+          });
+          onEvent({ type: "node_done", nodeId: node.id, output: fallback });
+          return;
+        }
+        throw lastErr;
+      };
+
       // Condition/router nodes modify skippedNodes/deadEdges which affect later nodes
       // in the same level, so they must run sequentially. For levels with only
       // agent/function/a2a/eval nodes, run in parallel.
@@ -1665,7 +1720,7 @@ Evaluate the candidate output above against each metric and return the JSON scor
         // Sequential: conditions/approvals need ordered side-effects
         for (const node of level) {
           try {
-            await executeNode(node);
+            await runNodeWithPolicy(node);
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             onEvent({ type: "node_error", nodeId: node.id, error: msg });
@@ -1677,7 +1732,7 @@ Evaluate the candidate output above against each metric and return the JSON scor
         const results = await Promise.allSettled(
           level.map(async (node) => {
             try {
-              await executeNode(node);
+              await runNodeWithPolicy(node);
             } catch (err) {
               const msg = err instanceof Error ? err.message : String(err);
               onEvent({ type: "node_error", nodeId: node.id, error: msg });
