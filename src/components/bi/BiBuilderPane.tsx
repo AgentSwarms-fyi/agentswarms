@@ -14,6 +14,12 @@ import {
   BarChart4,
   BarChartHorizontal,
   CandlestickChart,
+  FastForward,
+  Flower2,
+  Layers,
+  Radar,
+  Rows3,
+  Workflow,
   ChevronRight,
   ChevronsUpDown,
   Filter,
@@ -103,12 +109,18 @@ const VIZ_TYPES: {
 }[] = [
   { value: "bar", label: "Column", icon: BarChart3 },
   { value: "hbar", label: "Bar", icon: BarChartHorizontal },
+  { value: "scolumn", label: "Stacked column", icon: Layers },
+  { value: "shbar", label: "Stacked bar", icon: Rows3 },
+  { value: "barrace", label: "Bar race", icon: FastForward },
   { value: "line", label: "Line", icon: LineChart },
   { value: "area", label: "Area", icon: AreaChart },
   { value: "combo", label: "Combo", icon: BarChart2 },
   { value: "scatter", label: "Scatter", icon: ScatterChart },
   { value: "pie", label: "Pie", icon: PieChart },
+  { value: "nightingale", label: "Nightingale", icon: Flower2 },
+  { value: "radar", label: "Radar", icon: Radar },
   { value: "funnel", label: "Funnel", icon: Filter },
+  { value: "sankey", label: "Sankey", icon: Workflow },
   { value: "treemap", label: "Treemap", icon: LayoutGrid },
   { value: "heatmap", label: "Heatmap", icon: Flame },
   { value: "boxplot", label: "Box plot", icon: CandlestickChart },
@@ -235,6 +247,7 @@ export function BiBuilderPane({
   const [maxInput, setMaxInput] = useState("");
   const [seriesField, setSeriesField] = useState("");
   const [stacked, setStacked] = useState(false);
+  const [timeField, setTimeField] = useState(""); // bar-race frame column
   const [numFormat, setNumFormat] = useState<"auto" | "currency" | "percent">("auto");
   const [currencyCode, setCurrencyCode] = useState("USD");
   const [decimalsSel, setDecimalsSel] = useState("auto");
@@ -376,6 +389,7 @@ export function BiBuilderPane({
       setMaxInput(c.type === "gauge" && c.max !== undefined ? String(c.max) : "");
       setSeriesField("seriesField" in c ? (c.seriesField ?? "") : "");
       setStacked(c.type === "bar" ? Boolean(c.stacked) : false);
+      setTimeField(c.type === "barrace" ? c.timeField : "");
       setNumFormat(c.format ?? "auto");
       setCurrencyCode(c.currency ?? "USD");
       setDecimalsSel(c.decimals !== undefined ? String(c.decimals) : "auto");
@@ -426,6 +440,7 @@ export function BiBuilderPane({
       setMaxInput("");
       setSeriesField("");
       setStacked(false);
+      setTimeField("");
       setNumFormat("auto");
       setCurrencyCode("USD");
       setDecimalsSel("auto");
@@ -730,6 +745,7 @@ export function BiBuilderPane({
         case "pie":
         case "funnel":
         case "treemap":
+        case "nightingale":
           return nameField && valueField ? { type: chartType, nameField, valueField } : null;
         case "combo":
           return xField && yField && lineField
@@ -779,6 +795,23 @@ export function BiBuilderPane({
         case "area":
           return xField && yField
             ? { type: chartType, xField, yField, seriesField: seriesField || undefined }
+            : null;
+        case "scolumn":
+        case "shbar":
+          return xField && yField && seriesField
+            ? { type: chartType, xField, yField, seriesField }
+            : null;
+        case "radar":
+          return xField && yField
+            ? { type: "radar", xField, yField, seriesField: seriesField || undefined }
+            : null;
+        case "barrace":
+          return xField && yField && timeField
+            ? { type: "barrace", xField, yField, timeField }
+            : null;
+        case "sankey":
+          return xField && yField && valueField
+            ? { type: "sankey", xField, yField, valueField }
             : null;
         default:
           return xField && yField ? { type: chartType, xField, yField } : null;
@@ -847,6 +880,7 @@ export function BiBuilderPane({
     maxInput,
     seriesField,
     stacked,
+    timeField,
     numFormat,
     currencyCode,
     decimalsSel,
@@ -1790,6 +1824,34 @@ export function BiBuilderPane({
                           )}
                         </>
                       )}
+                      {(chartType === "scolumn" || chartType === "shbar") && (
+                        <>
+                          {fieldSelect("Category", xField, setXField)}
+                          {fieldSelect("Value (numeric)", yField, setYField)}
+                          {fieldSelect("Split by (stack)", seriesField, setSeriesField)}
+                        </>
+                      )}
+                      {chartType === "barrace" && (
+                        <>
+                          {fieldSelect("Racing category", xField, setXField)}
+                          {fieldSelect("Value (numeric)", yField, setYField)}
+                          {fieldSelect("Time / frame", timeField, setTimeField)}
+                        </>
+                      )}
+                      {chartType === "radar" && (
+                        <>
+                          {fieldSelect("Metric (spoke)", xField, setXField)}
+                          {fieldSelect("Value (numeric)", yField, setYField)}
+                          {optionalFieldSelect("Split by series", seriesField, setSeriesField)}
+                        </>
+                      )}
+                      {chartType === "sankey" && (
+                        <>
+                          {fieldSelect("Source (from)", xField, setXField)}
+                          {fieldSelect("Target (to)", yField, setYField)}
+                          {fieldSelect("Value (numeric)", valueField, setValueField)}
+                        </>
+                      )}
                       {chartType === "waterfall" && (
                         <>
                           {fieldSelect("Stage / step", xField, setXField)}
@@ -1804,7 +1866,8 @@ export function BiBuilderPane({
                       )}
                       {(chartType === "pie" ||
                         chartType === "funnel" ||
-                        chartType === "treemap") && (
+                        chartType === "treemap" ||
+                        chartType === "nightingale") && (
                         <>
                           {fieldSelect(
                             chartType === "funnel" ? "Stage" : "Category",

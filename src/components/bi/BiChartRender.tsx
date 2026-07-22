@@ -21,13 +21,21 @@ import {
   Funnel,
   FunnelChart,
   LabelList,
+  Layer,
   Legend,
   Line,
   LineChart,
   Pie,
   PieChart,
+  PolarAngleAxis,
+  PolarGrid,
+  PolarRadiusAxis,
+  Radar,
+  RadarChart,
+  Rectangle,
   ReferenceLine,
   ResponsiveContainer,
+  Sankey,
   Scatter,
   ScatterChart,
   Tooltip,
@@ -36,7 +44,14 @@ import {
   YAxis,
   ZAxis,
 } from "recharts";
-import { BoxPlot, GaugeChart, HeatmapGrid, MatrixTable } from "@/components/bi/BiChartParts";
+import {
+  BarRace,
+  BoxPlot,
+  GaugeChart,
+  HeatmapGrid,
+  MatrixTable,
+  NightingaleChart,
+} from "@/components/bi/BiChartParts";
 import { BiGeoMap } from "@/components/bi/BiGeoMap";
 import { OntologyGraph } from "@/components/bi/OntologyGraph";
 import type { BiNumberFormat, BiRefLine, ChartSpec } from "@/lib/biAgent";
@@ -376,10 +391,10 @@ function BiChartRenderInner({
     );
   }
 
-  if (chart.type === "bar") {
-    const pivoted = chart.seriesField
-      ? pivotSeries(rows, chart.xField, chart.yField, chart.seriesField)
-      : null;
+  if (chart.type === "bar" || chart.type === "scolumn") {
+    const seriesField = "seriesField" in chart ? chart.seriesField : undefined;
+    const stacked = chart.type === "scolumn" ? true : chart.stacked;
+    const pivoted = seriesField ? pivotSeries(rows, chart.xField, chart.yField, seriesField) : null;
     const barData = pivoted ? pivoted.data : aggregateByField(rows, chart.xField, [chart.yField]);
     const handleClick = onElementClick
       ? (data: { payload?: Record<string, unknown> } | Record<string, unknown>) => {
@@ -436,9 +451,9 @@ function BiChartRenderInner({
                     key={s}
                     dataKey={s}
                     fill={PIE_COLORS[i % PIE_COLORS.length]}
-                    stackId={chart.stacked ? "stack" : undefined}
+                    stackId={stacked ? "stack" : undefined}
                     radius={
-                      chart.stacked
+                      stacked
                         ? i === pivoted.series.length - 1
                           ? [5, 5, 0, 0]
                           : [0, 0, 0, 0]
@@ -1082,7 +1097,314 @@ function BiChartRenderInner({
     );
   }
 
+  if (chart.type === "shbar") {
+    const pivoted = pivotSeries(rows, chart.xField, chart.yField, chart.seriesField);
+    const handleClick = onElementClick
+      ? (data: { payload?: Record<string, unknown> }) => {
+          const v = data?.payload?.[chart.xField];
+          if (v !== undefined) onElementClick(chart.xField, String(v));
+        }
+      : undefined;
+    return (
+      <div className={`${heightClass} w-full`}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart
+            data={pivoted.data}
+            layout="vertical"
+            margin={{ top: 8, right: 16, left: 8, bottom: 4 }}
+          >
+            <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} horizontal={false} />
+            <XAxis
+              type="number"
+              tick={tick}
+              axisLine={false}
+              tickLine={false}
+              tickFormatter={fmt}
+            />
+            <YAxis
+              type="category"
+              dataKey={chart.xField}
+              tick={tick}
+              axisLine={false}
+              tickLine={false}
+              width={96}
+            />
+            <Tooltip
+              contentStyle={tooltipStyle}
+              labelStyle={labelStyle}
+              itemStyle={labelStyle}
+              formatter={tooltipFmt}
+              cursor={{ fill: "var(--accent)", opacity: 0.35 }}
+            />
+            {[
+              <Legend
+                key="__legend"
+                iconType="circle"
+                iconSize={8}
+                wrapperStyle={{ fontSize: labelSize }}
+              />,
+              ...pivoted.series.map((s, i) => (
+                <Bar
+                  key={s}
+                  dataKey={s}
+                  stackId="stack"
+                  fill={PIE_COLORS[i % PIE_COLORS.length]}
+                  maxBarSize={26}
+                  radius={i === pivoted.series.length - 1 ? [0, 5, 5, 0] : [0, 0, 0, 0]}
+                  onClick={handleClick}
+                  cursor={clickable ? "pointer" : undefined}
+                />
+              )),
+            ]}
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    );
+  }
+
+  if (chart.type === "radar") {
+    const pivoted = chart.seriesField
+      ? pivotSeries(rows, chart.xField, chart.yField, chart.seriesField)
+      : null;
+    const data = (
+      pivoted ? pivoted.data : aggregateByField(rows, chart.xField, [chart.yField])
+    ).slice(0, 12);
+    return (
+      <div className={`${heightClass} w-full`}>
+        <ResponsiveContainer width="100%" height="100%">
+          <RadarChart
+            data={data}
+            outerRadius="70%"
+            margin={{ top: 8, right: 8, left: 8, bottom: 8 }}
+          >
+            <PolarGrid stroke={gridStroke} />
+            <PolarAngleAxis
+              dataKey={chart.xField}
+              tick={{ fontSize: tickSize, fill: axisStroke }}
+            />
+            <PolarRadiusAxis
+              tick={{ fontSize: 9, fill: axisStroke }}
+              tickFormatter={fmtBiNumber}
+              angle={90}
+            />
+            <Tooltip
+              contentStyle={tooltipStyle}
+              labelStyle={labelStyle}
+              itemStyle={labelStyle}
+              formatter={tooltipFmt}
+            />
+            {pivoted ? (
+              [
+                <Legend
+                  key="__legend"
+                  iconType="circle"
+                  iconSize={8}
+                  wrapperStyle={{ fontSize: labelSize }}
+                />,
+                ...pivoted.series.map((s, i) => (
+                  <Radar
+                    key={s}
+                    name={s}
+                    dataKey={s}
+                    stroke={PIE_COLORS[i % PIE_COLORS.length]}
+                    fill={PIE_COLORS[i % PIE_COLORS.length]}
+                    fillOpacity={0.18}
+                    strokeWidth={1.75}
+                  />
+                )),
+              ]
+            ) : (
+              <Radar
+                dataKey={chart.yField}
+                stroke={primaryStroke}
+                fill={primaryStroke}
+                fillOpacity={0.3}
+                strokeWidth={2}
+              />
+            )}
+          </RadarChart>
+        </ResponsiveContainer>
+      </div>
+    );
+  }
+
+  if (chart.type === "sankey") {
+    const sankeyData = buildSankey(rows, chart.xField, chart.yField, chart.valueField);
+    if (!sankeyData) {
+      return (
+        <p className="flex h-full items-center justify-center text-xs text-muted-foreground">
+          No flows to plot.
+        </p>
+      );
+    }
+    return (
+      <div className={`${heightClass} w-full`}>
+        <ResponsiveContainer width="100%" height="100%">
+          <Sankey
+            data={{ nodes: sankeyData.nodes, links: sankeyData.links }}
+            nodePadding={16}
+            nodeWidth={10}
+            margin={{ top: 10, right: 96, bottom: 10, left: 76 }}
+            link={{ stroke: axisStroke, strokeOpacity: 0.15 }}
+            node={
+              <SankeyNode
+                onElementClick={onElementClick}
+                sourceField={chart.xField}
+                targetField={chart.yField}
+                boundary={sankeyData.srcCount}
+              />
+            }
+          >
+            <Tooltip
+              contentStyle={tooltipStyle}
+              labelStyle={labelStyle}
+              itemStyle={labelStyle}
+              formatter={(v: unknown) => fmt(v)}
+            />
+          </Sankey>
+        </ResponsiveContainer>
+      </div>
+    );
+  }
+
+  if (chart.type === "barrace") {
+    return (
+      <BarRace
+        rows={rows}
+        xField={chart.xField}
+        yField={chart.yField}
+        timeField={chart.timeField}
+        format={chart}
+        onElementClick={onElementClick}
+      />
+    );
+  }
+
+  if (chart.type === "nightingale") {
+    return (
+      <NightingaleChart
+        rows={rows}
+        nameField={chart.nameField}
+        valueField={chart.valueField}
+        format={chart}
+        onElementClick={onElementClick}
+      />
+    );
+  }
+
   return null;
+}
+
+// ── Sankey helpers ─────────────────────────────────────────────────────────
+
+/**
+ * Turn (source, target, value) rows into recharts' {nodes, links} shape.
+ * Source values become the left column, target values the right column — even
+ * when a label appears in both — so the graph is always a bipartite DAG (no
+ * cycles, which recharts' Sankey layout cannot resolve). Self-loops are dropped.
+ */
+function buildSankey(
+  rows: Record<string, unknown>[],
+  sourceField: string,
+  targetField: string,
+  valueField: string,
+): {
+  nodes: { name: string }[];
+  links: { source: number; target: number; value: number }[];
+  srcCount: number;
+} | null {
+  const linkAgg = new Map<string, number>();
+  for (const r of rows) {
+    const v = toBiNumber(r[valueField]);
+    if (v === null || v <= 0) continue;
+    const s = String(r[sourceField] ?? "—");
+    const t = String(r[targetField] ?? "—");
+    if (s === t) continue;
+    const k = `${s} ${t}`;
+    linkAgg.set(k, (linkAgg.get(k) ?? 0) + v);
+  }
+  if (linkAgg.size === 0) return null;
+  const srcVals: string[] = [];
+  const tgtVals: string[] = [];
+  const srcIdx = new Map<string, number>();
+  const tgtIdx = new Map<string, number>();
+  for (const key of linkAgg.keys()) {
+    const [s, t] = key.split(" ");
+    if (!srcIdx.has(s)) {
+      srcIdx.set(s, srcVals.length);
+      srcVals.push(s);
+    }
+    if (!tgtIdx.has(t)) {
+      tgtIdx.set(t, tgtVals.length);
+      tgtVals.push(t);
+    }
+  }
+  const nodes = [...srcVals, ...tgtVals].map((name) => ({ name }));
+  const links = [...linkAgg.entries()].map(([key, value]) => {
+    const [s, t] = key.split(" ");
+    return { source: srcIdx.get(s)!, target: srcVals.length + tgtIdx.get(t)!, value };
+  });
+  return { nodes, links, srcCount: srcVals.length };
+}
+
+/** Custom Sankey node: palette rect + outward label; clickable for cross-filter. */
+function SankeyNode(props: {
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  index?: number;
+  payload?: { name?: string };
+  onElementClick?: (column: string, value: string) => void;
+  sourceField?: string;
+  targetField?: string;
+  boundary?: number;
+}) {
+  const {
+    x = 0,
+    y = 0,
+    width = 0,
+    height = 0,
+    index = 0,
+    payload,
+    onElementClick,
+    sourceField,
+    targetField,
+    boundary = 0,
+  } = props;
+  const isSource = index < boundary;
+  const name = payload?.name ?? "";
+  const label = name.length > 16 ? `${name.slice(0, 15)}…` : name;
+  return (
+    <Layer>
+      <Rectangle
+        x={x}
+        y={y}
+        width={width}
+        height={Math.max(height, 1)}
+        fill={PIE_COLORS[index % PIE_COLORS.length]}
+        fillOpacity={0.9}
+        radius={2}
+        cursor={onElementClick ? "pointer" : undefined}
+        onClick={
+          onElementClick
+            ? () => onElementClick(isSource ? (sourceField ?? "") : (targetField ?? ""), name)
+            : undefined
+        }
+      />
+      <text
+        x={isSource ? x - 6 : x + width + 6}
+        y={y + height / 2}
+        textAnchor={isSource ? "end" : "start"}
+        dominantBaseline="middle"
+        fontSize={10}
+        fill="var(--foreground)"
+        style={{ pointerEvents: "none" }}
+      >
+        {label}
+      </text>
+    </Layer>
+  );
 }
 
 /** Custom treemap cell: palette fill + readable label when the box fits. */

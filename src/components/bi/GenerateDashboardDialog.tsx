@@ -16,16 +16,22 @@ import {
   BarChart3,
   BarChartHorizontal,
   Check,
+  FastForward,
+  Flower2,
   Gauge,
   Grid3x3,
+  Layers,
   LayoutList,
   LineChart,
   Loader2,
   PieChart,
+  Radar,
+  Rows3,
   ScatterChart,
   Sparkles,
   Table2,
   Wand2,
+  Workflow,
   X as XIcon,
 } from "lucide-react";
 
@@ -69,6 +75,18 @@ function ChartTypeIcon({ type }: { type: string }) {
       return <AreaChart className={cls} />;
     case "hbar":
       return <BarChartHorizontal className={cls} />;
+    case "shbar":
+      return <Rows3 className={cls} />;
+    case "scolumn":
+      return <Layers className={cls} />;
+    case "barrace":
+      return <FastForward className={cls} />;
+    case "radar":
+      return <Radar className={cls} />;
+    case "nightingale":
+      return <Flower2 className={cls} />;
+    case "sankey":
+      return <Workflow className={cls} />;
     case "pie":
     case "treemap":
     case "funnel":

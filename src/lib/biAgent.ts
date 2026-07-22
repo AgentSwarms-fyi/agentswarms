@@ -105,6 +105,18 @@ export type ChartSpec = {
     | { type: "hbar"; xField: string; yField: string }
     | { type: "line"; xField: string; yField: string; seriesField?: string }
     | { type: "area"; xField: string; yField: string; seriesField?: string }
+    // Stacked column (vertical) — xField category, yField measure, split by seriesField.
+    | { type: "scolumn"; xField: string; yField: string; seriesField: string }
+    // Stacked horizontal bar — xField category, yField measure, split by seriesField.
+    | { type: "shbar"; xField: string; yField: string; seriesField: string }
+    // Animated bar-chart race — xField category (racing bars), yField measure, timeField frames.
+    | { type: "barrace"; xField: string; yField: string; timeField: string }
+    // Sankey flow — xField=source node, yField=target node, valueField=flow magnitude.
+    | { type: "sankey"; xField: string; yField: string; valueField: string }
+    // Nightingale / polar-area rose — one wedge per nameField, radius ∝ valueField.
+    | { type: "nightingale"; nameField: string; valueField: string }
+    // Radar / spider — one spoke per xField category, radius=yField, optional multi-series.
+    | { type: "radar"; xField: string; yField: string; seriesField?: string }
     | { type: "pie"; nameField: string; valueField: string }
     | { type: "combo"; xField: string; barField: string; lineField: string }
     | { type: "scatter"; xField: string; yField: string; sizeField?: string }
@@ -457,6 +469,12 @@ export async function suggestChart(args: {
       "- 'waterfall': { xField, yField } — additive positive/negative contributions to a total\n" +
       "- 'treemap': { nameField, valueField } — hierarchical/part-of-whole with many categories\n" +
       "- 'heatmap': { xField, yField, valueField } — intensity across two categorical dimensions\n" +
+      "- 'scolumn': { xField, yField, seriesField } — stacked vertical columns; parts summing to a total per category\n" +
+      "- 'shbar': { xField, yField, seriesField } — stacked horizontal bars; same as scolumn but ranked horizontally\n" +
+      "- 'barrace': { xField, yField, timeField } — animated ranking of xField by yField across timeField frames\n" +
+      "- 'sankey': { xField, yField, valueField } — flows FROM xField (source) TO yField (target) sized by valueField\n" +
+      "- 'nightingale': { nameField, valueField } — polar-area rose; part-of-whole where magnitude varies a lot (≤12 rows)\n" +
+      "- 'radar': { xField, yField, seriesField? } — compare 3-10 metrics (xField spokes) across one or a few series\n" +
       "- 'table': {} — fallback\n" +
       "All field values MUST be exact column names from the data.",
     userPrompt: `QUESTION: ${args.question}\nINTENT: ${args.plan.intent}\nCOLUMNS: ${args.result.columns.join(", ")}\nSAMPLE ROWS: ${JSON.stringify(sample)}\nROW COUNT: ${args.result.row_count}${preferLine}\n\nReturn JSON like { "type": "bar", "xField": "...", "yField": "..." }`,
@@ -812,7 +830,7 @@ export type WidgetSuggestion = {
 };
 
 const SUGGESTABLE_CHARTS =
-  "kpi, bar, hbar, line, area, pie, combo, scatter, funnel, waterfall, gauge, treemap, heatmap, boxplot, matrix, table";
+  "kpi, bar, hbar, scolumn, shbar, barrace, line, area, pie, nightingale, radar, combo, scatter, funnel, waterfall, gauge, sankey, treemap, heatmap, boxplot, matrix, table";
 
 /**
  * Analyze a table's structure + semantics and propose a set of dashboard
@@ -845,7 +863,11 @@ export async function suggestDashboardWidgets(args: {
       "'bar'/'hbar' for rankings and category comparisons; 'pie'/'treemap' for part-of-whole; " +
       "'heatmap'/'matrix' for a measure across two dimensions; 'scatter' for two-measure " +
       "correlation; 'boxplot' for distribution across groups; 'funnel'/'waterfall' where the " +
-      "data is sequential/additive; 'map'/'bubblemap' ONLY if a real geography column exists. " +
+      "data is sequential/additive; 'scolumn'/'shbar' for stacked parts-of-a-total across a " +
+      "category and a second dimension; 'barrace' for a ranking that changes over a date/time " +
+      "column; 'radar' to compare a handful of metrics across a few entities; 'nightingale' for " +
+      "a rose of ≤12 categories with widely varying magnitudes; 'sankey' for flows between two " +
+      "linked columns (source→target) with a value; 'map'/'bubblemap' ONLY if a real geography column exists. " +
       "Each widget needs a concrete analyst question answerable with ONE SQL query on this " +
       "schema, using ONLY columns that exist. Also write a 2-4 sentence executive summary of " +
       "what this dataset contains and the key things the dashboard reveals. Output JSON only.",

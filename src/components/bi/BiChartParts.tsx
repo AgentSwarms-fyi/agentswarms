@@ -1,11 +1,48 @@
 // Hand-rendered BI visuals that recharts has no primitive for: gauge,
 // heatmap, box-and-whisker plot, and the matrix (pivot) table. All pure
 // SVG/HTML on design tokens, so they follow light/dark themes.
-import { useMemo, useState } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
-import { fmtBiNumber, fmtBiValue, type BiFormatOptions } from "@/components/bi/BiChartRender";
+import { useEffect, useMemo, useState } from "react";
+import { ChevronDown, ChevronRight, Pause, Play } from "lucide-react";
+import {
+  fmtBiNumber,
+  fmtBiValue,
+  toBiNumber,
+  type BiFormatOptions,
+} from "@/components/bi/BiChartRender";
 import { condFill } from "@/lib/biChartMath";
 import type { BiCondFormat, BiNumberFormat } from "@/lib/biAgent";
+
+// Categorical palette shared by the hand-rendered visuals below (kept local to
+// avoid deepening the BiChartRender ↔ BiChartParts import cycle).
+const PART_COLORS = [
+  "#4E79A7",
+  "#F28E2B",
+  "#59A14F",
+  "#E15759",
+  "#76B7B2",
+  "#EDC948",
+  "#B07AA1",
+  "#FF9DA7",
+  "#9C755F",
+  "#BAB0AC",
+  "#86BCB6",
+  "#D37295",
+];
+
+/** Stable colour for a category name (so a bar keeps its colour across frames). */
+function colorForKey(key: string): string {
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+  return PART_COLORS[h % PART_COLORS.length];
+}
+
+function NoNumericData() {
+  return (
+    <p className="flex h-full items-center justify-center text-xs text-muted-foreground">
+      No values to plot.
+    </p>
+  );
+}
 
 // ── Gauge ───────────────────────────────────────────────────────────────
 
@@ -444,7 +481,19 @@ export function MatrixTable({
       min = 0;
       max = 0;
     }
-    return { rowKeys, colKeys, sums, leafSums, children, leafTotals, rowTotals, colTotals, grand, min, max };
+    return {
+      rowKeys,
+      colKeys,
+      sums,
+      leafSums,
+      children,
+      leafTotals,
+      rowTotals,
+      colTotals,
+      grand,
+      min,
+      max,
+    };
   }, [rows, rowField, colField, valueField, subField]);
 
   const fmt = (v: number) => fmtBiValue(v, format);
@@ -574,4 +623,284 @@ export function MatrixTable({
 /** Keyed wrapper for the group-row + child-rows pair (plain <>…</> can't take a key). */
 function FragmentRows({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
+}
+
+// ── Bar-chart race ────────────────────────────────────────────────────────
+// Animated horizontal bars that re-rank as an animation steps through the
+// frames of a time column. Pure DOM with CSS transitions on position/width, so
+// bars slide smoothly and the whole thing exports/prints as a static snapshot.
+
+type RaceFrame = { frame: string; entries: [string, number][] };
+
+function compareFrames(a: string, b: string): number {
+  const na = Number(a);
+  const nb = Number(b);
+  if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
+  return a.localeCompare(b); // ISO dates sort correctly as strings
+}
+
+export function BarRace({
+  rows,
+  xField,
+  yField,
+  timeField,
+  format,
+  onElementClick,
+  topN = 12,
+  frameMs = 1100,
+}: {
+  rows: Record<string, unknown>[];
+  xField: string;
+  yField: string;
+  timeField: string;
+  format?: BiNumberFormat | BiFormatOptions;
+  onElementClick?: (column: string, value: string) => void;
+  topN?: number;
+  frameMs?: number;
+}) {
+  const frames = useMemo<RaceFrame[]>(() => {
+    const byFrame = new Map<string, Map<string, number>>();
+    const order: string[] = [];
+    for (const r of rows) {
+      const f = String(r[timeField] ?? "");
+      const c = String(r[xField] ?? "—");
+      const v = toBiNumber(r[yField]);
+      if (v === null) continue;
+      if (!byFrame.has(f)) {
+        byFrame.set(f, new Map());
+        order.push(f);
+      }
+      const m = byFrame.get(f)!;
+      m.set(c, (m.get(c) ?? 0) + v);
+    }
+    order.sort(compareFrames);
+    return order.slice(0, 400).map((f) => ({
+      frame: f,
+      entries: [...byFrame.get(f)!.entries()].sort((a, b) => b[1] - a[1]).slice(0, topN),
+    }));
+  }, [rows, xField, yField, timeField, topN]);
+
+  const [idx, setIdx] = useState(0);
+  const [playing, setPlaying] = useState(true);
+
+  useEffect(() => {
+    setIdx(0);
+    setPlaying(true);
+  }, [frames]);
+
+  useEffect(() => {
+    if (!playing || frames.length <= 1) return;
+    const t = setTimeout(() => setIdx((i) => (i + 1) % frames.length), frameMs);
+    return () => clearTimeout(t);
+  }, [playing, idx, frames, frameMs]);
+
+  if (frames.length === 0) return <NoNumericData />;
+
+  const cur = frames[Math.min(idx, frames.length - 1)];
+  const max = Math.max(...cur.entries.map((e) => e[1]), 1e-9);
+  const rowPct = 100 / topN;
+  const fmt = (v: unknown) => fmtBiValue(v, format);
+
+  return (
+    <div className="flex h-full w-full flex-col">
+      <div className="flex items-center gap-2 px-1 pb-1 text-[10px] text-muted-foreground">
+        <button
+          type="button"
+          className="rounded p-0.5 hover:bg-muted hover:text-foreground"
+          onClick={() => setPlaying((p) => !p)}
+          title={playing ? "Pause" : "Play"}
+        >
+          {playing ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
+        </button>
+        <input
+          type="range"
+          min={0}
+          max={Math.max(frames.length - 1, 0)}
+          value={Math.min(idx, frames.length - 1)}
+          onChange={(e) => {
+            setPlaying(false);
+            setIdx(Number(e.target.value));
+          }}
+          className="h-1 flex-1 cursor-pointer accent-[var(--primary)]"
+        />
+      </div>
+      <div className="relative min-h-0 flex-1 overflow-hidden">
+        {cur.entries.map(([cat, val], rank) => {
+          const pct = (val / max) * 100;
+          const inside = pct > 82;
+          return (
+            <div
+              key={cat}
+              className="absolute inset-x-0 flex items-center gap-1.5 px-1"
+              style={{
+                top: `${rank * rowPct}%`,
+                height: `${rowPct}%`,
+                transition: "top 0.7s cubic-bezier(.4,0,.2,1)",
+              }}
+            >
+              <span
+                className="w-24 shrink-0 truncate text-right text-[10px] text-muted-foreground"
+                title={cat}
+              >
+                {cat}
+              </span>
+              <div className="relative h-[68%] flex-1">
+                <div
+                  className="absolute inset-y-0 left-0 flex items-center justify-end rounded-r-sm pr-1"
+                  style={{
+                    width: `${Math.max(pct, 0.5)}%`,
+                    background: colorForKey(cat),
+                    transition: "width 0.7s cubic-bezier(.4,0,.2,1)",
+                    cursor: onElementClick ? "pointer" : undefined,
+                  }}
+                  onClick={onElementClick ? () => onElementClick(xField, cat) : undefined}
+                >
+                  {inside && (
+                    <span className="text-[10px] font-medium tabular-nums text-white">
+                      {fmt(val)}
+                    </span>
+                  )}
+                </div>
+                {!inside && (
+                  <span
+                    className="absolute top-1/2 -translate-y-1/2 whitespace-nowrap pl-1 text-[10px] tabular-nums text-foreground"
+                    style={{ left: `${pct}%` }}
+                  >
+                    {fmt(val)}
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+        <div className="pointer-events-none absolute bottom-1 right-2 text-2xl font-bold tabular-nums text-muted-foreground/30">
+          {cur.frame}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Nightingale / polar-area rose ─────────────────────────────────────────
+// Equal-angle wedges, one per category; radius encodes value (area-proportional,
+// radius ∝ √value) so magnitude reads honestly. Pure SVG on design tokens.
+
+function annularSector(
+  cx: number,
+  cy: number,
+  r0: number,
+  r1: number,
+  a0: number,
+  a1: number,
+): string {
+  const p = (r: number, a: number) => [cx + r * Math.cos(a), cy + r * Math.sin(a)] as const;
+  const [x0, y0] = p(r0, a0);
+  const [x1, y1] = p(r1, a0);
+  const [x2, y2] = p(r1, a1);
+  const [x3, y3] = p(r0, a1);
+  const large = a1 - a0 > Math.PI ? 1 : 0;
+  return `M ${x0} ${y0} L ${x1} ${y1} A ${r1} ${r1} 0 ${large} 1 ${x2} ${y2} L ${x3} ${y3} A ${r0} ${r0} 0 ${large} 0 ${x0} ${y0} Z`;
+}
+
+export function NightingaleChart({
+  rows,
+  nameField,
+  valueField,
+  format,
+  onElementClick,
+}: {
+  rows: Record<string, unknown>[];
+  nameField: string;
+  valueField: string;
+  format?: BiNumberFormat | BiFormatOptions;
+  onElementClick?: (column: string, value: string) => void;
+}) {
+  const data = useMemo(() => {
+    const agg = new Map<string, number>();
+    const order: string[] = [];
+    for (const r of rows) {
+      const k = String(r[nameField] ?? "—");
+      const v = toBiNumber(r[valueField]);
+      if (v === null) continue;
+      if (!agg.has(k)) {
+        agg.set(k, 0);
+        order.push(k);
+      }
+      agg.set(k, agg.get(k)! + v);
+    }
+    return order
+      .map((k) => ({ name: k, value: agg.get(k)! }))
+      .filter((d) => d.value > 0)
+      .slice(0, 12);
+  }, [rows, nameField, valueField]);
+
+  if (data.length === 0) return <NoNumericData />;
+
+  const maxV = Math.max(...data.map((d) => d.value));
+  const CX = 110;
+  const CY = 110;
+  const R = 96;
+  const R0 = 14;
+  const slice = (2 * Math.PI) / data.length;
+  const fmt = (v: unknown) => fmtBiValue(v, format);
+
+  return (
+    <div className="flex h-full w-full flex-col items-center justify-center gap-1">
+      <svg
+        viewBox="0 0 220 220"
+        className="min-h-0 w-full flex-1"
+        preserveAspectRatio="xMidYMid meet"
+        role="img"
+      >
+        {[0.25, 0.5, 0.75, 1].map((t) => (
+          <circle
+            key={t}
+            cx={CX}
+            cy={CY}
+            r={R0 + (R - R0) * t}
+            fill="none"
+            stroke="var(--border)"
+            strokeDasharray="2 3"
+            strokeWidth={0.75}
+          />
+        ))}
+        {data.map((d, i) => {
+          const r = R0 + (R - R0) * Math.sqrt(d.value / maxV);
+          const a0 = -Math.PI / 2 + i * slice + slice * 0.03;
+          const a1 = -Math.PI / 2 + (i + 1) * slice - slice * 0.03;
+          return (
+            <g
+              key={d.name}
+              onClick={onElementClick ? () => onElementClick(nameField, d.name) : undefined}
+              cursor={onElementClick ? "pointer" : undefined}
+            >
+              <title>{`${d.name}: ${fmt(d.value)}`}</title>
+              <path
+                d={annularSector(CX, CY, R0, r, a0, a1)}
+                fill={PART_COLORS[i % PART_COLORS.length]}
+                fillOpacity={0.85}
+                stroke="var(--card)"
+                strokeWidth={1}
+              />
+            </g>
+          );
+        })}
+      </svg>
+      <div className="flex max-h-16 shrink-0 flex-wrap justify-center gap-x-2 gap-y-0.5 overflow-hidden px-1">
+        {data.map((d, i) => (
+          <span
+            key={d.name}
+            className="flex items-center gap-1 text-[9px] text-muted-foreground"
+            title={`${d.name}: ${fmt(d.value)}`}
+          >
+            <span
+              className="h-2 w-2 shrink-0 rounded-sm"
+              style={{ background: PART_COLORS[i % PART_COLORS.length] }}
+            />
+            <span className="max-w-24 truncate">{d.name}</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
 }
