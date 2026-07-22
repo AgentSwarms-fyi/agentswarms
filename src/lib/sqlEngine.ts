@@ -148,6 +148,17 @@ function registerCustomFunctions(a: typeof alasql) {
   fn.MONTH = month;
   fn.day = day;
   fn.DAY = day;
+
+  // SPLIT_PART(text, delimiter, n) — 1-based, like Postgres. Used by the
+  // data-prep "split column" step. Returns null when the part is absent.
+  const splitPart = function (value: unknown, delimiter: unknown, index: unknown) {
+    if (value == null) return null;
+    const parts = String(value).split(String(delimiter ?? ""));
+    const i = Number(index);
+    return Number.isInteger(i) && i >= 1 && i <= parts.length ? parts[i - 1] : null;
+  };
+  fn.split_part = splitPart;
+  fn.SPLIT_PART = splitPart;
 }
 
 // Sanitize a string into a safe SQL identifier — letters, digits, underscores

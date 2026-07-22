@@ -8,7 +8,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { ensureScheduler, processDueSchedules } from "@/utils/bi/refresh.server";
+import {
+  ensureScheduler,
+  processDuePrepFlows,
+  processDueSchedules,
+} from "@/utils/bi/refresh.server";
 import { processDueCatalogCrawls } from "@/utils/catalog/schedule.server";
 import { purgeAuditEvents } from "@/utils/audit.server";
 
@@ -32,9 +36,10 @@ async function handle(request: Request) {
   if (!allowed) return json({ error: "Unauthorized" }, 401);
   try {
     const ran = await processDueSchedules(bearer === cronToken);
+    const prepRan = await processDuePrepFlows(bearer === cronToken);
     const crawled = await processDueCatalogCrawls(bearer === cronToken);
     await purgeAuditEvents(bearer === cronToken);
-    return json({ ok: true, processed: ran, catalog_crawls: crawled });
+    return json({ ok: true, processed: ran, prep_flows: prepRan, catalog_crawls: crawled });
   } catch (e) {
     return json({ error: (e as Error).message }, 500);
   }

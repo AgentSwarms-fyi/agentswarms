@@ -16,9 +16,17 @@
 import { createRequire } from "node:module";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import type { Json } from "@/integrations/supabase/types";
 import { sendMail } from "@/lib/email/mailer.server";
 import { loadWarehouseConnection } from "@/utils/warehouse/connections.server";
 import { executeWarehouseQuery } from "@/utils/warehouse/drivers.server";
+import {
+  buildPrepSql,
+  castRows,
+  parsePrepConfig,
+  validatePrepConfig,
+  PREP_SAVE_ROW_CAP,
+} from "@/lib/dataPrepCore";
 
 const WIDGET_ROW_CAP = 500;
 const LOCAL_ROWS_PER_TABLE_CAP = 20_000;
@@ -105,9 +113,7 @@ export async function runLocalSqlForUser(
 
 // ── Dashboard refresh ────────────────────────────────────────────────────
 
-export async function refreshDashboardServer(
-  dashboardId: string,
-): Promise<{
+export async function refreshDashboardServer(dashboardId: string): Promise<{
   userId: string;
   name: string;
   widgets: WidgetJson[];
@@ -186,7 +192,8 @@ type ChartFields = {
 export function computeSnapshotChanges(before: WidgetJson[], after: WidgetJson[]): string[] {
   const out: string[] = [];
   const prevById = new Map(before.map((w) => [w.id, w]));
-  const pctStr = (pct: number) => ` (${pct > 0 ? "+" : ""}${Math.abs(pct) >= 10 ? pct.toFixed(0) : pct.toFixed(1)}%)`;
+  const pctStr = (pct: number) =>
+    ` (${pct > 0 ? "+" : ""}${Math.abs(pct) >= 10 ? pct.toFixed(0) : pct.toFixed(1)}%)`;
   for (const w of after) {
     if (w.kind !== "chart" || !w.refreshed_at) continue;
     const prev = prevById.get(w.id);
@@ -232,7 +239,8 @@ export function computeSnapshotChanges(before: WidgetJson[], after: WidgetJson[]
         if (delta > 0 && (!best || delta > best.delta)) best = { k, av, bv, delta };
       }
       if (best) {
-        const pct = Math.abs(best.av) > 1e-9 ? ((best.bv - best.av) / Math.abs(best.av)) * 100 : null;
+        const pct =
+          Math.abs(best.av) > 1e-9 ? ((best.bv - best.av) / Math.abs(best.av)) * 100 : null;
         if (pct === null || Math.abs(pct) >= 10) {
           out.push(
             `${title} — ${best.k}: ${fmtNum(best.av)} → ${fmtNum(best.bv)}${pct !== null ? pctStr(pct) : ""}`,
@@ -243,7 +251,9 @@ export function computeSnapshotChanges(before: WidgetJson[], after: WidgetJson[]
     }
 
     if (oldRows.length > 0 && Math.abs(newRows.length - oldRows.length) / oldRows.length >= 0.1) {
-      out.push(`${title}: ${oldRows.length.toLocaleString()} rows → ${newRows.length.toLocaleString()} rows`);
+      out.push(
+        `${title}: ${oldRows.length.toLocaleString()} rows → ${newRows.length.toLocaleString()} rows`,
+      );
     }
   }
   return out.slice(0, 8);
@@ -378,9 +388,7 @@ export function buildReportDigest(
         }</li>`,
     )
     .join("");
-  const changeItems = changes
-    .map((c) => `<li style="margin:2px 0">${c}</li>`)
-    .join("");
+  const changeItems = changes.map((c) => `<li style="margin:2px 0">${c}</li>`).join("");
   const html =
     (changeItems
       ? `<p style="margin:0 0 4px;font-size:13px;font-weight:600;color:#111827">What changed</p><ul style="margin:0 0 14px;padding-left:18px;font-size:13px;color:#374151">${changeItems}</ul>`
@@ -567,6 +575,180 @@ export async function processDueSchedules(force = false): Promise<number> {
   }
 }
 
+// ── Prep-flow scheduled refresh ──────────────────────────────────────────
+// Re-runs a saved data-prep flow server-side (source + ordered transform
+// steps) against the owner's stored datasets and overwrites the materialised
+// output dataset. Shares the scheduler tick / cron path with dashboards.
+
+let prepFnsRegistered = false;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function registerPrepFns(alasql: any): void {
+  if (prepFnsRegistered) return;
+  const fn = alasql.fn as Record<string, (...a: unknown[]) => unknown>;
+  const toDate = (v: unknown): Date | null => {
+    if (v == null) return null;
+    const d = v instanceof Date ? v : new Date(v as string);
+    return Number.isNaN(d.getTime()) ? null : d;
+  };
+  const pad = (n: number) => String(n).padStart(2, "0");
+  fn.SPLIT_PART = (s, d, n) => {
+    if (s == null) return null;
+    const parts = String(s).split(String(d ?? ""));
+    const i = Number(n);
+    return i >= 1 && i <= parts.length ? parts[i - 1] : null;
+  };
+  fn.split_part = fn.SPLIT_PART;
+  const year = (v: unknown) => {
+    const d = toDate(v);
+    return d ? d.getFullYear() : null;
+  };
+  const month = (v: unknown) => {
+    const d = toDate(v);
+    return d ? d.getMonth() + 1 : null;
+  };
+  const day = (v: unknown) => {
+    const d = toDate(v);
+    return d ? d.getDate() : null;
+  };
+  fn.YEAR = year;
+  fn.year = year;
+  fn.MONTH = month;
+  fn.month = month;
+  fn.DAY = day;
+  fn.day = day;
+  fn.DATE_TRUNC = (u, v) => {
+    const d = toDate(v);
+    if (!d || typeof u !== "string") return null;
+    const y = d.getFullYear();
+    const m = d.getMonth();
+    switch (u.toLowerCase()) {
+      case "year":
+        return `${y}-01-01`;
+      case "quarter":
+        return `${y}-${pad(Math.floor(m / 3) * 3 + 1)}-01`;
+      case "month":
+        return `${y}-${pad(m + 1)}-01`;
+      case "day":
+        return `${y}-${pad(m + 1)}-${pad(d.getDate())}`;
+      default:
+        return null;
+    }
+  };
+  fn.date_trunc = fn.DATE_TRUNC;
+  const date = (v: unknown) => {
+    const d = toDate(v);
+    return d ? `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` : null;
+  };
+  fn.DATE = date;
+  fn.date = date;
+  prepFnsRegistered = true;
+}
+
+export async function refreshPrepFlowServer(
+  flowId: string,
+): Promise<{ userId: string; name: string; rowCount: number }> {
+  const { data: flow, error } = await supabaseAdmin
+    .from("user_prep_flows")
+    .select("id, user_id, name, config, output_table_id")
+    .eq("id", flowId)
+    .single();
+  if (error || !flow) throw new Error(error?.message ?? "Prep flow not found");
+  if (!flow.output_table_id) throw new Error("Flow has never been run — nothing to refresh");
+
+  const cfg = parsePrepConfig(flow.config);
+  const valid = validatePrepConfig(cfg);
+  if (!valid.ok) throw new Error(valid.error);
+  const sql = buildPrepSql(cfg);
+
+  const { data: tables } = await supabaseAdmin
+    .from("user_data_tables")
+    .select("id, name, user_id, is_sample")
+    .or(`user_id.eq.${flow.user_id},is_sample.eq.true`);
+
+  const alasql = loadAlasql();
+  registerPrepFns(alasql);
+  const db = new alasql.Database();
+  for (const t of tables ?? []) {
+    const rows: Record<string, unknown>[] = [];
+    const PAGE = 1000;
+    for (let start = 0; start < LOCAL_ROWS_PER_TABLE_CAP; start += PAGE) {
+      const { data: chunk, error: rowErr } = await supabaseAdmin
+        .from("user_data_rows")
+        .select("row")
+        .eq("table_id", t.id)
+        .range(start, start + PAGE - 1);
+      if (rowErr || !chunk || chunk.length === 0) break;
+      rows.push(...chunk.map((c) => c.row as Record<string, unknown>));
+      if (chunk.length < PAGE) break;
+    }
+    db.exec(`CREATE TABLE \`${t.name}\``);
+    db.tables[t.name].data = rows;
+  }
+
+  const out = db.exec(sql) as Record<string, unknown>[];
+  const raw = (Array.isArray(out) ? out : []).slice(0, PREP_SAVE_ROW_CAP);
+  const cast = castRows(raw, cfg);
+
+  // Overwrite the materialised output dataset in place.
+  await supabaseAdmin.from("user_data_rows").delete().eq("table_id", flow.output_table_id);
+  const BATCH = 500;
+  for (let i = 0; i < cast.rows.length; i += BATCH) {
+    const slice = cast.rows.slice(i, i + BATCH).map((row) => ({
+      table_id: flow.output_table_id!,
+      row: row as unknown as Json,
+    }));
+    const { error: insErr } = await supabaseAdmin.from("user_data_rows").insert(slice);
+    if (insErr) throw new Error(insErr.message);
+  }
+  await supabaseAdmin
+    .from("user_data_tables")
+    .update({ columns: cast.columns as unknown as Json })
+    .eq("id", flow.output_table_id);
+
+  return { userId: flow.user_id, name: flow.name, rowCount: cast.rows.length };
+}
+
+let lastPrepProcessed = 0;
+export async function processDuePrepFlows(force = false): Promise<number> {
+  const now = Date.now();
+  if (!force && now - lastPrepProcessed < MIN_PROCESS_INTERVAL_MS) return 0;
+  lastPrepProcessed = now;
+  const { data: flows } = await supabaseAdmin
+    .from("user_prep_flows")
+    .select("id, name, user_id, refresh_interval_minutes, last_refresh_at, output_table_id")
+    .eq("refresh_enabled", true)
+    .not("output_table_id", "is", null)
+    .order("last_refresh_at", { ascending: true, nullsFirst: true })
+    .limit(SCHEDULES_PER_RUN);
+  if (!flows || flows.length === 0) return 0;
+  let ran = 0;
+  for (const f of flows) {
+    const intervalMs = (f.refresh_interval_minutes ?? 1440) * 60_000;
+    const due =
+      !f.last_refresh_at || now - new Date(f.last_refresh_at).getTime() >= intervalMs - 30_000;
+    if (!due) continue;
+    let lastError: string | null = null;
+    try {
+      await refreshPrepFlowServer(f.id);
+    } catch (e) {
+      lastError = (e as Error).message.slice(0, 500);
+      await notify(
+        f.user_id,
+        `Scheduled prep refresh failed — "${f.name}"`,
+        lastError,
+        "/bi",
+        "error",
+      );
+    }
+    await supabaseAdmin
+      .from("user_prep_flows")
+      .update({ last_refresh_at: new Date().toISOString(), last_refresh_error: lastError })
+      .eq("id", f.id);
+    ran++;
+  }
+  return ran;
+}
+
 // ── In-process scheduler (long-running node server) ──────────────────────
 
 declare global {
@@ -580,6 +762,9 @@ export function ensureScheduler(): void {
   setInterval(() => {
     processDueSchedules().catch((e) =>
       console.warn("[bi-scheduler] processing failed:", (e as Error).message),
+    );
+    processDuePrepFlows().catch((e) =>
+      console.warn("[prep-scheduler] processing failed:", (e as Error).message),
     );
     // Catalog crawls share the same tick (lazy import avoids a cycle and
     // keeps the catalog module graph out of server boot).

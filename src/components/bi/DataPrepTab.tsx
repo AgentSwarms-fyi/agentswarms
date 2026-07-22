@@ -2,31 +2,42 @@
 // pipeline in the spirit of Tableau Prep / Power Query:
 //
 //   1. Combine   — drag tables onto the canvas to build a join graph
-//   2. Shape     — pick/rename/retype columns, add calculated fields,
-//                  filter rows, and (optionally) summarize with group-bys
+//   2. Shape     — pick/rename/retype columns (Columns), then apply an ordered,
+//                  reorderable list of transform Steps: calculated fields,
+//                  filters, summarize, append/union, pivot, unpivot, split,
+//                  remove duplicates, find & replace
 //   3. Output    — watch the result + column profile update live, then
-//                  materialise it as a reusable local dataset (+ saved flow)
+//                  materialise it as a reusable local dataset (+ saved flow),
+//                  optionally refreshed on a schedule
 //
-// Every step compiles to a single read-only SELECT (see lib/dataPrep.ts) that
-// runs in the browser SQL engine, so the whole pipeline previews instantly.
+// Every step compiles to one layered read-only SELECT (see lib/dataPrep.ts).
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import {
   ArrowDown,
+  ArrowDownUp,
+  ArrowLeftRight,
+  ArrowUp,
   Calculator,
   ChevronDown,
+  Clock,
   Code2,
   Columns3,
   Combine,
+  Copy,
   Database,
   Filter as FilterIcon,
   FolderOpen,
   GripVertical,
+  LayoutGrid,
   Loader2,
   Play,
   Plus,
   RefreshCw,
+  Repeat,
+  Rows3,
+  Scissors,
   Sigma,
   Table2,
   Trash2,
@@ -47,6 +58,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -71,24 +88,26 @@ import {
   effectiveOutputColumns,
   emptyPrepConfig,
   listPrepFlows,
+  makeStep,
   parsePrepConfig,
-  preAggOutputNames,
+  prepStepLabel,
   profilePrepColumns,
+  setPrepRefreshSchedule,
+  stepInputColumns,
   PREP_AGG_FNS,
   PREP_FILTER_OPS,
   PREP_FUNCTIONS,
   PREP_JOIN_TYPES,
   PREP_SAVE_ROW_CAP,
+  PREP_STEP_KINDS,
   PREP_TYPE_META,
   prepTables,
-  reconcileDerived,
   removeTableFromFlow,
   runAndSavePrep,
   savePrepFlow,
   syncColumns,
   validatePrepConfig,
   type PrepAggFn,
-  type PrepCalc,
   type PrepColProfile,
   type PrepColumnType,
   type PrepFilter,
@@ -97,6 +116,9 @@ import {
   type PrepFlowRow,
   type PrepJoinType,
   type PrepMeasure,
+  type PrepSchemaCol,
+  type PrepStep,
+  type PrepStepKind,
   type PrepTableInfo,
 } from "@/lib/dataPrep";
 import {
@@ -117,6 +139,26 @@ import {
 const DRAG_MIME = "text/x-prep-table";
 const PREVIEW_SAMPLE = 1000; // rows pulled for the live preview + profiling
 const PREVIEW_DISPLAY = 50; // rows rendered in the preview table
+
+const STEP_ICON: Record<PrepStepKind, React.ComponentType<{ className?: string }>> = {
+  calc: Calculator,
+  filter: FilterIcon,
+  aggregate: Sigma,
+  append: ArrowDownUp,
+  pivot: LayoutGrid,
+  unpivot: ArrowLeftRight,
+  split: Scissors,
+  dedupe: Copy,
+  replace: Repeat,
+};
+
+const REFRESH_INTERVALS: { minutes: number; label: string }[] = [
+  { minutes: 15, label: "Every 15 minutes" },
+  { minutes: 60, label: "Hourly" },
+  { minutes: 360, label: "Every 6 hours" },
+  { minutes: 1440, label: "Daily" },
+  { minutes: 10080, label: "Weekly" },
+];
 
 type PreviewState =
   | { kind: "empty" }
@@ -147,6 +189,7 @@ export function DataPrepTab() {
   const [preview, setPreview] = useState<PreviewState>({ kind: "empty" });
   const [runBusy, setRunBusy] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
   const [showSql, setShowSql] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [shapeTab, setShapeTab] = useState("columns");
@@ -160,19 +203,11 @@ export function DataPrepTab() {
     () => new Set(flows.map((f) => f.output_table_name).filter((n): n is string => Boolean(n))),
     [flows],
   );
-
-  // Columns a calculated field may reference (row-level projection only).
-  const baseColumnNames = useMemo(
-    () => cfg.columns.filter((c) => c.include).map((c) => c.outputName),
-    [cfg.columns],
-  );
-  // Columns downstream steps (filters, group-by, measures) may reference.
-  const downstreamColumns = useMemo(() => preAggOutputNames(cfg), [cfg]);
+  const currentFlow = useMemo(() => flows.find((f) => f.id === flowId) ?? null, [flows, flowId]);
 
   const reloadDatasets = useCallback(async () => {
     try {
-      const tables = await hydrateFromSupabase();
-      setDatasets(tables);
+      setDatasets(await hydrateFromSupabase());
     } catch (e) {
       toast.error(`Could not load datasets: ${(e as Error).message}`);
       setDatasets([]);
@@ -239,7 +274,7 @@ export function DataPrepTab() {
         toast.warning(`Dropped missing table(s): ${missing.join(", ")}`);
         next = missing.reduce((acc, m) => removeTableFromFlow(acc, m), parsed);
       }
-      next = reconcileDerived(syncColumns(next, tableInfos));
+      next = syncColumns(next, tableInfos);
     }
     setFlowId(f.id);
     setFlowName(f.name);
@@ -268,12 +303,7 @@ export function DataPrepTab() {
     const out = safeTableName(outputName.trim() || flowName.trim());
     setRunBusy(true);
     try {
-      const id = await savePrepFlow({
-        id: flowId,
-        userId: user.id,
-        name: flowName.trim(),
-        cfg,
-      });
+      const id = await savePrepFlow({ id: flowId, userId: user.id, name: flowName.trim(), cfg });
       const result = await runAndSavePrep({
         userId: user.id,
         flowName: flowName.trim(),
@@ -318,8 +348,7 @@ export function DataPrepTab() {
     setDragOver(false);
     const name = e.dataTransfer.getData(DRAG_MIME);
     const info = tableInfos.find((t) => t.name === name);
-    if (!info) return;
-    addTable(info);
+    if (info) addTable(info);
   }
 
   function addTable(info: PrepTableInfo) {
@@ -344,11 +373,47 @@ export function DataPrepTab() {
     return tableInfos.find((t) => t.name === table)?.columns.map((c) => c.name) ?? [];
   }
 
+  // ── Step actions ────────────────────────────────────────────────────
+  function addStep(kind: PrepStepKind) {
+    setCfg((p) => ({ ...p, steps: [...p.steps, makeStep(kind, effectiveOutputColumns(p))] }));
+    setShapeTab("steps");
+  }
+  function updateStep(index: number, next: PrepStep) {
+    setCfg((p) => ({ ...p, steps: p.steps.map((s, i) => (i === index ? next : s)) }));
+  }
+  function removeStep(index: number) {
+    setCfg((p) => ({ ...p, steps: p.steps.filter((_, i) => i !== index) }));
+  }
+  function moveStep(index: number, dir: -1 | 1) {
+    setCfg((p) => {
+      const j = index + dir;
+      if (j < 0 || j >= p.steps.length) return p;
+      const steps = [...p.steps];
+      [steps[index], steps[j]] = [steps[j], steps[index]];
+      return { ...p, steps };
+    });
+  }
+  // Distinct values of a column at a given step boundary (for the pivot step).
+  const detectPivotValues = useCallback(
+    (index: number, column: string): string[] => {
+      try {
+        const upto: PrepFlowConfig = { ...cfg, steps: cfg.steps.slice(0, index) };
+        const res = runQueryUnlimited(buildPrepSql(upto), PREP_SAVE_ROW_CAP);
+        const set = new Set<string>();
+        for (const r of res.rows) {
+          const v = r[column];
+          if (v !== null && v !== undefined && v !== "") set.add(String(v));
+        }
+        return [...set].sort().slice(0, 50);
+      } catch {
+        return [];
+      }
+    },
+    [cfg],
+  );
+
   const sql = cfg.base && validatePrepConfig(cfg).ok ? buildPrepSql(cfg) : null;
   const includedCount = cfg.columns.filter((c) => c.include).length;
-  const aggActive =
-    cfg.aggregate.enabled &&
-    (cfg.aggregate.groupBy.length > 0 || cfg.aggregate.measures.length > 0);
 
   // ── Render ──────────────────────────────────────────────────────────
   return (
@@ -472,6 +537,18 @@ export function DataPrepTab() {
               )}
               Run &amp; save dataset
             </Button>
+            {flowId && currentFlow?.output_table_id && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 gap-1.5 text-xs"
+                onClick={() => setScheduleOpen(true)}
+                title="Schedule automatic refresh"
+              >
+                <Clock className="h-3.5 w-3.5" />
+                {currentFlow.refresh_enabled ? "Scheduled" : "Schedule"}
+              </Button>
+            )}
             <div className="ml-auto flex items-end gap-1.5">
               {flows.length > 0 && (
                 <div className="space-y-1">
@@ -551,7 +628,7 @@ export function DataPrepTab() {
                 <p className="text-sm font-medium">Drag your first table here</p>
                 <p className="max-w-sm text-xs text-muted-foreground">
                   Or click a table in the palette. Then shape it below — add calculated fields,
-                  filter rows and summarize.
+                  filter, summarize, pivot and more.
                 </p>
               </div>
             ) : (
@@ -663,7 +740,7 @@ export function DataPrepTab() {
                 n={2}
                 icon={Columns3}
                 title="Shape"
-                desc="Choose columns and types, add calculated fields, filter rows, and summarize."
+                desc="Choose columns and types, then apply an ordered pipeline of transforms."
               />
             </CardHeader>
             <CardContent className="pt-0">
@@ -675,26 +752,12 @@ export function DataPrepTab() {
                       {includedCount}
                     </Badge>
                   </TabsTrigger>
-                  <TabsTrigger value="calc" className="gap-1.5 text-xs">
-                    <Calculator className="h-3.5 w-3.5" /> Calculated
-                    {cfg.calcs.length > 0 && (
+                  <TabsTrigger value="steps" className="gap-1.5 text-xs">
+                    <Wand2 className="h-3.5 w-3.5" /> Steps
+                    {cfg.steps.length > 0 && (
                       <Badge variant="secondary" className="ml-0.5 px-1 text-[9px]">
-                        {cfg.calcs.length}
+                        {cfg.steps.length}
                       </Badge>
-                    )}
-                  </TabsTrigger>
-                  <TabsTrigger value="filter" className="gap-1.5 text-xs">
-                    <FilterIcon className="h-3.5 w-3.5" /> Filters
-                    {cfg.filters.conditions.length > 0 && (
-                      <Badge variant="secondary" className="ml-0.5 px-1 text-[9px]">
-                        {cfg.filters.conditions.length}
-                      </Badge>
-                    )}
-                  </TabsTrigger>
-                  <TabsTrigger value="agg" className="gap-1.5 text-xs">
-                    <Sigma className="h-3.5 w-3.5" /> Summarize
-                    {aggActive && (
-                      <span className="ml-0.5 h-1.5 w-1.5 rounded-full bg-primary" aria-hidden />
                     )}
                   </TabsTrigger>
                 </TabsList>
@@ -706,14 +769,16 @@ export function DataPrepTab() {
                     profile={preview.kind === "ok" ? preview.profile : {}}
                   />
                 </TabsContent>
-                <TabsContent value="calc">
-                  <CalcEditor cfg={cfg} setCfg={setCfg} baseColumns={baseColumnNames} />
-                </TabsContent>
-                <TabsContent value="filter">
-                  <FiltersEditor cfg={cfg} setCfg={setCfg} columns={downstreamColumns} />
-                </TabsContent>
-                <TabsContent value="agg">
-                  <AggregateEditor cfg={cfg} setCfg={setCfg} columns={downstreamColumns} />
+                <TabsContent value="steps">
+                  <StepsEditor
+                    cfg={cfg}
+                    datasets={datasets ?? []}
+                    onAdd={addStep}
+                    onUpdate={updateStep}
+                    onRemove={removeStep}
+                    onMove={moveStep}
+                    detectPivotValues={detectPivotValues}
+                  />
                 </TabsContent>
               </Tabs>
             </CardContent>
@@ -836,6 +901,16 @@ export function DataPrepTab() {
         userId={user?.id ?? null}
         onImported={() => void reloadDatasets()}
       />
+      <ScheduleDialog
+        open={scheduleOpen}
+        onOpenChange={setScheduleOpen}
+        flow={currentFlow}
+        onSaved={() =>
+          listPrepFlows()
+            .then(setFlows)
+            .catch(() => {})
+        }
+      />
     </div>
   );
 }
@@ -871,7 +946,7 @@ function StepHead({
   );
 }
 
-// ── Columns editor (with profiling) ───────────────────────────────────────
+// ── Columns editor (source projection + profiling) ────────────────────────
 
 function ColumnsEditor({
   cfg,
@@ -956,34 +1031,16 @@ function ColumnsEditor({
                   />
                 </td>
                 <td className="px-2 py-1">
-                  <Select
+                  <TypeSelect
                     value={c.type}
                     disabled={!c.include}
-                    onValueChange={(v) =>
+                    onChange={(v) =>
                       setCfg((p) => ({
                         ...p,
-                        columns: p.columns.map((x) =>
-                          x.key === c.key ? { ...x, type: v as PrepColumnType } : x,
-                        ),
+                        columns: p.columns.map((x) => (x.key === c.key ? { ...x, type: v } : x)),
                       }))
                     }
-                  >
-                    <SelectTrigger className="h-7 w-32 text-[11px]">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(
-                        Object.entries(PREP_TYPE_META) as [
-                          PrepColumnType,
-                          (typeof PREP_TYPE_META)[PrepColumnType],
-                        ][]
-                      ).map(([value, meta]) => (
-                        <SelectItem key={value} value={value} className="text-xs">
-                          {meta.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  />
                 </td>
                 <td className="px-2 py-1">
                   {c.include ? <ProfileChips p={profile[c.outputName]} /> : null}
@@ -994,6 +1051,38 @@ function ColumnsEditor({
         </table>
       </div>
     </div>
+  );
+}
+
+function TypeSelect({
+  value,
+  disabled,
+  onChange,
+  className,
+}: {
+  value: PrepColumnType;
+  disabled?: boolean;
+  onChange: (v: PrepColumnType) => void;
+  className?: string;
+}) {
+  return (
+    <Select value={value} disabled={disabled} onValueChange={(v) => onChange(v as PrepColumnType)}>
+      <SelectTrigger className={className ?? "h-7 w-32 text-[11px]"}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {(
+          Object.entries(PREP_TYPE_META) as [
+            PrepColumnType,
+            (typeof PREP_TYPE_META)[PrepColumnType],
+          ][]
+        ).map(([v, meta]) => (
+          <SelectItem key={v} value={v} className="text-xs">
+            {meta.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }
 
@@ -1030,58 +1119,268 @@ function ProfileChips({ p }: { p?: PrepColProfile }) {
   );
 }
 
-// ── Calculated-fields editor ──────────────────────────────────────────────
+// ── Steps pipeline ────────────────────────────────────────────────────────
 
-function freshCalcName(cfg: PrepFlowConfig): string {
-  const taken = new Set(preAggOutputNames(cfg).map((n) => n.toLowerCase()));
-  let name = "new_field";
-  let i = 1;
-  while (taken.has(name.toLowerCase())) name = `new_field_${i++}`;
-  return name;
-}
-
-function CalcEditor({
+function StepsEditor({
   cfg,
-  setCfg,
-  baseColumns,
+  datasets,
+  onAdd,
+  onUpdate,
+  onRemove,
+  onMove,
+  detectPivotValues,
 }: {
   cfg: PrepFlowConfig;
-  setCfg: SetCfg;
-  baseColumns: string[];
+  datasets: DatasetMeta[];
+  onAdd: (kind: PrepStepKind) => void;
+  onUpdate: (index: number, next: PrepStep) => void;
+  onRemove: (index: number) => void;
+  onMove: (index: number, dir: -1 | 1) => void;
+  detectPivotValues: (index: number, column: string) => string[];
 }) {
-  const activeRef = useRef<HTMLTextAreaElement | null>(null);
-  const [activeId, setActiveId] = useState<string | null>(null);
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-muted-foreground">
+          Transforms run top to bottom. Reorder with the arrows — each step works on the result of
+          the one above.
+        </p>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button size="sm" variant="outline" className="h-7 gap-1 text-xs">
+              <Plus className="h-3.5 w-3.5" /> Add step
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            {PREP_STEP_KINDS.map((k) => {
+              const Icon = STEP_ICON[k.kind];
+              return (
+                <DropdownMenuItem key={k.kind} onClick={() => onAdd(k.kind)} className="gap-2">
+                  <Icon className="h-3.5 w-3.5 text-primary" />
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium">{k.label}</p>
+                    <p className="text-[10px] text-muted-foreground">{k.hint}</p>
+                  </div>
+                </DropdownMenuItem>
+              );
+            })}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
 
-  function addCalc() {
-    const calc: PrepCalc = {
-      id: crypto.randomUUID(),
-      name: freshCalcName(cfg),
-      expr: "",
-      type: "decimal",
-    };
-    setCfg((p) => ({ ...p, calcs: [...p.calcs, calc] }));
-    setActiveId(calc.id);
-  }
-  function updateCalc(id: string, patch: Partial<PrepCalc>) {
-    setCfg((p) => ({ ...p, calcs: p.calcs.map((c) => (c.id === id ? { ...c, ...patch } : c)) }));
-  }
-  function removeCalc(id: string) {
-    setCfg((p) => ({ ...p, calcs: p.calcs.filter((c) => c.id !== id) }));
-    if (activeId === id) setActiveId(null);
-  }
+      {cfg.steps.length === 0 ? (
+        <div className="rounded-md border border-dashed border-border/60 py-10 text-center">
+          <Wand2 className="mx-auto mb-1 h-6 w-6 text-muted-foreground" />
+          <p className="text-xs text-muted-foreground">
+            No transform steps yet. Add a calculated field, filter, summary, pivot and more.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {cfg.steps.map((step, i) => (
+            <StepCard
+              key={step.id}
+              step={step}
+              index={i}
+              total={cfg.steps.length}
+              inputCols={stepInputColumns(cfg, i)}
+              datasets={datasets}
+              onUpdate={(next) => onUpdate(i, next)}
+              onRemove={() => onRemove(i)}
+              onMove={(dir) => onMove(i, dir)}
+              detectPivotValues={detectPivotValues}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
-  // Insert text at the caret of whichever formula box is focused.
+function StepCard({
+  step,
+  index,
+  total,
+  inputCols,
+  datasets,
+  onUpdate,
+  onRemove,
+  onMove,
+  detectPivotValues,
+}: {
+  step: PrepStep;
+  index: number;
+  total: number;
+  inputCols: PrepSchemaCol[];
+  datasets: DatasetMeta[];
+  onUpdate: (next: PrepStep) => void;
+  onRemove: () => void;
+  onMove: (dir: -1 | 1) => void;
+  detectPivotValues: (index: number, column: string) => string[];
+}) {
+  const Icon = STEP_ICON[step.kind];
+  const names = inputCols.map((c) => c.name);
+  return (
+    <div className="rounded-md border border-border/60">
+      <div className="flex items-center gap-2 border-b border-border/40 bg-muted/30 px-2.5 py-1.5">
+        <span className="flex h-5 w-5 items-center justify-center rounded bg-primary/10 text-[10px] font-semibold text-primary">
+          {index + 1}
+        </span>
+        <Icon className="h-3.5 w-3.5 text-primary" />
+        <span className="min-w-0 flex-1 truncate text-xs font-medium">{prepStepLabel(step)}</span>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-6 w-6 p-0"
+          disabled={index === 0}
+          title="Move up"
+          onClick={() => onMove(-1)}
+        >
+          <ArrowUp className="h-3.5 w-3.5" />
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-6 w-6 p-0"
+          disabled={index === total - 1}
+          title="Move down"
+          onClick={() => onMove(1)}
+        >
+          <ArrowDown className="h-3.5 w-3.5" />
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+          title="Remove step"
+          onClick={onRemove}
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+      <div className="p-2.5">
+        {step.kind === "calc" && <CalcStepEditor step={step} columns={names} onUpdate={onUpdate} />}
+        {step.kind === "filter" && (
+          <FilterStepEditor step={step} columns={names} onUpdate={onUpdate} />
+        )}
+        {step.kind === "aggregate" && (
+          <AggregateStepEditor step={step} columns={names} onUpdate={onUpdate} />
+        )}
+        {step.kind === "append" && (
+          <AppendStepEditor
+            step={step}
+            inputCols={inputCols}
+            datasets={datasets}
+            onUpdate={onUpdate}
+          />
+        )}
+        {step.kind === "pivot" && (
+          <PivotStepEditor
+            step={step}
+            columns={inputCols}
+            onUpdate={onUpdate}
+            detect={(col) => detectPivotValues(index, col)}
+          />
+        )}
+        {step.kind === "unpivot" && (
+          <UnpivotStepEditor step={step} columns={names} onUpdate={onUpdate} />
+        )}
+        {step.kind === "split" && (
+          <SplitStepEditor step={step} columns={names} onUpdate={onUpdate} />
+        )}
+        {step.kind === "dedupe" && (
+          <DedupeStepEditor step={step} columns={names} onUpdate={onUpdate} />
+        )}
+        {step.kind === "replace" && (
+          <ReplaceStepEditor step={step} columns={names} onUpdate={onUpdate} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Individual step editors ───────────────────────────────────────────────
+
+function ColumnPicker({
+  value,
+  columns,
+  placeholder = "column",
+  onChange,
+  className,
+}: {
+  value: string;
+  columns: string[];
+  placeholder?: string;
+  onChange: (v: string) => void;
+  className?: string;
+}) {
+  return (
+    <Select value={value || undefined} onValueChange={onChange}>
+      <SelectTrigger className={className ?? "h-7 w-44 font-mono text-[11px]"}>
+        <SelectValue placeholder={placeholder} />
+      </SelectTrigger>
+      <SelectContent>
+        {columns.map((c) => (
+          <SelectItem key={c} value={c} className="font-mono text-xs">
+            {c}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+function ChipToggle({
+  columns,
+  selected,
+  onToggle,
+}: {
+  columns: string[];
+  selected: string[];
+  onToggle: (col: string, on: boolean) => void;
+}) {
+  if (columns.length === 0)
+    return <p className="text-[11px] text-muted-foreground">No columns available.</p>;
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {columns.map((c) => {
+        const on = selected.includes(c);
+        return (
+          <button
+            key={c}
+            type="button"
+            onClick={() => onToggle(c, !on)}
+            className={`rounded border px-2 py-0.5 font-mono text-[10px] transition ${
+              on
+                ? "border-primary/50 bg-primary/10 text-primary"
+                : "border-border/60 bg-background hover:border-primary/40"
+            }`}
+          >
+            {c}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function CalcStepEditor({
+  step,
+  columns,
+  onUpdate,
+}: {
+  step: Extract<PrepStep, { kind: "calc" }>;
+  columns: string[];
+  onUpdate: (next: PrepStep) => void;
+}) {
+  const ref = useRef<HTMLTextAreaElement | null>(null);
   function insert(text: string, caretInParens = false) {
-    const el = activeRef.current;
-    const calc = cfg.calcs.find((c) => c.id === activeId);
-    if (!el || !calc) {
-      toast.info("Click into a formula box first");
-      return;
-    }
-    const start = el.selectionStart ?? calc.expr.length;
-    const end = el.selectionEnd ?? calc.expr.length;
-    const next = calc.expr.slice(0, start) + text + calc.expr.slice(end);
-    updateCalc(calc.id, { expr: next });
+    const el = ref.current;
+    if (!el) return;
+    const start = el.selectionStart ?? step.expr.length;
+    const end = el.selectionEnd ?? step.expr.length;
+    const next = step.expr.slice(0, start) + text + step.expr.slice(end);
+    onUpdate({ ...step, expr: next });
     const paren = text.indexOf("(");
     const caret = caretInParens && paren >= 0 ? start + paren + 1 : start + text.length;
     requestAnimationFrame(() => {
@@ -1089,124 +1388,51 @@ function CalcEditor({
       el.setSelectionRange(caret, caret);
     });
   }
-
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <p className="text-xs text-muted-foreground">
-          Add columns computed from a formula — math, text, date and logic functions over your
-          fields.
-        </p>
-        <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={addCalc}>
-          <Plus className="h-3.5 w-3.5" /> Add field
-        </Button>
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          value={step.name}
+          onChange={(e) => onUpdate({ ...step, name: e.target.value })}
+          placeholder="field_name"
+          className="h-7 w-44 font-mono text-[11px]"
+        />
+        <TypeSelect value={step.type} onChange={(v) => onUpdate({ ...step, type: v })} />
       </div>
-
-      {cfg.calcs.length === 0 ? (
-        <div className="rounded-md border border-dashed border-border/60 py-8 text-center">
-          <Calculator className="mx-auto mb-1 h-6 w-6 text-muted-foreground" />
-          <p className="text-xs text-muted-foreground">
-            No calculated fields yet. Example: <code className="font-mono">`revenue` - `cost`</code>{" "}
-            or <code className="font-mono">ROUND(`amount` / `qty`, 2)</code>.
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {cfg.calcs.map((c) => (
-            <div key={c.id} className="rounded-md border border-border/60 p-2.5">
-              <div className="flex flex-wrap items-center gap-2">
-                <Input
-                  value={c.name}
-                  onChange={(e) => updateCalc(c.id, { name: e.target.value })}
-                  placeholder="field_name"
-                  className="h-7 w-44 font-mono text-[11px]"
-                />
-                <Select
-                  value={c.type}
-                  onValueChange={(v) => updateCalc(c.id, { type: v as PrepColumnType })}
-                >
-                  <SelectTrigger className="h-7 w-32 text-[11px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(
-                      Object.entries(PREP_TYPE_META) as [
-                        PrepColumnType,
-                        (typeof PREP_TYPE_META)[PrepColumnType],
-                      ][]
-                    ).map(([value, meta]) => (
-                      <SelectItem key={value} value={value} className="text-xs">
-                        {meta.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="ml-auto h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-                  onClick={() => removeCalc(c.id)}
-                  title="Remove field"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-              <Textarea
-                value={c.expr}
-                onFocus={(e) => {
-                  activeRef.current = e.currentTarget;
-                  setActiveId(c.id);
-                }}
-                onChange={(e) => updateCalc(c.id, { expr: e.target.value })}
-                placeholder="e.g. ROUND(`amount` / `qty`, 2)"
-                className="mt-2 min-h-[60px] font-mono text-[11px]"
-                spellCheck={false}
-              />
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Insert palette */}
-      <div className="rounded-md border border-border/50 bg-muted/30 p-2.5">
-        <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-          Insert into the active formula
-        </p>
-        {baseColumns.length > 0 && (
-          <div className="mb-2">
-            <p className="mb-1 text-[10px] text-muted-foreground">Columns</p>
-            <div className="flex flex-wrap gap-1">
-              {baseColumns.map((col) => (
-                <button
-                  key={col}
-                  type="button"
-                  onClick={() => insert("`" + col + "`")}
-                  className="rounded border border-border/60 bg-background px-1.5 py-0.5 font-mono text-[10px] hover:border-primary/50 hover:bg-primary/5"
-                >
-                  {col}
-                </button>
-              ))}
-            </div>
+      <Textarea
+        ref={ref}
+        value={step.expr}
+        onChange={(e) => onUpdate({ ...step, expr: e.target.value })}
+        placeholder="e.g. ROUND(`amount` / `qty`, 2)"
+        className="min-h-[56px] font-mono text-[11px]"
+        spellCheck={false}
+      />
+      <div className="rounded-md border border-border/50 bg-muted/30 p-2">
+        {columns.length > 0 && (
+          <div className="mb-1.5 flex flex-wrap gap-1">
+            {columns.map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => insert("`" + c + "`")}
+                className="rounded border border-border/60 bg-background px-1.5 py-0.5 font-mono text-[10px] hover:border-primary/50 hover:bg-primary/5"
+              >
+                {c}
+              </button>
+            ))}
           </div>
         )}
-        <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4">
-          {PREP_FUNCTIONS.map((grp) => (
-            <div key={grp.group}>
-              <p className="mb-1 text-[10px] text-muted-foreground">{grp.group}</p>
-              <div className="flex flex-wrap gap-1">
-                {grp.fns.map((fn) => (
-                  <button
-                    key={fn.label}
-                    type="button"
-                    title={fn.hint}
-                    onClick={() => insert(fn.snippet, true)}
-                    className="rounded border border-border/60 bg-background px-1.5 py-0.5 font-mono text-[10px] hover:border-primary/50 hover:bg-primary/5"
-                  >
-                    {fn.label}
-                  </button>
-                ))}
-              </div>
-            </div>
+        <div className="flex flex-wrap gap-1">
+          {PREP_FUNCTIONS.flatMap((g) => g.fns).map((fn) => (
+            <button
+              key={fn.label}
+              type="button"
+              title={fn.hint}
+              onClick={() => insert(fn.snippet, true)}
+              className="rounded border border-border/60 bg-background px-1.5 py-0.5 font-mono text-[10px] hover:border-primary/50 hover:bg-primary/5"
+            >
+              {fn.label}
+            </button>
           ))}
         </div>
       </div>
@@ -1214,323 +1440,626 @@ function CalcEditor({
   );
 }
 
-// ── Filters editor ────────────────────────────────────────────────────────
-
-function FiltersEditor({
-  cfg,
-  setCfg,
+function FilterStepEditor({
+  step,
   columns,
+  onUpdate,
 }: {
-  cfg: PrepFlowConfig;
-  setCfg: SetCfg;
+  step: Extract<PrepStep, { kind: "filter" }>;
   columns: string[];
+  onUpdate: (next: PrepStep) => void;
 }) {
-  const conds = cfg.filters.conditions;
-
-  function add() {
-    const f: PrepFilter = {
-      id: crypto.randomUUID(),
-      column: columns[0] ?? "",
-      op: "=",
-      value: "",
-    };
-    setCfg((p) => ({ ...p, filters: { ...p.filters, conditions: [...p.filters.conditions, f] } }));
-  }
   function update(id: string, patch: Partial<PrepFilter>) {
-    setCfg((p) => ({
-      ...p,
-      filters: {
-        ...p.filters,
-        conditions: p.filters.conditions.map((c) => (c.id === id ? { ...c, ...patch } : c)),
-      },
-    }));
+    onUpdate({
+      ...step,
+      conditions: step.conditions.map((c) => (c.id === id ? { ...c, ...patch } : c)),
+    });
   }
-  function remove(id: string) {
-    setCfg((p) => ({
-      ...p,
-      filters: { ...p.filters, conditions: p.filters.conditions.filter((c) => c.id !== id) },
-    }));
-  }
-
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-xs text-muted-foreground">Keep only rows that match your conditions.</p>
-        <div className="flex items-center gap-2">
-          {conds.length > 1 && (
-            <Select
-              value={cfg.filters.combine}
-              onValueChange={(v) =>
-                setCfg((p) => ({ ...p, filters: { ...p.filters, combine: v as "AND" | "OR" } }))
-              }
-            >
-              <SelectTrigger className="h-7 w-28 text-[11px]">
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        {step.conditions.length > 1 ? (
+          <Select
+            value={step.combine}
+            onValueChange={(v) => onUpdate({ ...step, combine: v as "AND" | "OR" })}
+          >
+            <SelectTrigger className="h-7 w-32 text-[11px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="AND" className="text-xs">
+                Match all (AND)
+              </SelectItem>
+              <SelectItem value="OR" className="text-xs">
+                Match any (OR)
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        ) : (
+          <span className="text-[11px] text-muted-foreground">Keep rows where</span>
+        )}
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-6 gap-1 text-[10px]"
+          onClick={() =>
+            onUpdate({
+              ...step,
+              conditions: [
+                ...step.conditions,
+                { id: crypto.randomUUID(), column: columns[0] ?? "", op: "=", value: "" },
+              ],
+            })
+          }
+        >
+          <Plus className="h-3 w-3" /> Condition
+        </Button>
+      </div>
+      {step.conditions.map((f) => {
+        const op = PREP_FILTER_OPS.find((o) => o.value === f.op);
+        return (
+          <div key={f.id} className="flex flex-wrap items-center gap-1.5">
+            <ColumnPicker
+              value={f.column}
+              columns={columns}
+              onChange={(v) => update(f.id, { column: v })}
+            />
+            <Select value={f.op} onValueChange={(v) => update(f.id, { op: v as PrepFilterOp })}>
+              <SelectTrigger className="h-7 w-36 text-[11px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="AND" className="text-xs">
-                  Match all (AND)
-                </SelectItem>
-                <SelectItem value="OR" className="text-xs">
-                  Match any (OR)
-                </SelectItem>
+                {PREP_FILTER_OPS.map((o) => (
+                  <SelectItem key={o.value} value={o.value} className="text-xs">
+                    {o.label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
-          )}
-          <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={add}>
-            <Plus className="h-3.5 w-3.5" /> Add filter
-          </Button>
-        </div>
-      </div>
-
-      {conds.length === 0 ? (
-        <div className="rounded-md border border-dashed border-border/60 py-8 text-center">
-          <FilterIcon className="mx-auto mb-1 h-6 w-6 text-muted-foreground" />
-          <p className="text-xs text-muted-foreground">
-            No filters — every row is kept. Add one to narrow the output.
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-1.5">
-          {conds.map((f, i) => {
-            const op = PREP_FILTER_OPS.find((o) => o.value === f.op);
-            return (
-              <div key={f.id} className="flex flex-wrap items-center gap-1.5">
-                <span className="w-10 text-right text-[10px] uppercase text-muted-foreground">
-                  {i === 0 ? "Where" : cfg.filters.combine}
-                </span>
-                <Select
-                  value={f.column || undefined}
-                  onValueChange={(v) => update(f.id, { column: v })}
-                >
-                  <SelectTrigger className="h-7 w-44 font-mono text-[11px]">
-                    <SelectValue placeholder="column" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {columns.map((c) => (
-                      <SelectItem key={c} value={c} className="font-mono text-xs">
-                        {c}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={f.op} onValueChange={(v) => update(f.id, { op: v as PrepFilterOp })}>
-                  <SelectTrigger className="h-7 w-36 text-[11px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PREP_FILTER_OPS.map((o) => (
-                      <SelectItem key={o.value} value={o.value} className="text-xs">
-                        {o.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {op?.needsValue && (
-                  <Input
-                    value={f.value}
-                    onChange={(e) => update(f.id, { value: e.target.value })}
-                    placeholder="value"
-                    className="h-7 w-40 text-[11px]"
-                  />
-                )}
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-                  onClick={() => remove(f.id)}
-                  title="Remove filter"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            );
-          })}
-        </div>
-      )}
+            {op?.needsValue && (
+              <Input
+                value={f.value}
+                onChange={(e) => update(f.id, { value: e.target.value })}
+                placeholder="value"
+                className="h-7 w-36 text-[11px]"
+              />
+            )}
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+              onClick={() =>
+                onUpdate({ ...step, conditions: step.conditions.filter((c) => c.id !== f.id) })
+              }
+            >
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        );
+      })}
     </div>
   );
 }
-
-// ── Aggregate / summarize editor ──────────────────────────────────────────
 
 function defaultMeasureName(fn: PrepAggFn, col: string): string {
   return fn === "count" ? "row_count" : `${fn}_${col}`;
 }
 
-function AggregateEditor({
-  cfg,
-  setCfg,
+function AggregateStepEditor({
+  step,
   columns,
+  onUpdate,
 }: {
-  cfg: PrepFlowConfig;
-  setCfg: SetCfg;
+  step: Extract<PrepStep, { kind: "aggregate" }>;
   columns: string[];
+  onUpdate: (next: PrepStep) => void;
 }) {
-  const agg = cfg.aggregate;
-
-  function patchAgg(patch: Partial<typeof agg>) {
-    setCfg((p) => ({ ...p, aggregate: { ...p.aggregate, ...patch } }));
-  }
-  function toggleGroup(col: string, on: boolean) {
-    patchAgg({ groupBy: on ? [...agg.groupBy, col] : agg.groupBy.filter((g) => g !== col) });
-  }
-  function addMeasure() {
-    const col = columns[0] ?? "";
-    const m: PrepMeasure = {
-      id: crypto.randomUUID(),
-      fn: "sum",
-      column: col,
-      name: defaultMeasureName("sum", col),
-    };
-    patchAgg({ measures: [...agg.measures, m] });
-  }
   function updateMeasure(id: string, patch: Partial<PrepMeasure>) {
-    patchAgg({ measures: agg.measures.map((m) => (m.id === id ? { ...m, ...patch } : m)) });
+    onUpdate({
+      ...step,
+      measures: step.measures.map((m) => (m.id === id ? { ...m, ...patch } : m)),
+    });
   }
-  function removeMeasure(id: string) {
-    patchAgg({ measures: agg.measures.filter((m) => m.id !== id) });
-  }
-
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between gap-3 rounded-md border border-border/60 bg-muted/30 px-3 py-2">
-        <div>
-          <p className="text-xs font-medium">Summarize the data</p>
-          <p className="text-[11px] text-muted-foreground">
-            Roll rows up to a grain — group by dimensions and compute measures.
-          </p>
-        </div>
-        <Switch checked={agg.enabled} onCheckedChange={(v) => patchAgg({ enabled: v })} />
+    <div className="space-y-2.5">
+      <div>
+        <p className="mb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+          Group by
+        </p>
+        <ChipToggle
+          columns={columns}
+          selected={step.groupBy}
+          onToggle={(col, on) =>
+            onUpdate({
+              ...step,
+              groupBy: on ? [...step.groupBy, col] : step.groupBy.filter((g) => g !== col),
+            })
+          }
+        />
       </div>
-
-      {agg.enabled && (
-        <>
-          <div>
-            <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-              Group by
-            </p>
-            {columns.length === 0 ? (
-              <p className="text-[11px] text-muted-foreground">No columns available.</p>
-            ) : (
-              <div className="flex flex-wrap gap-1.5">
-                {columns.map((c) => {
-                  const on = agg.groupBy.includes(c);
-                  return (
-                    <button
-                      key={c}
-                      type="button"
-                      onClick={() => toggleGroup(c, !on)}
-                      className={`rounded border px-2 py-0.5 font-mono text-[10px] transition ${
-                        on
-                          ? "border-primary/50 bg-primary/10 text-primary"
-                          : "border-border/60 bg-background hover:border-primary/40"
-                      }`}
-                    >
-                      {c}
-                    </button>
-                  );
-                })}
+      <div>
+        <div className="mb-1 flex items-center justify-between">
+          <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            Measures
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-6 gap-1 text-[10px]"
+            onClick={() => {
+              const col = columns[0] ?? "";
+              onUpdate({
+                ...step,
+                measures: [
+                  ...step.measures,
+                  {
+                    id: crypto.randomUUID(),
+                    fn: "sum",
+                    column: col,
+                    name: defaultMeasureName("sum", col),
+                  },
+                ],
+              });
+            }}
+          >
+            <Plus className="h-3 w-3" /> Measure
+          </Button>
+        </div>
+        {step.measures.length === 0 ? (
+          <p className="text-[11px] text-muted-foreground">
+            No measures — add Sum, Average, Count, Min or Max.
+          </p>
+        ) : (
+          <div className="space-y-1.5">
+            {step.measures.map((m) => (
+              <div key={m.id} className="flex flex-wrap items-center gap-1.5">
+                <Select
+                  value={m.fn}
+                  onValueChange={(v) => {
+                    const fn = v as PrepAggFn;
+                    const auto = defaultMeasureName(m.fn, m.column);
+                    updateMeasure(m.id, {
+                      fn,
+                      name: m.name === auto ? defaultMeasureName(fn, m.column) : m.name,
+                    });
+                  }}
+                >
+                  <SelectTrigger className="h-7 w-36 text-[11px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PREP_AGG_FNS.map((a) => (
+                      <SelectItem key={a.value} value={a.value} className="text-xs">
+                        {a.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {aggNeedsColumn(m.fn) ? (
+                  <ColumnPicker
+                    value={m.column}
+                    columns={columns}
+                    onChange={(v) => {
+                      const auto = defaultMeasureName(m.fn, m.column);
+                      updateMeasure(m.id, {
+                        column: v,
+                        name: m.name === auto ? defaultMeasureName(m.fn, v) : m.name,
+                      });
+                    }}
+                  />
+                ) : (
+                  <span className="w-44 text-[11px] text-muted-foreground">all rows</span>
+                )}
+                <span className="text-[10px] text-muted-foreground">as</span>
+                <Input
+                  value={m.name}
+                  onChange={(e) => updateMeasure(m.id, { name: e.target.value })}
+                  placeholder="measure_name"
+                  className="h-7 w-40 font-mono text-[11px]"
+                />
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                  onClick={() =>
+                    onUpdate({ ...step, measures: step.measures.filter((x) => x.id !== m.id) })
+                  }
+                >
+                  <X className="h-3.5 w-3.5" />
+                </Button>
               </div>
-            )}
+            ))}
           </div>
-
-          <div>
-            <div className="mb-1.5 flex items-center justify-between">
-              <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                Measures
-              </p>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-6 gap-1 text-[10px]"
-                onClick={addMeasure}
-              >
-                <Plus className="h-3 w-3" /> Add measure
-              </Button>
-            </div>
-            {agg.measures.length === 0 ? (
-              <p className="text-[11px] text-muted-foreground">
-                No measures — add Sum, Average, Count, Min or Max.
-              </p>
-            ) : (
-              <div className="space-y-1.5">
-                {agg.measures.map((m) => (
-                  <div key={m.id} className="flex flex-wrap items-center gap-1.5">
-                    <Select
-                      value={m.fn}
-                      onValueChange={(v) => {
-                        const fn = v as PrepAggFn;
-                        // keep the auto-name in sync unless the user renamed it
-                        const auto = defaultMeasureName(m.fn, m.column);
-                        updateMeasure(m.id, {
-                          fn,
-                          name: m.name === auto ? defaultMeasureName(fn, m.column) : m.name,
-                        });
-                      }}
-                    >
-                      <SelectTrigger className="h-7 w-36 text-[11px]">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {PREP_AGG_FNS.map((a) => (
-                          <SelectItem key={a.value} value={a.value} className="text-xs">
-                            {a.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {aggNeedsColumn(m.fn) ? (
-                      <Select
-                        value={m.column || undefined}
-                        onValueChange={(v) => {
-                          const auto = defaultMeasureName(m.fn, m.column);
-                          updateMeasure(m.id, {
-                            column: v,
-                            name: m.name === auto ? defaultMeasureName(m.fn, v) : m.name,
-                          });
-                        }}
-                      >
-                        <SelectTrigger className="h-7 w-44 font-mono text-[11px]">
-                          <SelectValue placeholder="column" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {columns.map((c) => (
-                            <SelectItem key={c} value={c} className="font-mono text-xs">
-                              {c}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      <span className="w-44 text-[11px] text-muted-foreground">all rows</span>
-                    )}
-                    <span className="text-[10px] text-muted-foreground">as</span>
-                    <Input
-                      value={m.name}
-                      onChange={(e) => updateMeasure(m.id, { name: e.target.value })}
-                      placeholder="measure_name"
-                      className="h-7 w-40 font-mono text-[11px]"
-                    />
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-                      onClick={() => removeMeasure(m.id)}
-                      title="Remove measure"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </>
-      )}
+        )}
+      </div>
     </div>
   );
 }
+
+function AppendStepEditor({
+  step,
+  inputCols,
+  datasets,
+  onUpdate,
+}: {
+  step: Extract<PrepStep, { kind: "append" }>;
+  inputCols: PrepSchemaCol[];
+  datasets: DatasetMeta[];
+  onUpdate: (next: PrepStep) => void;
+}) {
+  const chosen = datasets.find((d) => d.name === step.table);
+  const chosenCols = new Set(chosen?.columns.map((c) => c.name) ?? []);
+  const matched = inputCols.filter((c) => chosenCols.has(c.name)).length;
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <Select
+          value={step.table || undefined}
+          onValueChange={(v) => {
+            const d = datasets.find((x) => x.name === v);
+            onUpdate({ ...step, table: v, columns: d?.columns.map((c) => c.name) ?? [] });
+          }}
+        >
+          <SelectTrigger className="h-7 w-56 font-mono text-[11px]">
+            <SelectValue placeholder="dataset to append" />
+          </SelectTrigger>
+          <SelectContent>
+            {datasets.map((d) => (
+              <SelectItem key={d.id} value={d.name} className="font-mono text-xs">
+                {d.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select
+          value={step.mode}
+          onValueChange={(v) => onUpdate({ ...step, mode: v as "all" | "distinct" })}
+        >
+          <SelectTrigger className="h-7 w-40 text-[11px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all" className="text-xs">
+              Keep all rows
+            </SelectItem>
+            <SelectItem value="distinct" className="text-xs">
+              Unique rows only
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <p className="text-[10px] text-muted-foreground">
+        Rows are matched by column name; {matched} of {inputCols.length} columns align
+        {chosen ? "" : " once you pick a dataset"}. Unmatched columns become empty.
+      </p>
+    </div>
+  );
+}
+
+function PivotStepEditor({
+  step,
+  columns,
+  onUpdate,
+  detect,
+}: {
+  step: Extract<PrepStep, { kind: "pivot" }>;
+  columns: PrepSchemaCol[];
+  onUpdate: (next: PrepStep) => void;
+  detect: (column: string) => string[];
+}) {
+  const names = columns.map((c) => c.name);
+  return (
+    <div className="space-y-2.5">
+      <div>
+        <p className="mb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+          Keep as rows (group by)
+        </p>
+        <ChipToggle
+          columns={names}
+          selected={step.group}
+          onToggle={(col, on) =>
+            onUpdate({
+              ...step,
+              group: on ? [...step.group, col] : step.group.filter((g) => g !== col),
+            })
+          }
+        />
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-[10px] text-muted-foreground">Columns from</span>
+        <ColumnPicker
+          value={step.pivotColumn}
+          columns={names}
+          placeholder="pivot column"
+          onChange={(v) => onUpdate({ ...step, pivotColumn: v, values: detect(v) })}
+        />
+        <span className="text-[10px] text-muted-foreground">values,</span>
+        <Select value={step.agg} onValueChange={(v) => onUpdate({ ...step, agg: v as PrepAggFn })}>
+          <SelectTrigger className="h-7 w-32 text-[11px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {PREP_AGG_FNS.map((a) => (
+              <SelectItem key={a.value} value={a.value} className="text-xs">
+                {a.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {aggNeedsColumn(step.agg) && (
+          <>
+            <span className="text-[10px] text-muted-foreground">of</span>
+            <ColumnPicker
+              value={step.valueColumn}
+              columns={names}
+              placeholder="value column"
+              onChange={(v) => onUpdate({ ...step, valueColumn: v })}
+            />
+          </>
+        )}
+      </div>
+      <div>
+        <div className="mb-1 flex items-center gap-2">
+          <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            Pivot values ({step.values.length})
+          </p>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-5 px-1.5 text-[10px]"
+            disabled={!step.pivotColumn}
+            onClick={() => onUpdate({ ...step, values: detect(step.pivotColumn) })}
+          >
+            <RefreshCw className="mr-1 h-2.5 w-2.5" /> Detect
+          </Button>
+        </div>
+        {step.values.length === 0 ? (
+          <p className="text-[11px] text-muted-foreground">
+            Pick a pivot column and detect its values (up to 50).
+          </p>
+        ) : (
+          <div className="flex flex-wrap gap-1">
+            {step.values.map((v) => (
+              <span
+                key={v}
+                className="flex items-center gap-1 rounded border border-border/60 bg-background px-1.5 py-0.5 font-mono text-[10px]"
+              >
+                {v}
+                <button
+                  type="button"
+                  className="text-muted-foreground hover:text-destructive"
+                  onClick={() => onUpdate({ ...step, values: step.values.filter((x) => x !== v) })}
+                >
+                  <X className="h-2.5 w-2.5" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function UnpivotStepEditor({
+  step,
+  columns,
+  onUpdate,
+}: {
+  step: Extract<PrepStep, { kind: "unpivot" }>;
+  columns: string[];
+  onUpdate: (next: PrepStep) => void;
+}) {
+  return (
+    <div className="space-y-2.5">
+      <div>
+        <p className="mb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+          Columns to unpivot (become rows)
+        </p>
+        <ChipToggle
+          columns={columns.filter((c) => !step.keep.includes(c))}
+          selected={step.value}
+          onToggle={(col, on) =>
+            onUpdate({
+              ...step,
+              value: on ? [...step.value, col] : step.value.filter((v) => v !== col),
+            })
+          }
+        />
+      </div>
+      <div>
+        <p className="mb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+          Keep as-is
+        </p>
+        <ChipToggle
+          columns={columns.filter((c) => !step.value.includes(c))}
+          selected={step.keep}
+          onToggle={(col, on) =>
+            onUpdate({
+              ...step,
+              keep: on ? [...step.keep, col] : step.keep.filter((k) => k !== col),
+            })
+          }
+        />
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-[10px] text-muted-foreground">Name column</span>
+        <Input
+          value={step.nameField}
+          onChange={(e) => onUpdate({ ...step, nameField: e.target.value })}
+          className="h-7 w-32 font-mono text-[11px]"
+        />
+        <span className="text-[10px] text-muted-foreground">Value column</span>
+        <Input
+          value={step.valueField}
+          onChange={(e) => onUpdate({ ...step, valueField: e.target.value })}
+          className="h-7 w-32 font-mono text-[11px]"
+        />
+      </div>
+    </div>
+  );
+}
+
+function SplitStepEditor({
+  step,
+  columns,
+  onUpdate,
+}: {
+  step: Extract<PrepStep, { kind: "split" }>;
+  columns: string[];
+  onUpdate: (next: PrepStep) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-[10px] text-muted-foreground">Split</span>
+        <ColumnPicker
+          value={step.column}
+          columns={columns}
+          onChange={(v) => onUpdate({ ...step, column: v })}
+        />
+        <span className="text-[10px] text-muted-foreground">on</span>
+        <Input
+          value={step.delimiter}
+          onChange={(e) => onUpdate({ ...step, delimiter: e.target.value })}
+          placeholder="delimiter"
+          className="h-7 w-20 font-mono text-[11px]"
+        />
+        <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
+          <Checkbox
+            checked={step.keepOriginal}
+            onCheckedChange={(v) => onUpdate({ ...step, keepOriginal: Boolean(v) })}
+          />
+          keep original
+        </label>
+      </div>
+      <div>
+        <div className="mb-1 flex items-center gap-2">
+          <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            Into columns
+          </p>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-5 px-1.5 text-[10px]"
+            onClick={() =>
+              onUpdate({ ...step, into: [...step.into, `part_${step.into.length + 1}`] })
+            }
+          >
+            <Plus className="mr-0.5 h-2.5 w-2.5" /> Add
+          </Button>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {step.into.map((name, i) => (
+            <div key={i} className="flex items-center gap-1">
+              <Input
+                value={name}
+                onChange={(e) =>
+                  onUpdate({
+                    ...step,
+                    into: step.into.map((n, j) => (j === i ? e.target.value : n)),
+                  })
+                }
+                className="h-7 w-28 font-mono text-[11px]"
+              />
+              {step.into.length > 1 && (
+                <button
+                  type="button"
+                  className="text-muted-foreground hover:text-destructive"
+                  onClick={() => onUpdate({ ...step, into: step.into.filter((_, j) => j !== i) })}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DedupeStepEditor({
+  step,
+  columns,
+  onUpdate,
+}: {
+  step: Extract<PrepStep, { kind: "dedupe" }>;
+  columns: string[];
+  onUpdate: (next: PrepStep) => void;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <p className="text-[11px] text-muted-foreground">
+        {step.columns.length === 0
+          ? "Removing fully-duplicate rows. Pick columns to dedupe on a subset (keeps the first match)."
+          : "Keeping the first row for each unique combination of:"}
+      </p>
+      <ChipToggle
+        columns={columns}
+        selected={step.columns}
+        onToggle={(col, on) =>
+          onUpdate({
+            ...step,
+            columns: on ? [...step.columns, col] : step.columns.filter((c) => c !== col),
+          })
+        }
+      />
+    </div>
+  );
+}
+
+function ReplaceStepEditor({
+  step,
+  columns,
+  onUpdate,
+}: {
+  step: Extract<PrepStep, { kind: "replace" }>;
+  columns: string[];
+  onUpdate: (next: PrepStep) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className="text-[10px] text-muted-foreground">In</span>
+      <ColumnPicker
+        value={step.column}
+        columns={columns}
+        onChange={(v) => onUpdate({ ...step, column: v })}
+      />
+      <Select
+        value={step.mode}
+        onValueChange={(v) => onUpdate({ ...step, mode: v as "substring" | "exact" })}
+      >
+        <SelectTrigger className="h-7 w-36 text-[11px]">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="substring" className="text-xs">
+            replace text
+          </SelectItem>
+          <SelectItem value="exact" className="text-xs">
+            replace whole value
+          </SelectItem>
+        </SelectContent>
+      </Select>
+      <Input
+        value={step.find}
+        onChange={(e) => onUpdate({ ...step, find: e.target.value })}
+        placeholder="find"
+        className="h-7 w-28 text-[11px]"
+      />
+      <span className="text-[10px] text-muted-foreground">→</span>
+      <Input
+        value={step.replaceWith}
+        onChange={(e) => onUpdate({ ...step, replaceWith: e.target.value })}
+        placeholder="replace with"
+        className="h-7 w-28 text-[11px]"
+      />
+    </div>
+  );
+}
+
+// ── Table node (canvas) ────────────────────────────────────────────────────
 
 function TableNode({
   name,
@@ -1578,6 +2107,108 @@ function TableNode({
     </div>
   );
 }
+
+// ── Schedule dialog ─────────────────────────────────────────────────────────
+
+function ScheduleDialog({
+  open,
+  onOpenChange,
+  flow,
+  onSaved,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  flow: PrepFlowRow | null;
+  onSaved: () => void;
+}) {
+  const [enabled, setEnabled] = useState(false);
+  const [intervalMin, setIntervalMin] = useState(1440);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (open && flow) {
+      setEnabled(Boolean(flow.refresh_enabled));
+      setIntervalMin(flow.refresh_interval_minutes ?? 1440);
+    }
+  }, [open, flow]);
+
+  async function save() {
+    if (!flow) return;
+    setBusy(true);
+    try {
+      await setPrepRefreshSchedule({
+        id: flow.id,
+        enabled,
+        intervalMinutes: enabled ? intervalMin : null,
+      });
+      toast.success(enabled ? "Scheduled refresh on" : "Scheduled refresh off");
+      onSaved();
+      onOpenChange(false);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Scheduled refresh</DialogTitle>
+          <DialogDescription>
+            Re-run this flow automatically on the server and overwrite its output dataset with fresh
+            results.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between rounded-md border border-border/60 bg-muted/30 px-3 py-2">
+            <div>
+              <p className="text-sm font-medium">Automatic refresh</p>
+              <p className="text-[11px] text-muted-foreground">
+                Uses your stored datasets — no browser needed.
+              </p>
+            </div>
+            <Switch checked={enabled} onCheckedChange={setEnabled} />
+          </div>
+          {enabled && (
+            <div className="space-y-1.5">
+              <Label className="text-xs">Frequency</Label>
+              <Select value={String(intervalMin)} onValueChange={(v) => setIntervalMin(Number(v))}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {REFRESH_INTERVALS.map((r) => (
+                    <SelectItem key={r.minutes} value={String(r.minutes)}>
+                      {r.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          {flow?.last_refresh_at && (
+            <p className="text-[11px] text-muted-foreground">
+              Last refreshed {new Date(flow.last_refresh_at).toLocaleString()}
+              {flow.last_refresh_error ? ` — last error: ${flow.last_refresh_error}` : ""}.
+            </p>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button onClick={() => void save()} disabled={busy}>
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Warehouse / DB import ────────────────────────────────────────────────────
 
 function WarehouseImportDialog({
   open,
