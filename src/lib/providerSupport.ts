@@ -46,17 +46,16 @@ export const IMAGE_MODEL_IDS: ReadonlySet<string> = new Set([
   "google/gemini-3.1-flash-image-preview",
 ]);
 
+// Image-generation model id heuristic for models discovered dynamically
+// from provider /models endpoints. Deliberately requires an image-specific
+// token so vision-INPUT text models (e.g. "…-vision") never match.
+const IMAGE_MODEL_ID_RE =
+  /(^|\/|[-.])(gpt-image|imagen|image|dall-e|flux|stable-diffusion|sdxl|photon|recraft|ideogram)([-.\d]|$)/i;
+
 export function isImageModelId(modelId: string): boolean {
   if (!modelId) return false;
   if (IMAGE_MODEL_IDS.has(modelId)) return true;
-  // Tolerate the "bare" gemini ids used when the user picks the Gemini
-  // provider directly (without the `google/` gateway prefix).
-  const bare = modelId.replace(/^google\//, "");
-  return (
-    bare === "gemini-2.5-flash-image" ||
-    bare === "gemini-3-pro-image-preview" ||
-    bare === "gemini-3.1-flash-image-preview"
-  );
+  return IMAGE_MODEL_ID_RE.test(modelId);
 }
 
 export function isModalitySupported(modality: string): boolean {

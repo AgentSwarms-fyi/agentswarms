@@ -652,6 +652,19 @@ async function recordTrace(opts: {
       console.log(
         `[trace] recorded ${trace.agentName} ${trace.model} ${tokensOut}t ${latencyMs}ms id=${trace.traceId}`,
       );
+      // Audit: chats against a SAVED agent get an explicit agent.chat event
+      // (the underlying model call already shows up via execution_traces).
+      if (trace.agentId) {
+        const { auditEvent } = await import("@/utils/audit.server");
+        auditEvent({
+          userId,
+          action: "agent.chat",
+          resourceType: "agent",
+          resourceName: trace.agentName,
+          resourceId: trace.agentId,
+          detail: { model: `${trace.provider}/${trace.model}`, status },
+        });
+      }
     }
   } catch (e) {
     console.error("[trace] exception:", e);

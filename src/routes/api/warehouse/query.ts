@@ -6,6 +6,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { executeWarehouseQuery, MAX_WAREHOUSE_ROWS } from "@/utils/warehouse/drivers.server";
 import { auditEvent } from "@/utils/audit.server";
+import { extractTableRefs } from "@/lib/sqlRefs";
 import { loadWarehouseConnection } from "@/utils/warehouse/connections.server";
 
 function getServerSupabase(authToken: string) {
@@ -65,6 +66,7 @@ export const Route = createFileRoute("/api/warehouse/query")({
             resourceName: conn.name,
             detail: {
               provider: conn.provider,
+              tables: extractTableRefs(body.sql).slice(0, 12),
               rows: result.row_count,
               duration_ms: result.duration_ms,
               sql: body.sql.slice(0, 200),

@@ -86,7 +86,7 @@ export function useBiModelPref(): [string | null, (m: string | null) => void] {
   return [model, update];
 }
 
-type ConnectedIntegration = { provider: string; default_model: string | null };
+export type ConnectedIntegration = { provider: string; default_model: string | null };
 
 // Session caches shared by every picker instance. Provider model lists are
 // fetched live from each integration's /models endpoint once per session.
@@ -94,7 +94,7 @@ const providerModelsCache = new Map<string, ProviderModelInfo[]>();
 let integrationsCache: ConnectedIntegration[] | null = null;
 let integrationsPromise: Promise<ConnectedIntegration[]> | null = null;
 
-function fetchIntegrations(): Promise<ConnectedIntegration[]> {
+export function fetchConnectedIntegrations(): Promise<ConnectedIntegration[]> {
   // Provider connections live in TWO stores (mirroring /integrations):
   // the legacy `integrations` table (type llm_provider, config jsonb) and
   // the newer `provider_credentials` table. Merge both, RLS-scoped.
@@ -166,7 +166,7 @@ export function BiModelSelect({
 
   useEffect(() => {
     if (!integrationsCache) {
-      fetchIntegrations()
+      fetchConnectedIntegrations()
         .then(setIntegrations)
         .catch(() => setIntegrations([]));
     }

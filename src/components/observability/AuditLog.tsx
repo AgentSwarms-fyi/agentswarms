@@ -13,6 +13,8 @@ import {
   Database,
   LayoutDashboard,
   Loader2,
+  MessageSquare,
+  Network,
   Radar,
   RefreshCw,
   Search,
@@ -44,6 +46,14 @@ import { auditListEvents, auditSetRetention, type AuditRow } from "@/utils/audit
 
 const ACTION_META: Record<string, { label: string; className: string }> = {
   "model.call": { label: "model call", className: "bg-primary/10 text-primary" },
+  "agent.chat": {
+    label: "agent chat",
+    className: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+  },
+  "swarm.run": {
+    label: "swarm run",
+    className: "bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400",
+  },
   "dataset.query": {
     label: "dataset query",
     className: "bg-teal-500/10 text-teal-600 dark:text-teal-400",
@@ -66,6 +76,10 @@ function actionIcon(action: string) {
   switch (action) {
     case "model.call":
       return <Bot className="h-3.5 w-3.5" />;
+    case "agent.chat":
+      return <MessageSquare className="h-3.5 w-3.5" />;
+    case "swarm.run":
+      return <Network className="h-3.5 w-3.5" />;
     case "dashboard.view":
       return <LayoutDashboard className="h-3.5 w-3.5" />;
     case "warehouse.query":
@@ -83,6 +97,9 @@ function describeDetail(r: AuditRow): string {
   if (typeof d.surface === "string") bits.push(String(d.surface));
   if (typeof d.tokens === "number" && d.tokens > 0) bits.push(`${d.tokens.toLocaleString()} tok`);
   if (typeof d.cost_usd === "number" && d.cost_usd > 0) bits.push(`$${Number(d.cost_usd).toFixed(4)}`);
+  if (typeof d.model === "string") bits.push(String(d.model));
+  if (Array.isArray(d.tables) && d.tables.length > 0) bits.push(`tables: ${d.tables.join(", ")}`);
+  if (typeof d.steps === "number") bits.push(`${d.steps} steps`);
   if (typeof d.rows === "number") bits.push(`${d.rows} rows`);
   if (typeof d.assets === "number") bits.push(`${d.assets} assets`);
   if (typeof d.sql === "string") bits.push(String(d.sql));

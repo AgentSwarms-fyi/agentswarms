@@ -183,18 +183,8 @@ export type AssetLineage = {
 
 export type LineageIndex = Map<string, AssetLineage>;
 
-// Handles bare, backticked, double-quoted and bracketed identifiers,
-// including quoted multi-part refs like "schema"."table".
-const TABLE_REF_RE = /\b(?:from|join)\s+[`"[]?([\w$]+(?:[`"\]]?\.[`"[]?[\w$]+)*)/gi;
-
-/** FROM/JOIN table references in a SQL statement (deduped, lowercased). */
-export function extractTableRefs(sql: string): string[] {
-  const out = new Set<string>();
-  for (const m of sql.matchAll(TABLE_REF_RE)) {
-    out.add(m[1].replace(/[`"\][]/g, "").toLowerCase());
-  }
-  return [...out];
-}
+export { extractTableRefs } from "@/lib/sqlRefs";
+import { extractTableRefs } from "@/lib/sqlRefs";
 
 function entry(index: LineageIndex, key: string): AssetLineage {
   let e = index.get(key);

@@ -1,6 +1,16 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { type ReactNode, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
+import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  fetchConnectedIntegrations,
+  type ConnectedIntegration,
+} from "@/components/bi/BiModelSelect";
+import {
+  listProviderImageModels,
+  type ProviderModelInfo,
+} from "@/utils/providerModels.functions";
+import { PROVIDER_LABELS, type ProviderId } from "@/utils/providers/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
@@ -35,46 +45,29 @@ export const Route = createFileRoute("/_authenticated/image-playground")({
   component: ImagePlaygroundPage,
 });
 
-type ImageModel = {
-  id: string;
-  label: string;
-  tagline: string;
-  bestFor: string;
-  speed: "Fast" | "Balanced" | "Slow";
-  quality: "Good" | "High" | "Highest";
+// Providers and models come from the caller's connected integrations —
+// the provider dropdown lists what /integrations has, and each provider's
+// model dropdown shows only its IMAGE-generation models (from its /models
+// endpoint). These notes enrich the picker for models we know well.
+const MODEL_NOTES: Record<string, { tagline: string; bestFor: string }> = {
+  "google/gemini-2.5-flash-image": {
+    tagline: "Fast, cheap, dependable.",
+    bestFor: "Quick drafts, iterating on a concept, simple edits.",
+  },
+  "google/gemini-3.1-flash-image-preview": {
+    tagline: "Fast with pro-level quality.",
+    bestFor: "Finished social posts, product shots, detailed edits with quick turnaround.",
+  },
+  "google/gemini-3-pro-image-preview": {
+    tagline: "Highest quality, slower and pricier.",
+    bestFor: "Hero images, marketing assets, complex compositions with text and fine detail.",
+  },
 };
 
-// Curated, deduplicated list of image-generation models the AgentSwarms AI
-// gateway can route. Kept aligned with IMAGE_MODEL_IDS in providerSupport.ts.
-const IMAGE_MODELS: ImageModel[] = [
-  {
-    id: "google/gemini-2.5-flash-image",
-    label: "Nano Banana (Gemini 2.5 Flash Image)",
-    tagline: "Fast, cheap, dependable.",
-    bestFor:
-      "Quick drafts, iterating on a concept, simple edits. Great default when you want something back in a few seconds.",
-    speed: "Fast",
-    quality: "Good",
-  },
-  {
-    id: "google/gemini-3.1-flash-image-preview",
-    label: "Nano Banana 2 (Gemini 3.1 Flash Image)",
-    tagline: "Fast with pro-level quality.",
-    bestFor:
-      "Best balance of speed and fidelity. Use for finished social posts, product shots, and detailed edits where you still want a quick turnaround.",
-    speed: "Fast",
-    quality: "High",
-  },
-  {
-    id: "google/gemini-3-pro-image-preview",
-    label: "Gemini 3 Pro Image",
-    tagline: "Highest quality, slower and pricier.",
-    bestFor:
-      "Hero images, marketing assets, complex compositions with text and fine detail. Use when quality matters more than latency.",
-    speed: "Slow",
-    quality: "Highest",
-  },
-];
+const MAX_INPUT_IMAGES = 4;
+
+// Per-session cache of each provider's image-model list.
+const imageModelsCache = new Map<string, ProviderModelInfo[]>();
 
 type GeneratedImage = {
   id: string;
@@ -131,61 +124,128 @@ function redactImageDataUrls(value: unknown): unknown {
 
 function ImagePlaygroundPage() {
   const [prompt, setPrompt] = useState("");
-  const [modelId, setModelId] = useState<string>(IMAGE_MODELS[1].id);
-  const [inputImage, setInputImage] = useState<{ name: string; dataUrl: string } | null>(null);
+  const [providers, setProviders] = useState<ConnectedIntegration[] | null>(null);
+  const [provider, setProvider] = useState<string>("");
+  const [models, setModels] = useState<ProviderModelInfo[] | null>(null);
+  const [modelsError, setModelsError] = useState<string | null>(null);
+  const [modelId, setModelId] = useState<string>("");
+  const [inputImages, setInputImages] = useState<{ name: string; dataUrl: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<GeneratedImage[]>([]);
   const [traces, setTraces] = useState<TraceEntry[]>([]);
   const [activeTraceId, setActiveTraceId] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const listImageModelsFn = useServerFn(listProviderImageModels);
 
-  const selectedModel = IMAGE_MODELS.find((m) => m.id === modelId) ?? IMAGE_MODELS[0];
-  const isEdit = !!inputImage;
+  const selectedLabel = models?.find((m) => m.id === modelId)?.name ?? modelId;
+  const notes = MODEL_NOTES[modelId];
+  const isEdit = inputImages.length > 0;
+  const isBlend = inputImages.length > 1;
   const activeTrace = traces.find((t) => t.id === activeTraceId) ?? traces[0] ?? null;
 
-  async function handleFile(file: File) {
-    if (!file.type.startsWith("image/")) {
-      toast.error("Please choose an image file");
+  // Providers: only what the user connected under /integrations.
+  useEffect(() => {
+    fetchConnectedIntegrations()
+      .then((list) => {
+        setProviders(list);
+        if (list.length > 0) {
+          setProvider((p) =>
+            p && list.some((i) => i.provider === p)
+              ? p
+              : (list.find((i) => i.provider === "openrouter")?.provider ?? list[0].provider),
+          );
+        }
+      })
+      .catch(() => setProviders([]));
+  }, []);
+
+  // Image models for the selected provider (its /models endpoint, filtered
+  // server-side to image-generation models; cached per session).
+  useEffect(() => {
+    if (!provider) return;
+    setModelsError(null);
+    const cached = imageModelsCache.get(provider);
+    if (cached) {
+      setModels(cached);
+      setModelId((m) => (m && cached.some((x) => x.id === m) ? m : (cached[0]?.id ?? "")));
       return;
     }
-    if (file.size > 8 * 1024 * 1024) {
-      toast.error("Image is over 8MB — pick a smaller one");
-      return;
+    setModels(null);
+    void (async () => {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) return;
+      const res = await listImageModelsFn({ data: { access_token: token, provider } });
+      if (!res.ok) {
+        setModels([]);
+        setModelsError(res.error);
+        return;
+      }
+      imageModelsCache.set(provider, res.models);
+      setModels(res.models);
+      setModelId((m) => (m && res.models.some((x) => x.id === m) ? m : (res.models[0]?.id ?? "")));
+    })();
+  }, [provider, listImageModelsFn]);
+
+  async function handleFiles(files: File[] | FileList) {
+    const incoming = [...files];
+    for (const file of incoming) {
+      if (inputImages.length + incoming.indexOf(file) >= MAX_INPUT_IMAGES) {
+        toast.error(`Up to ${MAX_INPUT_IMAGES} images`);
+        break;
+      }
+      if (!file.type.startsWith("image/")) {
+        toast.error(`"${file.name}" is not an image file`);
+        continue;
+      }
+      if (file.size > 8 * 1024 * 1024) {
+        toast.error(`"${file.name}" is over 8MB — pick a smaller one`);
+        continue;
+      }
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+      });
+      setInputImages((prev) =>
+        prev.length >= MAX_INPUT_IMAGES ? prev : [...prev, { name: file.name, dataUrl }],
+      );
     }
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(file);
-    });
-    setInputImage({ name: file.name, dataUrl });
   }
 
   async function generate() {
     const text = prompt.trim();
-    if (!text && !inputImage) {
-      toast.error("Add a prompt or an image to edit");
+    if (!text && inputImages.length === 0) {
+      toast.error("Add a prompt or at least one image");
+      return;
+    }
+    if (!provider || !modelId) {
+      toast.error("Pick a provider and an image model first");
       return;
     }
     setLoading(true);
 
     const traceId = crypto.randomUUID();
     const startedAt = Date.now();
-    const editFlag = !!inputImage;
+    const editFlag = inputImages.length > 0;
 
     // Build the request payload up-front so we can show it in the trace
-    // panel even if the network call never fires.
+    // panel even if the network call never fires. Every input image rides
+    // along as its own image_url part, so multi-image blending works.
     const userParts: Array<
       { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }
     > = [];
     if (text) userParts.push({ type: "text", text });
-    if (inputImage) userParts.push({ type: "image_url", image_url: { url: inputImage.dataUrl } });
+    for (const img of inputImages) {
+      userParts.push({ type: "image_url", image_url: { url: img.dataUrl } });
+    }
 
     // /api/chat reads `body.provider` and `body.model` — using the wrong
     // field names silently falls back to the default text model and the
     // image branch is never taken (which is what broke editing).
     const requestBody = {
-      provider: "openrouter",
+      provider,
       model: modelId,
       messages: [
         {
@@ -200,7 +260,7 @@ function ImagePlaygroundPage() {
       startedAt,
       status: "pending",
       modelId,
-      modelLabel: selectedModel.label,
+      modelLabel: selectedLabel,
       isEdit: editFlag,
       request: {
         url: "/api/chat",
@@ -328,7 +388,7 @@ function ImagePlaygroundPage() {
         id: crypto.randomUUID(),
         prompt: text || "(image edit)",
         modelId,
-        modelLabel: selectedModel.label,
+        modelLabel: selectedLabel,
         dataUrl,
         caption: captionText,
         createdAt: Date.now(),
@@ -375,8 +435,12 @@ function ImagePlaygroundPage() {
   }
 
   function reuseAsInput(img: GeneratedImage) {
-    setInputImage({ name: "previous-result.png", dataUrl: img.dataUrl });
-    toast.info("Loaded as input — describe the edit you want");
+    setInputImages((prev) =>
+      prev.length >= MAX_INPUT_IMAGES
+        ? prev
+        : [...prev, { name: "previous-result.png", dataUrl: img.dataUrl }],
+    );
+    toast.info("Added as input — describe the edit or blend you want");
   }
 
   return (
@@ -390,8 +454,8 @@ function ImagePlaygroundPage() {
           </Badge>
         </div>
         <p className="max-w-3xl text-sm text-muted-foreground">
-          Generate or edit images with Gemini image models. No conversation history — every run is a
-          fresh prompt so you stay below model token limits. For chat-style use, head to the{" "}
+          Generate, edit or blend images with the image models your connected providers offer. No
+          conversation history — every run is a fresh prompt. For chat-style use, head to the{" "}
           <Link
             to="/playground"
             search={{ agentId: undefined }}
@@ -408,49 +472,99 @@ function ImagePlaygroundPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <Wand2 className="h-4 w-4" /> {isEdit ? "Edit image" : "Generate image"}
+              <Wand2 className="h-4 w-4" />{" "}
+              {isBlend ? "Blend images" : isEdit ? "Edit image" : "Generate image"}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-5">
+            {providers !== null && providers.length === 0 && (
+              <div className="rounded-md border border-dashed bg-muted/40 p-3 text-xs text-muted-foreground">
+                No model providers connected. Connect one under{" "}
+                <Link to="/integrations" className="text-primary underline underline-offset-2">
+                  Integrations
+                </Link>{" "}
+                to generate images.
+              </div>
+            )}
             <div className="space-y-2">
-              <Label>Model</Label>
-              <Select value={modelId} onValueChange={setModelId}>
+              <Label>Provider</Label>
+              <Select value={provider} onValueChange={setProvider}>
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue
+                    placeholder={providers === null ? "Loading providers…" : "Pick a provider…"}
+                  />
                 </SelectTrigger>
                 <SelectContent>
-                  {IMAGE_MODELS.map((m) => (
+                  {(providers ?? []).map((p) => (
+                    <SelectItem key={p.provider} value={p.provider}>
+                      {PROVIDER_LABELS[p.provider as ProviderId] ?? p.provider}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Image model</Label>
+              <Select value={modelId} onValueChange={setModelId} disabled={!models?.length}>
+                <SelectTrigger>
+                  <SelectValue
+                    placeholder={
+                      !provider
+                        ? "Pick a provider first"
+                        : models === null
+                          ? "Loading image models…"
+                          : models.length === 0
+                            ? "No image models from this provider"
+                            : "Pick a model…"
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {(models ?? []).map((m) => (
                     <SelectItem key={m.id} value={m.id}>
                       <div className="flex flex-col">
-                        <span>{m.label}</span>
-                        <span className="text-xs text-muted-foreground">{m.tagline}</span>
+                        <span>{m.name ?? m.id}</span>
+                        {MODEL_NOTES[m.id] && (
+                          <span className="text-xs text-muted-foreground">
+                            {MODEL_NOTES[m.id].tagline}
+                          </span>
+                        )}
                       </div>
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              <div className="rounded-md border bg-muted/40 p-3 text-xs">
-                <div className="mb-1 flex items-center gap-2">
-                  <Badge variant="outline">{selectedModel.speed}</Badge>
-                  <Badge variant="outline">{selectedModel.quality} quality</Badge>
-                </div>
-                <p className="text-muted-foreground">
-                  <span className="font-medium text-foreground">Best for: </span>
-                  {selectedModel.bestFor}
+              {modelsError && <p className="text-xs text-destructive">{modelsError}</p>}
+              {models !== null && models.length === 0 && !modelsError && provider && (
+                <p className="text-xs text-muted-foreground">
+                  {PROVIDER_LABELS[provider as ProviderId] ?? provider} lists no image-generation
+                  models — try another connected provider.
                 </p>
-              </div>
+              )}
+              {notes && (
+                <div className="rounded-md border bg-muted/40 p-3 text-xs">
+                  <p className="text-muted-foreground">
+                    <span className="font-medium text-foreground">Best for: </span>
+                    {notes.bestFor}
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="ip-prompt">{isEdit ? "Edit instruction" : "Prompt"}</Label>
+              <Label htmlFor="ip-prompt">
+                {isBlend ? "Blend instruction" : isEdit ? "Edit instruction" : "Prompt"}
+              </Label>
               <Textarea
                 id="ip-prompt"
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 placeholder={
-                  isEdit
-                    ? "e.g. Make the sky a vivid sunset orange, add light fog over the trees"
-                    : "e.g. A neon-lit cyberpunk street market at night, cinematic, ultra-detailed"
+                  isBlend
+                    ? "e.g. Combine these into one scene: put the product from the first image into the setting of the second"
+                    : isEdit
+                      ? "e.g. Make the sky a vivid sunset orange, add light fog over the trees"
+                      : "e.g. A neon-lit cyberpunk street market at night, cinematic, ultra-detailed"
                 }
                 rows={5}
                 className="resize-none"
@@ -458,25 +572,35 @@ function ImagePlaygroundPage() {
             </div>
 
             <div className="space-y-2">
-              <Label>Input image (optional — enables editing)</Label>
-              {inputImage ? (
-                <div className="relative overflow-hidden rounded-md border">
-                  <img
-                    src={inputImage.dataUrl}
-                    alt={inputImage.name}
-                    className="max-h-48 w-full object-contain bg-muted"
-                  />
-                  <Button
-                    size="icon"
-                    variant="secondary"
-                    className="absolute right-2 top-2 h-7 w-7"
-                    onClick={() => setInputImage(null)}
-                    aria-label="Remove input image"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </Button>
+              <Label>
+                Input images (optional — one edits, several blend, up to {MAX_INPUT_IMAGES})
+              </Label>
+              {inputImages.length > 0 && (
+                <div className="grid grid-cols-2 gap-2">
+                  {inputImages.map((img, i) => (
+                    <div key={`${img.name}-${i}`} className="relative overflow-hidden rounded-md border">
+                      <img
+                        src={img.dataUrl}
+                        alt={img.name}
+                        className="h-24 w-full bg-muted object-cover"
+                      />
+                      <Button
+                        size="icon"
+                        variant="secondary"
+                        className="absolute right-1 top-1 h-6 w-6"
+                        onClick={() => setInputImages((prev) => prev.filter((_, j) => j !== i))}
+                        aria-label={`Remove ${img.name}`}
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                      <span className="absolute bottom-0 left-0 right-0 truncate bg-black/50 px-1.5 py-0.5 text-[10px] text-white">
+                        {img.name}
+                      </span>
+                    </div>
+                  ))}
                 </div>
-              ) : (
+              )}
+              {inputImages.length < MAX_INPUT_IMAGES && (
                 <Button
                   type="button"
                   variant="outline"
@@ -484,17 +608,19 @@ function ImagePlaygroundPage() {
                   onClick={() => fileRef.current?.click()}
                 >
                   <Upload className="h-4 w-4" />
-                  Upload an image to edit
+                  {inputImages.length === 0
+                    ? "Upload images to edit or blend"
+                    : "Add another image"}
                 </Button>
               )}
               <input
                 ref={fileRef}
                 type="file"
                 accept="image/*"
+                multiple
                 className="hidden"
                 onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) handleFile(file);
+                  if (e.target.files?.length) void handleFiles(e.target.files);
                   e.currentTarget.value = "";
                 }}
               />
@@ -503,7 +629,9 @@ function ImagePlaygroundPage() {
             <Button
               className="w-full gap-2"
               onClick={generate}
-              disabled={loading || (!prompt.trim() && !inputImage)}
+              disabled={
+                loading || (!prompt.trim() && inputImages.length === 0) || !provider || !modelId
+              }
             >
               {loading ? (
                 <>
@@ -511,7 +639,8 @@ function ImagePlaygroundPage() {
                 </>
               ) : (
                 <>
-                  <Sparkles className="h-4 w-4" /> {isEdit ? "Apply edit" : "Generate"}
+                  <Sparkles className="h-4 w-4" />{" "}
+                  {isBlend ? `Blend ${inputImages.length} images` : isEdit ? "Apply edit" : "Generate"}
                 </>
               )}
             </Button>
@@ -533,7 +662,7 @@ function ImagePlaygroundPage() {
             <Card className="flex h-[420px] items-center justify-center border-dashed">
               <div className="flex items-center gap-3 text-sm text-muted-foreground">
                 <Loader2 className="h-5 w-5 animate-spin" />
-                Generating image with {selectedModel.label}…
+                Generating image with {selectedLabel}…
               </div>
             </Card>
           )}

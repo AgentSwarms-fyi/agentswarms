@@ -89,10 +89,14 @@ export const auditListEvents = createServerFn({ method: "POST" })
         // RLS does the scoping for non-admins; the service client sees all.
         const client = admin ? supabaseAdmin : sb;
 
-        const wantEvents = !data.action || data.action !== "model.call";
+        // Three sources: audit_events (activities incl. agent.chat),
+        // execution_traces (model calls) and swarm_runs (swarm executions).
+        const derived = ["model.call", "swarm.run"];
+        const wantEvents = !data.action || !derived.includes(data.action);
         const wantModels = !data.action || data.action === "model.call";
+        const wantSwarms = !data.action || data.action === "swarm.run";
 
-        const [eventsRes, tracesRes] = await Promise.all([
+        const [eventsRes, tracesRes, swarmsRes] = await Promise.all([
           wantEvents
             ? client
                 .from("audit_events")
@@ -111,9 +115,18 @@ export const auditListEvents = createServerFn({ method: "POST" })
                 .order("created_at", { ascending: false })
                 .limit(FETCH_CAP)
             : Promise.resolve({ data: [], error: null }),
+          wantSwarms
+            ? client
+                .from("swarm_runs")
+                .select("id, user_id, swarm_name, status, step_count, total_cost_usd, started_at")
+                .gte("started_at", since)
+                .order("started_at", { ascending: false })
+                .limit(FETCH_CAP)
+            : Promise.resolve({ data: [], error: null }),
         ]);
         if (eventsRes.error) return { ok: false, error: eventsRes.error.message };
         if (tracesRes.error) return { ok: false, error: tracesRes.error.message };
+        if (swarmsRes.error) return { ok: false, error: swarmsRes.error.message };
 
         const emails = admin ? await emailMap() : null;
         const emailFor = (uid: string) => emails?.get(uid) ?? null;
@@ -143,6 +156,20 @@ export const auditListEvents = createServerFn({ method: "POST" })
               status: t.status,
             } as Json,
             created_at: t.created_at,
+          })),
+          ...(swarmsRes.data ?? []).map((s) => ({
+            id: `swarm:${s.id}`,
+            user_id: s.user_id,
+            user_email: emailFor(s.user_id),
+            action: "swarm.run",
+            resource_type: "swarm",
+            resource_name: s.swarm_name ?? "Untitled swarm",
+            detail: {
+              status: s.status,
+              steps: s.step_count,
+              cost_usd: Number(s.total_cost_usd ?? 0),
+            } as Json,
+            created_at: s.started_at,
           })),
         ]
           .filter((r) => (data.action ? r.action === data.action : true))
