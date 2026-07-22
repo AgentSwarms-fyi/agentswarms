@@ -64,6 +64,7 @@ import { Route as AuthenticatedDashboardRouteImport } from './routes/_authentica
 import { Route as AuthenticatedCertificationRouteImport } from './routes/_authenticated/certification'
 import { Route as AuthenticatedBudgetsRouteImport } from './routes/_authenticated/budgets'
 import { Route as AuthenticatedBiRouteImport } from './routes/_authenticated/bi'
+import { Route as AuthenticatedAuditRouteImport } from './routes/_authenticated/audit'
 import { Route as AuthenticatedAnalyticsRouteImport } from './routes/_authenticated/analytics'
 import { Route as AuthenticatedAgentsRouteImport } from './routes/_authenticated/agents'
 import { Route as AuthenticatedAccountRouteImport } from './routes/_authenticated/account'
@@ -377,6 +378,11 @@ const AuthenticatedBiRoute = AuthenticatedBiRouteImport.update({
   path: '/bi',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedAuditRoute = AuthenticatedAuditRouteImport.update({
+  id: '/audit',
+  path: '/audit',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 const AuthenticatedAnalyticsRoute = AuthenticatedAnalyticsRouteImport.update({
   id: '/analytics',
   path: '/analytics',
@@ -570,6 +576,7 @@ export interface FileRoutesByFullPath {
   '/account': typeof AuthenticatedAccountRoute
   '/agents': typeof AuthenticatedAgentsRoute
   '/analytics': typeof AuthenticatedAnalyticsRoute
+  '/audit': typeof AuthenticatedAuditRoute
   '/bi': typeof AuthenticatedBiRoute
   '/budgets': typeof AuthenticatedBudgetsRoute
   '/certification': typeof AuthenticatedCertificationRouteWithChildren
@@ -658,6 +665,7 @@ export interface FileRoutesByTo {
   '/account': typeof AuthenticatedAccountRoute
   '/agents': typeof AuthenticatedAgentsRoute
   '/analytics': typeof AuthenticatedAnalyticsRoute
+  '/audit': typeof AuthenticatedAuditRoute
   '/bi': typeof AuthenticatedBiRoute
   '/budgets': typeof AuthenticatedBudgetsRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
@@ -748,6 +756,7 @@ export interface FileRoutesById {
   '/_authenticated/account': typeof AuthenticatedAccountRoute
   '/_authenticated/agents': typeof AuthenticatedAgentsRoute
   '/_authenticated/analytics': typeof AuthenticatedAnalyticsRoute
+  '/_authenticated/audit': typeof AuthenticatedAuditRoute
   '/_authenticated/bi': typeof AuthenticatedBiRoute
   '/_authenticated/budgets': typeof AuthenticatedBudgetsRoute
   '/_authenticated/certification': typeof AuthenticatedCertificationRouteWithChildren
@@ -839,6 +848,7 @@ export interface FileRouteTypes {
     | '/account'
     | '/agents'
     | '/analytics'
+    | '/audit'
     | '/bi'
     | '/budgets'
     | '/certification'
@@ -927,6 +937,7 @@ export interface FileRouteTypes {
     | '/account'
     | '/agents'
     | '/analytics'
+    | '/audit'
     | '/bi'
     | '/budgets'
     | '/dashboard'
@@ -1016,6 +1027,7 @@ export interface FileRouteTypes {
     | '/_authenticated/account'
     | '/_authenticated/agents'
     | '/_authenticated/analytics'
+    | '/_authenticated/audit'
     | '/_authenticated/bi'
     | '/_authenticated/budgets'
     | '/_authenticated/certification'
@@ -1520,6 +1532,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedBiRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/audit': {
+      id: '/_authenticated/audit'
+      path: '/audit'
+      fullPath: '/audit'
+      preLoaderRoute: typeof AuthenticatedAuditRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/analytics': {
       id: '/_authenticated/analytics'
       path: '/analytics'
@@ -1804,6 +1823,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedAccountRoute: typeof AuthenticatedAccountRoute
   AuthenticatedAgentsRoute: typeof AuthenticatedAgentsRoute
   AuthenticatedAnalyticsRoute: typeof AuthenticatedAnalyticsRoute
+  AuthenticatedAuditRoute: typeof AuthenticatedAuditRoute
   AuthenticatedBiRoute: typeof AuthenticatedBiRoute
   AuthenticatedBudgetsRoute: typeof AuthenticatedBudgetsRoute
   AuthenticatedCertificationRoute: typeof AuthenticatedCertificationRouteWithChildren
@@ -1835,6 +1855,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedAccountRoute: AuthenticatedAccountRoute,
   AuthenticatedAgentsRoute: AuthenticatedAgentsRoute,
   AuthenticatedAnalyticsRoute: AuthenticatedAnalyticsRoute,
+  AuthenticatedAuditRoute: AuthenticatedAuditRoute,
   AuthenticatedBiRoute: AuthenticatedBiRoute,
   AuthenticatedBudgetsRoute: AuthenticatedBudgetsRoute,
   AuthenticatedCertificationRoute: AuthenticatedCertificationRouteWithChildren,

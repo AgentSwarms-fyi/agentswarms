@@ -9,6 +9,7 @@ import {
   Network,
   Plug,
   BarChart3,
+  FileClock,
   ScrollText,
   Settings,
   Sparkles,
@@ -66,6 +67,7 @@ const opsItems = [
   { title: "Analytics", url: "/analytics", icon: BarChart3 },
   { title: "Swarm Traces", url: "/analytics/observability", icon: Network },
   { title: "Traces & Logs", url: "/traces", icon: ScrollText },
+  { title: "Audit Log", url: "/audit", icon: FileClock },
   { title: "Budgets", url: "/budgets", icon: Settings },
 ];
 
