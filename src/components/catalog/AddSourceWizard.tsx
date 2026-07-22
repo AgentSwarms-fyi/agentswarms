@@ -45,13 +45,21 @@ import { catalogCreateSource, catalogCrawlSource } from "@/utils/catalog.functio
 import { listWarehouseConnections } from "@/utils/warehouse.functions";
 import { WAREHOUSE_LABELS, type WarehouseConnectionSummary } from "@/utils/warehouse/types";
 
-type StorageProvider = "aws" | "r2" | "minio" | "spaces" | "b2" | "custom";
+type StorageProvider = "aws" | "gcs" | "r2" | "minio" | "spaces" | "b2" | "custom";
 
 const STORAGE_PRESETS: Record<
   StorageProvider,
   { label: string; endpoint: string; endpointHint?: string; region: string; pathStyle: boolean }
 > = {
   aws: { label: "Amazon S3", endpoint: "", region: "us-east-1", pathStyle: false },
+  gcs: {
+    // GCS's XML interoperability API speaks S3 SigV4 with HMAC keys
+    // (Cloud Storage → Settings → Interoperability).
+    label: "Google Cloud Storage",
+    endpoint: "https://storage.googleapis.com",
+    region: "auto",
+    pathStyle: true,
+  },
   r2: {
     label: "Cloudflare R2",
     endpoint: "",
@@ -152,7 +160,7 @@ export function AddSourceWizard({
     setProvider(p);
     setRegion(preset.region);
     setPathStyle(preset.pathStyle);
-    if (p === "aws") setEndpoint("");
+    setEndpoint(preset.endpoint); // fixed for GCS, empty prompt otherwise
   }
 
   const configValid =

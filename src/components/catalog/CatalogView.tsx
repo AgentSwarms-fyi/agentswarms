@@ -5,18 +5,23 @@
 // and object-storage sources are added through the wizard and crawled
 // on demand.
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
 import {
   BadgeCheck,
+  BookMarked,
   CalendarClock,
   Cloud,
   Database,
   FileText,
   Folder,
+  Gauge,
+  GitBranch,
   HardDrive,
   Layers,
+  LayoutDashboard,
   Loader2,
   MoreVertical,
   Play,
@@ -73,16 +78,23 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
 import { useBiModelPref } from "@/components/bi/BiModelSelect";
 import {
+  assetLineageKeys,
   fmtBytes,
   fmtCount,
   generateAssetDocs,
   isPiiColumnName,
   listCatalogAssets,
   listCatalogSources,
+  listGlossaryTerms,
+  loadLineageIndex,
+  lookupLineage,
   updateCatalogAsset,
+  type AssetLineage,
   type CatalogAsset,
   type CatalogAssetStatus,
   type CatalogSource,
+  type GlossaryTerm,
+  type LineageIndex,
 } from "@/lib/dataCatalog";
 import { hydrateFromSupabase } from "@/lib/sqlEngine";
 import {
@@ -91,6 +103,7 @@ import {
   catalogSetSchedule,
 } from "@/utils/catalog.functions";
 import { AddSourceWizard } from "@/components/catalog/AddSourceWizard";
+import { GlossaryDialog } from "@/components/catalog/GlossaryDialog";
 
 const LOCAL_SOURCE_ID = "local";
 
@@ -122,15 +135,31 @@ export function CatalogView({
   const [crawlingIds, setCrawlingIds] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<UnifiedAsset | null>(null);
 
+  const [lineage, setLineage] = useState<LineageIndex>(new Map());
+  const [glossary, setGlossary] = useState<GlossaryTerm[]>([]);
+  const [glossaryOpen, setGlossaryOpen] = useState(false);
+
   const reload = useCallback(async () => {
     try {
-      const [src, ast] = await Promise.all([listCatalogSources(), listCatalogAssets()]);
+      const [src, ast, lin, terms] = await Promise.all([
+        listCatalogSources(),
+        listCatalogAssets(),
+        loadLineageIndex(),
+        listGlossaryTerms(),
+      ]);
       setSources(src);
       setAssets(ast);
+      setLineage(lin);
+      setGlossary(terms);
     } catch (e) {
       toast.error((e as Error).message);
     }
   }, []);
+
+  const termDefs = useMemo(
+    () => new Map(glossary.map((t) => [t.term.toLowerCase(), t.definition])),
+    [glossary],
+  );
 
   useEffect(() => {
     (async () => {
@@ -286,6 +315,12 @@ export function CatalogView({
 
   const queryable = (a: UnifiedAsset) =>
     a.local || sourceById.get(a.source_id)?.kind === "warehouse";
+
+  const lineageFor = useCallback(
+    (a: UnifiedAsset): AssetLineage =>
+      lookupLineage(lineage, assetLineageKeys(a, sourceById.get(a.source_id), Boolean(a.local))),
+    [lineage, sourceById],
+  );
 
   function openInWorkbench(a: UnifiedAsset) {
     if (!onQueryAsset) return;
@@ -495,6 +530,15 @@ export function CatalogView({
           >
             <BadgeCheck className="h-3.5 w-3.5" /> Certified
           </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 gap-1.5 px-2.5 text-xs"
+            onClick={() => setGlossaryOpen(true)}
+            title="Business glossary — shared term definitions"
+          >
+            <BookMarked className="h-3.5 w-3.5" /> Glossary
+          </Button>
           <span className="ml-auto text-[11px] text-muted-foreground">
             {filtered.length} of {allAssets.length} assets
           </span>
@@ -529,6 +573,9 @@ export function CatalogView({
                   <TableHead className="text-right text-xs">Columns</TableHead>
                   <TableHead className="text-right text-xs">Rows</TableHead>
                   <TableHead className="text-right text-xs">Size</TableHead>
+                  <TableHead className="text-right text-xs" title="Dashboards, prep flows and metrics built on this asset">
+                    Used by
+                  </TableHead>
                   <TableHead className="text-xs">Tags</TableHead>
                   <TableHead className="w-24 text-xs" />
                 </TableRow>
@@ -596,13 +643,31 @@ export function CatalogView({
                     <TableCell className="text-right text-xs tabular-nums">
                       {fmtBytes(a.size_bytes)}
                     </TableCell>
+                    <TableCell className="text-right text-xs tabular-nums">
+                      {(() => {
+                        const n = lineageFor(a).usedBy.length;
+                        return n > 0 ? (
+                          <span className="font-medium text-primary">{n}</span>
+                        ) : (
+                          <span className="text-muted-foreground/50">—</span>
+                        );
+                      })()}
+                    </TableCell>
                     <TableCell className="max-w-40">
                       <div className="flex flex-wrap gap-1">
-                        {a.tags.slice(0, 3).map((t) => (
-                          <Badge key={t} variant="outline" className="h-4 px-1 text-[9px]">
-                            {t}
-                          </Badge>
-                        ))}
+                        {a.tags.slice(0, 3).map((t) => {
+                          const def = termDefs.get(t.toLowerCase());
+                          return (
+                            <Badge
+                              key={t}
+                              variant="outline"
+                              title={def || undefined}
+                              className={`h-4 px-1 text-[9px] ${def ? "border-primary/40 text-primary" : ""}`}
+                            >
+                              {t}
+                            </Badge>
+                          );
+                        })}
                         {a.tags.length > 3 && (
                           <span className="text-[10px] text-muted-foreground">
                             +{a.tags.length - 3}
@@ -639,6 +704,11 @@ export function CatalogView({
       <AssetSheet
         asset={selected}
         sourceName={selected ? sourceName(selected) : ""}
+        lineage={selected ? lineageFor(selected) : { usedBy: [], derivedFrom: [] }}
+        onJumpToAsset={(name) => {
+          const target = allAssets.find((x) => x.name.toLowerCase() === name.toLowerCase());
+          if (target) setSelected(target);
+        }}
         queryable={selected ? queryable(selected) && Boolean(onQueryAsset) : false}
         onQuery={() => selected && openInWorkbench(selected)}
         onClose={() => setSelected(null)}
@@ -651,6 +721,21 @@ export function CatalogView({
       />
 
       <AddSourceWizard open={wizardOpen} onOpenChange={setWizardOpen} onDone={() => void reload()} />
+
+      <GlossaryDialog
+        open={glossaryOpen}
+        onOpenChange={setGlossaryOpen}
+        terms={glossary}
+        assetCountFor={(term) =>
+          allAssets.filter((a) => a.tags.some((t) => t.toLowerCase() === term.toLowerCase())).length
+        }
+        onChanged={() => void listGlossaryTerms().then(setGlossary)}
+        onFilterByTerm={(term) => {
+          setSearch(term);
+          setSourceFilter("all");
+          setGlossaryOpen(false);
+        }}
+      />
     </div>
   );
 }
@@ -660,6 +745,8 @@ export function CatalogView({
 function AssetSheet({
   asset,
   sourceName,
+  lineage,
+  onJumpToAsset,
   queryable,
   onQuery,
   onClose,
@@ -667,6 +754,9 @@ function AssetSheet({
 }: {
   asset: UnifiedAsset | null;
   sourceName: string;
+  lineage: AssetLineage;
+  /** Navigate the sheet to another asset by table name (derived-from chips). */
+  onJumpToAsset: (name: string) => void;
   queryable: boolean;
   onQuery: () => void;
   onClose: () => void;
@@ -786,6 +876,67 @@ function AssetSheet({
 
         <ScrollArea className="min-h-0 flex-1 py-3">
           <div className="space-y-4 pr-3">
+            {(lineage.usedBy.length > 0 || lineage.derivedFrom.length > 0) && (
+              <div>
+                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Lineage & usage
+                </p>
+                {lineage.derivedFrom.length > 0 && (
+                  <div className="mb-2 flex flex-wrap items-center gap-1 text-[11px]">
+                    <span className="text-muted-foreground">Derived from:</span>
+                    {lineage.derivedFrom.map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => onJumpToAsset(t)}
+                        className="rounded-full border border-border bg-muted/40 px-2 py-0.5 font-mono text-[10px] transition-colors hover:border-primary/50 hover:text-primary"
+                        title={`Open ${t} in the catalog`}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {lineage.usedBy.length > 0 && (
+                  <div className="space-y-1">
+                    {lineage.usedBy.map((r) => (
+                      <div
+                        key={`${r.kind}:${r.id}`}
+                        className="flex items-center gap-2 rounded-md border border-border/60 bg-muted/30 px-2 py-1.5 text-[11px]"
+                      >
+                        {r.kind === "dashboard" ? (
+                          <LayoutDashboard className="h-3.5 w-3.5 shrink-0 text-primary" />
+                        ) : r.kind === "prep_flow" ? (
+                          <GitBranch className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+                        ) : (
+                          <Gauge className="h-3.5 w-3.5 shrink-0 text-teal-600 dark:text-teal-400" />
+                        )}
+                        <span className="min-w-0 flex-1 truncate">
+                          {r.kind === "dashboard" ? (
+                            <Link
+                              to="/bi/$dashboardId"
+                              params={{ dashboardId: r.id }}
+                              className="font-medium hover:text-primary hover:underline"
+                            >
+                              {r.name}
+                            </Link>
+                          ) : (
+                            <span className="font-medium">{r.name}</span>
+                          )}
+                          {r.detail && (
+                            <span className="text-muted-foreground"> — {r.detail}</span>
+                          )}
+                        </span>
+                        <span className="shrink-0 text-[9px] uppercase tracking-wider text-muted-foreground">
+                          {r.kind === "prep_flow" ? "prep flow" : r.kind}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div>
               <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Columns ({asset.columns.length})

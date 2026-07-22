@@ -114,6 +114,208 @@ export async function updateCatalogAsset(
   if (error) throw new Error(error.message);
 }
 
+// ── Business glossary ────────────────────────────────────────────────────
+// A term defines a tag: tagging an asset with the term's name links them.
+
+export type GlossaryTerm = {
+  id: string;
+  term: string;
+  definition: string;
+  updated_at: string;
+};
+
+export async function listGlossaryTerms(): Promise<GlossaryTerm[]> {
+  const { data, error } = await supabase
+    .from("catalog_glossary_terms")
+    .select("id, term, definition, updated_at")
+    .order("term");
+  if (error) throw new Error(error.message);
+  return data ?? [];
+}
+
+export async function upsertGlossaryTerm(
+  userId: string,
+  term: string,
+  definition: string,
+): Promise<void> {
+  const { error } = await supabase.from("catalog_glossary_terms").upsert(
+    {
+      user_id: userId,
+      term: term.trim(),
+      definition: definition.trim(),
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id,term" },
+  );
+  if (error) throw new Error(error.message);
+}
+
+export async function deleteGlossaryTerm(id: string): Promise<void> {
+  const { error } = await supabase.from("catalog_glossary_terms").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+// ── Lineage & usage ──────────────────────────────────────────────────────
+//
+// Lineage is derived from what already exists — no separate tracking:
+//   - BI dashboard widgets store their SQL + source: FROM/JOIN refs are
+//     parsed out, so a table knows every dashboard built on it;
+//   - prep flows record base + joined input tables and the output table,
+//     giving derived-from edges;
+//   - saved metrics reference their table directly.
+// The index is keyed per source space so "orders" in a warehouse never
+// collides with a local "orders" CSV.
+
+export type LineageRef = {
+  kind: "dashboard" | "prep_flow" | "metric";
+  id: string;
+  name: string;
+  /** Extra context: widget titles, or "input"/"output" for prep flows. */
+  detail?: string;
+};
+
+export type AssetLineage = {
+  /** Consumers built on this asset (impact analysis). */
+  usedBy: LineageRef[];
+  /** Prep outputs only: the tables this asset was derived from. */
+  derivedFrom: string[];
+};
+
+export type LineageIndex = Map<string, AssetLineage>;
+
+// Handles bare, backticked, double-quoted and bracketed identifiers,
+// including quoted multi-part refs like "schema"."table".
+const TABLE_REF_RE = /\b(?:from|join)\s+[`"[]?([\w$]+(?:[`"\]]?\.[`"[]?[\w$]+)*)/gi;
+
+/** FROM/JOIN table references in a SQL statement (deduped, lowercased). */
+export function extractTableRefs(sql: string): string[] {
+  const out = new Set<string>();
+  for (const m of sql.matchAll(TABLE_REF_RE)) {
+    out.add(m[1].replace(/[`"\][]/g, "").toLowerCase());
+  }
+  return [...out];
+}
+
+function entry(index: LineageIndex, key: string): AssetLineage {
+  let e = index.get(key);
+  if (!e) {
+    e = { usedBy: [], derivedFrom: [] };
+    index.set(key, e);
+  }
+  return e;
+}
+
+function addRef(index: LineageIndex, key: string, ref: LineageRef): void {
+  const e = entry(index, key);
+  const existing = e.usedBy.find((r) => r.kind === ref.kind && r.id === ref.id);
+  if (existing) {
+    if (ref.detail && existing.detail && !existing.detail.includes(ref.detail)) {
+      existing.detail = `${existing.detail}, ${ref.detail}`;
+    }
+  } else {
+    e.usedBy.push(ref);
+  }
+}
+
+/** Build the lineage index from dashboards, prep flows and saved metrics. */
+export async function loadLineageIndex(): Promise<LineageIndex> {
+  const index: LineageIndex = new Map();
+  const [dashRes, flowRes, metricRes] = await Promise.all([
+    supabase.from("bi_dashboards").select("id, name, widgets"),
+    supabase.from("user_prep_flows").select("id, name, config, output_table_name"),
+    supabase.from("user_saved_metrics").select("id, name, table_id"),
+  ]);
+
+  for (const d of dashRes.data ?? []) {
+    const widgets = Array.isArray(d.widgets) ? d.widgets : [];
+    for (const w of widgets as {
+      kind?: string;
+      title?: string;
+      sql?: string;
+      source?: { kind?: string; connection_id?: string };
+    }[]) {
+      if (w.kind !== "chart" || !w.sql) continue;
+      const ref: LineageRef = { kind: "dashboard", id: d.id, name: d.name, detail: w.title };
+      for (const t of extractTableRefs(w.sql)) {
+        if (w.source?.kind === "warehouse" && w.source.connection_id) {
+          addRef(index, `wh:${w.source.connection_id}:${t}`, ref);
+          const last = t.split(".").pop()!;
+          if (last !== t) addRef(index, `wh:${w.source.connection_id}:${last}`, ref);
+        } else {
+          addRef(index, `name:${t}`, ref);
+        }
+      }
+    }
+  }
+
+  for (const f of flowRes.data ?? []) {
+    const cfg = (f.config ?? {}) as { base?: string | null; joins?: { table?: string }[] };
+    const inputs = [
+      ...(cfg.base ? [cfg.base] : []),
+      ...(cfg.joins ?? []).map((j) => j.table).filter((t): t is string => Boolean(t)),
+    ];
+    for (const t of inputs) {
+      addRef(index, `name:${t.toLowerCase()}`, {
+        kind: "prep_flow",
+        id: f.id,
+        name: f.name,
+        detail: "input",
+      });
+    }
+    if (f.output_table_name) {
+      const e = entry(index, `name:${f.output_table_name.toLowerCase()}`);
+      e.derivedFrom = [...new Set([...e.derivedFrom, ...inputs])];
+      addRef(index, `name:${f.output_table_name.toLowerCase()}`, {
+        kind: "prep_flow",
+        id: f.id,
+        name: f.name,
+        detail: "output",
+      });
+    }
+  }
+
+  for (const m of metricRes.data ?? []) {
+    if (m.table_id) {
+      addRef(index, `tid:${m.table_id}`, { kind: "metric", id: m.id, name: m.name });
+    }
+  }
+  return index;
+}
+
+/** Lineage lookup keys for an asset (local vs warehouse source space). */
+export function assetLineageKeys(
+  asset: Pick<CatalogAsset, "id" | "source_id" | "name" | "fqn">,
+  source: CatalogSource | undefined,
+  isLocal: boolean,
+): string[] {
+  if (isLocal) {
+    return [`name:${asset.name.toLowerCase()}`, `tid:${asset.id.replace(/^local:/, "")}`];
+  }
+  if (source?.kind === "warehouse" && source.connection_id) {
+    const keys = [`wh:${source.connection_id}:${asset.fqn.toLowerCase()}`];
+    if (asset.name.toLowerCase() !== asset.fqn.toLowerCase()) {
+      keys.push(`wh:${source.connection_id}:${asset.name.toLowerCase()}`);
+    }
+    return keys;
+  }
+  return [];
+}
+
+/** Merge the index entries for an asset's keys (deduped). */
+export function lookupLineage(index: LineageIndex, keys: string[]): AssetLineage {
+  const usedBy: LineageRef[] = [];
+  const derivedFrom = new Set<string>();
+  for (const k of keys) {
+    const e = index.get(k);
+    if (!e) continue;
+    for (const r of e.usedBy) {
+      if (!usedBy.some((x) => x.kind === r.kind && x.id === r.id)) usedBy.push(r);
+    }
+    for (const d of e.derivedFrom) derivedFrom.add(d);
+  }
+  return { usedBy, derivedFrom: [...derivedFrom] };
+}
+
 // ── AI documentation ─────────────────────────────────────────────────────
 
 /**

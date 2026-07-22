@@ -10,7 +10,7 @@ import Papa from "papaparse";
 
 export type ObjectStoreConfig = {
   /** Display label only — the wire protocol is identical for all of them. */
-  provider: "aws" | "r2" | "minio" | "spaces" | "b2" | "custom";
+  provider: "aws" | "gcs" | "r2" | "minio" | "spaces" | "b2" | "custom";
   /** Custom endpoint origin (https://…). Empty = AWS (derived from region). */
   endpoint?: string;
   region: string;

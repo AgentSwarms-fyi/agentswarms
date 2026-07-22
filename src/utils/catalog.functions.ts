@@ -34,7 +34,7 @@ async function requireUser(accessToken: string) {
 }
 
 const StorageConfigSchema = z.object({
-  provider: z.enum(["aws", "r2", "minio", "spaces", "b2", "custom"]),
+  provider: z.enum(["aws", "gcs", "r2", "minio", "spaces", "b2", "custom"]),
   endpoint: z.string().url().optional().or(z.literal("")),
   region: z.string().min(1).max(64),
   bucket: z.string().min(1).max(255),
