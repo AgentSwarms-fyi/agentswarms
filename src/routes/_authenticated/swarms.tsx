@@ -4,7 +4,7 @@
 // - Run button executes the graph in-browser via swarmRuntime, calling /api/chat
 // - Load template loads a real, runnable example into the canvas
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -98,7 +98,14 @@ import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "@/hooks/use-theme";
 import { LearnPanel } from "@/components/LearnPanel";
 import { learnSwarms } from "@/lib/learnContent";
-import { runSwarm, type SwarmNodeData, type SwarmRunEvent } from "@/lib/swarmRuntime";
+import { type SwarmNodeData } from "@/lib/swarmRuntime";
+import {
+  startRun as startManagedRun,
+  cancelRun as cancelManagedRun,
+  getActiveRunForSwarm,
+  subscribe as subscribeRuns,
+  getSnapshot as getRunsSnapshot,
+} from "@/lib/swarmRunManager";
 import {
   SWARM_TEMPLATES,
   getSwarmTemplate,
@@ -384,6 +391,10 @@ const nodeTypes = {
   ),
 };
 
+// Stable empty array so the derived `events` prop keeps a constant identity
+// when no run is active (avoids needless RunPanel re-renders).
+const EMPTY_EVENTS: never[] = [];
+
 // Derived from theme tokens so edges follow the brand color in both modes.
 const EDGE_COLOR = "color-mix(in oklch, var(--primary) 65%, var(--border))";
 const defaultEdgeStyle = {
@@ -649,15 +660,29 @@ function SwarmsCanvas({
   const labHintsUsedRef = useRef(0);
   const labRevealedRef = useRef(false);
 
-  // run state
+  // run state. Execution lives in the module-level swarmRunManager so a run
+  // keeps going across client navigation (the "Gallery" back button) instead
+  // of being orphaned when this component unmounts. We derive the live view
+  // from that store and reflect it onto the canvas.
   const [runInput, setRunInput] = useState("");
-  const [running, setRunning] = useState(false);
-  const [events, setEvents] = useState<SwarmRunEvent[]>([]);
-  const [finalOutput, setFinalOutput] = useState<string | null>(null);
-  // Set of currently executing node IDs — during parallel execution multiple
-  // nodes run simultaneously; the tour picks the earliest matching step.
-  const [runningNodeIds, setRunningNodeIds] = useState<Set<string>>(new Set());
-  const abortRef = useRef<AbortController | null>(null);
+  const [traceEnabled, setTraceEnabled] = useState(true);
+  const [activeRunId, setActiveRunId] = useState<string | null>(null);
+  const managedRuns = useSyncExternalStore(subscribeRuns, getRunsSnapshot, getRunsSnapshot);
+  // The run this canvas is watching: the one we started, or (on a fresh mount
+  // while a run is still going) the newest active run for this swarm.
+  const activeRun = useMemo(() => {
+    if (activeRunId) return managedRuns.find((r) => r.runId === activeRunId) ?? null;
+    return getActiveRunForSwarm(swarmId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [managedRuns, activeRunId, swarmId]);
+  const running = !!activeRun && (activeRun.status === "running" || activeRun.status === "waiting");
+  const events = activeRun?.events ?? EMPTY_EVENTS;
+  const finalOutput = activeRun?.finalOutput ?? null;
+  const traceRunId = activeRun?.dbRunId ?? null;
+  const runningNodeIds = useMemo(
+    () => new Set(activeRun?.runningNodeIds ?? []),
+    [activeRun?.runId, (activeRun?.runningNodeIds ?? []).join("|")],
+  );
 
   // Track unsaved edits so we can warn on tab/window close.
   const dirtyRef = useRef(false);
@@ -672,8 +697,7 @@ function SwarmsCanvas({
       setEdges(loadedEdges.map(withDefaultEdgeStyle));
       idCounter.current = loadedNodes.length + 1;
       setSelectedNodeId(null);
-      setEvents([]);
-      setFinalOutput(null);
+      setActiveRunId(null);
       // Freshly loaded from DB → not dirty.
       dirtyRef.current = false;
     },
@@ -825,8 +849,7 @@ function SwarmsCanvas({
       setNodes([]);
       setEdges([]);
       setSelectedNodeId(null);
-      setEvents([]);
-      setFinalOutput(null);
+      setActiveRunId(null);
       idCounter.current = 1;
       toast.success("New swarm created");
     }
@@ -1048,8 +1071,7 @@ function SwarmsCanvas({
     setEdges(tpl.edges.map(withDefaultEdgeStyle));
     setRunInput(tpl.exampleInput);
     setSelectedNodeId(null);
-    setEvents([]);
-    setFinalOutput(null);
+    setActiveRunId(null);
     setTourSteps(tpl.tour);
     setTourTitle(tpl.title);
     setTourCaseStudies(tpl.caseStudies ?? []);
@@ -1109,8 +1131,42 @@ function SwarmsCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [running, Array.from(runningNodeIds).sort().join("|")]);
 
-  const [traceRunId, setTraceRunId] = useState<string | null>(null);
-  const [traceEnabled, setTraceEnabled] = useState(true);
+  // Reflect the live run's per-node status/output onto the canvas nodes. This
+  // works both for a run we just started AND for one we re-attach to after
+  // navigating back into the canvas while it's still executing.
+  useEffect(() => {
+    if (!activeRun) return;
+    setNodes((nds: Node<SwarmNodeData>[]) =>
+      nds.map((n) => {
+        const st = activeRun.nodeStatus[n.id];
+        if (!st) return n;
+        const lastOutput = activeRun.nodeOutput[n.id] ?? n.data.lastOutput;
+        if (n.data.status === st && n.data.lastOutput === lastOutput) return n;
+        return { ...n, data: { ...n.data, status: st, lastOutput } };
+      }),
+    );
+  }, [activeRun, setNodes]);
+
+  // Surface node warnings and run errors as toasts. We skip the backlog when a
+  // run first comes into view (e.g. on re-attach) so we don't re-toast history.
+  const toastRunRef = useRef<{ id: string | null; seen: number }>({ id: null, seen: 0 });
+  useEffect(() => {
+    if (!activeRun) return;
+    if (toastRunRef.current.id !== activeRun.runId) {
+      toastRunRef.current = { id: activeRun.runId, seen: activeRun.events.length };
+      return;
+    }
+    for (let i = toastRunRef.current.seen; i < activeRun.events.length; i++) {
+      const e = activeRun.events[i];
+      if (e.type === "node_warning") toast.warning(e.warning);
+      else if (e.type === "run_error") toast.error(e.error);
+    }
+    toastRunRef.current.seen = activeRun.events.length;
+  }, [activeRun]);
+
+  // Failure-Mode Lab: the run now executes in the background manager, so we
+  // evaluate once the run this canvas started reaches a terminal state.
+  const pendingLabRunRef = useRef<string | null>(null);
 
   const handleRun = async () => {
     if (!runInput.trim() || nodes.length === 0) return;
@@ -1135,131 +1191,26 @@ function SwarmsCanvas({
       );
     }
 
-    setRunning(true);
-    setEvents([]);
-    setFinalOutput(null);
-    setTraceRunId(null);
-    setRunningNodeIds(new Set());
-    abortRef.current = new AbortController();
+    // Reset canvas node statuses for the new run.
     setNodes((nds: Node<SwarmNodeData>[]) =>
       nds.map((n) => ({ ...n, data: { ...n.data, status: "idle", lastOutput: undefined } })),
     );
-
-    const tracer = traceEnabled
-      ? await (
-          await import("@/utils/observability/tracer")
-        ).createSwarmTracer({
-          swarmId: swarmId ?? null,
-          swarmName,
-          inputPrompt: runInput,
-          swarmSnapshot: { nodes, edges },
-        })
-      : null;
-    if (tracer) setTraceRunId(tracer.runId);
-
-    let finalText = "";
-    let runError: string | null = null;
-    // Local accumulation — the `events` state is stale inside this closure, so
-    // the lab evaluator reads from here once the run completes.
-    const collected: SwarmRunEvent[] = [];
-    if (activeLab) setLabResult(null);
-
-    await runSwarm(nodes, edges, {
-      initialInput: runInput,
-      signal: abortRef.current.signal,
-      tracer,
-      onEvent: (e) => {
-        collected.push(e);
-        setEvents((prev) => [...prev, e]);
-        if (e.type === "node_start") {
-          setRunningNodeIds((prev) => new Set([...prev, e.nodeId]));
-          setNodes((nds: Node<SwarmNodeData>[]) =>
-            nds.map((n) =>
-              n.id === e.nodeId ? { ...n, data: { ...n.data, status: "running" } } : n,
-            ),
-          );
-        } else if (e.type === "node_done") {
-          setRunningNodeIds((prev) => {
-            const next = new Set(prev);
-            next.delete(e.nodeId);
-            return next;
-          });
-          setNodes((nds: Node<SwarmNodeData>[]) =>
-            nds.map((n) =>
-              n.id === e.nodeId
-                ? { ...n, data: { ...n.data, status: "done", lastOutput: e.output } }
-                : n,
-            ),
-          );
-        } else if (e.type === "node_skipped") {
-          setRunningNodeIds((prev) => {
-            const next = new Set(prev);
-            next.delete(e.nodeId);
-            return next;
-          });
-          setNodes((nds: Node<SwarmNodeData>[]) =>
-            nds.map((n) =>
-              n.id === e.nodeId ? { ...n, data: { ...n.data, status: "skipped" } } : n,
-            ),
-          );
-        } else if (e.type === "node_error") {
-          setRunningNodeIds((prev) => {
-            const next = new Set(prev);
-            next.delete(e.nodeId);
-            return next;
-          });
-          setNodes((nds: Node<SwarmNodeData>[]) =>
-            nds.map((n) =>
-              n.id === e.nodeId ? { ...n, data: { ...n.data, status: "error" } } : n,
-            ),
-          );
-        } else if (e.type === "node_warning") {
-          toast.warning(e.warning);
-        } else if (e.type === "approval_pending") {
-          setRunningNodeIds((prev) => new Set([...prev, e.nodeId]));
-          setNodes((nds: Node<SwarmNodeData>[]) =>
-            nds.map((n) =>
-              n.id === e.nodeId ? { ...n, data: { ...n.data, status: "waiting" } } : n,
-            ),
-          );
-        } else if (e.type === "run_done") {
-          finalText = e.finalOutput;
-          setFinalOutput(e.finalOutput);
-          const outNode =
-            [...nodes].reverse().find((n) => n.data.kind === "output") ?? nodes[nodes.length - 1];
-          if (outNode) setRunningNodeIds(new Set([outNode.id]));
-        } else if (e.type === "run_error") {
-          runError = e.error;
-          toast.error(e.error);
-          setRunningNodeIds(new Set());
-        }
-      },
-    });
-
-    if (tracer) {
-      void tracer.finish({
-        status: runError ? "error" : "success",
-        finalOutput: finalText || null,
-        errorMessage: runError,
-      });
-    }
-
-    // Failure-Mode Lab: evaluate the run against the lab's assertions and
-    // persist progress. Degrades gracefully — if the lab_attempts insert fails
-    // (e.g. table not yet migrated), the in-session result still shows.
     if (activeLab) {
-      const evaln = evaluateLab(activeLab, {
-        finalOutput: finalText,
-        events: collected,
-        nodes,
-        edges,
-      });
-      setLabResult(evaln);
-      setLabHasRun(true);
-      void persistLabAttempt(activeLab.id, evaln.passed);
+      setLabResult(null);
+      setLabHasRun(false);
     }
 
-    setRunning(false);
+    // Hand execution to the module-level manager so it survives navigation.
+    const runId = await startManagedRun({
+      swarmId: swarmId ?? null,
+      swarmName,
+      nodes,
+      edges,
+      input: runInput,
+      traceEnabled,
+    });
+    setActiveRunId(runId);
+    if (activeLab) pendingLabRunRef.current = runId;
   };
 
   // Upsert a lab attempt row (mirrors the quiz_attempts pattern). Best-effort.
@@ -1309,10 +1260,28 @@ function SwarmsCanvas({
     }
   };
 
+  // Evaluate a Failure-Mode Lab once the background run it launched finishes.
+  useEffect(() => {
+    if (!activeLab || !pendingLabRunRef.current) return;
+    const r = managedRuns.find((x) => x.runId === pendingLabRunRef.current);
+    if (!r) return;
+    if (r.status === "success" || r.status === "error" || r.status === "cancelled") {
+      pendingLabRunRef.current = null;
+      const evaln = evaluateLab(activeLab, {
+        finalOutput: r.finalOutput ?? "",
+        events: r.events,
+        nodes,
+        edges,
+      });
+      setLabResult(evaln);
+      setLabHasRun(true);
+      void persistLabAttempt(activeLab.id, evaln.passed);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [managedRuns, activeLab, nodes, edges]);
+
   const handleStop = () => {
-    abortRef.current?.abort();
-    setRunning(false);
-    setRunningNodeIds(new Set());
+    if (activeRunId) cancelManagedRun(activeRunId);
   };
 
   const runPanelRef = useRef<HTMLDivElement | null>(null);

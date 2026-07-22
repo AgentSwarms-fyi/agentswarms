@@ -1,8 +1,25 @@
 import { useEffect, useRef, useState } from "react";
-import { Bell, CheckCircle2, XCircle, AlertTriangle, ShieldAlert, Webhook, Database, Terminal, Globe } from "lucide-react";
+import {
+  Bell,
+  CheckCircle2,
+  XCircle,
+  AlertTriangle,
+  ShieldAlert,
+  Webhook,
+  Database,
+  Terminal,
+  Globe,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetDescription } from "@/components/ui/sheet";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+  SheetDescription,
+} from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
@@ -10,6 +27,7 @@ import { toast } from "sonner";
 
 type Approval = {
   id: string;
+  user_id: string;
   agent_name: string;
   agent_avatar: string | null;
   action_type: string;
@@ -19,6 +37,8 @@ type Approval = {
   risk_level: string;
   status: string;
   created_at: string;
+  approver_user_ids: string[] | null;
+  approver_group_ids: string[] | null;
 };
 
 const ACTION_ICON: Record<string, any> = {
@@ -51,10 +71,33 @@ export function ApprovalInbox() {
   const [pulse, setPulse] = useState(false);
   const seenIdsRef = useRef<Set<string>>(new Set());
   const initializedRef = useRef(false);
+  const myGroupIdsRef = useRef<Set<string>>(new Set());
+
+  // Is the current user a designated approver of this approval? When no
+  // approvers are set (legacy / single-user swarms), the owner counts. This
+  // gates the toast so the swarm runner isn't pinged for approvals routed to
+  // others (they'll still see the row in the inbox, but no active nudge).
+  const amIApprover = (ap: Approval): boolean => {
+    if (!user) return false;
+    const uids = ap.approver_user_ids ?? [];
+    const gids = ap.approver_group_ids ?? [];
+    if (uids.length === 0 && gids.length === 0) return ap.user_id === user.id;
+    return uids.includes(user.id) || gids.some((g) => myGroupIdsRef.current.has(g));
+  };
 
   useEffect(() => {
     if (!user) return;
     let mounted = true;
+
+    // Load the current user's group memberships once so we can tell whether a
+    // group-routed approval is meant for them.
+    void supabase
+      .from("iam_group_members")
+      .select("group_id")
+      .eq("user_id", user.id)
+      .then(({ data }) => {
+        if (mounted && data) myGroupIdsRef.current = new Set(data.map((r) => r.group_id));
+      });
 
     const load = async () => {
       const { data } = await supabase
@@ -79,7 +122,7 @@ export function ApprovalInbox() {
         { event: "INSERT", schema: "public", table: "approvals" },
         (payload) => {
           const ap = payload.new as Approval;
-          if (ap.status === "pending" && !seenIdsRef.current.has(ap.id)) {
+          if (ap.status === "pending" && !seenIdsRef.current.has(ap.id) && amIApprover(ap)) {
             seenIdsRef.current.add(ap.id);
             const Icon = ACTION_ICON[ap.action_type] ?? Globe;
             toast(`${ap.agent_name} needs your approval`, {
@@ -101,15 +144,11 @@ export function ApprovalInbox() {
           load();
         },
       )
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "approvals" },
-        () => load(),
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "approvals" }, () =>
+        load(),
       )
-      .on(
-        "postgres_changes",
-        { event: "DELETE", schema: "public", table: "approvals" },
-        () => load(),
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "approvals" }, () =>
+        load(),
       )
       .subscribe();
 
@@ -123,16 +162,20 @@ export function ApprovalInbox() {
     const item = approvals.find((a) => a.id === id);
     const { error } = await supabase
       .from("approvals")
-      .update({ status, decided_at: new Date().toISOString() })
+      .update({ status, decided_at: new Date().toISOString(), decided_by: user?.id ?? null })
       .eq("id", id);
     if (error) {
       toast.error("Failed to update approval");
       return;
     }
     if (status === "approved") {
-      toast.success(`Approved: ${item?.action_title}`, { description: `${item?.agent_name} is resuming.` });
+      toast.success(`Approved: ${item?.action_title}`, {
+        description: `${item?.agent_name} is resuming.`,
+      });
     } else {
-      toast.error(`Rejected: ${item?.action_title}`, { description: `${item?.agent_name} has been halted.` });
+      toast.error(`Rejected: ${item?.action_title}`, {
+        description: `${item?.agent_name} has been halted.`,
+      });
     }
   };
 
@@ -159,7 +202,9 @@ export function ApprovalInbox() {
             <ShieldAlert className="h-4 w-4 text-primary" />
             Pending Approvals
             {approvals.length > 0 && (
-              <Badge variant="outline" className="ml-1">{approvals.length}</Badge>
+              <Badge variant="outline" className="ml-1">
+                {approvals.length}
+              </Badge>
             )}
           </SheetTitle>
           <SheetDescription className="text-xs">
@@ -179,18 +224,28 @@ export function ApprovalInbox() {
               {approvals.map((ap) => {
                 const Icon = ACTION_ICON[ap.action_type] ?? Globe;
                 return (
-                  <div key={ap.id} className="rounded-lg border border-border bg-card overflow-hidden">
+                  <div
+                    key={ap.id}
+                    className="rounded-lg border border-border bg-card overflow-hidden"
+                  >
                     <div className="p-3 space-y-2">
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex items-center gap-2 min-w-0">
                           <span className="text-lg">{ap.agent_avatar ?? "🤖"}</span>
                           <div className="min-w-0">
                             <p className="text-sm font-medium truncate">{ap.agent_name}</p>
-                            <p className="text-[11px] text-muted-foreground">paused · {timeAgo(ap.created_at)}</p>
+                            <p className="text-[11px] text-muted-foreground">
+                              paused · {timeAgo(ap.created_at)}
+                            </p>
                           </div>
                         </div>
-                        <Badge variant="outline" className={`text-[10px] uppercase font-bold ${RISK_COLORS[ap.risk_level] ?? RISK_COLORS.low}`}>
-                          {ap.risk_level === "critical" && <AlertTriangle className="h-2.5 w-2.5 mr-0.5" />}
+                        <Badge
+                          variant="outline"
+                          className={`text-[10px] uppercase font-bold ${RISK_COLORS[ap.risk_level] ?? RISK_COLORS.low}`}
+                        >
+                          {ap.risk_level === "critical" && (
+                            <AlertTriangle className="h-2.5 w-2.5 mr-0.5" />
+                          )}
                           {ap.risk_level}
                         </Badge>
                       </div>
@@ -199,7 +254,9 @@ export function ApprovalInbox() {
                         <Icon className="h-3.5 w-3.5 text-primary mt-0.5 shrink-0" />
                         <div className="min-w-0">
                           <p className="text-xs font-semibold">{ap.action_title}</p>
-                          <p className="text-[11px] text-muted-foreground mt-0.5">{ap.description}</p>
+                          <p className="text-[11px] text-muted-foreground mt-0.5">
+                            {ap.description}
+                          </p>
                         </div>
                       </div>
 
@@ -208,7 +265,7 @@ export function ApprovalInbox() {
                           View payload
                         </summary>
                         <pre className="mt-1 rounded-md bg-background border border-border/50 p-2 text-[10px] leading-relaxed overflow-x-auto font-mono text-muted-foreground">
-{JSON.stringify(ap.payload, null, 2)}
+                          {JSON.stringify(ap.payload, null, 2)}
                         </pre>
                       </details>
                     </div>

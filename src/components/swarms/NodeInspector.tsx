@@ -19,6 +19,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import {
   Trash2,
   X,
@@ -41,7 +50,14 @@ import {
   Code2,
   Play,
   GitBranch,
+  Users,
+  UserPlus,
+  Check,
+  ChevronsUpDown,
+  Mail,
 } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
+import { useApproverDirectory } from "@/hooks/use-approver-directory";
 import { runSandboxed, safeStringify } from "@/lib/sandbox/jsSandbox";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -1181,6 +1197,7 @@ export function NodeInspector({
                 </span>
               </div>
             </Section>
+            <ApproverPicker data={data} onChange={onChange} />
           </>
         )}
 
@@ -1464,6 +1481,201 @@ function Section({ label, children }: { label: React.ReactNode; children: React.
       <Label className="text-[11px] text-muted-foreground mb-1.5 block">{label}</Label>
       {children}
     </div>
+  );
+}
+
+// ───────────────────── Approval routing (IAM users + groups) ─────────────────
+// Choose which IAM users and/or groups should be notified and can decide this
+// approval. When at least one is chosen, those approvers receive an email +
+// the in-app approvals bell. The person running the swarm is only notified if
+// they appear here — by picking themselves, or a group they belong to. With
+// nothing chosen, the approval falls back to the runner (legacy behaviour).
+function ApproverPicker({
+  data,
+  onChange,
+}: {
+  data: SwarmNodeData;
+  onChange: (patch: Partial<SwarmNodeData>) => void;
+}) {
+  const { user } = useAuth();
+  const { directory, loading } = useApproverDirectory(true);
+  const [open, setOpen] = useState(false);
+
+  const userIds = Array.isArray(data.approverUserIds) ? data.approverUserIds : [];
+  const groupIds = Array.isArray(data.approverGroupIds) ? data.approverGroupIds : [];
+
+  const users = directory?.users ?? [];
+  const groups = directory?.groups ?? [];
+  const userById = new Map(users.map((u) => [u.user_id, u]));
+  const groupById = new Map(groups.map((g) => [g.id, g]));
+
+  const userLabel = (id: string) => {
+    const u = userById.get(id);
+    return u?.display_name || u?.email || `${id.slice(0, 8)}…`;
+  };
+  const groupLabel = (id: string) => groupById.get(id)?.name || `${id.slice(0, 8)}…`;
+
+  const toggleUser = (id: string) =>
+    onChange({
+      approverUserIds: userIds.includes(id) ? userIds.filter((x) => x !== id) : [...userIds, id],
+    });
+  const toggleGroup = (id: string) =>
+    onChange({
+      approverGroupIds: groupIds.includes(id)
+        ? groupIds.filter((x) => x !== id)
+        : [...groupIds, id],
+    });
+
+  const meSelected = user ? userIds.includes(user.id) : false;
+  const meInSelectedGroup = user
+    ? groupIds.some((g) => (groupById.get(g)?.member_user_ids ?? []).includes(user.id))
+    : false;
+  const runnerNotified = meSelected || meInSelectedGroup;
+  const total = userIds.length + groupIds.length;
+
+  return (
+    <Section
+      label={
+        <span className="flex items-center gap-1.5">
+          <Users className="h-3 w-3 text-primary" />
+          Approvers (IAM users &amp; groups)
+          {total > 0 && (
+            <Badge variant="outline" className="text-[9px] border-primary/40 text-primary ml-1">
+              {total}
+            </Badge>
+          )}
+        </span>
+      }
+    >
+      <div className="rounded-md border border-border/50 bg-background/40 p-2.5 space-y-2.5">
+        {/* Selected chips */}
+        {total > 0 ? (
+          <div className="flex flex-wrap gap-1.5">
+            {groupIds.map((id) => (
+              <span
+                key={`g-${id}`}
+                className="inline-flex items-center gap-1 rounded-full border border-violet-500/40 bg-violet-500/10 px-2 py-0.5 text-[11px] text-violet-300"
+              >
+                <Users className="h-2.5 w-2.5" /> {groupLabel(id)}
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(id)}
+                  className="hover:text-foreground"
+                  aria-label="Remove group"
+                >
+                  <X className="h-2.5 w-2.5" />
+                </button>
+              </span>
+            ))}
+            {userIds.map((id) => (
+              <span
+                key={`u-${id}`}
+                className="inline-flex items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-[11px] text-primary"
+              >
+                <UserPlus className="h-2.5 w-2.5" /> {userLabel(id)}
+                {user && id === user.id && <span className="opacity-70">(you)</span>}
+                <button
+                  type="button"
+                  onClick={() => toggleUser(id)}
+                  className="hover:text-foreground"
+                  aria-label="Remove user"
+                >
+                  <X className="h-2.5 w-2.5" />
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="text-[10px] text-muted-foreground">
+            No approvers chosen — the approval goes to you (the runner) only, as before.
+          </p>
+        )}
+
+        <div className="flex items-center gap-2">
+          <Popover open={open} onOpenChange={setOpen}>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className="h-8 flex-1 justify-between text-xs">
+                <span className="flex items-center gap-1.5">
+                  <UserPlus className="h-3.5 w-3.5" /> Add approvers
+                </span>
+                <ChevronsUpDown className="h-3.5 w-3.5 opacity-60" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-72 p-0" align="start">
+              <Command>
+                <CommandInput placeholder="Search users or groups…" className="h-9" />
+                <CommandList>
+                  <CommandEmpty>{loading ? "Loading directory…" : "No matches."}</CommandEmpty>
+                  {groups.length > 0 && (
+                    <CommandGroup heading="Groups">
+                      {groups.map((g) => {
+                        const on = groupIds.includes(g.id);
+                        return (
+                          <CommandItem
+                            key={g.id}
+                            value={`group ${g.name}`}
+                            onSelect={() => toggleGroup(g.id)}
+                          >
+                            <Users className="mr-2 h-3.5 w-3.5 text-violet-400" />
+                            <span className="flex-1 truncate">{g.name}</span>
+                            <span className="text-[10px] text-muted-foreground mr-2">
+                              {g.member_user_ids.length}
+                            </span>
+                            {on && <Check className="h-3.5 w-3.5 text-primary" />}
+                          </CommandItem>
+                        );
+                      })}
+                    </CommandGroup>
+                  )}
+                  <CommandGroup heading="People">
+                    {users.map((u) => {
+                      const on = userIds.includes(u.user_id);
+                      return (
+                        <CommandItem
+                          key={u.user_id}
+                          value={`user ${u.display_name ?? ""} ${u.email ?? ""}`}
+                          onSelect={() => toggleUser(u.user_id)}
+                        >
+                          <UserPlus className="mr-2 h-3.5 w-3.5 text-primary" />
+                          <span className="flex-1 truncate">
+                            {u.display_name || u.email || u.user_id.slice(0, 8)}
+                            {user && u.user_id === user.id && (
+                              <span className="ml-1 text-muted-foreground">(you)</span>
+                            )}
+                          </span>
+                          {on && <Check className="h-3.5 w-3.5 text-primary" />}
+                        </CommandItem>
+                      );
+                    })}
+                  </CommandGroup>
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
+          {user && !meSelected && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs"
+              onClick={() => toggleUser(user.id)}
+              title="Add yourself as an approver"
+            >
+              Add me
+            </Button>
+          )}
+        </div>
+
+        <p className="text-[10px] text-muted-foreground leading-relaxed">
+          <Mail className="inline h-3 w-3 mr-0.5 -mt-0.5" />
+          Chosen approvers get an email (asking them to check AgentSwarms for pending approvals) and
+          the in-app bell.{" "}
+          {total > 0 &&
+            (runnerNotified
+              ? "You'll be notified too, because you picked yourself or a group you belong to."
+              : "You (the runner) won't be notified — add yourself or a group you're in if you want to be.")}
+        </p>
+      </div>
+    </Section>
   );
 }
 

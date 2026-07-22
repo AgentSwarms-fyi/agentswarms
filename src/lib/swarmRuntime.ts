@@ -166,6 +166,12 @@ export type SwarmNodeData = {
   approvalTitle?: string;
   approvalRisk?: "low" | "medium" | "high";
   approvalTimeoutMs?: number; // 0 or undefined = no timeout
+  // Approval routing — IAM users/groups that should be notified and can decide
+  // this approval. Empty on both = legacy behaviour (only the runner decides).
+  // The runner is emailed only if they explicitly appear here (picked
+  // themselves, or a group they belong to).
+  approverUserIds?: string[];
+  approverGroupIds?: string[];
   // a2a_remote — delegates to a remote A2A-compliant agent server
   a2aEndpoint?: string;
   a2aAgentCard?: AgentCard;
@@ -272,6 +278,9 @@ export type SwarmRunOptions = {
   onEvent: (e: SwarmRunEvent) => void;
   signal?: AbortSignal;
   tracer?: import("@/utils/observability/tracer").SwarmTracer | null;
+  // DB run id (swarm_runs.id) so approval rows can link back to this run and
+  // show up under "Recent runs" while the swarm is paused on a human step.
+  dbRunId?: string;
 };
 
 // Topologically order nodes into LEVELS — each level contains nodes whose
@@ -682,7 +691,7 @@ export async function runSwarm(
   edges: Edge[],
   opts: SwarmRunOptions,
 ): Promise<void> {
-  const { initialInput, onEvent: rawOnEvent, signal, tracer } = opts;
+  const { initialInput, onEvent: rawOnEvent, signal, tracer, dbRunId } = opts;
   // Stable id for the entire run — used as a synthetic conversation key for
   // any node that opts into "swarm-scoped" memory so STM/scratchpad persists
   // across nodes within this single execution.
@@ -942,6 +951,12 @@ export async function runSwarm(
           const { data: userData } = await supabase.auth.getUser();
           if (!userData.user) throw new Error("Not signed in");
           const approvalContent = gatherInputs(node, ctx, lastOutput);
+          const approverUserIds = Array.isArray(node.data.approverUserIds)
+            ? node.data.approverUserIds
+            : [];
+          const approverGroupIds = Array.isArray(node.data.approverGroupIds)
+            ? node.data.approverGroupIds
+            : [];
           const { data: created, error } = await supabase
             .from("approvals")
             .insert({
@@ -953,10 +968,34 @@ export async function runSwarm(
               description: approvalContent.slice(0, 1000),
               risk_level: node.data.approvalRisk || "medium",
               payload: { last_output: approvalContent.slice(0, 4000) },
+              approver_user_ids: approverUserIds,
+              approver_group_ids: approverGroupIds,
+              swarm_run_id: dbRunId ?? null,
             })
             .select("id")
             .single();
           if (error || !created) throw new Error(error?.message || "Could not create approval");
+          // Best-effort: email the targeted approvers (users + group members).
+          // Never blocks the run — the in-app approvals bell is the source of
+          // truth; email is a convenience nudge.
+          if (approverUserIds.length > 0 || approverGroupIds.length > 0) {
+            try {
+              const { data: sess } = await supabase.auth.getSession();
+              const token = sess.session?.access_token;
+              if (token && typeof window !== "undefined") {
+                const { notifySwarmApprovers } = await import("@/utils/swarmApprovals.functions");
+                void notifySwarmApprovers({
+                  data: {
+                    access_token: token,
+                    approval_id: created.id,
+                    app_origin: window.location.origin,
+                  },
+                }).catch(() => undefined);
+              }
+            } catch {
+              /* notification is best-effort */
+            }
+          }
           onEvent({ type: "approval_pending", nodeId: node.id, approvalId: created.id });
           const decision = await waitForApproval(created.id, signal, node.data.approvalTimeoutMs);
           if (decision === "rejected") {

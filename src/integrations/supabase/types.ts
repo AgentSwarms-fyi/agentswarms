@@ -230,13 +230,18 @@ export type Database = {
           agent_avatar: string | null;
           agent_id: string | null;
           agent_name: string;
+          approver_group_ids: string[];
+          approver_user_ids: string[];
           created_at: string;
           decided_at: string | null;
+          decided_by: string | null;
           description: string | null;
           id: string;
+          notified_at: string | null;
           payload: Json;
           risk_level: string;
           status: string;
+          swarm_run_id: string | null;
           user_id: string;
         };
         Insert: {
@@ -245,13 +250,18 @@ export type Database = {
           agent_avatar?: string | null;
           agent_id?: string | null;
           agent_name: string;
+          approver_group_ids?: string[];
+          approver_user_ids?: string[];
           created_at?: string;
           decided_at?: string | null;
+          decided_by?: string | null;
           description?: string | null;
           id?: string;
+          notified_at?: string | null;
           payload?: Json;
           risk_level?: string;
           status?: string;
+          swarm_run_id?: string | null;
           user_id: string;
         };
         Update: {
@@ -260,13 +270,18 @@ export type Database = {
           agent_avatar?: string | null;
           agent_id?: string | null;
           agent_name?: string;
+          approver_group_ids?: string[];
+          approver_user_ids?: string[];
           created_at?: string;
           decided_at?: string | null;
+          decided_by?: string | null;
           description?: string | null;
           id?: string;
+          notified_at?: string | null;
           payload?: Json;
           risk_level?: string;
           status?: string;
+          swarm_run_id?: string | null;
           user_id?: string;
         };
         Relationships: [];
@@ -2237,6 +2252,7 @@ export type Database = {
       };
       swarm_runs: {
         Row: {
+          cancel_requested: boolean;
           created_at: string;
           error_count: number;
           error_message: string | null;
@@ -2258,6 +2274,7 @@ export type Database = {
           user_id: string;
         };
         Insert: {
+          cancel_requested?: boolean;
           created_at?: string;
           error_count?: number;
           error_message?: string | null;
@@ -2279,6 +2296,7 @@ export type Database = {
           user_id: string;
         };
         Update: {
+          cancel_requested?: boolean;
           created_at?: string;
           error_count?: number;
           error_message?: string | null;
