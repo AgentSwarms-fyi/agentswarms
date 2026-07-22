@@ -336,13 +336,23 @@ export type SwarmRunEvent =
   // Snapshot of the shared flow state after a node runs — powers the variable
   // inspector. Values are truncated for transport.
   | { type: "state_snapshot"; state: Record<string, string> }
-  | { type: "run_done"; finalOutput: string }
+  // finalState carries the (lightly capped) full flow state at run end so a
+  // conversational chat turn can persist variables and carry them into the
+  // next turn. Unlike state_snapshot it's emitted once, on completion.
+  | { type: "run_done"; finalOutput: string; finalState?: Record<string, string> }
   | { type: "run_error"; error: string };
+
+// A single prior conversation turn, replayed into every agent node so a
+// chat-mode swarm has memory of the exchange so far.
+export type SwarmChatTurn = { role: "user" | "assistant"; content: string };
 
 export type SwarmRunOptions = {
   initialInput: string;
   onEvent: (e: SwarmRunEvent) => void;
   signal?: AbortSignal;
+  // Prior conversation turns (chat mode). Replayed as leading messages to every
+  // agent node so the swarm responds in context. Empty/omitted = one-shot run.
+  history?: SwarmChatTurn[];
   tracer?: import("@/utils/observability/tracer").SwarmTracer | null;
   // DB run id (swarm_runs.id) so approval rows can link back to this run and
   // show up under "Recent runs" while the swarm is paused on a human step.
@@ -479,6 +489,12 @@ export function setSwarmEmbedTransport(t: { key: string; parentOrigin?: string }
   embedTransport = t;
 }
 
+// Chat-mode conversation history for the CURRENT run. Set from
+// SwarmRunOptions.history at the top of runSwarm and restored on exit (so a
+// nested Execute-Swarm run doesn't leak its parent's history). Every agent
+// node replays these as leading messages before the turn's user message.
+let chatHistory: SwarmChatTurn[] = [];
+
 // Prefer the server's human-readable `message` (e.g. the IAM
 // "model_not_allowed" explanation) over raw JSON in node error banners.
 function extractChatError(body: string): string {
@@ -556,11 +572,16 @@ async function callAgent(
   // analysis. We strip the image URL out of the prompt text and re-attach it
   // as a structured part.
   let messagesPayload: Array<{
-    role: "user";
+    role: "user" | "assistant";
     content:
       | string
       | Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }>;
   }>;
+  // Chat mode: replay the prior conversation as leading messages so the agent
+  // answers in context. One-shot runs have an empty history → no change.
+  const historyMessages: Array<{ role: "user" | "assistant"; content: string }> = chatHistory.map(
+    (h) => ({ role: h.role, content: h.content }),
+  );
   const { cleaned: textWithoutImages, images: upstreamImages } = extractAllImageUrls(userMessage);
   if (upstreamImages.length > 0) {
     const parts: Array<
@@ -578,9 +599,9 @@ async function callAgent(
           : "Analyze the attached image(s) in the context above.",
       });
     }
-    messagesPayload = [{ role: "user", content: parts }];
+    messagesPayload = [...historyMessages, { role: "user", content: parts }];
   } else {
-    messagesPayload = [{ role: "user", content: userMessage }];
+    messagesPayload = [...historyMessages, { role: "user", content: userMessage }];
   }
 
   // Embed mode sends only the messages + node reference — the server loads
@@ -806,6 +827,10 @@ export async function runSwarm(
 ): Promise<void> {
   const { initialInput, onEvent: rawOnEvent, signal, tracer, dbRunId, initialState } = opts;
   const depth = opts.depth ?? 0;
+  // Install this run's chat history (chat mode) and remember the previous value
+  // so a nested Execute-Swarm run restores it on the way out.
+  const prevChatHistory = chatHistory;
+  chatHistory = opts.history ?? [];
   // Stable id for the entire run — used as a synthetic conversation key for
   // any node that opts into "swarm-scoped" memory so STM/scratchpad persists
   // across nodes within this single execution.
@@ -1914,9 +1939,19 @@ Evaluate the candidate output above against each metric and return the JSON scor
       }
     }
 
-    onEvent({ type: "run_done", finalOutput: lastOutput });
+    // Capture the full flow state (lightly capped per value) so a chat turn can
+    // persist variables and carry structured state into the next turn.
+    const finalState: Record<string, string> = {};
+    for (const [k, val] of Object.entries(ctx)) {
+      const s = typeof val === "string" ? val : JSON.stringify(val);
+      finalState[k] = s.length > 8000 ? s.slice(0, 8000) + "…" : s;
+    }
+    onEvent({ type: "run_done", finalOutput: lastOutput, finalState });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     onEvent({ type: "run_error", error: msg });
+  } finally {
+    // Restore the caller's chat history (matters for nested Execute-Swarm runs).
+    chatHistory = prevChatHistory;
   }
 }

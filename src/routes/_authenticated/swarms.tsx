@@ -100,6 +100,7 @@ import {
   Library,
   Workflow,
   Rocket,
+  MessagesSquare,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -133,6 +134,7 @@ import { downloadSwarmAsCrewAI, downloadSwarmAsOpenAIAgents } from "@/lib/swarmE
 import { downloadSwarmAsStrands } from "@/lib/swarmExportStrands";
 import { SwarmGallery } from "@/components/swarms/SwarmGallery";
 import { SwarmDeployDialog } from "@/components/swarms/SwarmDeployDialog";
+import { SwarmChatDialog } from "@/components/swarms/SwarmChatDialog";
 
 export const Route = createFileRoute("/_authenticated/swarms")({
   component: SwarmsPage,
@@ -856,6 +858,7 @@ function SwarmsCanvas({
   // from that store and reflect it onto the canvas.
   const [runInput, setRunInput] = useState("");
   const [deployOpen, setDeployOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
   // Values for the typed input form (when the input node declares inputFields).
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
   const [traceEnabled, setTraceEnabled] = useState(true);
@@ -1855,7 +1858,18 @@ function SwarmsCanvas({
                   Save
                 </Button>
 
-                {/* ── Deploy (saved swarms only) ── */}
+                {/* ── Chat + Deploy (saved swarms only) ── */}
+                {swarmId && (
+                  <Button
+                    onClick={() => setChatOpen(true)}
+                    variant="outline"
+                    size="sm"
+                    className="h-8"
+                    title="Chat with this swarm (multi-turn)"
+                  >
+                    <MessagesSquare className="h-3.5 w-3.5 mr-1.5" /> Chat
+                  </Button>
+                )}
                 {swarmId && (
                   <Button
                     onClick={() => setDeployOpen(true)}
@@ -1969,6 +1983,22 @@ function SwarmsCanvas({
           />
         )}
       </div>
+
+      {/* Deploy + Chat surfaces for saved swarms */}
+      <SwarmDeployDialog
+        swarmId={swarmId}
+        swarmName={swarmName}
+        open={deployOpen}
+        onOpenChange={setDeployOpen}
+      />
+      <SwarmChatDialog
+        swarmId={swarmId}
+        swarmName={swarmName}
+        nodes={nodes}
+        edges={edges}
+        open={chatOpen}
+        onOpenChange={setChatOpen}
+      />
     </>
   );
 }

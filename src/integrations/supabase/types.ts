@@ -2153,6 +2153,39 @@ export type Database = {
         };
         Relationships: [];
       };
+      swarm_chats: {
+        Row: {
+          created_at: string;
+          id: string;
+          messages: Json;
+          state: Json;
+          swarm_id: string;
+          title: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          id?: string;
+          messages?: Json;
+          state?: Json;
+          swarm_id: string;
+          title?: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          messages?: Json;
+          state?: Json;
+          swarm_id?: string;
+          title?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       swarm_schedules: {
         Row: {
           created_at: string;
