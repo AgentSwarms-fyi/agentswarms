@@ -9,7 +9,7 @@ export const Route = createFileRoute("/privacy")({
       {
         name: "description",
         content:
-          "How AgentSwarms collects, uses, and protects your data. Built privacy-first with row-level security on every user record.",
+          "How AgentSwarms handles data. It's open-source and self-hosted, so your data stays on your own infrastructure — the maintainers never receive it. The project website collects only what's needed to reply to you.",
       },
       { property: "og:title", content: "Privacy Policy — AgentSwarms" },
       { property: "og:url", content: "https://agentswarms.fyi/privacy" },
@@ -17,7 +17,8 @@ export const Route = createFileRoute("/privacy")({
       { name: "twitter:title", content: "Privacy Policy — AgentSwarms" },
       {
         name: "twitter:description",
-        content: "How AgentSwarms collects, uses, and protects your data.",
+        content:
+          "Open-source and self-hosted: your data stays on your own infrastructure and never reaches the maintainers.",
       },
       {
         property: "og:image",
@@ -44,195 +45,167 @@ function PrivacyPage() {
           <ShieldCheck className="h-3.5 w-3.5" /> Privacy
         </div>
         <h1 className="text-4xl font-bold tracking-tight">Privacy Policy</h1>
-        <p className="mt-2 text-sm text-muted-foreground">Last updated: June 2026</p>
+        <p className="mt-2 text-sm text-muted-foreground">Last updated: July 2026</p>
 
         <div className="prose prose-invert mt-10 max-w-none space-y-6 text-sm leading-relaxed text-muted-foreground">
           <section>
-            <h2 className="text-lg font-semibold text-foreground">Who we are</h2>
+            <h2 className="text-lg font-semibold text-foreground">
+              Open source &amp; self-hosted — the short version
+            </h2>
             <p>
-              AgentSwarms ("we", "us") is an educational platform for Agentic AI. This policy
-              explains what data we collect when you use{" "}
+              AgentSwarms is <strong className="text-foreground">open-source software</strong> (MIT
+              licensed) that you run on{" "}
+              <strong className="text-foreground">your own infrastructure</strong>. When you deploy
+              it, everything it stores — your account, agents, swarms, knowledge bases, chats,
+              dashboards, execution traces and provider keys — lives in{" "}
+              <strong className="text-foreground">your own database and file storage</strong> and is
+              processed with{" "}
+              <strong className="text-foreground">your own model-provider keys</strong>. The
+              AgentSwarms maintainers do not host that data, cannot see it, and never receive it.
+            </p>
+            <p className="mt-2">
+              This policy therefore covers two separate things: (1) this public project website,{" "}
               <Link to="/" className="text-primary hover:underline">
                 agentswarms.fyi
               </Link>
-              , how we use it, and how you can control it.
-            </p>
-            <p className="mt-2">
-              We adhere to the{" "}
-              <strong className="text-foreground">
-                UAE Personal Data Protection Law (PDPL) — Federal Decree-Law No. 45 of 2021
-              </strong>
-              . You have the right to access, correct, port, restrict, or permanently delete your
-              personal data, and to withdraw consent at any time.
+              , which the maintainers operate; and (2) how the software handles data when{" "}
+              <em>you</em> self-host it. It is not legal advice — if you deploy AgentSwarms for
+              other people, you become the data controller for those users and should publish your
+              own privacy notice.
             </p>
           </section>
 
           <section>
-            <h2 className="text-lg font-semibold text-foreground">What we collect</h2>
+            <h2 className="text-lg font-semibold text-foreground">
+              1. Data the project website collects
+            </h2>
+            <p>The marketing and documentation site at agentswarms.fyi collects very little:</p>
             <ul className="ml-5 list-disc space-y-2">
               <li>
-                <strong className="text-foreground">Account info:</strong> email address, display
-                name, first/last name, avatar, role, designation, organization, and bio (only fields
-                you provide).
+                <strong className="text-foreground">Contact form:</strong> if you write to us via{" "}
+                <Link to="/contact" className="text-primary hover:underline">
+                  /contact
+                </Link>
+                , we store your name, email, and message so we can reply.
               </li>
               <li>
-                <strong className="text-foreground">Authentication data:</strong> hashed password or
-                Google/Apple OAuth identifier, plus the session tokens needed to keep you signed in.
+                <strong className="text-foreground">Optional analytics:</strong> anonymous,
+                aggregate page analytics that load <strong className="text-foreground">only</strong>{" "}
+                after you click "Accept all" in the cookie banner. Decline, and no analytics scripts
+                or cookies are used.
               </li>
               <li>
-                <strong className="text-foreground">Project data:</strong> agents, swarm node
-                graphs, knowledge bases, prompts, skills, chats, and any files you upload. Visible
-                only to you.
+                <strong className="text-foreground">Essential cookies:</strong> only what's needed
+                to remember your theme and, if you sign in to a hosted demo, keep that session.
+              </li>
+            </ul>
+            <p className="mt-2">
+              We do not sell data, run advertising, or use cross-site tracking.
+            </p>
+          </section>
+
+          <section>
+            <h2 className="text-lg font-semibold text-foreground">
+              2. Data your self-hosted instance stores
+            </h2>
+            <p>
+              When you run your own AgentSwarms instance, it stores the following{" "}
+              <strong className="text-foreground">in your database</strong>, under your control —
+              never transmitted to the maintainers:
+            </p>
+            <ul className="ml-5 list-disc space-y-2">
+              <li>
+                <strong className="text-foreground">Account info:</strong> email, display name,
+                avatar, role, organization and bio (only fields a user provides).
               </li>
               <li>
-                <strong className="text-foreground">Usage data:</strong> traces of model calls
-                (provider, tokens, latency, cost), gateway usage counters, and aggregated page
-                analytics — used so you can monitor your own usage and so we can understand product
-                use.
+                <strong className="text-foreground">Authentication:</strong> hashed passwords or
+                OAuth/SSO identifiers and the session tokens that keep users signed in — handled by
+                your own Supabase project.
               </li>
               <li>
-                <strong className="text-foreground">Contact form:</strong> if you write to us via
-                /contact, we store your name, email, and message so we can reply.
+                <strong className="text-foreground">Project data:</strong> agents, swarm graphs,
+                knowledge bases, prompts, skills, chats, dashboards, datasets and uploaded files,
+                protected by row-level security so each user only sees their own rows (plus anything
+                an admin explicitly shares).
+              </li>
+              <li>
+                <strong className="text-foreground">Usage &amp; traces:</strong> model-call traces
+                (provider, tokens, latency, cost) and audit events, so operators and users can
+                monitor their own usage.
               </li>
               <li>
                 <strong className="text-foreground">Provider credentials:</strong> third-party API
-                keys you choose to save are encrypted at rest.
+                keys are encrypted at rest and write-only — never returned to the browser after
+                saving.
               </li>
             </ul>
           </section>
 
           <section>
-            <h2 className="text-lg font-semibold text-foreground">Why we collect it (purposes)</h2>
+            <h2 className="text-lg font-semibold text-foreground">3. Third-party AI providers</h2>
+            <p>
+              When an agent or dashboard runs, prompts and data are sent{" "}
+              <strong className="text-foreground">directly from your instance</strong> to the AI
+              provider you configured (e.g. OpenRouter, OpenAI, Anthropic, Google, or a self-hosted
+              model) using your keys. Those providers' policies apply to that traffic. Prompts are
+              never routed through, or logged by, the AgentSwarms maintainers.
+            </p>
+          </section>
+
+          <section>
+            <h2 className="text-lg font-semibold text-foreground">4. Retention &amp; deletion</h2>
             <ul className="ml-5 list-disc space-y-2">
               <li>
-                <strong className="text-foreground">Provide the service:</strong> save your session
-                state, persist your agents/swarms/knowledge bases between visits, and route model
-                calls.
+                <strong className="text-foreground">Self-hosted data:</strong> retention is up to
+                you, the operator. Execution traces and audit logs auto-purge on a configurable
+                schedule (30 days by default), and deleting a user account cascades to remove all of
+                that user's linked records immediately via the database.
               </li>
               <li>
-                <strong className="text-foreground">Account &amp; security:</strong> authenticate
-                sign-ins, send password-reset and email-change confirmations, prevent abuse.
-              </li>
-              <li>
-                <strong className="text-foreground">Transactional email:</strong> welcome message,
-                contact-form replies, certificate delivery, budget alerts you opt into.
-              </li>
-              <li>
-                <strong className="text-foreground">Product updates:</strong> occasional updates
-                about new features (you can unsubscribe from any non-essential email at any time).
-              </li>
-              <li>
-                <strong className="text-foreground">Product improvement:</strong> anonymous
-                aggregate analytics — only after you opt in via the cookie banner.
+                <strong className="text-foreground">Website contact submissions:</strong> kept only
+                as long as needed to handle your request, then deleted.
               </li>
             </ul>
           </section>
 
           <section>
-            <h2 className="text-lg font-semibold text-foreground">Cookies &amp; tracking</h2>
+            <h2 className="text-lg font-semibold text-foreground">5. Security</h2>
             <p>
-              AgentSwarms uses only the{" "}
-              <strong className="text-foreground">strictly essential cookies</strong> required to
-              keep you signed in (Supabase auth tokens) and to remember your theme. We do{" "}
-              <strong className="text-foreground">not</strong> place any advertising or cross-site
-              tracking cookies.
-            </p>
-            <p className="mt-2">
-              Optional analytics (Google Analytics / Google Tag Manager) only load{" "}
-              <strong className="text-foreground">after you click "Accept all"</strong> in our
-              cookie banner. If you decline, no analytics scripts are loaded and no analytics
-              cookies are set. You can clear your choice from your browser's site data at any time
-              to be re-prompted.
+              The software enforces <strong className="text-foreground">row-level security</strong>{" "}
+              at the database layer, encrypts stored provider credentials, and uses TLS for API
+              traffic. Where and how securely your instance is hosted — the region, the database,
+              the backup policy — is determined by <strong className="text-foreground">your</strong>{" "}
+              infrastructure choices, not the maintainers'.
             </p>
           </section>
 
           <section>
-            <h2 className="text-lg font-semibold text-foreground">
-              How long we keep your data (retention)
-            </h2>
-            <ul className="ml-5 list-disc space-y-2">
-              <li>
-                <strong className="text-foreground">Account &amp; project data:</strong> retained
-                for as long as your account exists. When you delete your account from{" "}
-                <Link to="/account" className="text-primary hover:underline">
-                  account settings
-                </Link>
-                , all linked records (profile, agents, swarms, knowledge bases, chats, traces,
-                credentials) are permanently removed immediately via database cascade.
-              </li>
-              <li>
-                <strong className="text-foreground">
-                  Execution traces &amp; observability data:
-                </strong>{" "}
-                automatically purged after <strong className="text-foreground">30 days</strong>.
-              </li>
-              <li>
-                <strong className="text-foreground">Contact form submissions:</strong> kept for up
-                to <strong className="text-foreground">24 months</strong> for support follow-ups,
-                then deleted.
-              </li>
-              <li>
-                <strong className="text-foreground">Email suppression list:</strong> kept
-                indefinitely so we honour unsubscribes and bounces.
-              </li>
-              <li>
-                <strong className="text-foreground">Backups:</strong> rolling encrypted backups are
-                retained for up to <strong className="text-foreground">30 days</strong> and then
-                overwritten.
-              </li>
-            </ul>
-          </section>
-
-          <section>
-            <h2 className="text-lg font-semibold text-foreground">
-              Security &amp; hosting location
-            </h2>
+            <h2 className="text-lg font-semibold text-foreground">6. Your rights</h2>
             <p>
-              <strong className="text-foreground">
-                AgentSwarms is hosted in the European Union.
-              </strong>{" "}
-              Application servers, the primary database, file storage, and encrypted backups are all
-              located in EU data centres, so your personal data stays within the EU/EEA at rest. All
-              user data is protected by row-level security at the database layer — meaning queries
-              can only return rows the requesting user owns. Provider API keys you enter are
-              encrypted at rest. We use industry-standard TLS for all traffic, and our
-              infrastructure providers operate under{" "}
-              <strong className="text-foreground">SOC 2 Type II</strong>,{" "}
-              <strong className="text-foreground">ISO/IEC 27001</strong>, and{" "}
-              <strong className="text-foreground">GDPR</strong> compliance frameworks.
-            </p>
-          </section>
-
-          <section>
-            <h2 className="text-lg font-semibold text-foreground">Third-party AI providers</h2>
-            <p>
-              When you run an agent, your prompts are sent to the AI provider you've selected (e.g.
-              OpenAI, Anthropic, Google). Their policies apply to that data. We never log raw prompt
-              content beyond what's shown in your own trace inspector.
-            </p>
-          </section>
-
-          <section>
-            <h2 className="text-lg font-semibold text-foreground">Your rights under UAE PDPL</h2>
-            <p>
-              You may request access, correction, transfer, restriction, or deletion of your
-              personal data, and withdraw consent at any time. Most rights can be exercised directly
-              from{" "}
+              Applicable data-protection laws (such as the{" "}
+              <strong className="text-foreground">GDPR</strong> and the{" "}
+              <strong className="text-foreground">UAE PDPL</strong>) give people the right to
+              access, correct, port, restrict, or delete their personal data and to withdraw
+              consent. For data held by a <em>self-hosted</em> instance, exercise those rights with
+              that instance's operator — most are available directly from{" "}
               <Link to="/account" className="text-primary hover:underline">
-                your account settings
+                account settings
               </Link>
-              ; for anything else, contact us below. Account deletion is permanent and immediate.
+              , and account deletion is permanent and immediate. For the limited data the project
+              website holds, contact us below.
             </p>
           </section>
 
           <section>
-            <h2 className="text-lg font-semibold text-foreground">Contact</h2>
+            <h2 className="text-lg font-semibold text-foreground">7. Contact</h2>
             <p>
-              Questions about this policy or a PDPL data request? Use the{" "}
+              Questions about this policy or the project website's data? Use the{" "}
               <Link to="/contact" className="text-primary hover:underline">
                 contact form
               </Link>{" "}
-              and we'll respond within 1–2 business days.
+              and we'll respond within 1–2 business days. For data on a specific self-hosted
+              deployment, contact whoever operates that instance.
             </p>
           </section>
         </div>

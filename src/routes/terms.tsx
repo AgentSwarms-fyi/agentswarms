@@ -9,17 +9,21 @@ export const Route = createFileRoute("/terms")({
       {
         name: "description",
         content:
-          "The terms that govern your use of AgentSwarms — the hands-on learning playground for Agentic AI.",
+          "The terms for the AgentSwarms project website and any hosted demo. The software itself is open-source under the MIT License and self-hosted on your own infrastructure.",
       },
       { property: "og:title", content: "Terms of Use — AgentSwarms" },
       {
         property: "og:description",
-        content: "The terms that govern your use of AgentSwarms.",
+        content:
+          "AgentSwarms is open-source (MIT) and self-hosted. These terms cover the project website and hosted demo.",
       },
       { property: "og:url", content: "https://agentswarms.fyi/terms" },
       { name: "twitter:card", content: "summary_large_image" },
       { name: "twitter:title", content: "Terms of Use — AgentSwarms" },
-      { name: "twitter:description", content: "The terms that govern your use of AgentSwarms." },
+      {
+        name: "twitter:description",
+        content: "Open-source (MIT), self-hosted. Terms for the project website and hosted demo.",
+      },
     ],
     links: [{ rel: "canonical", href: "https://agentswarms.fyi/terms" }],
   }),
@@ -35,151 +39,145 @@ function TermsPage() {
           <ScrollText className="h-3.5 w-3.5" /> Legal
         </div>
         <h1 className="text-4xl font-bold tracking-tight">Terms of Use</h1>
-        <p className="mt-2 text-sm text-muted-foreground">Last updated: June 2026</p>
+        <p className="mt-2 text-sm text-muted-foreground">Last updated: July 2026</p>
 
         <div className="prose prose-invert mt-10 max-w-none space-y-6 text-sm leading-relaxed text-muted-foreground">
           <section>
-            <h2 className="text-lg font-semibold text-foreground">1. Acceptance of terms</h2>
+            <h2 className="text-lg font-semibold text-foreground">1. About these terms</h2>
             <p>
-              By creating an account or otherwise accessing AgentSwarms (the "Service"), you agree
-              to be bound by these Terms of Use ("Terms"). If you do not agree, do not use the
-              Service. These Terms form a binding agreement between you and AgentSwarms.
+              AgentSwarms is{" "}
+              <strong className="text-foreground">
+                open-source software licensed under the MIT License
+              </strong>
+              . Your use of the <em>software itself</em> — running, modifying, and redistributing it
+              — is governed by that license, which ships in the repository. These Terms of Use
+              additionally govern your use of the public project website at agentswarms.fyi and any
+              optional hosted demo the maintainers provide (together, the "Service"). If you don't
+              agree, don't use the website or demo.
             </p>
           </section>
 
           <section>
             <h2 className="text-lg font-semibold text-foreground">2. What AgentSwarms is</h2>
             <p>
-              AgentSwarms is an educational, hands-on playground for learning to design, build,
-              evaluate, and operate Agentic AI systems. It includes notebooks, agent and swarm
-              builders, evaluation labs, traces, and related tooling.{" "}
-              <strong className="text-foreground">
-                The Service is hosted in the European Union
-              </strong>{" "}
-              — application servers, the primary database, file storage, and backups are located in
-              EU data centres, and our infrastructure providers operate under SOC 2 Type II, ISO/IEC
-              27001, and GDPR compliance frameworks. The Service is provided for learning and
-              experimentation — it is not a production runtime, not a regulated decision system, and
-              not a substitute for professional advice in any domain (medical, legal, financial,
-              safety-critical, etc.).
+              AgentSwarms is a <strong className="text-foreground">self-hosted</strong> platform for
+              building and running AI agents, multi-agent swarms and AI-native business intelligence
+              — a visual builder, RAG, tools, MCP, dashboards, traces and budgets that you deploy on
+              your own infrastructure with your own model-provider keys. It is provided for you to
+              operate yourself; it is not a substitute for professional advice in any regulated
+              domain (medical, legal, financial, safety-critical, etc.).
             </p>
           </section>
 
           <section>
-            <h2 className="text-lg font-semibold text-foreground">3. Your account</h2>
+            <h2 className="text-lg font-semibold text-foreground">
+              3. The MIT license &amp; your deployment
+            </h2>
             <p>
-              You are responsible for maintaining the security of your account credentials and for
-              all activity under your account. You must be at least 13 years old (or the minimum age
-              required in your jurisdiction) to use the Service. You agree to provide accurate
-              information and to keep it up to date.
+              Under the MIT License you may use, copy, modify, and distribute the software,
+              including commercially, provided you keep the copyright and license notice. The
+              software is provided "as is", without warranty of any kind. You are{" "}
+              <strong className="text-foreground">
+                solely responsible for your own deployment
+              </strong>
+              : its security, availability, costs (including model-provider usage), data, and
+              compliance with the laws that apply to you and your users. If you host AgentSwarms for
+              others, you are their operator and data controller. The{" "}
+              <strong className="text-foreground">AgentSwarms name and logo are trademarks</strong>{" "}
+              and are not licensed under MIT — don't use them to imply endorsement or to pass off a
+              modified version as official.
             </p>
           </section>
 
           <section>
-            <h2 className="text-lg font-semibold text-foreground">4. Acceptable use</h2>
-            <p>You agree not to:</p>
-            <ul className="list-disc pl-6 space-y-1">
+            <h2 className="text-lg font-semibold text-foreground">
+              4. Acceptable use (website &amp; hosted demo)
+            </h2>
+            <p>When using the project website or a hosted demo, you agree not to:</p>
+            <ul className="ml-5 list-disc space-y-1">
+              <li>Break any law or infringe third-party rights.</li>
               <li>
-                Use the Service to build or operate systems that violate any law or third-party
-                rights.
-              </li>
-              <li>Attempt to bypass quotas, authentication, billing, or rate limits.</li>
-              <li>
-                Use the platform's LLM, embedding, or image endpoints to generate disallowed content
-                — including CSAM, content that facilitates real-world violence, non-consensual
-                sexual content, targeted harassment, or instructions to create weapons of mass harm.
+                Attempt to bypass authentication or rate limits, or probe for vulnerabilities
+                outside a coordinated disclosure.
               </li>
               <li>
-                Use AgentSwarms to scrape, mirror, or compete directly with the AgentSwarms
-                platform, or to train a substantially similar competing service.
+                Generate disallowed content — including CSAM, content that facilitates real-world
+                violence, non-consensual sexual content, targeted harassment, or instructions to
+                create weapons of mass harm.
               </li>
-              <li>
-                Upload malware, intentionally exfiltrate other users' data, or probe the platform
-                for vulnerabilities outside a coordinated disclosure.
-              </li>
+              <li>Upload malware or attempt to access other people's data.</li>
             </ul>
+            <p className="mt-2">
+              How you use the software on your <em>own</em> instance is up to you, within the law
+              and your providers' terms. We may suspend access to the website or hosted demo for
+              violations of this section.
+            </p>
           </section>
 
           <section>
             <h2 className="text-lg font-semibold text-foreground">5. Your content</h2>
             <p>
-              You retain ownership of agents, swarms, prompts, notebooks, knowledge sources, and
-              other content you create ("Your Content"). You grant AgentSwarms a limited license to
-              host, process, and display Your Content solely to operate the Service for you.
+              You own the agents, swarms, prompts, dashboards, data and other content you create
+              ("Your Content"). On a self-hosted instance it stays in your database — the
+              maintainers claim no license to it and never receive it. If you submit content to the
+              project website (e.g. the contact form), you grant us only the limited right to use it
+              to respond to you.
             </p>
           </section>
 
           <section>
             <h2 className="text-lg font-semibold text-foreground">6. AI outputs</h2>
             <p>
-              Outputs from LLMs, agents, and swarms run on AgentSwarms can be inaccurate,
-              incomplete, biased, or offensive. You are solely responsible for reviewing outputs
-              before relying on them or sharing them. Do not use AI outputs to make consequential
-              decisions about a real person without qualified human review.
+              Outputs from LLMs, agents and swarms can be inaccurate, incomplete, biased or
+              offensive. You are solely responsible for reviewing outputs before relying on or
+              sharing them, and must not use them to make consequential decisions about a real
+              person without qualified human review.
             </p>
           </section>
 
           <section>
             <h2 className="text-lg font-semibold text-foreground">7. Third-party services</h2>
             <p>
-              The Service integrates third-party providers (model providers, OAuth providers, email
-              providers, infrastructure providers). Your use of those providers through AgentSwarms
-              is also subject to their terms. We are not responsible for outages, changes, or
-              content originating from third-party services.
+              AgentSwarms connects to third-party providers you configure (model providers,
+              OAuth/SSO identity providers, email, databases, and warehouses). Your use of those
+              providers is subject to their terms, and the maintainers are not responsible for their
+              outages, changes, or content.
             </p>
           </section>
 
           <section>
-            <h2 className="text-lg font-semibold text-foreground">8. Plans, billing, and limits</h2>
+            <h2 className="text-lg font-semibold text-foreground">8. Disclaimers</h2>
             <p>
-              Some features are offered under usage limits, free tiers, or paid plans. We may change
-              pricing, quotas, or feature availability with reasonable notice. Free credits and
-              trial limits may be revoked if abused.
+              THE SOFTWARE AND THE SERVICE ARE PROVIDED "AS IS" AND "AS AVAILABLE", WITHOUT
+              WARRANTIES OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING MERCHANTABILITY, FITNESS FOR A
+              PARTICULAR PURPOSE, AND NON-INFRINGEMENT. The maintainers do not warrant that the
+              software will be uninterrupted, secure, or error-free, or that AI outputs will be
+              accurate.
             </p>
           </section>
 
           <section>
-            <h2 className="text-lg font-semibold text-foreground">9. Termination</h2>
+            <h2 className="text-lg font-semibold text-foreground">9. Limitation of liability</h2>
             <p>
-              You can stop using the Service at any time and delete your account from the Account
-              settings. We may suspend or terminate access to the Service if you violate these
-              Terms, abuse the platform, or expose us or other users to material risk.
+              TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE AGENTSWARMS MAINTAINERS AND CONTRIBUTORS
+              WILL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL OR PUNITIVE
+              DAMAGES, OR ANY LOSS OF PROFITS, REVENUE, DATA OR GOODWILL, ARISING FROM THE SOFTWARE
+              OR THE SERVICE. Because the software is provided free of charge under the MIT License,
+              the maintainers' total aggregate liability for any claim will not exceed USD 0.
             </p>
           </section>
 
           <section>
-            <h2 className="text-lg font-semibold text-foreground">10. Disclaimers</h2>
+            <h2 className="text-lg font-semibold text-foreground">10. Changes to these terms</h2>
             <p>
-              THE SERVICE IS PROVIDED "AS IS" AND "AS AVAILABLE" WITHOUT WARRANTIES OF ANY KIND,
-              WHETHER EXPRESS OR IMPLIED, INCLUDING MERCHANTABILITY, FITNESS FOR A PARTICULAR
-              PURPOSE, AND NON-INFRINGEMENT. We do not warrant that the Service will be
-              uninterrupted, secure, or error-free, or that AI outputs will be accurate.
+              We may update these Terms from time to time. Material changes will be noted on the
+              site. Continued use of the website or demo after changes take effect constitutes
+              acceptance of the updated Terms.
             </p>
           </section>
 
           <section>
-            <h2 className="text-lg font-semibold text-foreground">11. Limitation of liability</h2>
-            <p>
-              TO THE MAXIMUM EXTENT PERMITTED BY LAW, AGENTSWARMS WILL NOT BE LIABLE FOR ANY
-              INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, OR ANY LOSS OF
-              PROFITS, REVENUE, DATA, OR GOODWILL, ARISING FROM YOUR USE OF THE SERVICE. Our
-              aggregate liability for any claim arising out of the Service will not exceed the
-              greater of (a) the amount you paid us in the 12 months preceding the claim, or (b) USD
-              50.
-            </p>
-          </section>
-
-          <section>
-            <h2 className="text-lg font-semibold text-foreground">12. Changes to these terms</h2>
-            <p>
-              We may update these Terms from time to time. Material changes will be highlighted on
-              the site or sent by email. Continued use of the Service after changes become effective
-              constitutes acceptance of the updated Terms.
-            </p>
-          </section>
-
-          <section>
-            <h2 className="text-lg font-semibold text-foreground">13. Contact</h2>
+            <h2 className="text-lg font-semibold text-foreground">11. Contact</h2>
             <p>
               Questions about these Terms? Email{" "}
               <a className="text-foreground underline" href="mailto:hello@agentswarms.fyi">

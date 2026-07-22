@@ -132,7 +132,7 @@ export function SiteFooter() {
         </div>
 
         <div className="mt-10 flex flex-col items-center justify-between gap-3 border-t border-border/40 pt-6 text-xs text-muted-foreground sm:flex-row">
-          <span>© {year} AgentSwarms — open-source agentic AI &amp; business intelligence.</span>
+          <span>© {year} AgentSwarms — Unified Agentic AI &amp; Business Intelligence.</span>
           <span>Self-hosted · MIT licensed · Your data, your models.</span>
         </div>
       </div>
