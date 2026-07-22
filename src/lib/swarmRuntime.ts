@@ -351,7 +351,7 @@ export type SwarmRunOptions = {
 // Topologically order nodes into LEVELS — each level contains nodes whose
 // dependencies are all in previous levels. Nodes within the same level can
 // execute in parallel. Cycles (other than explicit `loop` self-edges) raise.
-function topoLevels(nodes: Node<SwarmNodeData>[], edges: Edge[]): Node<SwarmNodeData>[][] {
+export function topoLevels(nodes: Node<SwarmNodeData>[], edges: Edge[]): Node<SwarmNodeData>[][] {
   const incoming = new Map<string, Set<string>>();
   nodes.forEach((n) => incoming.set(n.id, new Set()));
   edges.forEach((e) => {
@@ -379,7 +379,7 @@ function topoLevels(nodes: Node<SwarmNodeData>[], edges: Edge[]): Node<SwarmNode
 // (`foo`), an optional `state.` prefix, and a JSON path into a value that
 // happens to be JSON — `foo.bar`, `foo[0]`, `foo.items[2].name`. Returns the
 // resolved string, or undefined when it can't be resolved.
-function resolveStatePath(ctx: Record<string, string>, expr: string): string | undefined {
+export function resolveStatePath(ctx: Record<string, string>, expr: string): string | undefined {
   // Leave {{secret:NAME}} refs untouched — resolved server-side.
   if (/^secret\s*:/i.test(expr)) return undefined;
   const cleaned = expr.trim().replace(/^state\./, "");
@@ -410,20 +410,22 @@ function resolveStatePath(ctx: Record<string, string>, expr: string): string | u
 
 // Substitute {{var}} / {{var.path}} placeholders in a template with values from
 // flow state. Unresolved refs (incl. {{secret:NAME}}) are left as-is.
-function interpolate(template: string, ctx: Record<string, string>): string {
+// Exported so the server-side executor (swarmExecute.server.ts) shares the
+// exact same templating semantics.
+export function interpolate(template: string, ctx: Record<string, string>): string {
   return template.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_, expr: string) => {
     const resolved = resolveStatePath(ctx, expr);
     return resolved !== undefined ? resolved : `{{${expr.trim()}}}`;
   });
 }
 
-function hasDoneSignal(output: string): boolean {
+export function hasDoneSignal(output: string): boolean {
   return output.split(/\r?\n/).some((line) => /^\s*DONE[.!]?\s*$/i.test(line));
 }
 
 // Pulls a string output from the upstream context — falls back to the latest
 // output if no inputs are declared.
-function gatherInputs(
+export function gatherInputs(
   node: Node<SwarmNodeData>,
   ctx: Record<string, string>,
   fallback: string,

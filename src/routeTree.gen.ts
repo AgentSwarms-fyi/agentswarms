@@ -77,6 +77,7 @@ import { Route as EmbedAgentKeyRouteImport } from './routes/embed.agent.$key'
 import { Route as ApiWarehouseSchemaRouteImport } from './routes/api/warehouse/schema'
 import { Route as ApiWarehouseQueryRouteImport } from './routes/api/warehouse/query'
 import { Route as ApiTemplatesProvisionRouteImport } from './routes/api/templates.provision'
+import { Route as ApiSwarmRunRouteImport } from './routes/api/swarm.run'
 import { Route as ApiSkillsGenerateRouteImport } from './routes/api/skills.generate'
 import { Route as ApiKbIngestUrlRouteImport } from './routes/api/kb/ingest-url'
 import { Route as ApiKbIngestGithubRouteImport } from './routes/api/kb/ingest-github'
@@ -445,6 +446,11 @@ const ApiTemplatesProvisionRoute = ApiTemplatesProvisionRouteImport.update({
   path: '/api/templates/provision',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiSwarmRunRoute = ApiSwarmRunRouteImport.update({
+  id: '/api/swarm/run',
+  path: '/api/swarm/run',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiSkillsGenerateRoute = ApiSkillsGenerateRouteImport.update({
   id: '/api/skills/generate',
   path: '/api/skills/generate',
@@ -635,6 +641,7 @@ export interface FileRoutesByFullPath {
   '/api/kb/ingest-github': typeof ApiKbIngestGithubRoute
   '/api/kb/ingest-url': typeof ApiKbIngestUrlRoute
   '/api/skills/generate': typeof ApiSkillsGenerateRoute
+  '/api/swarm/run': typeof ApiSwarmRunRoute
   '/api/templates/provision': typeof ApiTemplatesProvisionRoute
   '/api/warehouse/query': typeof ApiWarehouseQueryRoute
   '/api/warehouse/schema': typeof ApiWarehouseSchemaRoute
@@ -723,6 +730,7 @@ export interface FileRoutesByTo {
   '/api/kb/ingest-github': typeof ApiKbIngestGithubRoute
   '/api/kb/ingest-url': typeof ApiKbIngestUrlRoute
   '/api/skills/generate': typeof ApiSkillsGenerateRoute
+  '/api/swarm/run': typeof ApiSwarmRunRoute
   '/api/templates/provision': typeof ApiTemplatesProvisionRoute
   '/api/warehouse/query': typeof ApiWarehouseQueryRoute
   '/api/warehouse/schema': typeof ApiWarehouseSchemaRoute
@@ -815,6 +823,7 @@ export interface FileRoutesById {
   '/api/kb/ingest-github': typeof ApiKbIngestGithubRoute
   '/api/kb/ingest-url': typeof ApiKbIngestUrlRoute
   '/api/skills/generate': typeof ApiSkillsGenerateRoute
+  '/api/swarm/run': typeof ApiSwarmRunRoute
   '/api/templates/provision': typeof ApiTemplatesProvisionRoute
   '/api/warehouse/query': typeof ApiWarehouseQueryRoute
   '/api/warehouse/schema': typeof ApiWarehouseSchemaRoute
@@ -907,6 +916,7 @@ export interface FileRouteTypes {
     | '/api/kb/ingest-github'
     | '/api/kb/ingest-url'
     | '/api/skills/generate'
+    | '/api/swarm/run'
     | '/api/templates/provision'
     | '/api/warehouse/query'
     | '/api/warehouse/schema'
@@ -995,6 +1005,7 @@ export interface FileRouteTypes {
     | '/api/kb/ingest-github'
     | '/api/kb/ingest-url'
     | '/api/skills/generate'
+    | '/api/swarm/run'
     | '/api/templates/provision'
     | '/api/warehouse/query'
     | '/api/warehouse/schema'
@@ -1086,6 +1097,7 @@ export interface FileRouteTypes {
     | '/api/kb/ingest-github'
     | '/api/kb/ingest-url'
     | '/api/skills/generate'
+    | '/api/swarm/run'
     | '/api/templates/provision'
     | '/api/warehouse/query'
     | '/api/warehouse/schema'
@@ -1134,6 +1146,7 @@ export interface RootRouteChildren {
   ApiKbIngestGithubRoute: typeof ApiKbIngestGithubRoute
   ApiKbIngestUrlRoute: typeof ApiKbIngestUrlRoute
   ApiSkillsGenerateRoute: typeof ApiSkillsGenerateRoute
+  ApiSwarmRunRoute: typeof ApiSwarmRunRoute
   ApiTemplatesProvisionRoute: typeof ApiTemplatesProvisionRoute
   ApiWarehouseQueryRoute: typeof ApiWarehouseQueryRoute
   ApiWarehouseSchemaRoute: typeof ApiWarehouseSchemaRoute
@@ -1623,6 +1636,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiTemplatesProvisionRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/swarm/run': {
+      id: '/api/swarm/run'
+      path: '/api/swarm/run'
+      fullPath: '/api/swarm/run'
+      preLoaderRoute: typeof ApiSwarmRunRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/skills/generate': {
       id: '/api/skills/generate'
       path: '/api/skills/generate'
@@ -1977,6 +1997,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiKbIngestGithubRoute: ApiKbIngestGithubRoute,
   ApiKbIngestUrlRoute: ApiKbIngestUrlRoute,
   ApiSkillsGenerateRoute: ApiSkillsGenerateRoute,
+  ApiSwarmRunRoute: ApiSwarmRunRoute,
   ApiTemplatesProvisionRoute: ApiTemplatesProvisionRoute,
   ApiWarehouseQueryRoute: ApiWarehouseQueryRoute,
   ApiWarehouseSchemaRoute: ApiWarehouseSchemaRoute,

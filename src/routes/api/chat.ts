@@ -29,6 +29,7 @@ import { extractMemoriesFromTurn } from "@/utils/memory/extract.server";
 import type { RecalledItem } from "@/utils/memory/types";
 import { isImageModelId } from "@/lib/providerSupport";
 import { getEffectiveModelRules, isModelAllowed } from "@/utils/iam.server";
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -937,6 +938,10 @@ export const Route = createFileRoute("/api/chat")({
             temperature?: number;
             maxTokens?: number;
             agentId?: string;
+            // Headless swarm runs (API key / cron) authenticate with the
+            // service secret and name the owner here (see the internal-auth
+            // block below). Ignored for normal browser requests.
+            internalUserId?: string;
             // Per-call tool allow-list (used by the swarm runtime to pick
             // which tools each node exposes). When omitted, the registry
             // returns every capability the user is configured for.
@@ -1007,13 +1012,28 @@ export const Route = createFileRoute("/api/chat")({
           // providers" check below.
           const authHeader = request.headers.get("authorization");
           const authToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : undefined;
-          const userId = await getUserIdFromRequest(request);
+          // Internal server-to-server calls (headless swarm runs): authenticated
+          // by the service-role secret, they name the swarm owner in the body.
+          // Callers must strip RLS-scoped tools + memory (no user JWT here), so
+          // this path never issues a user-data query as the service role.
+          const internalSecret = request.headers.get("x-internal-run-secret");
+          const isInternalRun =
+            !!internalSecret &&
+            !!process.env.SUPABASE_SERVICE_ROLE_KEY &&
+            internalSecret === process.env.SUPABASE_SERVICE_ROLE_KEY;
+          const userId = isInternalRun
+            ? (body.internalUserId ?? null)
+            : await getUserIdFromRequest(request);
 
           // IAM model governance: a user subject to model rules (their own or
           // any of their groups') may only call allowed provider/model
           // combinations. Users with no applicable rules are unrestricted.
-          if (userId && authToken) {
-            const iamSb = getServerSupabase(authToken);
+          if (userId) {
+            const iamSb = authToken
+              ? getServerSupabase(authToken)
+              : isInternalRun
+                ? supabaseAdmin
+                : null;
             if (iamSb) {
               const modelRules = await getEffectiveModelRules(iamSb, userId);
               if (modelRules && !isModelAllowed(modelRules, provider, model)) {
