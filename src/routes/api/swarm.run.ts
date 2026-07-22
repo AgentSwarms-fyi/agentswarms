@@ -2,8 +2,14 @@
 //
 //   POST /api/swarm/run
 //   Authorization: Bearer sk_swarm_…
-//   { "input": "…", "inputs": { "field": "value" } }
+//   { "input": "…", "inputs": { "field": "value" },
+//     "history": [{ "role": "user"|"assistant", "content": "…" }] }
 //   → { "output": "…", "runId": "…" }
+//
+// `history` (optional) turns a swarm into a multi-turn chatbot: prior turns
+// are replayed into every agent node so the swarm answers in context. The
+// caller manages the transcript (append the returned output as the assistant
+// turn and send it back next time) — the endpoint stays stateless.
 //
 // Authenticated by a per-swarm API key (SHA-256 hash looked up server-side).
 // The swarm runs headlessly via the server executor as the key's owner.
@@ -40,7 +46,7 @@ export const Route = createFileRoute("/api/swarm/run")({
           .maybeSingle();
         if (!key || !key.is_active) return json({ error: "Invalid or disabled API key" }, 401);
 
-        let payload: { input?: unknown; inputs?: unknown } = {};
+        let payload: { input?: unknown; inputs?: unknown; history?: unknown } = {};
         try {
           payload = (await request.json()) as typeof payload;
         } catch {
@@ -53,6 +59,22 @@ export const Route = createFileRoute("/api/swarm/run")({
             initialState[k] = typeof v === "string" ? v : JSON.stringify(v);
           }
         }
+        // Optional conversation history (chat mode). Keep only valid turns and
+        // cap to the last 20 so a long transcript can't blow up token usage.
+        const history: { role: "user" | "assistant"; content: string }[] = Array.isArray(
+          payload.history,
+        )
+          ? (payload.history as unknown[])
+              .filter(
+                (m): m is { role: "user" | "assistant"; content: string } =>
+                  !!m &&
+                  typeof m === "object" &&
+                  ((m as { role?: unknown }).role === "user" ||
+                    (m as { role?: unknown }).role === "assistant") &&
+                  typeof (m as { content?: unknown }).content === "string",
+              )
+              .slice(-20)
+          : [];
 
         const { data: swarm } = await supabaseAdmin
           .from("swarms")
@@ -69,6 +91,7 @@ export const Route = createFileRoute("/api/swarm/run")({
           origin,
           input,
           initialState,
+          history,
           rejectApprovals: key.reject_approvals,
           source: "api",
         });

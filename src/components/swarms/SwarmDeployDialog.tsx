@@ -316,6 +316,14 @@ export function SwarmDeployDialog({
                 <pre className="overflow-x-auto rounded-md border border-border/60 bg-background/60 p-2.5 text-[11px] leading-relaxed font-mono">
                   {curl}
                 </pre>
+                <p className="mt-1.5 text-[10px] text-muted-foreground">
+                  Chatbot mode: add{" "}
+                  <code className="font-mono">
+                    {`"history": [{ "role": "user"|"assistant", "content": "…" }]`}
+                  </code>{" "}
+                  to send prior turns — the swarm answers in context. Append each response as the
+                  next assistant turn.
+                </p>
               </div>
 
               <div className="space-y-1.5">

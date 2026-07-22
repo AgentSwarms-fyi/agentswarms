@@ -73,6 +73,8 @@ async function serverChat(args: {
   systemPrompt: string;
   userMessage: string;
   signal?: AbortSignal;
+  // Chat mode: prior conversation turns replayed as leading messages.
+  history?: { role: "user" | "assistant"; content: string }[];
 }): Promise<string> {
   const secret = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!secret) throw new Error("Server is missing SUPABASE_SERVICE_ROLE_KEY");
@@ -92,7 +94,10 @@ async function serverChat(args: {
       systemPrompt: args.systemPrompt,
       temperature: typeof d.temperature === "number" ? d.temperature : 0.4,
       maxTokens: 8192,
-      messages: [{ role: "user", content: args.userMessage }],
+      messages: [
+        ...(args.history ?? []).map((h) => ({ role: h.role, content: h.content })),
+        { role: "user", content: args.userMessage },
+      ],
       enabledTools,
       toolConfigs: d.toolConfigs && typeof d.toolConfigs === "object" ? d.toolConfigs : undefined,
       guardrails:
@@ -160,6 +165,8 @@ export async function executeSwarmServer(opts: {
   origin: string;
   input: string;
   initialState?: Record<string, string>;
+  // Chat mode (API): prior conversation turns replayed into every agent node.
+  history?: { role: "user" | "assistant"; content: string }[];
   rejectApprovals: boolean;
   source: "api" | "schedule";
   depth?: number;
@@ -167,6 +174,9 @@ export async function executeSwarmServer(opts: {
   const nodes = (Array.isArray(opts.swarm.nodes) ? opts.swarm.nodes : []) as Node<SwarmNodeData>[];
   const edges = (Array.isArray(opts.swarm.edges) ? opts.swarm.edges : []) as Edge[];
   const depth = opts.depth ?? 0;
+  // Inject the conversation history into every LLM node call (chat mode).
+  const chat = (a: Parameters<typeof serverChat>[0]) =>
+    serverChat({ ...a, history: opts.history });
 
   // Record the run for observability (Recent runs / traces). Only the top-level
   // run gets a row; nested Execute-Swarm runs don't clutter the history.
@@ -350,7 +360,7 @@ export async function executeSwarmServer(opts: {
           const loopPrompt = interpolate(d.systemPrompt || "{{input}}", { ...ctx, input: loopInput });
           let result = "";
           for (let i = 0; i < max; i++) {
-            result = await serverChat({
+            result = await chat({
               origin: opts.origin,
               userId: opts.userId,
               node,
@@ -374,7 +384,7 @@ export async function executeSwarmServer(opts: {
           const refBlock = ref && ctx[ref] ? `\n\n## Reference / Original Question\n${ctx[ref]}` : "";
           const rubric = d.evalRubric?.trim() ? `\n\n## Evaluation Rubric\n${d.evalRubric}` : "";
           const sys = `You are a strict, impartial LLM evaluation judge. Score the CANDIDATE OUTPUT against each metric on a 0.0–1.0 scale.\n\n## Metrics\n${metricsBlock}${rubric}\n\n## Output format\nReturn ONLY valid JSON — no fences:\n{\n  "metrics": {\n${metrics.map((m) => `    "${m.id}": { "score": <0.0-1.0>, "reason": "<why>" }`).join(",\n")}\n  },\n  "overall_score": <weighted average>,\n  "pass": <true if overall_score >= ${threshold}>,\n  "summary": "<2-3 sentences>"\n}`;
-          const result = await serverChat({
+          const result = await chat({
             origin: opts.origin,
             userId: opts.userId,
             node,
@@ -392,7 +402,7 @@ export async function executeSwarmServer(opts: {
             .map((f) => `- "${f.name}" (${f.type})${f.description ? ": " + f.description : ""}`)
             .join("\n");
           const sys = `You extract structured data. Read the INPUT and return ONLY a JSON object with exactly these fields — no prose, no markdown fences:\n${fieldLines}\n\nUse null for any value you cannot find.`;
-          const result = await serverChat({
+          const result = await chat({
             origin: opts.origin,
             userId: opts.userId,
             node,
@@ -422,7 +432,7 @@ export async function executeSwarmServer(opts: {
             const item = arr[i];
             const itemStr = typeof item === "string" ? item : JSON.stringify(item);
             const bodyCtx = { ...ctx, [itemVar]: itemStr, index: String(i) };
-            const out = await serverChat({
+            const out = await chat({
               origin: opts.origin,
               userId: opts.userId,
               node,
@@ -440,7 +450,7 @@ export async function executeSwarmServer(opts: {
         }
         if (kind === "condition") {
           const judgeInput = gatherInputs(node, ctx, lastOutput);
-          const out = await serverChat({
+          const out = await chat({
             origin: opts.origin,
             userId: opts.userId,
             node,
@@ -474,7 +484,7 @@ export async function executeSwarmServer(opts: {
             ),
           );
           if (choices.length === 0) throw new Error("Router node has no labeled outgoing edges.");
-          const out = await serverChat({
+          const out = await chat({
             origin: opts.origin,
             userId: opts.userId,
             node,
@@ -511,7 +521,7 @@ export async function executeSwarmServer(opts: {
           continue;
         }
         if (kind === "agent") {
-          const out = await serverChat({
+          const out = await chat({
             origin: opts.origin,
             userId: opts.userId,
             node,
