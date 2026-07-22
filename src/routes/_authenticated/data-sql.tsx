@@ -110,8 +110,8 @@ export const Route = createFileRoute("/_authenticated/data-sql")({
   component: DataCatalogRoute,
 });
 
-// Seed passed from the Catalog's "Query in Workbench" into the IDE below.
-type WorkbenchSeed = { sql: string; dataSource: string; nonce: number };
+// Seed passed from the Catalog's "Query data" into the IDE below.
+type WorkbenchSeed = { sql: string; dataSource: string; autorun?: boolean; nonce: number };
 
 /**
  * Page shell: Catalog (sources, crawled assets, governance) and the
@@ -386,12 +386,35 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
     };
   }
 
-  // Apply a query seeded from the Catalog tab (source + SQL).
+  // Apply a query seeded from the Catalog tab (source + SQL), optionally
+  // executing it right away so results show without another click.
   useEffect(() => {
     if (!seed) return;
     setDataSource(seed.dataSource);
     setSql(seed.sql);
     if (seed.dataSource !== "local") void loadWarehouseSchema(seed.dataSource);
+    if (!seed.autorun) return;
+    (async () => {
+      setRunning(true);
+      setQueryError(null);
+      setResult(null);
+      try {
+        let r: QueryResult;
+        if (seed.dataSource === "local") {
+          // The workbench may mount straight into a seeded query, before
+          // its own load effect has hydrated the in-browser engine.
+          await hydrateFromSupabase();
+          r = runQuery(seed.sql);
+        } else {
+          r = await runWarehouseSql(seed.dataSource, seed.sql);
+        }
+        setResult(r);
+      } catch (e) {
+        setQueryError((e as Error).message);
+      } finally {
+        setRunning(false);
+      }
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seed?.nonce]);
 

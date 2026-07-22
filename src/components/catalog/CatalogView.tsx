@@ -17,6 +17,7 @@ import {
   Layers,
   Loader2,
   MoreVertical,
+  Play,
   Plus,
   RefreshCw,
   Search,
@@ -84,8 +85,8 @@ type UnifiedAsset = CatalogAsset & { local?: boolean };
 export function CatalogView({
   onQueryAsset,
 }: {
-  /** Open an asset in the Workbench tab with a seeded query. */
-  onQueryAsset?: (seed: { sql: string; dataSource: string }) => void;
+  /** Open an asset in the Workbench tab with a seeded query (auto-executed). */
+  onQueryAsset?: (seed: { sql: string; dataSource: string; autorun?: boolean }) => void;
 }) {
   const { session } = useAuth();
   const token = session?.access_token ?? "";
@@ -245,12 +246,20 @@ export function CatalogView({
   function openInWorkbench(a: UnifiedAsset) {
     if (!onQueryAsset) return;
     if (a.local) {
-      onQueryAsset({ sql: `SELECT * FROM \`${a.name}\` LIMIT 100`, dataSource: "local" });
+      onQueryAsset({
+        sql: `SELECT * FROM \`${a.name}\` LIMIT 10`,
+        dataSource: "local",
+        autorun: true,
+      });
       return;
     }
     const src = sourceById.get(a.source_id);
     if (src?.kind === "warehouse" && src.connection_id) {
-      onQueryAsset({ sql: `SELECT * FROM ${a.fqn} LIMIT 100`, dataSource: src.connection_id });
+      onQueryAsset({
+        sql: `SELECT * FROM ${a.fqn} LIMIT 10`,
+        dataSource: src.connection_id,
+        autorun: true,
+      });
     }
   }
 
@@ -437,6 +446,7 @@ export function CatalogView({
                   <TableHead className="text-right text-xs">Rows</TableHead>
                   <TableHead className="text-right text-xs">Size</TableHead>
                   <TableHead className="text-xs">Tags</TableHead>
+                  <TableHead className="w-24 text-xs" />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -499,6 +509,24 @@ export function CatalogView({
                           </span>
                         )}
                       </div>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {(a.asset_type === "table" || a.asset_type === "view") &&
+                        queryable(a) &&
+                        onQueryAsset && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-6 gap-1 px-2 text-[10px]"
+                            title={`Run SELECT * FROM ${a.local ? a.name : a.fqn} LIMIT 10 in the Workbench`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openInWorkbench(a);
+                            }}
+                          >
+                            <Play className="h-2.5 w-2.5" /> Query data
+                          </Button>
+                        )}
                     </TableCell>
                   </TableRow>
                 ))}
