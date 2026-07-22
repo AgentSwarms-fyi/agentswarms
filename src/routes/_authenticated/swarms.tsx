@@ -834,6 +834,8 @@ function SwarmsCanvas({
   // of being orphaned when this component unmounts. We derive the live view
   // from that store and reflect it onto the canvas.
   const [runInput, setRunInput] = useState("");
+  // Values for the typed input form (when the input node declares inputFields).
+  const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
   const [traceEnabled, setTraceEnabled] = useState(true);
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const managedRuns = useSyncExternalStore(subscribeRuns, getRunsSnapshot, getRunsSnapshot);
@@ -851,6 +853,11 @@ function SwarmsCanvas({
   const runningNodeIds = useMemo(
     () => new Set(activeRun?.runningNodeIds ?? []),
     [activeRun?.runId, (activeRun?.runningNodeIds ?? []).join("|")],
+  );
+  // Typed input form fields declared on the input node (empty = single textarea).
+  const inputFields = useMemo(
+    () => nodes.find((n) => n.data.kind === "input")?.data.inputFields ?? [],
+    [nodes],
   );
 
   // Track unsaved edits so we can warn on tab/window close.
@@ -1338,7 +1345,20 @@ function SwarmsCanvas({
   const pendingLabRunRef = useRef<string | null>(null);
 
   const handleRun = async () => {
-    if (!runInput.trim() || nodes.length === 0) return;
+    if (nodes.length === 0) return;
+    const usingForm = inputFields.length > 0;
+    if (usingForm) {
+      const missing = inputFields.filter((f) => f.required && !(fieldValues[f.name] ?? "").trim());
+      if (missing.length > 0) {
+        toast.warning(`Fill in: ${missing.map((f) => f.label || f.name).join(", ")}`);
+        return;
+      }
+    } else if (!runInput.trim()) {
+      return;
+    }
+    // The primary field seeds `input`; every field is also seeded by name.
+    const effectiveInput = usingForm ? (fieldValues[inputFields[0].name] ?? "") : runInput;
+    const initialState = usingForm ? { ...fieldValues } : undefined;
 
     // Pre-run DAG validation: warn ONLY about nodes that declare inputs but
     // have no incoming edge at all — i.e. genuinely orphaned nodes that can
@@ -1375,7 +1395,8 @@ function SwarmsCanvas({
       swarmName,
       nodes,
       edges,
-      input: runInput,
+      input: effectiveInput,
+      initialState,
       traceEnabled,
     });
     setActiveRunId(runId);
@@ -1456,7 +1477,8 @@ function SwarmsCanvas({
   const runPanelRef = useRef<HTMLDivElement | null>(null);
 
   const handleRunOrFocus = () => {
-    if (runInput.trim() && nodes.length > 0) {
+    const ready = nodes.length > 0 && (inputFields.length > 0 ? true : runInput.trim().length > 0);
+    if (ready) {
       handleRun();
     } else {
       // Scroll the run panel into view
@@ -1893,6 +1915,9 @@ function SwarmsCanvas({
               traceEnabled={traceEnabled}
               onTraceEnabledChange={setTraceEnabled}
               state={activeRun?.state}
+              inputFields={inputFields}
+              fieldValues={fieldValues}
+              onFieldChange={(name, val) => setFieldValues((v) => ({ ...v, [name]: val }))}
             />
           </div>
         </div>

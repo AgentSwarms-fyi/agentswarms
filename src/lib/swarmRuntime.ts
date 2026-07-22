@@ -164,6 +164,16 @@ export type SwarmNodeData = {
   // i/o
   inputs?: string[]; // names of variables this node reads from context
   outputVar?: string; // name of the variable this node writes to context
+  // input — optional typed start form. When present, the Run panel renders a
+  // field per entry and each value is seeded into flow state under its name.
+  inputFields?: {
+    name: string;
+    label?: string;
+    type: "text" | "textarea" | "number" | "select";
+    options?: string[]; // for type "select"
+    placeholder?: string;
+    required?: boolean;
+  }[];
   // condition
   conditionPrompt?: string; // a question whose YES/NO answer chooses the edge
   // router — N-way intelligent router. The LLM picks one of the outgoing
@@ -333,6 +343,9 @@ export type SwarmRunOptions = {
   // DB run id (swarm_runs.id) so approval rows can link back to this run and
   // show up under "Recent runs" while the swarm is paused on a human step.
   dbRunId?: string;
+  // Extra flow-state seeded before the run — used by the typed input form so
+  // each named field is available as {{fieldName}} from the first node onward.
+  initialState?: Record<string, string>;
 };
 
 // Topologically order nodes into LEVELS — each level contains nodes whose
@@ -782,7 +795,7 @@ export async function runSwarm(
   edges: Edge[],
   opts: SwarmRunOptions,
 ): Promise<void> {
-  const { initialInput, onEvent: rawOnEvent, signal, tracer, dbRunId } = opts;
+  const { initialInput, onEvent: rawOnEvent, signal, tracer, dbRunId, initialState } = opts;
   // Stable id for the entire run — used as a synthetic conversation key for
   // any node that opts into "swarm-scoped" memory so STM/scratchpad persists
   // across nodes within this single execution.
@@ -929,7 +942,7 @@ export async function runSwarm(
     };
   try {
     const levels = topoLevels(nodes, edges);
-    const ctx: Record<string, string> = { input: initialInput };
+    const ctx: Record<string, string> = { input: initialInput, ...(initialState ?? {}) };
     let lastOutput = initialInput;
     nodes.forEach((n) => nodeById.set(n.id, n));
 

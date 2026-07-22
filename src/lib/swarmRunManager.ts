@@ -93,6 +93,8 @@ export type StartRunParams = {
   edges: Edge[];
   input: string;
   traceEnabled: boolean;
+  /** Extra flow-state seeded from a typed input form. */
+  initialState?: Record<string, string>;
 };
 
 /**
@@ -168,6 +170,7 @@ export async function startRun(params: StartRunParams): Promise<string> {
       signal: abort.signal,
       tracer,
       dbRunId: tracer?.runId,
+      initialState: params.initialState,
       onEvent: (e) => {
         applyEvent(run, e);
         if (e.type === "run_done") finalText = e.finalOutput;

@@ -3,7 +3,14 @@
 import { useEffect, useState } from "react";
 import type { Node } from "@xyflow/react";
 import type { SwarmNodeData, SwarmToolId, EvalMetricConfig } from "@/lib/swarmRuntime";
-import { DEFAULT_EVAL_METRICS } from "@/lib/swarmRuntime";
+import { DEFAULT_EVAL_METRICS, runSwarm } from "@/lib/swarmRuntime";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchAgentCard, type AgentCard } from "@/lib/a2aClient";
 import { Input } from "@/components/ui/input";
@@ -493,6 +500,8 @@ export function NodeInspector({
         <Section label="Label">
           <Input value={data.label} onChange={(e) => onChange({ label: e.target.value })} />
         </Section>
+
+        {TESTABLE_KINDS.has(data.kind) && <NodeTestButton node={node} />}
 
         {(data.kind === "agent" ||
           data.kind === "loop" ||
@@ -1238,6 +1247,8 @@ export function NodeInspector({
           <RetrievePanel data={data} onChange={onChange} knowledgeBases={knowledgeBases} />
         )}
 
+        {data.kind === "input" && <InputFieldsPanel data={data} onChange={onChange} />}
+
         {ERROR_POLICY_KINDS.has(data.kind) && (
           <ErrorPolicySection
             data={data}
@@ -1744,6 +1755,112 @@ function ApproverPicker({
   );
 }
 
+// ───────────────────── Single-node test / debug ─────────────────────
+// Kinds where running the node in isolation (with a test input) is meaningful.
+const TESTABLE_KINDS = new Set<SwarmNodeData["kind"]>([
+  "agent",
+  "http",
+  "tool",
+  "extract",
+  "evaluate",
+  "retrieve",
+  "foreach",
+  "function",
+  "a2a_remote",
+]);
+
+function NodeTestButton({ node }: { node: Node<SwarmNodeData> }) {
+  const [open, setOpen] = useState(false);
+  const [testInput, setTestInput] = useState("");
+  const [running, setRunning] = useState(false);
+  const [output, setOutput] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const run = async () => {
+    setRunning(true);
+    setOutput(null);
+    setError(null);
+    let out = "";
+    let err: string | null = null;
+    try {
+      // Run a one-node swarm with the test input seeded as `input`.
+      const solo: Node<SwarmNodeData> = {
+        ...node,
+        data: { ...node.data, status: "idle", lastOutput: undefined },
+      };
+      await runSwarm([solo], [], {
+        initialInput: testInput,
+        onEvent: (e) => {
+          if (e.type === "node_done") out = e.output;
+          else if (e.type === "node_error") err = e.error;
+          else if (e.type === "run_error") err = err ?? e.error;
+        },
+      });
+    } catch (e) {
+      err = e instanceof Error ? e.message : String(e);
+    }
+    setOutput(out);
+    setError(err);
+    setRunning(false);
+  };
+
+  return (
+    <>
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-8 w-full text-xs"
+        onClick={() => setOpen(true)}
+      >
+        <Play className="h-3.5 w-3.5 mr-1.5" /> Test this node
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-base">Test “{node.data.label}”</DialogTitle>
+            <DialogDescription className="text-xs">
+              Runs just this node in isolation with the input below (seeded as{" "}
+              <code className="font-mono">input</code>). References to other flow variables
+              won&apos;t be available here.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Textarea
+              value={testInput}
+              onChange={(e) => setTestInput(e.target.value)}
+              rows={4}
+              placeholder="Test input for this node…"
+              className="text-sm"
+              disabled={running}
+            />
+            <Button onClick={run} disabled={running} size="sm" className="w-full">
+              {running ? (
+                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+              ) : (
+                <Play className="h-3.5 w-3.5 mr-1.5" />
+              )}
+              Run node
+            </Button>
+            {error && (
+              <div className="rounded-md border border-destructive/40 bg-destructive/10 p-2.5 text-xs text-destructive whitespace-pre-wrap">
+                {error}
+              </div>
+            )}
+            {output !== null && !error && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-emerald-400 mb-1">Output</p>
+                <div className="max-h-64 overflow-auto rounded-md border border-border bg-background/50 p-2.5 text-xs whitespace-pre-wrap font-mono">
+                  {output || <span className="italic text-muted-foreground">(empty)</span>}
+                </div>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 // ───────────────────── Per-node error handling ─────────────────────
 const ERROR_POLICY_KINDS = new Set<SwarmNodeData["kind"]>([
   "agent",
@@ -1867,6 +1984,109 @@ function ErrorPolicySection({
             />
           </div>
         )}
+      </div>
+    </Section>
+  );
+}
+
+// ───────────────────── Input node: typed start form ─────────────────────
+type InputFieldT = NonNullable<SwarmNodeData["inputFields"]>[number];
+
+function InputFieldsPanel({
+  data,
+  onChange,
+}: {
+  data: SwarmNodeData;
+  onChange: (patch: Partial<SwarmNodeData>) => void;
+}) {
+  const fields = data.inputFields ?? [];
+  const update = (i: number, patch: Partial<InputFieldT>) =>
+    onChange({ inputFields: fields.map((f, idx) => (idx === i ? { ...f, ...patch } : f)) });
+  return (
+    <Section label="Start form (typed inputs)">
+      <div className="rounded-md border border-border/50 bg-background/40 p-2.5 space-y-2.5">
+        <p className="text-[10px] text-muted-foreground">
+          Add fields to collect typed inputs in the Run panel. Each value is seeded into flow state
+          under its name — reference it anywhere as <code className="font-mono">{"{{name}}"}</code>.
+          Leave empty for a single free-text input.
+        </p>
+        {fields.map((f, i) => (
+          <div key={i} className="rounded-md border border-border/40 p-2 space-y-1.5">
+            <div className="flex gap-1.5">
+              <Input
+                value={f.name}
+                onChange={(e) => update(i, { name: e.target.value.replace(/[^a-zA-Z0-9_]/g, "") })}
+                placeholder="name"
+                className="w-28 font-mono text-xs"
+              />
+              <Select
+                value={f.type}
+                onValueChange={(v) => update(i, { type: v as InputFieldT["type"] })}
+              >
+                <SelectTrigger className="h-8 flex-1 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {["text", "textarea", "number", "select"].map((t) => (
+                    <SelectItem key={t} value={t}>
+                      {t}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 shrink-0"
+                onClick={() => onChange({ inputFields: fields.filter((_, idx) => idx !== i) })}
+              >
+                <Trash2 className="h-3.5 w-3.5 text-destructive" />
+              </Button>
+            </div>
+            <Input
+              value={f.label ?? ""}
+              onChange={(e) => update(i, { label: e.target.value })}
+              placeholder="Label (shown to the user)"
+              className="text-xs"
+            />
+            {f.type === "select" && (
+              <Input
+                value={(f.options ?? []).join(", ")}
+                onChange={(e) =>
+                  update(i, {
+                    options: e.target.value
+                      .split(",")
+                      .map((s) => s.trim())
+                      .filter(Boolean),
+                  })
+                }
+                placeholder="Option A, Option B, Option C"
+                className="text-xs"
+              />
+            )}
+            <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer">
+              <input
+                type="checkbox"
+                className="h-3 w-3 accent-primary"
+                checked={!!f.required}
+                onChange={(e) => update(i, { required: e.target.checked })}
+              />
+              Required
+            </label>
+          </div>
+        ))}
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 text-xs"
+          onClick={() =>
+            onChange({
+              inputFields: [...fields, { name: `field_${fields.length + 1}`, type: "text" }],
+            })
+          }
+        >
+          <Plus className="h-3.5 w-3.5 mr-1" /> Add field
+        </Button>
       </div>
     </Section>
   );

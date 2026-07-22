@@ -70,6 +70,17 @@ type Props = {
   onTraceEnabledChange?: (v: boolean) => void;
   /** Live shared flow-state snapshot for the variable inspector. */
   state?: Record<string, string>;
+  /** Typed input form declared on the input node (empty = single textarea). */
+  inputFields?: {
+    name: string;
+    label?: string;
+    type: "text" | "textarea" | "number" | "select";
+    options?: string[];
+    placeholder?: string;
+    required?: boolean;
+  }[];
+  fieldValues?: Record<string, string>;
+  onFieldChange?: (name: string, value: string) => void;
 };
 
 export function RunPanel({
@@ -86,9 +97,18 @@ export function RunPanel({
   traceEnabled,
   onTraceEnabledChange,
   state,
+  inputFields,
+  fieldValues,
+  onFieldChange,
 }: Props) {
   const [collapsed, setCollapsed] = useState(false);
   const [expanded, setExpanded] = useState(false);
+
+  const fields = inputFields ?? [];
+  const useForm = fields.length > 0;
+  const canRun = useForm
+    ? fields.every((f) => !f.required || (fieldValues?.[f.name] ?? "").trim().length > 0)
+    : input.trim().length > 0;
 
   // Auto-detect any image URLs/markdown across node outputs and the final output.
   // Works for any media-producing swarm — pre-baked assets, image-gen tools, KB images, etc.
@@ -161,7 +181,7 @@ export function RunPanel({
               </a>
             )}
             {!isRunning ? (
-              <Button onClick={onRun} size="sm" disabled={!input.trim()} className="h-7">
+              <Button onClick={onRun} size="sm" disabled={!canRun} className="h-7">
                 <Play className="h-3.5 w-3.5 mr-1.5" /> Run
               </Button>
             ) : (
@@ -197,23 +217,34 @@ export function RunPanel({
         {!collapsed && (
           <div className="grid grid-cols-12 gap-0 max-h-64">
             {/* Input column */}
-            <div className="col-span-12 md:col-span-4 border-r border-border p-3 flex flex-col gap-2">
-              <Textarea
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder={exampleInput || "Type the swarm's initial input..."}
-                rows={3}
-                disabled={isRunning}
-                className="text-sm resize-none flex-1"
-              />
-              {exampleInput && !input && (
-                <button
-                  type="button"
-                  onClick={() => setInput(exampleInput)}
-                  className="text-[10px] text-primary hover:underline self-start"
-                >
-                  Use example input
-                </button>
+            <div className="col-span-12 md:col-span-4 border-r border-border p-3 flex flex-col gap-2 overflow-y-auto max-h-64">
+              {useForm ? (
+                <StartInputForm
+                  fields={fields}
+                  values={fieldValues ?? {}}
+                  onChange={onFieldChange ?? (() => {})}
+                  disabled={isRunning}
+                />
+              ) : (
+                <>
+                  <Textarea
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    placeholder={exampleInput || "Type the swarm's initial input..."}
+                    rows={3}
+                    disabled={isRunning}
+                    className="text-sm resize-none flex-1"
+                  />
+                  {exampleInput && !input && (
+                    <button
+                      type="button"
+                      onClick={() => setInput(exampleInput)}
+                      className="text-[10px] text-primary hover:underline self-start"
+                    >
+                      Use example input
+                    </button>
+                  )}
+                </>
               )}
             </div>
 
@@ -293,26 +324,37 @@ export function RunPanel({
       </div>
 
       <div className="p-3 space-y-2 border-b border-border">
-        <Textarea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder={exampleInput || "Type the swarm's initial input..."}
-          rows={4}
-          disabled={isRunning}
-          className="text-sm"
-        />
-        {exampleInput && !input && (
-          <button
-            type="button"
-            onClick={() => setInput(exampleInput)}
-            className="text-[10px] text-primary hover:underline"
-          >
-            Use example input
-          </button>
+        {useForm ? (
+          <StartInputForm
+            fields={fields}
+            values={fieldValues ?? {}}
+            onChange={onFieldChange ?? (() => {})}
+            disabled={isRunning}
+          />
+        ) : (
+          <>
+            <Textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder={exampleInput || "Type the swarm's initial input..."}
+              rows={4}
+              disabled={isRunning}
+              className="text-sm"
+            />
+            {exampleInput && !input && (
+              <button
+                type="button"
+                onClick={() => setInput(exampleInput)}
+                className="text-[10px] text-primary hover:underline"
+              >
+                Use example input
+              </button>
+            )}
+          </>
         )}
         <div className="flex gap-2">
           {!isRunning ? (
-            <Button onClick={onRun} size="sm" className="flex-1" disabled={!input.trim()}>
+            <Button onClick={onRun} size="sm" className="flex-1" disabled={!canRun}>
               <Play className="h-3.5 w-3.5 mr-1.5" /> Run
             </Button>
           ) : (
@@ -384,6 +426,68 @@ function UsageMeter({ usage }: { usage: UsageSummary }) {
         ↑{usage.tokensIn.toLocaleString()} ↓{usage.tokensOut.toLocaleString()}
       </span>
       <span className="text-emerald-400">~${usage.costUsd.toFixed(4)}</span>
+    </div>
+  );
+}
+
+// Typed start-input form — one control per field the input node declares.
+// Each value is seeded into flow state under its field name at run time.
+function StartInputForm({
+  fields,
+  values,
+  onChange,
+  disabled,
+}: {
+  fields: NonNullable<Props["inputFields"]>;
+  values: Record<string, string>;
+  onChange: (name: string, value: string) => void;
+  disabled?: boolean;
+}) {
+  const inputCls =
+    "w-full h-8 rounded-md border border-input bg-background px-2 text-sm disabled:opacity-50";
+  return (
+    <div className="space-y-2">
+      {fields.map((f) => (
+        <div key={f.name}>
+          <label className="text-[10px] text-muted-foreground mb-0.5 block">
+            {f.label || f.name}
+            {f.required && <span className="text-destructive"> *</span>}
+          </label>
+          {f.type === "textarea" ? (
+            <Textarea
+              value={values[f.name] ?? ""}
+              onChange={(e) => onChange(f.name, e.target.value)}
+              rows={2}
+              placeholder={f.placeholder}
+              disabled={disabled}
+              className="text-sm resize-none"
+            />
+          ) : f.type === "select" ? (
+            <select
+              value={values[f.name] ?? ""}
+              onChange={(e) => onChange(f.name, e.target.value)}
+              disabled={disabled}
+              className={inputCls}
+            >
+              <option value="">Select…</option>
+              {(f.options ?? []).map((o) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              type={f.type === "number" ? "number" : "text"}
+              value={values[f.name] ?? ""}
+              onChange={(e) => onChange(f.name, e.target.value)}
+              placeholder={f.placeholder}
+              disabled={disabled}
+              className={inputCls}
+            />
+          )}
+        </div>
+      ))}
     </div>
   );
 }
