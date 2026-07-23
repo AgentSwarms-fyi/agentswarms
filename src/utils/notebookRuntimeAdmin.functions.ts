@@ -8,6 +8,7 @@ import { z } from "zod";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { requireSuperadmin } from "@/utils/iam.server";
 import { ensureRuntimeSecret, runtimeSecretConfigured } from "@/utils/notebookRuntime/token.server";
+import { appInContainer, dockerBase } from "@/utils/notebookRuntime/docker.server";
 
 export type NbRuntimeError = { ok: false; error: string };
 
@@ -220,48 +221,49 @@ export const nbRuntimePreflight = createServerFn({ method: "POST" })
 
     if (backend === "docker") {
       {
-        const base = (process.env.DOCKER_PROXY_URL || "http://notebook-docker-proxy:2375").replace(
-          /\/$/,
-          "",
-        );
+        // Use the same candidate probing the orchestrator does, so preflight can
+        // never disagree with what actually happens at launch time.
+        let base = "";
         try {
-          const ping = await fetch(`${base}/_ping`);
-          checks.push({
-            name: "Docker socket-proxy",
-            status: ping.ok ? "pass" : "fail",
-            detail: ping.ok
-              ? `reachable at ${base}`
-              : `HTTP ${ping.status} from ${base} — start the runtime services: docker compose --profile notebooks up -d --build`,
-          });
+          base = await dockerBase();
+          checks.push({ name: "Docker socket-proxy", status: "pass", detail: `reachable at ${base}` });
         } catch (e) {
           checks.push({
             name: "Docker socket-proxy",
             status: "fail",
-            detail: `unreachable at ${base} — start the runtime services: docker compose --profile notebooks up -d --build (${e instanceof Error ? e.message : String(e)})`,
+            detail: e instanceof Error ? e.message : String(e),
           });
         }
-        try {
-          const img = await fetch(`${base}/images/${encodeURIComponent(image)}/json`);
-          checks.push({
-            name: "Kernel image",
-            status: img.ok ? "pass" : "fail",
-            detail: img.ok
-              ? `${image} present`
-              : `${image} not found — build it (docker compose --profile notebooks up --build)`,
-          });
-        } catch {
-          checks.push({ name: "Kernel image", status: "warn", detail: `could not check ${image}` });
-        }
-        const net = process.env.NOTEBOOK_NETWORK || "agentswarms_nb-internal";
-        try {
-          const n = await fetch(`${base}/networks/${encodeURIComponent(net)}`);
-          checks.push({
-            name: "Isolated network",
-            status: n.ok ? "pass" : "fail",
-            detail: n.ok ? `${net} exists` : `${net} not found — created by the notebooks compose profile`,
-          });
-        } catch {
-          checks.push({ name: "Isolated network", status: "warn", detail: `could not check ${net}` });
+        if (base) {
+          try {
+            const img = await fetch(`${base}/images/${encodeURIComponent(image)}/json`);
+            checks.push({
+              name: "Kernel image",
+              status: img.ok ? "pass" : "fail",
+              detail: img.ok
+                ? `${image} present`
+                : `${image} not found — build it: docker compose --profile notebooks up -d --build`,
+            });
+          } catch {
+            checks.push({ name: "Kernel image", status: "warn", detail: `could not check ${image}` });
+          }
+          const net =
+            process.env.NOTEBOOK_NETWORK ||
+            (appInContainer() ? "agentswarms_nb-internal" : "bridge");
+          try {
+            const n = await fetch(`${base}/networks/${encodeURIComponent(net)}`);
+            checks.push({
+              name: "Kernel network",
+              status: n.ok ? "pass" : "fail",
+              detail: n.ok
+                ? appInContainer()
+                  ? `${net} (isolated — kernels have no direct internet)`
+                  : `${net} (dev mode: app runs on the host, so kernels use the default bridge; egress control is proxy-only)`
+                : `${net} not found`,
+            });
+          } catch {
+            checks.push({ name: "Kernel network", status: "warn", detail: `could not check ${net}` });
+          }
         }
       }
       checks.push({

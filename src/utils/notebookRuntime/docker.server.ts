@@ -7,6 +7,7 @@
 // rootfs, all caps dropped, no-new-privileges, pids/memory/cpu limits, attached
 // to an egress-restricted network, with HTTP(S)_PROXY pointed at the filtering
 // egress proxy.
+import { existsSync } from "node:fs";
 import type {
   KernelSpec,
   KernelStatus,
@@ -14,23 +15,74 @@ import type {
 } from "./orchestrator";
 import { sandboxName } from "./orchestrator";
 
-// Defaults to the socket-proxy service name from the shipped compose profile, so
-// no env wiring is needed for a standard deployment.
-function dockerBase(): string {
-  const url = process.env.DOCKER_PROXY_URL || "http://notebook-docker-proxy:2375";
-  return url.replace(/\/$/, "");
+// The socket-proxy is reachable by different names depending on how the app is
+// deployed, so probe rather than assume:
+//   - app inside compose  → the service name resolves on the compose network
+//   - app on the host (npm run dev) → the published loopback port
+// The first candidate that answers /_ping wins and is cached.
+let resolvedBase: string | null = null;
+
+function candidates(): string[] {
+  return [
+    process.env.DOCKER_PROXY_URL,
+    "http://notebook-docker-proxy:2375",
+    "http://127.0.0.1:2375",
+  ].filter((c): c is string => !!c);
+}
+
+export async function dockerBase(): Promise<string> {
+  if (resolvedBase) return resolvedBase;
+  const tried: string[] = [];
+  for (const candidate of candidates()) {
+    const base = candidate.replace(/\/$/, "");
+    try {
+      const res = await fetch(`${base}/_ping`, { signal: AbortSignal.timeout(2500) });
+      if (res.ok) {
+        resolvedBase = base;
+        return base;
+      }
+      tried.push(`${base} → HTTP ${res.status}`);
+    } catch (e) {
+      tried.push(`${base} → ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  throw new Error(
+    "Cannot reach the Docker socket-proxy, so no kernel can be started. Start the runtime " +
+      "services with:  docker compose --profile notebooks up -d --build  (tried " +
+      tried.join("; ") +
+      ")",
+  );
 }
 
 async function dockerFetch(path: string, init?: RequestInit): Promise<Response> {
-  return fetch(`${dockerBase()}${path}`, {
+  const base = await dockerBase();
+  return fetch(`${base}${path}`, {
     ...init,
     headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
   });
 }
 
-/** Docker network the kernels attach to; its only egress route is the proxy. */
+/** True when this app process is itself running inside a container. */
+export function appInContainer(): boolean {
+  try {
+    return existsSync("/.dockerenv");
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Network the kernels attach to.
+ *  - App in compose (production): the `internal` network — kernels get NO direct
+ *    internet, only the egress proxy, and reach the app by service name.
+ *  - App on the host (local dev): that internal network has no route to the host,
+ *    so kernels could never call back. Use the default bridge plus a
+ *    host-gateway mapping. Egress control then rests on the proxy env vars alone
+ *    — weaker, which is why it's the dev-only path.
+ */
 function network(): string {
-  return process.env.NOTEBOOK_NETWORK || "nb-egress";
+  if (process.env.NOTEBOOK_NETWORK) return process.env.NOTEBOOK_NETWORK;
+  return appInContainer() ? "agentswarms_nb-internal" : "bridge";
 }
 
 /** The runner uid:gid baked into the image (non-root). */
@@ -65,6 +117,9 @@ export class DockerOrchestrator implements NotebookOrchestrator {
         CapDrop: ["ALL"],
         SecurityOpt: ["no-new-privileges"],
         NetworkMode: network(),
+        // Lets a kernel reach an app running on the host (local dev). Harmless
+        // in compose, where the app is reached by service name instead.
+        ExtraHosts: ["host.docker.internal:host-gateway"],
         // Writable paths (root fs is read-only); lost on teardown — notebooks
         // persist in the DB. ~/.local holds runtime `pip install --user` output.
         //

@@ -7,19 +7,32 @@ import type { Database } from "@/integrations/supabase/types";
 import { getOrchestrator, type KernelKind } from "./orchestrator";
 import { getRuntimeSettings } from "./config.server";
 import { signSessionToken } from "./token.server";
+import { appInContainer } from "./docker.server";
 
 export type SessionRow = Database["public"]["Tables"]["notebook_runtime_sessions"]["Row"];
 
 const LIVE = ["queued", "starting", "ready", "running", "stopping"] as const;
 
-// Defaults match the service names in the shipped compose profile, so a standard
-// `docker compose --profile notebooks up` needs no env wiring at all. Override
-// any of them for custom topologies.
+// Defaults adapt to how the app is deployed, so neither a compose install nor a
+// local `npm run dev` needs env wiring. Override any of them for custom setups.
+//
+// Kernel → app callback URL: inside compose the app is a service on the kernel's
+// network; on a dev host it is only reachable through the Docker host gateway.
 function internalAppUrl(): string {
-  return process.env.NOTEBOOK_APP_INTERNAL_URL || process.env.APP_URL || "http://agentswarms:8080";
+  if (process.env.NOTEBOOK_APP_INTERNAL_URL) return process.env.NOTEBOOK_APP_INTERNAL_URL;
+  if (process.env.APP_URL) return process.env.APP_URL;
+  const port = process.env.PORT || "8080";
+  return appInContainer() ? `http://agentswarms:${port}` : `http://host.docker.internal:${port}`;
 }
+
+/**
+ * Websocket URL the BROWSER uses to reach the gateway. Empty means "derive from
+ * the page's own origin" — that's what makes localhost, a cloud VM's IP, and a
+ * custom domain all work without configuration. Set NOTEBOOK_GATEWAY_URL when
+ * the gateway sits behind a reverse proxy on a different host/path.
+ */
 export function gatewayUrl(): string {
-  return process.env.NOTEBOOK_GATEWAY_URL || "ws://localhost:8090";
+  return process.env.NOTEBOOK_GATEWAY_URL || "";
 }
 function egressProxy(): string {
   return process.env.NOTEBOOK_EGRESS_PROXY || "http://notebook-egress:3128";

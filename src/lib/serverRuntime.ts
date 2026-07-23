@@ -91,13 +91,27 @@ export class ServerRuntime {
     throw new Error("The runtime took too long to start");
   }
 
+  /**
+   * Where the gateway lives from the browser's point of view. The server sends
+   * an explicit URL only when an operator configured one; otherwise we derive it
+   * from the current page, so localhost, a cloud VM's IP, and a custom domain
+   * all work with no configuration (wss:// automatically on an https page).
+   */
+  private resolveGatewayUrl(): string {
+    if (this.gatewayUrl) return this.gatewayUrl;
+    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const port = import.meta.env.VITE_NOTEBOOK_GATEWAY_PORT || "8090";
+    return `${proto}//${window.location.hostname}:${port}`;
+  }
+
   private connect(): Promise<void> {
     return new Promise((resolve, reject) => {
-      if (!this.gatewayUrl || !this.token) return reject(new Error("Runtime gateway is not configured"));
+      if (!this.token) return reject(new Error("Runtime session token is missing"));
       this.connectResolve = resolve;
       this.connectReject = reject;
-      const sep = this.gatewayUrl.includes("?") ? "&" : "?";
-      const url = `${this.gatewayUrl}${sep}token=${encodeURIComponent(this.token)}`;
+      const gw = this.resolveGatewayUrl();
+      const sep = gw.includes("?") ? "&" : "?";
+      const url = `${gw}${sep}token=${encodeURIComponent(this.token)}`;
       let ws: WebSocket;
       try {
         ws = new WebSocket(url);

@@ -74,6 +74,11 @@ services:
       # All other API groups denied by default.
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    # Bound to LOOPBACK ONLY (never 0.0.0.0) so an app running on the host with
+    # `npm run dev` can reach it, without exposing container control to the
+    # network. Inside compose the app uses the service name instead.
+    ports:
+      - "127.0.0.1:2375:2375"
     networks: [default]
     restart: unless-stopped
 
