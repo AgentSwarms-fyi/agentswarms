@@ -60,7 +60,7 @@ services:
       NOTEBOOK_CELL_TIMEOUT_SECONDS: ${NOTEBOOK_CELL_TIMEOUT_SECONDS:-120}
     ports:
       - "8090:8090"
-    networks: [default, nb-internal]
+    networks: [default, nb-internal, nb-dev]
     restart: unless-stopped
 
   # Least-privilege Docker API: only container create/inspect/logs + write verbs
@@ -69,9 +69,18 @@ services:
     image: tecnativa/docker-socket-proxy:latest # pin a digest in production
     profiles: [notebooks]
     environment:
+      # Only the API sections the orchestrator needs: create/inspect/stop/remove
+      # containers, plus read access to images and networks (preflight verifies
+      # the kernel image and network exist). Everything else — exec, volumes,
+      # swarm, secrets, system — stays denied by default.
+      #
+      # Note this proxy is reachable ONLY by the app (loopback + the compose
+      # network); notebook kernels never touch it, which is the boundary that
+      # actually matters.
       CONTAINERS: "1"
+      IMAGES: "1"
+      NETWORKS: "1"
       POST: "1"
-      # All other API groups denied by default.
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     # Bound to LOOPBACK ONLY (never 0.0.0.0) so an app running on the host with
@@ -89,7 +98,7 @@ services:
     volumes:
       - ./deploy/notebooks/egress/squid.conf:/etc/squid/squid.conf:ro
       - ./deploy/notebooks/egress/allowed_domains:/etc/squid/allowed_domains:ro
-    networks: [default, nb-internal]
+    networks: [default, nb-internal, nb-dev]
     restart: unless-stopped
 
 # Network topology for the runtime (egress control):
@@ -103,3 +112,8 @@ networks:
   nb-internal:
     name: agentswarms_nb-internal
     internal: true
+  # Used only when the app runs on the HOST (npm run dev): kernels need a route
+  # back to the host, which an `internal` network cannot provide. Same DNS and
+  # gateway reachability, weaker egress isolation — dev only.
+  nb-dev:
+    name: agentswarms_nb-dev

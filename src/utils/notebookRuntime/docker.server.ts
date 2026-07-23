@@ -82,11 +82,19 @@ export function appInContainer(): boolean {
  */
 function network(): string {
   if (process.env.NOTEBOOK_NETWORK) return process.env.NOTEBOOK_NETWORK;
-  return appInContainer() ? "agentswarms_nb-internal" : "bridge";
+  // Both are user-defined networks the gateway also joins. Never the default
+  // `bridge`: it has no name-based DNS, and on Linux hosts separate bridges are
+  // iptables-isolated, so the gateway could not reach the kernel at all.
+  return appInContainer() ? "agentswarms_nb-internal" : "agentswarms_nb-dev";
 }
 
 /** The runner uid:gid baked into the image (non-root). */
 const RUN_USER = process.env.NOTEBOOK_RUN_USER || "1000:1000";
+
+type InspectResult = {
+  State: { Running: boolean; ExitCode: number; Status: string; Error?: string };
+  NetworkSettings?: { Networks?: Record<string, { IPAddress?: string } | null> };
+};
 
 export class DockerOrchestrator implements NotebookOrchestrator {
   async create(spec: KernelSpec): Promise<{ ref: string }> {
@@ -160,16 +168,11 @@ export class DockerOrchestrator implements NotebookOrchestrator {
     return { ref: name };
   }
 
-  private async inspect(ref: string): Promise<
-    | { State: { Running: boolean; ExitCode: number; Status: string; Error?: string } }
-    | null
-  > {
+  private async inspect(ref: string): Promise<InspectResult | null> {
     const res = await dockerFetch(`/containers/${encodeURIComponent(ref)}/json`);
     if (res.status === 404) return null;
     if (!res.ok) throw new Error(`docker inspect failed (${res.status})`);
-    return (await res.json()) as {
-      State: { Running: boolean; ExitCode: number; Status: string; Error?: string };
-    };
+    return (await res.json()) as InspectResult;
   }
 
   async status(ref: string): Promise<KernelStatus> {
@@ -177,7 +180,14 @@ export class DockerOrchestrator implements NotebookOrchestrator {
     if (!info) return { state: "gone" };
     const s = info.State;
     if (s.Running) {
-      return { state: "running", endpoint: `http://${ref}:8888` };
+      // Address the kernel by IP rather than container name: name-based DNS only
+      // exists on user-defined networks, and the IP works regardless of how the
+      // gateway and kernel are attached.
+      const nets = info.NetworkSettings?.Networks ?? {};
+      const ip = Object.values(nets)
+        .map((n) => n?.IPAddress)
+        .find((a): a is string => !!a);
+      return { state: "running", endpoint: `http://${ip || ref}:8888` };
     }
     if (s.Status === "exited" && s.ExitCode === 0) return { state: "succeeded", exitCode: 0 };
     return { state: s.Status === "created" ? "starting" : "error", exitCode: s.ExitCode, message: s.Error };
