@@ -50,8 +50,6 @@ import {
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { LearnPanel } from "@/components/LearnPanel";
-import { learnKnowledge } from "@/lib/learnContent";
 import { AddSourceDialog } from "@/components/knowledge/AddSourceDialog";
 import { KnowledgeGraphTab } from "@/components/knowledge/KnowledgeGraphTab";
 import {
@@ -1472,11 +1470,6 @@ function KnowledgePage() {
           </div>
         </DialogContent>
       </Dialog>
-      <LearnPanel
-        topic="RAG & Knowledge Bases"
-        tagline="Stop hallucinations. Ground your agent in YOUR documents with citations."
-        section={learnKnowledge}
-      />
     </div>
   );
 }

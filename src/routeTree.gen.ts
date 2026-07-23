@@ -15,10 +15,7 @@ import { Route as RobotsDottxtRouteImport } from './routes/robots[.]txt'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as LoginRouteImport } from './routes/login'
-import { Route as LearnRouteImport } from './routes/learn'
-import { Route as InterviewQuestionsRouteImport } from './routes/interview-questions'
 import { Route as DocsRouteImport } from './routes/docs'
-import { Route as CurriculumRouteImport } from './routes/curriculum'
 import { Route as ContactRouteImport } from './routes/contact'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
@@ -26,7 +23,6 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as DocsIndexRouteImport } from './routes/docs.index'
 import { Route as VerifyCodeRouteImport } from './routes/verify.$code'
 import { Route as EmailUnsubscribeRouteImport } from './routes/email/unsubscribe'
-import { Route as DocsTemplatesRouteImport } from './routes/docs.templates'
 import { Route as DocsSwarmsRouteImport } from './routes/docs.swarms'
 import { Route as DocsSkillsRouteImport } from './routes/docs.skills'
 import { Route as DocsPlaygroundRouteImport } from './routes/docs.playground'
@@ -34,7 +30,6 @@ import { Route as DocsNotebooksRouteImport } from './routes/docs.notebooks'
 import { Route as DocsIntegrationsRouteImport } from './routes/docs.integrations'
 import { Route as DocsDebuggingRouteImport } from './routes/docs.debugging'
 import { Route as DocsDashboardRouteImport } from './routes/docs.dashboard'
-import { Route as DocsCertificationRouteImport } from './routes/docs.certification'
 import { Route as DocsAnalyticsRouteImport } from './routes/docs.analytics'
 import { Route as DocsAgentsRouteImport } from './routes/docs.agents'
 import { Route as DocsAccountRouteImport } from './routes/docs.account'
@@ -54,7 +49,6 @@ import { Route as AuthenticatedSecretsRouteImport } from './routes/_authenticate
 import { Route as AuthenticatedPromptsRouteImport } from './routes/_authenticated/prompts'
 import { Route as AuthenticatedPromptCompareRouteImport } from './routes/_authenticated/prompt-compare'
 import { Route as AuthenticatedPlaygroundRouteImport } from './routes/_authenticated/playground'
-import { Route as AuthenticatedPatternsRouteImport } from './routes/_authenticated/patterns'
 import { Route as AuthenticatedNotebooksRouteImport } from './routes/_authenticated/notebooks'
 import { Route as AuthenticatedModelRegistryRouteImport } from './routes/_authenticated/model-registry'
 import { Route as AuthenticatedMcpRouteImport } from './routes/_authenticated/mcp'
@@ -64,15 +58,12 @@ import { Route as AuthenticatedImagePlaygroundRouteImport } from './routes/_auth
 import { Route as AuthenticatedEmbedsRouteImport } from './routes/_authenticated/embeds'
 import { Route as AuthenticatedDataSqlRouteImport } from './routes/_authenticated/data-sql'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
-import { Route as AuthenticatedCertificationRouteImport } from './routes/_authenticated/certification'
 import { Route as AuthenticatedBudgetsRouteImport } from './routes/_authenticated/budgets'
 import { Route as AuthenticatedBiRouteImport } from './routes/_authenticated/bi'
 import { Route as AuthenticatedAuditRouteImport } from './routes/_authenticated/audit'
 import { Route as AuthenticatedAnalyticsRouteImport } from './routes/_authenticated/analytics'
 import { Route as AuthenticatedAgentsRouteImport } from './routes/_authenticated/agents'
 import { Route as AuthenticatedAccountRouteImport } from './routes/_authenticated/account'
-import { Route as AuthenticatedTemplatesIndexRouteImport } from './routes/_authenticated/templates.index'
-import { Route as AuthenticatedCertificationIndexRouteImport } from './routes/_authenticated/certification.index'
 import { Route as ShareBiSlugRouteImport } from './routes/share.bi.$slug'
 import { Route as EmbedSwarmKeyRouteImport } from './routes/embed.swarm.$key'
 import { Route as EmbedBiKeyRouteImport } from './routes/embed.bi.$key'
@@ -94,8 +85,6 @@ import { Route as ApiEmailSendRouteImport } from './routes/api/email/send'
 import { Route as ApiCertificateIdRouteImport } from './routes/api/certificate.$id'
 import { Route as ApiBiCronRouteImport } from './routes/api/bi.cron'
 import { Route as ApiAuthSsoConfigRouteImport } from './routes/api/auth/sso-config'
-import { Route as AuthenticatedTemplatesTemplateIdRouteImport } from './routes/_authenticated/templates.$templateId'
-import { Route as AuthenticatedCertificationExamRouteImport } from './routes/_authenticated/certification.exam'
 import { Route as AuthenticatedBiDashboardIdRouteImport } from './routes/_authenticated/bi_.$dashboardId'
 import { Route as AuthenticatedAnalyticsObservabilityRouteImport } from './routes/_authenticated/analytics_.observability'
 import { Route as AuthenticatedAdminRuntimeRouteImport } from './routes/_authenticated/admin.runtime'
@@ -139,24 +128,9 @@ const LoginRoute = LoginRouteImport.update({
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
-const LearnRoute = LearnRouteImport.update({
-  id: '/learn',
-  path: '/learn',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const InterviewQuestionsRoute = InterviewQuestionsRouteImport.update({
-  id: '/interview-questions',
-  path: '/interview-questions',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const DocsRoute = DocsRouteImport.update({
   id: '/docs',
   path: '/docs',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CurriculumRoute = CurriculumRouteImport.update({
-  id: '/curriculum',
-  path: '/curriculum',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ContactRoute = ContactRouteImport.update({
@@ -193,11 +167,6 @@ const EmailUnsubscribeRoute = EmailUnsubscribeRouteImport.update({
   path: '/email/unsubscribe',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DocsTemplatesRoute = DocsTemplatesRouteImport.update({
-  id: '/templates',
-  path: '/templates',
-  getParentRoute: () => DocsRoute,
-} as any)
 const DocsSwarmsRoute = DocsSwarmsRouteImport.update({
   id: '/swarms',
   path: '/swarms',
@@ -231,11 +200,6 @@ const DocsDebuggingRoute = DocsDebuggingRouteImport.update({
 const DocsDashboardRoute = DocsDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
-  getParentRoute: () => DocsRoute,
-} as any)
-const DocsCertificationRoute = DocsCertificationRouteImport.update({
-  id: '/certification',
-  path: '/certification',
   getParentRoute: () => DocsRoute,
 } as any)
 const DocsAnalyticsRoute = DocsAnalyticsRouteImport.update({
@@ -334,11 +298,6 @@ const AuthenticatedPlaygroundRoute = AuthenticatedPlaygroundRouteImport.update({
   path: '/playground',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
-const AuthenticatedPatternsRoute = AuthenticatedPatternsRouteImport.update({
-  id: '/patterns',
-  path: '/patterns',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
 const AuthenticatedNotebooksRoute = AuthenticatedNotebooksRouteImport.update({
   id: '/notebooks',
   path: '/notebooks',
@@ -387,12 +346,6 @@ const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
-const AuthenticatedCertificationRoute =
-  AuthenticatedCertificationRouteImport.update({
-    id: '/certification',
-    path: '/certification',
-    getParentRoute: () => AuthenticatedRoute,
-  } as any)
 const AuthenticatedBudgetsRoute = AuthenticatedBudgetsRouteImport.update({
   id: '/budgets',
   path: '/budgets',
@@ -423,18 +376,6 @@ const AuthenticatedAccountRoute = AuthenticatedAccountRouteImport.update({
   path: '/account',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
-const AuthenticatedTemplatesIndexRoute =
-  AuthenticatedTemplatesIndexRouteImport.update({
-    id: '/templates/',
-    path: '/templates/',
-    getParentRoute: () => AuthenticatedRoute,
-  } as any)
-const AuthenticatedCertificationIndexRoute =
-  AuthenticatedCertificationIndexRouteImport.update({
-    id: '/',
-    path: '/',
-    getParentRoute: () => AuthenticatedCertificationRoute,
-  } as any)
 const ShareBiSlugRoute = ShareBiSlugRouteImport.update({
   id: '/share/bi/$slug',
   path: '/share/bi/$slug',
@@ -540,18 +481,6 @@ const ApiAuthSsoConfigRoute = ApiAuthSsoConfigRouteImport.update({
   path: '/api/auth/sso-config',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedTemplatesTemplateIdRoute =
-  AuthenticatedTemplatesTemplateIdRouteImport.update({
-    id: '/templates/$templateId',
-    path: '/templates/$templateId',
-    getParentRoute: () => AuthenticatedRoute,
-  } as any)
-const AuthenticatedCertificationExamRoute =
-  AuthenticatedCertificationExamRouteImport.update({
-    id: '/exam',
-    path: '/exam',
-    getParentRoute: () => AuthenticatedCertificationRoute,
-  } as any)
 const AuthenticatedBiDashboardIdRoute =
   AuthenticatedBiDashboardIdRouteImport.update({
     id: '/bi_/$dashboardId',
@@ -627,11 +556,8 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/contact': typeof ContactRoute
-  '/curriculum': typeof CurriculumRoute
   '/docs': typeof DocsRouteWithChildren
   '/index': typeof Char91indexChar93Route
-  '/interview-questions': typeof InterviewQuestionsRoute
-  '/learn': typeof LearnRoute
   '/login': typeof LoginRoute
   '/privacy': typeof PrivacyRoute
   '/reset-password': typeof ResetPasswordRoute
@@ -643,7 +569,6 @@ export interface FileRoutesByFullPath {
   '/audit': typeof AuthenticatedAuditRoute
   '/bi': typeof AuthenticatedBiRoute
   '/budgets': typeof AuthenticatedBudgetsRoute
-  '/certification': typeof AuthenticatedCertificationRouteWithChildren
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/data-sql': typeof AuthenticatedDataSqlRoute
   '/embeds': typeof AuthenticatedEmbedsRoute
@@ -653,7 +578,6 @@ export interface FileRoutesByFullPath {
   '/mcp': typeof AuthenticatedMcpRoute
   '/model-registry': typeof AuthenticatedModelRegistryRoute
   '/notebooks': typeof AuthenticatedNotebooksRouteWithChildren
-  '/patterns': typeof AuthenticatedPatternsRoute
   '/playground': typeof AuthenticatedPlaygroundRoute
   '/prompt-compare': typeof AuthenticatedPromptCompareRoute
   '/prompts': typeof AuthenticatedPromptsRoute
@@ -673,7 +597,6 @@ export interface FileRoutesByFullPath {
   '/docs/account': typeof DocsAccountRoute
   '/docs/agents': typeof DocsAgentsRoute
   '/docs/analytics': typeof DocsAnalyticsRoute
-  '/docs/certification': typeof DocsCertificationRoute
   '/docs/dashboard': typeof DocsDashboardRoute
   '/docs/debugging': typeof DocsDebuggingRoute
   '/docs/integrations': typeof DocsIntegrationsRoute
@@ -681,7 +604,6 @@ export interface FileRoutesByFullPath {
   '/docs/playground': typeof DocsPlaygroundRoute
   '/docs/skills': typeof DocsSkillsRoute
   '/docs/swarms': typeof DocsSwarmsRoute
-  '/docs/templates': typeof DocsTemplatesRoute
   '/email/unsubscribe': typeof EmailUnsubscribeRoute
   '/verify/$code': typeof VerifyCodeRoute
   '/docs/': typeof DocsIndexRoute
@@ -689,8 +611,6 @@ export interface FileRoutesByFullPath {
   '/admin/runtime': typeof AuthenticatedAdminRuntimeRoute
   '/analytics/observability': typeof AuthenticatedAnalyticsObservabilityRouteWithChildren
   '/bi/$dashboardId': typeof AuthenticatedBiDashboardIdRoute
-  '/certification/exam': typeof AuthenticatedCertificationExamRoute
-  '/templates/$templateId': typeof AuthenticatedTemplatesTemplateIdRoute
   '/api/auth/sso-config': typeof ApiAuthSsoConfigRoute
   '/api/bi/cron': typeof ApiBiCronRoute
   '/api/certificate/$id': typeof ApiCertificateIdRoute
@@ -712,8 +632,6 @@ export interface FileRoutesByFullPath {
   '/embed/bi/$key': typeof EmbedBiKeyRoute
   '/embed/swarm/$key': typeof EmbedSwarmKeyRoute
   '/share/bi/$slug': typeof ShareBiSlugRoute
-  '/certification/': typeof AuthenticatedCertificationIndexRoute
-  '/templates/': typeof AuthenticatedTemplatesIndexRoute
   '/analytics/observability/$runId': typeof AuthenticatedAnalyticsObservabilityRunIdRoute
   '/notebooks/py/$pyNotebookId': typeof AuthenticatedNotebooksPyPyNotebookIdRoute
   '/notebooks/sample/$sampleSlug': typeof AuthenticatedNotebooksSampleSampleSlugRoute
@@ -727,10 +645,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/contact': typeof ContactRoute
-  '/curriculum': typeof CurriculumRoute
   '/index': typeof Char91indexChar93Route
-  '/interview-questions': typeof InterviewQuestionsRoute
-  '/learn': typeof LearnRoute
   '/login': typeof LoginRoute
   '/privacy': typeof PrivacyRoute
   '/reset-password': typeof ResetPasswordRoute
@@ -751,7 +666,6 @@ export interface FileRoutesByTo {
   '/mcp': typeof AuthenticatedMcpRoute
   '/model-registry': typeof AuthenticatedModelRegistryRoute
   '/notebooks': typeof AuthenticatedNotebooksRouteWithChildren
-  '/patterns': typeof AuthenticatedPatternsRoute
   '/playground': typeof AuthenticatedPlaygroundRoute
   '/prompt-compare': typeof AuthenticatedPromptCompareRoute
   '/prompts': typeof AuthenticatedPromptsRoute
@@ -771,7 +685,6 @@ export interface FileRoutesByTo {
   '/docs/account': typeof DocsAccountRoute
   '/docs/agents': typeof DocsAgentsRoute
   '/docs/analytics': typeof DocsAnalyticsRoute
-  '/docs/certification': typeof DocsCertificationRoute
   '/docs/dashboard': typeof DocsDashboardRoute
   '/docs/debugging': typeof DocsDebuggingRoute
   '/docs/integrations': typeof DocsIntegrationsRoute
@@ -779,7 +692,6 @@ export interface FileRoutesByTo {
   '/docs/playground': typeof DocsPlaygroundRoute
   '/docs/skills': typeof DocsSkillsRoute
   '/docs/swarms': typeof DocsSwarmsRoute
-  '/docs/templates': typeof DocsTemplatesRoute
   '/email/unsubscribe': typeof EmailUnsubscribeRoute
   '/verify/$code': typeof VerifyCodeRoute
   '/docs': typeof DocsIndexRoute
@@ -787,8 +699,6 @@ export interface FileRoutesByTo {
   '/admin/runtime': typeof AuthenticatedAdminRuntimeRoute
   '/analytics/observability': typeof AuthenticatedAnalyticsObservabilityRouteWithChildren
   '/bi/$dashboardId': typeof AuthenticatedBiDashboardIdRoute
-  '/certification/exam': typeof AuthenticatedCertificationExamRoute
-  '/templates/$templateId': typeof AuthenticatedTemplatesTemplateIdRoute
   '/api/auth/sso-config': typeof ApiAuthSsoConfigRoute
   '/api/bi/cron': typeof ApiBiCronRoute
   '/api/certificate/$id': typeof ApiCertificateIdRoute
@@ -810,8 +720,6 @@ export interface FileRoutesByTo {
   '/embed/bi/$key': typeof EmbedBiKeyRoute
   '/embed/swarm/$key': typeof EmbedSwarmKeyRoute
   '/share/bi/$slug': typeof ShareBiSlugRoute
-  '/certification': typeof AuthenticatedCertificationIndexRoute
-  '/templates': typeof AuthenticatedTemplatesIndexRoute
   '/analytics/observability/$runId': typeof AuthenticatedAnalyticsObservabilityRunIdRoute
   '/notebooks/py/$pyNotebookId': typeof AuthenticatedNotebooksPyPyNotebookIdRoute
   '/notebooks/sample/$sampleSlug': typeof AuthenticatedNotebooksSampleSampleSlugRoute
@@ -827,11 +735,8 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteWithChildren
   '/about': typeof AboutRoute
   '/contact': typeof ContactRoute
-  '/curriculum': typeof CurriculumRoute
   '/docs': typeof DocsRouteWithChildren
   '/index': typeof Char91indexChar93Route
-  '/interview-questions': typeof InterviewQuestionsRoute
-  '/learn': typeof LearnRoute
   '/login': typeof LoginRoute
   '/privacy': typeof PrivacyRoute
   '/reset-password': typeof ResetPasswordRoute
@@ -843,7 +748,6 @@ export interface FileRoutesById {
   '/_authenticated/audit': typeof AuthenticatedAuditRoute
   '/_authenticated/bi': typeof AuthenticatedBiRoute
   '/_authenticated/budgets': typeof AuthenticatedBudgetsRoute
-  '/_authenticated/certification': typeof AuthenticatedCertificationRouteWithChildren
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/data-sql': typeof AuthenticatedDataSqlRoute
   '/_authenticated/embeds': typeof AuthenticatedEmbedsRoute
@@ -853,7 +757,6 @@ export interface FileRoutesById {
   '/_authenticated/mcp': typeof AuthenticatedMcpRoute
   '/_authenticated/model-registry': typeof AuthenticatedModelRegistryRoute
   '/_authenticated/notebooks': typeof AuthenticatedNotebooksRouteWithChildren
-  '/_authenticated/patterns': typeof AuthenticatedPatternsRoute
   '/_authenticated/playground': typeof AuthenticatedPlaygroundRoute
   '/_authenticated/prompt-compare': typeof AuthenticatedPromptCompareRoute
   '/_authenticated/prompts': typeof AuthenticatedPromptsRoute
@@ -873,7 +776,6 @@ export interface FileRoutesById {
   '/docs/account': typeof DocsAccountRoute
   '/docs/agents': typeof DocsAgentsRoute
   '/docs/analytics': typeof DocsAnalyticsRoute
-  '/docs/certification': typeof DocsCertificationRoute
   '/docs/dashboard': typeof DocsDashboardRoute
   '/docs/debugging': typeof DocsDebuggingRoute
   '/docs/integrations': typeof DocsIntegrationsRoute
@@ -881,7 +783,6 @@ export interface FileRoutesById {
   '/docs/playground': typeof DocsPlaygroundRoute
   '/docs/skills': typeof DocsSkillsRoute
   '/docs/swarms': typeof DocsSwarmsRoute
-  '/docs/templates': typeof DocsTemplatesRoute
   '/email/unsubscribe': typeof EmailUnsubscribeRoute
   '/verify/$code': typeof VerifyCodeRoute
   '/docs/': typeof DocsIndexRoute
@@ -889,8 +790,6 @@ export interface FileRoutesById {
   '/_authenticated/admin/runtime': typeof AuthenticatedAdminRuntimeRoute
   '/_authenticated/analytics_/observability': typeof AuthenticatedAnalyticsObservabilityRouteWithChildren
   '/_authenticated/bi_/$dashboardId': typeof AuthenticatedBiDashboardIdRoute
-  '/_authenticated/certification/exam': typeof AuthenticatedCertificationExamRoute
-  '/_authenticated/templates/$templateId': typeof AuthenticatedTemplatesTemplateIdRoute
   '/api/auth/sso-config': typeof ApiAuthSsoConfigRoute
   '/api/bi/cron': typeof ApiBiCronRoute
   '/api/certificate/$id': typeof ApiCertificateIdRoute
@@ -912,8 +811,6 @@ export interface FileRoutesById {
   '/embed/bi/$key': typeof EmbedBiKeyRoute
   '/embed/swarm/$key': typeof EmbedSwarmKeyRoute
   '/share/bi/$slug': typeof ShareBiSlugRoute
-  '/_authenticated/certification/': typeof AuthenticatedCertificationIndexRoute
-  '/_authenticated/templates/': typeof AuthenticatedTemplatesIndexRoute
   '/_authenticated/analytics_/observability/$runId': typeof AuthenticatedAnalyticsObservabilityRunIdRoute
   '/_authenticated/notebooks/py/$pyNotebookId': typeof AuthenticatedNotebooksPyPyNotebookIdRoute
   '/_authenticated/notebooks/sample/$sampleSlug': typeof AuthenticatedNotebooksSampleSampleSlugRoute
@@ -929,11 +826,8 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/contact'
-    | '/curriculum'
     | '/docs'
     | '/index'
-    | '/interview-questions'
-    | '/learn'
     | '/login'
     | '/privacy'
     | '/reset-password'
@@ -945,7 +839,6 @@ export interface FileRouteTypes {
     | '/audit'
     | '/bi'
     | '/budgets'
-    | '/certification'
     | '/dashboard'
     | '/data-sql'
     | '/embeds'
@@ -955,7 +848,6 @@ export interface FileRouteTypes {
     | '/mcp'
     | '/model-registry'
     | '/notebooks'
-    | '/patterns'
     | '/playground'
     | '/prompt-compare'
     | '/prompts'
@@ -975,7 +867,6 @@ export interface FileRouteTypes {
     | '/docs/account'
     | '/docs/agents'
     | '/docs/analytics'
-    | '/docs/certification'
     | '/docs/dashboard'
     | '/docs/debugging'
     | '/docs/integrations'
@@ -983,7 +874,6 @@ export interface FileRouteTypes {
     | '/docs/playground'
     | '/docs/skills'
     | '/docs/swarms'
-    | '/docs/templates'
     | '/email/unsubscribe'
     | '/verify/$code'
     | '/docs/'
@@ -991,8 +881,6 @@ export interface FileRouteTypes {
     | '/admin/runtime'
     | '/analytics/observability'
     | '/bi/$dashboardId'
-    | '/certification/exam'
-    | '/templates/$templateId'
     | '/api/auth/sso-config'
     | '/api/bi/cron'
     | '/api/certificate/$id'
@@ -1014,8 +902,6 @@ export interface FileRouteTypes {
     | '/embed/bi/$key'
     | '/embed/swarm/$key'
     | '/share/bi/$slug'
-    | '/certification/'
-    | '/templates/'
     | '/analytics/observability/$runId'
     | '/notebooks/py/$pyNotebookId'
     | '/notebooks/sample/$sampleSlug'
@@ -1029,10 +915,7 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/contact'
-    | '/curriculum'
     | '/index'
-    | '/interview-questions'
-    | '/learn'
     | '/login'
     | '/privacy'
     | '/reset-password'
@@ -1053,7 +936,6 @@ export interface FileRouteTypes {
     | '/mcp'
     | '/model-registry'
     | '/notebooks'
-    | '/patterns'
     | '/playground'
     | '/prompt-compare'
     | '/prompts'
@@ -1073,7 +955,6 @@ export interface FileRouteTypes {
     | '/docs/account'
     | '/docs/agents'
     | '/docs/analytics'
-    | '/docs/certification'
     | '/docs/dashboard'
     | '/docs/debugging'
     | '/docs/integrations'
@@ -1081,7 +962,6 @@ export interface FileRouteTypes {
     | '/docs/playground'
     | '/docs/skills'
     | '/docs/swarms'
-    | '/docs/templates'
     | '/email/unsubscribe'
     | '/verify/$code'
     | '/docs'
@@ -1089,8 +969,6 @@ export interface FileRouteTypes {
     | '/admin/runtime'
     | '/analytics/observability'
     | '/bi/$dashboardId'
-    | '/certification/exam'
-    | '/templates/$templateId'
     | '/api/auth/sso-config'
     | '/api/bi/cron'
     | '/api/certificate/$id'
@@ -1112,8 +990,6 @@ export interface FileRouteTypes {
     | '/embed/bi/$key'
     | '/embed/swarm/$key'
     | '/share/bi/$slug'
-    | '/certification'
-    | '/templates'
     | '/analytics/observability/$runId'
     | '/notebooks/py/$pyNotebookId'
     | '/notebooks/sample/$sampleSlug'
@@ -1128,11 +1004,8 @@ export interface FileRouteTypes {
     | '/_authenticated'
     | '/about'
     | '/contact'
-    | '/curriculum'
     | '/docs'
     | '/index'
-    | '/interview-questions'
-    | '/learn'
     | '/login'
     | '/privacy'
     | '/reset-password'
@@ -1144,7 +1017,6 @@ export interface FileRouteTypes {
     | '/_authenticated/audit'
     | '/_authenticated/bi'
     | '/_authenticated/budgets'
-    | '/_authenticated/certification'
     | '/_authenticated/dashboard'
     | '/_authenticated/data-sql'
     | '/_authenticated/embeds'
@@ -1154,7 +1026,6 @@ export interface FileRouteTypes {
     | '/_authenticated/mcp'
     | '/_authenticated/model-registry'
     | '/_authenticated/notebooks'
-    | '/_authenticated/patterns'
     | '/_authenticated/playground'
     | '/_authenticated/prompt-compare'
     | '/_authenticated/prompts'
@@ -1174,7 +1045,6 @@ export interface FileRouteTypes {
     | '/docs/account'
     | '/docs/agents'
     | '/docs/analytics'
-    | '/docs/certification'
     | '/docs/dashboard'
     | '/docs/debugging'
     | '/docs/integrations'
@@ -1182,7 +1052,6 @@ export interface FileRouteTypes {
     | '/docs/playground'
     | '/docs/skills'
     | '/docs/swarms'
-    | '/docs/templates'
     | '/email/unsubscribe'
     | '/verify/$code'
     | '/docs/'
@@ -1190,8 +1059,6 @@ export interface FileRouteTypes {
     | '/_authenticated/admin/runtime'
     | '/_authenticated/analytics_/observability'
     | '/_authenticated/bi_/$dashboardId'
-    | '/_authenticated/certification/exam'
-    | '/_authenticated/templates/$templateId'
     | '/api/auth/sso-config'
     | '/api/bi/cron'
     | '/api/certificate/$id'
@@ -1213,8 +1080,6 @@ export interface FileRouteTypes {
     | '/embed/bi/$key'
     | '/embed/swarm/$key'
     | '/share/bi/$slug'
-    | '/_authenticated/certification/'
-    | '/_authenticated/templates/'
     | '/_authenticated/analytics_/observability/$runId'
     | '/_authenticated/notebooks/py/$pyNotebookId'
     | '/_authenticated/notebooks/sample/$sampleSlug'
@@ -1230,11 +1095,8 @@ export interface RootRouteChildren {
   AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
   AboutRoute: typeof AboutRoute
   ContactRoute: typeof ContactRoute
-  CurriculumRoute: typeof CurriculumRoute
   DocsRoute: typeof DocsRouteWithChildren
   Char91indexChar93Route: typeof Char91indexChar93Route
-  InterviewQuestionsRoute: typeof InterviewQuestionsRoute
-  LearnRoute: typeof LearnRoute
   LoginRoute: typeof LoginRoute
   PrivacyRoute: typeof PrivacyRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
@@ -1317,32 +1179,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/learn': {
-      id: '/learn'
-      path: '/learn'
-      fullPath: '/learn'
-      preLoaderRoute: typeof LearnRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/interview-questions': {
-      id: '/interview-questions'
-      path: '/interview-questions'
-      fullPath: '/interview-questions'
-      preLoaderRoute: typeof InterviewQuestionsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/docs': {
       id: '/docs'
       path: '/docs'
       fullPath: '/docs'
       preLoaderRoute: typeof DocsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/curriculum': {
-      id: '/curriculum'
-      path: '/curriculum'
-      fullPath: '/curriculum'
-      preLoaderRoute: typeof CurriculumRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/contact': {
@@ -1394,13 +1235,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof EmailUnsubscribeRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/docs/templates': {
-      id: '/docs/templates'
-      path: '/templates'
-      fullPath: '/docs/templates'
-      preLoaderRoute: typeof DocsTemplatesRouteImport
-      parentRoute: typeof DocsRoute
-    }
     '/docs/swarms': {
       id: '/docs/swarms'
       path: '/swarms'
@@ -1448,13 +1282,6 @@ declare module '@tanstack/react-router' {
       path: '/dashboard'
       fullPath: '/docs/dashboard'
       preLoaderRoute: typeof DocsDashboardRouteImport
-      parentRoute: typeof DocsRoute
-    }
-    '/docs/certification': {
-      id: '/docs/certification'
-      path: '/certification'
-      fullPath: '/docs/certification'
-      preLoaderRoute: typeof DocsCertificationRouteImport
       parentRoute: typeof DocsRoute
     }
     '/docs/analytics': {
@@ -1590,13 +1417,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedPlaygroundRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
-    '/_authenticated/patterns': {
-      id: '/_authenticated/patterns'
-      path: '/patterns'
-      fullPath: '/patterns'
-      preLoaderRoute: typeof AuthenticatedPatternsRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
     '/_authenticated/notebooks': {
       id: '/_authenticated/notebooks'
       path: '/notebooks'
@@ -1660,13 +1480,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedDashboardRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
-    '/_authenticated/certification': {
-      id: '/_authenticated/certification'
-      path: '/certification'
-      fullPath: '/certification'
-      preLoaderRoute: typeof AuthenticatedCertificationRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
     '/_authenticated/budgets': {
       id: '/_authenticated/budgets'
       path: '/budgets'
@@ -1708,20 +1521,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/account'
       preLoaderRoute: typeof AuthenticatedAccountRouteImport
       parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/templates/': {
-      id: '/_authenticated/templates/'
-      path: '/templates'
-      fullPath: '/templates/'
-      preLoaderRoute: typeof AuthenticatedTemplatesIndexRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/certification/': {
-      id: '/_authenticated/certification/'
-      path: '/'
-      fullPath: '/certification/'
-      preLoaderRoute: typeof AuthenticatedCertificationIndexRouteImport
-      parentRoute: typeof AuthenticatedCertificationRoute
     }
     '/share/bi/$slug': {
       id: '/share/bi/$slug'
@@ -1870,20 +1669,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSsoConfigRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_authenticated/templates/$templateId': {
-      id: '/_authenticated/templates/$templateId'
-      path: '/templates/$templateId'
-      fullPath: '/templates/$templateId'
-      preLoaderRoute: typeof AuthenticatedTemplatesTemplateIdRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/certification/exam': {
-      id: '/_authenticated/certification/exam'
-      path: '/exam'
-      fullPath: '/certification/exam'
-      preLoaderRoute: typeof AuthenticatedCertificationExamRouteImport
-      parentRoute: typeof AuthenticatedCertificationRoute
-    }
     '/_authenticated/bi_/$dashboardId': {
       id: '/_authenticated/bi_/$dashboardId'
       path: '/bi/$dashboardId'
@@ -1971,22 +1756,6 @@ declare module '@tanstack/react-router' {
   }
 }
 
-interface AuthenticatedCertificationRouteChildren {
-  AuthenticatedCertificationExamRoute: typeof AuthenticatedCertificationExamRoute
-  AuthenticatedCertificationIndexRoute: typeof AuthenticatedCertificationIndexRoute
-}
-
-const AuthenticatedCertificationRouteChildren: AuthenticatedCertificationRouteChildren =
-  {
-    AuthenticatedCertificationExamRoute: AuthenticatedCertificationExamRoute,
-    AuthenticatedCertificationIndexRoute: AuthenticatedCertificationIndexRoute,
-  }
-
-const AuthenticatedCertificationRouteWithChildren =
-  AuthenticatedCertificationRoute._addFileChildren(
-    AuthenticatedCertificationRouteChildren,
-  )
-
 interface AuthenticatedNotebooksRouteChildren {
   AuthenticatedNotebooksPyPyNotebookIdRoute: typeof AuthenticatedNotebooksPyPyNotebookIdRoute
   AuthenticatedNotebooksSampleSampleSlugRoute: typeof AuthenticatedNotebooksSampleSampleSlugRoute
@@ -2027,7 +1796,6 @@ interface AuthenticatedRouteChildren {
   AuthenticatedAuditRoute: typeof AuthenticatedAuditRoute
   AuthenticatedBiRoute: typeof AuthenticatedBiRoute
   AuthenticatedBudgetsRoute: typeof AuthenticatedBudgetsRoute
-  AuthenticatedCertificationRoute: typeof AuthenticatedCertificationRouteWithChildren
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedDataSqlRoute: typeof AuthenticatedDataSqlRoute
   AuthenticatedEmbedsRoute: typeof AuthenticatedEmbedsRoute
@@ -2037,7 +1805,6 @@ interface AuthenticatedRouteChildren {
   AuthenticatedMcpRoute: typeof AuthenticatedMcpRoute
   AuthenticatedModelRegistryRoute: typeof AuthenticatedModelRegistryRoute
   AuthenticatedNotebooksRoute: typeof AuthenticatedNotebooksRouteWithChildren
-  AuthenticatedPatternsRoute: typeof AuthenticatedPatternsRoute
   AuthenticatedPlaygroundRoute: typeof AuthenticatedPlaygroundRoute
   AuthenticatedPromptCompareRoute: typeof AuthenticatedPromptCompareRoute
   AuthenticatedPromptsRoute: typeof AuthenticatedPromptsRoute
@@ -2050,8 +1817,6 @@ interface AuthenticatedRouteChildren {
   AuthenticatedAdminRuntimeRoute: typeof AuthenticatedAdminRuntimeRoute
   AuthenticatedAnalyticsObservabilityRoute: typeof AuthenticatedAnalyticsObservabilityRouteWithChildren
   AuthenticatedBiDashboardIdRoute: typeof AuthenticatedBiDashboardIdRoute
-  AuthenticatedTemplatesTemplateIdRoute: typeof AuthenticatedTemplatesTemplateIdRoute
-  AuthenticatedTemplatesIndexRoute: typeof AuthenticatedTemplatesIndexRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
@@ -2061,7 +1826,6 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedAuditRoute: AuthenticatedAuditRoute,
   AuthenticatedBiRoute: AuthenticatedBiRoute,
   AuthenticatedBudgetsRoute: AuthenticatedBudgetsRoute,
-  AuthenticatedCertificationRoute: AuthenticatedCertificationRouteWithChildren,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedDataSqlRoute: AuthenticatedDataSqlRoute,
   AuthenticatedEmbedsRoute: AuthenticatedEmbedsRoute,
@@ -2071,7 +1835,6 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedMcpRoute: AuthenticatedMcpRoute,
   AuthenticatedModelRegistryRoute: AuthenticatedModelRegistryRoute,
   AuthenticatedNotebooksRoute: AuthenticatedNotebooksRouteWithChildren,
-  AuthenticatedPatternsRoute: AuthenticatedPatternsRoute,
   AuthenticatedPlaygroundRoute: AuthenticatedPlaygroundRoute,
   AuthenticatedPromptCompareRoute: AuthenticatedPromptCompareRoute,
   AuthenticatedPromptsRoute: AuthenticatedPromptsRoute,
@@ -2085,8 +1848,6 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedAnalyticsObservabilityRoute:
     AuthenticatedAnalyticsObservabilityRouteWithChildren,
   AuthenticatedBiDashboardIdRoute: AuthenticatedBiDashboardIdRoute,
-  AuthenticatedTemplatesTemplateIdRoute: AuthenticatedTemplatesTemplateIdRoute,
-  AuthenticatedTemplatesIndexRoute: AuthenticatedTemplatesIndexRoute,
 }
 
 const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
@@ -2097,7 +1858,6 @@ interface DocsRouteChildren {
   DocsAccountRoute: typeof DocsAccountRoute
   DocsAgentsRoute: typeof DocsAgentsRoute
   DocsAnalyticsRoute: typeof DocsAnalyticsRoute
-  DocsCertificationRoute: typeof DocsCertificationRoute
   DocsDashboardRoute: typeof DocsDashboardRoute
   DocsDebuggingRoute: typeof DocsDebuggingRoute
   DocsIntegrationsRoute: typeof DocsIntegrationsRoute
@@ -2105,7 +1865,6 @@ interface DocsRouteChildren {
   DocsPlaygroundRoute: typeof DocsPlaygroundRoute
   DocsSkillsRoute: typeof DocsSkillsRoute
   DocsSwarmsRoute: typeof DocsSwarmsRoute
-  DocsTemplatesRoute: typeof DocsTemplatesRoute
   DocsIndexRoute: typeof DocsIndexRoute
 }
 
@@ -2113,7 +1872,6 @@ const DocsRouteChildren: DocsRouteChildren = {
   DocsAccountRoute: DocsAccountRoute,
   DocsAgentsRoute: DocsAgentsRoute,
   DocsAnalyticsRoute: DocsAnalyticsRoute,
-  DocsCertificationRoute: DocsCertificationRoute,
   DocsDashboardRoute: DocsDashboardRoute,
   DocsDebuggingRoute: DocsDebuggingRoute,
   DocsIntegrationsRoute: DocsIntegrationsRoute,
@@ -2121,7 +1879,6 @@ const DocsRouteChildren: DocsRouteChildren = {
   DocsPlaygroundRoute: DocsPlaygroundRoute,
   DocsSkillsRoute: DocsSkillsRoute,
   DocsSwarmsRoute: DocsSwarmsRoute,
-  DocsTemplatesRoute: DocsTemplatesRoute,
   DocsIndexRoute: DocsIndexRoute,
 }
 
@@ -2169,11 +1926,8 @@ const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRoute: AuthenticatedRouteWithChildren,
   AboutRoute: AboutRoute,
   ContactRoute: ContactRoute,
-  CurriculumRoute: CurriculumRoute,
   DocsRoute: DocsRouteWithChildren,
   Char91indexChar93Route: Char91indexChar93Route,
-  InterviewQuestionsRoute: InterviewQuestionsRoute,
-  LearnRoute: LearnRoute,
   LoginRoute: LoginRoute,
   PrivacyRoute: PrivacyRoute,
   ResetPasswordRoute: ResetPasswordRoute,

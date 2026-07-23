@@ -258,9 +258,9 @@ function AgentsDoc() {
              └──────────► response ◄─────────────────┘`}</Diagram>
 
       <Note>
-        The fastest way to learn this form is to provision a{" "}
-        <DocLink to="/docs/templates">template</DocLink> and open it here — you'll see how a working
-        agent is wired before you fill in a blank one.
+        The fastest way to learn this form is to open a featured swarm on the{" "}
+        <DocLink to="/docs/swarms">Swarm Canvas</DocLink> and inspect one of its agents — you'll see
+        how a working agent is wired before you fill in a blank one.
       </Note>
 
       <NextPrev current="/docs/agents" />

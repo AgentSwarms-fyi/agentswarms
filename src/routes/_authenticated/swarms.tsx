@@ -81,7 +81,6 @@ import {
   GraduationCap,
   Download,
   Upload,
-  BookOpen,
   ArrowLeft,
   LayoutGrid,
   Eye,
@@ -107,8 +106,6 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "@/hooks/use-theme";
-import { LearnPanel } from "@/components/LearnPanel";
-import { learnSwarms } from "@/lib/learnContent";
 import { type SwarmNodeData, topoLevels } from "@/lib/swarmRuntime";
 import {
   startRun as startManagedRun,
@@ -795,8 +792,6 @@ function SwarmsCanvas({
   initialLab,
   isFullscreen,
   onToggleFullscreen,
-  learnVisible,
-  onToggleLearn,
   onBackToGallery,
 }: {
   initialTemplate?: string;
@@ -804,8 +799,6 @@ function SwarmsCanvas({
   initialLab?: string;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
-  learnVisible: boolean;
-  onToggleLearn: () => void;
   onBackToGallery: () => void;
 }) {
   const { user } = useAuth();
@@ -1862,11 +1855,6 @@ function SwarmsCanvas({
                         <GraduationCap className="h-4 w-4 mr-2" /> Tour
                       </DropdownMenuItem>
                     )}
-                    {!isFullscreen && !learnVisible && (
-                      <DropdownMenuItem onClick={onToggleLearn}>
-                        <BookOpen className="h-4 w-4 mr-2" /> Show Lesson
-                      </DropdownMenuItem>
-                    )}
                     <DropdownMenuItem onClick={onToggleFullscreen}>
                       {isFullscreen ? (
                         <Minimize2 className="h-4 w-4 mr-2" />
@@ -2152,7 +2140,6 @@ function SwarmsPage() {
   const { template, swarm, lab, view } = Route.useSearch();
   const navigate = useNavigate();
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [learnVisible, setLearnVisible] = useState(false);
 
   const showCanvas = view === "canvas" || !!template || !!swarm || !!lab;
 
@@ -2178,8 +2165,6 @@ function SwarmsPage() {
             initialLab={lab}
             isFullscreen
             onToggleFullscreen={() => setIsFullscreen(false)}
-            learnVisible={false}
-            onToggleLearn={() => undefined}
             onBackToGallery={goToGallery}
           />
         </ReactFlowProvider>
@@ -2197,21 +2182,10 @@ function SwarmsPage() {
             initialLab={lab}
             isFullscreen={false}
             onToggleFullscreen={() => setIsFullscreen(true)}
-            learnVisible={learnVisible}
-            onToggleLearn={() => setLearnVisible((v) => !v)}
             onBackToGallery={goToGallery}
           />
         </ReactFlowProvider>
       </div>
-      {learnVisible && (
-        <LearnPanel
-          topic="Multi-agent swarms"
-          tagline="Build, edit, and run real swarms. Click a node to configure it."
-          section={learnSwarms}
-          onHide={() => setLearnVisible(false)}
-          className="w-64 xl:w-72 p-4"
-        />
-      )}
     </div>
   );
 }

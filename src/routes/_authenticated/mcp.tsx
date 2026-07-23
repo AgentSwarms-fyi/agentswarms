@@ -1,6 +1,4 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { LearnPanel } from "@/components/LearnPanel";
-import { learnMcp } from "@/lib/learnContent";
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -300,7 +298,6 @@ function McpPage() {
         </div>
       )}
     </div>
-    <LearnPanel topic="MCP Servers" tagline="The USB-C of AI tools — one protocol to connect agents to any data source." section={learnMcp} />
     </div>
   );
 }

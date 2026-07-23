@@ -13,8 +13,6 @@ import {
   FileClock,
   ScrollText,
   Settings,
-  Sparkles,
-  Workflow,
   Database,
   ShieldCheck,
   Boxes,
@@ -67,20 +65,15 @@ const experimentItems: NavItem[] = [
 
 const dataItems: NavItem[] = [
   { title: "Data Catalog", url: "/data-sql", icon: Database },
+  { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
   { title: "Semantic Layer", url: "/semantics", icon: Layers },
   { title: "BI Workspace", url: "/bi", icon: PieChart },
   { title: "Developer workspace", url: "/notebooks", icon: NotebookPen },
 ];
 
 const libraryItems: NavItem[] = [
-  { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
   { title: "Prompt Library", url: "/prompts", icon: BookMarked },
   { title: "Skill Library", url: "/skills", icon: Wand2 },
-];
-
-const learnItems: NavItem[] = [
-  { title: "Real-World Examples", url: "/templates", icon: Sparkles },
-  { title: "Agentic Patterns", url: "/patterns", icon: Workflow },
 ];
 
 const opsItems: NavItem[] = [
@@ -156,12 +149,11 @@ export function AppSidebar() {
       <SidebarContent>
         {renderGroup("Overview", overviewItems)}
         {renderGroup("Build", buildItems)}
-        {renderGroup("Experiment", experimentItems)}
         {renderGroup("Data & BI", dataItems)}
         {renderGroup("Library", libraryItems)}
-        {renderGroup("Learn", learnItems)}
         {renderGroup("Integrations", integrationItems)}
         {renderGroup("Observability", opsItems)}
+        {renderGroup("Experiment", experimentItems)}
         {isSuperadmin &&
           renderGroup("Admin", [
             { title: "IAM", url: "/admin/iam", icon: ShieldCheck },

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { DocLink, DocsHeader, H2, NextPrev, Note, P, UL } from "@/components/docs/DocsShell";
+import { DocLink, DocsHeader, H2, NextPrev, P, UL } from "@/components/docs/DocsShell";
 
 export const Route = createFileRoute("/docs/")({
   head: () => ({
@@ -35,12 +35,6 @@ const surfaces: { name: string; path: string; docs: string; what: string }[] = [
     path: "/dashboard",
     docs: "/docs/dashboard",
     what: "Workspace overview: quick actions, featured swarms, activity, recent runs.",
-  },
-  {
-    name: "Templates",
-    path: "/templates",
-    docs: "/docs/templates",
-    what: "20 standalone agents and 30+ multi-agent swarms you can provision in one click.",
   },
   {
     name: "Agent Builder",
@@ -84,11 +78,11 @@ function IntroductionPage() {
       />
 
       <P>
-        The platform pairs a structured curriculum with a working lab. Every concept taught in the{" "}
-        <DocLink to="/learn">lessons</DocLink> maps to something you can open and run: a provisioned
-        template, a swarm on the canvas, or a notebook. It is a learning and proof-of-concept
-        environment, not a production runtime — the patterns transfer (everything exports to
-        LangChain, LangGraph, CrewAI, Strands, and OpenAI Agents SDK code), the hosting does not.
+        AgentSwarms pairs a builder for agents and swarms with a working lab. Everything described
+        in these docs is something you can open and run: a swarm on the canvas, an agent in the
+        builder, a BI dashboard, or a notebook. It is a build-and-prototype environment, not a
+        production runtime — the patterns transfer (everything exports to LangChain, LangGraph,
+        CrewAI, Strands, and OpenAI Agents SDK code), the hosting does not.
       </P>
 
       <H2 id="platform-map">Platform map</H2>
@@ -121,8 +115,8 @@ function IntroductionPage() {
           AgentSwarms AI provider immediately, with no API key.
         </li>
         <li>
-          <strong>Provision a template</strong> from{" "}
-          <DocLink to="/docs/templates">Templates</DocLink> — try <em>Product Support Assistant</em>{" "}
+          <strong>Open a featured swarm</strong> from the{" "}
+          <DocLink to="/docs/swarms">Swarm Canvas</DocLink> — try <em>Product Support Assistant</em>{" "}
           (RAG with citations and an approval gate). It arrives with its knowledge base and tools
           pre-wired, plus a guided tour.
         </li>
@@ -145,17 +139,11 @@ function IntroductionPage() {
       <H2 id="how-docs-are-organized">How these docs are organized</H2>
       <P>
         <strong>Getting started</strong> covers the workspace itself. <strong>Build</strong> covers
-        the surfaces where you create things — templates, agents, swarms, skills, notebooks.{" "}
+        the surfaces where you create things — agents, swarms, skills, notebooks.{" "}
         <strong>Run &amp; observe</strong> covers executing and debugging. <strong>Platform</strong>{" "}
-        covers certification and provider integrations. Pages link to the live screen they describe,
-        so the fastest way to read them is with the app open in another tab.
+        covers provider integrations. Pages link to the live screen they describe, so the fastest
+        way to read them is with the app open in another tab.
       </P>
-      <Note>
-        For the learning material itself — lessons, tracks, quizzes, the certification syllabus —
-        see the <DocLink to="/curriculum">curriculum overview</DocLink> and{" "}
-        <DocLink to="/learn">the lessons</DocLink>. These docs document the product; the curriculum
-        teaches the field.
-      </Note>
 
       <NextPrev current="/docs" />
     </>

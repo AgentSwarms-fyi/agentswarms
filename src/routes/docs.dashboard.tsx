@@ -45,11 +45,11 @@ function DashboardDoc() {
       <FieldList
         items={[
           {
-            name: "Start with a Template",
+            name: "Open the Playground",
             body: (
               <>
-                Opens <DocLink to="/docs/templates">Templates</DocLink>. Provisions a working agent
-                or swarm — knowledge bases, tools, and prompts included — in one click.
+                Opens the <DocLink to="/docs/playground">Chat Playground</DocLink> to chat with any
+                model and prototype an agent instantly.
               </>
             ),
           },
@@ -63,22 +63,17 @@ function DashboardDoc() {
             ),
           },
           {
-            name: "Take Practitioner Exam",
+            name: "Design a Swarm",
             body: (
               <>
-                Opens <DocLink to="/docs/certification">Certification</DocLink> to earn a verifiable
-                credential.
+                Opens a blank <DocLink to="/docs/swarms">Swarm Canvas</DocLink> to wire agents
+                together into a multi-agent graph.
               </>
             ),
           },
           {
-            name: "Visual Playground",
-            body: (
-              <>
-                Opens a blank <DocLink to="/docs/swarms">Swarm Canvas</DocLink> to design a
-                multi-agent graph from scratch.
-              </>
-            ),
+            name: "Open BI Workspace",
+            body: <>Opens the BI Workspace, where AI builds dashboards over your connected data.</>,
           },
         ]}
       />

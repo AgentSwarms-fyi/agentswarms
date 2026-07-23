@@ -4,8 +4,6 @@
 // modality, and capability, search by name/id, and copy a model id to
 // paste into the Agent Builder or Swarm node config.
 import { createFileRoute } from "@tanstack/react-router";
-import { LearnPanel } from "@/components/LearnPanel";
-import { learnModelRegistry } from "@/lib/learnContent";
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -429,11 +427,6 @@ function ModelRegistryPage() {
           </ScrollArea>
         )}
       </div>
-      <LearnPanel
-        topic="Model Registry"
-        tagline="Browse every model available — know what each one does before you pick it."
-        section={learnModelRegistry}
-      />
     </div>
   );
 }

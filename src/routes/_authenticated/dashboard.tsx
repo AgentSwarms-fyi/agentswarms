@@ -251,10 +251,10 @@ function DashboardPage() {
 
   const actionTiles = [
     {
-      title: "Start with a Template",
-      desc: "Provision a working swarm in one click.",
-      to: "/templates" as const,
-      icon: LayoutTemplate,
+      title: "Open the Playground",
+      desc: "Chat with any model and prototype instantly.",
+      to: "/playground" as const,
+      icon: MessageSquare,
       search: undefined as undefined | Record<string, unknown>,
     },
     {
@@ -433,7 +433,7 @@ function DashboardPage() {
               size="sm"
               className="gap-1 text-muted-foreground hover:text-foreground"
             >
-              <Link to="/templates">
+              <Link to="/swarms">
                 Browse all
                 <ArrowUpRight className="h-3.5 w-3.5" />
               </Link>
@@ -518,11 +518,12 @@ function DashboardPage() {
                 Your lab is empty — let's fix that.
               </div>
               <div className="text-sm text-muted-foreground">
-                Provision a template in seconds to see agents, swarms, traces, and costs come alive.
+                Spin up a featured swarm in seconds to see agents, swarms, traces, and costs come
+                alive.
               </div>
             </div>
             <Button asChild>
-              <Link to="/templates">Browse templates</Link>
+              <Link to="/swarms">Browse swarms</Link>
             </Button>
           </div>
         )}

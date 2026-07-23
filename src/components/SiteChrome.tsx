@@ -3,7 +3,7 @@
 // and the project's home base. The admin email is intentionally NOT exposed
 // here — visitors reach us through the contact form only.
 import { Link } from "@tanstack/react-router";
-import { Mail, BookOpen, LayoutDashboard } from "lucide-react";
+import { Mail, LayoutDashboard } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import agentSwarmsLogo from "@/assets/agentswarms-logo.jpg";
 
@@ -161,12 +161,6 @@ export function SiteHeader() {
           <span>AgentSwarms</span>
         </Link>
         <div className="flex items-center gap-4 text-sm text-muted-foreground sm:gap-5">
-          <Link
-            to="/learn"
-            className="hidden items-center gap-1 hover:text-foreground md:inline-flex"
-          >
-            <BookOpen className="h-3.5 w-3.5" /> Learn
-          </Link>
           <Link to="/docs" className="hidden hover:text-foreground sm:inline">
             Docs
           </Link>

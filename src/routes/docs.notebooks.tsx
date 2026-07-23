@@ -154,10 +154,9 @@ function NotebooksDoc() {
 
       <H2 id="where-they-fit">Where the workspace fits</H2>
       <P>
-        The Developer workspace is the free-form counterpart to the rest of the platform: meet a
-        pattern in the <DocLink to="/learn">lessons</DocLink>, prototype it here in Python with real
-        model calls and retrieval, then rebuild it as a durable, deployable system on the{" "}
-        <DocLink to="/docs/swarms">Swarm Canvas</DocLink> and in{" "}
+        The Developer workspace is the free-form counterpart to the rest of the platform: sketch a
+        pattern here in Python with real model calls and retrieval, then rebuild it as a durable,
+        deployable system on the <DocLink to="/docs/swarms">Swarm Canvas</DocLink> and in{" "}
         <DocLink to="/agents">Agent Builder</DocLink>.
       </P>
 

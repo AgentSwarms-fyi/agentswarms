@@ -7,8 +7,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { OnboardingDialog } from "@/components/OnboardingDialog";
 import { MobileLabNotice } from "@/components/MobileLabNotice";
 import { GlobalCreateMenu } from "@/components/GlobalCreateMenu";
-import { Link, Outlet } from "@tanstack/react-router";
-import { GraduationCap } from "lucide-react";
+import { Outlet } from "@tanstack/react-router";
 
 export function AppLayout() {
   return (
@@ -20,15 +19,6 @@ export function AppLayout() {
             <SidebarTrigger />
             <div className="flex items-center gap-2">
               <GlobalCreateMenu />
-              <Link
-                to="/learn"
-                className="inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-card/60 px-3 py-1.5 text-xs font-medium text-foreground transition hover:border-primary/50 hover:bg-card hover:text-primary"
-                aria-label="Open full curriculum and tutorials"
-              >
-                <GraduationCap className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Curriculum & Tutorials</span>
-                <span className="sm:hidden">Learn</span>
-              </Link>
               <ThemeToggle />
               <ApprovalInbox />
               <NotificationBell />

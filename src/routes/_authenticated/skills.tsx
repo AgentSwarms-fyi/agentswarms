@@ -1,6 +1,4 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { LearnPanel } from "@/components/LearnPanel";
-import { learnSkills } from "@/lib/learnContent";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -237,7 +235,6 @@ function SkillLibraryPage() {
         initial={editing}
       />
     </div>
-    <LearnPanel topic="Skills & Playbooks" tagline="Modular playbooks that make your agents specialists — mix and match like plugins." section={learnSkills} />
     </div>
   );
 }

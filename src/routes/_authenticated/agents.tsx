@@ -38,8 +38,6 @@ import { useLangChainExportAnnouncement } from "@/hooks/use-langchain-export-ann
 import { ExportAgentDialog } from "@/components/agents/ExportAgentDialog";
 import { ShareAgentDialog } from "@/components/agents/ShareAgentDialog";
 import { ImportAgentDialog } from "@/components/agents/ImportAgentDialog";
-import { LearnPanel } from "@/components/LearnPanel";
-import { learnAgents } from "@/lib/learnContent";
 
 export const Route = createFileRoute("/_authenticated/agents")({
   component: AgentsPage,
@@ -277,11 +275,6 @@ function AgentsPage() {
           />
         )}
       </div>
-      <LearnPanel
-        topic="Building your first agent"
-        tagline="Prompt + model + (optional) tools & memory. That's the whole stack."
-        section={learnAgents}
-      />
     </div>
   );
 }

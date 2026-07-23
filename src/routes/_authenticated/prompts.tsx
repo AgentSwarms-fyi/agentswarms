@@ -4,8 +4,6 @@
 // Built-ins are shipped in src/lib/promptLibrary.ts and cannot be removed.
 // User prompts are persisted to public.user_prompts (RLS: owner-only).
 import { createFileRoute } from "@tanstack/react-router";
-import { LearnPanel } from "@/components/LearnPanel";
-import { learnPromptLibrary } from "@/lib/learnContent";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
@@ -415,7 +413,6 @@ function PromptsPage() {
         </DialogContent>
       </Dialog>
     </div>
-    <LearnPanel topic="Prompt Engineering" tagline="Great agents start with great prompts. Learn the patterns that work." section={learnPromptLibrary} />
     </div>
   );
 }

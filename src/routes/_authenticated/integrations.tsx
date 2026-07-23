@@ -1,6 +1,4 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { LearnPanel } from "@/components/LearnPanel";
-import { learnIntegrations } from "@/lib/learnContent";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
@@ -1106,11 +1104,6 @@ function IntegrationsPage() {
           </TabsContent>
         </Tabs>
       </div>
-      <LearnPanel
-        topic="Integrations & Tools"
-        tagline="Agents become useful when they can DO things. Connect APIs, tools, and workflows."
-        section={learnIntegrations}
-      />
     </div>
   );
 }

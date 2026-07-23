@@ -7,7 +7,6 @@ import {
   Wrench,
   MessageSquare,
   Activity,
-  Award,
   Plug,
   LayoutDashboard,
   Settings,
@@ -16,7 +15,6 @@ import {
   ArrowRight,
   ArrowLeft,
   ChevronDown,
-  LayoutTemplate,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -43,7 +41,6 @@ export const DOCS_GROUPS: DocGroup[] = [
   {
     label: "Build",
     items: [
-      { to: "/docs/templates", label: "Templates", icon: LayoutTemplate },
       { to: "/docs/agents", label: "Agent Builder", icon: Bot },
       { to: "/docs/swarms", label: "Swarm Canvas", icon: Network },
       { to: "/docs/skills", label: "Skills & Prompt Library", icon: Library },
@@ -61,7 +58,6 @@ export const DOCS_GROUPS: DocGroup[] = [
   {
     label: "Platform",
     items: [
-      { to: "/docs/certification", label: "Certification", icon: Award },
       { to: "/docs/integrations", label: "Integrations", icon: Plug },
     ],
   },

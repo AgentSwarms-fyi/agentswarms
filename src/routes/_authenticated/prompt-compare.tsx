@@ -1,6 +1,4 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { LearnPanel } from "@/components/LearnPanel";
-import { learnPromptCompare } from "@/lib/learnContent";
 import { useState, useRef, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
@@ -447,11 +445,6 @@ function PromptComparePage() {
           )}
         </div>
       </div>
-      <LearnPanel
-        topic="Prompt Comparison Lab"
-        tagline="Compare models side-by-side to build intuition for which one fits your task."
-        section={learnPromptCompare}
-      />
     </div>
   );
 }

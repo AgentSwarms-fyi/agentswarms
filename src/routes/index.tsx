@@ -61,9 +61,7 @@ function Github({ className }: { className?: string }) {
 
 function HoverMoreMenu() {
   const items = [
-    { to: "/learn", label: "Learn" },
-    { to: "/curriculum", label: "Curriculum" },
-    { to: "/interview-questions", label: "Interview Questions" },
+    { to: "/docs", label: "Docs" },
     { to: "/about", label: "About" },
     { to: "/contact", label: "Contact" },
   ] as const;
@@ -375,12 +373,6 @@ function LandingPage() {
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
                   <Link to="/docs">Docs</Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link to="/learn">Learn</Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link to="/curriculum">Curriculum</Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
                   <Link to="/about">About</Link>
@@ -1173,18 +1165,18 @@ function LandingPage() {
                       </span>
                     </div>
                     <h3 className="text-2xl font-semibold tracking-tight">
-                      Your team learns on the same instance
+                      Your whole team on one instance
                     </h3>
                     <p className="mt-3 max-w-lg text-sm leading-relaxed text-muted-foreground">
-                      A guided curriculum, interactive notebooks, and build-along labs ship with the
-                      platform — so the people you invite don't just get a login, they get a path
-                      from "what's an agent?" to shipping swarms.
+                      Agents, swarms, BI dashboards, and interactive notebooks all ship in one
+                      workspace — so the people you invite don't just get a login, they get a shared
+                      place to build, analyze, and ship together.
                     </p>
                     <Link
-                      to="/learn"
+                      to="/docs"
                       className="group mt-5 inline-flex items-center gap-1 text-sm font-semibold text-primary"
                     >
-                      Explore the learning content
+                      Read the documentation
                       <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
                     </Link>
                   </div>

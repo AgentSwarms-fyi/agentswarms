@@ -151,8 +151,8 @@ function ContactPage() {
               from a real human soon.
             </p>
             <div className="mt-6 flex justify-center gap-3">
-              <Link to="/learn">
-                <Button variant="outline">Browse the curriculum</Button>
+              <Link to="/docs">
+                <Button variant="outline">Explore the docs</Button>
               </Link>
               <Link to="/">
                 <Button>
