@@ -162,7 +162,7 @@ function BiWorkspacePage() {
 
         <TabsContent value="projects" className="mt-4">
           {dashboards === null ? (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
               {[0, 1, 2].map((i) => (
                 <Skeleton key={i} className="h-40 rounded-xl" />
               ))}
@@ -186,7 +186,7 @@ function BiWorkspacePage() {
               </CardContent>
             </Card>
           ) : (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
               {dashboards.map((d) => {
                 const mine = d.user_id === user?.id;
                 const widgets = parseWidgets(d.widgets);
@@ -205,11 +205,11 @@ function BiWorkspacePage() {
                       theme={d.theme}
                       className="aspect-[16/9] w-full shrink-0 rounded-none border-x-0 border-t-0 border-b transition group-hover:brightness-105"
                     />
-                    <CardContent className="flex flex-1 flex-col gap-3 p-5">
+                    <CardContent className="flex flex-1 flex-col gap-2.5 p-3.5">
                       <div className="flex items-start justify-between gap-2">
-                        <div className="flex min-w-0 items-start gap-3">
-                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-                            <LayoutDashboard className="h-5 w-5 text-primary" />
+                        <div className="flex min-w-0 items-start gap-2">
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                            <LayoutDashboard className="h-4 w-4 text-primary" />
                           </div>
                           <div className="min-w-0">
                             <p className="truncate font-semibold">{d.name}</p>
@@ -241,7 +241,7 @@ function BiWorkspacePage() {
                           )}
                         </div>
                       </div>
-                      <div className="mt-auto flex items-center justify-between border-t border-border/40 pt-3 text-xs text-muted-foreground">
+                      <div className="mt-auto flex items-center justify-between gap-1 border-t border-border/40 pt-2.5 text-[11px] text-muted-foreground">
                         <span
                           title={
                             d.last_viewed_at
