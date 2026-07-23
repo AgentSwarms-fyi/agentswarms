@@ -66,10 +66,15 @@ export class DockerOrchestrator implements NotebookOrchestrator {
         NetworkMode: network(),
         // Writable paths (root fs is read-only); lost on teardown — notebooks
         // persist in the DB. ~/.local holds runtime `pip install --user` output.
+        //
+        // mode=1777 is REQUIRED: tmpfs mounts default to root-owned 0755, but the
+        // kernel runs as uid 1000, so without it every write fails with
+        // "Permission denied" (and runtime pip install breaks). Sticky world-write
+        // is safe here — each container is a single-tenant, ephemeral sandbox.
         Tmpfs: {
-          "/home/runner/work": "rw,exec,size=512m",
-          "/home/runner/.local": "rw,exec,size=512m",
-          "/tmp": "rw,size=256m",
+          "/home/runner/work": "rw,exec,size=512m,mode=1777",
+          "/home/runner/.local": "rw,exec,size=512m,mode=1777",
+          "/tmp": "rw,size=256m,mode=1777",
         },
         RestartPolicy: { Name: "no" },
         AutoRemove: false, // we remove explicitly so batch logs survive until read
