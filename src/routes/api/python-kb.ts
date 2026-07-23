@@ -1,6 +1,6 @@
-// Knowledge-base retrieval for Developer-workspace notebooks (both the browser
-// Pyodide runtime and server kernels call this via the injected
-// `agentswarms.kb_search()` / `agentswarms.list_knowledge_bases()` helpers).
+// Knowledge-base retrieval for Developer-workspace notebooks. Server kernels
+// call this via the injected `agentswarms.kb_search()` /
+// `list_knowledge_bases()` / `kb_retriever()` helpers.
 //
 // The caller resolver accepts a Supabase user JWT (browser) or a
 // notebook-runtime session token (server kernel) and, either way, restricts

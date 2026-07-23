@@ -1,5 +1,6 @@
-// Non-streaming chat completions for user Python notebooks (Pyodide calls
-// this via the injected `agentswarms.chat()` helper).
+// Non-streaming chat completions for Developer-workspace notebooks. Server
+// kernels call this via the injected `agentswarms` helper (chat / chat_model /
+// llama_llm), presenting a short-lived session token instead of any API key.
 //
 // Reuses the same credential resolution as /api/chat (per-user keys with the
 // operator OpenRouter fallback) and the same IAM model-rule gate, but returns
@@ -35,9 +36,9 @@ export const Route = createFileRoute("/api/python-chat")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        // Accepts a Supabase user JWT (browser Pyodide runtime) OR a
-        // notebook-runtime session token (server kernel). Both resolve to a
-        // userId; provider keys stay server-side either way.
+        // Accepts a Supabase user JWT (app-side callers) OR a notebook-runtime
+        // session token (server kernel). Both resolve to a userId; provider keys
+        // stay server-side either way.
         const caller = await resolvePythonCaller(request);
         if (!caller) return json(401, { error: "Sign in to run notebook model calls" });
         const { userId, sb } = caller;

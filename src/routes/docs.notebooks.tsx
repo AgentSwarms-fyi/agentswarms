@@ -8,13 +8,13 @@ export const Route = createFileRoute("/docs/notebooks")({
       {
         name: "description",
         content:
-          "In-browser Python notebooks (Pyodide): learn LangChain, LangGraph and LlamaIndex from runnable samples, call your connected models, and retrieve from your knowledge base.",
+          "Python notebooks on sandboxed server kernels: build with real LangChain, LangGraph and LlamaIndex, call your governed models, and retrieve from your knowledge base.",
       },
       { property: "og:title", content: "Developer workspace — AgentSwarms Documentation" },
       {
         property: "og:description",
         content:
-          "Read-only framework samples plus your own Python notebooks in the browser — with helpers for calling models and searching your knowledge base.",
+          "Real-framework sample notebooks plus your own, running on sandboxed server kernels with governed model and knowledge-base access.",
       },
       { property: "og:type", content: "article" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -22,7 +22,7 @@ export const Route = createFileRoute("/docs/notebooks")({
       {
         name: "twitter:description",
         content:
-          "Read-only framework samples plus your own Python notebooks in the browser — with helpers for calling models and searching your knowledge base.",
+          "Real-framework sample notebooks plus your own, running on sandboxed server kernels with governed model and knowledge-base access.",
       },
     ],
   }),
@@ -143,9 +143,11 @@ function NotebooksDoc() {
       </UL>
 
       <Note>
-        The runtime is sandboxed in the browser: no filesystem beyond Pyodide's virtual FS, no
-        native extensions outside the bundled scientific stack, and network access only via HTTP
-        from your session.
+        Each session gets its own container: non-root, read-only root filesystem, all Linux
+        capabilities dropped, no-new-privileges, CPU/memory/PID limits, and outbound network
+        restricted to an operator-managed allowlist. Kernels are ephemeral — files written during a
+        session are discarded on teardown; notebooks themselves live in the database. Operators
+        enable and tune all of this under <strong>Admin → Developer runtime</strong>.
       </Note>
 
       <H2 id="where-they-fit">Where the workspace fits</H2>
