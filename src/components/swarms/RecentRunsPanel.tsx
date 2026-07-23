@@ -294,7 +294,6 @@ export function RecentRunsPanel() {
                               swarm: item.swarmId!,
                               view: "canvas",
                               template: undefined,
-                              lab: undefined,
                             },
                           })
                         }

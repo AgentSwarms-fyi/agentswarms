@@ -113,9 +113,8 @@ function DebuggingDoc() {
       </UL>
 
       <Note>
-        The <DocLink to="/notebooks">Failure Modes Lab notebook</DocLink> and the canvas{" "}
-        <DocLink to="/docs/swarms">failure labs</DocLink> are guided practice for exactly this
-        skill: each one produces a broken trace and asks you to find the cause.
+        The <DocLink to="/notebooks">Failure Modes Lab notebook</DocLink> is guided practice for
+        exactly this skill: it produces a broken trace and asks you to find the cause.
       </Note>
 
       <NextPrev current="/docs/debugging" />

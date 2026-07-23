@@ -17,13 +17,13 @@ export const Route = createFileRoute("/docs/swarms")({
       {
         name: "description",
         content:
-          "The AgentSwarms Swarm Canvas: node types (agent, condition, router, loop, approval, function, evaluate), live runs, failure labs, and code export.",
+          "The AgentSwarms Swarm Canvas: node types (agent, condition, router, loop, approval, function, evaluate), live runs, and code export.",
       },
       { property: "og:title", content: "Swarm Canvas — AgentSwarms Documentation" },
       {
         property: "og:description",
         content:
-          "The visual editor for multi-agent graphs: node types, live runs, failure labs, and code export.",
+          "The visual editor for multi-agent graphs: node types, live runs, and code export.",
       },
       { property: "og:url", content: "https://agentswarms.fyi/docs/swarms" },
       { property: "og:type", content: "article" },
@@ -32,7 +32,7 @@ export const Route = createFileRoute("/docs/swarms")({
       {
         name: "twitter:description",
         content:
-          "The visual editor for multi-agent graphs: node types, live runs, failure labs, and code export.",
+          "The visual editor for multi-agent graphs: node types, live runs, and code export.",
       },
     ],
     links: [{ rel: "canonical", href: "https://agentswarms.fyi/docs/swarms" }],
@@ -140,17 +140,13 @@ function SwarmsDoc() {
         share with the agent's normal memory, isolate to this swarm run, or none.
       </P>
 
-      <H2 id="templates-and-labs">Templates, tours, and failure labs</H2>
+      <H2 id="templates-and-tours">Templates and tours</H2>
       <UL>
         <li>
-          <strong>Templates</strong> — 30+ pre-built swarms load directly onto the canvas, most with
-          a guided tour that follows the run node by node. The gallery shows a thumbnail of each
-          template's actual graph.
-        </li>
-        <li>
-          <strong>Failure labs</strong> — deliberately broken swarms (infinite tool loop, JSON
-          wrapper crash, context-window collapse) that you run, watch fail, then fix. The lab checks
-          your fix and tracks which labs you have passed.
+          <strong>Templates</strong> — pre-built swarms load directly onto the canvas, most with a
+          guided tour that follows the run node by node. The gallery shows a thumbnail of each
+          template's actual graph. The four featured templates are fully runnable and, between them,
+          use every node type.
         </li>
       </UL>
 

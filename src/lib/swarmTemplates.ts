@@ -72,7 +72,1018 @@ const baseEdge = (id: string, source: string, target: string): Edge => ({
   target,
 });
 
+// Labeled edge — required for `condition` (label "yes"/"no") and `router`
+// (label = a route name) branches so the runtime knows which edge to follow.
+const labeledEdge = (id: string, source: string, target: string, label: string): Edge => ({
+  id,
+  source,
+  target,
+  label,
+});
+
+// The bundled, read-only sample knowledge base ("Sample · Notebook RAG Lab").
+// Seeded is_sample=true, so every user can retrieve from it out of the box —
+// which is what makes the RAG nodes in these templates runnable with no setup.
+const SAMPLE_KB_ID = "c0ffee00-0000-4000-8000-000000000001";
+
+// A rerank-capable model available through the built-in OpenRouter provider —
+// used to re-order KB hits before they reach the answering agent.
+const KB_RERANKER = { provider: "openrouter", model: "llama-nemotron-rerank-vl-1b-v2" } as const;
+
 export const SWARM_TEMPLATES: SwarmTemplate[] = [
+  // ==================================================================
+  // FEATURED — four comprehensive, fully-runnable sample swarms.
+  // Together they exercise every canvas node type plus models, the
+  // bundled sample knowledge base, sample datasets, built-in tools,
+  // guardrails, skills, memory and reranking — so a new user can open
+  // any one and learn which node to reach for, and when.
+  //
+  // Node-type coverage across the four:
+  //   input · agent · router · condition · retrieve · evaluate ·
+  //   approval · output   (Support Copilot)
+  //   input · set_var · tool · agent · extract · output   (Revenue Ops)
+  //   input · agent · foreach · merge · loop · output   (Research Desk)
+  //   input · extract · agent · http · function · condition ·
+  //   approval · output   (Incident Response)
+  // ==================================================================
+
+  // ── FEATURED 1 — Support Copilot: routed, KB-grounded, judged, approved ──
+  {
+    id: "support-copilot",
+    title: "Support Copilot",
+    tagline: "Router → KB retrieval → grounded answer → LLM judge → human approval",
+    description:
+      "A production-shaped support assistant. An intelligent router sends each request down the right path; product questions are answered strictly from the knowledge base (with reranking, citation checks and PII guardrails), an LLM judge scores the draft for faithfulness, and anything low-confidence or sensitive waits for human approval before it goes out.",
+    category: "Customer Support",
+    exampleInput:
+      "How does retrieval-augmented generation reduce hallucinations, and when should I use it instead of fine-tuning?",
+    nodes: [
+      {
+        id: "in",
+        type: "input",
+        position: { x: 40, y: 320 },
+        data: { kind: "input", label: "Customer request", outputVar: "input", avatar: "💬" },
+      },
+      {
+        id: "router",
+        type: "router",
+        position: { x: 300, y: 320 },
+        data: {
+          kind: "router",
+          label: "Intake router",
+          avatar: "🚦",
+          provider: "openrouter",
+          model: FLASH,
+          temperature: 0,
+          routerPrompt:
+            "Classify the customer's request and pick the single best route:\n" +
+            "- 'product' — a how-to, concept, or technical question answerable from product documentation.\n" +
+            "- 'account' — billing, login, or account-access issues.\n" +
+            "- 'sensitive' — refunds, legal, security, or anything risky a human must own.",
+          inputs: ["input"],
+        },
+      },
+      {
+        id: "retrieve",
+        type: "retrieve",
+        position: { x: 580, y: 140 },
+        data: {
+          kind: "retrieve",
+          label: "KB retrieval",
+          avatar: "📚",
+          knowledgeBaseId: SAMPLE_KB_ID,
+          retrieveQuery: "{{input}}",
+          retrieveTopK: 5,
+          inputs: ["input"],
+          outputVar: "context",
+        },
+      },
+      {
+        id: "answerer",
+        type: "agent",
+        position: { x: 860, y: 140 },
+        data: {
+          kind: "agent",
+          label: "Grounded answerer",
+          avatar: "🤖",
+          provider: "openrouter",
+          model: PRO,
+          temperature: 0.3,
+          systemPrompt:
+            "You are a product support engineer. Answer the customer's question using ONLY the retrieved context. " +
+            "Name the documents you drew on. If the context does not cover it, say so plainly and suggest a next step — never invent details. " +
+            "You may call kb_search or kb_graph_search to pull additional passages if the first retrieval is thin.",
+          inputs: ["input", "context"],
+          outputVar: "draft_answer",
+          knowledgeBaseId: SAMPLE_KB_ID,
+          enabledTools: ["kb_search", "kb_graph_search"],
+          reranker: KB_RERANKER,
+          skillIds: ["sample:support-tone"],
+          memory: {
+            stm_enabled: true,
+            stm_window_messages: 6,
+            ltm_enabled: true,
+            ltm_scope: "swarm",
+          },
+          guardrails: {
+            enableOutputFilters: true,
+            blockPII: true,
+            enableCitationCheck: true,
+            enableHallucinationFilter: true,
+            contentSafetyLevel: "medium",
+          },
+        },
+      },
+      {
+        id: "judge",
+        type: "evaluate",
+        position: { x: 1140, y: 140 },
+        data: {
+          kind: "evaluate",
+          label: "Answer judge",
+          avatar: "⚖️",
+          provider: "openrouter",
+          model: FLASH,
+          evalMetrics: [
+            {
+              id: "faithfulness",
+              name: "Faithfulness",
+              enabled: true,
+              weight: 0.5,
+              description:
+                "Are all claims in the answer grounded in the retrieved context? Catches hallucinations.",
+            },
+            {
+              id: "answer_relevancy",
+              name: "Answer Relevancy",
+              enabled: true,
+              weight: 0.3,
+              description: "Does the answer actually address the customer's question?",
+            },
+            {
+              id: "completeness",
+              name: "Completeness",
+              enabled: true,
+              weight: 0.2,
+              description: "Does it cover every part of the question, not just the easy half?",
+            },
+          ],
+          evalReferenceInput: "input",
+          evalPassThreshold: 0.7,
+          inputs: ["draft_answer"],
+          outputVar: "eval",
+        },
+      },
+      {
+        id: "gate",
+        type: "condition",
+        position: { x: 1420, y: 140 },
+        data: {
+          kind: "condition",
+          label: "Confident enough?",
+          avatar: "❓",
+          provider: "openrouter",
+          model: FLASH,
+          conditionPrompt:
+            "Read the evaluation JSON. Did the answer clear the quality bar (pass = true, or overall_score >= 0.7)?",
+          inputs: ["eval"],
+        },
+      },
+      {
+        id: "account",
+        type: "agent",
+        position: { x: 580, y: 380 },
+        data: {
+          kind: "agent",
+          label: "Account assistant",
+          avatar: "🔐",
+          provider: "openrouter",
+          model: PRO,
+          temperature: 0.3,
+          systemPrompt:
+            "You handle account and billing questions. Walk the customer through the exact steps to resolve it. " +
+            "Never ask for passwords or full card numbers. If you cannot fully resolve it, hand off to a human.",
+          inputs: ["input"],
+          outputVar: "account_reply",
+          skillIds: ["sample:support-tone"],
+          guardrails: { blockPII: true, enableOutputFilters: true, contentSafetyLevel: "medium" },
+        },
+      },
+      {
+        id: "approval",
+        type: "approval",
+        position: { x: 1140, y: 400 },
+        data: {
+          kind: "approval",
+          label: "Human approval",
+          avatar: "🛡️",
+          approvalTitle: "Send reply to customer",
+          approvalRisk: "medium",
+          inputs: ["draft_answer", "account_reply"],
+          outputVar: "approved_reply",
+        },
+      },
+      {
+        id: "out",
+        type: "output",
+        position: { x: 1700, y: 260 },
+        data: {
+          kind: "output",
+          label: "Reply sent",
+          avatar: "✅",
+          inputs: ["approved_reply", "draft_answer"],
+        },
+      },
+    ],
+    edges: [
+      baseEdge("e1", "in", "router"),
+      labeledEdge("e2", "router", "retrieve", "product"),
+      labeledEdge("e3", "router", "account", "account"),
+      labeledEdge("e4", "router", "approval", "sensitive"),
+      baseEdge("e5", "retrieve", "answerer"),
+      baseEdge("e6", "answerer", "judge"),
+      baseEdge("e7", "judge", "gate"),
+      labeledEdge("e8", "gate", "out", "yes"),
+      labeledEdge("e9", "gate", "approval", "no"),
+      baseEdge("e10", "account", "approval"),
+      baseEdge("e11", "approval", "out"),
+    ],
+    tour: [
+      {
+        nodeId: "in",
+        title: "Step 1 — Input",
+        what: "The customer's message enters here and is captured into the `input` variable.",
+        why: "Every swarm needs one entry point so downstream nodes have a known variable to read.",
+        watchFor: "The status dot turning green as the message is captured.",
+      },
+      {
+        nodeId: "router",
+        title: "Step 2 — Router (N-way)",
+        what: "A fast model reads the request and picks one of three labelled branches: product, account, or sensitive.",
+        why: "A router replaces a wall of if/else nodes — it sends each request down the one path that fits, and the others are skipped.",
+        watchFor: "Only the chosen branch lights up; the other two go grey (skipped).",
+        realWorldRef: {
+          org: "Klarna",
+          label:
+            "Klarna's assistant classifies then routes millions of chats — the same classify-then-route pattern.",
+          url: "https://www.klarna.com/international/press/klarna-ai-assistant-handles-two-thirds-of-customer-service-chats-in-its-first-month/",
+        },
+      },
+      {
+        nodeId: "retrieve",
+        title: "Step 3 — Retrieve (no LLM)",
+        what: "A standalone knowledge-base search pulls the top passages for the question from the bundled sample KB.",
+        why: "Retrieving before generating is the core of RAG — the model answers from grounded source text, not memory.",
+        watchFor: "Retrieved snippets appear as the node's output, stored in `context`.",
+      },
+      {
+        nodeId: "answerer",
+        title: "Step 4 — Grounded answerer",
+        what: "A stronger model drafts the reply from the retrieved context, with reranking, a support-tone skill, memory, and PII / citation / hallucination guardrails.",
+        why: "This one node shows how models, tools, a reranker, skills, memory and guardrails stack on a single agent.",
+        watchFor: "A cited answer that stays within the retrieved material.",
+        realWorldRef: {
+          org: "Anthropic — Contextual Retrieval",
+          label: "Reranking retrieved chunks before generation measurably cuts retrieval failures.",
+          url: "https://www.anthropic.com/news/contextual-retrieval",
+        },
+      },
+      {
+        nodeId: "judge",
+        title: "Step 5 — LLM judge",
+        what: "An evaluate node scores the draft on faithfulness, relevancy and completeness and returns a pass/fail scorecard.",
+        why: "LLM-as-a-judge is how you put an automatic quality gate in front of a human, so people only review the borderline cases.",
+        watchFor: "A JSON scorecard with per-metric scores and an overall pass boolean.",
+      },
+      {
+        nodeId: "gate",
+        title: "Step 6 — Condition (yes/no)",
+        what: "A binary branch: if the judge passed, go straight to output; if not, divert to human approval.",
+        why: "Conditions turn a score into control flow — confident answers ship automatically, weak ones get a human.",
+        watchFor: "Exactly one outgoing edge (yes or no) stays live.",
+      },
+      {
+        nodeId: "approval",
+        title: "Step 7 — Human approval",
+        what: "Execution pauses. The approver sees the proposed reply and approves or rejects it.",
+        why: "Human-in-the-loop is the safety valve for anything with real-world consequences.",
+        watchFor: "The node turns amber and waits — open the Approvals inbox to act.",
+        realWorldRef: {
+          org: "Intercom Fin",
+          label: "Fin escalates a meaningful share of issues to humans — the same HITL pattern in production.",
+          url: "https://www.intercom.com/blog/announcing-fin/",
+        },
+      },
+      {
+        nodeId: "out",
+        title: "Step 8 — Output",
+        what: "The approved (or auto-passed) reply is the final result of the run.",
+        why: "A terminal output node is what your app or webhook reads when the swarm finishes.",
+        watchFor: "Final output in the run panel on the right.",
+      },
+    ],
+    caseStudies: [
+      {
+        org: "Klarna",
+        headline:
+          "AI assistant doing the work of 700 full-time agents in month one — 2.3M conversations, ~25% fewer repeat inquiries.",
+        source: "Klarna press release, Feb 2024",
+        url: "https://www.klarna.com/international/press/klarna-ai-assistant-handles-two-thirds-of-customer-service-chats-in-its-first-month/",
+      },
+    ],
+  },
+
+  // ── FEATURED 2 — Revenue Ops Analyst: typed form → SQL → verified → brief ──
+  {
+    id: "revops-analyst",
+    title: "Revenue Ops Analyst",
+    tagline: "Typed form → SQL over your data → verified math → KPIs → exec brief",
+    description:
+      "Ask a plain-English question about the business and get a defensible answer. A typed intake form drives a SQL analyst over the sample sales dataset, a second agent independently re-checks the arithmetic with a calculator, the key numbers are pulled into a structured object, and an exec brief is written — stamped with the report date from a deterministic tool node.",
+    category: "Sales",
+    exampleInput: "Which regions grew fastest, and what was total revenue by segment?",
+    nodes: [
+      {
+        id: "in",
+        type: "input",
+        position: { x: 40, y: 240 },
+        data: {
+          kind: "input",
+          label: "Analysis request",
+          avatar: "📊",
+          outputVar: "input",
+          inputFields: [
+            {
+              name: "question",
+              label: "Business question",
+              type: "textarea",
+              required: true,
+              placeholder: "Which regions grew fastest last quarter, and by how much?",
+            },
+            {
+              name: "segment",
+              label: "Segment focus",
+              type: "select",
+              options: ["All", "Enterprise", "Mid-Market", "SMB"],
+            },
+          ],
+        },
+      },
+      {
+        id: "setup",
+        type: "set_var",
+        position: { x: 320, y: 240 },
+        data: {
+          kind: "set_var",
+          label: "Set report context",
+          avatar: "🧷",
+          stateAssignments: [
+            { key: "report_title", value: "Revenue analysis — {{segment}} segment" },
+            { key: "currency", value: "USD" },
+          ],
+          inputs: ["input"],
+          outputVar: "setup",
+        },
+      },
+      {
+        id: "clock",
+        type: "tool",
+        position: { x: 600, y: 240 },
+        data: {
+          kind: "tool",
+          label: "Report timestamp",
+          avatar: "🕒",
+          toolId: "datetime",
+          toolArgs: {},
+          outputVar: "now",
+        },
+      },
+      {
+        id: "sql",
+        type: "agent",
+        position: { x: 880, y: 240 },
+        data: {
+          kind: "agent",
+          label: "SQL analyst",
+          avatar: "🗄️",
+          provider: "openrouter",
+          model: PRO,
+          temperature: 0.1,
+          systemPrompt:
+            "You are a data analyst. Use the sql_query tool to answer the question against the `saas_sales` table. " +
+            "Inspect the schema first, then write correct SQL and report the exact figures you found. " +
+            "Focus on the requested segment when one is given. Show the SQL you ran.",
+          inputs: ["question", "segment"],
+          outputVar: "findings",
+          enabledTools: ["sql_query"],
+          toolConfigs: { sql_table_names: ["saas_sales"] },
+          skillIds: ["sample:sql-analyst"],
+        },
+      },
+      {
+        id: "verify",
+        type: "agent",
+        position: { x: 1160, y: 240 },
+        data: {
+          kind: "agent",
+          label: "Math check",
+          avatar: "🧮",
+          provider: "openrouter",
+          model: FLASH,
+          temperature: 0,
+          systemPrompt:
+            "You verify the arithmetic in the analyst's findings. Use the calculator tool to independently recompute any " +
+            "growth rates, sums, and percentages. Flag anything that does not check out; otherwise confirm the numbers stand.",
+          inputs: ["findings"],
+          outputVar: "verified",
+          enabledTools: ["calculator"],
+        },
+      },
+      {
+        id: "kpis",
+        type: "extract",
+        position: { x: 880, y: 440 },
+        data: {
+          kind: "extract",
+          label: "Extract KPIs",
+          avatar: "🔢",
+          provider: "openrouter",
+          model: FLASH,
+          extractSchema: [
+            {
+              name: "headline_metric",
+              type: "string",
+              description: "The single most important finding, in one short phrase",
+            },
+            { name: "value", type: "number", description: "The headline metric's numeric value" },
+            {
+              name: "growth_pct",
+              type: "number",
+              description: "Period-over-period growth percentage if present, else null",
+            },
+            {
+              name: "top_segment",
+              type: "string",
+              description: "The best-performing region or segment",
+            },
+          ],
+          inputs: ["verified"],
+          outputVar: "kpis",
+        },
+      },
+      {
+        id: "brief",
+        type: "agent",
+        position: { x: 1160, y: 440 },
+        data: {
+          kind: "agent",
+          label: "Exec brief writer",
+          avatar: "📝",
+          provider: "openrouter",
+          model: PRO,
+          temperature: 0.4,
+          systemPrompt:
+            "Write a crisp 4-sentence executive brief titled '{{report_title}}', as of {{now}}. " +
+            "Use the verified findings and the extracted KPIs. Lead with the headline number in {{currency}}. No filler.",
+          inputs: ["verified", "kpis", "report_title", "now"],
+          outputVar: "exec_brief",
+        },
+      },
+      {
+        id: "out",
+        type: "output",
+        position: { x: 1440, y: 440 },
+        data: { kind: "output", label: "Executive brief", avatar: "✅", inputs: ["exec_brief"] },
+      },
+    ],
+    edges: [
+      baseEdge("e1", "in", "setup"),
+      baseEdge("e2", "setup", "clock"),
+      baseEdge("e3", "clock", "sql"),
+      baseEdge("e4", "sql", "verify"),
+      baseEdge("e5", "verify", "kpis"),
+      baseEdge("e6", "kpis", "brief"),
+      baseEdge("e7", "brief", "out"),
+    ],
+    tour: [
+      {
+        nodeId: "in",
+        title: "Step 1 — Input form",
+        what: "A typed intake form: a free-text question plus a segment picker. Each field is seeded into flow state under its own name.",
+        why: "Structured inputs beat a single text box when a swarm needs specific parameters — the Run panel renders a field per entry.",
+        watchFor: "Two fields in the Run panel; their values land in `question` and `segment`.",
+      },
+      {
+        nodeId: "setup",
+        title: "Step 2 — Set Variable",
+        what: "Deterministically writes `report_title` and `currency` into flow state using {{segment}} templating — no LLM call.",
+        why: "Set-Variable nodes hold constants and derived values so later prompts stay clean and consistent.",
+        watchFor: "The composed report title echoing your chosen segment.",
+      },
+      {
+        nodeId: "clock",
+        title: "Step 3 — Tool node (datetime)",
+        what: "Calls the built-in datetime tool directly, with no model in the loop, and stores the timestamp in `now`.",
+        why: "A Tool node is the cheapest, most reliable way to run one deterministic tool — no tokens, no variance.",
+        watchFor: "An ISO timestamp captured into `now`.",
+      },
+      {
+        nodeId: "sql",
+        title: "Step 4 — SQL analyst",
+        what: "An agent with the sql_query tool (scoped to `saas_sales`) and a SQL-analyst skill introspects the schema and queries the data.",
+        why: "This is text-to-SQL: the model reasons, but the actual numbers come from your real data, not a guess.",
+        watchFor: "The SQL it ran and the concrete figures it returned.",
+        realWorldRef: {
+          org: "Pinterest",
+          label: "Pinterest's internal Text-to-SQL assistant lets analysts query the warehouse in plain English.",
+          url: "https://medium.com/pinterest-engineering/how-we-built-text-to-sql-at-pinterest-30bad30dabff",
+        },
+      },
+      {
+        nodeId: "verify",
+        title: "Step 5 — Math check (calculator)",
+        what: "A second agent independently recomputes the arithmetic with the calculator tool.",
+        why: "Cross-checking a model's math with a deterministic tool is a simple, powerful guard against confident-but-wrong numbers.",
+        watchFor: "Confirmation, or a flag on any figure that does not reconcile.",
+      },
+      {
+        nodeId: "kpis",
+        title: "Step 6 — Extract (structured output)",
+        what: "Pulls the headline metric, value, growth %, and top segment into a strict JSON object.",
+        why: "Extract turns prose into typed fields your dashboard, API, or next node can consume reliably.",
+        watchFor: "A clean JSON object with exactly the declared fields.",
+      },
+      {
+        nodeId: "brief",
+        title: "Step 7 — Exec brief writer",
+        what: "Writes the final brief from the verified findings and KPIs, titled and dated from earlier flow state.",
+        why: "Separating analysis from writing keeps each prompt focused and the output consistent.",
+        watchFor: "A 4-sentence brief that leads with the headline number.",
+      },
+      {
+        nodeId: "out",
+        title: "Step 8 — Output",
+        what: "The executive brief is the final result.",
+        why: "The terminal node your report scheduler or app reads.",
+        watchFor: "Final brief in the run panel.",
+      },
+    ],
+    caseStudies: [
+      {
+        org: "Uber (QueryGPT)",
+        headline:
+          "Uber built an internal text-to-SQL assistant estimated to save ~140,000 hours a year of query-writing.",
+        source: "Uber Engineering blog",
+        url: "https://www.uber.com/blog/query-gpt/",
+      },
+    ],
+  },
+
+  // ── FEATURED 3 — Research Desk: plan → map (web) → reduce → self-editing loop ──
+  {
+    id: "research-desk",
+    title: "Market Research Desk",
+    tagline: "Plan → for-each web research → merge → synthesize → self-editing loop",
+    description:
+      "A map-reduce research pipeline. A planner splits the topic into sub-questions; a for-each node fans out and researches each one on the live web (search + browse); the findings are merged, synthesized into a themed brief, and then polished by a self-editing loop that keeps iterating until the draft needs no further change.",
+    category: "Research",
+    exampleInput:
+      "The state of open-weight vs proprietary LLMs in 2026: cost, capability, and where each wins.",
+    nodes: [
+      {
+        id: "in",
+        type: "input",
+        position: { x: 40, y: 260 },
+        data: { kind: "input", label: "Research topic", outputVar: "input", avatar: "🔎" },
+      },
+      {
+        id: "planner",
+        type: "agent",
+        position: { x: 320, y: 260 },
+        data: {
+          kind: "agent",
+          label: "Planner",
+          avatar: "🗺️",
+          provider: "openrouter",
+          model: PRO,
+          temperature: 0.3,
+          systemPrompt:
+            "Break the research topic into exactly 3 focused sub-questions a researcher can investigate independently. " +
+            "Reply with the 3 sub-questions, one per line, with no numbering, bullets, or extra text.",
+          inputs: ["input"],
+          outputVar: "plan",
+        },
+      },
+      {
+        id: "research",
+        type: "foreach",
+        position: { x: 600, y: 260 },
+        data: {
+          kind: "foreach",
+          label: "Research each (web)",
+          avatar: "🌐",
+          provider: "openrouter",
+          model: FLASH,
+          temperature: 0.3,
+          foreachInput: "plan",
+          foreachItemVar: "subq",
+          maxIters: 3,
+          systemPrompt:
+            "Research this sub-question: {{subq}}\n" +
+            "Use web_search to find current sources and web_browse to read the most relevant one in full. " +
+            "Answer in 2-3 grounded sentences and cite the source URL inline.",
+          enabledTools: ["web_search", "web_browse"],
+          inputs: ["plan"],
+          outputVar: "findings_arr",
+        },
+      },
+      {
+        id: "merge",
+        type: "merge",
+        position: { x: 880, y: 260 },
+        data: {
+          kind: "merge",
+          label: "Combine findings",
+          avatar: "🧵",
+          mergeMode: "concat",
+          mergeSeparator: "\n\n---\n\n",
+          inputs: ["findings_arr"],
+          outputVar: "merged",
+        },
+      },
+      {
+        id: "synth",
+        type: "agent",
+        position: { x: 1160, y: 260 },
+        data: {
+          kind: "agent",
+          label: "Synthesizer",
+          avatar: "🧩",
+          provider: "openrouter",
+          model: PRO,
+          temperature: 0.4,
+          systemPrompt:
+            "Merge the researched findings into one coherent brief organized by theme. Remove redundancy, " +
+            "keep it under 300 words, and preserve the inline citations.",
+          inputs: ["merged"],
+          outputVar: "draft",
+          skillIds: ["sample:research-synthesizer"],
+        },
+      },
+      {
+        id: "editor",
+        type: "loop",
+        position: { x: 1440, y: 260 },
+        data: {
+          kind: "loop",
+          label: "Self-editing polish",
+          avatar: "✒️",
+          provider: "openrouter",
+          model: PRO,
+          temperature: 0.3,
+          maxIters: 3,
+          systemPrompt:
+            "You are a demanding editor. Improve the brief for clarity, flow, and concision while keeping every fact " +
+            "and citation intact. When the brief is already excellent and needs no further change, output the final " +
+            "version and then, on its own line, the single word DONE.",
+          inputs: ["draft"],
+          outputVar: "final_brief",
+        },
+      },
+      {
+        id: "out",
+        type: "output",
+        position: { x: 1720, y: 260 },
+        data: { kind: "output", label: "Research brief", avatar: "✅", inputs: ["final_brief"] },
+      },
+    ],
+    edges: [
+      baseEdge("e1", "in", "planner"),
+      baseEdge("e2", "planner", "research"),
+      baseEdge("e3", "research", "merge"),
+      baseEdge("e4", "merge", "synth"),
+      baseEdge("e5", "synth", "editor"),
+      baseEdge("e6", "editor", "out"),
+    ],
+    tour: [
+      {
+        nodeId: "in",
+        title: "Step 1 — Input",
+        what: "The research topic enters here.",
+        why: "One entry point feeds the whole pipeline.",
+        watchFor: "The topic captured into `input`.",
+      },
+      {
+        nodeId: "planner",
+        title: "Step 2 — Planner (map step)",
+        what: "Splits the topic into three independent sub-questions, one per line.",
+        why: "Decomposition is the 'map' half of map-reduce — smaller questions get better, more focused answers.",
+        watchFor: "Three clean sub-questions with no numbering.",
+      },
+      {
+        nodeId: "research",
+        title: "Step 3 — For-Each (fan-out)",
+        what: "Runs its agent body once per sub-question, each time researching on the live web with search + browse.",
+        why: "For-Each is how you apply the same reasoning to every item of a list — parallel-style fan-out over the plan.",
+        watchFor: "The iteration counter advancing 1→2→3; results collected into an array.",
+        realWorldRef: {
+          org: "Stanford STORM",
+          label: "STORM researches a topic by asking and answering many sub-questions, then synthesizing — the same shape.",
+          url: "https://storm.genie.stanford.edu/",
+        },
+      },
+      {
+        nodeId: "merge",
+        title: "Step 4 — Merge (reduce step)",
+        what: "Concatenates the array of findings into a single block, separated by rules.",
+        why: "Merge is the 'reduce' half — it collapses many outputs into one value for the next node.",
+        watchFor: "All three findings joined into one text.",
+      },
+      {
+        nodeId: "synth",
+        title: "Step 5 — Synthesizer",
+        what: "Rewrites the merged findings into one themed brief, using a research-synthesis skill.",
+        why: "A dedicated synthesis step turns raw notes into a narrative, keeping citations.",
+        watchFor: "A tight, themed draft under 300 words.",
+      },
+      {
+        nodeId: "editor",
+        title: "Step 6 — Loop (self-refine)",
+        what: "An editor re-drafts the brief up to 3 times, stopping early the moment it emits DONE.",
+        why: "A loop lets a model iteratively improve its own output until a quality bar is met — reflection in a single node.",
+        watchFor: "Iteration badges, and an early stop when the editor signals DONE.",
+      },
+      {
+        nodeId: "out",
+        title: "Step 7 — Output",
+        what: "The polished brief is the final result.",
+        why: "What your app or export reads when the run finishes.",
+        watchFor: "Final brief in the run panel.",
+      },
+    ],
+    caseStudies: [
+      {
+        org: "GPT Researcher",
+        headline:
+          "A popular open-source agent that plans sub-questions, researches each on the web, and synthesizes a cited report — the same plan/map/reduce loop.",
+        source: "GPT Researcher (open source)",
+        url: "https://github.com/assafelovic/gpt-researcher",
+      },
+    ],
+  },
+
+  // ── FEATURED 4 — Incident Response: parse → SQL + HTTP → scored → routed → approved ──
+  {
+    id: "secops-triage",
+    title: "Incident Response Triage",
+    tagline: "Parse alert → SQL history + HTTP enrich → risk function → route → approve",
+    description:
+      "A SecOps triage swarm. It extracts the fields from a raw SIEM alert, looks up the source IP's history in the sample alerts dataset, enriches it with a live HTTP geolocation lookup, computes a deterministic risk score in a sandboxed function, and routes on the result — high-risk containment waits for human approval, everything else is auto-documented with PII redaction.",
+    category: "Cybersecurity",
+    exampleInput:
+      '{"rule":"Multiple failed SSH logins then success","src_ip":"185.220.101.4","severity":"high","host":"prod-api-02"}',
+    nodes: [
+      {
+        id: "in",
+        type: "input",
+        position: { x: 40, y: 300 },
+        data: { kind: "input", label: "SIEM alert", outputVar: "input", avatar: "🚨" },
+      },
+      {
+        id: "parse",
+        type: "extract",
+        position: { x: 320, y: 300 },
+        data: {
+          kind: "extract",
+          label: "Parse alert",
+          avatar: "🧾",
+          provider: "openrouter",
+          model: FLASH,
+          extractSchema: [
+            { name: "src_ip", type: "string", description: "The source IP address in the alert" },
+            {
+              name: "signature",
+              type: "string",
+              description: "The rule name or attack signature",
+            },
+            {
+              name: "severity_hint",
+              type: "string",
+              description: "low, medium, high, or critical if stated",
+            },
+          ],
+          inputs: ["input"],
+          outputVar: "alert",
+        },
+      },
+      {
+        id: "history",
+        type: "agent",
+        position: { x: 600, y: 160 },
+        data: {
+          kind: "agent",
+          label: "History lookup",
+          avatar: "🗄️",
+          provider: "openrouter",
+          model: FLASH,
+          temperature: 0.1,
+          systemPrompt:
+            "Use sql_query against the `siem_alerts` table to find how many prior alerts involve this source IP or " +
+            "signature. Summarize the pattern in a sentence or two: how often it recurs and the worst severity seen. " +
+            "State plainly if there is no prior history.",
+          inputs: ["alert"],
+          outputVar: "history",
+          enabledTools: ["sql_query"],
+          toolConfigs: { sql_table_names: ["siem_alerts"] },
+        },
+      },
+      {
+        id: "geo",
+        type: "http",
+        position: { x: 600, y: 440 },
+        data: {
+          kind: "http",
+          label: "Geo / ASN enrich",
+          avatar: "🌍",
+          httpMethod: "GET",
+          httpUrl: "https://ip-api.com/json/{{alert.src_ip}}",
+          httpTimeoutMs: 8000,
+          inputs: ["alert"],
+          outputVar: "geo",
+        },
+      },
+      {
+        id: "score",
+        type: "function",
+        position: { x: 900, y: 300 },
+        data: {
+          kind: "function",
+          label: "Risk score",
+          avatar: "🧮",
+          functionCode: [
+            'const a = JSON.parse(ctx.vars.alert || "{}");',
+            "const rank = { low: 1, medium: 2, high: 3, critical: 4 };",
+            'let score = (rank[String(a.severity_hint || "").toLowerCase()] || 1) * 18;',
+            'const hist = String(ctx.vars.history || "").toLowerCase();',
+            'if (hist.includes("repeat") || hist.includes("multiple") || hist.includes("prior") || hist.includes("recur")) score += 28;',
+            'const geo = String(ctx.vars.geo || "").toLowerCase();',
+            'if (geo.includes("hosting") || geo.includes("proxy") || geo.includes("anonymous") || geo.includes("\\"tor\\"")) score += 24;',
+            "score = Math.min(100, score);",
+            'const band = score >= 70 ? "HIGH" : score >= 40 ? "MEDIUM" : "LOW";',
+            'return JSON.stringify({ ip: a.src_ip || "unknown", score: score, band: band });',
+          ].join("\n"),
+          inputs: ["alert", "history", "geo"],
+          outputVar: "risk",
+        },
+      },
+      {
+        id: "route",
+        type: "condition",
+        position: { x: 1180, y: 300 },
+        data: {
+          kind: "condition",
+          label: "High risk?",
+          avatar: "❓",
+          provider: "openrouter",
+          model: FLASH,
+          conditionPrompt:
+            "Read the risk JSON. Is this HIGH risk (band is HIGH, or score >= 70)?",
+          inputs: ["risk"],
+        },
+      },
+      {
+        id: "approval",
+        type: "approval",
+        position: { x: 1460, y: 160 },
+        data: {
+          kind: "approval",
+          label: "Approve containment",
+          avatar: "🛡️",
+          approvalTitle: "Isolate host and block source IP",
+          approvalRisk: "high",
+          inputs: ["risk", "alert"],
+          outputVar: "containment",
+        },
+      },
+      {
+        id: "report",
+        type: "agent",
+        position: { x: 1460, y: 440 },
+        data: {
+          kind: "agent",
+          label: "Incident report",
+          avatar: "📄",
+          provider: "openrouter",
+          model: PRO,
+          temperature: 0.3,
+          systemPrompt:
+            "Write a concise incident report: what triggered the alert, the history and geo enrichment, the computed " +
+            "risk band, and the action taken (containment approved, or auto-closed as low risk). Redact any personal data.",
+          inputs: ["alert", "history", "geo", "risk", "containment"],
+          outputVar: "incident_report",
+          guardrails: { blockPII: true, enableOutputFilters: true, contentSafetyLevel: "high" },
+        },
+      },
+      {
+        id: "out",
+        type: "output",
+        position: { x: 1740, y: 300 },
+        data: { kind: "output", label: "Incident record", avatar: "✅", inputs: ["incident_report"] },
+      },
+    ],
+    edges: [
+      baseEdge("e1", "in", "parse"),
+      baseEdge("e2", "parse", "history"),
+      baseEdge("e3", "parse", "geo"),
+      baseEdge("e4", "history", "score"),
+      baseEdge("e5", "geo", "score"),
+      baseEdge("e6", "score", "route"),
+      labeledEdge("e7", "route", "approval", "yes"),
+      labeledEdge("e8", "route", "report", "no"),
+      baseEdge("e9", "approval", "report"),
+      baseEdge("e10", "report", "out"),
+    ],
+    tour: [
+      {
+        nodeId: "in",
+        title: "Step 1 — Input",
+        what: "A raw SIEM alert (JSON-ish) enters here.",
+        why: "The single entry point for the alert payload.",
+        watchFor: "The alert captured into `input`.",
+      },
+      {
+        nodeId: "parse",
+        title: "Step 2 — Extract",
+        what: "Pulls the source IP, signature, and severity out of the messy alert into a clean JSON object.",
+        why: "Extract normalizes unstructured input so every downstream node can rely on named fields.",
+        watchFor: "A JSON object with `src_ip`, `signature`, `severity_hint`.",
+      },
+      {
+        nodeId: "history",
+        title: "Step 3 — SQL history lookup",
+        what: "An agent queries the `siem_alerts` dataset for prior activity from this IP or signature.",
+        why: "Grounding triage in your own historical data is what separates a real SOC assistant from a guesser.",
+        watchFor: "A short summary of prior occurrences and worst severity.",
+      },
+      {
+        nodeId: "geo",
+        title: "Step 4 — HTTP enrich (parallel)",
+        what: "A deterministic HTTP GET to a public geolocation API, templating the IP straight into the URL — running in parallel with the SQL lookup.",
+        why: "HTTP nodes bring in external, non-LLM data (threat intel, geo, CMDB) and run server-side, so no CORS or keys leak to the browser.",
+        watchFor: "A JSON response with country / ISP for the IP.",
+      },
+      {
+        nodeId: "score",
+        title: "Step 5 — Function (deterministic scoring)",
+        what: "Sandboxed JavaScript combines severity, history, and geo into a numeric risk score and band — no LLM, no variance.",
+        why: "When logic must be exact and auditable, a Function node beats a prompt: same inputs always give the same score.",
+        watchFor: "A JSON risk object with a stable `score` and `band`.",
+      },
+      {
+        nodeId: "route",
+        title: "Step 6 — Condition",
+        what: "Branches on the score: HIGH risk goes to human approval, everything else straight to the report.",
+        why: "Risk-based routing focuses scarce human attention only where it matters.",
+        watchFor: "One live branch — approval (yes) or report (no).",
+      },
+      {
+        nodeId: "approval",
+        title: "Step 7 — Human approval (high-risk only)",
+        what: "Containment (isolate host, block IP) pauses for a human to approve — a high-risk gate.",
+        why: "Destructive, high-blast-radius actions should never be fully autonomous.",
+        watchFor: "The node waits amber; approve or reject from the Approvals inbox.",
+        realWorldRef: {
+          org: "SOAR (Tines / Torq)",
+          label: "Modern SOC automation auto-enriches and scores alerts, then gates containment on human approval.",
+          url: "https://www.tines.com/",
+        },
+      },
+      {
+        nodeId: "report",
+        title: "Step 8 — Incident report",
+        what: "Writes the final incident record from every prior signal, with PII redaction guardrails on.",
+        why: "A clean, redacted write-up is the artifact the SOC keeps — and the guardrails keep personal data out of it.",
+        watchFor: "A tidy report noting the action taken.",
+      },
+      {
+        nodeId: "out",
+        title: "Step 9 — Output",
+        what: "The incident record is the final result.",
+        why: "What your ticketing system or SIEM annotation reads.",
+        watchFor: "Final record in the run panel.",
+      },
+    ],
+    caseStudies: [
+      {
+        org: "Microsoft Security Copilot",
+        headline:
+          "Enrich-score-then-escalate is the shape of production SOC automation — cutting mean time to triage while keeping humans on containment.",
+        source: "Microsoft Security Copilot",
+        url: "https://www.microsoft.com/en-us/security/business/ai-machine-learning/microsoft-security-copilot",
+      },
+    ],
+  },
+
   // ──────────────────────────────────────────────────────────────────
   // 1. Customer Support Triage (3 agents + approval)
   // ──────────────────────────────────────────────────────────────────

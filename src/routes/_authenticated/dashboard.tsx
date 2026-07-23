@@ -282,10 +282,10 @@ function DashboardPage() {
 
   // Curated, visually-interesting multi-agent swarm templates that open straight on the canvas.
   const FEATURED_SWARM_IDS = [
-    "earnings-analyst",
-    "support-triage",
-    "research-report",
-    "code-review",
+    "support-copilot",
+    "revops-analyst",
+    "research-desk",
+    "secops-triage",
   ];
   const featuredTemplates = FEATURED_SWARM_IDS.map((id) =>
     SWARM_TEMPLATES.find((t) => t.id === id),

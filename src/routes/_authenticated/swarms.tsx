@@ -123,9 +123,6 @@ import {
 import { NodeInspector } from "@/components/swarms/NodeInspector";
 import { RunPanel } from "@/components/swarms/RunPanel";
 import { SwarmTour } from "@/components/swarms/SwarmTour";
-import { FailureLabPanel } from "@/components/swarms/FailureLabPanel";
-import { getFailureLab, type FailureLab } from "@/lib/failureLabs";
-import { evaluateLab, type LabEvaluation } from "@/lib/failureLabCheck";
 import { exportSwarm, downloadSwarmAsJson, importSwarm } from "@/lib/swarmPortable";
 import { downloadSwarmAsLangGraph } from "@/lib/swarmExportLangGraph";
 import { downloadSwarmAsCrewAI, downloadSwarmAsOpenAIAgents } from "@/lib/swarmExportFrameworks";
@@ -139,10 +136,9 @@ import { snapshotSwarmVersion, graphHash } from "@/lib/swarmVersions";
 export const Route = createFileRoute("/_authenticated/swarms")({
   component: SwarmsPage,
   validateSearch: (s: Record<string, unknown>) => {
-    const out: { template?: string; swarm?: string; lab?: string; view?: "canvas"; new?: 1 } = {};
+    const out: { template?: string; swarm?: string; view?: "canvas"; new?: 1 } = {};
     if (typeof s.template === "string") out.template = s.template;
     if (typeof s.swarm === "string") out.swarm = s.swarm;
-    if (typeof s.lab === "string") out.lab = s.lab;
     if (s.view === "canvas") out.view = "canvas";
     if (s.new === 1 || s.new === "1") out.new = 1;
     return out;
@@ -789,14 +785,12 @@ const PALETTE: PaletteItem[] = [
 function SwarmsCanvas({
   initialTemplate,
   initialSwarmId,
-  initialLab,
   isFullscreen,
   onToggleFullscreen,
   onBackToGallery,
 }: {
   initialTemplate?: string;
   initialSwarmId?: string;
-  initialLab?: string;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
   onBackToGallery: () => void;
@@ -841,12 +835,6 @@ function SwarmsCanvas({
   const [tourCaseStudies, setTourCaseStudies] = useState<SwarmTemplate["caseStudies"]>([]);
   const [tourOpen, setTourOpen] = useState(false);
 
-  // Failure-Mode Lab state — populated when a lab is loaded (?lab=)
-  const [activeLab, setActiveLab] = useState<FailureLab | null>(null);
-  const [labResult, setLabResult] = useState<LabEvaluation | null>(null);
-  const [labHasRun, setLabHasRun] = useState(false);
-  const labHintsUsedRef = useRef(0);
-  const labRevealedRef = useRef(false);
 
   // run state. Execution lives in the module-level swarmRunManager so a run
   // keeps going across client navigation (the "Gallery" back button) instead
@@ -927,7 +915,7 @@ function SwarmsCanvas({
   const userId = user?.id;
   useEffect(() => {
     if (!userId) return;
-    const loadKey = `${userId}|${initialTemplate ?? ""}|${initialSwarmId ?? ""}|${initialLab ?? ""}`;
+    const loadKey = `${userId}|${initialTemplate ?? ""}|${initialSwarmId ?? ""}`;
     if (loadedKeyRef.current === loadKey) return;
     loadedKeyRef.current = loadKey;
     (async () => {
@@ -969,30 +957,6 @@ function SwarmsCanvas({
         }
       }
 
-      // If a failure-mode lab was requested, load the broken swarm and open
-      // the lab panel (no tour). Mirrors the template-load path above.
-      if (initialLab) {
-        const lab = getFailureLab(initialLab);
-        if (lab) {
-          setSwarmId(null);
-          setSwarmName(`Lab · ${lab.title}`);
-          setNodes(lab.nodes);
-          setEdges(lab.edges.map(withDefaultEdgeStyle));
-          setRunInput(lab.exampleInput);
-          setActiveLab(lab);
-          setLabResult(null);
-          setLabHasRun(false);
-          labHintsUsedRef.current = 0;
-          labRevealedRef.current = false;
-          idCounter.current = lab.nodes.length + 1;
-          setLoading(false);
-          toast.info(`Failure Lab: ${lab.title}`, {
-            description: "Diagnose the bug, fix the canvas, and re-run to check.",
-          });
-          return;
-        }
-      }
-
       // If a specific swarm id was requested, load it
       if (initialSwarmId) {
         const target = rows.find((r) => r.id === initialSwarmId);
@@ -1023,7 +987,7 @@ function SwarmsCanvas({
       }
       setLoading(false);
     })();
-  }, [userId, initialTemplate, initialSwarmId, initialLab, setNodes, setEdges, applySwarmRow]);
+  }, [userId, initialTemplate, initialSwarmId, setNodes, setEdges, applySwarmRow]);
 
   const handleSwitchSwarm = async (id: string) => {
     if (id === swarmId) return;
@@ -1469,10 +1433,6 @@ function SwarmsCanvas({
     toastRunRef.current.seen = activeRun.events.length;
   }, [activeRun]);
 
-  // Failure-Mode Lab: the run now executes in the background manager, so we
-  // evaluate once the run this canvas started reaches a terminal state.
-  const pendingLabRunRef = useRef<string | null>(null);
-
   const handleRun = async () => {
     if (nodes.length === 0) return;
     const usingForm = inputFields.length > 0;
@@ -1513,10 +1473,6 @@ function SwarmsCanvas({
     setNodes((nds: Node<SwarmNodeData>[]) =>
       nds.map((n) => ({ ...n, data: { ...n.data, status: "idle", lastOutput: undefined } })),
     );
-    if (activeLab) {
-      setLabResult(null);
-      setLabHasRun(false);
-    }
 
     // Hand execution to the module-level manager so it survives navigation.
     const runId = await startManagedRun({
@@ -1529,75 +1485,7 @@ function SwarmsCanvas({
       traceEnabled,
     });
     setActiveRunId(runId);
-    if (activeLab) pendingLabRunRef.current = runId;
   };
-
-  // Upsert a lab attempt row (mirrors the quiz_attempts pattern). Best-effort.
-  // lab_attempts isn't in the generated Supabase types until Lovable runs the
-  // migration, so we access it through a minimal typed shim.
-  const persistLabAttempt = async (labId: string, solved: boolean) => {
-    if (!userId) return;
-    type LabRow = { id: string; attempts: number | null; solved: boolean | null };
-    type LabBuilder = {
-      select: (cols: string) => {
-        eq: (
-          c: string,
-          v: string,
-        ) => {
-          eq: (c: string, v: string) => { maybeSingle: () => Promise<{ data: LabRow | null }> };
-        };
-      };
-      update: (row: Record<string, unknown>) => {
-        eq: (c: string, v: string) => Promise<{ error: unknown }>;
-      };
-      insert: (row: Record<string, unknown>) => Promise<{ error: unknown }>;
-    };
-    const labTable = () => supabase.from("lab_attempts" as never) as unknown as LabBuilder;
-    try {
-      const { data: existing } = await labTable()
-        .select("id, attempts, solved")
-        .eq("user_id", userId)
-        .eq("lab_id", labId)
-        .maybeSingle();
-      const row = {
-        user_id: userId,
-        lab_id: labId,
-        solved: solved || existing?.solved || false,
-        hints_used: labHintsUsedRef.current,
-        revealed: labRevealedRef.current,
-        attempts: (existing?.attempts ?? 0) + 1,
-        updated_at: new Date().toISOString(),
-      };
-      if (existing) {
-        await labTable().update(row).eq("id", existing.id);
-      } else {
-        await labTable().insert(row);
-      }
-      window.dispatchEvent(new CustomEvent("lab-progress-updated"));
-    } catch {
-      /* table may not be migrated yet — non-fatal */
-    }
-  };
-
-  // Evaluate a Failure-Mode Lab once the background run it launched finishes.
-  useEffect(() => {
-    if (!activeLab || !pendingLabRunRef.current) return;
-    const r = managedRuns.find((x) => x.runId === pendingLabRunRef.current);
-    if (!r) return;
-    if (r.status === "success" || r.status === "error" || r.status === "cancelled") {
-      pendingLabRunRef.current = null;
-      const evaln = evaluateLab(activeLab, {
-        finalOutput: r.finalOutput ?? "",
-        events: r.events,
-        nodes,
-        edges,
-      });
-      setLabResult(evaln);
-      setLabHasRun(true);
-      void persistLabAttempt(activeLab.id, evaln.passed);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [managedRuns, activeLab, nodes, edges]);
 
   const handleStop = () => {
     if (activeRunId) cancelManagedRun(activeRunId);
@@ -2054,21 +1942,6 @@ function SwarmsCanvas({
                 isRunning={running}
               />
             )}
-            {activeLab && (
-              <FailureLabPanel
-                lab={activeLab}
-                result={labResult}
-                isRunning={running}
-                hasRun={labHasRun}
-                onClose={() => setActiveLab(null)}
-                onHintsUsedChange={(n) => {
-                  labHintsUsedRef.current = n;
-                }}
-                onRevealed={() => {
-                  labRevealedRef.current = true;
-                }}
-              />
-            )}
           </div>
 
           {/* Bottom horizontal run dock — always available */}
@@ -2137,17 +2010,17 @@ function SwarmsCanvas({
 }
 
 function SwarmsPage() {
-  const { template, swarm, lab, view } = Route.useSearch();
+  const { template, swarm, view } = Route.useSearch();
   const navigate = useNavigate();
   const [isFullscreen, setIsFullscreen] = useState(false);
 
-  const showCanvas = view === "canvas" || !!template || !!swarm || !!lab;
+  const showCanvas = view === "canvas" || !!template || !!swarm;
 
   const goToGallery = () => {
     setIsFullscreen(false);
     navigate({
       to: "/swarms",
-      search: { template: undefined, swarm: undefined, lab: undefined, view: undefined },
+      search: { template: undefined, swarm: undefined, view: undefined },
     });
   };
 
@@ -2162,7 +2035,6 @@ function SwarmsPage() {
           <SwarmsCanvas
             initialTemplate={template}
             initialSwarmId={swarm}
-            initialLab={lab}
             isFullscreen
             onToggleFullscreen={() => setIsFullscreen(false)}
             onBackToGallery={goToGallery}
@@ -2179,7 +2051,6 @@ function SwarmsPage() {
           <SwarmsCanvas
             initialTemplate={template}
             initialSwarmId={swarm}
-            initialLab={lab}
             isFullscreen={false}
             onToggleFullscreen={() => setIsFullscreen(true)}
             onBackToGallery={goToGallery}

@@ -36,14 +36,11 @@ import {
   Loader2,
   Search,
   Play,
-  FlaskConical,
-  CheckCircle2,
   LayoutTemplate,
   MoreVertical,
 } from "lucide-react";
 import { toast } from "sonner";
 import { SWARM_TEMPLATES } from "@/lib/swarmTemplates";
-import { FAILURE_LABS, type FailureLab } from "@/lib/failureLabs";
 import { ExportSwarmDropdown } from "@/components/swarms/ExportSwarmDropdown";
 import { useLangChainExportAnnouncement } from "@/hooks/use-langchain-export-announcement";
 import type { Node, Edge } from "@xyflow/react";
@@ -146,7 +143,6 @@ export function SwarmGallery() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [mySwarms, setMySwarms] = useState<SwarmRow[]>([]);
-  const [solvedLabs, setSolvedLabs] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [search, setSearch] = useState("");
@@ -172,22 +168,6 @@ export function SwarmGallery() {
       .select("id, name, description, nodes, edges, is_deployed, updated_at")
       .order("updated_at", { ascending: false });
     setMySwarms((swarms ?? []) as SwarmRow[]);
-    // Best-effort: which labs has the user solved? (lab_attempts may not be
-    // migrated yet — ignore failures.)
-    try {
-      const { data: labs } = await (
-        supabase.from("lab_attempts" as never) as unknown as {
-          select: (c: string) => {
-            eq: (c: string, v: boolean) => Promise<{ data: Array<{ lab_id: string }> | null }>;
-          };
-        }
-      )
-        .select("lab_id")
-        .eq("solved", true);
-      setSolvedLabs(new Set((labs ?? []).map((r) => r.lab_id)));
-    } catch {
-      /* table not migrated yet — non-fatal */
-    }
     setLoading(false);
   }
 
@@ -230,19 +210,6 @@ export function SwarmGallery() {
   function openTemplate(templateId: string) {
     navigate({ to: "/swarms", search: { template: templateId, view: "canvas", swarm: undefined } });
   }
-
-  function openLab(labId: string) {
-    navigate({
-      to: "/swarms",
-      search: { lab: labId, view: "canvas", template: undefined, swarm: undefined },
-    });
-  }
-
-  const LAB_DIFFICULTY_STYLE: Record<FailureLab["difficulty"], string> = {
-    intro: "border-emerald-500/40 text-emerald-500",
-    intermediate: "border-amber-500/40 text-amber-500",
-    advanced: "border-red-500/40 text-red-500",
-  };
 
   const q = search.trim().toLowerCase();
   const filteredMine = useMemo(
@@ -486,65 +453,6 @@ export function SwarmGallery() {
                 ))}
               </div>
             )}
-          </section>
-
-          {/* Failure Labs */}
-          <section className="space-y-3">
-            <div className="flex items-baseline justify-between">
-              <h2 className="text-xl font-semibold flex items-center gap-2">
-                <FlaskConical className="h-5 w-5 text-primary" /> Failure Labs
-                <Badge variant="outline" className="ml-1 text-[10px]">
-                  {solvedLabs.size}/{FAILURE_LABS.length} solved
-                </Badge>
-              </h2>
-              <p className="text-xs text-muted-foreground">
-                Deliberately broken swarms. Diagnose the bug, fix the canvas, and re-run to verify.
-              </p>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {FAILURE_LABS.map((lab) => {
-                const solved = solvedLabs.has(lab.id);
-                return (
-                  <Card key={lab.id} className="group hover:border-primary/50 transition-colors">
-                    <CardHeader className="pb-3">
-                      <div className="flex items-start justify-between gap-2">
-                        <CardTitle className="text-base flex-1" title={lab.title}>
-                          {lab.title}
-                        </CardTitle>
-                        {solved ? (
-                          <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 gap-1 shrink-0">
-                            <CheckCircle2 className="h-3 w-3" /> Solved
-                          </Badge>
-                        ) : (
-                          <Badge
-                            variant="outline"
-                            className={`text-[10px] shrink-0 ${LAB_DIFFICULTY_STYLE[lab.difficulty]}`}
-                          >
-                            {lab.difficulty}
-                          </Badge>
-                        )}
-                      </div>
-                      <p className="text-xs text-muted-foreground line-clamp-2">{lab.symptom}</p>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                      <SwarmGraphThumb nodes={lab.nodes} edges={lab.edges} />
-                      <Badge variant="outline" className="text-[10px]">
-                        {lab.category}
-                      </Badge>
-                      <Button
-                        size="sm"
-                        onClick={() => openLab(lab.id)}
-                        className="w-full"
-                        variant="outline"
-                      >
-                        <FlaskConical className="h-3.5 w-3.5 mr-1.5" />
-                        {solved ? "Revisit lab" : "Start lab"}
-                      </Button>
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
           </section>
         </TabsContent>
 
