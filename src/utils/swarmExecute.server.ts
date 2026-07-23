@@ -27,6 +27,7 @@ import {
   type SwarmNodeData,
 } from "@/lib/swarmRuntime";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { createServerSwarmTracer } from "@/utils/observability/serverTracer.server";
 import {
   runHttpNodeCore,
   runToolNodeCore,
@@ -178,40 +179,25 @@ export async function executeSwarmServer(opts: {
   const chat = (a: Parameters<typeof serverChat>[0]) =>
     serverChat({ ...a, history: opts.history });
 
-  // Record the run for observability (Recent runs / traces). Only the top-level
-  // run gets a row; nested Execute-Swarm runs don't clutter the history.
-  let runId: string | null = null;
-  if (depth === 0)
-    try {
-    const { data } = await supabaseAdmin
-      .from("swarm_runs")
-      .insert({
-        user_id: opts.userId,
-        swarm_id: opts.swarm.id,
-        swarm_name: `${opts.swarm.name} (${opts.source})`,
-        input_prompt: opts.input,
-        swarm_snapshot: { nodes, edges } as never,
-        status: "running",
-      } as never)
-      .select("id")
-      .single();
-    runId = data?.id ?? null;
-  } catch {
-    /* observability is best-effort */
-  }
+  // Record the run + per-node steps for observability (Recent runs / traces),
+  // via the same tables the canvas tracer uses — so deployed-API and scheduled
+  // runs get the full per-node timeline too. Only the top-level run is traced;
+  // nested Execute-Swarm runs don't clutter the history. All best-effort.
+  const tracer =
+    depth === 0
+      ? await createServerSwarmTracer({
+          userId: opts.userId,
+          swarmId: opts.swarm.id,
+          swarmName: `${opts.swarm.name} (${opts.source})`,
+          inputPrompt: opts.input,
+          swarmSnapshot: { nodes, edges },
+        })
+      : null;
+  const runId: string | null = tracer?.runId ?? null;
 
   const finish = async (status: "success" | "error", output: string, error: string | null) => {
-    if (runId) {
-      await supabaseAdmin
-        .from("swarm_runs")
-        .update({
-          status,
-          final_output: output || null,
-          error_message: error,
-          finished_at: new Date().toISOString(),
-        } as never)
-        .eq("id", runId)
-        .then(undefined, () => undefined);
+    if (tracer) {
+      await tracer.finish({ status, finalOutput: output || null, errorMessage: error });
     }
     return { status, output, error, runId };
   };
@@ -243,15 +229,50 @@ export async function executeSwarmServer(opts: {
 
     for (const level of levels) {
       for (const node of level) {
-        if (skipped.has(node.id)) continue;
         const d = node.data;
         const kind = d.kind;
         const outVar = d.outputVar || `out_${node.id}`;
+        let stepOutput: string | null = null;
         const write = (v: string) => {
           ctx[outVar] = v;
           lastOutput = v;
+          stepOutput = v;
         };
 
+        // Skipped by an upstream condition/router — record a skipped step so
+        // the timeline shows the branch that was routed away.
+        if (skipped.has(node.id)) {
+          if (tracer) {
+            await tracer.startStep({ nodeId: node.id, nodeLabel: d.label, nodeKind: kind });
+            await tracer.finishStep(node.id, { status: "skipped" });
+          }
+          continue;
+        }
+
+        // Open a trace step and record the live incoming edges feeding it.
+        const stepStartedAt = Date.now();
+        if (tracer) {
+          const stepInput = kind === "input" ? opts.input : gatherInputs(node, ctx, lastOutput);
+          await tracer.startStep({
+            nodeId: node.id,
+            nodeLabel: d.label,
+            nodeKind: kind,
+            input: { prompt: stepInput },
+          });
+          for (const e of incoming.get(node.id) ?? []) {
+            if (skipped.has(e.source) || deadEdges.has(e.id)) continue;
+            const payload = ctx[`out_${e.source}`] ?? "";
+            await tracer.recordEdge({
+              sourceNodeId: e.source,
+              targetNodeId: e.target,
+              payloadPreview: payload.slice(0, 500),
+              bytes: payload.length,
+            });
+          }
+        }
+
+        let stepError: string | null = null;
+        try {
         if (kind === "input") {
           write(opts.input);
           continue;
@@ -570,6 +591,22 @@ export async function executeSwarmServer(opts: {
         throw new Error(
           `Node type "${kind}" isn't supported in headless (API/scheduled) runs yet. Run it from the canvas, or remove it from the deployed swarm.`,
         );
+        } catch (stepErr) {
+          stepError = stepErr instanceof Error ? stepErr.message : String(stepErr);
+          throw stepErr;
+        } finally {
+          if (tracer) {
+            const meta = d as { model?: string; provider?: string };
+            await tracer.finishStep(node.id, {
+              status: stepError ? "error" : "success",
+              output: stepError ? null : stepOutput,
+              errorMessage: stepError,
+              llmModel: meta.model ?? null,
+              llmProvider: meta.provider ?? null,
+              latencyMs: Date.now() - stepStartedAt,
+            });
+          }
+        }
       }
     }
 
