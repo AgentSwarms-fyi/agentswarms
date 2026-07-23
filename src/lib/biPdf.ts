@@ -9,9 +9,11 @@
 import { PDFDocument, type PDFPage, StandardFonts, rgb } from "pdf-lib";
 import html2canvas from "html2canvas-pro";
 
-const A4 = { w: 595.28, h: 841.89 };
-const MARGIN = 40;
-const ROW_GAP = 12;
+// Landscape A4 — dashboards are wide, so landscape keeps text far more legible
+// than portrait (which shrinks a multi-column grid to ~40% and tiny text).
+const A4 = { w: 841.89, h: 595.28 };
+const MARGIN = 34;
+const ROW_GAP = 10;
 
 function sanitizeFileName(name: string): string {
   return name.replace(/[\\/:*?"<>|]+/g, "-").trim() || "dashboard";
@@ -88,21 +90,29 @@ export async function exportDashboardPdf(args: {
   });
   y -= 22;
 
+  const contentW = A4.w - MARGIN * 2;
+  const pageContentH = A4.h - MARGIN * 2;
+
   // Append one dashboard page's widgets to the running PDF cursor.
   async function appendContainer(container: HTMLElement): Promise<number> {
     const els = Array.from(container.querySelectorAll<HTMLElement>("[data-widget-id]"));
     if (els.length === 0) return 0;
-    const containerRect = container.getBoundingClientRect();
-    const containerLeft = containerRect.left;
-    const contentW = A4.w - MARGIN * 2;
-    const scale = contentW / containerRect.width;
+    const containerLeft = container.getBoundingClientRect().left;
+
+    // Scale by the TRUE content bounds (rightmost widget edge), not just the
+    // container width — a widget that extends a hair past the container would
+    // otherwise be drawn past the right margin. This guarantees the widest
+    // point maps exactly to the content width, so nothing overflows sideways.
+    const rects = els.map((el) => el.getBoundingClientRect());
+    const rightmost = Math.max(...rects.map((r) => r.right - containerLeft));
+    const scale = contentW / Math.max(1, rightmost);
 
     for (const row of groupIntoRows(els)) {
-      const captures = await Promise.all(
+      const shots = await Promise.all(
         row.map(async (el) => {
           const rect = el.getBoundingClientRect();
           const canvas = await html2canvas(el, {
-            scale: 2,
+            scale: 3, // higher DPI so downscaled text stays crisp
             backgroundColor: "#ffffff",
             logging: false,
             // Always capture in light theme so exported reports are
@@ -111,20 +121,39 @@ export async function exportDashboardPdf(args: {
           });
           return {
             dataUrl: canvas.toDataURL("image/png"),
-            x: MARGIN + (rect.left - containerLeft) * scale,
-            w: rect.width * scale,
-            h: rect.height * scale,
+            left: rect.left - containerLeft,
+            wPx: rect.width,
+            hPx: rect.height,
           };
         }),
       );
-      const rowH = Math.max(...captures.map((c) => c.h));
+
+      // Per-row vertical fit: if a row is taller than a full page, shrink just
+      // that row so it can't run off the bottom margin.
+      const rowHpx = Math.max(...shots.map((s) => s.hPx));
+      const s = rowHpx * scale > pageContentH ? pageContentH / rowHpx : scale;
+      const rowH = rowHpx * s;
+
       if (y - rowH < MARGIN) {
         page = pdf.addPage([A4.w, A4.h]);
         y = A4.h - MARGIN;
       }
-      for (const c of captures) {
-        const png = await pdf.embedPng(c.dataUrl);
-        page.drawImage(png, { x: c.x, y: y - c.h, width: c.w, height: c.h });
+      for (const shot of shots) {
+        let x = MARGIN + shot.left * s;
+        let w = shot.wPx * s;
+        let h = shot.hPx * s;
+        // Final clamp against sub-pixel drift so an image never crosses a margin.
+        if (x < MARGIN) x = MARGIN;
+        if (x + w > A4.w - MARGIN) {
+          const clamped = A4.w - MARGIN - x;
+          if (clamped > 0) {
+            h *= clamped / w; // keep aspect ratio
+            w = clamped;
+          }
+        }
+        if (w <= 0 || h <= 0) continue;
+        const png = await pdf.embedPng(shot.dataUrl);
+        page.drawImage(png, { x, y: y - h, width: w, height: h });
       }
       y -= rowH + ROW_GAP;
     }
