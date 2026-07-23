@@ -60,7 +60,8 @@ function AdminRuntimePage() {
             Developer workspace
           </Link>{" "}
           — real CPython kernels with <code>pip install</code> and the full frameworks, sandboxed
-          and governed. Off by default; the browser (Lite) runtime always works.
+          and governed. Off by default: until you enable it, notebooks show a short
+          &ldquo;runtime required&rdquo; prompt instead of running.
         </p>
       </div>
       <div className="max-w-3xl">

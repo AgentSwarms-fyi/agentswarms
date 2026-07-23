@@ -1,4 +1,4 @@
-// Admin UI for the Developer-workspace server runtime (/admin/iam → Runtime).
+// Admin UI for the Developer-workspace server runtime (/admin/runtime).
 // Superadmins enable it, tune limits + the egress allowlist, and grant access —
 // no environment editing required.
 import { useCallback, useEffect, useState } from "react";
@@ -160,9 +160,9 @@ export function RuntimeTab({ token }: { token: string }) {
         <div>
           <h3 className="text-sm font-semibold">Server runtime</h3>
           <p className="text-xs text-muted-foreground">
-            Lets Developer-workspace notebooks run on secure server kernels — real CPython with{" "}
-            <code>pip install</code> and the actual frameworks. Off by default; browser (Lite) mode
-            always works.
+            Developer-workspace notebooks run on secure server kernels — real CPython with{" "}
+            <code>pip install</code> and the actual frameworks. Off by default: a notebook shows a{" "}
+            &ldquo;runtime required&rdquo; prompt until you enable it here.
           </p>
         </div>
       </div>
@@ -171,9 +171,11 @@ export function RuntimeTab({ token }: { token: string }) {
         <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
           <p>
-            <strong>NOTEBOOK_RUNTIME_SECRET is not set.</strong> The runtime can be configured here,
-            but won&apos;t actually start kernels until the operator sets that env var (min 16 chars)
-            and deploys the runtime services. See docs/DEVELOPER_WORKSPACE_RUNTIME.md.
+            <strong>Runtime not fully set up yet.</strong> Enabling it below mints a signing secret
+            automatically — no env var needed. To actually start kernels you also need the runtime
+            services running (<code>docker compose --profile notebooks up -d --build</code>). Only
+            set <code>NOTEBOOK_RUNTIME_SECRET</code> yourself if you run replicas that don&apos;t
+            share a database. See docs/DEVELOPER_WORKSPACE_RUNTIME.md.
           </p>
         </div>
       )}
@@ -184,7 +186,7 @@ export function RuntimeTab({ token }: { token: string }) {
           <span>
             <span className="block text-sm font-medium">Enable server runtime</span>
             <span className="block text-xs text-muted-foreground">
-              Show the Lite/Server switch in the notebook editor and allow kernels to launch.
+              Allow Developer-workspace notebooks to launch server kernels.
             </span>
           </span>
           <Switch
