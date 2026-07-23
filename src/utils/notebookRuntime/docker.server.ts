@@ -93,7 +93,10 @@ const RUN_USER = process.env.NOTEBOOK_RUN_USER || "1000:1000";
 
 type InspectResult = {
   State: { Running: boolean; ExitCode: number; Status: string; Error?: string };
-  NetworkSettings?: { Networks?: Record<string, { IPAddress?: string } | null> };
+  NetworkSettings?: {
+    Networks?: Record<string, { IPAddress?: string } | null>;
+    Ports?: Record<string, { HostIp?: string; HostPort?: string }[] | null>;
+  };
 };
 
 export class DockerOrchestrator implements NotebookOrchestrator {
@@ -140,6 +143,13 @@ export class DockerOrchestrator implements NotebookOrchestrator {
           "/home/runner/.local": "rw,exec,size=512m,mode=1777",
           "/tmp": "rw,size=256m,mode=1777",
         },
+        // When the app runs on the HOST (dev), Docker Desktop cannot route to
+        // container IPs — so publish the kernel port on loopback purely so the
+        // app can probe readiness. In compose the app is a container on the same
+        // network and needs no published port.
+        ...(appInContainer()
+          ? {}
+          : { PortBindings: { "8888/tcp": [{ HostIp: "127.0.0.1", HostPort: "" }] } }),
         RestartPolicy: { Name: "no" },
         AutoRemove: false, // we remove explicitly so batch logs survive until read
       },
@@ -187,10 +197,16 @@ export class DockerOrchestrator implements NotebookOrchestrator {
       const ip = Object.values(nets)
         .map((n) => n?.IPAddress)
         .find((a): a is string => !!a);
+      // The gateway (a container) always reaches the kernel by container IP.
       const endpoint = `http://${ip || ref}:8888`;
+      // ...but WE may be on the host, which cannot route to that IP. Probe the
+      // published loopback port in that case, so readiness reflects reality in
+      // both deployment shapes.
+      const hostPort = info.NetworkSettings?.Ports?.["8888/tcp"]?.[0]?.HostPort;
+      const probeUrl = appInContainer() || !hostPort ? endpoint : `http://127.0.0.1:${hostPort}`;
       // Container up != kernel serving. Stay "starting" until JKG answers, so
       // the browser never connects to a socket that isn't listening yet.
-      if (!(await kernelServing(endpoint))) return { state: "starting" };
+      if (!(await kernelServing(probeUrl))) return { state: "starting" };
       return { state: "running", endpoint };
     }
     if (s.Status === "exited" && s.ExitCode === 0) return { state: "succeeded", exitCode: 0 };
