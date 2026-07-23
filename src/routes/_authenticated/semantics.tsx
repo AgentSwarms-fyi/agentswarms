@@ -59,6 +59,8 @@ type LocalSource = { id: string; name: string; is_sample: boolean; columns: { na
 
 type Draft = {
   id?: string;
+  /** Owner — when it differs from the signed-in user the model is shared (read-only). */
+  user_id?: string;
   name: string;
   label: string;
   description: string;
@@ -146,6 +148,7 @@ function SemanticsPage() {
   const editModel = (m: Record<string, unknown>) => {
     setDraft({
       id: m.id as string,
+      user_id: (m.user_id as string) ?? undefined,
       name: (m.name as string) ?? "",
       label: (m.label as string) ?? "",
       description: (m.description as string) ?? "",
@@ -164,10 +167,15 @@ function SemanticsPage() {
     [sources, draft?.source_table],
   );
 
+  // A model owned by someone else (shared via IAM) is read-only: run + add to
+  // dashboard are allowed, but editing/saving/deleting is the owner's.
+  const isShared = !!draft?.user_id && !!user?.id && draft.user_id !== user.id;
+
   const patch = (p: Partial<Draft>) => setDraft((d) => (d ? { ...d, ...p } : d));
 
   const save = async () => {
     if (!draft) return;
+    if (isShared) return toast.error("This model is shared read-only — only its owner can edit it.");
     if (!draft.name.trim()) return toast.error("Model needs a name");
     if (!draft.source_table) return toast.error("Pick a source dataset");
     setSaving(true);
@@ -235,6 +243,7 @@ function SemanticsPage() {
   };
 
   const generateWithAI = async () => {
+    if (isShared) return;
     if (!draft || !selectedSource) return toast.error("Pick a source dataset first");
     if (!biModel) return toast.error("Pick an AI model — connect a provider under Integrations");
     setGenerating(true);
@@ -362,33 +371,45 @@ function SemanticsPage() {
               No models yet. Create one from a dataset.
             </p>
           ) : (
-            models.map((m) => (
-              <Card
-                key={m.id as string}
-                className={`cursor-pointer transition-colors ${draft?.id === m.id ? "border-primary" : ""}`}
-                onClick={() => editModel(m)}
-              >
-                <CardContent className="flex items-center justify-between gap-2 p-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{(m.label as string) || (m.name as string)}</p>
-                    <p className="truncate font-mono text-[10px] text-muted-foreground">
-                      {m.name as string} · {m.source_table as string}
-                    </p>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 shrink-0"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void remove(m.id as string);
-                    }}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </CardContent>
-              </Card>
-            ))
+            models.map((m) => {
+              const shared = !!m.user_id && !!user?.id && m.user_id !== user.id;
+              return (
+                <Card
+                  key={m.id as string}
+                  className={`cursor-pointer transition-colors ${draft?.id === m.id ? "border-primary" : ""}`}
+                  onClick={() => editModel(m)}
+                >
+                  <CardContent className="flex items-center justify-between gap-2 p-3">
+                    <div className="min-w-0">
+                      <p className="flex items-center gap-1.5 truncate text-sm font-medium">
+                        {(m.label as string) || (m.name as string)}
+                        {shared && (
+                          <Badge variant="outline" className="h-4 px-1 text-[9px] font-normal">
+                            Shared
+                          </Badge>
+                        )}
+                      </p>
+                      <p className="truncate font-mono text-[10px] text-muted-foreground">
+                        {m.name as string} · {m.source_table as string}
+                      </p>
+                    </div>
+                    {!shared && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 shrink-0"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void remove(m.id as string);
+                        }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })
           )}
         </div>
 
@@ -403,12 +424,19 @@ function SemanticsPage() {
           <div className="space-y-5">
             <Card>
               <CardContent className="space-y-4 p-4">
+                {isShared && (
+                  <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs">
+                    <strong>Shared with you — read-only.</strong> Run it and add it to dashboards;
+                    only the owner can edit this model.
+                  </div>
+                )}
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="space-y-1">
                     <Label className="text-xs">Name (id)</Label>
                     <Input
                       value={draft.name}
                       placeholder="orders"
+                      disabled={isShared}
                       onChange={(e) => patch({ name: e.target.value })}
                       className="h-8 font-mono"
                     />
@@ -418,6 +446,7 @@ function SemanticsPage() {
                     <Input
                       value={draft.label}
                       placeholder="Orders"
+                      disabled={isShared}
                       onChange={(e) => patch({ label: e.target.value })}
                       className="h-8"
                     />
@@ -427,6 +456,7 @@ function SemanticsPage() {
                   <Label className="text-xs">Description</Label>
                   <Textarea
                     value={draft.description}
+                    disabled={isShared}
                     onChange={(e) => patch({ description: e.target.value })}
                     className="min-h-[48px] text-sm"
                     placeholder="What this model represents…"
@@ -436,6 +466,7 @@ function SemanticsPage() {
                   <Label className="text-xs">Source dataset</Label>
                   <Select
                     value={draft.source_table}
+                    disabled={isShared}
                     onValueChange={(v) => {
                       const s = sources.find((x) => x.name === v);
                       patch({ source_table: v, table_id: s?.id ?? null });
@@ -472,21 +503,25 @@ function SemanticsPage() {
                       size="sm"
                       variant="outline"
                       onClick={generateWithAI}
-                      disabled={generating || !selectedSource || !biModel}
+                      disabled={generating || !selectedSource || !biModel || isShared}
                       title={
-                        !selectedSource
-                          ? "Pick a source dataset first"
-                          : !biModel
-                            ? "Pick an AI model (connect a provider under Integrations)"
-                            : ""
+                        isShared
+                          ? "Shared models are read-only"
+                          : !selectedSource
+                            ? "Pick a source dataset first"
+                            : !biModel
+                              ? "Pick an AI model (connect a provider under Integrations)"
+                              : ""
                       }
                     >
                       <Sparkles className="mr-1 h-4 w-4" />
                       {generating ? "Generating…" : "Generate with AI"}
                     </Button>
-                    <Button size="sm" onClick={save} disabled={saving}>
-                      <Save className="mr-1 h-4 w-4" /> {saving ? "Saving…" : "Save model"}
-                    </Button>
+                    {!isShared && (
+                      <Button size="sm" onClick={save} disabled={saving}>
+                        <Save className="mr-1 h-4 w-4" /> {saving ? "Saving…" : "Save model"}
+                      </Button>
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -497,6 +532,7 @@ function SemanticsPage() {
               title="Dimensions"
               hint="How you slice — a column or SQL expression."
               cols={selectedSource?.columns.map((c) => c.name) ?? []}
+              disabled={isShared}
               onAddFromColumn={addDimFromColumn}
               onAddBlank={() =>
                 patch({ dimensions: [...draft.dimensions, { name: "", sql: "", type: "categorical" }] })
@@ -546,6 +582,7 @@ function SemanticsPage() {
               title="Metrics"
               hint="What you measure — an aggregation over a column."
               cols={selectedSource?.columns.map((c) => c.name) ?? []}
+              disabled={isShared}
               onAddFromColumn={addMetricFromColumn}
               onAddBlank={() =>
                 patch({ metrics: [...draft.metrics, { name: "", agg: "sum", sql: "" }] })
@@ -683,6 +720,7 @@ function FieldSection({
   cols,
   onAddFromColumn,
   onAddBlank,
+  disabled = false,
   children,
 }: {
   title: string;
@@ -690,6 +728,7 @@ function FieldSection({
   cols: string[];
   onAddFromColumn: (c: string) => void;
   onAddBlank: () => void;
+  disabled?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -700,21 +739,23 @@ function FieldSection({
             <h3 className="text-sm font-semibold">{title}</h3>
             <p className="text-xs text-muted-foreground">{hint}</p>
           </div>
-          <div className="flex gap-2">
-            {cols.length > 0 && (
-              <Select onValueChange={onAddFromColumn}>
-                <SelectTrigger className="h-8 w-[150px] text-xs">
-                  <SelectValue placeholder="+ from column" />
-                </SelectTrigger>
-                <SelectContent>
-                  {cols.map((c) => (<SelectItem key={c} value={c}>{c}</SelectItem>))}
-                </SelectContent>
-              </Select>
-            )}
-            <Button variant="outline" size="sm" onClick={onAddBlank}>
-              <Plus className="mr-1 h-3.5 w-3.5" /> Add
-            </Button>
-          </div>
+          {!disabled && (
+            <div className="flex gap-2">
+              {cols.length > 0 && (
+                <Select onValueChange={onAddFromColumn}>
+                  <SelectTrigger className="h-8 w-[150px] text-xs">
+                    <SelectValue placeholder="+ from column" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {cols.map((c) => (<SelectItem key={c} value={c}>{c}</SelectItem>))}
+                  </SelectContent>
+                </Select>
+              )}
+              <Button variant="outline" size="sm" onClick={onAddBlank}>
+                <Plus className="mr-1 h-3.5 w-3.5" /> Add
+              </Button>
+            </div>
+          )}
         </div>
         <div className="space-y-2">{children}</div>
       </CardContent>

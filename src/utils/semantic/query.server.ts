@@ -8,6 +8,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database } from "@/integrations/supabase/types";
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import {
   compileSemanticQuery,
   type SemanticDimension,
@@ -44,10 +45,27 @@ export function rowToModel(row: SemanticModelRow): SemanticModel {
   };
 }
 
-export async function listSemanticModels(sb: Sb, ownerId?: string): Promise<SemanticModel[]> {
-  let q = sb.from("semantic_models").select("*").order("name");
-  if (ownerId) q = q.eq("user_id", ownerId);
-  const { data, error } = await q;
+/**
+ * Scope models to what a caller may read. On user-JWT clients pass nothing —
+ * RLS already returns own + IAM-shared models. On service-role (headless)
+ * clients pass `ownerId` (+ `grantedIds` resolved from IAM) so we restrict to
+ * the owner's own models plus any shared to them, mirroring RLS.
+ */
+export type ModelScope = { requesterId?: string; ownerId?: string; grantedIds?: string[] };
+
+function applyScope<Q extends { eq: (c: string, v: string) => Q; or: (f: string) => Q }>(
+  q: Q,
+  scope?: ModelScope,
+): Q {
+  if (!scope?.ownerId) return q;
+  const granted = (scope.grantedIds ?? []).filter((x) => UUID_RE.test(x));
+  return granted.length
+    ? q.or(`user_id.eq.${scope.ownerId},id.in.(${granted.join(",")})`)
+    : q.eq("user_id", scope.ownerId);
+}
+
+export async function listSemanticModels(sb: Sb, scope?: ModelScope): Promise<SemanticModel[]> {
+  const { data, error } = await applyScope(sb.from("semantic_models").select("*"), scope).order("name");
   if (error) throw new Error(error.message);
   return (data ?? []).map(rowToModel);
 }
@@ -55,15 +73,17 @@ export async function listSemanticModels(sb: Sb, ownerId?: string): Promise<Sema
 export async function loadSemanticModel(
   sb: Sb,
   ref: string,
-  ownerId?: string,
+  scope?: ModelScope,
 ): Promise<{ model: SemanticModel; row: SemanticModelRow } | null> {
   let q = sb.from("semantic_models").select("*");
   q = UUID_RE.test(ref) ? q.eq("id", ref) : q.eq("name", ref);
-  if (ownerId) q = q.eq("user_id", ownerId);
-  const { data, error } = await q.maybeSingle();
+  const { data, error } = await applyScope(q, scope).limit(10);
   if (error) throw new Error(error.message);
-  if (!data) return null;
-  return { model: rowToModel(data), row: data };
+  const rows = data ?? [];
+  // On a name collision (own + a shared model with the same name) prefer own.
+  const row = rows.find((r) => r.user_id === scope?.requesterId) ?? rows[0];
+  if (!row) return null;
+  return { model: rowToModel(row), row };
 }
 
 export type SemanticResult = {
@@ -76,36 +96,44 @@ export type SemanticResult = {
 
 export async function runSemanticQuery(opts: {
   sb: Sb;
-  /** Owner id used to run local datasets + verify warehouse ownership. */
+  /** The requester (used to prefer their own model on a name collision). */
   userId: string;
-  /** When set (headless/service-role), restrict models to this owner. */
+  /** When set (headless/service-role), gate models to this owner + their grants. */
   scopeUserId?: string;
+  /** IAM-granted model ids for the scope user (headless paths). */
+  grantedModelIds?: string[];
   query: SemanticQuery;
   maxRows?: number;
 }): Promise<SemanticResult> {
-  const loaded = await loadSemanticModel(opts.sb, opts.query.model, opts.scopeUserId);
+  const loaded = await loadSemanticModel(opts.sb, opts.query.model, {
+    requesterId: opts.userId,
+    ownerId: opts.scopeUserId,
+    grantedIds: opts.grantedModelIds,
+  });
   if (!loaded) throw new Error(`Semantic model "${opts.query.model}" not found`);
-  const { model } = loaded;
+  const { model, row } = loaded;
+  // A metric IS the access boundary: once a caller may read the model, its
+  // underlying data query runs AS THE MODEL OWNER — so a shared metric returns
+  // the owner's data (not the grantee's, which would be wrong/empty).
+  const ownerId = row.user_id;
 
   if (model.source.kind === "warehouse") {
     if (!model.source.connectionId) {
       throw new Error(`Model "${model.name}" is a warehouse model but has no connection`);
     }
-    // Defense-in-depth: on scoped (service-role) paths, verify the connection
-    // belongs to the owner before loading it — RLS won't protect us there.
-    if (opts.scopeUserId) {
-      const { data: own } = await opts.sb
-        .from("data_warehouse_connections")
-        .select("id")
-        .eq("id", model.source.connectionId)
-        .eq("user_id", opts.scopeUserId)
-        .maybeSingle();
-      if (!own) throw new Error("Warehouse connection is not accessible");
-    }
+    // The connection belongs to the model owner. Verify + load with the service
+    // role (a grantee's JWT can't read another user's connection under RLS).
+    const { data: own } = await supabaseAdmin
+      .from("data_warehouse_connections")
+      .select("id")
+      .eq("id", model.source.connectionId)
+      .eq("user_id", ownerId)
+      .maybeSingle();
+    if (!own) throw new Error("The model's warehouse connection is unavailable");
     const conn = await loadWarehouseConnection(
-      opts.sb,
+      supabaseAdmin,
       { connectionId: model.source.connectionId },
-      opts.userId,
+      ownerId,
     );
     const compiled = compileSemanticQuery(model, opts.query, {
       dialect: conn.config.provider as SqlDialect,
@@ -114,8 +142,8 @@ export async function runSemanticQuery(opts: {
     return { model: model.name, columns: compiled.columns, rows: res.rows, sql: compiled.sql };
   }
 
-  // Local datasets (AlaSQL over the owner's user_data_tables + samples).
+  // Local datasets (AlaSQL over the OWNER's user_data_tables + samples).
   const compiled = compileSemanticQuery(model, opts.query, { dialect: "alasql" });
-  const res = await runLocalSqlForUser(opts.userId, compiled.sql);
+  const res = await runLocalSqlForUser(ownerId, compiled.sql);
   return { model: model.name, columns: compiled.columns, rows: res.rows, sql: compiled.sql };
 }

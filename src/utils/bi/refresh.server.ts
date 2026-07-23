@@ -153,10 +153,15 @@ export async function refreshDashboardServer(dashboardId: string): Promise<{
         // metric definition (not a frozen SQL snapshot). Dynamic import breaks a
         // cycle: query.server imports runLocalSqlForUser from this module.
         const { runSemanticQuery } = await import("@/utils/semantic/query.server");
+        const { resolveGrantedResourceIds } = await import("@/utils/iam.server");
+        const grantedModelIds = [
+          ...(await resolveGrantedResourceIds(supabaseAdmin, dash.user_id, "semantic_model")),
+        ];
         const r = await runSemanticQuery({
           sb: supabaseAdmin,
           userId: dash.user_id,
           scopeUserId: dash.user_id,
+          grantedModelIds,
           query: {
             model: w.source.model ?? "",
             metrics: w.source.metrics ?? [],

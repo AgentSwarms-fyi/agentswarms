@@ -41,7 +41,7 @@ export type IamModelRuleRow = {
 
 export type IamGrantRow = {
   id: string;
-  resource_type: "knowledge_base" | "data_table" | "secret" | "bi_dashboard";
+  resource_type: "knowledge_base" | "data_table" | "secret" | "bi_dashboard" | "semantic_model";
   resource_id: string;
   resource_name: string | null; // null = resource was deleted
   resource_owner_id: string | null;
@@ -52,7 +52,7 @@ export type IamGrantRow = {
 };
 
 export type IamResourceOption = {
-  resource_type: "knowledge_base" | "data_table" | "secret" | "bi_dashboard";
+  resource_type: "knowledge_base" | "data_table" | "secret" | "bi_dashboard" | "semantic_model";
   id: string;
   name: string;
   owner_user_id: string | null;
@@ -490,7 +490,7 @@ export const iamListGrantableResources = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<IamError | { ok: true; resources: IamResourceOption[] }> => {
     const guard = await requireSuperadmin(data.access_token);
     if (!guard.ok) return guard;
-    const [{ data: kbs }, { data: tables }, { data: secrets }, { data: dashboards }] =
+    const [{ data: kbs }, { data: tables }, { data: secrets }, { data: dashboards }, { data: models }] =
       await Promise.all([
         supabaseAdmin.from("knowledge_bases").select("id, name, user_id").order("name"),
         supabaseAdmin
@@ -500,6 +500,7 @@ export const iamListGrantableResources = createServerFn({ method: "POST" })
           .order("name"),
         supabaseAdmin.from("user_secrets").select("id, name, user_id").order("name"),
         supabaseAdmin.from("bi_dashboards").select("id, name, user_id").order("name"),
+        supabaseAdmin.from("semantic_models").select("id, name, label, user_id").order("name"),
       ]);
     const resources: IamResourceOption[] = [
       ...(kbs ?? []).map((k) => ({
@@ -525,6 +526,12 @@ export const iamListGrantableResources = createServerFn({ method: "POST" })
         id: d.id,
         name: d.name,
         owner_user_id: d.user_id,
+      })),
+      ...(models ?? []).map((m) => ({
+        resource_type: "semantic_model" as const,
+        id: m.id,
+        name: m.label || m.name,
+        owner_user_id: m.user_id,
       })),
     ];
     return { ok: true, resources };
@@ -554,8 +561,11 @@ export const iamListGrants = createServerFn({ method: "POST" })
     const dashboardIds = (grants ?? [])
       .filter((g) => g.resource_type === "bi_dashboard")
       .map((g) => g.resource_id);
+    const modelIds = (grants ?? [])
+      .filter((g) => g.resource_type === "semantic_model")
+      .map((g) => g.resource_id);
 
-    const [{ data: kbs }, { data: tables }, { data: secrets }, { data: dashboards }] =
+    const [{ data: kbs }, { data: tables }, { data: secrets }, { data: dashboards }, { data: models }] =
       await Promise.all([
         kbIds.length
           ? supabaseAdmin.from("knowledge_bases").select("id, name, user_id").in("id", kbIds)
@@ -569,12 +579,20 @@ export const iamListGrants = createServerFn({ method: "POST" })
         dashboardIds.length
           ? supabaseAdmin.from("bi_dashboards").select("id, name, user_id").in("id", dashboardIds)
           : Promise.resolve({ data: [] as { id: string; name: string; user_id: string }[] }),
+        modelIds.length
+          ? supabaseAdmin.from("semantic_models").select("id, name, label, user_id").in("id", modelIds)
+          : Promise.resolve({
+              data: [] as { id: string; name: string; label: string | null; user_id: string }[],
+            }),
       ]);
 
     const kbById = new Map((kbs ?? []).map((k) => [k.id, k]));
     const tableById = new Map((tables ?? []).map((t) => [t.id, t]));
     const secretById = new Map((secrets ?? []).map((s) => [s.id, s]));
     const dashboardById = new Map((dashboards ?? []).map((d) => [d.id, d]));
+    const modelById = new Map(
+      (models ?? []).map((m) => [m.id, { name: m.label || m.name, user_id: m.user_id }]),
+    );
 
     return {
       ok: true,
@@ -586,7 +604,9 @@ export const iamListGrants = createServerFn({ method: "POST" })
               ? secretById.get(g.resource_id)
               : g.resource_type === "bi_dashboard"
                 ? dashboardById.get(g.resource_id)
-                : tableById.get(g.resource_id);
+                : g.resource_type === "semantic_model"
+                  ? modelById.get(g.resource_id)
+                  : tableById.get(g.resource_id);
         const rf = g.row_filter as { column?: unknown; values?: unknown } | null;
         return {
           id: g.id,
@@ -610,7 +630,13 @@ export const iamCreateGrant = createServerFn({ method: "POST" })
     z
       .object({
         access_token: z.string().min(1),
-        resource_type: z.enum(["knowledge_base", "data_table", "secret", "bi_dashboard"]),
+        resource_type: z.enum([
+          "knowledge_base",
+          "data_table",
+          "secret",
+          "bi_dashboard",
+          "semantic_model",
+        ]),
         resource_id: z.string().uuid(),
         principal_type: z.enum(["user", "group"]),
         principal_id: z.string().uuid(),

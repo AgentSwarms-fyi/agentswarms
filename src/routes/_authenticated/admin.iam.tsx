@@ -8,6 +8,7 @@ import { format, formatDistanceToNow } from "date-fns";
 import {
   Ban,
   BarChart3,
+  Layers,
   Building2,
   Check,
   Copy,
@@ -1076,7 +1077,12 @@ function AccessTab({
 
   // Share builder state: pick the resource TYPE first, then the resource —
   // one flat dropdown across every KB/table/secret/dashboard gets unwieldy.
-  type ShareResourceType = "knowledge_base" | "data_table" | "secret" | "bi_dashboard";
+  type ShareResourceType =
+    | "knowledge_base"
+    | "data_table"
+    | "secret"
+    | "bi_dashboard"
+    | "semantic_model";
   const [shareResourceType, setShareResourceType] = useState<ShareResourceType>("knowledge_base");
   const [shareResourceId, setShareResourceId] = useState("");
   const [sharePrincipalType, setSharePrincipalType] = useState<"group" | "user">("group");
@@ -1090,6 +1096,7 @@ function AccessTab({
     { value: "data_table", label: "🗃 SQL data table" },
     { value: "secret", label: "🔑 Secret" },
     { value: "bi_dashboard", label: "📊 BI dashboard" },
+    { value: "semantic_model", label: "🧮 Semantic model" },
   ];
   const shareableOfType = resources.filter((r) => r.resource_type === shareResourceType);
 
@@ -1409,6 +1416,8 @@ function AccessTab({
                           <KeyRound className="h-4 w-4 text-muted-foreground" />
                         ) : g.resource_type === "bi_dashboard" ? (
                           <BarChart3 className="h-4 w-4 text-muted-foreground" />
+                        ) : g.resource_type === "semantic_model" ? (
+                          <Layers className="h-4 w-4 text-muted-foreground" />
                         ) : (
                           <DatabaseIcon className="h-4 w-4 text-muted-foreground" />
                         )}

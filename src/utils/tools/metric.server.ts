@@ -54,11 +54,23 @@ export const metricQueryTool: ToolDef = {
   },
 };
 
+/** Granted semantic-model ids for a headless (service-role) caller. */
+async function grantedModelIdsFor(ctx: AgentToolContext): Promise<string[] | undefined> {
+  if (!ctx.scopeUserId) return undefined;
+  const { resolveGrantedResourceIds } = await import("@/utils/iam.server");
+  const ids = await resolveGrantedResourceIds(ctx.sb, ctx.scopeUserId, "semantic_model");
+  return [...ids];
+}
+
 /** Compact catalog to append to the tool description at assembly time. */
 export async function semanticCatalogForCtx(
   ctx: AgentToolContext,
 ): Promise<{ count: number; text: string }> {
-  const models = await listSemanticModels(ctx.sb, ctx.scopeUserId ?? undefined);
+  // User-JWT callers: RLS returns own + shared. Headless: gate to owner + grants.
+  const scope = ctx.scopeUserId
+    ? { ownerId: ctx.scopeUserId, grantedIds: await grantedModelIdsFor(ctx) }
+    : undefined;
+  const models = await listSemanticModels(ctx.sb, scope);
   return { count: models.length, text: formatSemanticCatalog(models) };
 }
 
@@ -91,6 +103,7 @@ export async function runMetricQuery(ctx: AgentToolContext, args: MetricArgs): P
       sb: ctx.sb,
       userId: ctx.userId,
       scopeUserId: ctx.scopeUserId ?? undefined,
+      grantedModelIds: await grantedModelIdsFor(ctx),
       query: { model, metrics, dimensions, filters, limit: args.limit },
       maxRows: RESULT_ROW_CAP,
     });

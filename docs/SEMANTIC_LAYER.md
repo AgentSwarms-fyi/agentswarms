@@ -80,10 +80,17 @@ Write dimension/metric SQL for the model's own backend (e.g. `DATE_TRUNC` on a
 warehouse; AlaSQL-compatible expressions on a local dataset) — the compiler only
 composes SELECT/GROUP BY/WHERE/HAVING and quotes identifiers per dialect.
 
+## Sharing
+
+A superadmin can share a model read-only with a user or group under
+**Admin → IAM → Access** (grant type **Semantic model**). Grantees see it in
+Semantic Layer (marked **Shared**, read-only) and their agents can query it via
+`metric_query`. A shared metric **runs against the owner's data** — the metric
+is the access boundary, so a grantee gets the owner's numbers without needing
+access to the underlying tables/warehouse.
+
 ## Not yet (roadmap)
 
-- IAM **group sharing** of models (the RLS policy is in place; the grant type
-  needs enabling).
 - Authoring **warehouse-sourced** models from the UI (the engine already runs
   them; the editor's source picker is local-dataset only for now).
 - A native metric option **inside the BI visual builder** (today you author +
