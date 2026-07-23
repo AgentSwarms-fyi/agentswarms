@@ -5,6 +5,15 @@
 #   3. docker compose up --build
 #   4. Open http://localhost:8080
 #
+# Optional — the Developer-workspace SERVER RUNTIME (real Python kernels that can
+# pip install and run LangChain/LlamaIndex/LangGraph):
+#
+#   docker compose --profile notebooks up -d --build
+#
+# then turn it on in the app under Admin → Developer runtime. No env wiring is
+# needed: the app defaults to the service names below and generates its own
+# signing secret. See docs/DEVELOPER_WORKSPACE_RUNTIME.md.
+#
 # Compose reads .env automatically: the VITE_* values are passed as build args
 # (inlined into the client bundle), everything else is runtime environment.
 services:
@@ -19,4 +28,73 @@ services:
     env_file: .env
     ports:
       - "8080:8080"
+    # nb-internal lets notebook kernels call back for governed model/KB access.
+    networks: [default, nb-internal]
     restart: unless-stopped
+
+  # ── Developer-workspace server runtime (opt-in: --profile notebooks) ─────────
+
+  # Build-only helper so `--build` produces the kernel image the orchestrator
+  # launches. It never really runs (entrypoint exits immediately).
+  notebook-runtime-image:
+    build:
+      context: ./docker/notebook-runtime
+    image: agentswarms/notebook-runtime:latest
+    profiles: [notebooks]
+    entrypoint: ["/bin/true"]
+    restart: "no"
+
+  # Authenticated websocket bridge (browser ⇄ per-session kernel).
+  notebook-gateway:
+    build:
+      context: ./services/notebook-gateway
+    image: agentswarms/notebook-gateway:latest
+    profiles: [notebooks]
+    environment:
+      PORT: "8090"
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      # Optional: only if you manage the signing secret yourself. Otherwise the
+      # gateway reads the server-generated one from the database.
+      NOTEBOOK_RUNTIME_SECRET: ${NOTEBOOK_RUNTIME_SECRET:-}
+      NOTEBOOK_CELL_TIMEOUT_SECONDS: ${NOTEBOOK_CELL_TIMEOUT_SECONDS:-120}
+    ports:
+      - "8090:8090"
+    networks: [default, nb-internal]
+    restart: unless-stopped
+
+  # Least-privilege Docker API: only container create/inspect/logs + write verbs
+  # are exposed to the app (never the raw /var/run/docker.sock).
+  notebook-docker-proxy:
+    image: tecnativa/docker-socket-proxy:latest # pin a digest in production
+    profiles: [notebooks]
+    environment:
+      CONTAINERS: "1"
+      POST: "1"
+      # All other API groups denied by default.
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [default]
+    restart: unless-stopped
+
+  # Default-deny egress proxy — the kernels' only route to the internet.
+  notebook-egress:
+    image: ubuntu/squid:latest # pin a digest in production
+    profiles: [notebooks]
+    volumes:
+      - ./deploy/notebooks/egress/squid.conf:/etc/squid/squid.conf:ro
+      - ./deploy/notebooks/egress/allowed_domains:/etc/squid/allowed_domains:ro
+    networks: [default, nb-internal]
+    restart: unless-stopped
+
+# Network topology for the runtime (egress control):
+#   nb-internal — internal:true, so kernels have NO direct internet. Members:
+#                 app, gateway, egress proxy, and the per-session kernels.
+#   default     — has internet. Members: app, gateway, egress, docker-proxy.
+# Kernels sit on nb-internal ONLY: they can reach the app (callbacks) and the
+# egress proxy, but the only route off-box is the allowlisted proxy.
+networks:
+  default: {}
+  nb-internal:
+    name: agentswarms_nb-internal
+    internal: true

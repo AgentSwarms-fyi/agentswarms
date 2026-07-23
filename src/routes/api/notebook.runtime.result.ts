@@ -19,7 +19,7 @@ export const Route = createFileRoute("/api/notebook/runtime/result")({
       POST: async ({ request }) => {
         const auth = request.headers.get("authorization");
         const token = auth?.startsWith("Bearer ") ? auth.slice(7) : undefined;
-        const claims = verifySessionToken(token);
+        const claims = await verifySessionToken(token);
         if (!claims) return json(401, { error: "Invalid or expired session token" });
 
         let body: { status?: string; result?: unknown; logs?: string; error?: string };

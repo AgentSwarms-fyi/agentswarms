@@ -36,7 +36,7 @@ export async function resolvePythonCaller(request: Request): Promise<PythonCalle
   if (!token) return null;
 
   // A server kernel presents a session token — verify and act as that user.
-  const claims = verifySessionToken(token);
+  const claims = await verifySessionToken(token);
   if (claims) return { userId: claims.sub, sb: supabaseAdmin, scopeUserId: claims.sub };
 
   // Otherwise a Supabase user JWT from the browser runtime.

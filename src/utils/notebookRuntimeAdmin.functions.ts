@@ -7,7 +7,7 @@ import { z } from "zod";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { requireSuperadmin } from "@/utils/iam.server";
-import { runtimeSecretConfigured } from "@/utils/notebookRuntime/token.server";
+import { ensureRuntimeSecret, runtimeSecretConfigured } from "@/utils/notebookRuntime/token.server";
 
 export type NbRuntimeError = { ok: false; error: string };
 
@@ -115,7 +115,14 @@ export const nbRuntimeGetState = createServerFn({ method: "POST" })
           : (userEmail.get(g.principal_id) ?? "(unknown user)"),
     }));
 
-    return { ok: true, secretConfigured: runtimeSecretConfigured(), settings, grants, users, groups };
+    return {
+      ok: true,
+      secretConfigured: await runtimeSecretConfigured(),
+      settings,
+      grants,
+      users,
+      groups,
+    };
   });
 
 export const nbRuntimeUpdateSettings = createServerFn({ method: "POST" })
@@ -146,6 +153,15 @@ export const nbRuntimeUpdateSettings = createServerFn({ method: "POST" })
     const guard = await requireSuperadmin(data.access_token);
     if (!guard.ok) return guard;
     const { access_token: _t, ...fields } = data;
+    // Turning the runtime on mints a signing secret if none exists, so operators
+    // never have to invent one by hand.
+    if (fields.server_runtime_enabled === true) {
+      try {
+        await ensureRuntimeSecret();
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : "Could not create signing secret" };
+      }
+    }
     const patch = { ...fields, updated_at: new Date().toISOString() };
     const { error } = await supabaseAdmin
       .from("notebook_runtime_settings")
@@ -186,48 +202,42 @@ export const nbRuntimePreflight = createServerFn({ method: "POST" })
     const checks: PreflightCheck[] = [];
 
     checks.push(
-      runtimeSecretConfigured()
-        ? { name: "Signing secret", status: "pass", detail: "NOTEBOOK_RUNTIME_SECRET is set" }
+      (await runtimeSecretConfigured())
+        ? { name: "Signing secret", status: "pass", detail: "configured" }
         : {
             name: "Signing secret",
-            status: "fail",
-            detail: "NOTEBOOK_RUNTIME_SECRET is not set — kernels cannot be issued session tokens",
+            status: "warn",
+            detail: "not generated yet — created automatically when you enable the runtime",
           },
     );
 
     const gw = process.env.NOTEBOOK_GATEWAY_URL;
-    checks.push(
-      gw
-        ? { name: "Gateway URL", status: "pass", detail: gw }
-        : {
-            name: "Gateway URL",
-            status: "fail",
-            detail: "NOTEBOOK_GATEWAY_URL is not set — the browser cannot reach a kernel",
-          },
-    );
+    checks.push({
+      name: "Gateway URL",
+      status: "pass",
+      detail: gw ? `${gw} (from env)` : "ws://localhost:8090 (default)",
+    });
 
     if (backend === "docker") {
-      const proxy = process.env.DOCKER_PROXY_URL;
-      if (!proxy) {
-        checks.push({
-          name: "Docker socket-proxy",
-          status: "fail",
-          detail: "DOCKER_PROXY_URL is not set. Start the runtime services: docker compose -f docker-compose.yml -f docker-compose.notebooks.yml --profile notebooks up --build",
-        });
-      } else {
-        const base = proxy.replace(/\/$/, "");
+      {
+        const base = (process.env.DOCKER_PROXY_URL || "http://notebook-docker-proxy:2375").replace(
+          /\/$/,
+          "",
+        );
         try {
           const ping = await fetch(`${base}/_ping`);
           checks.push({
             name: "Docker socket-proxy",
             status: ping.ok ? "pass" : "fail",
-            detail: ping.ok ? `reachable at ${base}` : `HTTP ${ping.status} from ${base}`,
+            detail: ping.ok
+              ? `reachable at ${base}`
+              : `HTTP ${ping.status} from ${base} — start the runtime services: docker compose --profile notebooks up -d --build`,
           });
         } catch (e) {
           checks.push({
             name: "Docker socket-proxy",
             status: "fail",
-            detail: `unreachable at ${base}: ${e instanceof Error ? e.message : String(e)}`,
+            detail: `unreachable at ${base} — start the runtime services: docker compose --profile notebooks up -d --build (${e instanceof Error ? e.message : String(e)})`,
           });
         }
         try {
@@ -254,15 +264,13 @@ export const nbRuntimePreflight = createServerFn({ method: "POST" })
           checks.push({ name: "Isolated network", status: "warn", detail: `could not check ${net}` });
         }
       }
-      checks.push(
-        process.env.NOTEBOOK_EGRESS_PROXY
-          ? { name: "Egress proxy", status: "pass", detail: process.env.NOTEBOOK_EGRESS_PROXY }
-          : {
-              name: "Egress proxy",
-              status: "warn",
-              detail: "NOTEBOOK_EGRESS_PROXY not set — kernels would have unrestricted network egress",
-            },
-      );
+      checks.push({
+        name: "Egress proxy",
+        status: "pass",
+        detail: process.env.NOTEBOOK_EGRESS_PROXY
+          ? `${process.env.NOTEBOOK_EGRESS_PROXY} (from env)`
+          : "http://notebook-egress:3128 (default)",
+      });
     }
 
     if (backend === "k8s") {

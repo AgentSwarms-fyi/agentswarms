@@ -276,18 +276,21 @@ The **Developer workspace** (`/notebooks`) runs notebooks in the browser
 frameworks (LangChain, LlamaIndex, LangGraph) on a secure server kernel, enable
 the optional **server runtime**:
 
-1. Set `NOTEBOOK_RUNTIME_SECRET` in `.env` (any random string ≥16 chars, e.g.
-   `openssl rand -hex 32`) and bring up the runtime services:
+1. Start the runtime services (one command, no env editing):
    ```bash
-   docker compose -f docker-compose.yml -f docker-compose.notebooks.yml \
-     --profile notebooks up --build
+   docker compose --profile notebooks up -d --build
    ```
 2. Sign in as the admin and open **Admin → Developer runtime** (in the sidebar).
-   Flip **Enable server runtime** on, tune the limits/egress allowlist, and
-   (optionally) restrict access to specific users/groups. No env editing needed
-   beyond the secret.
+   Flip **Enable server runtime** on — that's it. The app generates its own
+   signing secret and defaults every internal URL to the compose service names.
+   Optionally tune limits/egress or restrict access to specific users/groups,
+   and hit **Run preflight** to confirm everything is reachable.
 3. Open a notebook — a **Lite / Server** switch appears in the header. Switch to
    **Server** and run `import langchain`.
+
+The first `--build` is slow (it installs the frameworks into the kernel image).
+Everything is optional and off by default: instances that never run that command
+are completely unaffected.
 
 Security model, hardening, scaling, and the full test procedure are in
 [DEVELOPER_WORKSPACE_RUNTIME.md](./DEVELOPER_WORKSPACE_RUNTIME.md). The runtime

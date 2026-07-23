@@ -121,7 +121,7 @@ async function handle(request: Request): Promise<Response> {
     const resp: Record<string, unknown> = { sessionId: r.id, status: r.status, kind: r.kind };
     if (r.status === "ready") {
       resp.gatewayUrl = gatewayUrl();
-      resp.sessionToken = signSessionToken({ userId, sessionId: r.id, ttlSeconds: TOKEN_TTL });
+      resp.sessionToken = await signSessionToken({ userId, sessionId: r.id, ttlSeconds: TOKEN_TTL });
     }
     if (r.kind === "batch" && (r.status === "succeeded" || r.status === "error")) {
       resp.result = r.result;
@@ -148,7 +148,7 @@ async function handle(request: Request): Promise<Response> {
     }
     await touchSession(s.id);
     return json(200, {
-      sessionToken: signSessionToken({ userId, sessionId: s.id, ttlSeconds: TOKEN_TTL }),
+      sessionToken: await signSessionToken({ userId, sessionId: s.id, ttlSeconds: TOKEN_TTL }),
       gatewayUrl: gatewayUrl(),
     });
   }

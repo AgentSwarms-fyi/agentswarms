@@ -14,9 +14,10 @@ import type {
 } from "./orchestrator";
 import { sandboxName } from "./orchestrator";
 
+// Defaults to the socket-proxy service name from the shipped compose profile, so
+// no env wiring is needed for a standard deployment.
 function dockerBase(): string {
-  const url = process.env.DOCKER_PROXY_URL;
-  if (!url) throw new Error("DOCKER_PROXY_URL is not set (the notebook runtime needs a Docker socket-proxy)");
+  const url = process.env.DOCKER_PROXY_URL || "http://notebook-docker-proxy:2375";
   return url.replace(/\/$/, "");
 }
 

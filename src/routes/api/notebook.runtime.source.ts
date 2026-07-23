@@ -18,7 +18,7 @@ type Cell = { type?: string; source?: string };
 async function handle(request: Request): Promise<Response> {
   const auth = request.headers.get("authorization");
   const token = auth?.startsWith("Bearer ") ? auth.slice(7) : undefined;
-  const claims = verifySessionToken(token);
+  const claims = await verifySessionToken(token);
   if (!claims) return json(401, { error: "Invalid or expired session token" });
 
   const { data: session } = await supabaseAdmin

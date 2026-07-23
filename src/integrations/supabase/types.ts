@@ -2871,6 +2871,24 @@ export type Database = {
         };
         Relationships: [];
       };
+      notebook_runtime_secrets: {
+        Row: {
+          created_at: string;
+          id: boolean;
+          signing_secret: string;
+        };
+        Insert: {
+          created_at?: string;
+          id?: boolean;
+          signing_secret: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: boolean;
+          signing_secret?: string;
+        };
+        Relationships: [];
+      };
       notebook_runtime_grants: {
         Row: {
           created_at: string;

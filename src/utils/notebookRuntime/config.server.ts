@@ -49,7 +49,7 @@ export async function getRuntimeSettings(): Promise<RuntimeSettings> {
     "docker") as RuntimeBackend;
 
   return {
-    enabled: (envEnabled ?? data?.server_runtime_enabled ?? false) && runtimeSecretConfigured(),
+    enabled: (envEnabled ?? data?.server_runtime_enabled ?? false) && (await runtimeSecretConfigured()),
     requireGrant: data?.require_grant ?? false,
     backend,
     image: process.env.NOTEBOOK_RUNTIME_IMAGE || data?.default_image || "agentswarms/notebook-runtime:latest",

@@ -14,7 +14,6 @@ import { createHmac, timingSafeEqual, randomUUID } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
 
 const PORT = Number(process.env.PORT || 8090);
-const SECRET = process.env.NOTEBOOK_RUNTIME_SECRET || "";
 const SUPABASE_URL = (process.env.SUPABASE_URL || "").replace(/\/$/, "");
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const CELL_TIMEOUT = Number(process.env.NOTEBOOK_CELL_TIMEOUT_SECONDS || 120);
@@ -23,8 +22,29 @@ function b64urlJson(part) {
   return JSON.parse(Buffer.from(part, "base64url").toString("utf8"));
 }
 
+// The signing secret: an explicit env var wins, otherwise read the
+// server-generated one from the database (service-role only table), so operators
+// don't have to invent or sync a secret by hand. Cached after first read.
+let cachedSecret = process.env.NOTEBOOK_RUNTIME_SECRET || "";
+async function getSecret() {
+  if (cachedSecret) return cachedSecret;
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/notebook_runtime_secrets?select=signing_secret&id=eq.true`,
+      { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` } },
+    );
+    if (!res.ok) return "";
+    const rows = await res.json();
+    cachedSecret = (Array.isArray(rows) && rows[0] && rows[0].signing_secret) || "";
+  } catch {
+    return "";
+  }
+  return cachedSecret;
+}
+
 // Verify the app's HMAC session token (mirrors token.server.ts).
-function verifyToken(token) {
+async function verifyToken(token) {
+  const SECRET = await getSecret();
   if (!SECRET || !token) return null;
   const parts = token.split(".");
   if (parts.length !== 3) return null;
@@ -95,7 +115,7 @@ wss.on("connection", async (browser, req) => {
     if (browser.readyState === WebSocket.OPEN) browser.send(JSON.stringify(obj));
   };
   const url = new URL(req.url, "http://localhost");
-  const claims = verifyToken(url.searchParams.get("token"));
+  const claims = await verifyToken(url.searchParams.get("token"));
   if (!claims) return browser.close(4001, "invalid token");
 
   const session = await lookupSession(claims.sid).catch(() => null);

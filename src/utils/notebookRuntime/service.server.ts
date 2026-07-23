@@ -12,14 +12,17 @@ export type SessionRow = Database["public"]["Tables"]["notebook_runtime_sessions
 
 const LIVE = ["queued", "starting", "ready", "running", "stopping"] as const;
 
+// Defaults match the service names in the shipped compose profile, so a standard
+// `docker compose --profile notebooks up` needs no env wiring at all. Override
+// any of them for custom topologies.
 function internalAppUrl(): string {
-  return process.env.NOTEBOOK_APP_INTERNAL_URL || process.env.APP_URL || "http://app:3000";
+  return process.env.NOTEBOOK_APP_INTERNAL_URL || process.env.APP_URL || "http://agentswarms:8080";
 }
 export function gatewayUrl(): string {
-  return process.env.NOTEBOOK_GATEWAY_URL || "";
+  return process.env.NOTEBOOK_GATEWAY_URL || "ws://localhost:8090";
 }
 function egressProxy(): string {
-  return process.env.NOTEBOOK_EGRESS_PROXY || "";
+  return process.env.NOTEBOOK_EGRESS_PROXY || "http://notebook-egress:3128";
 }
 
 /** Internal hosts that must bypass the egress proxy (callbacks to the app). */
@@ -118,7 +121,7 @@ export async function startSession(opts: {
     .single();
   if (error || !row) throw new Error(error?.message ?? "Failed to create runtime session");
 
-  const token = signSessionToken({
+  const token = await signSessionToken({
     userId: opts.userId,
     sessionId: row.id,
     ttlSeconds: Math.min(maxMin * 60, 3600),
