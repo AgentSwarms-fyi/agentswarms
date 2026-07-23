@@ -63,12 +63,12 @@ function NotebooksDoc() {
         </li>
       </UL>
       <Note>
-        Pyodide can't <code>pip install</code> the real LangChain / LangGraph / LlamaIndex packages
-        (native dependencies and blocked sockets). So each sample teaches the framework twice: a{" "}
-        <strong>reference block</strong> shows the framework's actual API (copy it into a full Python
-        environment), and a <strong>runnable cell</strong> reproduces the same idea live using the
-        built-in <code>agentswarms</code> helper. You get correct framework syntax to learn from and
-        a working demo you can run without leaving the browser.
+        Every cell is real framework code — actual <code>langchain</code>, <code>langgraph</code>{" "}
+        and <code>llama_index</code> imports executing on a container kernel. Model calls go through{" "}
+        <code>agentswarms.chat_model()</code>, a genuine LangChain <code>BaseChatModel</code> that
+        routes via the platform, so your IAM model rules, budgets and Traces apply and{" "}
+        <strong>no provider key ever exists inside the sandbox</strong>. All four samples are
+        executed end-to-end in CI-style verification before release.
       </Note>
 
       <H2 id="fork">Read-only &amp; fork</H2>
@@ -87,17 +87,17 @@ function NotebooksDoc() {
           duration appear under the cell.
         </li>
         <li>
-          Cells execute <strong>in your browser</strong> on Pyodide (CPython compiled to
-          WebAssembly). The first run downloads the runtime (~10&nbsp;MB); after that it's cached.
+          Cells execute on a <strong>sandboxed container kernel</strong> — non-root, read-only
+          root filesystem, capabilities dropped, network egress restricted to an allowlist. The
+          kernel starts on your first run and is reaped when idle.
         </li>
         <li>
           All cells share one interpreter, Jupyter-style: variables defined in one cell are visible
           in the next, and top-level <code>await</code> is supported.
         </li>
         <li>
-          Packages bundled with Pyodide (numpy, pandas, scipy, scikit-learn, …) load automatically
-          on import. Pure-Python packages from PyPI install with{" "}
-          <code>import micropip; await micropip.install("…")</code>.
+          LangChain, LangGraph, LlamaIndex, pandas and numpy are pre-installed; anything else is a{" "}
+          <code>!pip install</code> away (writes land in a per-session writable layer).
         </li>
       </UL>
 
@@ -129,6 +129,16 @@ function NotebooksDoc() {
         <li>
           <code>agentswarms.format_context(hits)</code> — turn retrieval results into a numbered
           context block for a prompt.
+        </li>
+        <li>
+          <code>llm = agentswarms.chat_model(model="openai/gpt-4o-mini")</code> — a real LangChain{" "}
+          <code>BaseChatModel</code>. Use it anywhere a LangChain model is accepted:{" "}
+          <code>chain = prompt | llm | StrOutputParser()</code>, LangGraph nodes, and so on.
+        </li>
+        <li>
+          <code>agentswarms.llama_llm(...)</code> and <code>agentswarms.kb_retriever(top_k=4)</code>{" "}
+          — a LlamaIndex LLM and a retriever over your Knowledge Base (managed hybrid search, no
+          embedding model to configure).
         </li>
       </UL>
 
