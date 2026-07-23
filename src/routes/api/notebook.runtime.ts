@@ -22,6 +22,8 @@ import {
 import {
   gatewayUrl,
   getSession,
+  listUserSessions,
+  reconcileUserSessions,
   refreshSession,
   startSession,
   stopSession,
@@ -76,10 +78,14 @@ async function handle(request: Request): Promise<Response> {
         message: "Your administrator has not granted you access to the server runtime.",
       });
     }
+    // Reconcile first: a kernel that died out-of-band must not hold a slot.
+    await reconcileUserSessions(userId);
     if ((await countLiveSessions(userId)) >= settings.maxSessionsPerUser) {
       return json(429, {
         error: "user_limit",
-        message: `You already have the maximum of ${settings.maxSessionsPerUser} live runtime sessions.`,
+        message:
+          `You already have ${settings.maxSessionsPerUser} live runtime sessions (the per-user limit). ` +
+          `Stop one under "Running kernels" in the Developer workspace, then try again.`,
       });
     }
     if ((await countLiveSessionsTotal()) >= settings.maxSessionsTotal) {
@@ -111,6 +117,11 @@ async function handle(request: Request): Promise<Response> {
         message: e instanceof Error ? e.message : "Failed to launch the runtime",
       });
     }
+  }
+
+  if (action === "list") {
+    await reconcileUserSessions(userId);
+    return json(200, { sessions: await listUserSessions(userId) });
   }
 
   if (action === "status") {

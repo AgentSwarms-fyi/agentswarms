@@ -11,7 +11,7 @@ import { appInContainer } from "./docker.server";
 
 export type SessionRow = Database["public"]["Tables"]["notebook_runtime_sessions"]["Row"];
 
-const LIVE = ["queued", "starting", "ready", "running", "stopping"] as const;
+export const LIVE = ["queued", "starting", "ready", "running", "stopping"] as const;
 
 // Defaults adapt to how the app is deployed, so neither a compose install nor a
 // local `npm run dev` needs env wiring. Override any of them for custom setups.
@@ -221,6 +221,49 @@ export async function stopSession(row: SessionRow): Promise<void> {
     .from("notebook_runtime_sessions")
     .update({ status: "stopped", stopped_at: new Date().toISOString() })
     .eq("id", row.id);
+}
+
+/**
+ * Refresh every live session for a user so vanished kernels are marked stopped.
+ *
+ * Without this, a container that crashed or was removed out-of-band keeps its
+ * row in a live state forever and permanently consumes one of the user's
+ * concurrency slots ("You already have the maximum of N live runtime sessions"),
+ * with no way out. Called before the cap is enforced and before listing.
+ */
+export async function reconcileUserSessions(userId: string): Promise<void> {
+  const { data } = await supabaseAdmin
+    .from("notebook_runtime_sessions")
+    .select("*")
+    .eq("user_id", userId)
+    .in("status", [...LIVE]);
+  for (const row of data ?? []) {
+    await refreshSession(row).catch(() => {});
+  }
+}
+
+/** A user's live sessions, annotated with the notebook they belong to. */
+export async function listUserSessions(userId: string) {
+  const { data } = await supabaseAdmin
+    .from("notebook_runtime_sessions")
+    .select("id, kind, status, notebook_id, image, started_at, created_at, expires_at")
+    .eq("user_id", userId)
+    .in("status", [...LIVE])
+    .order("created_at", { ascending: false });
+  const rows = data ?? [];
+  const ids = rows.map((r) => r.notebook_id).filter((v): v is string => !!v);
+  const titles = new Map<string, string>();
+  if (ids.length) {
+    const { data: nbs } = await supabaseAdmin
+      .from("user_python_notebooks")
+      .select("id, title")
+      .in("id", ids);
+    for (const nb of nbs ?? []) titles.set(nb.id, nb.title);
+  }
+  return rows.map((r) => ({
+    ...r,
+    notebook_title: r.notebook_id ? (titles.get(r.notebook_id) ?? "(deleted notebook)") : null,
+  }));
 }
 
 export async function touchSession(sessionId: string): Promise<void> {

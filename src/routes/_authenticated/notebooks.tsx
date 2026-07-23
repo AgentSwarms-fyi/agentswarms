@@ -14,6 +14,7 @@ import type { Json } from "@/integrations/supabase/types";
 import { useAuth } from "@/hooks/use-auth";
 import { newPythonNotebookCells } from "@/lib/pythonNotebookTemplate";
 import { SAMPLE_NOTEBOOKS } from "@/lib/sampleNotebooks";
+import { RunningKernels } from "@/components/notebooks/RunningKernels";
 
 export const Route = createFileRoute("/_authenticated/notebooks")({
   head: () => ({
@@ -192,6 +193,15 @@ function PythonLabCatalog({
   onDelete: (id: string) => void;
   creating: boolean;
 }) {
+  const [runtimeEnabled, setRuntimeEnabled] = useState(false);
+  useEffect(() => {
+    supabase
+      .from("notebook_runtime_settings")
+      .select("server_runtime_enabled")
+      .maybeSingle()
+      .then(({ data }) => setRuntimeEnabled(!!data?.server_runtime_enabled));
+  }, []);
+
   return (
     <div className="h-full overflow-y-auto p-6 lg:p-8">
       <div className="mx-auto w-full max-w-5xl">
@@ -269,6 +279,8 @@ function PythonLabCatalog({
             ))}
           </div>
         </div>
+
+        <RunningKernels enabled={runtimeEnabled} />
 
         <h2 className="mb-3 text-base font-semibold tracking-tight">My notebooks</h2>
         {pyNotebooks.length === 0 ? (
