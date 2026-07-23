@@ -271,10 +271,10 @@ Product documentation for every feature ships inside the app at `/docs`.
 
 ## 7. Optional: the Developer-workspace server runtime
 
-The **Developer workspace** (`/notebooks`) runs notebooks in the browser
-(Pyodide) with zero setup. To let notebooks `pip install` and run the *real*
-frameworks (LangChain, LlamaIndex, LangGraph) on a secure server kernel, enable
-the optional **server runtime**:
+The **Developer workspace** (`/notebooks`) runs notebooks on **secure server
+kernels** — real CPython that can `pip install` and run the *real* frameworks
+(LangChain, LlamaIndex, LangGraph). It's off by default; a notebook shows a
+short "runtime required" panel until an admin turns it on. To enable it:
 
 1. Start the runtime services (one command, no env editing):
    ```bash

@@ -2871,6 +2871,27 @@ export type Database = {
         };
         Relationships: [];
       };
+      cron_locks: {
+        Row: {
+          holder: string | null;
+          locked_until: string | null;
+          name: string;
+          updated_at: string;
+        };
+        Insert: {
+          holder?: string | null;
+          locked_until?: string | null;
+          name: string;
+          updated_at?: string;
+        };
+        Update: {
+          holder?: string | null;
+          locked_until?: string | null;
+          name?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       notebook_runtime_secrets: {
         Row: {
           created_at: string;

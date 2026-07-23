@@ -113,7 +113,7 @@ The docs live in [`docs/`](./docs), one focused guide per topic:
 | Guide | What it covers |
 | --- | --- |
 | **[Installation](./docs/INSTALL.md)** | Complete local setup on macOS / Linux / Windows: prerequisites, Supabase project, environment variables, first run, and troubleshooting. |
-| **[Production deployment](./docs/DEPLOYMENT.md)** | Docker (recommended), Cloudflare Workers, and bare Node. |
+| **[Production deployment](./docs/DEPLOYMENT.md)** | Every path: local desktop, a single cloud VM (OCI/AWS/GCP), autoscaled VMs behind a load balancer, Cloudflare Workers, and Kubernetes — plus TLS, scheduling/cron, health checks, and backups. |
 | **[Business Intelligence](./docs/BUSINESS_INTELLIGENCE.md)** | Dashboards and the AI analyst: 19 visual types incl. the AI-built ontology, drill-down & forecasting, scheduled refresh + data alerts, AI-generated dashboards, publishing / embedding / export, data prep, and warehouse connectors. |
 | **[Access control (IAM) & SSO](./docs/IAM.md)** | Superadmins, groups, user provisioning, model allow-lists, read-only resource sharing, invite-only mode, and SAML SSO. |
 | **[Architecture](./docs/ARCHITECTURE.md)** | Tech stack and project structure. |

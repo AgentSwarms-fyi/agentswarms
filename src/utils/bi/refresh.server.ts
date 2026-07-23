@@ -749,6 +749,77 @@ export async function processDuePrepFlows(force = false): Promise<number> {
   return ran;
 }
 
+// ── Scheduled-work pass (shared by the interval and /api/bi/cron) ─────────
+
+export type CronPassResult = {
+  /** false when another instance/runner held the lease and we skipped. */
+  ran: boolean;
+  processed: number;
+  prep_flows: number;
+  catalog_crawls: number;
+  swarm_schedules: number;
+  kernels_reaped: number;
+};
+
+/**
+ * Run one pass of ALL scheduled work — BI refreshes + data alerts, prep flows,
+ * catalog crawls, audit purge, swarm schedules, notebook-kernel reaping — under
+ * a cross-instance lease so that running many app instances behind a load
+ * balancer (or an external cron alongside the in-process tick) never
+ * double-fires. Every job is isolated so one failure never blocks the rest.
+ *
+ * Called from the in-process interval (`ensureScheduler`) and from
+ * `/api/bi/cron`. Both share the "scheduler" lease, so at most one pass runs at
+ * a time across the whole fleet.
+ */
+export async function runCronPass(
+  opts: { force?: boolean; origin?: string } = {},
+): Promise<CronPassResult> {
+  const force = opts.force ?? false;
+  const empty: CronPassResult = {
+    ran: false,
+    processed: 0,
+    prep_flows: 0,
+    catalog_crawls: 0,
+    swarm_schedules: 0,
+    kernels_reaped: 0,
+  };
+
+  const { acquireCronLease, releaseCronLease } = await import("@/utils/cronLock.server");
+  if (!(await acquireCronLease("scheduler"))) return empty;
+  try {
+    const processed = await processDueSchedules(force);
+    const prep_flows = await processDuePrepFlows(force);
+    // Lazy imports keep these module graphs out of server boot and avoid cycles.
+    const catalog_crawls = await import("@/utils/catalog/schedule.server")
+      .then((m) => m.processDueCatalogCrawls(force))
+      .catch((e) => {
+        console.warn("[catalog-scheduler] processing failed:", (e as Error).message);
+        return 0;
+      });
+    await import("@/utils/audit.server")
+      .then((m) => m.purgeAuditEvents(force))
+      .catch((e) => console.warn("[audit-purge] failed:", (e as Error).message));
+    const swarm_schedules = await import("@/utils/swarmSchedules.server")
+      .then((m) => m.processDueSwarmSchedules(force, opts.origin || process.env.SITE_URL || undefined))
+      .catch((e) => {
+        console.warn("[swarm-scheduler] processing failed:", (e as Error).message);
+        return 0;
+      });
+    let kernels_reaped = 0;
+    try {
+      kernels_reaped = await import("@/utils/notebookRuntime/service.server").then((m) =>
+        m.reapSessions(),
+      );
+    } catch (e) {
+      console.warn("[cron] notebook kernel reap failed:", (e as Error).message);
+    }
+    return { ran: true, processed, prep_flows, catalog_crawls, swarm_schedules, kernels_reaped };
+  } finally {
+    await releaseCronLease("scheduler");
+  }
+}
+
 // ── In-process scheduler (long-running node server) ──────────────────────
 
 declare global {
@@ -758,26 +829,13 @@ declare global {
 
 export function ensureScheduler(): void {
   if (globalThis.__biSchedulerStarted) return;
+  // Opt out of the in-process tick — set on an autoscaled/multi-instance web
+  // tier that is driven by ONE external cron hitting /api/bi/cron instead.
+  // (The lease already prevents double-firing; this just avoids every replica
+  // waking up every 60s to lose a race.) Accepts 1/true/yes.
+  if (/^(1|true|yes)$/i.test(process.env.DISABLE_INPROCESS_SCHEDULER ?? "")) return;
   globalThis.__biSchedulerStarted = true;
   setInterval(() => {
-    processDueSchedules().catch((e) =>
-      console.warn("[bi-scheduler] processing failed:", (e as Error).message),
-    );
-    processDuePrepFlows().catch((e) =>
-      console.warn("[prep-scheduler] processing failed:", (e as Error).message),
-    );
-    // Catalog crawls share the same tick (lazy import avoids a cycle and
-    // keeps the catalog module graph out of server boot).
-    void import("@/utils/catalog/schedule.server")
-      .then((m) => m.processDueCatalogCrawls())
-      .catch((e) => console.warn("[catalog-scheduler] processing failed:", (e as Error).message));
-    // Audit retention purge (internally throttled to once an hour).
-    void import("@/utils/audit.server")
-      .then((m) => m.purgeAuditEvents())
-      .catch((e) => console.warn("[audit-purge] failed:", (e as Error).message));
-    // Scheduled swarm runs (lazy import keeps the executor out of server boot).
-    void import("@/utils/swarmSchedules.server")
-      .then((m) => m.processDueSwarmSchedules())
-      .catch((e) => console.warn("[swarm-scheduler] processing failed:", (e as Error).message));
+    runCronPass().catch((e) => console.warn("[scheduler] pass failed:", (e as Error).message));
   }, 60_000).unref?.();
 }

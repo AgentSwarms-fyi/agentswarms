@@ -1,20 +1,21 @@
-// POST /api/bi/cron — trigger scheduled BI dashboard refreshes.
+// POST/GET /api/bi/cron — run one pass of all scheduled work.
 //
-// Called (a) by signed-in clients on app load, which both starts the
-// in-process 60s scheduler and runs a catch-up pass, and (b) by external
-// cron services on serverless hosts. Auth: a valid Supabase access token
-// (any signed-in user) OR the BI_CRON_TOKEN env value. Processing is
-// idempotent (only due schedules run) and internally throttled.
+// Drives BI refreshes + data alerts, prep flows, catalog crawls, audit purge,
+// scheduled swarm runs, and notebook-kernel reaping. Called (a) by signed-in
+// clients on app load (which also starts the in-process 60s scheduler and runs
+// a catch-up pass) and (b) by external cron services — the required path on
+// serverless and the recommended path for autoscaled multi-instance
+// deployments. Auth: a valid Supabase access token (any signed-in user) OR the
+// BI_CRON_TOKEN env value.
+//
+// A cross-instance lease inside runCronPass() guarantees only one pass runs at
+// a time across the whole fleet, so this is safe to call from every instance
+// and from an external cron simultaneously — extra callers just get
+// `skipped: true`.
 import { createFileRoute } from "@tanstack/react-router";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import {
-  ensureScheduler,
-  processDuePrepFlows,
-  processDueSchedules,
-} from "@/utils/bi/refresh.server";
-import { processDueCatalogCrawls } from "@/utils/catalog/schedule.server";
-import { purgeAuditEvents } from "@/utils/audit.server";
+import { ensureScheduler, runCronPass } from "@/utils/bi/refresh.server";
 
 function json(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
@@ -35,31 +36,11 @@ async function handle(request: Request) {
   }
   if (!allowed) return json({ error: "Unauthorized" }, 401);
   try {
-    const ran = await processDueSchedules(bearer === cronToken);
-    const prepRan = await processDuePrepFlows(bearer === cronToken);
-    const crawled = await processDueCatalogCrawls(bearer === cronToken);
-    await purgeAuditEvents(bearer === cronToken);
-    const swarmRan = await import("@/utils/swarmSchedules.server").then((m) =>
-      m.processDueSwarmSchedules(bearer === cronToken, new URL(request.url).origin),
-    );
-    // Reap idle/expired notebook kernels here too, so containers are released
-    // without needing a second scheduler. Never let it break the other jobs.
-    let kernelsReaped = 0;
-    try {
-      kernelsReaped = await import("@/utils/notebookRuntime/service.server").then((m) =>
-        m.reapSessions(),
-      );
-    } catch (e) {
-      console.warn("[cron] notebook kernel reap failed:", (e as Error).message);
-    }
-    return json({
-      ok: true,
-      processed: ran,
-      prep_flows: prepRan,
-      catalog_crawls: crawled,
-      swarm_schedules: swarmRan,
-      kernels_reaped: kernelsReaped,
+    const result = await runCronPass({
+      force: bearer === cronToken,
+      origin: new URL(request.url).origin,
     });
+    return json({ ok: true, skipped: !result.ran, ...result });
   } catch (e) {
     return json({ error: (e as Error).message }, 500);
   }
