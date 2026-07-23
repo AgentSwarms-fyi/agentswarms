@@ -46,9 +46,14 @@ export const Route = createFileRoute("/api/python-chat")({
         let body: {
           provider?: string;
           model?: string;
-          messages?: { role: string; content: string }[];
+          // Messages are forwarded verbatim, so assistant messages may carry
+          // `tool_calls` and tool results arrive as `{role:"tool", ...}`.
+          messages?: Array<{ role: string; content?: unknown; [k: string]: unknown }>;
           temperature?: number;
           max_tokens?: number;
+          // OpenAI-style tool schemas + choice, for llm.bind_tools() / agents.
+          tools?: unknown[];
+          tool_choice?: unknown;
         };
         try {
           body = await request.json();
@@ -97,6 +102,8 @@ export const Route = createFileRoute("/api/python-chat")({
         const startedAt = Date.now();
         let status = 0;
         let content = "";
+        let toolCalls: unknown[] | undefined;
+        let finishReason: string | undefined;
         let usage: { prompt_tokens?: number; completion_tokens?: number } | undefined;
         let errorMessage: string | null = null;
         try {
@@ -113,11 +120,19 @@ export const Route = createFileRoute("/api/python-chat")({
               temperature: typeof body.temperature === "number" ? body.temperature : 0.7,
               max_tokens: typeof body.max_tokens === "number" ? body.max_tokens : 1024,
               stream: false,
+              // Pass tool schemas through only when supplied so plain chat
+              // requests are unchanged. Providers that support function-calling
+              // (OpenAI, OpenRouter, …) then return `tool_calls`.
+              ...(Array.isArray(body.tools) && body.tools.length ? { tools: body.tools } : {}),
+              ...(body.tool_choice !== undefined ? { tool_choice: body.tool_choice } : {}),
             }),
           });
           status = res.status;
           const data = (await res.json().catch(() => ({}))) as {
-            choices?: { message?: { content?: string } }[];
+            choices?: {
+              message?: { content?: string | null; tool_calls?: unknown[] };
+              finish_reason?: string;
+            }[];
             usage?: { prompt_tokens?: number; completion_tokens?: number };
             error?: { message?: string } | string;
           };
@@ -126,7 +141,10 @@ export const Route = createFileRoute("/api/python-chat")({
               typeof data.error === "string" ? data.error : (data.error?.message ?? "");
             errorMessage = upstream || `Upstream error (${res.status})`;
           } else {
-            content = data.choices?.[0]?.message?.content ?? "";
+            const message = data.choices?.[0]?.message;
+            content = message?.content ?? "";
+            toolCalls = Array.isArray(message?.tool_calls) ? message?.tool_calls : undefined;
+            finishReason = data.choices?.[0]?.finish_reason;
             usage = data.usage;
           }
         } catch (e) {
@@ -157,7 +175,14 @@ export const Route = createFileRoute("/api/python-chat")({
             message: errorMessage,
           });
         }
-        return json(200, { content, model, provider, usage: usage ?? null });
+        return json(200, {
+          content,
+          tool_calls: toolCalls ?? null,
+          finish_reason: finishReason ?? null,
+          model,
+          provider,
+          usage: usage ?? null,
+        });
       },
     },
   },

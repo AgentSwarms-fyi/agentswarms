@@ -35,7 +35,7 @@ function NotebooksDoc() {
       <DocsHeader
         eyebrow="Build"
         title="Developer workspace"
-        description="Python notebooks at /notebooks that execute in your browser — real CPython via Pyodide, nothing to install. Start from read-only framework samples, or write your own and call models and knowledge bases through your account."
+        description="Python notebooks at /notebooks that execute on sandboxed server kernels — real CPython with pip and the agentic frameworks pre-installed. Start from read-only framework samples, or write your own and call models and knowledge bases through your account."
       />
 
       <H2 id="samples">Framework samples</H2>
@@ -133,7 +133,9 @@ function NotebooksDoc() {
         <li>
           <code>llm = agentswarms.chat_model(model="openai/gpt-4o-mini")</code> — a real LangChain{" "}
           <code>BaseChatModel</code>. Use it anywhere a LangChain model is accepted:{" "}
-          <code>chain = prompt | llm | StrOutputParser()</code>, LangGraph nodes, and so on.
+          <code>chain = prompt | llm | StrOutputParser()</code>, LangGraph nodes, and so on. It
+          supports tool-calling via <code>llm.bind_tools([...])</code>, so LangGraph's{" "}
+          <code>create_react_agent</code> and <code>ToolNode</code> work too.
         </li>
         <li>
           <code>agentswarms.llama_llm(...)</code> and <code>agentswarms.kb_retriever(top_k=4)</code>{" "}

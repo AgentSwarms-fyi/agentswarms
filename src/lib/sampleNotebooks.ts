@@ -140,11 +140,9 @@ print(result)`,
     ],
     [
       "md",
-      `## 5 · Tools
+      `## 5 · Tools & tool-calling
 
-A tool is a typed function an agent can call. Define them with the \`@tool\` decorator — they carry a name, description and args schema.
-
-> **Note:** automatic tool-calling (\`llm.bind_tools(...)\`, \`create_react_agent\`) needs a provider that returns \`tool_calls\`. The platform-routed model doesn't expose that yet, so here we let the model *choose* a tool as JSON and dispatch it ourselves — the same control loop, made explicit.`,
+A tool is a typed function an agent can call. Define them with the \`@tool\` decorator — they carry a name, description and args schema.`,
     ],
     [
       "code",
@@ -165,25 +163,27 @@ print({name: t.description for name, t in TOOLS.items()})
 print("direct call:", multiply.invoke({"a": 23, "b": 19}))`,
     ],
     [
+      "md",
+      `\`llm.bind_tools([...])\` hands the schemas to the model, which then **decides** whether to call a tool and with what arguments — returning structured \`tool_calls\` instead of prose. You run the calls, feed the results back as \`ToolMessage\`s, and the model answers. This is the exact loop \`create_react_agent\` runs for you; \`chat_model()\` routes it through the platform, so tool-calling stays governed like every other call.`,
+    ],
+    [
       "code",
-      `import json
+      `from langchain_core.messages import HumanMessage, ToolMessage
 
-tool_docs = "\\n".join(f"- {n}: {t.description} args={t.args}" for n, t in TOOLS.items())
-router = ChatPromptTemplate.from_template(
-    'Pick ONE tool for the question. Reply ONLY as JSON {{"tool": "<name>", "args": {{...}}}}.\\n'
-    "Tools:\\n{tools}\\n\\nQuestion: {question}"
-) | llm | StrOutputParser()
+llm_with_tools = llm.bind_tools([multiply, word_count])
 
-def run_with_tools(question):
-    raw = router.invoke({"tools": tool_docs, "question": question})
-    move = json.loads(raw[raw.find("{"): raw.rfind("}") + 1])
-    observation = TOOLS[move["tool"]].invoke(move["args"])
-    answer = (ChatPromptTemplate.from_template(
-        "Question: {q}\\nTool result: {o}\\nAnswer in one sentence."
-    ) | llm | StrOutputParser()).invoke({"q": question, "o": observation})
-    return move["tool"], observation, answer
+messages = [HumanMessage("What is 23 times 19?")]
+ai = llm_with_tools.invoke(messages)          # the model returns tool_calls, not text
+print("tool_calls:", ai.tool_calls)
 
-print(run_with_tools("What is 23 times 19?"))`,
+# Execute each requested tool and hand the results back.
+messages.append(ai)
+for call in ai.tool_calls:
+    result = TOOLS[call["name"]].invoke(call["args"])
+    messages.append(ToolMessage(str(result), tool_call_id=call["id"]))
+
+answer = llm_with_tools.invoke(messages)      # now it answers using the tool result
+print("answer:", answer.content)`,
     ],
     [
       "md",

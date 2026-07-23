@@ -91,7 +91,46 @@ def format_context(hits):
 # Imported lazily so kernels start fast and stay usable without the frameworks.
 
 def _to_role(message_type):
-    return {"system": "system", "ai": "assistant", "human": "user"}.get(message_type, "user")
+    return {"system": "system", "ai": "assistant", "human": "user", "tool": "tool"}.get(
+        message_type, "user"
+    )
+
+
+def _message_to_openai(m):
+    """Convert one LangChain message to an OpenAI chat-completions dict,
+    preserving tool calls (on AI messages) and tool results (tool messages)."""
+    import json as _json
+
+    role = _to_role(getattr(m, "type", "human"))
+    content = m.content if m.content is not None else ""
+    out = {"role": role, "content": content}
+
+    # Tool result: ToolMessage carries the id of the call it answers.
+    tool_call_id = getattr(m, "tool_call_id", None)
+    if tool_call_id:
+        out["role"] = "tool"
+        out["tool_call_id"] = tool_call_id
+        out["content"] = "" if content is None else str(content)
+        return out
+
+    # Assistant tool calls: LangChain AIMessage.tool_calls → OpenAI shape.
+    tool_calls = getattr(m, "tool_calls", None)
+    if tool_calls:
+        out["tool_calls"] = [
+            {
+                "id": tc.get("id") or f"call_{i}",
+                "type": "function",
+                "function": {
+                    "name": tc.get("name"),
+                    "arguments": _json.dumps(tc.get("args", {})),
+                },
+            }
+            for i, tc in enumerate(tool_calls)
+        ]
+        # OpenAI wants content null (not "") when tool_calls are present.
+        if not content:
+            out["content"] = None
+    return out
 
 
 def chat_model(model="openai/gpt-4o-mini", provider="openrouter", temperature=0.7, max_tokens=1024):
@@ -102,11 +141,17 @@ def chat_model(model="openai/gpt-4o-mini", provider="openrouter", temperature=0.
         chain = prompt | llm | StrOutputParser()
 
     Works anywhere a LangChain BaseChatModel is accepted — LCEL chains,
-    LangGraph nodes, agents, and LlamaIndex via LangChainLLM.
+    LangGraph nodes, agents, and LlamaIndex via LangChainLLM. Supports
+    tool-calling via ``llm.bind_tools([...])`` (and therefore LangGraph's
+    ``create_react_agent`` / ``ToolNode``) when the routed provider returns
+    ``tool_calls`` (OpenAI, OpenRouter, Groq, …).
     """
+    import json as _json
+
     from langchain_core.language_models.chat_models import BaseChatModel
     from langchain_core.messages import AIMessage
     from langchain_core.outputs import ChatGeneration, ChatResult
+    from langchain_core.utils.function_calling import convert_to_openai_tool
 
     # Bind to differently-named locals: a class body cannot read an enclosing
     # function's variable whose name it also assigns (LOAD_NAME, not closure).
@@ -122,20 +167,49 @@ def chat_model(model="openai/gpt-4o-mini", provider="openrouter", temperature=0.
         def _llm_type(self) -> str:
             return "agentswarms"
 
-        def _payload(self, messages):
-            return {
+        def bind_tools(self, tools, *, tool_choice=None, **kwargs):
+            """Attach tools so the model can emit tool_calls. Accepts anything
+            convert_to_openai_tool understands (@tool functions, Pydantic
+            models, dicts). Returns a runnable bound with the OpenAI schemas."""
+            formatted = [convert_to_openai_tool(t) for t in tools]
+            if tool_choice is not None:
+                kwargs["tool_choice"] = tool_choice
+            return self.bind(tools=formatted, **kwargs)
+
+        def _payload(self, messages, **kwargs):
+            payload = {
                 "provider": self.provider_name,
                 "model": self.model_name,
-                "messages": [
-                    {"role": _to_role(m.type), "content": str(m.content)} for m in messages
-                ],
+                "messages": [_message_to_openai(m) for m in messages],
                 "temperature": self.temperature,
                 "max_tokens": self.max_tokens,
             }
+            tools = kwargs.get("tools")
+            if tools:
+                payload["tools"] = tools
+            tool_choice = kwargs.get("tool_choice")
+            if tool_choice is not None:
+                payload["tool_choice"] = tool_choice
+            return payload
 
         @staticmethod
-        def _result(text):
-            return ChatResult(generations=[ChatGeneration(message=AIMessage(content=text))])
+        def _result(text, tool_calls=None):
+            lc_tool_calls = []
+            for i, tc in enumerate(tool_calls or []):
+                fn = tc.get("function", {}) if isinstance(tc, dict) else {}
+                raw_args = fn.get("arguments") or "{}"
+                try:
+                    parsed = _json.loads(raw_args) if isinstance(raw_args, str) else raw_args
+                except Exception:
+                    parsed = {}
+                lc_tool_calls.append({
+                    "name": fn.get("name"),
+                    "args": parsed if isinstance(parsed, dict) else {},
+                    "id": tc.get("id") or f"call_{i}",
+                    "type": "tool_call",
+                })
+            msg = AIMessage(content=text or "", tool_calls=lc_tool_calls)
+            return ChatResult(generations=[ChatGeneration(message=msg)])
 
         def _generate(self, messages, stop=None, run_manager=None, **kwargs):
             if not _ORIGIN or not _TOKEN:
@@ -143,17 +217,17 @@ def chat_model(model="openai/gpt-4o-mini", provider="openrouter", temperature=0.
             with httpx.Client(timeout=120, trust_env=True) as client:
                 resp = client.post(
                     _ORIGIN + "/api/python-chat",
-                    json=self._payload(messages),
+                    json=self._payload(messages, **kwargs),
                     headers={"Authorization": "Bearer " + _TOKEN},
                 )
             data = resp.json() if resp.content else {}
             if resp.status_code != 200:
                 raise RuntimeError(data.get("message") or data.get("error") or f"HTTP {resp.status_code}")
-            return self._result(data["content"])
+            return self._result(data.get("content"), data.get("tool_calls"))
 
         async def _agenerate(self, messages, stop=None, run_manager=None, **kwargs):
-            data = await _post("/api/python-chat", self._payload(messages))
-            return self._result(data["content"])
+            data = await _post("/api/python-chat", self._payload(messages, **kwargs))
+            return self._result(data.get("content"), data.get("tool_calls"))
 
     return AgentSwarmsChatModel()
 
