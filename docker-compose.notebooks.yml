@@ -1,0 +1,90 @@
+# Opt-in server runtime for the Developer workspace (real Python kernels).
+# Use TOGETHER with the base compose file:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.notebooks.yml \
+#     --profile notebooks up --build
+#
+# Prereqs in .env: NOTEBOOK_RUNTIME_SECRET, NOTEBOOK_RUNTIME_ENABLED=1,
+# SUPABASE_SERVICE_ROLE_KEY, and (for browser access) NOTEBOOK_GATEWAY_URL.
+# Full guide + hardening: docs/DEVELOPER_WORKSPACE_RUNTIME.md.
+#
+# Network topology (egress control):
+#   nb-internal  — internal:true, so kernels have NO direct internet. Members:
+#                  app, gateway, egress proxy, and the per-session kernels.
+#   default      — has internet. Members: app, gateway, egress, docker-proxy.
+# Kernels sit on nb-internal ONLY: they can reach the app (callbacks) and the
+# egress proxy, but the only route off-box is the allowlisted proxy.
+
+networks:
+  nb-internal:
+    name: agentswarms_nb-internal
+    internal: true
+  default: {}
+
+services:
+  # The app joins the internal network (so kernels can call back for governed
+  # model/KB access) and gets the runtime wiring.
+  agentswarms:
+    networks: [default, nb-internal]
+    environment:
+      NOTEBOOK_RUNTIME_ENABLED: ${NOTEBOOK_RUNTIME_ENABLED:-}
+      NOTEBOOK_RUNTIME_BACKEND: docker
+      NOTEBOOK_RUNTIME_SECRET: ${NOTEBOOK_RUNTIME_SECRET}
+      NOTEBOOK_RUNTIME_IMAGE: agentswarms/notebook-runtime:latest
+      DOCKER_PROXY_URL: http://notebook-docker-proxy:2375
+      NOTEBOOK_NETWORK: agentswarms_nb-internal
+      NOTEBOOK_EGRESS_PROXY: http://notebook-egress:3128
+      NOTEBOOK_APP_INTERNAL_URL: http://agentswarms:8080
+      NOTEBOOK_GATEWAY_URL: ${NOTEBOOK_GATEWAY_URL:-ws://localhost:8090}
+      NOTEBOOK_CRON_TOKEN: ${NOTEBOOK_CRON_TOKEN:-}
+
+  # Build-only helper so `--build` produces the kernel image the orchestrator
+  # launches. It never really runs (entrypoint overridden to exit immediately).
+  notebook-runtime-image:
+    build:
+      context: ./docker/notebook-runtime
+    image: agentswarms/notebook-runtime:latest
+    profiles: [notebooks]
+    entrypoint: ["/bin/true"]
+    restart: "no"
+
+  # Authenticated websocket bridge (browser ⇄ per-session kernel).
+  notebook-gateway:
+    build:
+      context: ./services/notebook-gateway
+    image: agentswarms/notebook-gateway:latest
+    profiles: [notebooks]
+    environment:
+      PORT: "8090"
+      NOTEBOOK_RUNTIME_SECRET: ${NOTEBOOK_RUNTIME_SECRET}
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      NOTEBOOK_CELL_TIMEOUT_SECONDS: ${NOTEBOOK_CELL_TIMEOUT_SECONDS:-120}
+    ports:
+      - "8090:8090"
+    networks: [default, nb-internal]
+    restart: unless-stopped
+
+  # Least-privilege Docker API: only container create/inspect/logs + write verbs
+  # are exposed to the app (never the raw /var/run/docker.sock).
+  notebook-docker-proxy:
+    image: tecnativa/docker-socket-proxy:latest # pin a digest in production
+    profiles: [notebooks]
+    environment:
+      CONTAINERS: "1"
+      POST: "1"
+      # All other API groups denied by default.
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [default]
+    restart: unless-stopped
+
+  # Default-deny egress proxy — the kernels' only route to the internet.
+  notebook-egress:
+    image: ubuntu/squid:latest # pin a digest in production
+    profiles: [notebooks]
+    volumes:
+      - ./deploy/notebooks/egress/squid.conf:/etc/squid/squid.conf:ro
+      - ./deploy/notebooks/egress/allowed_domains:/etc/squid/allowed_domains:ro
+    networks: [default, nb-internal]
+    restart: unless-stopped

@@ -1,0 +1,11 @@
+# Allowlisted egress destinations for notebook kernels (squid dstdomain).
+# A leading dot matches all subdomains. Keep in sync with
+# notebook_runtime_settings.egress_allowlist.
+#
+# PyPI (runtime pip install)
+.pypi.org
+.pythonhosted.org
+# Direct LLM endpoints (only needed if users call providers directly; model
+# calls via agentswarms.chat() are brokered by the platform and don't use this).
+.openrouter.ai
+.openai.com

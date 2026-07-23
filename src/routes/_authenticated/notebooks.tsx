@@ -1,26 +1,28 @@
-// /notebooks — the Python Lab: user-authored Python notebooks that run
-// entirely in the browser (Pyodide). Each notebook starts from a template
-// with notes on calling models through the user's connected providers.
+// /notebooks — the Developer workspace: user-authored Python notebooks that run
+// entirely in the browser (Pyodide), plus read-only framework samples you can
+// run and fork. Each new notebook starts from a template with notes on calling
+// models through the user's connected providers.
 import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { FlaskConical, Plus, Trash2 } from "lucide-react";
+import { ArrowRight, FlaskConical, Plus, Sparkles, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
 import { useAuth } from "@/hooks/use-auth";
 import { newPythonNotebookCells } from "@/lib/pythonNotebookTemplate";
+import { SAMPLE_NOTEBOOKS } from "@/lib/sampleNotebooks";
 
 export const Route = createFileRoute("/_authenticated/notebooks")({
   head: () => ({
     meta: [
-      { title: "Python Notebooks — AgentSwarms" },
+      { title: "Developer workspace — AgentSwarms" },
       {
         name: "description",
         content:
-          "Your own Python notebooks, running in the browser — experiment with code and frameworks, and call your connected models straight from Python.",
+          "In-browser Python notebooks — learn LangChain, LangGraph and LlamaIndex from runnable samples, call your connected models, and retrieve from your knowledge base.",
       },
     ],
   }),
@@ -78,7 +80,8 @@ function usePyNotebooks(pathname: string) {
 
 function NotebooksLayout() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const hasNotebookSelected = pathname.startsWith("/notebooks/py/");
+  const hasNotebookSelected =
+    pathname.startsWith("/notebooks/py/") || pathname.startsWith("/notebooks/sample/");
   const { pyNotebooks, createNotebook, deleteNotebook, creating } = usePyNotebooks(pathname);
 
   return (
@@ -88,7 +91,7 @@ function NotebooksLayout() {
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <FlaskConical className="h-4 w-4 text-primary" />
-              <h2 className="text-sm font-semibold tracking-tight">Python Lab</h2>
+              <h2 className="text-sm font-semibold tracking-tight">Developer workspace</h2>
             </div>
             <Badge variant="secondary" className="text-[10px]">
               {pyNotebooks.length}
@@ -106,6 +109,34 @@ function NotebooksLayout() {
           </Button>
         </div>
         <nav className="flex-1 overflow-y-auto px-2 pb-2">
+          <div className="px-1 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Samples · read-only
+          </div>
+          <ul className="mb-2 space-y-0.5">
+            {SAMPLE_NOTEBOOKS.map((s) => {
+              const active = pathname === `/notebooks/sample/${s.slug}`;
+              return (
+                <li key={s.slug}>
+                  <Link
+                    to="/notebooks/sample/$sampleSlug"
+                    params={{ sampleSlug: s.slug }}
+                    className={cn(
+                      "flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[13px] leading-snug transition-colors",
+                      active
+                        ? "bg-primary/10 text-foreground font-medium"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                    )}
+                  >
+                    <Sparkles className="h-3 w-3 shrink-0 text-primary" />
+                    <span className="line-clamp-1">{s.title}</span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+          <div className="px-1 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            My notebooks
+          </div>
           <ul className="space-y-0.5">
             {pyNotebooks.map((nb) => {
               const active = pathname === `/notebooks/py/${nb.id}`;
@@ -168,11 +199,11 @@ function PythonLabCatalog({
           <div className="flex items-start gap-3">
             <FlaskConical className="mt-1 h-7 w-7 shrink-0 text-primary" />
             <div>
-              <h1 className="text-2xl font-semibold tracking-tight">Python Lab</h1>
+              <h1 className="text-2xl font-semibold tracking-tight">Developer workspace</h1>
               <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-                Your own Python notebooks, running entirely in the browser — no install, no kernel
-                to manage. Experiment with code and frameworks, and call your connected models
-                straight from Python.
+                Python notebooks that run entirely in your browser — no install, no kernel to
+                manage. Start from the read-only framework samples below, or create your own and
+                call your connected models straight from Python.
               </p>
             </div>
           </div>
@@ -206,6 +237,40 @@ function PythonLabCatalog({
           </div>
         </div>
 
+        {/* Framework samples shipped with the repo — read-only, runnable, forkable. */}
+        <div className="mb-10">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <Sparkles className="h-4 w-4 text-primary" />
+            <h2 className="text-base font-semibold tracking-tight">Learn by example</h2>
+            <Badge variant="secondary" className="text-[10px]">
+              Read-only · fork to edit
+            </Badge>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {SAMPLE_NOTEBOOKS.map((s) => (
+              <Link
+                key={s.slug}
+                to="/notebooks/sample/$sampleSlug"
+                params={{ sampleSlug: s.slug }}
+                className="group flex flex-col rounded-md border border-border bg-card/50 p-4 transition hover:border-primary/60 hover:bg-card"
+              >
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <Badge variant="outline" className="text-[10px]">
+                    {s.framework}
+                  </Badge>
+                  <Sparkles className="h-3.5 w-3.5 text-primary opacity-0 transition group-hover:opacity-100" />
+                </div>
+                <h3 className="text-sm font-semibold leading-snug">{s.title}</h3>
+                <p className="mt-1 flex-1 text-xs leading-relaxed text-muted-foreground">{s.tag}</p>
+                <span className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-primary">
+                  Open sample <ArrowRight className="h-3 w-3" />
+                </span>
+              </Link>
+            ))}
+          </div>
+        </div>
+
+        <h2 className="mb-3 text-base font-semibold tracking-tight">My notebooks</h2>
         {pyNotebooks.length === 0 ? (
           <button
             type="button"

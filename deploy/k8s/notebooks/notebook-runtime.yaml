@@ -1,0 +1,236 @@
+# Kubernetes reference deployment for the AgentSwarms notebook server runtime.
+#
+# Production-scale backend: one Pod per interactive session / Job per batch job,
+# scheduled across the node pool and bounded by the namespace ResourceQuota.
+# Adjust namespaces/labels/hosts for your cluster, then:
+#
+#   kubectl apply -f deploy/k8s/notebooks/notebook-runtime.yaml
+#
+# The app is configured with NOTEBOOK_RUNTIME_BACKEND=k8s and runs with the
+# `notebook-orchestrator` ServiceAccount (or a SA bound to the Role below).
+# See docs/DEVELOPER_WORKSPACE_RUNTIME.md §5.2/§9.2.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agentswarms-notebooks
+  labels:
+    app.kubernetes.io/part-of: agentswarms
+---
+# Caps total resource consumption by all kernels at once.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: notebook-quota
+  namespace: agentswarms-notebooks
+spec:
+  hard:
+    pods: "100"
+    requests.cpu: "50"
+    requests.memory: 100Gi
+    limits.cpu: "100"
+    limits.memory: 200Gi
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: notebook-limits
+  namespace: agentswarms-notebooks
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: "1"
+        memory: 2Gi
+      defaultRequest:
+        cpu: 250m
+        memory: 512Mi
+      max:
+        cpu: "4"
+        memory: 8Gi
+---
+# The app creates/deletes kernels with this ServiceAccount (least privilege:
+# only pods, jobs, and pod logs in this one namespace).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: notebook-orchestrator
+  namespace: agentswarms-notebooks
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: notebook-orchestrator
+  namespace: agentswarms-notebooks
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: notebook-orchestrator
+  namespace: agentswarms-notebooks
+subjects:
+  # Bind to the ServiceAccount the AGENTSWARMS APP pod runs as. Adjust the
+  # name/namespace to match your app deployment.
+  - kind: ServiceAccount
+    name: agentswarms
+    namespace: agentswarms
+roleRef:
+  kind: Role
+  name: notebook-orchestrator
+  apiGroup: rbac.authorization.k8s.io
+---
+# Runtime secrets (create for real; values shown as placeholders).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: notebook-runtime
+  namespace: agentswarms-notebooks
+type: Opaque
+stringData:
+  NOTEBOOK_RUNTIME_SECRET: "change-me-min-16-chars"
+  SUPABASE_URL: "https://YOUR-PROJECT.supabase.co"
+  SUPABASE_SERVICE_ROLE_KEY: "YOUR-SERVICE-ROLE-KEY"
+---
+# ── Egress proxy (default-deny allowlist) ────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: notebook-egress
+  namespace: agentswarms-notebooks
+data:
+  squid.conf: |
+    http_port 3128
+    acl allowed_domains dstdomain "/etc/squid/allowed_domains"
+    acl SSL_ports port 443
+    acl Safe_ports port 80
+    acl Safe_ports port 443
+    acl CONNECT method CONNECT
+    http_access deny CONNECT !SSL_ports
+    http_access deny !Safe_ports
+    http_access allow allowed_domains
+    http_access deny all
+    forwarded_for delete
+    via off
+    cache deny all
+  allowed_domains: |
+    .pypi.org
+    .pythonhosted.org
+    .openrouter.ai
+    .openai.com
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notebook-egress
+  namespace: agentswarms-notebooks
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: notebook-egress }
+  template:
+    metadata:
+      labels: { app: notebook-egress }
+    spec:
+      containers:
+        - name: squid
+          image: ubuntu/squid:latest # pin a digest in production
+          ports: [{ containerPort: 3128 }]
+          volumeMounts:
+            - { name: cfg, mountPath: /etc/squid/squid.conf, subPath: squid.conf }
+            - { name: cfg, mountPath: /etc/squid/allowed_domains, subPath: allowed_domains }
+      volumes:
+        - name: cfg
+          configMap: { name: notebook-egress }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notebook-egress
+  namespace: agentswarms-notebooks
+spec:
+  selector: { app: notebook-egress }
+  ports: [{ port: 3128, targetPort: 3128 }]
+---
+# ── Gateway (websocket bridge) ───────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notebook-gateway
+  namespace: agentswarms-notebooks
+spec:
+  replicas: 2 # stateless — scale freely
+  selector:
+    matchLabels: { app: notebook-gateway }
+  template:
+    metadata:
+      labels: { app: notebook-gateway }
+    spec:
+      containers:
+        - name: gateway
+          image: agentswarms/notebook-gateway:latest
+          ports: [{ containerPort: 8090 }]
+          envFrom:
+            - secretRef: { name: notebook-runtime }
+          env:
+            - { name: PORT, value: "8090" }
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notebook-gateway
+  namespace: agentswarms-notebooks
+spec:
+  selector: { app: notebook-gateway }
+  ports: [{ port: 8090, targetPort: 8090 }]
+# Expose the gateway to browsers via your Ingress (websocket-capable). Point
+# NOTEBOOK_GATEWAY_URL at the public wss:// URL.
+---
+# ── Egress control: default-deny, then narrow allows ─────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kernels-default-deny
+  namespace: agentswarms-notebooks
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/managed-by: agentswarms }
+  policyTypes: [Ingress, Egress]
+  egress:
+    # DNS
+    - to: []
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    # Only the egress proxy may be reached for outbound internet.
+    - to:
+        - podSelector: { matchLabels: { app: notebook-egress } }
+      ports: [{ protocol: TCP, port: 3128 }]
+    # Callbacks to the app (adjust the namespace label to your app namespace).
+    - to:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: agentswarms } }
+      ports: [{ protocol: TCP, port: 8080 }]
+  ingress:
+    # Only the gateway may connect to kernels (Jupyter websocket).
+    - from:
+        - podSelector: { matchLabels: { app: notebook-gateway } }
+      ports: [{ protocol: TCP, port: 8888 }]
+---
+# Optional: run kernels under gVisor for user-space-kernel isolation. Install a
+# gVisor RuntimeClass on your Linux nodes and set NOTEBOOK_K8S_RUNTIME_CLASS=gvisor.
+# apiVersion: node.k8s.io/v1
+# kind: RuntimeClass
+# metadata: { name: gvisor }
+# handler: runsc

@@ -55,10 +55,10 @@ const surfaces: { name: string; path: string; docs: string; what: string }[] = [
     what: "Visual editor for multi-agent graphs — wire agents, routers, loops, approvals.",
   },
   {
-    name: "Python Lab",
+    name: "Developer workspace",
     path: "/notebooks",
     docs: "/docs/notebooks",
-    what: "Your own in-browser Python notebooks with model calls built in.",
+    what: "In-browser Python notebooks — framework samples, model calls, and KB retrieval built in.",
   },
   {
     name: "Playground",

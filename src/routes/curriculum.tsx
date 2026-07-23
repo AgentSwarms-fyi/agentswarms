@@ -776,7 +776,7 @@ function CurriculumPage() {
           <div className="mx-auto max-w-6xl px-6">
             <div className="text-center">
               <p className="mb-4 text-xs font-medium uppercase tracking-[0.18em] text-primary">
-                Python Lab
+                Developer workspace
               </p>
               <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
                 Your own notebook lab,{" "}
@@ -804,7 +804,7 @@ function CurriculumPage() {
             <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
               <Link to="/notebooks">
                 <Button size="lg" className="gap-1.5">
-                  Open the Python Lab <ArrowRight className="h-4 w-4" />
+                  Open the Developer workspace <ArrowRight className="h-4 w-4" />
                 </Button>
               </Link>
               <Link to="/learn">

@@ -38,6 +38,7 @@ import { Route as DocsCertificationRouteImport } from './routes/docs.certificati
 import { Route as DocsAnalyticsRouteImport } from './routes/docs.analytics'
 import { Route as DocsAgentsRouteImport } from './routes/docs.agents'
 import { Route as DocsAccountRouteImport } from './routes/docs.account'
+import { Route as ApiPythonKbRouteImport } from './routes/api/python-kb'
 import { Route as ApiPythonChatRouteImport } from './routes/api/python-chat'
 import { Route as ApiEmbedRouteImport } from './routes/api/embed'
 import { Route as ApiContactRouteImport } from './routes/api/contact'
@@ -79,6 +80,7 @@ import { Route as ApiWarehouseQueryRouteImport } from './routes/api/warehouse/qu
 import { Route as ApiTemplatesProvisionRouteImport } from './routes/api/templates.provision'
 import { Route as ApiSwarmRunRouteImport } from './routes/api/swarm.run'
 import { Route as ApiSkillsGenerateRouteImport } from './routes/api/skills.generate'
+import { Route as ApiNotebookRuntimeRouteImport } from './routes/api/notebook.runtime'
 import { Route as ApiKbIngestUrlRouteImport } from './routes/api/kb/ingest-url'
 import { Route as ApiKbIngestGithubRouteImport } from './routes/api/kb/ingest-github'
 import { Route as ApiKbBuildGraphRouteImport } from './routes/api/kb/build-graph'
@@ -97,6 +99,10 @@ import { Route as AuthenticatedAnalyticsObservabilityRouteImport } from './route
 import { Route as AuthenticatedAdminIamRouteImport } from './routes/_authenticated/admin.iam'
 import { Route as ApiPublicHooksRefreshModelRegistryRouteImport } from './routes/api/public/hooks/refresh-model-registry'
 import { Route as ApiPublicHooksGenerateExamSetRouteImport } from './routes/api/public/hooks/generate-exam-set'
+import { Route as ApiNotebookRuntimeSourceRouteImport } from './routes/api/notebook.runtime.source'
+import { Route as ApiNotebookRuntimeResultRouteImport } from './routes/api/notebook.runtime.result'
+import { Route as ApiNotebookRuntimeReapRouteImport } from './routes/api/notebook.runtime.reap'
+import { Route as AuthenticatedNotebooksSampleSampleSlugRouteImport } from './routes/_authenticated/notebooks.sample.$sampleSlug'
 import { Route as AuthenticatedNotebooksPyPyNotebookIdRouteImport } from './routes/_authenticated/notebooks.py.$pyNotebookId'
 import { Route as AuthenticatedAnalyticsObservabilityRunIdRouteImport } from './routes/_authenticated/analytics_.observability.$runId'
 
@@ -243,6 +249,11 @@ const DocsAccountRoute = DocsAccountRouteImport.update({
   id: '/account',
   path: '/account',
   getParentRoute: () => DocsRoute,
+} as any)
+const ApiPythonKbRoute = ApiPythonKbRouteImport.update({
+  id: '/api/python-kb',
+  path: '/api/python-kb',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const ApiPythonChatRoute = ApiPythonChatRouteImport.update({
   id: '/api/python-chat',
@@ -456,6 +467,11 @@ const ApiSkillsGenerateRoute = ApiSkillsGenerateRouteImport.update({
   path: '/api/skills/generate',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiNotebookRuntimeRoute = ApiNotebookRuntimeRouteImport.update({
+  id: '/api/notebook/runtime',
+  path: '/api/notebook/runtime',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiKbIngestUrlRoute = ApiKbIngestUrlRouteImport.update({
   id: '/api/kb/ingest-url',
   path: '/api/kb/ingest-url',
@@ -552,6 +568,29 @@ const ApiPublicHooksGenerateExamSetRoute =
     path: '/api/public/hooks/generate-exam-set',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiNotebookRuntimeSourceRoute =
+  ApiNotebookRuntimeSourceRouteImport.update({
+    id: '/source',
+    path: '/source',
+    getParentRoute: () => ApiNotebookRuntimeRoute,
+  } as any)
+const ApiNotebookRuntimeResultRoute =
+  ApiNotebookRuntimeResultRouteImport.update({
+    id: '/result',
+    path: '/result',
+    getParentRoute: () => ApiNotebookRuntimeRoute,
+  } as any)
+const ApiNotebookRuntimeReapRoute = ApiNotebookRuntimeReapRouteImport.update({
+  id: '/reap',
+  path: '/reap',
+  getParentRoute: () => ApiNotebookRuntimeRoute,
+} as any)
+const AuthenticatedNotebooksSampleSampleSlugRoute =
+  AuthenticatedNotebooksSampleSampleSlugRouteImport.update({
+    id: '/sample/$sampleSlug',
+    path: '/sample/$sampleSlug',
+    getParentRoute: () => AuthenticatedNotebooksRoute,
+  } as any)
 const AuthenticatedNotebooksPyPyNotebookIdRoute =
   AuthenticatedNotebooksPyPyNotebookIdRouteImport.update({
     id: '/py/$pyNotebookId',
@@ -609,6 +648,7 @@ export interface FileRoutesByFullPath {
   '/api/contact': typeof ApiContactRoute
   '/api/embed': typeof ApiEmbedRouteWithChildren
   '/api/python-chat': typeof ApiPythonChatRoute
+  '/api/python-kb': typeof ApiPythonKbRoute
   '/docs/account': typeof DocsAccountRoute
   '/docs/agents': typeof DocsAgentsRoute
   '/docs/analytics': typeof DocsAnalyticsRoute
@@ -640,6 +680,7 @@ export interface FileRoutesByFullPath {
   '/api/kb/build-graph': typeof ApiKbBuildGraphRoute
   '/api/kb/ingest-github': typeof ApiKbIngestGithubRoute
   '/api/kb/ingest-url': typeof ApiKbIngestUrlRoute
+  '/api/notebook/runtime': typeof ApiNotebookRuntimeRouteWithChildren
   '/api/skills/generate': typeof ApiSkillsGenerateRoute
   '/api/swarm/run': typeof ApiSwarmRunRoute
   '/api/templates/provision': typeof ApiTemplatesProvisionRoute
@@ -653,6 +694,10 @@ export interface FileRoutesByFullPath {
   '/templates/': typeof AuthenticatedTemplatesIndexRoute
   '/analytics/observability/$runId': typeof AuthenticatedAnalyticsObservabilityRunIdRoute
   '/notebooks/py/$pyNotebookId': typeof AuthenticatedNotebooksPyPyNotebookIdRoute
+  '/notebooks/sample/$sampleSlug': typeof AuthenticatedNotebooksSampleSampleSlugRoute
+  '/api/notebook/runtime/reap': typeof ApiNotebookRuntimeReapRoute
+  '/api/notebook/runtime/result': typeof ApiNotebookRuntimeResultRoute
+  '/api/notebook/runtime/source': typeof ApiNotebookRuntimeSourceRoute
   '/api/public/hooks/generate-exam-set': typeof ApiPublicHooksGenerateExamSetRoute
   '/api/public/hooks/refresh-model-registry': typeof ApiPublicHooksRefreshModelRegistryRoute
 }
@@ -698,6 +743,7 @@ export interface FileRoutesByTo {
   '/api/contact': typeof ApiContactRoute
   '/api/embed': typeof ApiEmbedRouteWithChildren
   '/api/python-chat': typeof ApiPythonChatRoute
+  '/api/python-kb': typeof ApiPythonKbRoute
   '/docs/account': typeof DocsAccountRoute
   '/docs/agents': typeof DocsAgentsRoute
   '/docs/analytics': typeof DocsAnalyticsRoute
@@ -729,6 +775,7 @@ export interface FileRoutesByTo {
   '/api/kb/build-graph': typeof ApiKbBuildGraphRoute
   '/api/kb/ingest-github': typeof ApiKbIngestGithubRoute
   '/api/kb/ingest-url': typeof ApiKbIngestUrlRoute
+  '/api/notebook/runtime': typeof ApiNotebookRuntimeRouteWithChildren
   '/api/skills/generate': typeof ApiSkillsGenerateRoute
   '/api/swarm/run': typeof ApiSwarmRunRoute
   '/api/templates/provision': typeof ApiTemplatesProvisionRoute
@@ -742,6 +789,10 @@ export interface FileRoutesByTo {
   '/templates': typeof AuthenticatedTemplatesIndexRoute
   '/analytics/observability/$runId': typeof AuthenticatedAnalyticsObservabilityRunIdRoute
   '/notebooks/py/$pyNotebookId': typeof AuthenticatedNotebooksPyPyNotebookIdRoute
+  '/notebooks/sample/$sampleSlug': typeof AuthenticatedNotebooksSampleSampleSlugRoute
+  '/api/notebook/runtime/reap': typeof ApiNotebookRuntimeReapRoute
+  '/api/notebook/runtime/result': typeof ApiNotebookRuntimeResultRoute
+  '/api/notebook/runtime/source': typeof ApiNotebookRuntimeSourceRoute
   '/api/public/hooks/generate-exam-set': typeof ApiPublicHooksGenerateExamSetRoute
   '/api/public/hooks/refresh-model-registry': typeof ApiPublicHooksRefreshModelRegistryRoute
 }
@@ -791,6 +842,7 @@ export interface FileRoutesById {
   '/api/contact': typeof ApiContactRoute
   '/api/embed': typeof ApiEmbedRouteWithChildren
   '/api/python-chat': typeof ApiPythonChatRoute
+  '/api/python-kb': typeof ApiPythonKbRoute
   '/docs/account': typeof DocsAccountRoute
   '/docs/agents': typeof DocsAgentsRoute
   '/docs/analytics': typeof DocsAnalyticsRoute
@@ -822,6 +874,7 @@ export interface FileRoutesById {
   '/api/kb/build-graph': typeof ApiKbBuildGraphRoute
   '/api/kb/ingest-github': typeof ApiKbIngestGithubRoute
   '/api/kb/ingest-url': typeof ApiKbIngestUrlRoute
+  '/api/notebook/runtime': typeof ApiNotebookRuntimeRouteWithChildren
   '/api/skills/generate': typeof ApiSkillsGenerateRoute
   '/api/swarm/run': typeof ApiSwarmRunRoute
   '/api/templates/provision': typeof ApiTemplatesProvisionRoute
@@ -835,6 +888,10 @@ export interface FileRoutesById {
   '/_authenticated/templates/': typeof AuthenticatedTemplatesIndexRoute
   '/_authenticated/analytics_/observability/$runId': typeof AuthenticatedAnalyticsObservabilityRunIdRoute
   '/_authenticated/notebooks/py/$pyNotebookId': typeof AuthenticatedNotebooksPyPyNotebookIdRoute
+  '/_authenticated/notebooks/sample/$sampleSlug': typeof AuthenticatedNotebooksSampleSampleSlugRoute
+  '/api/notebook/runtime/reap': typeof ApiNotebookRuntimeReapRoute
+  '/api/notebook/runtime/result': typeof ApiNotebookRuntimeResultRoute
+  '/api/notebook/runtime/source': typeof ApiNotebookRuntimeSourceRoute
   '/api/public/hooks/generate-exam-set': typeof ApiPublicHooksGenerateExamSetRoute
   '/api/public/hooks/refresh-model-registry': typeof ApiPublicHooksRefreshModelRegistryRoute
 }
@@ -884,6 +941,7 @@ export interface FileRouteTypes {
     | '/api/contact'
     | '/api/embed'
     | '/api/python-chat'
+    | '/api/python-kb'
     | '/docs/account'
     | '/docs/agents'
     | '/docs/analytics'
@@ -915,6 +973,7 @@ export interface FileRouteTypes {
     | '/api/kb/build-graph'
     | '/api/kb/ingest-github'
     | '/api/kb/ingest-url'
+    | '/api/notebook/runtime'
     | '/api/skills/generate'
     | '/api/swarm/run'
     | '/api/templates/provision'
@@ -928,6 +987,10 @@ export interface FileRouteTypes {
     | '/templates/'
     | '/analytics/observability/$runId'
     | '/notebooks/py/$pyNotebookId'
+    | '/notebooks/sample/$sampleSlug'
+    | '/api/notebook/runtime/reap'
+    | '/api/notebook/runtime/result'
+    | '/api/notebook/runtime/source'
     | '/api/public/hooks/generate-exam-set'
     | '/api/public/hooks/refresh-model-registry'
   fileRoutesByTo: FileRoutesByTo
@@ -973,6 +1036,7 @@ export interface FileRouteTypes {
     | '/api/contact'
     | '/api/embed'
     | '/api/python-chat'
+    | '/api/python-kb'
     | '/docs/account'
     | '/docs/agents'
     | '/docs/analytics'
@@ -1004,6 +1068,7 @@ export interface FileRouteTypes {
     | '/api/kb/build-graph'
     | '/api/kb/ingest-github'
     | '/api/kb/ingest-url'
+    | '/api/notebook/runtime'
     | '/api/skills/generate'
     | '/api/swarm/run'
     | '/api/templates/provision'
@@ -1017,6 +1082,10 @@ export interface FileRouteTypes {
     | '/templates'
     | '/analytics/observability/$runId'
     | '/notebooks/py/$pyNotebookId'
+    | '/notebooks/sample/$sampleSlug'
+    | '/api/notebook/runtime/reap'
+    | '/api/notebook/runtime/result'
+    | '/api/notebook/runtime/source'
     | '/api/public/hooks/generate-exam-set'
     | '/api/public/hooks/refresh-model-registry'
   id:
@@ -1065,6 +1134,7 @@ export interface FileRouteTypes {
     | '/api/contact'
     | '/api/embed'
     | '/api/python-chat'
+    | '/api/python-kb'
     | '/docs/account'
     | '/docs/agents'
     | '/docs/analytics'
@@ -1096,6 +1166,7 @@ export interface FileRouteTypes {
     | '/api/kb/build-graph'
     | '/api/kb/ingest-github'
     | '/api/kb/ingest-url'
+    | '/api/notebook/runtime'
     | '/api/skills/generate'
     | '/api/swarm/run'
     | '/api/templates/provision'
@@ -1109,6 +1180,10 @@ export interface FileRouteTypes {
     | '/_authenticated/templates/'
     | '/_authenticated/analytics_/observability/$runId'
     | '/_authenticated/notebooks/py/$pyNotebookId'
+    | '/_authenticated/notebooks/sample/$sampleSlug'
+    | '/api/notebook/runtime/reap'
+    | '/api/notebook/runtime/result'
+    | '/api/notebook/runtime/source'
     | '/api/public/hooks/generate-exam-set'
     | '/api/public/hooks/refresh-model-registry'
   fileRoutesById: FileRoutesById
@@ -1134,6 +1209,7 @@ export interface RootRouteChildren {
   ApiContactRoute: typeof ApiContactRoute
   ApiEmbedRoute: typeof ApiEmbedRouteWithChildren
   ApiPythonChatRoute: typeof ApiPythonChatRoute
+  ApiPythonKbRoute: typeof ApiPythonKbRoute
   EmailUnsubscribeRoute: typeof EmailUnsubscribeRoute
   VerifyCodeRoute: typeof VerifyCodeRoute
   ApiAuthSsoConfigRoute: typeof ApiAuthSsoConfigRoute
@@ -1145,6 +1221,7 @@ export interface RootRouteChildren {
   ApiKbBuildGraphRoute: typeof ApiKbBuildGraphRoute
   ApiKbIngestGithubRoute: typeof ApiKbIngestGithubRoute
   ApiKbIngestUrlRoute: typeof ApiKbIngestUrlRoute
+  ApiNotebookRuntimeRoute: typeof ApiNotebookRuntimeRouteWithChildren
   ApiSkillsGenerateRoute: typeof ApiSkillsGenerateRoute
   ApiSwarmRunRoute: typeof ApiSwarmRunRoute
   ApiTemplatesProvisionRoute: typeof ApiTemplatesProvisionRoute
@@ -1362,6 +1439,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/docs/account'
       preLoaderRoute: typeof DocsAccountRouteImport
       parentRoute: typeof DocsRoute
+    }
+    '/api/python-kb': {
+      id: '/api/python-kb'
+      path: '/api/python-kb'
+      fullPath: '/api/python-kb'
+      preLoaderRoute: typeof ApiPythonKbRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/python-chat': {
       id: '/api/python-chat'
@@ -1650,6 +1734,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiSkillsGenerateRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/notebook/runtime': {
+      id: '/api/notebook/runtime'
+      path: '/api/notebook/runtime'
+      fullPath: '/api/notebook/runtime'
+      preLoaderRoute: typeof ApiNotebookRuntimeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/kb/ingest-url': {
       id: '/api/kb/ingest-url'
       path: '/api/kb/ingest-url'
@@ -1776,6 +1867,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicHooksGenerateExamSetRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/notebook/runtime/source': {
+      id: '/api/notebook/runtime/source'
+      path: '/source'
+      fullPath: '/api/notebook/runtime/source'
+      preLoaderRoute: typeof ApiNotebookRuntimeSourceRouteImport
+      parentRoute: typeof ApiNotebookRuntimeRoute
+    }
+    '/api/notebook/runtime/result': {
+      id: '/api/notebook/runtime/result'
+      path: '/result'
+      fullPath: '/api/notebook/runtime/result'
+      preLoaderRoute: typeof ApiNotebookRuntimeResultRouteImport
+      parentRoute: typeof ApiNotebookRuntimeRoute
+    }
+    '/api/notebook/runtime/reap': {
+      id: '/api/notebook/runtime/reap'
+      path: '/reap'
+      fullPath: '/api/notebook/runtime/reap'
+      preLoaderRoute: typeof ApiNotebookRuntimeReapRouteImport
+      parentRoute: typeof ApiNotebookRuntimeRoute
+    }
+    '/_authenticated/notebooks/sample/$sampleSlug': {
+      id: '/_authenticated/notebooks/sample/$sampleSlug'
+      path: '/sample/$sampleSlug'
+      fullPath: '/notebooks/sample/$sampleSlug'
+      preLoaderRoute: typeof AuthenticatedNotebooksSampleSampleSlugRouteImport
+      parentRoute: typeof AuthenticatedNotebooksRoute
+    }
     '/_authenticated/notebooks/py/$pyNotebookId': {
       id: '/_authenticated/notebooks/py/$pyNotebookId'
       path: '/py/$pyNotebookId'
@@ -1811,12 +1930,15 @@ const AuthenticatedCertificationRouteWithChildren =
 
 interface AuthenticatedNotebooksRouteChildren {
   AuthenticatedNotebooksPyPyNotebookIdRoute: typeof AuthenticatedNotebooksPyPyNotebookIdRoute
+  AuthenticatedNotebooksSampleSampleSlugRoute: typeof AuthenticatedNotebooksSampleSampleSlugRoute
 }
 
 const AuthenticatedNotebooksRouteChildren: AuthenticatedNotebooksRouteChildren =
   {
     AuthenticatedNotebooksPyPyNotebookIdRoute:
       AuthenticatedNotebooksPyPyNotebookIdRoute,
+    AuthenticatedNotebooksSampleSampleSlugRoute:
+      AuthenticatedNotebooksSampleSampleSlugRoute,
   }
 
 const AuthenticatedNotebooksRouteWithChildren =
@@ -1964,6 +2086,21 @@ const ApiEmbedRouteWithChildren = ApiEmbedRoute._addFileChildren(
   ApiEmbedRouteChildren,
 )
 
+interface ApiNotebookRuntimeRouteChildren {
+  ApiNotebookRuntimeReapRoute: typeof ApiNotebookRuntimeReapRoute
+  ApiNotebookRuntimeResultRoute: typeof ApiNotebookRuntimeResultRoute
+  ApiNotebookRuntimeSourceRoute: typeof ApiNotebookRuntimeSourceRoute
+}
+
+const ApiNotebookRuntimeRouteChildren: ApiNotebookRuntimeRouteChildren = {
+  ApiNotebookRuntimeReapRoute: ApiNotebookRuntimeReapRoute,
+  ApiNotebookRuntimeResultRoute: ApiNotebookRuntimeResultRoute,
+  ApiNotebookRuntimeSourceRoute: ApiNotebookRuntimeSourceRoute,
+}
+
+const ApiNotebookRuntimeRouteWithChildren =
+  ApiNotebookRuntimeRoute._addFileChildren(ApiNotebookRuntimeRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRoute: AuthenticatedRouteWithChildren,
@@ -1985,6 +2122,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiContactRoute: ApiContactRoute,
   ApiEmbedRoute: ApiEmbedRouteWithChildren,
   ApiPythonChatRoute: ApiPythonChatRoute,
+  ApiPythonKbRoute: ApiPythonKbRoute,
   EmailUnsubscribeRoute: EmailUnsubscribeRoute,
   VerifyCodeRoute: VerifyCodeRoute,
   ApiAuthSsoConfigRoute: ApiAuthSsoConfigRoute,
@@ -1996,6 +2134,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiKbBuildGraphRoute: ApiKbBuildGraphRoute,
   ApiKbIngestGithubRoute: ApiKbIngestGithubRoute,
   ApiKbIngestUrlRoute: ApiKbIngestUrlRoute,
+  ApiNotebookRuntimeRoute: ApiNotebookRuntimeRouteWithChildren,
   ApiSkillsGenerateRoute: ApiSkillsGenerateRoute,
   ApiSwarmRunRoute: ApiSwarmRunRoute,
   ApiTemplatesProvisionRoute: ApiTemplatesProvisionRoute,

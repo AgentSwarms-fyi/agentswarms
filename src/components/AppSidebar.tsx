@@ -66,7 +66,7 @@ const experimentItems: NavItem[] = [
 const dataItems: NavItem[] = [
   { title: "Data Catalog", url: "/data-sql", icon: Database },
   { title: "BI Workspace", url: "/bi", icon: PieChart },
-  { title: "Python Lab", url: "/notebooks", icon: NotebookPen },
+  { title: "Developer workspace", url: "/notebooks", icon: NotebookPen },
 ];
 
 const libraryItems: NavItem[] = [
@@ -116,7 +116,7 @@ export function AppSidebar() {
                 <Link to={item.url}>
                   <item.icon className="h-4 w-4" />
                   <span className="flex-1">{item.title}</span>
-                  {item.title === "Python Lab" && !collapsed && (
+                  {item.title === "Developer workspace" && !collapsed && (
                     <span className="ml-auto rounded-full bg-primary/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-primary">
                       New
                     </span>

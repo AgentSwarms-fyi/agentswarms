@@ -7,11 +7,10 @@
 // OpenAI-compatible providers only (openrouter, openai, gemini, groq, grok,
 // qwen, ollama, vllm, nvidia).
 import { createFileRoute } from "@tanstack/react-router";
-import { createClient } from "@supabase/supabase-js";
-import type { Database } from "@/integrations/supabase/types";
 import { resolveOpenAICompatTransport } from "@/utils/providers/credentials.server";
 import type { ProviderId } from "@/utils/providers/types";
 import { getEffectiveModelRules, isModelAllowed } from "@/utils/iam.server";
+import { resolvePythonCaller } from "@/utils/notebookRuntime/caller.server";
 
 const COMPAT_PROVIDERS = new Set<string>([
   "openai",
@@ -25,16 +24,6 @@ const COMPAT_PROVIDERS = new Set<string>([
   "nvidia",
 ]);
 
-function getServerSupabase(authToken?: string) {
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_PUBLISHABLE_KEY;
-  if (!url || !key) return null;
-  return createClient<Database>(url, key, {
-    auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
-    global: authToken ? { headers: { Authorization: `Bearer ${authToken}` } } : undefined,
-  });
-}
-
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -46,13 +35,12 @@ export const Route = createFileRoute("/api/python-chat")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const auth = request.headers.get("authorization");
-        const token = auth?.startsWith("Bearer ") ? auth.slice(7) : undefined;
-        const sb = getServerSupabase(token);
-        if (!token || !sb) return json(401, { error: "Sign in to run notebook model calls" });
-        const { data: claims } = await sb.auth.getClaims(token);
-        const userId = claims?.claims?.sub;
-        if (!userId) return json(401, { error: "Invalid session" });
+        // Accepts a Supabase user JWT (browser Pyodide runtime) OR a
+        // notebook-runtime session token (server kernel). Both resolve to a
+        // userId; provider keys stay server-side either way.
+        const caller = await resolvePythonCaller(request);
+        if (!caller) return json(401, { error: "Sign in to run notebook model calls" });
+        const { userId, sb } = caller;
 
         let body: {
           provider?: string;

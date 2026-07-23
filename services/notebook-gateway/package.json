@@ -1,0 +1,17 @@
+{
+  "name": "agentswarms-notebook-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Authenticated websocket bridge between the browser notebook editor and per-session Jupyter kernels.",
+  "main": "index.mjs",
+  "scripts": {
+    "start": "node index.mjs"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

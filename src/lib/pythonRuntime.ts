@@ -42,6 +42,7 @@ function loadScript(src: string): Promise<void> {
 // Injected as a real module so notebook code reads naturally:
 //   import agentswarms
 //   reply = await agentswarms.chat("hi", provider="openrouter", model="openai/gpt-4o-mini")
+//   hits  = await agentswarms.kb_search("refund policy")
 const BOOTSTRAP = `
 import json as _json
 import sys as _sys
@@ -49,7 +50,22 @@ import types as _types
 from pyodide.http import pyfetch as _pyfetch
 
 _agentswarms = _types.ModuleType("agentswarms")
-_agentswarms.__doc__ = "Helpers for calling LLMs through your AgentSwarms account."
+_agentswarms.__doc__ = "Helpers for calling LLMs and your knowledge bases through your AgentSwarms account."
+
+async def _post(path, payload):
+    resp = await _pyfetch(
+        _AGENTSWARMS_ORIGIN + path,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": "Bearer " + _AGENTSWARMS_TOKEN,
+        },
+        body=_json.dumps(payload),
+    )
+    data = await resp.json()
+    if resp.status != 200:
+        raise RuntimeError(data.get("message") or data.get("error") or f"HTTP {resp.status}")
+    return data
 
 async def _chat(prompt=None, *, model, provider="openrouter", system=None,
                 temperature=0.7, max_tokens=1024, messages=None):
@@ -68,29 +84,50 @@ async def _chat(prompt=None, *, model, provider="openrouter", system=None,
         if system:
             messages.append({"role": "system", "content": str(system)})
         messages.append({"role": "user", "content": str(prompt)})
-    resp = await _pyfetch(
-        _AGENTSWARMS_ORIGIN + "/api/python-chat",
-        method="POST",
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": "Bearer " + _AGENTSWARMS_TOKEN,
-        },
-        body=_json.dumps({
-            "provider": provider,
-            "model": model,
-            "messages": messages,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-        }),
-    )
-    data = await resp.json()
-    if resp.status != 200:
-        raise RuntimeError(data.get("message") or data.get("error") or f"HTTP {resp.status}")
+    data = await _post("/api/python-chat", {
+        "provider": provider,
+        "model": model,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    })
     return data["content"]
 
+async def _kb_search(query, *, kb_ids=None, top_k=5):
+    """Hybrid (vector + keyword) retrieval over your knowledge bases.
+
+    query:  what to look for.
+    kb_ids: optional list of knowledge-base ids; omit to search every KB your
+            account can read (your own, IAM-shared, and public samples).
+    Returns a list of {"document", "knowledge_base", "snippet"} dicts.
+    """
+    data = await _post("/api/python-kb", {
+        "action": "search",
+        "query": str(query),
+        "kb_ids": list(kb_ids) if kb_ids else None,
+        "top_k": top_k,
+    })
+    return data.get("results", [])
+
+async def _list_knowledge_bases():
+    """List the knowledge bases your account can read: {"id", "name", "sample"}."""
+    data = await _post("/api/python-kb", {"action": "list"})
+    return data.get("knowledge_bases", [])
+
+def _format_context(hits):
+    """Turn kb_search() results into a numbered context block for a prompt."""
+    lines = []
+    for i, h in enumerate(hits, 1):
+        lines.append(f"[{i}] ({h.get('knowledge_base','KB')} / {h.get('document','doc')}) "
+                     + h.get("snippet", ""))
+    return "\\n".join(lines)
+
 _agentswarms.chat = _chat
+_agentswarms.kb_search = _kb_search
+_agentswarms.list_knowledge_bases = _list_knowledge_bases
+_agentswarms.format_context = _format_context
 _sys.modules["agentswarms"] = _agentswarms
-del _chat, _agentswarms
+del _chat, _kb_search, _list_knowledge_bases, _format_context, _post, _agentswarms
 `;
 
 export async function getPythonEngine(): Promise<Pyodide> {

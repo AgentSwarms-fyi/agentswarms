@@ -1,0 +1,18 @@
+# Base image for server-side notebook kernels. Pinned kernel infra; frameworks
+# are left flexible so operators can rebuild against current releases. Users can
+# also `pip install` more at runtime (installs go to a writable --user dir).
+jupyter_kernel_gateway==3.0.1
+ipykernel==6.29.5
+httpx==0.27.2
+
+# Agentic frameworks — the whole point of the server runtime.
+langchain
+langchain-openai
+langchain-community
+langgraph
+llama-index
+
+# Common companions.
+pydantic
+pandas
+numpy

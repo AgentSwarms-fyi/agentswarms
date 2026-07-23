@@ -77,8 +77,8 @@ const FEATURES = [
     color: "text-emerald-600 bg-emerald-50 dark:text-emerald-300 dark:bg-emerald-500/15",
   },
   {
-    title: "Python Lab",
-    desc: "AI-assisted notebooks that run entirely in your browser.",
+    title: "Developer workspace",
+    desc: "AI-assisted Python notebooks that run entirely in your browser.",
     to: "/notebooks" as const,
     icon: NotebookPen,
     badge: "New",
