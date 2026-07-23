@@ -39,6 +39,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { DataPrepTab } from "@/components/bi/DataPrepTab";
+import { BiThumbnail } from "@/components/bi/BiThumbnail";
 import { useAuth } from "@/hooks/use-auth";
 import {
   createDashboard,
@@ -193,12 +194,18 @@ function BiWorkspacePage() {
                 return (
                   <Card
                     key={d.id}
-                    className="group cursor-pointer overflow-hidden rounded-xl border-border/60 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-lg"
+                    className="group flex cursor-pointer flex-col overflow-hidden rounded-xl border-border/60 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-lg"
                     onClick={() =>
                       void navigate({ to: "/bi/$dashboardId", params: { dashboardId: d.id } })
                     }
                   >
-                    <CardContent className="flex h-full flex-col gap-3 p-5">
+                    <BiThumbnail
+                      widgets={d.widgets}
+                      layout={d.layout}
+                      theme={d.theme}
+                      className="aspect-[16/9] w-full shrink-0 rounded-none border-x-0 border-t-0 border-b transition group-hover:brightness-105"
+                    />
+                    <CardContent className="flex flex-1 flex-col gap-3 p-5">
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex min-w-0 items-start gap-3">
                           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
@@ -234,39 +241,6 @@ function BiWorkspacePage() {
                           )}
                         </div>
                       </div>
-                      {widgets.length > 0 && (
-                        <div className="flex items-center gap-1">
-                          {widgets.slice(0, 6).map((w) => {
-                            const t = w.kind === "text" ? "text" : (w.chart?.type ?? "bar");
-                            const Glyph =
-                              t === "text"
-                                ? Type
-                                : t === "ontology"
-                                  ? Network
-                                  : t === "pie"
-                                    ? PieChart
-                                    : t === "kpi"
-                                      ? Gauge
-                                      : t === "table"
-                                        ? Table2
-                                        : BarChart3;
-                            return (
-                              <span
-                                key={w.id}
-                                className="flex h-6 w-6 items-center justify-center rounded-md bg-muted"
-                                title={w.title}
-                              >
-                                <Glyph className="h-3 w-3 text-muted-foreground" />
-                              </span>
-                            );
-                          })}
-                          {widgets.length > 6 && (
-                            <span className="text-[10px] text-muted-foreground">
-                              +{widgets.length - 6}
-                            </span>
-                          )}
-                        </div>
-                      )}
                       <div className="mt-auto flex items-center justify-between border-t border-border/40 pt-3 text-xs text-muted-foreground">
                         <span
                           title={
