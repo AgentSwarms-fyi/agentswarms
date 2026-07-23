@@ -35,8 +35,9 @@ Open **Semantic Layer** in the sidebar:
 
 1. **New model** → give it a name, pick a source dataset (its columns appear as
    chips to help authoring).
-2. Add **dimensions** and **metrics** — use **+ from column** to scaffold one
-   from a column, then refine the SQL/aggregation.
+2. **Generate with AI** proposes dimensions + metrics from the dataset's columns
+   (governed by your IAM model rules, like every AI call) — or add them by hand
+   with **+ from column** and refine the SQL/aggregation.
 3. **Save**, then use the **Query runner** to pick metrics + dimensions and see
    the rows and the compiled SQL.
 
@@ -74,7 +75,6 @@ composes SELECT/GROUP BY/WHERE/HAVING and quotes identifiers per dialect.
 
 ## Not yet (roadmap)
 
-- One-click **AI-generate a model** from a table's columns.
 - IAM **group sharing** of models (the RLS policy is in place; the grant type
   needs enabling).
 - A **metric picker in the BI visual builder** (today: define + run here; query

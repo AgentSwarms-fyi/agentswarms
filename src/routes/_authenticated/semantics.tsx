@@ -4,8 +4,9 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { Layers, Play, Plus, Save, Trash2 } from "lucide-react";
+import { Layers, Play, Plus, Save, Sparkles, Trash2 } from "lucide-react";
 
+import { llmJson } from "@/lib/biAgent";
 import { useAuth } from "@/hooks/use-auth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -103,6 +104,7 @@ function SemanticsPage() {
   const [sources, setSources] = useState<LocalSource[]>([]);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
+  const [generating, setGenerating] = useState(false);
 
   // Run panel
   const [pickedMetrics, setPickedMetrics] = useState<string[]>([]);
@@ -219,6 +221,82 @@ function SemanticsPage() {
       toast.error(e instanceof Error ? e.message : "Query failed");
     } finally {
       setRunning(false);
+    }
+  };
+
+  const generateWithAI = async () => {
+    if (!draft || !selectedSource) return toast.error("Pick a source dataset first");
+    setGenerating(true);
+    try {
+      const cols = selectedSource.columns.map((c) => `- \`${c.name}\` (${c.type})`).join("\n");
+      type Gen = {
+        label?: string;
+        description?: string;
+        dimensions?: Array<{ name?: string; label?: string; sql?: string; type?: string }>;
+        metrics?: Array<{ name?: string; label?: string; agg?: string; sql?: string; format?: string }>;
+      };
+      const res = await llmJson<Gen>({
+        systemPrompt:
+          "You design a semantic-layer model for analytics over a single table. " +
+          "Return STRICT JSON: {label, description, dimensions:[{name,label,sql,type}], metrics:[{name,label,agg,sql,format}]}. " +
+          "Rules: `name` is a snake_case identifier matching ^[a-z_][a-z0-9_]*$. " +
+          "`sql` is the column reference wrapped in backticks EXACTLY as given (e.g. `Order Date`) — never invent columns. " +
+          "Dimensions are categorical or time columns (type one of categorical|time|number|boolean). " +
+          "Metrics aggregate numeric columns: agg one of sum|avg|count|count_distinct|min|max. " +
+          "Use sum for additive amounts; ALWAYS include one {name:'row_count', label:'Row count', agg:'count'} with no sql. " +
+          "Set format:'currency' for money columns, 'percent' for rates. Output JSON only, no prose.",
+        userPrompt: `Table: ${selectedSource.name}\nColumns:\n${cols}\n\nDesign the semantic model.`,
+        temperature: 0.2,
+      });
+
+      const validAgg = new Set<MetricAgg>(["sum", "avg", "count", "count_distinct", "min", "max", "custom"]);
+      const seen = new Set<string>();
+      const dims: SemanticDimension[] = [];
+      for (const d of (res.dimensions ?? []).slice(0, 20)) {
+        const name = slug(d.name || d.label || "");
+        if (!name || seen.has(name)) continue;
+        seen.add(name);
+        dims.push({
+          name,
+          label: d.label || undefined,
+          sql: d.sql?.trim() || `\`${d.name ?? name}\``,
+          type: (["categorical", "time", "number", "boolean"].includes(d.type || "")
+            ? d.type
+            : "categorical") as SemanticDimension["type"],
+        });
+      }
+      const mets: SemanticMetric[] = [];
+      for (const m of (res.metrics ?? []).slice(0, 15)) {
+        const name = slug(m.name || m.label || "");
+        if (!name || seen.has(name)) continue;
+        const agg = (validAgg.has(m.agg as MetricAgg) ? m.agg : "sum") as MetricAgg;
+        const sql = m.sql?.trim() || undefined;
+        if (agg !== "count" && !sql) continue; // needs a column
+        seen.add(name);
+        mets.push({
+          name,
+          label: m.label || undefined,
+          agg,
+          sql,
+          format: (["number", "currency", "percent"].includes(m.format || "")
+            ? m.format
+            : undefined) as SemanticMetric["format"],
+        });
+      }
+      if (dims.length === 0 && mets.length === 0) throw new Error("The AI didn't return any fields");
+
+      patch({
+        name: draft.name || slug(selectedSource.name),
+        label: draft.label || res.label || "",
+        description: draft.description || res.description || "",
+        dimensions: dims,
+        metrics: mets,
+      });
+      toast.success(`Generated ${dims.length} dimensions and ${mets.length} metrics — review and save.`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "AI generation failed");
+    } finally {
+      setGenerating(false);
     }
   };
 
@@ -372,9 +450,21 @@ function SemanticsPage() {
                     </div>
                   )}
                 </div>
-                <Button size="sm" onClick={save} disabled={saving}>
-                  <Save className="mr-1 h-4 w-4" /> {saving ? "Saving…" : "Save model"}
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={generateWithAI}
+                    disabled={generating || !selectedSource}
+                    title={selectedSource ? "" : "Pick a source dataset first"}
+                  >
+                    <Sparkles className="mr-1 h-4 w-4" />
+                    {generating ? "Generating…" : "Generate with AI"}
+                  </Button>
+                  <Button size="sm" onClick={save} disabled={saving}>
+                    <Save className="mr-1 h-4 w-4" /> {saving ? "Saving…" : "Save model"}
+                  </Button>
+                </div>
               </CardContent>
             </Card>
 
