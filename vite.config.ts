@@ -86,6 +86,11 @@ export default defineConfig(async ({ command, mode }) => {
     server: {
       host: "::",
       port: 8080,
+      // Notebook kernels run in containers and call the app back at
+      // http://host.docker.internal:8080 (dev mode). Vite's host check rejects
+      // unknown Host headers with "Blocked request", which would break every
+      // agentswarms.chat()/kb_search() call from a server kernel.
+      allowedHosts: ["host.docker.internal"],
       watch: {
         awaitWriteFinish: { stabilityThreshold: 1000, pollInterval: 100 },
       },

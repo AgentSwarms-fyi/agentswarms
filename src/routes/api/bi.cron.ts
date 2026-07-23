@@ -42,12 +42,23 @@ async function handle(request: Request) {
     const swarmRan = await import("@/utils/swarmSchedules.server").then((m) =>
       m.processDueSwarmSchedules(bearer === cronToken, new URL(request.url).origin),
     );
+    // Reap idle/expired notebook kernels here too, so containers are released
+    // without needing a second scheduler. Never let it break the other jobs.
+    let kernelsReaped = 0;
+    try {
+      kernelsReaped = await import("@/utils/notebookRuntime/service.server").then((m) =>
+        m.reapSessions(),
+      );
+    } catch (e) {
+      console.warn("[cron] notebook kernel reap failed:", (e as Error).message);
+    }
     return json({
       ok: true,
       processed: ran,
       prep_flows: prepRan,
       catalog_crawls: crawled,
       swarm_schedules: swarmRan,
+      kernels_reaped: kernelsReaped,
     });
   } catch (e) {
     return json({ error: (e as Error).message }, 500);
