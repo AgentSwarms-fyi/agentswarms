@@ -15,6 +15,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { listDataTablesTool, runListDataTables, runSqlQuery, sqlQueryTool } from "./sql.server";
+import { metricQueryTool, runMetricQuery, semanticCatalogForCtx } from "./metric.server";
 import { loadWarehouseConnection } from "@/utils/warehouse/connections.server";
 import { executeWarehouseQuery, listWarehouseTables } from "@/utils/warehouse/drivers.server";
 import {
@@ -1087,6 +1088,7 @@ export const TOOLABLE_IDS = [
   "datetime",
   "weather",
   "sql_query",
+  "metric_query",
   "memory_remember",
   "memory_recall",
   "memory_forget",
@@ -1332,6 +1334,25 @@ export async function resolveAgentTools(
       handlers.set("list_data_tables", (c, a) => runListDataTables(c, a, allowSet));
       handlers.set("sql_query", (c, a) => runSqlQuery(c, a, allowSet));
       enabled.sql = true;
+    }
+  }
+
+  // Governed semantic metrics — the metric_query tool, available when the user
+  // has defined at least one semantic model. The catalog (models + metric /
+  // dimension names) is injected into the tool description so the model picks
+  // names instead of writing SQL; the compiler guarantees the definition.
+  if (allows("metric_query")) {
+    const catalog = await semanticCatalogForCtx(ctx);
+    if (catalog.count > 0) {
+      const metricTool: ToolDef = {
+        ...metricQueryTool,
+        function: {
+          ...metricQueryTool.function,
+          description: `${metricQueryTool.function.description}\n\nSemantic catalog:\n${catalog.text}`,
+        },
+      };
+      tools.push(metricTool);
+      handlers.set("metric_query", runMetricQuery);
     }
   }
 

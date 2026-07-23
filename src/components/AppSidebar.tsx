@@ -1,5 +1,6 @@
 import {
   LayoutDashboard,
+  Layers,
   Puzzle,
   Bot,
   MessageSquare,
@@ -66,6 +67,7 @@ const experimentItems: NavItem[] = [
 
 const dataItems: NavItem[] = [
   { title: "Data Catalog", url: "/data-sql", icon: Database },
+  { title: "Semantic Layer", url: "/semantics", icon: Layers },
   { title: "BI Workspace", url: "/bi", icon: PieChart },
   { title: "Developer workspace", url: "/notebooks", icon: NotebookPen },
 ];

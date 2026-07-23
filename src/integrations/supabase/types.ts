@@ -2871,6 +2871,54 @@ export type Database = {
         };
         Relationships: [];
       };
+      semantic_models: {
+        Row: {
+          connection_id: string | null;
+          created_at: string;
+          description: string | null;
+          dimensions: Json;
+          id: string;
+          label: string | null;
+          metrics: Json;
+          name: string;
+          source_kind: string;
+          source_table: string;
+          table_id: string | null;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          connection_id?: string | null;
+          created_at?: string;
+          description?: string | null;
+          dimensions?: Json;
+          id?: string;
+          label?: string | null;
+          metrics?: Json;
+          name: string;
+          source_kind: string;
+          source_table: string;
+          table_id?: string | null;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          connection_id?: string | null;
+          created_at?: string;
+          description?: string | null;
+          dimensions?: Json;
+          id?: string;
+          label?: string | null;
+          metrics?: Json;
+          name?: string;
+          source_kind?: string;
+          source_table?: string;
+          table_id?: string | null;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       cron_locks: {
         Row: {
           holder: string | null;

@@ -112,6 +112,14 @@ const BUILT_IN_TOOLS: BuiltInTool[] = [
     category: "data",
     requiresConfig: true,
   },
+  {
+    id: "metric_query",
+    name: "Semantic Metrics",
+    description:
+      "Query governed metrics + dimensions defined in the Semantic Layer, so business definitions (revenue, active customers) compute consistently. Define models under Semantic Layer.",
+    icon: Database,
+    category: "data",
+  },
 
   // Utilities — keyless, real implementations.
   {
