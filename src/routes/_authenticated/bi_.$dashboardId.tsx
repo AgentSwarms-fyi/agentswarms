@@ -685,6 +685,10 @@ function BiProjectPage() {
   }
 
   function editWidget(w: BiWidget) {
+    if (w.source?.kind === "semantic") {
+      toast.info("This widget is backed by a governed metric — edit it in the Semantic Layer.");
+      return;
+    }
     if (w.kind === "text") {
       setTextInitial(w);
       setTextOpen(true);
@@ -1146,16 +1150,32 @@ function BiProjectPage() {
                     onElementClick={handleElementClick(id)}
                     actions={
                       readOnly ? undefined : (
-                        <DropdownMenu>
+                        <div className="flex items-center gap-1">
+                          {w.source?.kind === "semantic" && (
+                            <Badge
+                              variant="secondary"
+                              className="h-5 px-1.5 text-[10px]"
+                              title="Backed by a governed semantic metric — edit it in the Semantic Layer"
+                            >
+                              Metric
+                            </Badge>
+                          )}
+                          <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button size="sm" variant="ghost" className="h-6 w-6 shrink-0 p-0">
                               <MoreVertical className="h-3.5 w-3.5" />
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => editWidget(w)}>
-                              <Pencil className="mr-2 h-3.5 w-3.5" /> Edit
-                            </DropdownMenuItem>
+                            {w.source?.kind === "semantic" ? (
+                              <DropdownMenuItem disabled>
+                                <Pencil className="mr-2 h-3.5 w-3.5" /> Edit in Semantic Layer
+                              </DropdownMenuItem>
+                            ) : (
+                              <DropdownMenuItem onClick={() => editWidget(w)}>
+                                <Pencil className="mr-2 h-3.5 w-3.5" /> Edit
+                              </DropdownMenuItem>
+                            )}
                             {w.kind === "chart" && (
                               <DropdownMenuItem
                                 disabled={insightBusyId !== null}
@@ -1249,6 +1269,7 @@ function BiProjectPage() {
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
+                        </div>
                       )
                     }
                   />
