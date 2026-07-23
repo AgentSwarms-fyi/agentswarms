@@ -155,6 +155,169 @@ export const nbRuntimeUpdateSettings = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+export type PreflightCheck = { name: string; status: "pass" | "fail" | "warn"; detail: string };
+
+/**
+ * Actually probe whether the selected backend can run kernels here. The backend
+ * selector only chooses which API the orchestrator talks to — it never installs
+ * Docker or Kubernetes — so this reports exactly what's missing instead of
+ * letting a session fail later with an opaque error.
+ */
+export const nbRuntimePreflight = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        access_token: z.string().min(1),
+        backend: z.enum(["docker", "k8s", "e2b"]).optional(),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }): Promise<NbRuntimeError | { ok: true; checks: PreflightCheck[] }> => {
+    const guard = await requireSuperadmin(data.access_token);
+    if (!guard.ok) return guard;
+
+    const { data: row } = await supabaseAdmin
+      .from("notebook_runtime_settings")
+      .select("backend, default_image")
+      .eq("id", true)
+      .maybeSingle();
+    const backend = data.backend ?? row?.backend ?? "docker";
+    const image = process.env.NOTEBOOK_RUNTIME_IMAGE || row?.default_image || "agentswarms/notebook-runtime:latest";
+    const checks: PreflightCheck[] = [];
+
+    checks.push(
+      runtimeSecretConfigured()
+        ? { name: "Signing secret", status: "pass", detail: "NOTEBOOK_RUNTIME_SECRET is set" }
+        : {
+            name: "Signing secret",
+            status: "fail",
+            detail: "NOTEBOOK_RUNTIME_SECRET is not set — kernels cannot be issued session tokens",
+          },
+    );
+
+    const gw = process.env.NOTEBOOK_GATEWAY_URL;
+    checks.push(
+      gw
+        ? { name: "Gateway URL", status: "pass", detail: gw }
+        : {
+            name: "Gateway URL",
+            status: "fail",
+            detail: "NOTEBOOK_GATEWAY_URL is not set — the browser cannot reach a kernel",
+          },
+    );
+
+    if (backend === "docker") {
+      const proxy = process.env.DOCKER_PROXY_URL;
+      if (!proxy) {
+        checks.push({
+          name: "Docker socket-proxy",
+          status: "fail",
+          detail: "DOCKER_PROXY_URL is not set. Start the runtime services: docker compose -f docker-compose.yml -f docker-compose.notebooks.yml --profile notebooks up --build",
+        });
+      } else {
+        const base = proxy.replace(/\/$/, "");
+        try {
+          const ping = await fetch(`${base}/_ping`);
+          checks.push({
+            name: "Docker socket-proxy",
+            status: ping.ok ? "pass" : "fail",
+            detail: ping.ok ? `reachable at ${base}` : `HTTP ${ping.status} from ${base}`,
+          });
+        } catch (e) {
+          checks.push({
+            name: "Docker socket-proxy",
+            status: "fail",
+            detail: `unreachable at ${base}: ${e instanceof Error ? e.message : String(e)}`,
+          });
+        }
+        try {
+          const img = await fetch(`${base}/images/${encodeURIComponent(image)}/json`);
+          checks.push({
+            name: "Kernel image",
+            status: img.ok ? "pass" : "fail",
+            detail: img.ok
+              ? `${image} present`
+              : `${image} not found — build it (docker compose --profile notebooks up --build)`,
+          });
+        } catch {
+          checks.push({ name: "Kernel image", status: "warn", detail: `could not check ${image}` });
+        }
+        const net = process.env.NOTEBOOK_NETWORK || "agentswarms_nb-internal";
+        try {
+          const n = await fetch(`${base}/networks/${encodeURIComponent(net)}`);
+          checks.push({
+            name: "Isolated network",
+            status: n.ok ? "pass" : "fail",
+            detail: n.ok ? `${net} exists` : `${net} not found — created by the notebooks compose profile`,
+          });
+        } catch {
+          checks.push({ name: "Isolated network", status: "warn", detail: `could not check ${net}` });
+        }
+      }
+      checks.push(
+        process.env.NOTEBOOK_EGRESS_PROXY
+          ? { name: "Egress proxy", status: "pass", detail: process.env.NOTEBOOK_EGRESS_PROXY }
+          : {
+              name: "Egress proxy",
+              status: "warn",
+              detail: "NOTEBOOK_EGRESS_PROXY not set — kernels would have unrestricted network egress",
+            },
+      );
+    }
+
+    if (backend === "k8s") {
+      const { readFileSync } = await import("node:fs");
+      let token = "";
+      try {
+        token = readFileSync("/var/run/secrets/kubernetes.io/serviceaccount/token", "utf8").trim();
+      } catch {
+        /* not in-cluster */
+      }
+      if (!token) {
+        checks.push({
+          name: "In-cluster credentials",
+          status: "fail",
+          detail:
+            "No ServiceAccount token. The Kubernetes backend does NOT install or connect to a cluster by URL — it requires the AgentSwarms app itself to run as a pod inside your cluster, with the RBAC from deploy/k8s/notebooks/ applied.",
+        });
+      } else {
+        checks.push({ name: "In-cluster credentials", status: "pass", detail: "ServiceAccount token present" });
+        const ns = process.env.NOTEBOOK_K8S_NAMESPACE || "agentswarms-notebooks";
+        const host = process.env.KUBERNETES_SERVICE_HOST || "kubernetes.default.svc";
+        const port = process.env.KUBERNETES_SERVICE_PORT || "443";
+        try {
+          const res = await fetch(`https://${host}:${port}/api/v1/namespaces/${ns}/pods?limit=1`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          checks.push({
+            name: "Kubernetes API",
+            status: res.ok ? "pass" : "fail",
+            detail: res.ok
+              ? `can list pods in ${ns}`
+              : `HTTP ${res.status} listing pods in ${ns} (check RBAC / NODE_EXTRA_CA_CERTS)`,
+          });
+        } catch (e) {
+          checks.push({
+            name: "Kubernetes API",
+            status: "fail",
+            detail: `unreachable: ${e instanceof Error ? e.message : String(e)}`,
+          });
+        }
+      }
+    }
+
+    if (backend === "e2b") {
+      checks.push({
+        name: "E2B backend",
+        status: "fail",
+        detail:
+          "Not implemented — this backend is a stub and will throw on use. Choose Docker or Kubernetes.",
+      });
+    }
+
+    return { ok: true, checks };
+  });
+
 export const nbRuntimeAddGrant = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) =>
     z

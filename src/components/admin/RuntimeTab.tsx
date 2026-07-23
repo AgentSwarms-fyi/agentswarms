@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 import {
   Select,
   SelectContent,
@@ -23,10 +24,12 @@ import {
 import {
   nbRuntimeAddGrant,
   nbRuntimeGetState,
+  nbRuntimePreflight,
   nbRuntimeRemoveGrant,
   nbRuntimeUpdateSettings,
   type NbRuntimeSettings,
   type NbRuntimeState,
+  type PreflightCheck,
 } from "@/utils/notebookRuntimeAdmin.functions";
 
 function NumberField({
@@ -67,6 +70,9 @@ export function RuntimeTab({ token }: { token: string }) {
   const [grantType, setGrantType] = useState<"user" | "group">("group");
   const [grantId, setGrantId] = useState("");
   const [busyGrant, setBusyGrant] = useState(false);
+  const preflightFn = useServerFn(nbRuntimePreflight);
+  const [checks, setChecks] = useState<PreflightCheck[] | null>(null);
+  const [checking, setChecking] = useState(false);
 
   const load = useCallback(() => {
     getStateFn({ data: { access_token: token } }).then((res) => {
@@ -107,6 +113,20 @@ export function RuntimeTab({ token }: { token: string }) {
       load();
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function runPreflight() {
+    if (!form) return;
+    setChecking(true);
+    try {
+      const res = await preflightFn({
+        data: { access_token: token, backend: form.backend as "docker" | "k8s" | "e2b" },
+      });
+      if (!res.ok) return toast.error(res.error);
+      setChecks(res.checks);
+    } finally {
+      setChecking(false);
     }
   }
 
@@ -189,11 +209,16 @@ export function RuntimeTab({ token }: { token: string }) {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="docker">Docker (single host)</SelectItem>
-                <SelectItem value="k8s">Kubernetes (scale)</SelectItem>
-                <SelectItem value="e2b">E2B (managed microVMs)</SelectItem>
+                <SelectItem value="docker">Docker — needs Docker on this host</SelectItem>
+                <SelectItem value="k8s">Kubernetes — needs app running in-cluster</SelectItem>
+                <SelectItem value="e2b">E2B — not implemented yet</SelectItem>
               </SelectContent>
             </Select>
+            <p className="text-[10px] text-muted-foreground">
+              Selecting a backend does <strong>not</strong> install anything — it only chooses which
+              API the orchestrator calls. Run the preflight below to confirm it can actually launch
+              kernels here.
+            </p>
           </div>
           <div className="space-y-1">
             <Label className="text-xs">Kernel image</Label>
@@ -242,6 +267,50 @@ export function RuntimeTab({ token }: { token: string }) {
           <Switch checked={form.pip_allowed} onCheckedChange={(v) => set("pip_allowed", v)} />
           Allow runtime <code>pip install</code>
         </label>
+      </div>
+
+      {/* Preflight — probes the selected backend instead of failing later. */}
+      <div className="space-y-2 rounded-lg border border-border/60 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <p className="text-sm font-medium">Backend readiness</p>
+            <p className="text-xs text-muted-foreground">
+              Checks whether the selected backend can actually start a kernel right now.
+            </p>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            onClick={runPreflight}
+            disabled={checking}
+          >
+            {checking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+            Run preflight
+          </Button>
+        </div>
+        {checks && (
+          <ul className="space-y-1 pt-1">
+            {checks.map((c) => (
+              <li key={c.name} className="flex items-start gap-2 text-xs">
+                <span
+                  className={cn(
+                    "mt-0.5 inline-block h-2 w-2 shrink-0 rounded-full",
+                    c.status === "pass"
+                      ? "bg-emerald-500"
+                      : c.status === "warn"
+                        ? "bg-amber-500"
+                        : "bg-destructive",
+                  )}
+                />
+                <span className="min-w-0">
+                  <span className="font-medium">{c.name}</span>{" "}
+                  <span className="text-muted-foreground">— {c.detail}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       <div className="flex justify-end">
