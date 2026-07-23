@@ -292,6 +292,16 @@ The first `--build` is slow (it installs the frameworks into the kernel image).
 Everything is optional and off by default: instances that never run that command
 are completely unaffected.
 
+**Verify the install.** Rather than clicking around to find out whether it
+works, run the end-to-end check — it validates the whole chain (socket-proxy,
+kernel image, network, hardened kernel boot, Jupyter serving, the gateway
+executing a real cell, and a kernel calling the platform back) and prints a
+pass/fail report:
+
+```bash
+bash deploy/notebooks/test/verify-runtime.sh
+```
+
 Security model, hardening, scaling, and the full test procedure are in
 [DEVELOPER_WORKSPACE_RUNTIME.md](./DEVELOPER_WORKSPACE_RUNTIME.md). The runtime
 is **off by default**; instances that don't enable it are unaffected.
