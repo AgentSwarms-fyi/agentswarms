@@ -123,10 +123,19 @@ export class ServerRuntime {
       ws.onerror = () => {
         if (this.connectReject) this.connectReject(new Error("Gateway connection failed"));
       };
-      ws.onclose = () => {
+      ws.onclose = (ev) => {
         this.ready = false;
-        this.onStatus?.("stopped");
-        this.failAll("The kernel disconnected");
+        // A gateway rejection (bad token, session not ready, kernel unreachable)
+        // arrives as a close code. Reject the pending connect with it rather than
+        // letting the caller sit until the generic timeout fires.
+        const why = ev.reason || `gateway closed the connection (code ${ev.code})`;
+        if (this.connectReject) {
+          this.connectReject(new Error(why));
+          this.connectReject = null;
+          this.connectResolve = null;
+        }
+        this.onStatus?.("stopped", why);
+        this.failAll(why);
       };
       setTimeout(() => {
         if (!this.ready && this.connectReject) this.connectReject(new Error("Kernel connect timed out"));
@@ -135,10 +144,18 @@ export class ServerRuntime {
   }
 
   private onMessage(ev: MessageEvent) {
-    let m: { type?: string; id?: string; text?: string };
+    let m: { type?: string; id?: string; text?: string; reason?: string };
     try {
       m = JSON.parse(typeof ev.data === "string" ? ev.data : "");
     } catch {
+      return;
+    }
+    if (m.type === "fatal") {
+      const why = m.reason || "the runtime gateway refused the connection";
+      this.connectReject?.(new Error(why));
+      this.connectReject = null;
+      this.connectResolve = null;
+      this.onStatus?.("error", why);
       return;
     }
     if (m.type === "ready") {

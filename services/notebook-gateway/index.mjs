@@ -114,15 +114,38 @@ wss.on("connection", async (browser, req) => {
   const send = (obj) => {
     if (browser.readyState === WebSocket.OPEN) browser.send(JSON.stringify(obj));
   };
+  // Every rejection path logs a reason AND tells the browser why, so a failure
+  // never shows up as an unexplained client-side timeout.
+  const reject = (code, reason, detail) => {
+    console.log(`[gateway] REJECT ${code} ${reason}${detail ? ` — ${detail}` : ""}`);
+    try {
+      send({ type: "fatal", reason: detail ? `${reason}: ${detail}` : reason });
+    } catch {
+      /* noop */
+    }
+    browser.close(code, reason);
+  };
+
+  console.log("[gateway] connection opened");
   const url = new URL(req.url, "http://localhost");
   const claims = await verifyToken(url.searchParams.get("token"));
-  if (!claims) return browser.close(4001, "invalid token");
-
-  const session = await lookupSession(claims.sid).catch(() => null);
-  if (!session || session.user_id !== claims.sub || !session.endpoint || session.status !== "ready") {
-    return browser.close(4004, "session not ready");
+  if (!claims) {
+    return reject(4001, "invalid token", "signature/expiry check failed");
   }
+  console.log(`[gateway] token ok user=${claims.sub.slice(0, 8)} session=${claims.sid.slice(0, 8)}`);
+
+  let session;
+  try {
+    session = await lookupSession(claims.sid);
+  } catch (e) {
+    return reject(4004, "session lookup failed", e.message);
+  }
+  if (!session) return reject(4004, "session not found", claims.sid);
+  if (session.user_id !== claims.sub) return reject(4003, "session belongs to another user");
+  if (session.status !== "ready") return reject(4004, "session not ready", `status=${session.status}`);
+  if (!session.endpoint) return reject(4004, "session has no endpoint yet");
   const endpoint = session.endpoint.replace(/\/$/, "");
+  console.log(`[gateway] session ok endpoint=${endpoint}`);
 
   // Create a kernel on the session's Jupyter Kernel Gateway.
   let kernelId;
@@ -131,11 +154,13 @@ wss.on("connection", async (browser, req) => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "{}",
+      signal: AbortSignal.timeout(20000),
     });
-    if (!r.ok) throw new Error(`kernel create ${r.status}`);
+    if (!r.ok) throw new Error(`HTTP ${r.status} from ${endpoint}/api/kernels`);
     kernelId = (await r.json()).id;
-  } catch {
-    return browser.close(4500, "kernel unavailable");
+    console.log(`[gateway] kernel created ${String(kernelId).slice(0, 8)}`);
+  } catch (e) {
+    return reject(4500, "kernel unavailable", `${endpoint} — ${e.message}`);
   }
 
   const jsession = randomUUID();
@@ -144,7 +169,10 @@ wss.on("connection", async (browser, req) => {
     `${endpoint.replace(/^http/, "ws")}/api/kernels/${kernelId}/channels?session_id=${jsession}`,
   );
 
-  kernel.on("open", () => send({ type: "ready" }));
+  kernel.on("open", () => {
+    console.log("[gateway] kernel websocket open — ready");
+    send({ type: "ready" });
+  });
 
   browser.on("message", (raw) => {
     let m;
@@ -214,8 +242,10 @@ wss.on("connection", async (browser, req) => {
       /* noop */
     }
   });
-  kernel.on("error", () => {
+  kernel.on("error", (e) => {
+    console.log(`[gateway] kernel websocket error: ${e && e.message}`);
     try {
+      send({ type: "fatal", reason: `kernel websocket error: ${e && e.message}` });
       browser.close(4500, "kernel error");
     } catch {
       /* noop */
