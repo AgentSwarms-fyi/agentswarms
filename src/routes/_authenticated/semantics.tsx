@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Layers, Play, Plus, Save, Sparkles, Trash2 } from "lucide-react";
 
 import { llmJson } from "@/lib/biAgent";
+import { BiModelSelect, useBiModelPref } from "@/components/bi/BiModelSelect";
 import { useAuth } from "@/hooks/use-auth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -105,6 +106,7 @@ function SemanticsPage() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [biModel, setBiModel] = useBiModelPref();
 
   // Run panel
   const [pickedMetrics, setPickedMetrics] = useState<string[]>([]);
@@ -226,6 +228,7 @@ function SemanticsPage() {
 
   const generateWithAI = async () => {
     if (!draft || !selectedSource) return toast.error("Pick a source dataset first");
+    if (!biModel) return toast.error("Pick an AI model — connect a provider under Integrations");
     setGenerating(true);
     try {
       const cols = selectedSource.columns.map((c) => `- \`${c.name}\` (${c.type})`).join("\n");
@@ -246,6 +249,7 @@ function SemanticsPage() {
           "Use sum for additive amounts; ALWAYS include one {name:'row_count', label:'Row count', agg:'count'} with no sql. " +
           "Set format:'currency' for money columns, 'percent' for rates. Output JSON only, no prose.",
         userPrompt: `Table: ${selectedSource.name}\nColumns:\n${cols}\n\nDesign the semantic model.`,
+        model: biModel ?? undefined,
         temperature: 0.2,
       });
 
@@ -450,20 +454,32 @@ function SemanticsPage() {
                     </div>
                   )}
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={generateWithAI}
-                    disabled={generating || !selectedSource}
-                    title={selectedSource ? "" : "Pick a source dataset first"}
-                  >
-                    <Sparkles className="mr-1 h-4 w-4" />
-                    {generating ? "Generating…" : "Generate with AI"}
-                  </Button>
-                  <Button size="sm" onClick={save} disabled={saving}>
-                    <Save className="mr-1 h-4 w-4" /> {saving ? "Saving…" : "Save model"}
-                  </Button>
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-muted-foreground">AI model</span>
+                    <BiModelSelect value={biModel} onChange={setBiModel} className="max-w-md flex-1" />
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={generateWithAI}
+                      disabled={generating || !selectedSource || !biModel}
+                      title={
+                        !selectedSource
+                          ? "Pick a source dataset first"
+                          : !biModel
+                            ? "Pick an AI model (connect a provider under Integrations)"
+                            : ""
+                      }
+                    >
+                      <Sparkles className="mr-1 h-4 w-4" />
+                      {generating ? "Generating…" : "Generate with AI"}
+                    </Button>
+                    <Button size="sm" onClick={save} disabled={saving}>
+                      <Save className="mr-1 h-4 w-4" /> {saving ? "Saving…" : "Save model"}
+                    </Button>
+                  </div>
                 </div>
               </CardContent>
             </Card>
