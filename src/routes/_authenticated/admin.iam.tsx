@@ -17,6 +17,7 @@ import {
   KeyRound,
   Plus,
   RefreshCw,
+  Server,
   Settings2,
   Shield,
   ShieldAlert,
@@ -26,6 +27,7 @@ import {
   Users as UsersIcon,
   X,
 } from "lucide-react";
+import { RuntimeTab } from "@/components/admin/RuntimeTab";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -274,6 +276,9 @@ function AdminIamPage() {
           <TabsTrigger value="sso" className="gap-1.5">
             <Building2 className="h-3.5 w-3.5" /> SSO
           </TabsTrigger>
+          <TabsTrigger value="runtime" className="gap-1.5">
+            <Server className="h-3.5 w-3.5" /> Runtime
+          </TabsTrigger>
           <TabsTrigger value="settings" className="gap-1.5">
             <Settings2 className="h-3.5 w-3.5" /> Settings
           </TabsTrigger>
@@ -307,6 +312,9 @@ function AdminIamPage() {
             samlDisabledMsg={samlDisabledMsg}
             reload={reload}
           />
+        </TabsContent>
+        <TabsContent value="runtime" className="mt-4">
+          <RuntimeTab token={token!} />
         </TabsContent>
         <TabsContent value="settings" className="mt-4">
           <SettingsTab token={token!} users={users} settings={settings} setSettings={setSettings} />

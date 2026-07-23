@@ -269,6 +269,30 @@ browser.
 
 Product documentation for every feature ships inside the app at `/docs`.
 
+## 7. Optional: the Developer-workspace server runtime
+
+The **Developer workspace** (`/notebooks`) runs notebooks in the browser
+(Pyodide) with zero setup. To let notebooks `pip install` and run the *real*
+frameworks (LangChain, LlamaIndex, LangGraph) on a secure server kernel, enable
+the optional **server runtime**:
+
+1. Set `NOTEBOOK_RUNTIME_SECRET` in `.env` (any random string ≥16 chars, e.g.
+   `openssl rand -hex 32`) and bring up the runtime services:
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.notebooks.yml \
+     --profile notebooks up --build
+   ```
+2. Sign in as the admin and go to **Admin → IAM → Runtime**. Flip **Enable
+   server runtime** on, tune the limits/egress allowlist, and (optionally)
+   restrict access to specific users/groups. No env editing needed beyond the
+   secret.
+3. Open a notebook — a **Lite / Server** switch appears in the header. Switch to
+   **Server** and run `import langchain`.
+
+Security model, hardening, scaling, and the full test procedure are in
+[DEVELOPER_WORKSPACE_RUNTIME.md](./DEVELOPER_WORKSPACE_RUNTIME.md). The runtime
+is **off by default**; instances that don't enable it are unaffected.
+
 If any of these fail, check your terminal's `vite dev` output and the
 browser console first — most first-run issues trace back to a missing/typo'd
 env var or a migration that didn't apply (re-run `supabase db push` if you
