@@ -1,6 +1,8 @@
-// Editor + runner for user-authored Python notebooks (Pyodide, in-browser).
-// Cells share one interpreter; code cells run via runPythonCell and model
-// calls go through the injected `agentswarms.chat()` helper.
+// Editor + runner for user-authored Python notebooks. Cells execute on a real
+// server kernel (container): full CPython, pip install, and the actual agentic
+// frameworks. The kernel starts lazily on the first run and shares one
+// interpreter across cells; model/KB calls go through the injected
+// `agentswarms` helper and stay governed by IAM rules and budgets.
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import CodeMirror from "@uiw/react-codemirror";
@@ -34,8 +36,8 @@ import type { Json } from "@/integrations/supabase/types";
 import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "@/hooks/use-theme";
 import { cn } from "@/lib/utils";
-import { runPythonCell, type CellRunResult } from "@/lib/pythonRuntime";
-import { ServerRuntime, type ServerStatus } from "@/lib/serverRuntime";
+import { ServerRuntime, type CellRunResult, type ServerStatus } from "@/lib/serverRuntime";
+import { RuntimeRequired } from "@/components/notebooks/RuntimeRequired";
 import type { PyCell } from "@/lib/pythonNotebookTemplate";
 
 export const Route = createFileRoute("/_authenticated/notebooks/py/$pyNotebookId")({
@@ -91,10 +93,10 @@ function PyNotebookPage() {
   const [runningAll, setRunningAll] = useState(false);
   const loadedRef = useRef(false);
 
-  // Runtime: Lite (browser Pyodide) vs Server (real containerized CPython).
-  const [serverAvailable, setServerAvailable] = useState(false);
-  const [runtimeMode, setRuntimeMode] = useState<"lite" | "server">("lite");
+  // The server kernel is the only runtime. It starts lazily on first run.
+  const [runtimeEnabled, setRuntimeEnabled] = useState<boolean | null>(null);
   const [serverStatus, setServerStatus] = useState<ServerStatus>("idle");
+  const [runtimeError, setRuntimeError] = useState<string | null>(null);
   const serverRef = useRef<ServerRuntime | null>(null);
 
   useEffect(() => {
@@ -102,7 +104,7 @@ function PyNotebookPage() {
       .from("notebook_runtime_settings")
       .select("server_runtime_enabled")
       .maybeSingle()
-      .then(({ data }) => setServerAvailable(!!data?.server_runtime_enabled));
+      .then(({ data }) => setRuntimeEnabled(!!data?.server_runtime_enabled));
   }, []);
 
   // Tear the kernel down when leaving the notebook.
@@ -113,27 +115,29 @@ function PyNotebookPage() {
     };
   }, [pyNotebookId]);
 
-  const enableServer = useCallback(async () => {
-    if (serverRef.current) return;
+  /** Start the kernel on demand; reused for every subsequent cell. */
+  const ensureKernel = useCallback(async (): Promise<ServerRuntime | null> => {
+    if (serverRef.current) return serverRef.current;
     const rt = new ServerRuntime(() => session?.access_token ?? null, pyNotebookId);
     rt.onStatus = (s, msg) => {
       setServerStatus(s);
-      if (s === "error" && msg) toast.error(msg);
+      if (s === "error" && msg) setRuntimeError(msg);
     };
     serverRef.current = rt;
-    setRuntimeMode("server");
+    setRuntimeError(null);
     try {
       await rt.start();
-    } catch {
+      return rt;
+    } catch (e) {
       serverRef.current = null;
-      setRuntimeMode("lite");
+      setRuntimeError(e instanceof Error ? e.message : "Failed to start the kernel");
+      return null;
     }
   }, [session?.access_token, pyNotebookId]);
 
-  const disableServer = useCallback(async () => {
+  const stopKernel = useCallback(async () => {
     const rt = serverRef.current;
     serverRef.current = null;
-    setRuntimeMode("lite");
     setServerStatus("idle");
     await rt?.stop();
   }, []);
@@ -224,15 +228,19 @@ function PyNotebookPage() {
   const runCell = useCallback(
     async (cell: PyCell) => {
       setOutputs((o) => ({ ...o, [cell.id]: "running" }));
-      const rt = serverRef.current;
-      const res =
-        runtimeMode === "server" && rt
-          ? await rt.run(cell.source)
-          : await runPythonCell(cell.source, session?.access_token ?? null);
+      const rt = await ensureKernel();
+      const res = rt
+        ? await rt.run(cell.source)
+        : {
+            stdout: "",
+            result: null,
+            error: runtimeError ?? "The server runtime is unavailable.",
+            durationMs: 0,
+          };
       setOutputs((o) => ({ ...o, [cell.id]: res }));
       return res;
     },
-    [session?.access_token, runtimeMode],
+    [ensureKernel, runtimeError],
   );
 
   const runAll = async () => {
@@ -265,6 +273,14 @@ function PyNotebookPage() {
     );
   }
 
+  if (runtimeEnabled === false) {
+    return (
+      <div className="p-6 lg:p-10">
+        <RuntimeRequired />
+      </div>
+    );
+  }
+
   if (cells === null) {
     return (
       <div className="p-6 space-y-4 max-w-4xl mx-auto">
@@ -286,7 +302,7 @@ function PyNotebookPage() {
           aria-label="Notebook title"
         />
         <Badge variant="outline" className="gap-1 text-[10px] uppercase tracking-wider">
-          <Code2 className="h-3 w-3" /> Python · in-browser
+          <Server className="h-3 w-3" /> Python · server kernel
         </Badge>
         <span className="text-xs text-muted-foreground">
           {saveState === "saved" ? (
@@ -300,47 +316,37 @@ function PyNotebookPage() {
           )}
         </span>
         <div className="ml-auto flex items-center gap-2">
-          {serverAvailable && (
-            <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5 text-xs">
-              <button
-                type="button"
-                className={cn(
-                  "rounded px-2 py-1 transition-colors",
-                  runtimeMode === "lite"
-                    ? "bg-primary/10 font-medium text-foreground"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-                onClick={() => void disableServer()}
-                title="Run in your browser (Pyodide)"
-              >
-                Lite
-              </button>
-              <button
-                type="button"
-                className={cn(
-                  "inline-flex items-center gap-1 rounded px-2 py-1 transition-colors",
-                  runtimeMode === "server"
-                    ? "bg-primary/10 font-medium text-foreground"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-                onClick={() => void enableServer()}
-                title="Run on a secure server kernel — real pip install & frameworks"
-              >
-                {runtimeMode === "server" && serverStatus !== "ready" ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                ) : (
-                  <Server className="h-3 w-3" />
-                )}
-                Server
-              </button>
-            </div>
+          {serverStatus !== "idle" && (
+            <span className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs">
+              {serverStatus === "ready" ? (
+                <>
+                  <span className="h-2 w-2 rounded-full bg-emerald-500" /> Kernel ready
+                  <button
+                    type="button"
+                    className="ml-1 text-muted-foreground hover:text-destructive"
+                    onClick={() => void stopKernel()}
+                    title="Stop the kernel"
+                  >
+                    Stop
+                  </button>
+                </>
+              ) : serverStatus === "starting" ? (
+                <>
+                  <Loader2 className="h-3 w-3 animate-spin" /> Starting kernel…
+                </>
+              ) : (
+                <>
+                  <span className="h-2 w-2 rounded-full bg-muted-foreground" /> Kernel {serverStatus}
+                </>
+              )}
+            </span>
           )}
           <Button
             size="sm"
             variant="outline"
             className="gap-1.5"
             onClick={runAll}
-            disabled={runningAll || (runtimeMode === "server" && serverStatus !== "ready")}
+            disabled={runningAll}
           >
             {runningAll ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -360,10 +366,17 @@ function PyNotebookPage() {
         </div>
       </div>
       <p className="mb-5 text-xs text-muted-foreground">
-        {runtimeMode === "server"
-          ? "Runs on a secure server kernel — full CPython with pip install and the real frameworks (LangChain, LlamaIndex, LangGraph). Model & KB calls stay governed by your IAM rules, budgets, and Traces."
-          : "Runs entirely in your browser via Pyodide — the first run downloads the Python runtime (~10 MB). Model calls use your connected providers and appear in Traces."}
+        Cells run on a sandboxed server kernel — full CPython with <code>pip install</code> and the
+        real frameworks (LangChain, LangGraph, LlamaIndex). The kernel starts on your first run and
+        keeps state between cells; model and knowledge-base calls stay governed by your IAM rules,
+        budgets, and Traces.
       </p>
+
+      {runtimeError ? (
+        <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs">
+          <strong>Kernel error:</strong> {runtimeError}
+        </div>
+      ) : null}
 
       {/* Cells */}
       <div className="space-y-4">

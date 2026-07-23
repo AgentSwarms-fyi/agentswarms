@@ -58,7 +58,7 @@ const surfaces: { name: string; path: string; docs: string; what: string }[] = [
     name: "Developer workspace",
     path: "/notebooks",
     docs: "/docs/notebooks",
-    what: "In-browser Python notebooks — framework samples, model calls, and KB retrieval built in.",
+    what: "Server-kernel Python notebooks — real LangChain/LlamaIndex, model calls and KB retrieval built in.",
   },
   {
     name: "Playground",

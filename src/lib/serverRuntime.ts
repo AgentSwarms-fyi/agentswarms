@@ -1,9 +1,18 @@
-// Client for the server-side notebook runtime. Starts a session via
-// /api/notebook/runtime, polls until the kernel is ready, then connects to the
-// runtime gateway over a websocket and runs cells with the same CellRunResult
-// shape the browser (Pyodide) runtime returns — so the editor renders output
-// identically regardless of runtime.
-import type { CellRunResult } from "@/lib/pythonRuntime";
+// Client for the server-side notebook runtime — the ONLY runtime. Starts a
+// session via /api/notebook/runtime, polls until the kernel is ready, then
+// connects to the gateway over a websocket and executes cells on a real
+// container kernel (full CPython, pip install, the actual frameworks).
+//
+// There is deliberately no in-browser fallback: this product targets production
+// agentic systems, and a WebAssembly interpreter cannot run LangChain et al.
+
+/** Output of one executed cell, rendered by the notebook editor. */
+export type CellRunResult = {
+  stdout: string;
+  result: string | null;
+  error: string | null;
+  durationMs: number;
+};
 
 export type ServerStatus = "idle" | "starting" | "ready" | "error" | "stopped";
 

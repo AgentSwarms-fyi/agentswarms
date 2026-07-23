@@ -23,7 +23,7 @@ export const Route = createFileRoute("/_authenticated/notebooks")({
       {
         name: "description",
         content:
-          "In-browser Python notebooks — learn LangChain, LangGraph and LlamaIndex from runnable samples, call your connected models, and retrieve from your knowledge base.",
+          "Production Python notebooks on sandboxed server kernels — build agentic systems with real LangChain, LangGraph and LlamaIndex, governed by your IAM rules.",
       },
     ],
   }),
@@ -211,9 +211,9 @@ function PythonLabCatalog({
             <div>
               <h1 className="text-2xl font-semibold tracking-tight">Developer workspace</h1>
               <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-                Python notebooks that run entirely in your browser — no install, no kernel to
-                manage. Start from the read-only framework samples below, or create your own and
-                call your connected models straight from Python.
+                Python notebooks that run on sandboxed server kernels — real CPython with pip
+                install and the actual frameworks. Start from the framework samples below, or
+                create your own with governed access to your models and knowledge bases.
               </p>
             </div>
           </div>
@@ -224,10 +224,10 @@ function PythonLabCatalog({
 
         <div className="mb-8 grid gap-3 sm:grid-cols-3">
           <div className="rounded-md border border-border bg-card/50 p-4">
-            <h3 className="text-sm font-semibold">Real CPython, zero setup</h3>
+            <h3 className="text-sm font-semibold">Real CPython, real packages</h3>
             <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              Powered by Pyodide (WebAssembly). Cells share one interpreter, top-level{" "}
-              <code>await</code> works, and bundled packages like numpy and pandas load on import.
+              Each session gets a sandboxed container kernel: <code>pip install</code> anything,
+              top-level <code>await</code> works, and cells share one interpreter.
             </p>
           </div>
           <div className="rounded-md border border-border bg-card/50 p-4">
@@ -239,10 +239,10 @@ function PythonLabCatalog({
             </p>
           </div>
           <div className="rounded-md border border-border bg-card/50 p-4">
-            <h3 className="text-sm font-semibold">Guided from the first cell</h3>
+            <h3 className="text-sm font-semibold">Hardened by default</h3>
             <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              Every new notebook opens with notes on model usage and runnable samples — a chat call,
-              structured JSON output, and a pure-Python experiment.
+              Kernels are non-root, read-only, capability-dropped and network-restricted, with
+              per-user limits and idle reaping.
             </p>
           </div>
         </div>

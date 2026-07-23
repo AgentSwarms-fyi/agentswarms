@@ -1,8 +1,8 @@
-// Read-only viewer for a shipped sample notebook. Cells can be RUN (Pyodide,
-// same runtime as the editor) but not edited — "Fork to my notebooks" copies
-// the cells into an editable notebook owned by the signed-in user.
+// Read-only viewer for a shipped sample notebook. Cells can be RUN on a real
+// server kernel (same runtime as the editor) but not edited — "Fork to my
+// notebooks" copies the cells into an editable notebook owned by the user.
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { python } from "@codemirror/lang-python";
 import { vscodeDark, vscodeLight } from "@uiw/codemirror-theme-vscode";
@@ -18,7 +18,8 @@ import type { Json } from "@/integrations/supabase/types";
 import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "@/hooks/use-theme";
 import { cn } from "@/lib/utils";
-import { runPythonCell, type CellRunResult } from "@/lib/pythonRuntime";
+import { ServerRuntime, type CellRunResult } from "@/lib/serverRuntime";
+import { RuntimeRequired } from "@/components/notebooks/RuntimeRequired";
 import { getSampleNotebook } from "@/lib/sampleNotebooks";
 import type { PyCell } from "@/lib/pythonNotebookTemplate";
 
@@ -56,15 +57,50 @@ function SampleNotebookPage() {
   const [outputs, setOutputs] = useState<Record<string, CellOutput>>({});
   const [runningAll, setRunningAll] = useState(false);
   const [forking, setForking] = useState(false);
+  const [runtimeEnabled, setRuntimeEnabled] = useState<boolean | null>(null);
+  const kernelRef = useRef<ServerRuntime | null>(null);
+
+  useEffect(() => {
+    supabase
+      .from("notebook_runtime_settings")
+      .select("server_runtime_enabled")
+      .maybeSingle()
+      .then(({ data }) => setRuntimeEnabled(!!data?.server_runtime_enabled));
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      void kernelRef.current?.stop();
+      kernelRef.current = null;
+    };
+  }, [sampleSlug]);
 
   const runCell = useCallback(
     async (cell: PyCell) => {
       setOutputs((o) => ({ ...o, [cell.id]: "running" }));
-      const res = await runPythonCell(cell.source, session?.access_token ?? null);
+      // Samples run on the same server kernel; start it on first use.
+      if (!kernelRef.current) {
+        const rt = new ServerRuntime(() => session?.access_token ?? null, sampleSlug);
+        kernelRef.current = rt;
+        try {
+          await rt.start();
+        } catch (e) {
+          kernelRef.current = null;
+          const res = {
+            stdout: "",
+            result: null,
+            error: e instanceof Error ? e.message : "Failed to start the kernel",
+            durationMs: 0,
+          };
+          setOutputs((o) => ({ ...o, [cell.id]: res }));
+          return res;
+        }
+      }
+      const res = await kernelRef.current.run(cell.source);
       setOutputs((o) => ({ ...o, [cell.id]: res }));
       return res;
     },
-    [session?.access_token],
+    [session?.access_token, sampleSlug],
   );
 
   const runAll = async () => {
@@ -102,6 +138,14 @@ function SampleNotebookPage() {
       setForking(false);
     }
   };
+
+  if (runtimeEnabled === false) {
+    return (
+      <div className="p-6 lg:p-10">
+        <RuntimeRequired />
+      </div>
+    );
+  }
 
   if (!sample) {
     return (
@@ -152,8 +196,8 @@ function SampleNotebookPage() {
         </div>
       </div>
       <p className="mb-5 text-xs text-muted-foreground">
-        {sample.description} You can run cells here (Pyodide loads on first run), but edits aren't
-        saved — <strong>Fork</strong> to get an editable copy in your account.
+        {sample.description} Cells run on a real server kernel (it starts on your first run), but
+        edits aren&apos;t saved — <strong>Fork</strong> to get an editable copy in your account.
       </p>
 
       {/* Cells */}

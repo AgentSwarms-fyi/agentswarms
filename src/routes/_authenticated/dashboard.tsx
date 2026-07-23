@@ -78,7 +78,7 @@ const FEATURES = [
   },
   {
     title: "Developer workspace",
-    desc: "AI-assisted Python notebooks that run entirely in your browser.",
+    desc: "Production Python notebooks on sandboxed server kernels.",
     to: "/notebooks" as const,
     icon: NotebookPen,
     badge: "New",
