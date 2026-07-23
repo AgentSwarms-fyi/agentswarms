@@ -148,19 +148,30 @@ wss.on("connection", async (browser, req) => {
   console.log(`[gateway] session ok endpoint=${endpoint}`);
 
   // Create a kernel on the session's Jupyter Kernel Gateway.
+  // The app only reports "ready" once the kernel is serving, but retry a few
+  // times anyway so a slow first boot can never surface as a hard failure.
   let kernelId;
-  try {
-    const r = await fetch(`${endpoint}/api/kernels`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "{}",
-      signal: AbortSignal.timeout(20000),
-    });
-    if (!r.ok) throw new Error(`HTTP ${r.status} from ${endpoint}/api/kernels`);
-    kernelId = (await r.json()).id;
-    console.log(`[gateway] kernel created ${String(kernelId).slice(0, 8)}`);
-  } catch (e) {
-    return reject(4500, "kernel unavailable", `${endpoint} — ${e.message}`);
+  let lastErr;
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    try {
+      const r = await fetch(`${endpoint}/api/kernels`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+        signal: AbortSignal.timeout(20000),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status} from ${endpoint}/api/kernels`);
+      kernelId = (await r.json()).id;
+      console.log(`[gateway] kernel created ${String(kernelId).slice(0, 8)} (attempt ${attempt})`);
+      break;
+    } catch (e) {
+      lastErr = e;
+      console.log(`[gateway] kernel create attempt ${attempt} failed: ${e.message}`);
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+  }
+  if (!kernelId) {
+    return reject(4500, "kernel unavailable", `${endpoint} — ${lastErr && lastErr.message}`);
   }
 
   const jsession = randomUUID();

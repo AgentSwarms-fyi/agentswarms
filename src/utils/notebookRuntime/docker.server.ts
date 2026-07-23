@@ -13,7 +13,7 @@ import type {
   KernelStatus,
   NotebookOrchestrator,
 } from "./orchestrator";
-import { sandboxName } from "./orchestrator";
+import { kernelServing, sandboxName } from "./orchestrator";
 
 // The socket-proxy is reachable by different names depending on how the app is
 // deployed, so probe rather than assume:
@@ -187,7 +187,11 @@ export class DockerOrchestrator implements NotebookOrchestrator {
       const ip = Object.values(nets)
         .map((n) => n?.IPAddress)
         .find((a): a is string => !!a);
-      return { state: "running", endpoint: `http://${ip || ref}:8888` };
+      const endpoint = `http://${ip || ref}:8888`;
+      // Container up != kernel serving. Stay "starting" until JKG answers, so
+      // the browser never connects to a socket that isn't listening yet.
+      if (!(await kernelServing(endpoint))) return { state: "starting" };
+      return { state: "running", endpoint };
     }
     if (s.Status === "exited" && s.ExitCode === 0) return { state: "succeeded", exitCode: 0 };
     return { state: s.Status === "created" ? "starting" : "error", exitCode: s.ExitCode, message: s.Error };

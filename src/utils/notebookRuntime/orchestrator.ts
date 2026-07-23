@@ -73,3 +73,21 @@ export async function getOrchestrator(
 export function sandboxName(sessionId: string): string {
   return `nb-${sessionId}`;
 }
+
+/**
+ * Is the kernel actually SERVING, not merely scheduled?
+ *
+ * A running container/pod is not the same as a listening Jupyter Kernel Gateway
+ * — JKG needs several seconds to boot. Reporting "ready" on container state
+ * alone makes the browser connect too early and the gateway fail with
+ * "kernel unavailable … fetch failed". Backends call this before reporting
+ * `running`, so readiness means "you can talk to it".
+ */
+export async function kernelServing(endpoint: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${endpoint}/api`, { signal: AbortSignal.timeout(2500) });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}

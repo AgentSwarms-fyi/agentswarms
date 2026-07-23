@@ -13,7 +13,7 @@
 // by a NetworkPolicy + the HTTP(S)_PROXY env injected by the caller.
 import { readFileSync } from "node:fs";
 import type { KernelSpec, KernelStatus, NotebookOrchestrator } from "./orchestrator";
-import { sandboxName } from "./orchestrator";
+import { kernelServing, sandboxName } from "./orchestrator";
 
 const SA_DIR = "/var/run/secrets/kubernetes.io/serviceaccount";
 
@@ -170,7 +170,10 @@ export class K8sOrchestrator implements NotebookOrchestrator {
     if (phase === "Succeeded") return { state: "succeeded" };
     if (phase === "Failed") return { state: "error" };
     if (phase === "Running" && pod.status?.podIP) {
-      return { state: "running", endpoint: `http://${pod.status.podIP}:8888` };
+      const endpoint = `http://${pod.status.podIP}:8888`;
+      // Pod Running != kernel serving; wait for JKG to answer.
+      if (!(await kernelServing(endpoint))) return { state: "starting" };
+      return { state: "running", endpoint };
     }
     return { state: "starting" };
   }
