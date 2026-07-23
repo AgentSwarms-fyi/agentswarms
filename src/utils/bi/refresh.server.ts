@@ -17,6 +17,7 @@ import { createRequire } from "node:module";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Json } from "@/integrations/supabase/types";
+import type { SemanticQuery } from "@/lib/semanticLayer";
 import { sendMail } from "@/lib/email/mailer.server";
 import { loadWarehouseConnection } from "@/utils/warehouse/connections.server";
 import { executeWarehouseQuery } from "@/utils/warehouse/drivers.server";
@@ -53,7 +54,15 @@ type WidgetJson = {
   kind?: string;
   title?: string;
   sql?: string;
-  source?: { kind?: string; connection_id?: string };
+  source?: {
+    kind?: string;
+    connection_id?: string;
+    // semantic-source widgets carry the governed query instead of raw SQL
+    model?: string;
+    metrics?: string[];
+    dimensions?: string[];
+    filters?: unknown[];
+  };
   columns?: string[];
   rows?: Record<string, unknown>[];
   refreshed_at?: string;
@@ -135,19 +144,38 @@ export async function refreshDashboardServer(dashboardId: string): Promise<{
   const failures: string[] = [];
 
   for (const w of widgets) {
-    if (w.kind !== "chart" || !w.sql) continue;
+    if (w.kind !== "chart") continue;
+    if (!w.sql && w.source?.kind !== "semantic") continue;
     try {
       let result: { columns: string[]; rows: Record<string, unknown>[] };
-      if (w.source?.kind === "warehouse" && w.source.connection_id) {
+      if (w.source?.kind === "semantic") {
+        // Re-run the GOVERNED metric query so the widget reflects the CURRENT
+        // metric definition (not a frozen SQL snapshot). Dynamic import breaks a
+        // cycle: query.server imports runLocalSqlForUser from this module.
+        const { runSemanticQuery } = await import("@/utils/semantic/query.server");
+        const r = await runSemanticQuery({
+          sb: supabaseAdmin,
+          userId: dash.user_id,
+          scopeUserId: dash.user_id,
+          query: {
+            model: w.source.model ?? "",
+            metrics: w.source.metrics ?? [],
+            dimensions: w.source.dimensions ?? [],
+            filters: (w.source.filters ?? []) as SemanticQuery["filters"],
+          },
+          maxRows: WIDGET_ROW_CAP,
+        });
+        result = { columns: r.columns, rows: r.rows };
+      } else if (w.source?.kind === "warehouse" && w.source.connection_id) {
         const conn = await loadWarehouseConnection(
           supabaseAdmin,
           { connectionId: w.source.connection_id },
           dash.user_id,
         );
-        const res = await executeWarehouseQuery(conn.config, w.sql, WIDGET_ROW_CAP);
+        const res = await executeWarehouseQuery(conn.config, w.sql!, WIDGET_ROW_CAP);
         result = { columns: res.columns.map((c) => c.name), rows: res.rows };
       } else {
-        result = await runLocalSqlForUser(dash.user_id, w.sql);
+        result = await runLocalSqlForUser(dash.user_id, w.sql!);
       }
       w.columns = result.columns;
       w.rows = result.rows.slice(0, WIDGET_ROW_CAP);

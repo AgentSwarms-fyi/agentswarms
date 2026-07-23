@@ -8,13 +8,23 @@ import type { CSSProperties } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
 import type { BiTurn, ChartSpec } from "@/lib/biAgent";
+import type { SemanticFilter } from "@/lib/semanticLayer";
 
 export const GRID_COLS = 12;
 export const WIDGET_ROW_CAP = 500;
 
 export type BiWidgetSource =
   | { kind: "local" }
-  | { kind: "warehouse"; connection_id: string; connection_name: string; provider: string };
+  | { kind: "warehouse"; connection_id: string; connection_name: string; provider: string }
+  // Governed semantic-layer metric: the widget stores the metric query, and
+  // refresh re-runs it against the CURRENT model definition.
+  | {
+      kind: "semantic";
+      model: string;
+      metrics: string[];
+      dimensions?: string[];
+      filters?: SemanticFilter[];
+    };
 
 export type BiWidget = {
   id: string;
@@ -544,6 +554,63 @@ export function widgetFromBiTurn(turn: BiTurn, source: BiWidgetSource): BiWidget
     columns: turn.result.columns,
     rows: snapshotRows(turn.result.rows),
     narrative: turn.narrative,
+    refreshed_at: new Date().toISOString(),
+  };
+}
+
+export type SemanticChartType = "table" | "bar" | "line" | "area" | "kpi" | "pie";
+
+/** Build a dashboard widget backed by a governed semantic metric query. */
+export function widgetFromSemantic(args: {
+  title: string;
+  model: string;
+  metrics: string[];
+  dimensions: string[];
+  filters?: SemanticFilter[];
+  chartType: SemanticChartType;
+  columns: string[];
+  rows: Record<string, unknown>[];
+  sql: string;
+}): BiWidget {
+  const dim0 = args.dimensions[0] ?? args.columns[0];
+  const dim1 = args.dimensions[1];
+  const met0 = args.metrics[0] ?? args.columns[args.dimensions.length] ?? args.columns[0];
+  let chart: ChartSpec;
+  switch (args.chartType) {
+    case "kpi":
+      chart = { type: "kpi", valueField: met0 };
+      break;
+    case "pie":
+      chart = { type: "pie", nameField: dim0, valueField: met0 };
+      break;
+    case "bar":
+    case "line":
+    case "area":
+      chart = {
+        type: args.chartType,
+        xField: dim0,
+        yField: met0,
+        ...(dim1 ? { seriesField: dim1 } : {}),
+      };
+      break;
+    default:
+      chart = { type: "table" };
+  }
+  return {
+    id: crypto.randomUUID(),
+    kind: "chart",
+    title: args.title,
+    source: {
+      kind: "semantic",
+      model: args.model,
+      metrics: args.metrics,
+      dimensions: args.dimensions,
+      filters: args.filters,
+    },
+    sql: args.sql,
+    chart,
+    columns: args.columns,
+    rows: snapshotRows(args.rows),
     refreshed_at: new Date().toISOString(),
   };
 }

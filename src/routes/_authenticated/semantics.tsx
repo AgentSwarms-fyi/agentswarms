@@ -4,10 +4,11 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { Layers, Play, Plus, Save, Sparkles, Trash2 } from "lucide-react";
+import { Layers, LayoutDashboard, Play, Plus, Save, Sparkles, Trash2 } from "lucide-react";
 
 import { llmJson } from "@/lib/biAgent";
 import { BiModelSelect, useBiModelPref } from "@/components/bi/BiModelSelect";
+import { AddMetricToDashboardDialog } from "@/components/bi/AddMetricToDashboardDialog";
 import { useAuth } from "@/hooks/use-auth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -91,7 +92,7 @@ function emptyDraft(): Draft {
 }
 
 function SemanticsPage() {
-  const { session } = useAuth();
+  const { session, user } = useAuth();
   const token = session?.access_token ?? "";
 
   const listFn = useServerFn(semanticListModels);
@@ -112,7 +113,14 @@ function SemanticsPage() {
   const [pickedMetrics, setPickedMetrics] = useState<string[]>([]);
   const [pickedDims, setPickedDims] = useState<string[]>([]);
   const [running, setRunning] = useState(false);
-  const [result, setResult] = useState<{ columns: string[]; rows: Record<string, unknown>[]; sql: string } | null>(null);
+  const [result, setResult] = useState<{
+    columns: string[];
+    rows: Record<string, unknown>[];
+    sql: string;
+    metrics: string[];
+    dimensions: string[];
+  } | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -218,7 +226,7 @@ function SemanticsPage() {
           },
         },
       })) as { columns: string[]; rows: Record<string, unknown>[]; sql: string };
-      setResult(res);
+      setResult({ ...res, metrics: pickedMetrics, dimensions: pickedDims });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Query failed");
     } finally {
@@ -633,7 +641,12 @@ function SemanticsPage() {
                         </TableBody>
                       </Table>
                     </div>
-                    <p className="text-[11px] text-muted-foreground">{result.rows.length} row(s)</p>
+                    <div className="flex items-center justify-between">
+                      <p className="text-[11px] text-muted-foreground">{result.rows.length} row(s)</p>
+                      <Button size="sm" variant="outline" onClick={() => setAddOpen(true)}>
+                        <LayoutDashboard className="mr-1 h-4 w-4" /> Add to dashboard
+                      </Button>
+                    </div>
                   </div>
                 )}
               </CardContent>
@@ -641,6 +654,25 @@ function SemanticsPage() {
           </div>
         )}
       </div>
+
+      <AddMetricToDashboardDialog
+        open={addOpen}
+        onOpenChange={setAddOpen}
+        userId={user?.id ?? null}
+        payload={
+          draft && result
+            ? {
+                model: draft.name,
+                metrics: result.metrics,
+                dimensions: result.dimensions,
+                columns: result.columns,
+                rows: result.rows,
+                sql: result.sql,
+                defaultTitle: draft.label || draft.name,
+              }
+            : null
+        }
+      />
     </div>
   );
 }

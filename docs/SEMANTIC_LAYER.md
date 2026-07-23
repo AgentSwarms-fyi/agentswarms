@@ -55,6 +55,13 @@ The compiler (`src/lib/semanticLayer.ts`) turns that into a single read-only
 authored fragments; field names are validated against the model and filter
 values are literal-escaped, so a query can never inject SQL.
 
+## On a dashboard
+
+From the query runner, **Add to dashboard** creates a metric-backed widget in a
+BI project. Unlike a raw-SQL widget, its source is the metric query — so on
+every scheduled refresh it **re-runs against the current metric definition**.
+Change what "revenue" means once, and every metric-backed widget updates.
+
 ## AI agents: the `metric_query` tool
 
 Enable **Semantic Metrics** on an agent (Agent Builder → Tools). The agent then
@@ -77,5 +84,7 @@ composes SELECT/GROUP BY/WHERE/HAVING and quotes identifiers per dialect.
 
 - IAM **group sharing** of models (the RLS policy is in place; the grant type
   needs enabling).
-- A **metric picker in the BI visual builder** (today: define + run here; query
-  via agents; wire widgets to metrics next).
+- Authoring **warehouse-sourced** models from the UI (the engine already runs
+  them; the editor's source picker is local-dataset only for now).
+- A native metric option **inside the BI visual builder** (today you author +
+  run here and Add to dashboard; the builder's own source picker is next).
