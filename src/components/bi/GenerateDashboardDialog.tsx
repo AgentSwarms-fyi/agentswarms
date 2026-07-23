@@ -46,7 +46,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
   SelectContent,
@@ -285,7 +284,7 @@ export function GenerateDashboardDialog({
         if (!v) reset();
       }}
     >
-      <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-lg">
+      <DialogContent className="flex max-h-[85vh] flex-col overflow-hidden sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-base">
             <Wand2 className="h-4 w-4 text-primary" /> Generate dashboard with AI
@@ -363,7 +362,7 @@ export function GenerateDashboardDialog({
 
         {phase === "review" && (
           <>
-            <div className="rounded-lg border border-border bg-muted/30 p-3">
+            <div className="max-h-[24vh] shrink-0 overflow-y-auto rounded-lg border border-border bg-muted/30 p-3">
               <p className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 <Sparkles className="h-3 w-3 text-primary" /> Executive summary
               </p>
@@ -375,7 +374,7 @@ export function GenerateDashboardDialog({
               )}
             </div>
 
-            <div className="flex items-center justify-between">
+            <div className="flex shrink-0 items-center justify-between">
               <span className="text-xs text-muted-foreground">
                 {selected.size} of {suggestions.length} selected
               </span>
@@ -392,8 +391,8 @@ export function GenerateDashboardDialog({
               </Button>
             </div>
 
-            <ScrollArea className="max-h-[46vh] min-h-0 flex-1">
-              <div className="space-y-1.5 pr-3">
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <div className="space-y-1.5 pr-1">
                 {suggestions.map((s) => {
                   const step = steps.find((st) => st.id === s.id);
                   return (
@@ -447,9 +446,9 @@ export function GenerateDashboardDialog({
                   );
                 })}
               </div>
-            </ScrollArea>
+            </div>
 
-            <div className="flex gap-2">
+            <div className="flex shrink-0 gap-2">
               <Button
                 variant="outline"
                 className="gap-1.5"
