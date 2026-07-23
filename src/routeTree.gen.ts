@@ -96,6 +96,7 @@ import { Route as AuthenticatedTemplatesTemplateIdRouteImport } from './routes/_
 import { Route as AuthenticatedCertificationExamRouteImport } from './routes/_authenticated/certification.exam'
 import { Route as AuthenticatedBiDashboardIdRouteImport } from './routes/_authenticated/bi_.$dashboardId'
 import { Route as AuthenticatedAnalyticsObservabilityRouteImport } from './routes/_authenticated/analytics_.observability'
+import { Route as AuthenticatedAdminRuntimeRouteImport } from './routes/_authenticated/admin.runtime'
 import { Route as AuthenticatedAdminIamRouteImport } from './routes/_authenticated/admin.iam'
 import { Route as ApiPublicHooksRefreshModelRegistryRouteImport } from './routes/api/public/hooks/refresh-model-registry'
 import { Route as ApiPublicHooksGenerateExamSetRouteImport } from './routes/api/public/hooks/generate-exam-set'
@@ -551,6 +552,12 @@ const AuthenticatedAnalyticsObservabilityRoute =
     path: '/analytics/observability',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
+const AuthenticatedAdminRuntimeRoute =
+  AuthenticatedAdminRuntimeRouteImport.update({
+    id: '/admin/runtime',
+    path: '/admin/runtime',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 const AuthenticatedAdminIamRoute = AuthenticatedAdminIamRouteImport.update({
   id: '/admin/iam',
   path: '/admin/iam',
@@ -665,6 +672,7 @@ export interface FileRoutesByFullPath {
   '/verify/$code': typeof VerifyCodeRoute
   '/docs/': typeof DocsIndexRoute
   '/admin/iam': typeof AuthenticatedAdminIamRoute
+  '/admin/runtime': typeof AuthenticatedAdminRuntimeRoute
   '/analytics/observability': typeof AuthenticatedAnalyticsObservabilityRouteWithChildren
   '/bi/$dashboardId': typeof AuthenticatedBiDashboardIdRoute
   '/certification/exam': typeof AuthenticatedCertificationExamRoute
@@ -760,6 +768,7 @@ export interface FileRoutesByTo {
   '/verify/$code': typeof VerifyCodeRoute
   '/docs': typeof DocsIndexRoute
   '/admin/iam': typeof AuthenticatedAdminIamRoute
+  '/admin/runtime': typeof AuthenticatedAdminRuntimeRoute
   '/analytics/observability': typeof AuthenticatedAnalyticsObservabilityRouteWithChildren
   '/bi/$dashboardId': typeof AuthenticatedBiDashboardIdRoute
   '/certification/exam': typeof AuthenticatedCertificationExamRoute
@@ -859,6 +868,7 @@ export interface FileRoutesById {
   '/verify/$code': typeof VerifyCodeRoute
   '/docs/': typeof DocsIndexRoute
   '/_authenticated/admin/iam': typeof AuthenticatedAdminIamRoute
+  '/_authenticated/admin/runtime': typeof AuthenticatedAdminRuntimeRoute
   '/_authenticated/analytics_/observability': typeof AuthenticatedAnalyticsObservabilityRouteWithChildren
   '/_authenticated/bi_/$dashboardId': typeof AuthenticatedBiDashboardIdRoute
   '/_authenticated/certification/exam': typeof AuthenticatedCertificationExamRoute
@@ -958,6 +968,7 @@ export interface FileRouteTypes {
     | '/verify/$code'
     | '/docs/'
     | '/admin/iam'
+    | '/admin/runtime'
     | '/analytics/observability'
     | '/bi/$dashboardId'
     | '/certification/exam'
@@ -1053,6 +1064,7 @@ export interface FileRouteTypes {
     | '/verify/$code'
     | '/docs'
     | '/admin/iam'
+    | '/admin/runtime'
     | '/analytics/observability'
     | '/bi/$dashboardId'
     | '/certification/exam'
@@ -1151,6 +1163,7 @@ export interface FileRouteTypes {
     | '/verify/$code'
     | '/docs/'
     | '/_authenticated/admin/iam'
+    | '/_authenticated/admin/runtime'
     | '/_authenticated/analytics_/observability'
     | '/_authenticated/bi_/$dashboardId'
     | '/_authenticated/certification/exam'
@@ -1846,6 +1859,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAnalyticsObservabilityRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/admin/runtime': {
+      id: '/_authenticated/admin/runtime'
+      path: '/admin/runtime'
+      fullPath: '/admin/runtime'
+      preLoaderRoute: typeof AuthenticatedAdminRuntimeRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/admin/iam': {
       id: '/_authenticated/admin/iam'
       path: '/admin/iam'
@@ -1987,6 +2007,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedSwarmsRoute: typeof AuthenticatedSwarmsRoute
   AuthenticatedTracesRoute: typeof AuthenticatedTracesRoute
   AuthenticatedAdminIamRoute: typeof AuthenticatedAdminIamRoute
+  AuthenticatedAdminRuntimeRoute: typeof AuthenticatedAdminRuntimeRoute
   AuthenticatedAnalyticsObservabilityRoute: typeof AuthenticatedAnalyticsObservabilityRouteWithChildren
   AuthenticatedBiDashboardIdRoute: typeof AuthenticatedBiDashboardIdRoute
   AuthenticatedTemplatesTemplateIdRoute: typeof AuthenticatedTemplatesTemplateIdRoute
@@ -2019,6 +2040,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedSwarmsRoute: AuthenticatedSwarmsRoute,
   AuthenticatedTracesRoute: AuthenticatedTracesRoute,
   AuthenticatedAdminIamRoute: AuthenticatedAdminIamRoute,
+  AuthenticatedAdminRuntimeRoute: AuthenticatedAdminRuntimeRoute,
   AuthenticatedAnalyticsObservabilityRoute:
     AuthenticatedAnalyticsObservabilityRouteWithChildren,
   AuthenticatedBiDashboardIdRoute: AuthenticatedBiDashboardIdRoute,

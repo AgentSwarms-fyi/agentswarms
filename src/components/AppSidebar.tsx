@@ -25,6 +25,7 @@ import {
   NotebookPen,
   PieChart,
   Code2,
+  Server,
   type LucideIcon,
 } from "lucide-react";
 
@@ -160,7 +161,10 @@ export function AppSidebar() {
         {renderGroup("Integrations", integrationItems)}
         {renderGroup("Observability", opsItems)}
         {isSuperadmin &&
-          renderGroup("Admin", [{ title: "IAM", url: "/admin/iam", icon: ShieldCheck }])}
+          renderGroup("Admin", [
+            { title: "IAM", url: "/admin/iam", icon: ShieldCheck },
+            { title: "Developer runtime", url: "/admin/runtime", icon: Server },
+          ])}
       </SidebarContent>
 
       <SidebarFooter className="p-2">

@@ -282,10 +282,10 @@ the optional **server runtime**:
    docker compose -f docker-compose.yml -f docker-compose.notebooks.yml \
      --profile notebooks up --build
    ```
-2. Sign in as the admin and go to **Admin → IAM → Runtime**. Flip **Enable
-   server runtime** on, tune the limits/egress allowlist, and (optionally)
-   restrict access to specific users/groups. No env editing needed beyond the
-   secret.
+2. Sign in as the admin and open **Admin → Developer runtime** (in the sidebar).
+   Flip **Enable server runtime** on, tune the limits/egress allowlist, and
+   (optionally) restrict access to specific users/groups. No env editing needed
+   beyond the secret.
 3. Open a notebook — a **Lite / Server** switch appears in the header. Switch to
    **Server** and run `import langchain`.
 
