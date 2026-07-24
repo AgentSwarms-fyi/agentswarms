@@ -1332,6 +1332,7 @@ export type Database = {
         Row: {
           allow_public_signup: boolean;
           audit_retention_days: number;
+          trace_retention_days: number;
           id: boolean;
           sso_enabled: boolean;
           sso_enforced: boolean;
@@ -1340,6 +1341,7 @@ export type Database = {
         Insert: {
           allow_public_signup?: boolean;
           audit_retention_days?: number;
+          trace_retention_days?: number;
           id?: boolean;
           sso_enabled?: boolean;
           sso_enforced?: boolean;
@@ -1348,6 +1350,7 @@ export type Database = {
         Update: {
           allow_public_signup?: boolean;
           audit_retention_days?: number;
+          trace_retention_days?: number;
           id?: boolean;
           sso_enabled?: boolean;
           sso_enforced?: boolean;

@@ -848,6 +848,9 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
     await import("@/utils/audit.server")
       .then((m) => m.purgeAuditEvents(force))
       .catch((e) => console.warn("[audit-purge] failed:", (e as Error).message));
+    await import("@/utils/observability/retention.server")
+      .then((m) => m.purgeTraces(force))
+      .catch((e) => console.warn("[trace-retention] failed:", (e as Error).message));
     const swarm_schedules = await import("@/utils/swarmSchedules.server")
       .then((m) => m.processDueSwarmSchedules(force))
       .catch((e) => {
