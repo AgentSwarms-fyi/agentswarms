@@ -10,7 +10,9 @@ import { resolveInternalOrigin } from "@/utils/internalOrigin.server";
 export async function processDueSwarmSchedules(force = false): Promise<number> {
   const { data: rows, error } = await supabaseAdmin
     .from("swarm_schedules")
-    .select("id, user_id, swarm_id, input, input_state, interval_minutes, reject_approvals, last_run_at")
+    .select(
+      "id, user_id, swarm_id, input, input_state, interval_minutes, reject_approvals, last_run_at",
+    )
     .eq("is_active", true);
   if (error || !rows || rows.length === 0) return 0;
 
@@ -62,7 +64,15 @@ export async function processDueSwarmSchedules(force = false): Promise<number> {
       });
       await supabaseAdmin
         .from("swarm_schedules")
-        .update({ last_run_status: result.status, last_run_error: result.error })
+        .update({
+          last_run_status: result.status,
+          last_run_error: result.error,
+          // Re-stamp on COMPLETION so the next due time is measured from when
+          // this run finished. Stamping only at claim time means a run lasting
+          // longer than interval_minutes is already overdue when it ends, so
+          // the following tick fires immediately and runs pile up.
+          last_run_at: new Date().toISOString(),
+        })
         .eq("id", s.id)
         .then(undefined, () => undefined);
     } catch (e) {
@@ -71,6 +81,7 @@ export async function processDueSwarmSchedules(force = false): Promise<number> {
         .update({
           last_run_status: "error",
           last_run_error: e instanceof Error ? e.message : String(e),
+          last_run_at: new Date().toISOString(),
         })
         .eq("id", s.id)
         .then(undefined, () => undefined);

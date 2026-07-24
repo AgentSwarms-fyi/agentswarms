@@ -578,8 +578,17 @@ export async function executeSwarmServer(opts: {
             const lower = out.trim().toLowerCase();
             const picked =
               choices.find((c) => c.toLowerCase() === lower) ??
-              choices.find((c) => lower.includes(c.toLowerCase())) ??
-              choices[0];
+              choices.find((c) => lower.includes(c.toLowerCase()));
+            // Was choices[0], which silently sent the run down an arbitrary
+            // branch and still reported success — potentially straight past an
+            // approval gate. Throwing lets retryCount re-ask, and a genuinely
+            // unroutable answer fails loudly instead of guessing.
+            if (!picked) {
+              throw new Error(
+                `Router could not map the model's answer to a route. Expected one of ` +
+                  `[${choices.join(", ")}], got: ${out.trim().slice(0, 200) || "(empty)"}`,
+              );
+            }
             write(picked);
             const deadTargets: string[] = [];
             for (const e of outEdges) {

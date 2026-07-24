@@ -468,6 +468,12 @@ export function gatherInputs(
 // before finalizing.
 const DEFAULT_NODE_TIMEOUT_MS = 240_000;
 
+// How many independent nodes in one topological level may run at once. Levels
+// used to be dispatched all at once, so a wide fan-out opened one LLM request
+// per node simultaneously and tripped provider rate limits on exactly the
+// graphs that fan out most.
+const MAX_PARALLEL_NODES = 4;
+
 // Per-node cost is computed from the centralized pricing table so swarms and
 // /api/chat always agree. The SSE stream forwards a `cost` event on completion
 // which the tracer prefers; this helper is the fallback when no event arrives.
@@ -1262,21 +1268,23 @@ export async function runSwarm(
             captureMeta(node.id),
             captureThinking(node.id),
           );
-          // Resolve the LLM reply to a known choice — exact match first,
-          // then case-insensitive, then "contains" fallback. If nothing
-          // matches, default to the first choice and emit a warning.
+          // Resolve the LLM reply to a known choice — exact match first, then
+          // case-insensitive, then "contains".
           const raw = String(judgement).trim();
           const lower = raw.toLowerCase();
           let picked = choices.find((c) => c === raw);
           if (!picked) picked = choices.find((c) => c.toLowerCase() === lower);
           if (!picked) picked = choices.find((c) => lower.includes(c.toLowerCase()));
           if (!picked) {
-            onEvent({
-              type: "node_warning",
-              nodeId: node.id,
-              warning: `Router reply "${raw.slice(0, 60)}" didn't match any route; defaulting to "${choices[0]}".`,
-            });
-            picked = choices[0];
+            // This used to default to choices[0], which sent the run down an
+            // arbitrary branch while still reporting success — a misroute was
+            // invisible, and could route straight past an approval gate.
+            // Throwing lets the node's retryCount re-ask the model, and a
+            // genuinely unroutable answer stops the run instead of guessing.
+            throw new Error(
+              `Router could not map the model's answer to a route. Expected one of ` +
+                `[${choices.join(", ")}], got: ${raw.slice(0, 200) || "(empty)"}`,
+            );
           }
           const v = node.data.outputVar || `route_${node.id}`;
           ctx[v] = picked;
@@ -1920,18 +1928,32 @@ Evaluate the candidate output above against each metric and return the JSON scor
           }
         }
       } else {
-        // Parallel: all nodes in this level are independent
-        const results = await Promise.allSettled(
-          level.map(async (node) => {
+        // Parallel: all nodes in this level are independent. Run them through a
+        // bounded worker pool rather than firing the whole level at once — a
+        // wide level used to open one LLM request per node simultaneously,
+        // which trips provider rate limits (and spikes cost) on exactly the
+        // graphs that fan out most.
+        const queue = [...level];
+        const settle = async (): Promise<PromiseSettledResult<void>[]> => {
+          const out: PromiseSettledResult<void>[] = [];
+          for (;;) {
+            const node = queue.shift();
+            // Explicit undefined check: `!node` would also exit on any falsy
+            // queue entry, which is the classic way a worker pool silently
+            // drops work.
+            if (node === undefined) return out;
             try {
               await runNodeWithPolicy(node);
+              out.push({ status: "fulfilled", value: undefined });
             } catch (err) {
               const msg = err instanceof Error ? err.message : String(err);
               onEvent({ type: "node_error", nodeId: node.id, error: msg });
-              throw err;
+              out.push({ status: "rejected", reason: err });
             }
-          }),
-        );
+          }
+        };
+        const workers = Math.min(MAX_PARALLEL_NODES, level.length);
+        const results = (await Promise.all(Array.from({ length: workers }, settle))).flat();
         const failures = results.filter((r) => r.status === "rejected") as PromiseRejectedResult[];
         if (failures.length === 1) {
           throw failures[0].reason;

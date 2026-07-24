@@ -18,6 +18,7 @@ import {
   applyOutputGuardrails,
   type OutputDecision,
 } from "@/utils/guardrails";
+import { getBudgetStatus } from "@/utils/budgetGuard.server";
 import { internalSecretMatches } from "@/utils/internalOrigin.server";
 import {
   resolveMemoryConfig,
@@ -1021,9 +1022,7 @@ export const Route = createFileRoute("/api/chat")({
           // sample + IAM-shared data (never another tenant's).
           // Constant-time compare against INTERNAL_RUN_SECRET (falling back to
           // the service-role key) so the secret can't be probed by timing.
-          const isInternalRun = internalSecretMatches(
-            request.headers.get("x-internal-run-secret"),
-          );
+          const isInternalRun = internalSecretMatches(request.headers.get("x-internal-run-secret"));
           const userId = isInternalRun
             ? (body.internalUserId ?? null)
             : await getUserIdFromRequest(request);
@@ -1048,6 +1047,23 @@ export const Route = createFileRoute("/api/chat")({
                   { status: 403, headers: { "Content-Type": "application/json", ...corsHeaders } },
                 );
               }
+            }
+
+            // Hard budget cap. Opt-in (ENFORCE_BUDGET_CAP) — see budgetGuard —
+            // and a no-op when no cap is set. Same chokepoint as the model gate,
+            // so it covers playground, saved agents and every swarm node.
+            const budget = await getBudgetStatus(userId);
+            if (budget.over) {
+              return new Response(
+                JSON.stringify({
+                  error: "budget_exceeded",
+                  message:
+                    `This account has reached its monthly AI budget ` +
+                    `($${budget.spend.toFixed(2)} of $${budget.cap.toFixed(2)}). ` +
+                    `Raise the cap in Budgets, or wait for the next billing month.`,
+                }),
+                { status: 402, headers: { "Content-Type": "application/json", ...corsHeaders } },
+              );
             }
           }
 
@@ -1831,7 +1847,13 @@ export const Route = createFileRoute("/api/chat")({
             if (transport && transport.apiKey && sbForTools && allowList && allowList.length > 0) {
               const mergedConfigs = resolveToolConfigs();
               const resolved = await resolveAgentTools(
-                { userId, agentId: body.agentId, authToken, sb: sbForTools, scopeUserId: toolScopeUserId },
+                {
+                  userId,
+                  agentId: body.agentId,
+                  authToken,
+                  sb: sbForTools,
+                  scopeUserId: toolScopeUserId,
+                },
                 { enabledTools: allowList, toolConfigs: mergedConfigs, extraKbIds },
               );
               if (resolved.tools.length > 0) {

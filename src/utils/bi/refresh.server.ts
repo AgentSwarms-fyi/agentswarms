@@ -130,12 +130,17 @@ export async function refreshDashboardServer(dashboardId: string): Promise<{
   /** Human-readable "what changed vs the previous snapshots" lines. */
   changes: string[];
 }> {
+  // `updated_at` is read as an optimistic-concurrency token: the editor
+  // autosaves the whole widgets array from browser state, so without a guard a
+  // refresh landing mid-edit would silently overwrite the user's work. A
+  // BEFORE UPDATE trigger maintains this column, so it changes on every save.
   const { data: dash, error } = await supabaseAdmin
     .from("bi_dashboards")
-    .select("id, user_id, name, widgets")
+    .select("id, user_id, name, widgets, updated_at")
     .eq("id", dashboardId)
     .single();
   if (error || !dash) throw new Error(error?.message ?? "Dashboard not found");
+  const readUpdatedAt = dash.updated_at;
 
   const widgets = (Array.isArray(dash.widgets) ? dash.widgets : []) as WidgetJson[];
   // Shallow copies keep the pre-refresh row arrays (the loop below REASSIGNS
@@ -190,11 +195,23 @@ export async function refreshDashboardServer(dashboardId: string): Promise<{
     }
   }
 
-  const { error: upErr } = await supabaseAdmin
+  // Conditional write: only land if nobody saved the dashboard while we were
+  // querying. If they did, drop this refresh rather than clobber their edit —
+  // the next tick picks it up against the new baseline. Losing one refresh
+  // cycle is recoverable; losing a user's edits is not.
+  const { data: written, error: upErr } = await supabaseAdmin
     .from("bi_dashboards")
     .update({ widgets: widgets as never, updated_at: new Date().toISOString() })
-    .eq("id", dashboardId);
+    .eq("id", dashboardId)
+    .eq("updated_at", readUpdatedAt)
+    .select("id");
   if (upErr) throw new Error(upErr.message);
+  if (!written || written.length === 0) {
+    throw new Error(
+      "Dashboard changed while refreshing (concurrent edit) — skipped this cycle to avoid " +
+        "overwriting it; the next scheduled refresh will retry.",
+    );
+  }
 
   return {
     userId: dash.user_id,
