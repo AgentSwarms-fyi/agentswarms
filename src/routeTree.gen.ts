@@ -81,6 +81,7 @@ import { Route as ApiEmbedChatRouteImport } from './routes/api/embed.chat'
 import { Route as ApiEmailSendRouteImport } from './routes/api/email/send'
 import { Route as ApiBiCronRouteImport } from './routes/api/bi.cron'
 import { Route as ApiAuthSsoConfigRouteImport } from './routes/api/auth/sso-config'
+import { Route as ApiAuditExportRouteImport } from './routes/api/audit.export'
 import { Route as AuthenticatedBiDashboardIdRouteImport } from './routes/_authenticated/bi_.$dashboardId'
 import { Route as AuthenticatedAnalyticsObservabilityRouteImport } from './routes/_authenticated/analytics_.observability'
 import { Route as AuthenticatedAdminRuntimeRouteImport } from './routes/_authenticated/admin.runtime'
@@ -457,6 +458,11 @@ const ApiAuthSsoConfigRoute = ApiAuthSsoConfigRouteImport.update({
   path: '/api/auth/sso-config',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAuditExportRoute = ApiAuditExportRouteImport.update({
+  id: '/api/audit/export',
+  path: '/api/audit/export',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedBiDashboardIdRoute =
   AuthenticatedBiDashboardIdRouteImport.update({
     id: '/bi_/$dashboardId',
@@ -587,6 +593,7 @@ export interface FileRoutesByFullPath {
   '/admin/runtime': typeof AuthenticatedAdminRuntimeRoute
   '/analytics/observability': typeof AuthenticatedAnalyticsObservabilityRouteWithChildren
   '/bi/$dashboardId': typeof AuthenticatedBiDashboardIdRoute
+  '/api/audit/export': typeof ApiAuditExportRoute
   '/api/auth/sso-config': typeof ApiAuthSsoConfigRoute
   '/api/bi/cron': typeof ApiBiCronRoute
   '/api/email/send': typeof ApiEmailSendRoute
@@ -671,6 +678,7 @@ export interface FileRoutesByTo {
   '/admin/runtime': typeof AuthenticatedAdminRuntimeRoute
   '/analytics/observability': typeof AuthenticatedAnalyticsObservabilityRouteWithChildren
   '/bi/$dashboardId': typeof AuthenticatedBiDashboardIdRoute
+  '/api/audit/export': typeof ApiAuditExportRoute
   '/api/auth/sso-config': typeof ApiAuthSsoConfigRoute
   '/api/bi/cron': typeof ApiBiCronRoute
   '/api/email/send': typeof ApiEmailSendRoute
@@ -758,6 +766,7 @@ export interface FileRoutesById {
   '/_authenticated/admin/runtime': typeof AuthenticatedAdminRuntimeRoute
   '/_authenticated/analytics_/observability': typeof AuthenticatedAnalyticsObservabilityRouteWithChildren
   '/_authenticated/bi_/$dashboardId': typeof AuthenticatedBiDashboardIdRoute
+  '/api/audit/export': typeof ApiAuditExportRoute
   '/api/auth/sso-config': typeof ApiAuthSsoConfigRoute
   '/api/bi/cron': typeof ApiBiCronRoute
   '/api/email/send': typeof ApiEmailSendRoute
@@ -845,6 +854,7 @@ export interface FileRouteTypes {
     | '/admin/runtime'
     | '/analytics/observability'
     | '/bi/$dashboardId'
+    | '/api/audit/export'
     | '/api/auth/sso-config'
     | '/api/bi/cron'
     | '/api/email/send'
@@ -929,6 +939,7 @@ export interface FileRouteTypes {
     | '/admin/runtime'
     | '/analytics/observability'
     | '/bi/$dashboardId'
+    | '/api/audit/export'
     | '/api/auth/sso-config'
     | '/api/bi/cron'
     | '/api/email/send'
@@ -1015,6 +1026,7 @@ export interface FileRouteTypes {
     | '/_authenticated/admin/runtime'
     | '/_authenticated/analytics_/observability'
     | '/_authenticated/bi_/$dashboardId'
+    | '/api/audit/export'
     | '/api/auth/sso-config'
     | '/api/bi/cron'
     | '/api/email/send'
@@ -1064,6 +1076,7 @@ export interface RootRouteChildren {
   ApiPythonKbRoute: typeof ApiPythonKbRoute
   EmailUnsubscribeRoute: typeof EmailUnsubscribeRoute
   VerifyCodeRoute: typeof VerifyCodeRoute
+  ApiAuditExportRoute: typeof ApiAuditExportRoute
   ApiAuthSsoConfigRoute: typeof ApiAuthSsoConfigRoute
   ApiEmailSendRoute: typeof ApiEmailSendRoute
   ApiKbBuildGraphRoute: typeof ApiKbBuildGraphRoute
@@ -1589,6 +1602,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSsoConfigRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/audit/export': {
+      id: '/api/audit/export'
+      path: '/api/audit/export'
+      fullPath: '/api/audit/export'
+      preLoaderRoute: typeof ApiAuditExportRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/bi_/$dashboardId': {
       id: '/_authenticated/bi_/$dashboardId'
       path: '/bi/$dashboardId'
@@ -1863,6 +1883,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPythonKbRoute: ApiPythonKbRoute,
   EmailUnsubscribeRoute: EmailUnsubscribeRoute,
   VerifyCodeRoute: VerifyCodeRoute,
+  ApiAuditExportRoute: ApiAuditExportRoute,
   ApiAuthSsoConfigRoute: ApiAuthSsoConfigRoute,
   ApiEmailSendRoute: ApiEmailSendRoute,
   ApiKbBuildGraphRoute: ApiKbBuildGraphRoute,

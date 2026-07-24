@@ -4,6 +4,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { auditEvent } from "@/utils/audit.server";
 
 export async function sha256Hex(input: string): Promise<string> {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
@@ -71,6 +72,14 @@ export const createSwarmApiKey = createServerFn({ method: "POST" })
         .select("id")
         .single();
       if (error || !row) return { ok: false, error: error?.message ?? "Could not create key" };
+      auditEvent({
+        userId,
+        action: "swarm.api_key.create",
+        resourceType: "swarm",
+        resourceId: data.swarm_id,
+        resourceName: data.name,
+        detail: { reject_approvals: data.reject_approvals ?? true },
+      });
       return { ok: true, id: row.id, raw_key: raw };
     },
   );

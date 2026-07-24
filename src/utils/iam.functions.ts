@@ -5,6 +5,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { auditEvent } from "@/utils/audit.server";
 import { isBootstrapAdmin, requireSuperadmin } from "@/utils/iam.server";
 
 // --- Shared types --------------------------------------------------------
@@ -158,6 +159,14 @@ export const iamCreateUser = createServerFn({ method: "POST" })
           user_metadata: data.display_name ? { full_name: data.display_name } : undefined,
         });
         if (error || !created.user) return { ok: false, error: error?.message ?? "Create failed" };
+        auditEvent({
+          userId: guard.userId,
+          action: "iam.user.create",
+          resourceType: "user",
+          resourceId: created.user.id,
+          resourceName: data.email,
+          detail: { invited: false },
+        });
         return { ok: true, user_id: created.user.id, invited: false };
       }
 
@@ -168,6 +177,14 @@ export const iamCreateUser = createServerFn({ method: "POST" })
         },
       );
       if (error || !invited.user) return { ok: false, error: error?.message ?? "Invite failed" };
+      auditEvent({
+        userId: guard.userId,
+        action: "iam.user.create",
+        resourceType: "user",
+        resourceId: invited.user.id,
+        resourceName: data.email,
+        detail: { invited: true },
+      });
       return { ok: true, user_id: invited.user.id, invited: true };
     },
   );
@@ -197,6 +214,12 @@ export const iamSetUserBan = createServerFn({ method: "POST" })
       ban_duration: data.banned ? BAN_DURATION : "none",
     });
     if (error) return { ok: false, error: error.message };
+    auditEvent({
+      userId: guard.userId,
+      action: data.banned ? "iam.user.ban" : "iam.user.unban",
+      resourceType: "user",
+      resourceId: data.user_id,
+    });
     return { ok: true };
   });
 
@@ -219,6 +242,12 @@ export const iamDeleteUser = createServerFn({ method: "POST" })
 
     const { error } = await supabaseAdmin.auth.admin.deleteUser(data.user_id);
     if (error) return { ok: false, error: error.message };
+    auditEvent({
+      userId: guard.userId,
+      action: "iam.user.delete",
+      resourceType: "user",
+      resourceId: data.user_id,
+    });
     return { ok: true };
   });
 
@@ -238,6 +267,12 @@ export const iamGrantSuperadmin = createServerFn({ method: "POST" })
         { onConflict: "user_id,role", ignoreDuplicates: true },
       );
     if (error) return { ok: false, error: error.message };
+    auditEvent({
+      userId: guard.userId,
+      action: "iam.role.grant_superadmin",
+      resourceType: "user",
+      resourceId: data.user_id,
+    });
     return { ok: true };
   });
 
@@ -270,6 +305,12 @@ export const iamRevokeSuperadmin = createServerFn({ method: "POST" })
       .eq("user_id", data.user_id)
       .eq("role", "superadmin");
     if (error) return { ok: false, error: error.message };
+    auditEvent({
+      userId: guard.userId,
+      action: "iam.role.revoke_superadmin",
+      resourceType: "user",
+      resourceId: data.user_id,
+    });
     return { ok: true };
   });
 
@@ -329,6 +370,13 @@ export const iamCreateGroup = createServerFn({ method: "POST" })
       .select("id")
       .single();
     if (error) return { ok: false, error: error.message };
+    auditEvent({
+      userId: guard.userId,
+      action: "iam.group.create",
+      resourceType: "iam_group",
+      resourceId: row.id,
+      resourceName: data.name,
+    });
     return { ok: true, group_id: row.id };
   });
 
@@ -351,6 +399,12 @@ export const iamUpdateGroup = createServerFn({ method: "POST" })
       .update({ name: data.name.trim(), description: data.description?.trim() || null })
       .eq("id", data.group_id);
     if (error) return { ok: false, error: error.message };
+    auditEvent({
+      userId: guard.userId,
+      action: "iam.group.update",
+      resourceType: "iam_group",
+      resourceId: data.group_id,
+    });
     return { ok: true };
   });
 
@@ -376,6 +430,12 @@ export const iamDeleteGroup = createServerFn({ method: "POST" })
         .eq("principal_id", data.group_id),
     ]);
     if (error) return { ok: false, error: error.message };
+    auditEvent({
+      userId: guard.userId,
+      action: "iam.group.delete",
+      resourceType: "iam_group",
+      resourceId: data.group_id,
+    });
     return { ok: true };
   });
 
@@ -399,6 +459,13 @@ export const iamAddGroupMember = createServerFn({ method: "POST" })
         { onConflict: "group_id,user_id", ignoreDuplicates: true },
       );
     if (error) return { ok: false, error: error.message };
+    auditEvent({
+      userId: guard.userId,
+      action: "iam.group.add_member",
+      resourceType: "iam_group",
+      resourceId: data.group_id,
+      detail: { member_user_id: data.user_id },
+    });
     return { ok: true };
   });
 
@@ -421,6 +488,13 @@ export const iamRemoveGroupMember = createServerFn({ method: "POST" })
       .eq("group_id", data.group_id)
       .eq("user_id", data.user_id);
     if (error) return { ok: false, error: error.message };
+    auditEvent({
+      userId: guard.userId,
+      action: "iam.group.remove_member",
+      resourceType: "iam_group",
+      resourceId: data.group_id,
+      detail: { member_user_id: data.user_id },
+    });
     return { ok: true };
   });
 
@@ -480,6 +554,12 @@ export const iamSetModelRules = createServerFn({ method: "POST" })
       );
       if (error) return { ok: false, error: error.message };
     }
+    auditEvent({
+      userId: guard.userId,
+      action: "iam.model_rules.set",
+      resourceType: data.principal_type,
+      resourceId: data.principal_id,
+    });
     return { ok: true };
   });
 
@@ -490,18 +570,23 @@ export const iamListGrantableResources = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<IamError | { ok: true; resources: IamResourceOption[] }> => {
     const guard = await requireSuperadmin(data.access_token);
     if (!guard.ok) return guard;
-    const [{ data: kbs }, { data: tables }, { data: secrets }, { data: dashboards }, { data: models }] =
-      await Promise.all([
-        supabaseAdmin.from("knowledge_bases").select("id, name, user_id").order("name"),
-        supabaseAdmin
-          .from("user_data_tables")
-          .select("id, name, user_id, is_sample")
-          .eq("is_sample", false)
-          .order("name"),
-        supabaseAdmin.from("user_secrets").select("id, name, user_id").order("name"),
-        supabaseAdmin.from("bi_dashboards").select("id, name, user_id").order("name"),
-        supabaseAdmin.from("semantic_models").select("id, name, label, user_id").order("name"),
-      ]);
+    const [
+      { data: kbs },
+      { data: tables },
+      { data: secrets },
+      { data: dashboards },
+      { data: models },
+    ] = await Promise.all([
+      supabaseAdmin.from("knowledge_bases").select("id, name, user_id").order("name"),
+      supabaseAdmin
+        .from("user_data_tables")
+        .select("id, name, user_id, is_sample")
+        .eq("is_sample", false)
+        .order("name"),
+      supabaseAdmin.from("user_secrets").select("id, name, user_id").order("name"),
+      supabaseAdmin.from("bi_dashboards").select("id, name, user_id").order("name"),
+      supabaseAdmin.from("semantic_models").select("id, name, label, user_id").order("name"),
+    ]);
     const resources: IamResourceOption[] = [
       ...(kbs ?? []).map((k) => ({
         resource_type: "knowledge_base" as const,
@@ -565,26 +650,34 @@ export const iamListGrants = createServerFn({ method: "POST" })
       .filter((g) => g.resource_type === "semantic_model")
       .map((g) => g.resource_id);
 
-    const [{ data: kbs }, { data: tables }, { data: secrets }, { data: dashboards }, { data: models }] =
-      await Promise.all([
-        kbIds.length
-          ? supabaseAdmin.from("knowledge_bases").select("id, name, user_id").in("id", kbIds)
-          : Promise.resolve({ data: [] as { id: string; name: string; user_id: string }[] }),
-        tableIds.length
-          ? supabaseAdmin.from("user_data_tables").select("id, name, user_id").in("id", tableIds)
-          : Promise.resolve({ data: [] as { id: string; name: string; user_id: string | null }[] }),
-        secretIds.length
-          ? supabaseAdmin.from("user_secrets").select("id, name, user_id").in("id", secretIds)
-          : Promise.resolve({ data: [] as { id: string; name: string; user_id: string }[] }),
-        dashboardIds.length
-          ? supabaseAdmin.from("bi_dashboards").select("id, name, user_id").in("id", dashboardIds)
-          : Promise.resolve({ data: [] as { id: string; name: string; user_id: string }[] }),
-        modelIds.length
-          ? supabaseAdmin.from("semantic_models").select("id, name, label, user_id").in("id", modelIds)
-          : Promise.resolve({
-              data: [] as { id: string; name: string; label: string | null; user_id: string }[],
-            }),
-      ]);
+    const [
+      { data: kbs },
+      { data: tables },
+      { data: secrets },
+      { data: dashboards },
+      { data: models },
+    ] = await Promise.all([
+      kbIds.length
+        ? supabaseAdmin.from("knowledge_bases").select("id, name, user_id").in("id", kbIds)
+        : Promise.resolve({ data: [] as { id: string; name: string; user_id: string }[] }),
+      tableIds.length
+        ? supabaseAdmin.from("user_data_tables").select("id, name, user_id").in("id", tableIds)
+        : Promise.resolve({ data: [] as { id: string; name: string; user_id: string | null }[] }),
+      secretIds.length
+        ? supabaseAdmin.from("user_secrets").select("id, name, user_id").in("id", secretIds)
+        : Promise.resolve({ data: [] as { id: string; name: string; user_id: string }[] }),
+      dashboardIds.length
+        ? supabaseAdmin.from("bi_dashboards").select("id, name, user_id").in("id", dashboardIds)
+        : Promise.resolve({ data: [] as { id: string; name: string; user_id: string }[] }),
+      modelIds.length
+        ? supabaseAdmin
+            .from("semantic_models")
+            .select("id, name, label, user_id")
+            .in("id", modelIds)
+        : Promise.resolve({
+            data: [] as { id: string; name: string; label: string | null; user_id: string }[],
+          }),
+    ]);
 
     const kbById = new Map((kbs ?? []).map((k) => [k.id, k]));
     const tableById = new Map((tables ?? []).map((t) => [t.id, t]));
@@ -668,6 +761,13 @@ export const iamCreateGrant = createServerFn({ method: "POST" })
       { onConflict: "resource_type,resource_id,principal_type,principal_id" },
     );
     if (error) return { ok: false, error: error.message };
+    auditEvent({
+      userId: guard.userId,
+      action: "iam.access.grant",
+      resourceType: data.resource_type,
+      resourceId: data.resource_id,
+      detail: { principal_type: data.principal_type, principal_id: data.principal_id },
+    });
     return { ok: true };
   });
 
@@ -683,6 +783,12 @@ export const iamDeleteGrant = createServerFn({ method: "POST" })
       .delete()
       .eq("id", data.grant_id);
     if (error) return { ok: false, error: error.message };
+    auditEvent({
+      userId: guard.userId,
+      action: "iam.access.revoke",
+      resourceType: "iam_grant",
+      resourceId: data.grant_id,
+    });
     return { ok: true };
   });
 
@@ -739,6 +845,16 @@ export const iamUpdateSettings = createServerFn({ method: "POST" })
     if (typeof data.sso_enforced === "boolean") patch.sso_enforced = data.sso_enforced;
     const { error } = await supabaseAdmin.from("iam_settings").update(patch).eq("id", true);
     if (error) return { ok: false, error: error.message };
+    auditEvent({
+      userId: guard.userId,
+      action: "iam.settings.update",
+      resourceType: "iam_settings",
+      detail: {
+        allow_public_signup: data.allow_public_signup,
+        sso_enabled: data.sso_enabled,
+        sso_enforced: data.sso_enforced,
+      },
+    });
     return { ok: true };
   });
 
@@ -865,6 +981,12 @@ export const iamCreateSsoProvider = createServerFn({ method: "POST" })
         }),
       });
       if (!res.ok) return res;
+      auditEvent({
+        userId: guard.userId,
+        action: "iam.sso.create",
+        resourceType: "sso_provider",
+        detail: { domains: data.domains },
+      });
       return { ok: true, provider: mapSsoProvider(res.body as GotrueSsoProvider) };
     },
   );
@@ -893,6 +1015,13 @@ export const iamUpdateSsoProvider = createServerFn({ method: "POST" })
       }),
     });
     if (!res.ok) return res;
+    auditEvent({
+      userId: guard.userId,
+      action: "iam.sso.update",
+      resourceType: "sso_provider",
+      resourceId: data.provider_id,
+      detail: { domains: data.domains },
+    });
     return { ok: true };
   });
 
@@ -905,5 +1034,11 @@ export const iamDeleteSsoProvider = createServerFn({ method: "POST" })
     if (!guard.ok) return guard;
     const res = await gotrueAdminSso(`/${data.provider_id}`, { method: "DELETE" });
     if (!res.ok) return res;
+    auditEvent({
+      userId: guard.userId,
+      action: "iam.sso.delete",
+      resourceType: "sso_provider",
+      resourceId: data.provider_id,
+    });
     return { ok: true };
   });

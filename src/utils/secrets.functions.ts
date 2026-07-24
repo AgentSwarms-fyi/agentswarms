@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import type { Database } from "@/integrations/supabase/types";
 import { encryptJson } from "@/utils/providers/crypto.server";
+import { auditEvent } from "@/utils/audit.server";
 
 export type SecretSummary = {
   id: string;
@@ -95,6 +96,7 @@ export const createSecret = createServerFn({ method: "POST" })
           : (error?.message ?? "Create failed");
         return { ok: false, error: msg };
       }
+      auditEvent({ userId, action: "secret.create", resourceType: "secret", resourceId: row.id });
       return { ok: true, id: row.id };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : "Create failed" };
@@ -114,7 +116,7 @@ export const updateSecret = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }): Promise<{ ok: true } | { ok: false; error: string }> => {
     try {
-      const { sb } = await requireUser(data.access_token);
+      const { sb, userId } = await requireUser(data.access_token);
       const patch: { description?: string | null; value?: { ciphertext: string; iv: string } } = {};
       if (data.description !== undefined) patch.description = data.description.trim() || null;
       if (data.value !== undefined) patch.value = await encryptJson(data.value);
@@ -122,6 +124,12 @@ export const updateSecret = createServerFn({ method: "POST" })
       // RLS: only the owner's UPDATE policy matches — grantees can't write.
       const { error } = await sb.from("user_secrets").update(patch).eq("id", data.secret_id);
       if (error) return { ok: false, error: error.message };
+      auditEvent({
+        userId,
+        action: "secret.update",
+        resourceType: "secret",
+        resourceId: data.secret_id,
+      });
       return { ok: true };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : "Update failed" };
@@ -134,9 +142,15 @@ export const deleteSecret = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }): Promise<{ ok: true } | { ok: false; error: string }> => {
     try {
-      const { sb } = await requireUser(data.access_token);
+      const { sb, userId } = await requireUser(data.access_token);
       const { error } = await sb.from("user_secrets").delete().eq("id", data.secret_id);
       if (error) return { ok: false, error: error.message };
+      auditEvent({
+        userId,
+        action: "secret.delete",
+        resourceType: "secret",
+        resourceId: data.secret_id,
+      });
       return { ok: true };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : "Delete failed" };

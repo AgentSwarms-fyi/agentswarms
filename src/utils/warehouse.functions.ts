@@ -10,6 +10,7 @@ import { encryptJson } from "@/utils/providers/crypto.server";
 import { testWarehouseConnection } from "@/utils/warehouse/drivers.server";
 import { loadWarehouseConnection } from "@/utils/warehouse/connections.server";
 import type { WarehouseConfig, WarehouseConnectionSummary } from "@/utils/warehouse/types";
+import { auditEvent } from "@/utils/audit.server";
 
 function userClient(accessToken: string) {
   const url = process.env.SUPABASE_URL;
@@ -81,7 +82,7 @@ export const listWarehouseConnections = createServerFn({ method: "POST" })
       { ok: true; connections: WarehouseConnectionSummary[] } | { ok: false; error: string }
     > => {
       try {
-        const { sb } = await requireUser(data.access_token);
+        const { sb, userId } = await requireUser(data.access_token);
         const { data: rows, error } = await sb
           .from("data_warehouse_connections")
           .select(
@@ -131,6 +132,12 @@ export const saveWarehouseConnection = createServerFn({ method: "POST" })
         .select("id")
         .single();
       if (error || !row) return { ok: false, error: error?.message ?? "Save failed" };
+      auditEvent({
+        userId,
+        action: "warehouse.connection.save",
+        resourceType: "warehouse_connection",
+        resourceId: row.id,
+      });
       return { ok: true, id: row.id };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : "Save failed" };
@@ -143,12 +150,18 @@ export const deleteWarehouseConnection = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }): Promise<{ ok: true } | { ok: false; error: string }> => {
     try {
-      const { sb } = await requireUser(data.access_token);
+      const { sb, userId } = await requireUser(data.access_token);
       const { error } = await sb
         .from("data_warehouse_connections")
         .delete()
         .eq("id", data.connection_id);
       if (error) return { ok: false, error: error.message };
+      auditEvent({
+        userId,
+        action: "warehouse.connection.delete",
+        resourceType: "warehouse_connection",
+        resourceId: data.connection_id,
+      });
       return { ok: true };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : "Delete failed" };
