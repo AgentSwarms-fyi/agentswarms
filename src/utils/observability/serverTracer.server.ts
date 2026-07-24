@@ -8,6 +8,7 @@
 // Everything is best-effort and awaited sequentially (the server executor runs
 // nodes sequentially): a tracing failure never breaks a run.
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { bodyJson, bodyText } from "@/utils/observability/redaction.server";
 
 type FinishStepArgs = {
   status: "success" | "error" | "skipped";
@@ -58,7 +59,7 @@ export async function createServerSwarmTracer(opts: {
         user_id: opts.userId,
         swarm_id: opts.swarmId ?? null,
         swarm_name: opts.swarmName ?? null,
-        input_prompt: opts.inputPrompt ?? null,
+        input_prompt: bodyText(opts.inputPrompt ?? null),
         swarm_snapshot: (opts.swarmSnapshot ?? {}) as never,
         status: "running",
       } as never)
@@ -83,7 +84,7 @@ export async function createServerSwarmTracer(opts: {
               node_label: args.nodeLabel ?? null,
               node_kind: args.nodeKind ?? "agent",
               agent_id: args.agentId ?? null,
-              input: (args.input ?? {}) as never,
+              input: bodyJson(args.input ?? {}) as never,
               status: "running",
             } as never)
             .select("id")
@@ -107,7 +108,7 @@ export async function createServerSwarmTracer(opts: {
             .from("swarm_run_steps")
             .update({
               status: args.status,
-              output: args.output ?? null,
+              output: bodyText(args.output ?? null),
               error_message: args.errorMessage ?? null,
               llm_model: args.llmModel ?? null,
               llm_provider: args.llmProvider ?? null,
@@ -144,7 +145,7 @@ export async function createServerSwarmTracer(opts: {
             .from("swarm_runs")
             .update({
               status: args.status,
-              final_output: args.finalOutput ?? null,
+              final_output: bodyText(args.finalOutput ?? null),
               error_message: args.errorMessage ?? null,
               finished_at: new Date().toISOString(),
               total_latency_ms: totals.lat,

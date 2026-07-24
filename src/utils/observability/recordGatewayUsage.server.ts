@@ -6,6 +6,7 @@
 // the analytics dashboard.
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { bodyJson, bodyText } from "@/utils/observability/redaction.server";
 import {
   approxTokens,
   estimateEmbeddingCost,
@@ -102,15 +103,15 @@ export async function recordGatewayCall(args: RecordGatewayCallArgs): Promise<vo
       agent_name: args.surface,
       llm_provider: args.provider ?? "openrouter",
       llm_model: args.model,
-      prompt: args.promptText ? args.promptText.slice(0, 4000) : null,
+      prompt: bodyText(args.promptText ? args.promptText.slice(0, 4000) : null),
       tokens_in: tokensIn,
       tokens_out: tokensOut,
       latency_ms: args.latencyMs ?? 0,
       cost_usd: costUsd,
       status,
       error_message: args.errorMessage ?? null,
-      request_payload: requestPayload,
-      response_payload: responsePayload,
+      request_payload: bodyJson(requestPayload),
+      response_payload: bodyJson(responsePayload),
       tool_calls: [],
     };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -2,6 +2,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { bodyJson, bodyText } from "@/utils/observability/redaction.server";
 
 const startRunSchema = z.object({
   swarmId: z.string().uuid().nullable().optional(),
@@ -21,7 +22,7 @@ export const startSwarmRun = createServerFn({ method: "POST" })
         user_id: userId,
         swarm_id: data.swarmId ?? null,
         swarm_name: data.swarmName ?? null,
-        input_prompt: data.inputPrompt ?? null,
+        input_prompt: bodyText(data.inputPrompt ?? null),
         swarm_snapshot: data.swarmSnapshot ?? {},
         status: "running",
       })
@@ -56,7 +57,7 @@ export const startSwarmStep = createServerFn({ method: "POST" })
         node_kind: data.nodeKind ?? "agent",
         agent_id: data.agentId ?? null,
         parent_step_id: data.parentStepId ?? null,
-        input: data.input ?? {},
+        input: bodyJson(data.input ?? {}),
         status: "running",
       })
       .select("id")
@@ -92,8 +93,8 @@ export const finishSwarmStep = createServerFn({ method: "POST" })
       .from("swarm_run_steps")
       .update({
         status: data.status,
-        output: data.output ?? null,
-        thinking: data.thinking ?? null,
+        output: bodyText(data.output ?? null),
+        thinking: bodyText(data.thinking ?? null),
         tool_calls: data.toolCalls ?? [],
         memory_used: data.memoryUsed ?? [],
         rag_chunks: data.ragChunks ?? [],
@@ -172,14 +173,14 @@ export const finishSwarmRun = createServerFn({ method: "POST" })
         if (s.status === "error") acc.errors += 1;
         return acc;
       },
-      { lat: 0, tin: 0, tout: 0, cost: 0, count: 0, errors: 0 }
+      { lat: 0, tin: 0, tout: 0, cost: 0, count: 0, errors: 0 },
     );
 
     const { error } = await supabase
       .from("swarm_runs")
       .update({
         status: data.status,
-        final_output: data.finalOutput ?? null,
+        final_output: bodyText(data.finalOutput ?? null),
         error_message: data.errorMessage ?? null,
         finished_at: new Date().toISOString(),
         total_latency_ms: totals.lat,

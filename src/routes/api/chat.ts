@@ -535,6 +535,7 @@ type TraceContext = {
 // Token approximation + cost estimation live in a shared module so swarm
 // runtime, BI Agent, KB ingestion, memory work, etc. all price the same
 // model the same way.
+import { bodyJson, bodyText } from "@/utils/observability/redaction.server";
 import {
   approxTokens,
   estimateImageCost,
@@ -634,17 +635,17 @@ async function recordTrace(opts: {
       agent_name: trace.agentName,
       llm_provider: trace.provider,
       llm_model: trace.model,
-      prompt: trace.promptText.slice(0, 4000),
+      prompt: bodyText(trace.promptText.slice(0, 4000)),
       tokens_in: tokensIn,
       tokens_out: tokensOut,
       latency_ms: latencyMs,
       cost_usd: costUsd,
       status,
       error_message: errorMessage ?? null,
-      request_payload: safePayload,
-      response_payload: skipResponsePayload
-        ? null
-        : { preview: sanitizeTraceValue(assistantText.slice(0, 2000)) },
+      request_payload: bodyJson(safePayload),
+      response_payload: bodyJson(
+        skipResponsePayload ? null : { preview: sanitizeTraceValue(assistantText.slice(0, 2000)) },
+      ),
       tool_calls: [],
     };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
