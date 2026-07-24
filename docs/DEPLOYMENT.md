@@ -301,6 +301,38 @@ BI refreshes, alerts, scheduled reports, swarm schedules and catalog crawls have
 all stopped firing). Behind a load balancer each instance reports its own process
 view; scrape every instance and aggregate in your monitoring system.
 
+### Distributed tracing (OpenTelemetry / OTLP)
+Where `/api/metrics` gives aggregate numbers, OTLP export gives per-run
+**traces**. Set `OTEL_EXPORTER_OTLP_ENDPOINT` to any OTLP/HTTP collector and a
+background job on the scheduler pass streams:
+
+- **swarm runs → distributed traces** — a root span per run and a child span per
+  node (nested by sub-swarm), so a multi-agent run renders as a waterfall you
+  can drill into for latency and errors.
+- **LLM calls → spans** — one per `execution_traces` row (playground, saved
+  agents, BI agent, KB, memory), tagged with OpenTelemetry GenAI
+  `gen_ai.*` attributes (`gen_ai.system`, `gen_ai.request.model`,
+  `gen_ai.usage.input_tokens`/`output_tokens`) plus cost, so LLM-observability
+  backends (e.g. Datadog LLM Observability) light up automatically.
+
+```bash
+# point at an in-cluster collector or the Datadog Agent's OTLP receiver
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+# hosted collectors: pass an API key as a header
+OTEL_EXPORTER_OTLP_HEADERS="dd-api-key=xxxxx"
+```
+
+Properties that make it safe to leave on: it's **off until an endpoint is set**;
+it runs **off the request path** (a slow/broken collector never affects a live
+call); it exports **metadata only** — model, tokens, cost, status, timing, node
+graph, never prompt or response text — so no user content leaves the app
+regardless of `PERSIST_PROMPT_BODIES`. Span/trace IDs are derived
+deterministically from row IDs, so delivery is **at-least-once** and a collector
+can dedupe on `(trace_id, span_id)`; a large backlog drains over several
+scheduler passes rather than one long tick. Because it rides the scheduler
+lease, exactly one instance exports across the fleet — no duplication behind a
+load balancer.
+
 ### Required secret for stored credentials
 If anyone connects a warehouse, saves a Secret, or adds a Data Catalog source,
 `PROVIDER_CREDS_SECRET` **must** be set (no default) — it encrypts those

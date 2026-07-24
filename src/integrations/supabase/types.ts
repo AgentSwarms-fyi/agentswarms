@@ -2943,6 +2943,27 @@ export type Database = {
         };
         Relationships: [];
       };
+      otel_export_cursor: {
+        Row: {
+          last_id: string;
+          last_ts: string;
+          stream: string;
+          updated_at: string;
+        };
+        Insert: {
+          last_id?: string;
+          last_ts?: string;
+          stream: string;
+          updated_at?: string;
+        };
+        Update: {
+          last_id?: string;
+          last_ts?: string;
+          stream?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       notebook_runtime_secrets: {
         Row: {
           created_at: string;

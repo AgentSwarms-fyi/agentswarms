@@ -851,6 +851,9 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
     await import("@/utils/observability/retention.server")
       .then((m) => m.purgeTraces(force))
       .catch((e) => console.warn("[trace-retention] failed:", (e as Error).message));
+    await import("@/utils/observability/otelExport.server")
+      .then((m) => m.exportOtelTraces())
+      .catch((e) => console.warn("[otel-export] failed:", (e as Error).message));
     const swarm_schedules = await import("@/utils/swarmSchedules.server")
       .then((m) => m.processDueSwarmSchedules(force))
       .catch((e) => {
