@@ -380,9 +380,7 @@ export function BiBuilderPane({
       setChartType(c.type);
       setXField("xField" in c ? c.xField : "");
       setYField(c.type === "combo" ? c.barField : "yField" in c ? c.yField : "");
-      setNameField(
-        c.type === "wordcloud" ? c.textField : "nameField" in c ? c.nameField : "",
-      );
+      setNameField(c.type === "wordcloud" ? c.textField : "nameField" in c ? c.nameField : "");
       setValueField("valueField" in c ? (c.valueField ?? "") : "");
       setKpiLabel("label" in c ? (c.label ?? "") : "");
       setLineField(c.type === "combo" ? c.lineField : "");
@@ -1363,9 +1361,12 @@ export function BiBuilderPane({
                     return (
                       <Tooltip key={v.value} delayDuration={200}>
                         <TooltipTrigger asChild>{btn}</TooltipTrigger>
-                        <TooltipContent side="top" className="max-w-[220px]">
-                          <p className="font-semibold">{v.label}</p>
-                          <p className="mt-0.5 text-xs">{req.requires}</p>
+                        <TooltipContent
+                          side="top"
+                          className="max-w-[240px] border border-border bg-popover text-popover-foreground shadow-md"
+                        >
+                          <p className="text-xs font-semibold text-foreground">{v.label}</p>
+                          <p className="mt-0.5 text-xs text-foreground/90">{req.requires}</p>
                           <p className="mt-1 text-xs text-muted-foreground">{req.how}</p>
                         </TooltipContent>
                       </Tooltip>
