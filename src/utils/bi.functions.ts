@@ -11,6 +11,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { sanitizePublicPages, sanitizePublicWidgets } from "@/lib/biDashboards";
 import { isModelAllowed } from "@/utils/iam.server";
 import { parseModelChoice } from "@/utils/providers/modelChoice";
 import type { Json } from "@/integrations/supabase/types";
@@ -112,7 +113,14 @@ export const biGetPublicDashboard = createServerFn({ method: "POST" })
           .rpc("bi_touch_view", { _dashboard_id: row.id })
           .then(() => {})
           .then(undefined, () => {});
-        const { id: _id, published: _published, ...dashboard } = row;
+        const { id: _id, published: _published, ...rest } = row;
+        // Anyone with the slug can read this, so strip the query behind each
+        // widget (raw SQL, warehouse connection ids) — see sanitizePublicWidgets.
+        const dashboard = {
+          ...rest,
+          widgets: sanitizePublicWidgets(rest.widgets) as unknown as Json,
+          pages: sanitizePublicPages(rest.pages) as Json,
+        };
         return { ok: true, dashboard };
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : "Failed" };

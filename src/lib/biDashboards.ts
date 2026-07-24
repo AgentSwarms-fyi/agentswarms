@@ -44,6 +44,46 @@ export type BiWidget = {
   text?: string;
 };
 
+// ── Public-surface sanitisation ──────────────────────────────────────────────
+// A dashboard served to an ANONYMOUS viewer (embed iframe or published share
+// link) needs enough to RENDER, not the query behind the render. `sql` is the
+// raw query — internal table/column names, joins, filter values — and a
+// warehouse `source` carries connection_id / connection_name / provider.
+// Neither is used by the renderer (it draws from `rows` + `chart`), and both
+// surfaces are world-readable by design, so allow-list the render fields.
+const PUBLIC_WIDGET_FIELDS = [
+  "id",
+  "kind",
+  "title",
+  "chart",
+  "columns",
+  "rows",
+  "narrative",
+  "theme",
+  "refreshed_at",
+  "text",
+] as const;
+
+export function sanitizePublicWidgets(widgets: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(widgets)) return [];
+  return (widgets as Record<string, unknown>[]).map((w) => {
+    const safe: Record<string, unknown> = {};
+    for (const f of PUBLIC_WIDGET_FIELDS) {
+      if (w[f] !== undefined) safe[f] = w[f];
+    }
+    return safe;
+  });
+}
+
+/** Pages carry their own widget arrays, so they need the same treatment. */
+export function sanitizePublicPages(pages: unknown): unknown {
+  if (!Array.isArray(pages)) return pages;
+  return (pages as Record<string, unknown>[]).map((p) => ({
+    ...p,
+    widgets: sanitizePublicWidgets(p.widgets),
+  }));
+}
+
 export type BiLayoutItem = { i: string; x: number; y: number; w: number; h: number };
 
 export type BiDashboardRow = {

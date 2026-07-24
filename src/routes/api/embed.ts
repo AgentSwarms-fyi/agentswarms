@@ -14,6 +14,7 @@
 
 import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { sanitizePublicPages, sanitizePublicWidgets } from "@/lib/biDashboards";
 import { rateLimited, touchEmbedKey, validateEmbedKey } from "@/utils/embed.server";
 import { recordGatewayCall, extractUsage } from "@/utils/observability/recordGatewayUsage.server";
 import {
@@ -161,9 +162,9 @@ export const Route = createFileRoute("/api/embed")({
             type: "bi_dashboard",
             name: dash.name,
             description: dash.description,
-            widgets: dash.widgets,
+            widgets: sanitizePublicWidgets(dash.widgets),
             layout: dash.layout,
-            pages: dash.pages,
+            pages: sanitizePublicPages(dash.pages),
             filters: dash.filters,
             theme: dash.theme,
             updated_at: dash.updated_at,
