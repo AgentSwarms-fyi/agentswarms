@@ -489,12 +489,6 @@ export function setSwarmEmbedTransport(t: { key: string; parentOrigin?: string }
   embedTransport = t;
 }
 
-// Chat-mode conversation history for the CURRENT run. Set from
-// SwarmRunOptions.history at the top of runSwarm and restored on exit (so a
-// nested Execute-Swarm run doesn't leak its parent's history). Every agent
-// node replays these as leading messages before the turn's user message.
-let chatHistory: SwarmChatTurn[] = [];
-
 // Prefer the server's human-readable `message` (e.g. the IAM
 // "model_not_allowed" explanation) over raw JSON in node error banners.
 function extractChatError(body: string): string {
@@ -506,7 +500,9 @@ function extractChatError(body: string): string {
   }
 }
 
-async function callAgent(
+// Implementation. Call sites inside runSwarm use a run-local `callAgent`
+// wrapper that binds this run's conversation history — see runSwarm.
+async function callAgentImpl(
   node: Node<SwarmNodeData>,
   userMessage: string,
   onToken: (t: string) => void,
@@ -520,6 +516,13 @@ async function callAgent(
     cost?: { model?: string; costUsd: number; tokensIn: number; tokensOut: number };
   }) => void,
   onThinking?: (t: string) => void,
+  /**
+   * Chat-mode conversation history for the run this call belongs to. Passed
+   * explicitly (and required) rather than read from module state: two swarm
+   * runs can be in flight in the same tab, and shared mutable state would let
+   * one run replay another's transcript.
+   */
+  history: SwarmChatTurn[] = [],
 ): Promise<string> {
   // Combine user-level abort signal with a per-node timeout so hung calls
   // don't block the swarm forever.
@@ -579,7 +582,7 @@ async function callAgent(
   }>;
   // Chat mode: replay the prior conversation as leading messages so the agent
   // answers in context. One-shot runs have an empty history → no change.
-  const historyMessages: Array<{ role: "user" | "assistant"; content: string }> = chatHistory.map(
+  const historyMessages: Array<{ role: "user" | "assistant"; content: string }> = history.map(
     (h) => ({ role: h.role, content: h.content }),
   );
   const { cleaned: textWithoutImages, images: upstreamImages } = extractAllImageUrls(userMessage);
@@ -829,8 +832,23 @@ export async function runSwarm(
   const depth = opts.depth ?? 0;
   // Install this run's chat history (chat mode) and remember the previous value
   // so a nested Execute-Swarm run restores it on the way out.
-  const prevChatHistory = chatHistory;
-  chatHistory = opts.history ?? [];
+  // Chat-mode conversation history for THIS run. Held in a run-local binding
+  // rather than module state: several runs can be in flight in the same tab
+  // (the run manager is fire-and-forget), and a shared variable let one run
+  // replay another's transcript. `callAgent` below closes over it, so every
+  // agent call in this run — and only this run — sees the right history.
+  const runHistory: SwarmChatTurn[] = opts.history ?? [];
+  const callAgent: typeof callAgentImpl = (
+    node,
+    userMessage,
+    onToken,
+    sig,
+    runId,
+    onUsage,
+    onMeta,
+    onThinking,
+  ) =>
+    callAgentImpl(node, userMessage, onToken, sig, runId, onUsage, onMeta, onThinking, runHistory);
   // Stable id for the entire run — used as a synthetic conversation key for
   // any node that opts into "swarm-scoped" memory so STM/scratchpad persists
   // across nodes within this single execution.
@@ -1950,8 +1968,7 @@ Evaluate the candidate output above against each metric and return the JSON scor
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     onEvent({ type: "run_error", error: msg });
-  } finally {
-    // Restore the caller's chat history (matters for nested Execute-Swarm runs).
-    chatHistory = prevChatHistory;
   }
+  // No history save/restore needed: `runHistory` is run-local, so a nested
+  // Execute-Swarm run simply gets its own binding and can't disturb ours.
 }
