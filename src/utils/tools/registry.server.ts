@@ -16,6 +16,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { listDataTablesTool, runListDataTables, runSqlQuery, sqlQueryTool } from "./sql.server";
 import { metricQueryTool, runMetricQuery, semanticCatalogForCtx } from "./metric.server";
+import { assertPublicUrl } from "@/utils/ssrfGuard.server";
 import { loadWarehouseConnection } from "@/utils/warehouse/connections.server";
 import { executeWarehouseQuery, listWarehouseTables } from "@/utils/warehouse/drivers.server";
 import {
@@ -431,6 +432,11 @@ export async function runWebBrowse(
   const url = (args.url || "").trim();
   if (!/^https?:\/\//i.test(url))
     return JSON.stringify({ error: "Invalid URL — must start with http(s)://" });
+  // This URL is chosen by the MODEL, so it is reachable by prompt injection
+  // (including from a public embed). Refuse private/internal targets — notably
+  // cloud metadata — before any provider path, direct or proxied.
+  const safe = await assertPublicUrl(url);
+  if (!safe.ok) return JSON.stringify({ error: safe.error });
   const provider = (cfg?.provider || "firecrawl_builtin").toLowerCase();
   const userKey = (cfg?.api_key || "").trim();
 

@@ -6,6 +6,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database } from "@/integrations/supabase/types";
 import { resolveSecretRefs } from "@/utils/secrets.server";
+import { safeFetch } from "@/utils/ssrfGuard.server";
 import type { AgentToolContext } from "@/utils/tools/registry.server";
 
 // RLS-scoped client (publishable key + the caller's JWT), matching the one the
@@ -51,7 +52,10 @@ export async function runHttpNodeCore(
   }
   const controller = AbortSignal.timeout(p.timeout_ms ?? 30_000);
   try {
-    const res = await fetch(url, {
+    // safeFetch blocks private/internal targets (incl. cloud metadata) and
+    // re-validates every redirect hop. Set ALLOW_PRIVATE_NETWORK_FETCH=true to
+    // deliberately call internal services from a self-hosted instance.
+    const res = await safeFetch(url, {
       method: p.method,
       headers,
       body: p.method === "GET" || p.method === "DELETE" ? undefined : body,

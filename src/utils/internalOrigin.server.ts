@@ -30,7 +30,12 @@ export function resolveInternalOrigin(): string {
   if (configured && /^https?:\/\/\S+$/i.test(configured.trim())) {
     return normalize(configured.trim());
   }
-  return `http://127.0.0.1:${process.env.PORT || "8080"}`;
+  // 8080 is where this app actually binds (Dockerfile CMD --port 8080
+  // --strictPort, and vite.config's preview port). Deliberately NOT
+  // process.env.PORT: the server never reads PORT, so a platform that sets it
+  // (Render/Fly/Heroku style) would otherwise send these self-calls to a port
+  // nothing is listening on. If you bind a different port, set PUBLIC_APP_URL.
+  return "http://127.0.0.1:8080";
 }
 
 /**
