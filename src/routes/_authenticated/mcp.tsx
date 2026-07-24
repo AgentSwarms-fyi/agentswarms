@@ -40,6 +40,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { probeMcpServer } from "@/lib/mcp/probe.functions";
+import { saveMcpServer } from "@/lib/mcp/servers.functions";
 
 export const Route = createFileRoute("/_authenticated/mcp")({
   component: McpPage,
@@ -88,9 +89,13 @@ function McpPage() {
   const [addOpen, setAddOpen] = useState(false);
 
   const load = async () => {
+    // Explicit column list — never select auth_token / auth_token_enc into the
+    // browser; the bearer token stays server-side.
     const { data, error } = await supabase
       .from("mcp_servers")
-      .select("*")
+      .select(
+        "id, name, type, endpoint, description, status, tools_count, tools, auth_type, last_ping",
+      )
       .order("created_at", { ascending: false });
     if (error) {
       toast.error("Failed to load MCP servers");
@@ -163,32 +168,26 @@ function McpPage() {
     auth_token: string;
   }) => {
     if (!user) return;
-    const { data: inserted, error } = await supabase
-      .from("mcp_servers")
-      .insert({
-        user_id: user.id,
+    // Save via a server function so the bearer token is encrypted at rest and
+    // never stored in the clear.
+    const res = await saveMcpServer({
+      data: {
         name: server.name,
         type: server.type,
         endpoint: server.endpoint,
-        description: server.description || "Custom MCP server.",
-        auth_type: server.auth_type,
-        auth_token: server.auth_token || null,
-        status: "connected",
-        tools_count: 0,
-        last_ping: new Date().toISOString(),
-      })
-      .select("id")
-      .maybeSingle();
-    if (error) {
-      toast.error("Failed to add server");
+        description: server.description,
+        auth_type: server.auth_type === "token" ? "token" : "none",
+        auth_token: server.auth_token,
+      },
+    });
+    if (!res.ok) {
+      toast.error(`Failed to add server: ${res.error}`);
     } else {
       setAddOpen(false);
       toast.success(`Added MCP server: ${server.name}`);
       await load();
-      if (inserted?.id) {
-        // Best-effort probe so tools_count reflects what the server actually exposes.
-        await probeServer(inserted.id, { silent: false });
-      }
+      // Best-effort probe so tools_count reflects what the server actually exposes.
+      await probeServer(res.id, { silent: false });
     }
   };
 

@@ -70,7 +70,7 @@ export const probeMcpServer = createServerFn({ method: "POST" })
     const { supabase } = context;
     const { data: row, error } = await supabase
       .from("mcp_servers")
-      .select("id, endpoint, auth_type, auth_token, tools_count")
+      .select("id, endpoint, auth_type, auth_token, auth_token_enc, tools_count")
       .eq("id", data.id)
       .maybeSingle();
     if (error || !row) {
@@ -108,8 +108,10 @@ export const probeMcpServer = createServerFn({ method: "POST" })
       Accept: "application/json, text/event-stream",
       "MCP-Protocol-Version": PROTOCOL_VERSION,
     };
-    if (row.auth_type === "token" && row.auth_token) {
-      baseHeaders.Authorization = `Bearer ${row.auth_token}`;
+    if (row.auth_type === "token") {
+      const { resolveMcpAuthToken } = await import("./auth.server");
+      const token = await resolveMcpAuthToken(row);
+      if (token) baseHeaders.Authorization = `Bearer ${token}`;
     }
 
     const post = async (body: unknown, sessionId?: string | null) => {

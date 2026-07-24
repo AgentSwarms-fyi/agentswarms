@@ -1760,6 +1760,7 @@ export type Database = {
       mcp_servers: {
         Row: {
           auth_token: string | null;
+          auth_token_enc: Json | null;
           auth_type: string;
           created_at: string;
           description: string | null;
@@ -1776,6 +1777,7 @@ export type Database = {
         };
         Insert: {
           auth_token?: string | null;
+          auth_token_enc?: Json | null;
           auth_type?: string;
           created_at?: string;
           description?: string | null;
@@ -1792,6 +1794,7 @@ export type Database = {
         };
         Update: {
           auth_token?: string | null;
+          auth_token_enc?: Json | null;
           auth_type?: string;
           created_at?: string;
           description?: string | null;

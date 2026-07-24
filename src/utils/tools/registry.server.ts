@@ -17,6 +17,7 @@ import type { Database } from "@/integrations/supabase/types";
 import { listDataTablesTool, runListDataTables, runSqlQuery, sqlQueryTool } from "./sql.server";
 import { metricQueryTool, runMetricQuery, semanticCatalogForCtx } from "./metric.server";
 import { assertPublicUrl, safeFetch } from "@/utils/ssrfGuard.server";
+import { resolveMcpAuthToken } from "@/lib/mcp/auth.server";
 import { loadWarehouseConnection } from "@/utils/warehouse/connections.server";
 import { executeWarehouseQuery, listWarehouseTables } from "@/utils/warehouse/drivers.server";
 import {
@@ -937,7 +938,7 @@ export const mcpListToolsTool: ToolDef = {
 async function loadMcpServer(ctx: AgentToolContext, name: string) {
   const { data } = await ctx.sb
     .from("mcp_servers")
-    .select("name, endpoint, auth_type, auth_token, status")
+    .select("name, endpoint, auth_type, auth_token, auth_token_enc, status")
     .eq("name", name)
     .maybeSingle();
   if (!data) return null;
@@ -1025,7 +1026,8 @@ export async function runMcpListTools(
       error: `Endpoint ${srv.endpoint} is not callable from a server runtime. Only http(s):// MCP endpoints work here.`,
     });
   }
-  const r = await mcpRequest(srv.endpoint, srv.auth_type, srv.auth_token, {
+  const token = await resolveMcpAuthToken(srv);
+  const r = await mcpRequest(srv.endpoint, srv.auth_type, token, {
     jsonrpc: "2.0",
     id: 1,
     method: "tools/list",
@@ -1055,7 +1057,8 @@ export async function runMcpCallTool(
       error: `Endpoint ${srv.endpoint} is not callable from a server runtime.`,
     });
   }
-  const r = await mcpRequest(srv.endpoint, srv.auth_type, srv.auth_token, {
+  const token = await resolveMcpAuthToken(srv);
+  const r = await mcpRequest(srv.endpoint, srv.auth_type, token, {
     jsonrpc: "2.0",
     id: Date.now(),
     method: "tools/call",
