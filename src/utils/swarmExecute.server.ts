@@ -666,8 +666,16 @@ export async function executeSwarmServer(opts: {
           // "continue" writes the configured fallback and lets the run proceed;
           // "fail" (the default) aborts. A cancelled/expired run always aborts —
           // continuing past a deadline would defeat the budget.
+          // A failed condition/router never selected a branch, so every
+          // outgoing edge would still be live and BOTH paths would run — an
+          // approval branch and its bypass, for example. There is no safe
+          // "continue" past an unmade routing decision, so those always fail.
+          const isBranchNode = kind === "condition" || kind === "router";
           const canContinue =
-            (d.onError ?? "fail") === "continue" && !ac.signal.aborted && !expired();
+            (d.onError ?? "fail") === "continue" &&
+            !isBranchNode &&
+            !ac.signal.aborted &&
+            !expired();
           if (canContinue) {
             const fallback = d.errorFallback ?? "";
             ctx[outVar] = fallback;

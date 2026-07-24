@@ -1878,7 +1878,12 @@ Evaluate the candidate output above against each metric and return the JSON scor
             }
           }
         }
-        if ((node.data.onError ?? "fail") === "continue") {
+        // A failed condition/router never selected a branch, so every outgoing
+        // edge would still be live and BOTH paths would run — an approval
+        // branch and its bypass, for example. There is no safe "continue" past
+        // an unmade routing decision, so those nodes always fail the run.
+        const isBranchNode = node.data.kind === "condition" || node.data.kind === "router";
+        if ((node.data.onError ?? "fail") === "continue" && !isBranchNode) {
           const msg = lastErr instanceof Error ? lastErr.message : String(lastErr);
           const fallback = node.data.errorFallback ?? "";
           const v = node.data.outputVar || `out_${node.id}`;
