@@ -63,7 +63,10 @@ export const createSwarmApiKey = createServerFn({ method: "POST" })
           name: data.name,
           key_hash,
           key_prefix,
-          reject_approvals: data.reject_approvals ?? false,
+          // Fail closed: a headless run has no human to decide an approval, so
+          // unless the caller explicitly opts into auto-approval we stop at the
+          // gate rather than silently bypassing the operator's oversight.
+          reject_approvals: data.reject_approvals ?? true,
         })
         .select("id")
         .single();

@@ -1987,6 +1987,7 @@ function SwarmsCanvas({
         swarmName={swarmName}
         open={deployOpen}
         onOpenChange={setDeployOpen}
+        nodes={nodes}
       />
       <SwarmChatDialog
         swarmId={swarmId}

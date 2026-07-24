@@ -106,12 +106,22 @@ export function SwarmDeployDialog({
   swarmName,
   open,
   onOpenChange,
+  nodes,
 }: {
   swarmId: string | null;
   swarmName: string;
   open: boolean;
   onOpenChange: (v: boolean) => void;
+  /** Current graph — used to pre-flight what will actually run headlessly. */
+  nodes?: { data?: { kind?: string; label?: string } }[];
 }) {
+  // Pre-flight checks. Headless (API / scheduled) runs use the server executor,
+  // which supports fewer node kinds than the canvas and decides approvals
+  // without a human — surface both BEFORE the user deploys.
+  const approvalNodes = (nodes ?? []).filter((n) => n.data?.kind === "approval");
+  const blockedNodes = (nodes ?? []).filter(
+    (n) => n.data?.kind === "function" || n.data?.kind === "a2a_remote",
+  );
   const { user } = useAuth();
   const origin = typeof window !== "undefined" ? window.location.origin : "https://your-app";
 
@@ -121,7 +131,7 @@ export function SwarmDeployDialog({
 
   // New-key form
   const [keyName, setKeyName] = useState("Production key");
-  const [keyReject, setKeyReject] = useState(false);
+  const [keyReject, setKeyReject] = useState(true);
   const [creating, setCreating] = useState(false);
   const [newRawKey, setNewRawKey] = useState<string | null>(null);
 
@@ -129,7 +139,7 @@ export function SwarmDeployDialog({
   const [schedName, setSchedName] = useState("Daily run");
   const [schedInput, setSchedInput] = useState("");
   const [schedInterval, setSchedInterval] = useState(1440);
-  const [schedReject, setSchedReject] = useState(false);
+  const [schedReject, setSchedReject] = useState(true);
   const [addingSched, setAddingSched] = useState(false);
 
   const load = useCallback(async () => {
@@ -186,7 +196,7 @@ export function SwarmDeployDialog({
       if (!res.ok) throw new Error(res.error);
       setNewRawKey(res.raw_key);
       setKeyName("Production key");
-      setKeyReject(false);
+      setKeyReject(true);
       await load();
       toast.success("API key created — copy it now, it won't be shown again.");
     } catch (e) {
@@ -247,9 +257,48 @@ export function SwarmDeployDialog({
           </DialogTitle>
           <DialogDescription className="text-xs">
             Run this swarm outside the canvas — via an API key or on a schedule. Headless runs
-            auto-approve human-approval steps (toggle to reject) and can&apos;t use KB/SQL tools yet.
+            execute on the server, which supports fewer node types than the canvas.
           </DialogDescription>
         </DialogHeader>
+
+        {blockedNodes.length > 0 && (
+          <div className="flex gap-2 rounded-md border border-red-500/40 bg-red-500/10 p-3 text-xs">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-red-500" />
+            <div>
+              <div className="font-semibold text-foreground">
+                This swarm can&apos;t run headlessly yet
+              </div>
+              <p className="mt-1 text-muted-foreground">
+                {blockedNodes.length} node
+                {blockedNodes.length > 1 ? "s" : ""} (
+                {blockedNodes
+                  .map((n) => `“${n.data?.label ?? n.data?.kind}”`)
+                  .slice(0, 4)
+                  .join(", ")}
+                ) use Function (custom JS) or A2A Remote, which only run from the canvas. Deployed
+                and scheduled runs will fail until you replace or remove them.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {approvalNodes.length > 0 && (
+          <div className="flex gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />
+            <div>
+              <div className="font-semibold text-foreground">
+                This swarm has {approvalNodes.length} human-approval step
+                {approvalNodes.length > 1 ? "s" : ""}
+              </div>
+              <p className="mt-1 text-muted-foreground">
+                Nobody is present to decide them on a headless run. Leave{" "}
+                <strong>Reject approvals</strong> ON (the default) and those runs stop safely at the
+                gate. Turning it OFF makes the swarm <strong>auto-approve</strong> every approval
+                step — your human oversight is bypassed.
+              </p>
+            </div>
+          </div>
+        )}
 
         {!swarmId ? (
           <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
