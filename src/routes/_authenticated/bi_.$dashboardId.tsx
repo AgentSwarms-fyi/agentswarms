@@ -27,6 +27,7 @@ import {
   Sparkles,
   Trash2,
   Type,
+  Image as ImageIcon,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -263,6 +264,8 @@ function BiProjectPage() {
   const [builderInitial, setBuilderInitial] = useState<BiWidget | null>(null);
   const [textOpen, setTextOpen] = useState(false);
   const [textInitial, setTextInitial] = useState<BiWidget | null>(null);
+  const [imageOpen, setImageOpen] = useState(false);
+  const [imageInitial, setImageInitial] = useState<BiWidget | null>(null);
   const [publishOpen, setPublishOpen] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [generateOpen, setGenerateOpen] = useState(false);
@@ -988,6 +991,17 @@ function BiProjectPage() {
               >
                 <Type className="h-3.5 w-3.5" /> Text
               </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 gap-1.5 px-2.5 text-xs"
+                onClick={() => {
+                  setImageInitial(null);
+                  setImageOpen(true);
+                }}
+              >
+                <ImageIcon className="h-3.5 w-3.5" /> Image
+              </Button>
               <div className="mx-1.5 h-5 w-px bg-border" />
               <Button
                 size="sm"
@@ -1161,114 +1175,114 @@ function BiProjectPage() {
                             </Badge>
                           )}
                           <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button size="sm" variant="ghost" className="h-6 w-6 shrink-0 p-0">
-                              <MoreVertical className="h-3.5 w-3.5" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            {w.source?.kind === "semantic" ? (
-                              <DropdownMenuItem disabled>
-                                <Pencil className="mr-2 h-3.5 w-3.5" /> Edit in Semantic Layer
+                            <DropdownMenuTrigger asChild>
+                              <Button size="sm" variant="ghost" className="h-6 w-6 shrink-0 p-0">
+                                <MoreVertical className="h-3.5 w-3.5" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              {w.source?.kind === "semantic" ? (
+                                <DropdownMenuItem disabled>
+                                  <Pencil className="mr-2 h-3.5 w-3.5" /> Edit in Semantic Layer
+                                </DropdownMenuItem>
+                              ) : (
+                                <DropdownMenuItem onClick={() => editWidget(w)}>
+                                  <Pencil className="mr-2 h-3.5 w-3.5" /> Edit
+                                </DropdownMenuItem>
+                              )}
+                              {w.kind === "chart" && (
+                                <DropdownMenuItem
+                                  disabled={insightBusyId !== null}
+                                  onClick={() => void addInsight(w)}
+                                >
+                                  {insightBusyId === w.id ? (
+                                    <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                                  ) : (
+                                    <Sparkles className="mr-2 h-3.5 w-3.5 text-primary" />
+                                  )}
+                                  AI insight
+                                </DropdownMenuItem>
+                              )}
+                              {w.kind === "chart" && extractBaseTable(w.sql) && (
+                                <DropdownMenuItem onClick={() => setExploreWidget(w)}>
+                                  <SearchCode className="mr-2 h-3.5 w-3.5" /> Explore data
+                                </DropdownMenuItem>
+                              )}
+                              <DropdownMenuItem onClick={() => duplicateWidget(w.id)}>
+                                <Copy className="mr-2 h-3.5 w-3.5" /> Duplicate
                               </DropdownMenuItem>
-                            ) : (
-                              <DropdownMenuItem onClick={() => editWidget(w)}>
-                                <Pencil className="mr-2 h-3.5 w-3.5" /> Edit
-                              </DropdownMenuItem>
-                            )}
-                            {w.kind === "chart" && (
-                              <DropdownMenuItem
-                                disabled={insightBusyId !== null}
-                                onClick={() => void addInsight(w)}
-                              >
-                                {insightBusyId === w.id ? (
-                                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                                ) : (
-                                  <Sparkles className="mr-2 h-3.5 w-3.5 text-primary" />
-                                )}
-                                AI insight
-                              </DropdownMenuItem>
-                            )}
-                            {w.kind === "chart" && extractBaseTable(w.sql) && (
-                              <DropdownMenuItem onClick={() => setExploreWidget(w)}>
-                                <SearchCode className="mr-2 h-3.5 w-3.5" /> Explore data
-                              </DropdownMenuItem>
-                            )}
-                            <DropdownMenuItem onClick={() => duplicateWidget(w.id)}>
-                              <Copy className="mr-2 h-3.5 w-3.5" /> Duplicate
-                            </DropdownMenuItem>
-                            <DropdownMenuSub>
-                              <DropdownMenuSubTrigger>
-                                <Palette className="mr-2 h-3.5 w-3.5" /> Appearance
-                              </DropdownMenuSubTrigger>
-                              <DropdownMenuPortal>
-                                <DropdownMenuSubContent className="w-48">
-                                  <p className="px-2 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                                    Accent
-                                  </p>
-                                  <div className="grid grid-cols-4 gap-1 px-2 pb-1.5">
-                                    {Object.entries(WIDGET_ACCENTS).map(([id, a]) => (
-                                      <button
-                                        key={id}
-                                        type="button"
-                                        title={a.label}
+                              <DropdownMenuSub>
+                                <DropdownMenuSubTrigger>
+                                  <Palette className="mr-2 h-3.5 w-3.5" /> Appearance
+                                </DropdownMenuSubTrigger>
+                                <DropdownMenuPortal>
+                                  <DropdownMenuSubContent className="w-48">
+                                    <p className="px-2 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                                      Accent
+                                    </p>
+                                    <div className="grid grid-cols-4 gap-1 px-2 pb-1.5">
+                                      {Object.entries(WIDGET_ACCENTS).map(([id, a]) => (
+                                        <button
+                                          key={id}
+                                          type="button"
+                                          title={a.label}
+                                          onClick={() =>
+                                            setWidgetTheme(w.id, {
+                                              accent: id === "default" ? undefined : id,
+                                            })
+                                          }
+                                          className={`h-6 rounded-md border ${
+                                            (w.theme?.accent ?? "default") === id
+                                              ? "border-foreground"
+                                              : "border-border/60"
+                                          }`}
+                                          style={{ background: a.color || "var(--primary)" }}
+                                        />
+                                      ))}
+                                    </div>
+                                    <p className="px-2 pb-1 pt-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                                      Card style
+                                    </p>
+                                    {(["default", "tint", "glass"] as const).map((c) => (
+                                      <DropdownMenuItem
+                                        key={c}
                                         onClick={() =>
                                           setWidgetTheme(w.id, {
-                                            accent: id === "default" ? undefined : id,
+                                            card: c === "default" ? undefined : c,
                                           })
                                         }
-                                        className={`h-6 rounded-md border ${
-                                          (w.theme?.accent ?? "default") === id
-                                            ? "border-foreground"
-                                            : "border-border/60"
-                                        }`}
-                                        style={{ background: a.color || "var(--primary)" }}
-                                      />
+                                        className={
+                                          (w.theme?.card ?? "default") === c
+                                            ? "font-semibold"
+                                            : undefined
+                                        }
+                                      >
+                                        {c === "default"
+                                          ? "Default"
+                                          : c === "tint"
+                                            ? "Accent tint"
+                                            : "Glass (over image)"}
+                                      </DropdownMenuItem>
                                     ))}
-                                  </div>
-                                  <p className="px-2 pb-1 pt-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                                    Card style
-                                  </p>
-                                  {(["default", "tint", "glass"] as const).map((c) => (
-                                    <DropdownMenuItem
-                                      key={c}
-                                      onClick={() =>
-                                        setWidgetTheme(w.id, {
-                                          card: c === "default" ? undefined : c,
-                                        })
-                                      }
-                                      className={
-                                        (w.theme?.card ?? "default") === c
-                                          ? "font-semibold"
-                                          : undefined
-                                      }
-                                    >
-                                      {c === "default"
-                                        ? "Default"
-                                        : c === "tint"
-                                          ? "Accent tint"
-                                          : "Glass (over image)"}
-                                    </DropdownMenuItem>
-                                  ))}
-                                </DropdownMenuSubContent>
-                              </DropdownMenuPortal>
-                            </DropdownMenuSub>
-                            {w.kind === "chart" && (w.rows?.length ?? 0) > 0 && (
-                              <DropdownMenuItem onClick={() => downloadWidgetCsv(w)}>
-                                <FileDown className="mr-2 h-3.5 w-3.5" /> Download CSV
+                                  </DropdownMenuSubContent>
+                                </DropdownMenuPortal>
+                              </DropdownMenuSub>
+                              {w.kind === "chart" && (w.rows?.length ?? 0) > 0 && (
+                                <DropdownMenuItem onClick={() => downloadWidgetCsv(w)}>
+                                  <FileDown className="mr-2 h-3.5 w-3.5" /> Download CSV
+                                </DropdownMenuItem>
+                              )}
+                              <DropdownMenuItem onClick={() => void downloadWidgetPng(w)}>
+                                <FileDown className="mr-2 h-3.5 w-3.5" /> Download PNG
                               </DropdownMenuItem>
-                            )}
-                            <DropdownMenuItem onClick={() => void downloadWidgetPng(w)}>
-                              <FileDown className="mr-2 h-3.5 w-3.5" /> Download PNG
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              className="text-destructive focus:text-destructive"
-                              onClick={() => removeWidget(w.id)}
-                            >
-                              <Trash2 className="mr-2 h-3.5 w-3.5" /> Remove
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                              <DropdownMenuItem
+                                className="text-destructive focus:text-destructive"
+                                onClick={() => removeWidget(w.id)}
+                              >
+                                <Trash2 className="mr-2 h-3.5 w-3.5" /> Remove
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </div>
                       )
                     }
@@ -1309,6 +1323,12 @@ function BiProjectPage() {
             onOpenChange={setTextOpen}
             initial={textInitial}
             onSubmit={(w) => (textInitial ? replaceWidget(w) : addWidget(w))}
+          />
+          <ImageWidgetDialog
+            open={imageOpen}
+            onOpenChange={setImageOpen}
+            initial={imageInitial}
+            onSubmit={(w) => (imageInitial ? replaceWidget(w) : addWidget(w))}
           />
           <PublishDialog
             open={publishOpen}
@@ -1437,6 +1457,170 @@ function TextWidgetDialog({
               placeholder={"## Key takeaways\n- Revenue grew 12% QoQ\n- …"}
               className="font-mono text-xs"
             />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button onClick={submit}>{initial ? "Save" : "Add to dashboard"}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+const IMAGE_UPLOAD_MAX_BYTES = 3 * 1024 * 1024; // 3 MB — kept inline in the dashboard JSON
+
+function ImageWidgetDialog({
+  open,
+  onOpenChange,
+  initial,
+  onSubmit,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  initial: BiWidget | null;
+  onSubmit: (w: BiWidget) => void;
+}) {
+  const [title, setTitle] = useState("");
+  const [mode, setMode] = useState<"upload" | "url">("url");
+  const [src, setSrc] = useState(""); // data-URI (upload) or external URL
+  const [fit, setFit] = useState<"contain" | "cover">("contain");
+  const [href, setHref] = useState("");
+  const [alt, setAlt] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    setTitle(initial?.title ?? "");
+    const img = initial?.image;
+    setSrc(img?.src ?? "");
+    setMode(img?.src?.startsWith("data:") ? "upload" : "url");
+    setFit(img?.fit ?? "contain");
+    setHref(img?.href ?? "");
+    setAlt(img?.alt ?? "");
+  }, [open, initial]);
+
+  function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) return toast.error("Please choose an image file");
+    if (file.size > IMAGE_UPLOAD_MAX_BYTES) {
+      return toast.error("Image is larger than 3 MB — use a smaller file or paste a URL instead");
+    }
+    const reader = new FileReader();
+    reader.onload = () => setSrc(typeof reader.result === "string" ? reader.result : "");
+    reader.onerror = () => toast.error("Could not read that file");
+    reader.readAsDataURL(file);
+  }
+
+  function submit() {
+    if (!title.trim()) return toast.error("Give the image a title");
+    if (!src.trim())
+      return toast.error(mode === "upload" ? "Choose an image file" : "Enter an image URL");
+    if (mode === "url" && !/^https?:\/\//i.test(src.trim())) {
+      return toast.error("Image URL must start with http:// or https://");
+    }
+    onSubmit({
+      id: initial?.id ?? crypto.randomUUID(),
+      kind: "image",
+      title: title.trim(),
+      image: { src: src.trim(), fit, href: href.trim() || undefined, alt: alt.trim() || undefined },
+    });
+    onOpenChange(false);
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{initial ? "Edit image" : "Add image"}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label>Title</Label>
+            <Input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Company logo"
+            />
+          </div>
+          <div className="flex gap-1.5">
+            <Button
+              type="button"
+              size="sm"
+              variant={mode === "url" ? "default" : "outline"}
+              onClick={() => setMode("url")}
+            >
+              From URL
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={mode === "upload" ? "default" : "outline"}
+              onClick={() => setMode("upload")}
+            >
+              Upload
+            </Button>
+          </div>
+          {mode === "url" ? (
+            <div className="space-y-1.5">
+              <Label>Image URL</Label>
+              <Input
+                value={src.startsWith("data:") ? "" : src}
+                onChange={(e) => setSrc(e.target.value)}
+                placeholder="https://my-bucket.s3.amazonaws.com/logo.png"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Any public image URL (e.g. a public S3 object). Loaded by the viewer&apos;s browser.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              <Label>Image file (max 3 MB)</Label>
+              <Input type="file" accept="image/*" onChange={onFile} />
+              {src.startsWith("data:") && (
+                <p className="text-[11px] text-muted-foreground">
+                  Image loaded — stored with the dashboard.
+                </p>
+              )}
+            </div>
+          )}
+          {src && (
+            <div className="flex h-28 items-center justify-center overflow-hidden rounded-md border border-border/60 bg-muted/30">
+              <img src={src} alt="" className="h-full w-full" style={{ objectFit: fit }} />
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Fit</Label>
+              <div className="flex gap-1.5">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={fit === "contain" ? "default" : "outline"}
+                  onClick={() => setFit("contain")}
+                >
+                  Contain
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={fit === "cover" ? "default" : "outline"}
+                  onClick={() => setFit("cover")}
+                >
+                  Cover
+                </Button>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Link (optional)</Label>
+              <Input
+                value={href}
+                onChange={(e) => setHref(e.target.value)}
+                placeholder="https://…"
+              />
+            </div>
           </div>
         </div>
         <DialogFooter>

@@ -3,11 +3,19 @@
 // table, or markdown text. Used by the BI project editor, the read-only
 // shared view, and the public published page.
 import { useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, BarChart3, Network, Table2, Type } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  BarChart3,
+  Image as ImageIcon,
+  Network,
+  Table2,
+  Type,
+} from "lucide-react";
 import { BiChartRender, fmtBiValue, toBiNumber } from "@/components/bi/BiChartRender";
 import { MarkdownMessage } from "@/components/playground/MarkdownMessage";
 import type { BiColumnFormat } from "@/lib/biAgent";
-import { WIDGET_ACCENTS, type BiWidget } from "@/lib/biDashboards";
+import { WIDGET_ACCENTS, type BiImage, type BiWidget } from "@/lib/biDashboards";
 import { cn } from "@/lib/utils";
 
 const TABLE_PAGE = 50;
@@ -157,6 +165,36 @@ export function WidgetDataTable({
   );
 }
 
+/** Image widget body — data-URI (uploaded) or external URL, with a fallback. */
+function ImageWidgetBody({ image }: { image?: BiImage }) {
+  const [broken, setBroken] = useState(false);
+  const src = image?.src ?? "";
+  if (!src || broken) {
+    return (
+      <div className="flex h-full w-full flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-border/60 text-center text-xs text-muted-foreground">
+        <ImageIcon className="h-5 w-5 opacity-60" />
+        {src ? "Image failed to load — check the URL." : "No image set."}
+      </div>
+    );
+  }
+  const img = (
+    <img
+      src={src}
+      alt={image?.alt ?? ""}
+      onError={() => setBroken(true)}
+      className="h-full w-full rounded-lg"
+      style={{ objectFit: image?.fit ?? "contain" }}
+    />
+  );
+  return image?.href ? (
+    <a href={image.href} target="_blank" rel="noopener noreferrer" className="block h-full w-full">
+      {img}
+    </a>
+  ) : (
+    img
+  );
+}
+
 export function BiWidgetCard({
   widget,
   actions,
@@ -169,12 +207,21 @@ export function BiWidgetCard({
   onElementClick?: (column: string, value: string) => void;
 }) {
   const isText = widget.kind === "text";
+  const isImage = widget.kind === "image";
   const chart = widget.chart ?? { type: "table" as const };
   const rows = widget.rows ?? [];
   const columns = widget.columns ?? [];
   // Ontology widgets render from the spec inside `chart` — no row snapshot.
   const isOntology = chart.type === "ontology";
-  const Icon = isText ? Type : isOntology ? Network : chart.type === "table" ? Table2 : BarChart3;
+  const Icon = isImage
+    ? ImageIcon
+    : isText
+      ? Type
+      : isOntology
+        ? Network
+        : chart.type === "table"
+          ? Table2
+          : BarChart3;
   // Per-widget appearance: the accent recolours the chart primary via a
   // scoped CSS variable; card styles suit plain, tinted or image-backed
   // dashboards.
@@ -212,7 +259,9 @@ export function BiWidgetCard({
         </div>
       </div>
       <div className="min-h-0 flex-1 px-2 pb-2">
-        {isText ? (
+        {isImage ? (
+          <ImageWidgetBody image={widget.image} />
+        ) : isText ? (
           <div className="h-full overflow-y-auto px-2 text-sm">
             <MarkdownMessage content={widget.text ?? ""} />
           </div>

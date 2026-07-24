@@ -201,6 +201,29 @@ export function GenerateDashboardDialog({
         let ok = false;
         let reason = "";
         try {
+          // Non-data widgets the planner may propose: build them directly.
+          if (picks[i].kind === "text" || picks[i].kind === "image") {
+            const p = picks[i];
+            const widget: BiWidget =
+              p.kind === "image"
+                ? {
+                    id: crypto.randomUUID(),
+                    kind: "image",
+                    title: p.title || "Image",
+                    image: { src: p.imageUrl ?? "", fit: "contain" },
+                  }
+                : {
+                    id: crypto.randomUUID(),
+                    kind: "text",
+                    title: p.title || "Note",
+                    text: p.content ?? "",
+                  };
+            widgets.push(widget);
+            ok = true;
+            progress = progress.map((s, j) => (j === i ? { ...s, status: "done" } : s));
+            setSteps(progress);
+            continue;
+          }
           const turn = await runBiTurn({
             question: picks[i].question,
             datasets: scoped,

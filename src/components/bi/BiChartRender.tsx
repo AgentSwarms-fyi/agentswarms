@@ -244,6 +244,107 @@ export function pivotSeries(
   return { data: xOrder.map((x) => byX.get(x)!), series };
 }
 
+const WORDCLOUD_STOPWORDS = new Set(
+  (
+    "a an and are as at be by for from has have in is it its of on or that the to was were will with " +
+    "this these those i you he she they we not but if then so than too very can just"
+  ).split(" "),
+);
+
+/**
+ * Word cloud. With no valueField, tokenizes the text-column values into words
+ * and sizes by frequency (good for free text). With a valueField, treats each
+ * distinct text value as a term weighted by the summed measure. Dependency-free.
+ */
+function WordCloud({
+  rows,
+  textField,
+  valueField,
+  fill,
+  onElementClick,
+}: {
+  rows: Record<string, unknown>[];
+  textField: string;
+  valueField?: string;
+  fill?: boolean;
+  onElementClick?: (column: string, value: string) => void;
+}) {
+  const words = useMemo(() => {
+    const weights = new Map<string, number>();
+    const label = new Map<string, string>(); // lowercase key → display term
+    if (valueField) {
+      for (const r of rows) {
+        const term = String(r[textField] ?? "").trim();
+        if (!term) continue;
+        const v = Number(r[valueField]);
+        if (!Number.isFinite(v) || v <= 0) continue;
+        const key = term.toLowerCase();
+        weights.set(key, (weights.get(key) ?? 0) + v);
+        if (!label.has(key)) label.set(key, term);
+      }
+    } else {
+      for (const r of rows) {
+        const raw = String(r[textField] ?? "");
+        for (const tok of raw.split(/[^\p{L}\p{N}]+/u)) {
+          const key = tok.toLowerCase();
+          if (key.length < 3 || WORDCLOUD_STOPWORDS.has(key)) continue;
+          weights.set(key, (weights.get(key) ?? 0) + 1);
+          if (!label.has(key)) label.set(key, tok);
+        }
+      }
+    }
+    const arr = [...weights.entries()]
+      .map(([key, weight]) => ({ key, weight, term: label.get(key) ?? key }))
+      .sort((a, b) => b.weight - a.weight)
+      .slice(0, 60);
+    // Deterministic shuffle so the layout is stable across renders.
+    const shuffled = arr
+      .map((w, i) => ({ w, r: ((i * 2654435761) % 100) / 100 }))
+      .sort((a, b) => a.r - b.r)
+      .map((x) => x.w);
+    return shuffled;
+  }, [rows, textField, valueField]);
+
+  if (words.length === 0) {
+    return (
+      <div className="flex h-full w-full items-center justify-center px-4 text-center text-xs text-muted-foreground">
+        No words to show — pick a text column with values.
+      </div>
+    );
+  }
+
+  const max = Math.max(...words.map((w) => w.weight));
+  const min = Math.min(...words.map((w) => w.weight));
+  const sizeFor = (weight: number) => {
+    // sqrt scale, mapped to 12–46px so a few common words don't dominate.
+    const t =
+      max === min ? 0.5 : (Math.sqrt(weight) - Math.sqrt(min)) / (Math.sqrt(max) - Math.sqrt(min));
+    return Math.round(12 + t * 34);
+  };
+
+  return (
+    <div
+      className={`${fill ? "h-full" : "h-56"} flex w-full flex-wrap items-center justify-center gap-x-3 gap-y-1 overflow-auto p-2`}
+    >
+      {words.map((w, i) => (
+        <span
+          key={w.key}
+          onClick={onElementClick ? () => onElementClick(textField, w.term) : undefined}
+          title={`${w.term}: ${w.weight}`}
+          className={`font-semibold leading-tight ${onElementClick ? "cursor-pointer hover:underline" : ""}`}
+          style={{
+            fontSize: sizeFor(w.weight),
+            color: PIE_COLORS[i % PIE_COLORS.length],
+            opacity: 0.75 + 0.25 * (w.weight / max),
+          }}
+        >
+          {w.term}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function BiChartRenderInner({
   chart,
   rows,
@@ -361,6 +462,18 @@ function BiChartRenderInner({
 
   if (chart.type === "boxplot") {
     return <BoxPlot rows={rows} xField={chart.xField} yField={chart.yField} />;
+  }
+
+  if (chart.type === "wordcloud") {
+    return (
+      <WordCloud
+        rows={rows}
+        textField={chart.textField}
+        valueField={chart.valueField}
+        fill={fill}
+        onElementClick={onElementClick}
+      />
+    );
   }
 
   if (chart.type === "matrix") {

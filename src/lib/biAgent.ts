@@ -125,6 +125,8 @@ export type ChartSpec = {
     | { type: "gauge"; valueField: string; label?: string; targetField?: string; max?: number }
     | { type: "treemap"; nameField: string; valueField: string }
     | { type: "heatmap"; xField: string; yField: string; valueField: string }
+    // Word cloud — words sized by frequency of textField (optionally weighted by valueField).
+    | { type: "wordcloud"; textField: string; valueField?: string }
     | { type: "boxplot"; xField: string; yField: string }
     | {
         type: "matrix";
@@ -475,6 +477,8 @@ export async function suggestChart(args: {
       "- 'sankey': { xField, yField, valueField } — flows FROM xField (source) TO yField (target) sized by valueField\n" +
       "- 'nightingale': { nameField, valueField } — polar-area rose; part-of-whole where magnitude varies a lot (≤12 rows)\n" +
       "- 'radar': { xField, yField, seriesField? } — compare 3-10 metrics (xField spokes) across one or a few series\n" +
+      "- 'wordcloud': { textField, valueField? } — words sized by frequency of a text/category column; " +
+      "set valueField to weight each distinct value by a measure instead of counting\n" +
       "- 'table': {} — fallback\n" +
       "All field values MUST be exact column names from the data.",
     userPrompt: `QUESTION: ${args.question}\nINTENT: ${args.plan.intent}\nCOLUMNS: ${args.result.columns.join(", ")}\nSAMPLE ROWS: ${JSON.stringify(sample)}\nROW COUNT: ${args.result.row_count}${preferLine}\n\nReturn JSON like { "type": "bar", "xField": "...", "yField": "..." }`,
@@ -821,16 +825,22 @@ export async function planDashboard(args: {
 export type WidgetSuggestion = {
   id: string;
   title: string;
-  /** Proposed chart type (bar/line/kpi/pie/heatmap/scatter/…). */
+  /** "chart" (data-driven, default), "text" (markdown note) or "image" (URL). */
+  kind: "chart" | "text" | "image";
+  /** Proposed chart type (bar/line/kpi/pie/heatmap/scatter/…). chart kind only. */
   chartType: string;
-  /** The analyst question that produces this widget. */
+  /** The analyst question that produces this widget. chart kind only. */
   question: string;
   /** One-line reason this visual is worth building. */
   rationale: string;
+  /** Markdown content for a "text" widget. */
+  content?: string;
+  /** Image URL for an "image" widget. */
+  imageUrl?: string;
 };
 
 const SUGGESTABLE_CHARTS =
-  "kpi, bar, hbar, scolumn, shbar, barrace, line, area, pie, nightingale, radar, combo, scatter, funnel, waterfall, gauge, sankey, treemap, heatmap, boxplot, matrix, table";
+  "kpi, bar, hbar, scolumn, shbar, barrace, line, area, pie, nightingale, radar, combo, scatter, funnel, waterfall, gauge, sankey, treemap, heatmap, wordcloud, boxplot, matrix, table";
 
 /**
  * Analyze a table's structure + semantics and propose a set of dashboard
@@ -849,7 +859,15 @@ export async function suggestDashboardWidgets(args: {
   const out = await llmJson<{
     title?: string;
     summary?: string;
-    widgets?: Array<{ title?: string; chartType?: string; question?: string; rationale?: string }>;
+    widgets?: Array<{
+      title?: string;
+      kind?: string;
+      chartType?: string;
+      question?: string;
+      rationale?: string;
+      content?: string;
+      imageUrl?: string;
+    }>;
   }>({
     model: args.model,
     systemPrompt:
@@ -867,9 +885,14 @@ export async function suggestDashboardWidgets(args: {
       "category and a second dimension; 'barrace' for a ranking that changes over a date/time " +
       "column; 'radar' to compare a handful of metrics across a few entities; 'nightingale' for " +
       "a rose of ≤12 categories with widely varying magnitudes; 'sankey' for flows between two " +
-      "linked columns (source→target) with a value; 'map'/'bubblemap' ONLY if a real geography column exists. " +
-      "Each widget needs a concrete analyst question answerable with ONE SQL query on this " +
-      "schema, using ONLY columns that exist. Also write a 2-4 sentence executive summary of " +
+      "linked columns (source→target) with a value; 'wordcloud' for a free-text or comment column " +
+      "to surface frequent terms; 'map'/'bubblemap' ONLY if a real geography column exists. " +
+      "Chart widgets (kind 'chart', the default) need a concrete analyst question answerable with " +
+      "ONE SQL query on this schema, using ONLY columns that exist. You MAY also add non-data " +
+      "widgets: a 'text' widget (set kind:'text' and content: markdown, e.g. a section header or " +
+      "note) — no question needed; and, ONLY if the FOCUS explicitly asks for a logo/banner/image " +
+      "and gives a URL, an 'image' widget (kind:'image', imageUrl). Never invent image URLs. " +
+      "Also write a 2-4 sentence executive summary of " +
       "what this dataset contains and the key things the dashboard reveals. Output JSON only.",
     userPrompt:
       `${schema}\n\n${args.focus ? `FOCUS: ${args.focus}\n\n` : ""}` +
@@ -879,15 +902,30 @@ export async function suggestDashboardWidgets(args: {
   });
 
   const suggestions: WidgetSuggestion[] = (out.widgets ?? [])
-    .filter((w) => w && typeof w.question === "string" && w.question.trim().length > 0)
-    .slice(0, 14)
-    .map((w) => ({
-      id: crypto.randomUUID(),
-      title: (w.title ?? w.question ?? "").trim().slice(0, 80),
-      chartType: (w.chartType ?? "").trim().toLowerCase(),
-      question: (w.question ?? "").trim(),
-      rationale: (w.rationale ?? "").trim().slice(0, 160),
-    }));
+    .map((w) => {
+      const kind: WidgetSuggestion["kind"] =
+        w.kind === "text" ? "text" : w.kind === "image" ? "image" : "chart";
+      return {
+        id: crypto.randomUUID(),
+        kind,
+        title: (w.title ?? w.question ?? "").trim().slice(0, 80),
+        chartType: (w.chartType ?? "").trim().toLowerCase(),
+        question: (w.question ?? "").trim(),
+        rationale: (w.rationale ?? "").trim().slice(0, 160),
+        content: typeof w.content === "string" ? w.content.trim() : undefined,
+        imageUrl: typeof w.imageUrl === "string" ? w.imageUrl.trim() : undefined,
+      };
+    })
+    // Keep widgets that are actually buildable: charts need a question, text
+    // needs content, image needs a real http(s) URL.
+    .filter((w) =>
+      w.kind === "chart"
+        ? w.question.length > 0
+        : w.kind === "text"
+          ? (w.content ?? "").length > 0
+          : /^https?:\/\//i.test(w.imageUrl ?? ""),
+    )
+    .slice(0, 14);
 
   return {
     title: (out.title ?? "").trim().slice(0, 60) || args.datasets[0]?.name || "Dashboard",

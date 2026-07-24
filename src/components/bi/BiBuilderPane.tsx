@@ -40,9 +40,12 @@ import {
   Send,
   Sparkles,
   Table2,
+  Cloud,
   X,
 } from "lucide-react";
 
+import { VIZ_REQUIREMENTS } from "@/lib/biVizMeta";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -122,6 +125,7 @@ const VIZ_TYPES: {
   { value: "funnel", label: "Funnel", icon: Filter },
   { value: "sankey", label: "Sankey", icon: Workflow },
   { value: "treemap", label: "Treemap", icon: LayoutGrid },
+  { value: "wordcloud", label: "Word cloud", icon: Cloud },
   { value: "heatmap", label: "Heatmap", icon: Flame },
   { value: "boxplot", label: "Box plot", icon: CandlestickChart },
   { value: "waterfall", label: "Waterfall", icon: BarChart4 },
@@ -376,8 +380,10 @@ export function BiBuilderPane({
       setChartType(c.type);
       setXField("xField" in c ? c.xField : "");
       setYField(c.type === "combo" ? c.barField : "yField" in c ? c.yField : "");
-      setNameField("nameField" in c ? c.nameField : "");
-      setValueField("valueField" in c ? c.valueField : "");
+      setNameField(
+        c.type === "wordcloud" ? c.textField : "nameField" in c ? c.nameField : "",
+      );
+      setValueField("valueField" in c ? (c.valueField ?? "") : "");
       setKpiLabel("label" in c ? (c.label ?? "") : "");
       setLineField(c.type === "combo" ? c.lineField : "");
       setSizeField(c.type === "scatter" ? (c.sizeField ?? "") : "");
@@ -747,6 +753,11 @@ export function BiBuilderPane({
         case "treemap":
         case "nightingale":
           return nameField && valueField ? { type: chartType, nameField, valueField } : null;
+        case "wordcloud":
+          // textField reuses the dimension picker (nameField); the measure is optional.
+          return nameField
+            ? { type: "wordcloud", textField: nameField, valueField: valueField || undefined }
+            : null;
         case "combo":
           return xField && yField && lineField
             ? { type: "combo", xField, barField: yField, lineField }
@@ -1328,25 +1339,40 @@ export function BiBuilderPane({
               <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Visualisation
               </Label>
-              <div className="grid grid-cols-3 gap-1.5">
-                {VIZ_TYPES.map((v) => (
-                  <button
-                    key={v.value}
-                    type="button"
-                    title={v.label}
-                    onClick={() => setChartType(v.value)}
-                    className={cn(
-                      "flex flex-col items-center gap-1 rounded-lg border px-2 py-2.5 text-[10px] font-medium transition",
-                      chartType === v.value
-                        ? "border-primary bg-primary/10 text-primary shadow-sm"
-                        : "border-border/60 text-muted-foreground hover:border-primary/40 hover:bg-muted/50 hover:text-foreground",
-                    )}
-                  >
-                    <v.icon className="h-5 w-5" />
-                    {v.label}
-                  </button>
-                ))}
-              </div>
+              <TooltipProvider>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {VIZ_TYPES.map((v) => {
+                    const req = VIZ_REQUIREMENTS[v.value];
+                    const btn = (
+                      <button
+                        key={v.value}
+                        type="button"
+                        onClick={() => setChartType(v.value)}
+                        className={cn(
+                          "flex flex-col items-center gap-1 rounded-lg border px-2 py-2.5 text-[10px] font-medium transition",
+                          chartType === v.value
+                            ? "border-primary bg-primary/10 text-primary shadow-sm"
+                            : "border-border/60 text-muted-foreground hover:border-primary/40 hover:bg-muted/50 hover:text-foreground",
+                        )}
+                      >
+                        <v.icon className="h-5 w-5" />
+                        {v.label}
+                      </button>
+                    );
+                    if (!req) return btn;
+                    return (
+                      <Tooltip key={v.value} delayDuration={200}>
+                        <TooltipTrigger asChild>{btn}</TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-[220px]">
+                          <p className="font-semibold">{v.label}</p>
+                          <p className="mt-0.5 text-xs">{req.requires}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">{req.how}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    );
+                  })}
+                </div>
+              </TooltipProvider>
             </div>
 
             {chartType === "ontology" ? (
@@ -1875,6 +1901,12 @@ export function BiBuilderPane({
                             setNameField,
                           )}
                           {fieldSelect("Value (numeric)", valueField, setValueField)}
+                        </>
+                      )}
+                      {chartType === "wordcloud" && (
+                        <>
+                          {fieldSelect("Text / words", nameField, setNameField)}
+                          {optionalFieldSelect("Weight by (numeric)", valueField, setValueField)}
                         </>
                       )}
                       {chartType === "combo" && (
