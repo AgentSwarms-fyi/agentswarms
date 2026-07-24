@@ -35,6 +35,7 @@ import { Route as DocsAgentsRouteImport } from './routes/docs.agents'
 import { Route as DocsAccountRouteImport } from './routes/docs.account'
 import { Route as ApiPythonKbRouteImport } from './routes/api/python-kb'
 import { Route as ApiPythonChatRouteImport } from './routes/api/python-chat'
+import { Route as ApiMetricsRouteImport } from './routes/api/metrics'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiEmbedRouteImport } from './routes/api/embed'
 import { Route as ApiContactRouteImport } from './routes/api/contact'
@@ -223,6 +224,11 @@ const ApiPythonKbRoute = ApiPythonKbRouteImport.update({
 const ApiPythonChatRoute = ApiPythonChatRouteImport.update({
   id: '/api/python-chat',
   path: '/api/python-chat',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMetricsRoute = ApiMetricsRouteImport.update({
+  id: '/api/metrics',
+  path: '/api/metrics',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiHealthRoute = ApiHealthRouteImport.update({
@@ -580,6 +586,7 @@ export interface FileRoutesByFullPath {
   '/api/contact': typeof ApiContactRoute
   '/api/embed': typeof ApiEmbedRouteWithChildren
   '/api/health': typeof ApiHealthRouteWithChildren
+  '/api/metrics': typeof ApiMetricsRoute
   '/api/python-chat': typeof ApiPythonChatRoute
   '/api/python-kb': typeof ApiPythonKbRoute
   '/docs/account': typeof DocsAccountRoute
@@ -666,6 +673,7 @@ export interface FileRoutesByTo {
   '/api/contact': typeof ApiContactRoute
   '/api/embed': typeof ApiEmbedRouteWithChildren
   '/api/health': typeof ApiHealthRouteWithChildren
+  '/api/metrics': typeof ApiMetricsRoute
   '/api/python-chat': typeof ApiPythonChatRoute
   '/api/python-kb': typeof ApiPythonKbRoute
   '/docs/account': typeof DocsAccountRoute
@@ -755,6 +763,7 @@ export interface FileRoutesById {
   '/api/contact': typeof ApiContactRoute
   '/api/embed': typeof ApiEmbedRouteWithChildren
   '/api/health': typeof ApiHealthRouteWithChildren
+  '/api/metrics': typeof ApiMetricsRoute
   '/api/python-chat': typeof ApiPythonChatRoute
   '/api/python-kb': typeof ApiPythonKbRoute
   '/docs/account': typeof DocsAccountRoute
@@ -844,6 +853,7 @@ export interface FileRouteTypes {
     | '/api/contact'
     | '/api/embed'
     | '/api/health'
+    | '/api/metrics'
     | '/api/python-chat'
     | '/api/python-kb'
     | '/docs/account'
@@ -930,6 +940,7 @@ export interface FileRouteTypes {
     | '/api/contact'
     | '/api/embed'
     | '/api/health'
+    | '/api/metrics'
     | '/api/python-chat'
     | '/api/python-kb'
     | '/docs/account'
@@ -1018,6 +1029,7 @@ export interface FileRouteTypes {
     | '/api/contact'
     | '/api/embed'
     | '/api/health'
+    | '/api/metrics'
     | '/api/python-chat'
     | '/api/python-kb'
     | '/docs/account'
@@ -1084,6 +1096,7 @@ export interface RootRouteChildren {
   ApiContactRoute: typeof ApiContactRoute
   ApiEmbedRoute: typeof ApiEmbedRouteWithChildren
   ApiHealthRoute: typeof ApiHealthRouteWithChildren
+  ApiMetricsRoute: typeof ApiMetricsRoute
   ApiPythonChatRoute: typeof ApiPythonChatRoute
   ApiPythonKbRoute: typeof ApiPythonKbRoute
   EmailUnsubscribeRoute: typeof EmailUnsubscribeRoute
@@ -1290,6 +1303,13 @@ declare module '@tanstack/react-router' {
       path: '/api/python-chat'
       fullPath: '/api/python-chat'
       preLoaderRoute: typeof ApiPythonChatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/metrics': {
+      id: '/api/metrics'
+      path: '/api/metrics'
+      fullPath: '/api/metrics'
+      preLoaderRoute: typeof ApiMetricsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/health': {
@@ -1910,6 +1930,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiContactRoute: ApiContactRoute,
   ApiEmbedRoute: ApiEmbedRouteWithChildren,
   ApiHealthRoute: ApiHealthRouteWithChildren,
+  ApiMetricsRoute: ApiMetricsRoute,
   ApiPythonChatRoute: ApiPythonChatRoute,
   ApiPythonKbRoute: ApiPythonKbRoute,
   EmailUnsubscribeRoute: EmailUnsubscribeRoute,

@@ -271,6 +271,30 @@ one pass runs at a time (extra callers get `{"skipped": true}`).
   than sent traffic. (Don't point liveness at this — a shared-DB blip would then
   restart every pod at once instead of just draining them.)
 
+### Metrics (Prometheus / OpenMetrics)
+`GET /api/metrics` exposes fleet-level operational gauges in the Prometheus text
+exposition format — run and LLM-call volume over the last 24h broken down by
+status (`success`/`error`/`running`), month-to-date AI spend, active users, plus
+`agentswarms_up` / `agentswarms_db_up`. It aggregates **all** tenants, so it is
+**disabled until you set `METRICS_TOKEN`** (returns `404` when unset); once set,
+scrapers must send `Authorization: Bearer <METRICS_TOKEN>`. The payload is cached
+~15s per instance, so a tight scrape interval won't add DB load. Point Prometheus,
+Grafana Agent, or the Datadog OpenMetrics check at it:
+
+```yaml
+scrape_configs:
+  - job_name: agentswarms
+    metrics_path: /api/metrics
+    authorization: { credentials: "<METRICS_TOKEN>" }
+    static_configs: [{ targets: ["agentswarms:8080"] }]
+```
+
+Counts are gauges derived from the database (a purge/retention run lowers them),
+so alert on ratios and rates — e.g. `agentswarms_swarm_runs_24h{status="error"}`
+climbing relative to `success` — rather than treating them as monotonic counters.
+Behind a load balancer each instance reports its own process view; scrape every
+instance and aggregate in your monitoring system.
+
 ### Required secret for stored credentials
 If anyone connects a warehouse, saves a Secret, or adds a Data Catalog source,
 `PROVIDER_CREDS_SECRET` **must** be set (no default) — it encrypts those
