@@ -1062,7 +1062,7 @@ export const SWARM_TEMPLATES: SwarmTemplate[] = [
       {
         nodeId: "geo",
         title: "Step 5 — HTTP enrich (parallel)",
-        what: "A deterministic HTTP GET to a public geolocation API, templating the validated IP straight into the URL — running in parallel with the SQL lookup.",
+        what: "A deterministic HTTP GET to a public geolocation API, templating the validated IP straight into the URL. It sits at the same graph level as the SQL lookup — the canvas runs same-level nodes in parallel; deployed (headless) runs execute them one after another.",
         why: "HTTP nodes bring in external, non-LLM data (threat intel, geo, CMDB) and run server-side, so no CORS or keys leak to the browser.",
         watchFor: "A JSON response with country / ISP for the IP.",
       },

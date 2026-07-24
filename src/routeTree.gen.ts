@@ -77,12 +77,8 @@ import { Route as ApiNotebookRuntimeRouteImport } from './routes/api/notebook.ru
 import { Route as ApiKbIngestUrlRouteImport } from './routes/api/kb/ingest-url'
 import { Route as ApiKbIngestGithubRouteImport } from './routes/api/kb/ingest-github'
 import { Route as ApiKbBuildGraphRouteImport } from './routes/api/kb/build-graph'
-import { Route as ApiExamSubmitMcqRouteImport } from './routes/api/exam.submit-mcq'
-import { Route as ApiExamStartRouteImport } from './routes/api/exam.start'
-import { Route as ApiExamEvaluateRouteImport } from './routes/api/exam.evaluate'
 import { Route as ApiEmbedChatRouteImport } from './routes/api/embed.chat'
 import { Route as ApiEmailSendRouteImport } from './routes/api/email/send'
-import { Route as ApiCertificateIdRouteImport } from './routes/api/certificate.$id'
 import { Route as ApiBiCronRouteImport } from './routes/api/bi.cron'
 import { Route as ApiAuthSsoConfigRouteImport } from './routes/api/auth/sso-config'
 import { Route as AuthenticatedBiDashboardIdRouteImport } from './routes/_authenticated/bi_.$dashboardId'
@@ -441,21 +437,6 @@ const ApiKbBuildGraphRoute = ApiKbBuildGraphRouteImport.update({
   path: '/api/kb/build-graph',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiExamSubmitMcqRoute = ApiExamSubmitMcqRouteImport.update({
-  id: '/api/exam/submit-mcq',
-  path: '/api/exam/submit-mcq',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiExamStartRoute = ApiExamStartRouteImport.update({
-  id: '/api/exam/start',
-  path: '/api/exam/start',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiExamEvaluateRoute = ApiExamEvaluateRouteImport.update({
-  id: '/api/exam/evaluate',
-  path: '/api/exam/evaluate',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ApiEmbedChatRoute = ApiEmbedChatRouteImport.update({
   id: '/chat',
   path: '/chat',
@@ -464,11 +445,6 @@ const ApiEmbedChatRoute = ApiEmbedChatRouteImport.update({
 const ApiEmailSendRoute = ApiEmailSendRouteImport.update({
   id: '/api/email/send',
   path: '/api/email/send',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiCertificateIdRoute = ApiCertificateIdRouteImport.update({
-  id: '/api/certificate/$id',
-  path: '/api/certificate/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiBiCronRoute = ApiBiCronRouteImport.update({
@@ -613,12 +589,8 @@ export interface FileRoutesByFullPath {
   '/bi/$dashboardId': typeof AuthenticatedBiDashboardIdRoute
   '/api/auth/sso-config': typeof ApiAuthSsoConfigRoute
   '/api/bi/cron': typeof ApiBiCronRoute
-  '/api/certificate/$id': typeof ApiCertificateIdRoute
   '/api/email/send': typeof ApiEmailSendRoute
   '/api/embed/chat': typeof ApiEmbedChatRoute
-  '/api/exam/evaluate': typeof ApiExamEvaluateRoute
-  '/api/exam/start': typeof ApiExamStartRoute
-  '/api/exam/submit-mcq': typeof ApiExamSubmitMcqRoute
   '/api/kb/build-graph': typeof ApiKbBuildGraphRoute
   '/api/kb/ingest-github': typeof ApiKbIngestGithubRoute
   '/api/kb/ingest-url': typeof ApiKbIngestUrlRoute
@@ -701,12 +673,8 @@ export interface FileRoutesByTo {
   '/bi/$dashboardId': typeof AuthenticatedBiDashboardIdRoute
   '/api/auth/sso-config': typeof ApiAuthSsoConfigRoute
   '/api/bi/cron': typeof ApiBiCronRoute
-  '/api/certificate/$id': typeof ApiCertificateIdRoute
   '/api/email/send': typeof ApiEmailSendRoute
   '/api/embed/chat': typeof ApiEmbedChatRoute
-  '/api/exam/evaluate': typeof ApiExamEvaluateRoute
-  '/api/exam/start': typeof ApiExamStartRoute
-  '/api/exam/submit-mcq': typeof ApiExamSubmitMcqRoute
   '/api/kb/build-graph': typeof ApiKbBuildGraphRoute
   '/api/kb/ingest-github': typeof ApiKbIngestGithubRoute
   '/api/kb/ingest-url': typeof ApiKbIngestUrlRoute
@@ -792,12 +760,8 @@ export interface FileRoutesById {
   '/_authenticated/bi_/$dashboardId': typeof AuthenticatedBiDashboardIdRoute
   '/api/auth/sso-config': typeof ApiAuthSsoConfigRoute
   '/api/bi/cron': typeof ApiBiCronRoute
-  '/api/certificate/$id': typeof ApiCertificateIdRoute
   '/api/email/send': typeof ApiEmailSendRoute
   '/api/embed/chat': typeof ApiEmbedChatRoute
-  '/api/exam/evaluate': typeof ApiExamEvaluateRoute
-  '/api/exam/start': typeof ApiExamStartRoute
-  '/api/exam/submit-mcq': typeof ApiExamSubmitMcqRoute
   '/api/kb/build-graph': typeof ApiKbBuildGraphRoute
   '/api/kb/ingest-github': typeof ApiKbIngestGithubRoute
   '/api/kb/ingest-url': typeof ApiKbIngestUrlRoute
@@ -883,12 +847,8 @@ export interface FileRouteTypes {
     | '/bi/$dashboardId'
     | '/api/auth/sso-config'
     | '/api/bi/cron'
-    | '/api/certificate/$id'
     | '/api/email/send'
     | '/api/embed/chat'
-    | '/api/exam/evaluate'
-    | '/api/exam/start'
-    | '/api/exam/submit-mcq'
     | '/api/kb/build-graph'
     | '/api/kb/ingest-github'
     | '/api/kb/ingest-url'
@@ -971,12 +931,8 @@ export interface FileRouteTypes {
     | '/bi/$dashboardId'
     | '/api/auth/sso-config'
     | '/api/bi/cron'
-    | '/api/certificate/$id'
     | '/api/email/send'
     | '/api/embed/chat'
-    | '/api/exam/evaluate'
-    | '/api/exam/start'
-    | '/api/exam/submit-mcq'
     | '/api/kb/build-graph'
     | '/api/kb/ingest-github'
     | '/api/kb/ingest-url'
@@ -1061,12 +1017,8 @@ export interface FileRouteTypes {
     | '/_authenticated/bi_/$dashboardId'
     | '/api/auth/sso-config'
     | '/api/bi/cron'
-    | '/api/certificate/$id'
     | '/api/email/send'
     | '/api/embed/chat'
-    | '/api/exam/evaluate'
-    | '/api/exam/start'
-    | '/api/exam/submit-mcq'
     | '/api/kb/build-graph'
     | '/api/kb/ingest-github'
     | '/api/kb/ingest-url'
@@ -1113,11 +1065,7 @@ export interface RootRouteChildren {
   EmailUnsubscribeRoute: typeof EmailUnsubscribeRoute
   VerifyCodeRoute: typeof VerifyCodeRoute
   ApiAuthSsoConfigRoute: typeof ApiAuthSsoConfigRoute
-  ApiCertificateIdRoute: typeof ApiCertificateIdRoute
   ApiEmailSendRoute: typeof ApiEmailSendRoute
-  ApiExamEvaluateRoute: typeof ApiExamEvaluateRoute
-  ApiExamStartRoute: typeof ApiExamStartRoute
-  ApiExamSubmitMcqRoute: typeof ApiExamSubmitMcqRoute
   ApiKbBuildGraphRoute: typeof ApiKbBuildGraphRoute
   ApiKbIngestGithubRoute: typeof ApiKbIngestGithubRoute
   ApiKbIngestUrlRoute: typeof ApiKbIngestUrlRoute
@@ -1613,27 +1561,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiKbBuildGraphRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/exam/submit-mcq': {
-      id: '/api/exam/submit-mcq'
-      path: '/api/exam/submit-mcq'
-      fullPath: '/api/exam/submit-mcq'
-      preLoaderRoute: typeof ApiExamSubmitMcqRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/exam/start': {
-      id: '/api/exam/start'
-      path: '/api/exam/start'
-      fullPath: '/api/exam/start'
-      preLoaderRoute: typeof ApiExamStartRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/exam/evaluate': {
-      id: '/api/exam/evaluate'
-      path: '/api/exam/evaluate'
-      fullPath: '/api/exam/evaluate'
-      preLoaderRoute: typeof ApiExamEvaluateRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/embed/chat': {
       id: '/api/embed/chat'
       path: '/chat'
@@ -1646,13 +1573,6 @@ declare module '@tanstack/react-router' {
       path: '/api/email/send'
       fullPath: '/api/email/send'
       preLoaderRoute: typeof ApiEmailSendRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/certificate/$id': {
-      id: '/api/certificate/$id'
-      path: '/api/certificate/$id'
-      fullPath: '/api/certificate/$id'
-      preLoaderRoute: typeof ApiCertificateIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/bi/cron': {
@@ -1944,11 +1864,7 @@ const rootRouteChildren: RootRouteChildren = {
   EmailUnsubscribeRoute: EmailUnsubscribeRoute,
   VerifyCodeRoute: VerifyCodeRoute,
   ApiAuthSsoConfigRoute: ApiAuthSsoConfigRoute,
-  ApiCertificateIdRoute: ApiCertificateIdRoute,
   ApiEmailSendRoute: ApiEmailSendRoute,
-  ApiExamEvaluateRoute: ApiExamEvaluateRoute,
-  ApiExamStartRoute: ApiExamStartRoute,
-  ApiExamSubmitMcqRoute: ApiExamSubmitMcqRoute,
   ApiKbBuildGraphRoute: ApiKbBuildGraphRoute,
   ApiKbIngestGithubRoute: ApiKbIngestGithubRoute,
   ApiKbIngestUrlRoute: ApiKbIngestUrlRoute,

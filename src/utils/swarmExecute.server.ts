@@ -196,9 +196,34 @@ export async function executeSwarmServer(opts: {
         `Simplify the swarm or raise SWARM_RUN_TIMEOUT_MS.`,
     );
 
+  // Per-node retry policy (mirrors the canvas runtime's runNodeWithPolicy).
+  // Applied at the call layer rather than by replaying the node body, so the
+  // node dispatch chain stays untouched. Transient upstream failures — a
+  // provider 429/5xx, a flaky HTTP endpoint — are where retries actually pay
+  // off, and every retryable node kind routes through one of these.
+  const withNodeRetry = async <T>(d: SwarmNodeData, fn: () => Promise<T>): Promise<T> => {
+    const retries = Math.max(0, Math.min(d.retryCount ?? 0, 5));
+    const delay = Math.max(0, Math.min(d.retryDelayMs ?? 1000, 30_000));
+    let lastErr: unknown;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      if (expired()) throw deadlineError();
+      try {
+        return await fn();
+      } catch (err) {
+        lastErr = err;
+        // Never burn retries on a deliberate cancellation or an expired budget.
+        if (ac.signal.aborted || expired()) throw err;
+        if (attempt < retries && delay > 0) await new Promise((r) => setTimeout(r, delay));
+      }
+    }
+    throw lastErr;
+  };
+
   // Inject the conversation history into every LLM node call (chat mode).
   const chat = (a: Parameters<typeof serverChat>[0]) =>
-    serverChat({ ...a, history: opts.history, signal: ac.signal });
+    withNodeRetry(a.node.data, () =>
+      serverChat({ ...a, history: opts.history, signal: ac.signal }),
+    );
 
   // Record the run + per-node steps for observability (Recent runs / traces),
   // via the same tables the canvas tracer uses — so deployed-API and scheduled
@@ -341,16 +366,20 @@ export async function executeSwarmServer(opts: {
             continue;
           }
           if (kind === "http") {
-            const res = await runHttpNodeCore(opts.userId, {
-              method: d.httpMethod || "GET",
-              url: interpolate(d.httpUrl || "", ctx),
-              headers: (d.httpHeaders ?? [])
-                .filter((h) => (h.key || "").trim())
-                .map((h) => ({ key: h.key, value: interpolate(h.value ?? "", ctx) })),
-              body: d.httpBody ? interpolate(d.httpBody, ctx) : undefined,
-              timeout_ms: d.httpTimeoutMs,
+            const res = await withNodeRetry(d, async () => {
+              const r = await runHttpNodeCore(opts.userId, {
+                method: d.httpMethod || "GET",
+                url: interpolate(d.httpUrl || "", ctx),
+                headers: (d.httpHeaders ?? [])
+                  .filter((h) => (h.key || "").trim())
+                  .map((h) => ({ key: h.key, value: interpolate(h.value ?? "", ctx) })),
+                body: d.httpBody ? interpolate(d.httpBody, ctx) : undefined,
+                timeout_ms: d.httpTimeoutMs,
+              });
+              // Surface as a throw so the node's retry policy can act on it.
+              if (!r.ok) throw new Error(`HTTP node failed: ${r.error}`);
+              return r;
             });
-            if (!res.ok) throw new Error(`HTTP node failed: ${res.error}`);
             let out = res.body;
             const path = d.httpResponsePath?.trim();
             if (path) {
@@ -380,8 +409,11 @@ export async function executeSwarmServer(opts: {
               mcp_servers: d.toolConfigs?.mcp_server_names,
               web_config: d.toolConfigs?.web_search || d.toolConfigs?.web_browse,
             };
-            const res = await runToolNodeCore(dataToolCtx(opts.userId), params);
-            if (!res.ok) throw new Error(`Tool node failed: ${res.error}`);
+            const res = await withNodeRetry(d, async () => {
+              const r = await runToolNodeCore(dataToolCtx(opts.userId), params);
+              if (!r.ok) throw new Error(`Tool node failed: ${r.error}`);
+              return r;
+            });
             write(res.result);
             continue;
           }
@@ -389,12 +421,15 @@ export async function executeSwarmServer(opts: {
             const kbId = d.knowledgeBaseId;
             if (!kbId) throw new Error("Retrieve node has no knowledge base selected.");
             const query = interpolate(d.retrieveQuery || "{{input}}", ctx);
-            const res = await runToolNodeCore(dataToolCtx(opts.userId), {
-              tool_id: "kb_search",
-              args: { query, top_k: String(d.retrieveTopK ?? 5) },
-              knowledge_base_id: kbId,
+            const res = await withNodeRetry(d, async () => {
+              const r = await runToolNodeCore(dataToolCtx(opts.userId), {
+                tool_id: "kb_search",
+                args: { query, top_k: String(d.retrieveTopK ?? 5) },
+                knowledge_base_id: kbId,
+              });
+              if (!r.ok) throw new Error(`Retrieve node failed: ${r.error}`);
+              return r;
             });
-            if (!res.ok) throw new Error(`Retrieve node failed: ${res.error}`);
             write(res.result);
             continue;
           }
@@ -627,7 +662,20 @@ export async function executeSwarmServer(opts: {
           );
         } catch (stepErr) {
           stepError = stepErr instanceof Error ? stepErr.message : String(stepErr);
-          throw stepErr;
+          // Honour the node's on-error policy, same as the canvas runtime.
+          // "continue" writes the configured fallback and lets the run proceed;
+          // "fail" (the default) aborts. A cancelled/expired run always aborts —
+          // continuing past a deadline would defeat the budget.
+          const canContinue =
+            (d.onError ?? "fail") === "continue" && !ac.signal.aborted && !expired();
+          if (canContinue) {
+            const fallback = d.errorFallback ?? "";
+            ctx[outVar] = fallback;
+            lastOutput = fallback;
+            stepOutput = fallback;
+          } else {
+            throw stepErr;
+          }
         } finally {
           if (tracer) {
             const meta = d as { model?: string; provider?: string };
