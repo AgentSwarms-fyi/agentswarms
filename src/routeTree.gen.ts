@@ -77,6 +77,7 @@ import { Route as ApiNotebookRuntimeRouteImport } from './routes/api/notebook.ru
 import { Route as ApiKbIngestUrlRouteImport } from './routes/api/kb/ingest-url'
 import { Route as ApiKbIngestGithubRouteImport } from './routes/api/kb/ingest-github'
 import { Route as ApiKbBuildGraphRouteImport } from './routes/api/kb/build-graph'
+import { Route as ApiHealthReadyRouteImport } from './routes/api/health.ready'
 import { Route as ApiEmbedChatRouteImport } from './routes/api/embed.chat'
 import { Route as ApiEmailSendRouteImport } from './routes/api/email/send'
 import { Route as ApiBiCronRouteImport } from './routes/api/bi.cron'
@@ -438,6 +439,11 @@ const ApiKbBuildGraphRoute = ApiKbBuildGraphRouteImport.update({
   path: '/api/kb/build-graph',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiHealthReadyRoute = ApiHealthReadyRouteImport.update({
+  id: '/ready',
+  path: '/ready',
+  getParentRoute: () => ApiHealthRoute,
+} as any)
 const ApiEmbedChatRoute = ApiEmbedChatRouteImport.update({
   id: '/chat',
   path: '/chat',
@@ -573,7 +579,7 @@ export interface FileRoutesByFullPath {
   '/api/chat': typeof ApiChatRoute
   '/api/contact': typeof ApiContactRoute
   '/api/embed': typeof ApiEmbedRouteWithChildren
-  '/api/health': typeof ApiHealthRoute
+  '/api/health': typeof ApiHealthRouteWithChildren
   '/api/python-chat': typeof ApiPythonChatRoute
   '/api/python-kb': typeof ApiPythonKbRoute
   '/docs/account': typeof DocsAccountRoute
@@ -598,6 +604,7 @@ export interface FileRoutesByFullPath {
   '/api/bi/cron': typeof ApiBiCronRoute
   '/api/email/send': typeof ApiEmailSendRoute
   '/api/embed/chat': typeof ApiEmbedChatRoute
+  '/api/health/ready': typeof ApiHealthReadyRoute
   '/api/kb/build-graph': typeof ApiKbBuildGraphRoute
   '/api/kb/ingest-github': typeof ApiKbIngestGithubRoute
   '/api/kb/ingest-url': typeof ApiKbIngestUrlRoute
@@ -658,7 +665,7 @@ export interface FileRoutesByTo {
   '/api/chat': typeof ApiChatRoute
   '/api/contact': typeof ApiContactRoute
   '/api/embed': typeof ApiEmbedRouteWithChildren
-  '/api/health': typeof ApiHealthRoute
+  '/api/health': typeof ApiHealthRouteWithChildren
   '/api/python-chat': typeof ApiPythonChatRoute
   '/api/python-kb': typeof ApiPythonKbRoute
   '/docs/account': typeof DocsAccountRoute
@@ -683,6 +690,7 @@ export interface FileRoutesByTo {
   '/api/bi/cron': typeof ApiBiCronRoute
   '/api/email/send': typeof ApiEmailSendRoute
   '/api/embed/chat': typeof ApiEmbedChatRoute
+  '/api/health/ready': typeof ApiHealthReadyRoute
   '/api/kb/build-graph': typeof ApiKbBuildGraphRoute
   '/api/kb/ingest-github': typeof ApiKbIngestGithubRoute
   '/api/kb/ingest-url': typeof ApiKbIngestUrlRoute
@@ -746,7 +754,7 @@ export interface FileRoutesById {
   '/api/chat': typeof ApiChatRoute
   '/api/contact': typeof ApiContactRoute
   '/api/embed': typeof ApiEmbedRouteWithChildren
-  '/api/health': typeof ApiHealthRoute
+  '/api/health': typeof ApiHealthRouteWithChildren
   '/api/python-chat': typeof ApiPythonChatRoute
   '/api/python-kb': typeof ApiPythonKbRoute
   '/docs/account': typeof DocsAccountRoute
@@ -771,6 +779,7 @@ export interface FileRoutesById {
   '/api/bi/cron': typeof ApiBiCronRoute
   '/api/email/send': typeof ApiEmailSendRoute
   '/api/embed/chat': typeof ApiEmbedChatRoute
+  '/api/health/ready': typeof ApiHealthReadyRoute
   '/api/kb/build-graph': typeof ApiKbBuildGraphRoute
   '/api/kb/ingest-github': typeof ApiKbIngestGithubRoute
   '/api/kb/ingest-url': typeof ApiKbIngestUrlRoute
@@ -859,6 +868,7 @@ export interface FileRouteTypes {
     | '/api/bi/cron'
     | '/api/email/send'
     | '/api/embed/chat'
+    | '/api/health/ready'
     | '/api/kb/build-graph'
     | '/api/kb/ingest-github'
     | '/api/kb/ingest-url'
@@ -944,6 +954,7 @@ export interface FileRouteTypes {
     | '/api/bi/cron'
     | '/api/email/send'
     | '/api/embed/chat'
+    | '/api/health/ready'
     | '/api/kb/build-graph'
     | '/api/kb/ingest-github'
     | '/api/kb/ingest-url'
@@ -1031,6 +1042,7 @@ export interface FileRouteTypes {
     | '/api/bi/cron'
     | '/api/email/send'
     | '/api/embed/chat'
+    | '/api/health/ready'
     | '/api/kb/build-graph'
     | '/api/kb/ingest-github'
     | '/api/kb/ingest-url'
@@ -1071,7 +1083,7 @@ export interface RootRouteChildren {
   ApiChatRoute: typeof ApiChatRoute
   ApiContactRoute: typeof ApiContactRoute
   ApiEmbedRoute: typeof ApiEmbedRouteWithChildren
-  ApiHealthRoute: typeof ApiHealthRoute
+  ApiHealthRoute: typeof ApiHealthRouteWithChildren
   ApiPythonChatRoute: typeof ApiPythonChatRoute
   ApiPythonKbRoute: typeof ApiPythonKbRoute
   EmailUnsubscribeRoute: typeof EmailUnsubscribeRoute
@@ -1574,6 +1586,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiKbBuildGraphRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/health/ready': {
+      id: '/api/health/ready'
+      path: '/ready'
+      fullPath: '/api/health/ready'
+      preLoaderRoute: typeof ApiHealthReadyRouteImport
+      parentRoute: typeof ApiHealthRoute
+    }
     '/api/embed/chat': {
       id: '/api/embed/chat'
       path: '/chat'
@@ -1846,6 +1865,18 @@ const ApiEmbedRouteWithChildren = ApiEmbedRoute._addFileChildren(
   ApiEmbedRouteChildren,
 )
 
+interface ApiHealthRouteChildren {
+  ApiHealthReadyRoute: typeof ApiHealthReadyRoute
+}
+
+const ApiHealthRouteChildren: ApiHealthRouteChildren = {
+  ApiHealthReadyRoute: ApiHealthReadyRoute,
+}
+
+const ApiHealthRouteWithChildren = ApiHealthRoute._addFileChildren(
+  ApiHealthRouteChildren,
+)
+
 interface ApiNotebookRuntimeRouteChildren {
   ApiNotebookRuntimeReapRoute: typeof ApiNotebookRuntimeReapRoute
   ApiNotebookRuntimeResultRoute: typeof ApiNotebookRuntimeResultRoute
@@ -1878,7 +1909,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiChatRoute: ApiChatRoute,
   ApiContactRoute: ApiContactRoute,
   ApiEmbedRoute: ApiEmbedRouteWithChildren,
-  ApiHealthRoute: ApiHealthRoute,
+  ApiHealthRoute: ApiHealthRouteWithChildren,
   ApiPythonChatRoute: ApiPythonChatRoute,
   ApiPythonKbRoute: ApiPythonKbRoute,
   EmailUnsubscribeRoute: EmailUnsubscribeRoute,

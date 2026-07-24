@@ -261,8 +261,15 @@ one pass runs at a time (extra callers get `{"skipped": true}`).
   ```
 
 ### Health checks
-`GET /api/health` → `200` (liveness). Use it for LB target health and K8s
-liveness/readiness probes.
+- `GET /api/health` → `200` **liveness** — the process is up and serving. No
+  database work, so it stays green even if Postgres is unreachable. Use it for
+  the K8s liveness probe and as the LB target-health check.
+- `GET /api/health/ready` → `200` when **ready** to serve (database reachable),
+  `503` otherwise, with a JSON body (`{ status, checks: { db } }`). The DB check
+  has a 3s timeout so a hung database fails fast. Use it for the K8s **readiness**
+  probe so a pod that can't reach its database is pulled from rotation rather
+  than sent traffic. (Don't point liveness at this — a shared-DB blip would then
+  restart every pod at once instead of just draining them.)
 
 ### Required secret for stored credentials
 If anyone connects a warehouse, saves a Secret, or adds a Data Catalog source,
