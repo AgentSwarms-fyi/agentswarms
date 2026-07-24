@@ -105,23 +105,6 @@ export function touchEmbedKey(row: EmbedKeyRow): void {
     .then(() => {});
 }
 
-// ── Light in-process rate limiting (per key, sliding window) ─────────────
-const hits = new Map<string, number[]>();
-
-export function rateLimited(bucket: string, maxPerMinute: number): boolean {
-  const now = Date.now();
-  const arr = (hits.get(bucket) ?? []).filter((t) => now - t < 60_000);
-  if (arr.length >= maxPerMinute) {
-    hits.set(bucket, arr);
-    return true;
-  }
-  arr.push(now);
-  hits.set(bucket, arr);
-  // Opportunistic cleanup so the map cannot grow unboundedly.
-  if (hits.size > 5000) {
-    for (const [k, v] of hits) {
-      if (v.every((t) => now - t >= 60_000)) hits.delete(k);
-    }
-  }
-  return false;
-}
+// Light in-process rate limiting (per key, sliding window). Shared with the
+// other public endpoints — see rateLimit.server.ts for the scaling caveat.
+export { rateLimited } from "@/utils/rateLimit.server";
