@@ -6,6 +6,7 @@ import * as React from "react";
 import { render } from "@react-email/components";
 import { createClient } from "@supabase/supabase-js";
 import { createFileRoute } from "@tanstack/react-router";
+import { resolveInternalOrigin } from "@/utils/internalOrigin.server";
 import { TEMPLATES } from "@/lib/email-templates/registry";
 import { sendMail } from "@/lib/email/mailer.server";
 
@@ -179,7 +180,9 @@ export const Route = createFileRoute("/api/email/send")({
           typeof template.subject === "function" ? template.subject(templateData) : template.subject;
 
         // 5. Send directly via the configured mailer (no queue in the OSS build)
-        const origin = new URL(request.url).origin;
+        // Origin comes from config, not the request: a spoofed Host header
+        // would otherwise plant an attacker URL in outbound email headers.
+        const origin = resolveInternalOrigin();
         const result = await sendMail({
           to: effectiveRecipient,
           subject: resolvedSubject,

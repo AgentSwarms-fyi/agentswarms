@@ -17,6 +17,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { sha256Hex } from "@/utils/swarmDeploy.functions";
 import { executeSwarmServer } from "@/utils/swarmExecute.server";
+import { resolveInternalOrigin } from "@/utils/internalOrigin.server";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -83,7 +84,9 @@ export const Route = createFileRoute("/api/swarm/run")({
           .maybeSingle();
         if (!swarm) return json({ error: "Swarm not found" }, 404);
 
-        const origin = process.env.PUBLIC_APP_URL || new URL(request.url).origin;
+        // Resolved from configuration only — never from the request's Host
+        // header, because the executor sends an internal secret to this origin.
+        const origin = resolveInternalOrigin();
 
         const result = await executeSwarmServer({
           swarm,

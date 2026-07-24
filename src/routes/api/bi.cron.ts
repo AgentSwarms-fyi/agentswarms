@@ -36,10 +36,10 @@ async function handle(request: Request) {
   }
   if (!allowed) return json({ error: "Unauthorized" }, 401);
   try {
-    const result = await runCronPass({
-      force: bearer === cronToken,
-      origin: new URL(request.url).origin,
-    });
+    // No origin is passed: self-call origins are resolved from configuration
+    // inside the scheduler (see internalOrigin.server), never from this
+    // request's Host header, which a caller controls.
+    const result = await runCronPass({ force: bearer === cronToken });
     return json({ ok: true, skipped: !result.ran, ...result });
   } catch (e) {
     return json({ error: (e as Error).message }, 500);

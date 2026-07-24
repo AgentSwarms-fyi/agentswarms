@@ -18,6 +18,7 @@ import {
   applyOutputGuardrails,
   type OutputDecision,
 } from "@/utils/guardrails";
+import { internalSecretMatches } from "@/utils/internalOrigin.server";
 import {
   resolveMemoryConfig,
   loadMemoryContext,
@@ -1018,11 +1019,11 @@ export const Route = createFileRoute("/api/chat")({
           // set; the data tools (kb_search/sql_query) run under the service role
           // but with scopeUserId set, so they only read the owner's own +
           // sample + IAM-shared data (never another tenant's).
-          const internalSecret = request.headers.get("x-internal-run-secret");
-          const isInternalRun =
-            !!internalSecret &&
-            !!process.env.SUPABASE_SERVICE_ROLE_KEY &&
-            internalSecret === process.env.SUPABASE_SERVICE_ROLE_KEY;
+          // Constant-time compare against INTERNAL_RUN_SECRET (falling back to
+          // the service-role key) so the secret can't be probed by timing.
+          const isInternalRun = internalSecretMatches(
+            request.headers.get("x-internal-run-secret"),
+          );
           const userId = isInternalRun
             ? (body.internalUserId ?? null)
             : await getUserIdFromRequest(request);

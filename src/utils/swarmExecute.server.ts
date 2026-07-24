@@ -34,6 +34,7 @@ import {
   type ToolNodeParams,
 } from "@/utils/swarmNodes.server";
 import type { AgentToolContext } from "@/utils/tools/registry.server";
+import { internalRunSecret } from "@/utils/internalOrigin.server";
 
 // Tool context for headless data tools: service-role client with scopeUserId
 // set, which forces the loaders to restrict data to what the owner may read
@@ -77,8 +78,10 @@ async function serverChat(args: {
   // Chat mode: prior conversation turns replayed as leading messages.
   history?: { role: "user" | "assistant"; content: string }[];
 }): Promise<string> {
-  const secret = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!secret) throw new Error("Server is missing SUPABASE_SERVICE_ROLE_KEY");
+  const secret = internalRunSecret();
+  if (!secret) {
+    throw new Error("Server is missing INTERNAL_RUN_SECRET / SUPABASE_SERVICE_ROLE_KEY");
+  }
   const d = args.node.data;
   // Pass the node's tools through as-is: /api/chat's internal path caps them to
   // the headless-safe set and owner-scopes the data tools (scopeUserId), so
@@ -534,7 +537,10 @@ export async function executeSwarmServer(opts: {
         if (kind === "approval") {
           if (opts.rejectApprovals) {
             throw new Error(
-              `Approval "${d.label}" auto-rejected (headless run configured to reject).`,
+              `Stopped at human-approval step "${d.label}": this run has nobody to approve it. ` +
+                `That is the safe default. To let this swarm decide approvals on its own, turn ` +
+                `off "Reject approvals" on the API key or schedule — it will then auto-approve ` +
+                `every approval step.`,
             );
           }
           // auto-approve: pass the content through unchanged.

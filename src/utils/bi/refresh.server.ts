@@ -805,9 +805,7 @@ export type CronPassResult = {
  * `/api/bi/cron`. Both share the "scheduler" lease, so at most one pass runs at
  * a time across the whole fleet.
  */
-export async function runCronPass(
-  opts: { force?: boolean; origin?: string } = {},
-): Promise<CronPassResult> {
+export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronPassResult> {
   const force = opts.force ?? false;
   const empty: CronPassResult = {
     ran: false,
@@ -834,7 +832,7 @@ export async function runCronPass(
       .then((m) => m.purgeAuditEvents(force))
       .catch((e) => console.warn("[audit-purge] failed:", (e as Error).message));
     const swarm_schedules = await import("@/utils/swarmSchedules.server")
-      .then((m) => m.processDueSwarmSchedules(force, opts.origin || process.env.SITE_URL || undefined))
+      .then((m) => m.processDueSwarmSchedules(force))
       .catch((e) => {
         console.warn("[swarm-scheduler] processing failed:", (e as Error).message);
         return 0;

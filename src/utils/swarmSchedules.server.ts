@@ -5,12 +5,9 @@
 // don't double-fire.
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { executeSwarmServer } from "@/utils/swarmExecute.server";
+import { resolveInternalOrigin } from "@/utils/internalOrigin.server";
 
-function baseOrigin(passed?: string): string {
-  return passed || process.env.PUBLIC_APP_URL || "http://localhost:8080";
-}
-
-export async function processDueSwarmSchedules(force = false, origin?: string): Promise<number> {
+export async function processDueSwarmSchedules(force = false): Promise<number> {
   const { data: rows, error } = await supabaseAdmin
     .from("swarm_schedules")
     .select("id, user_id, swarm_id, input, input_state, interval_minutes, reject_approvals, last_run_at")
@@ -18,7 +15,7 @@ export async function processDueSwarmSchedules(force = false, origin?: string): 
   if (error || !rows || rows.length === 0) return 0;
 
   const now = Date.now();
-  const base = baseOrigin(origin);
+  const base = resolveInternalOrigin();
   let ran = 0;
 
   for (const s of rows) {
