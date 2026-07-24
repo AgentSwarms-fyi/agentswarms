@@ -52,9 +52,9 @@ export async function runHttpNodeCore(
   }
   const controller = AbortSignal.timeout(p.timeout_ms ?? 30_000);
   try {
-    // safeFetch blocks private/internal targets (incl. cloud metadata) and
-    // re-validates every redirect hop. Set ALLOW_PRIVATE_NETWORK_FETCH=true to
-    // deliberately call internal services from a self-hosted instance.
+    // safeFetch always blocks cloud-metadata / link-local targets and
+    // re-validates every redirect hop. Private/internal targets are allowed by
+    // default; set BLOCK_PRIVATE_NETWORK_FETCH=true to refuse those too.
     const res = await safeFetch(url, {
       method: p.method,
       headers,

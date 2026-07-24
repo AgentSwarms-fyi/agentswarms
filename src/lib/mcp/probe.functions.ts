@@ -25,21 +25,13 @@ const PROTOCOL_VERSION = "2025-06-18";
 const MCP_PROBE_TIMEOUT_MS = 12_000;
 
 // The MCP endpoint is user-supplied and fetched from inside the server's
-// network, so it goes through the SSRF guard (with a bounded timeout).
-// Dynamically imported because this module is bundled into the client route.
+// network, so it goes through the SSRF guard (with a bounded timeout). The guard
+// refuses cloud-metadata / link-local targets; ordinary private/in-cluster MCP
+// addresses are allowed by default. Dynamically imported because this module is
+// bundled into the client route.
 async function guardedFetch(url: string, init: RequestInit): Promise<Response> {
   const { safeFetch } = await import("@/utils/ssrfGuard.server");
-  try {
-    return await safeFetch(url, { ...init, signal: AbortSignal.timeout(MCP_PROBE_TIMEOUT_MS) });
-  } catch (e) {
-    const msg = (e as Error)?.message || String(e);
-    if (/private\/internal host|resolves to a private/i.test(msg)) {
-      throw new Error(
-        `${msg}. If this MCP server is on an intentional internal address, set ALLOW_PRIVATE_NETWORK_FETCH=true on the server.`,
-      );
-    }
-    throw e;
-  }
+  return safeFetch(url, { ...init, signal: AbortSignal.timeout(MCP_PROBE_TIMEOUT_MS) });
 }
 
 function parseJsonOrSse(text: string, contentType: string): any | null {

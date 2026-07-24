@@ -78,11 +78,11 @@ function clean(v: unknown): string {
 
 // Every provider "test" call and the n8n webhook fetch a URL the USER supplied
 // (base_url / endpoint / instance_url / webhookUrl) from inside the server's
-// network, so they must go through the SSRF guard — otherwise a signed-in user
-// could point them at cloud metadata or internal services and read the reply.
-// safeFetch is dynamically imported because this module is also bundled into
-// client routes (it pulls in node:dns). A bounded timeout stops a slow/hostile
-// upstream from tying up a server worker indefinitely.
+// network, so they go through the SSRF guard — which refuses cloud-metadata /
+// link-local targets (private networks like a local Ollama/vLLM/n8n are allowed
+// by default; see ssrfGuard.server.ts). safeFetch is dynamically imported
+// because this module is also bundled into client routes (it pulls in node:dns).
+// A bounded timeout stops a slow/hostile upstream from tying up a worker.
 const OUTBOUND_TIMEOUT_MS = 12_000;
 async function guardedFetch(
   url: string,
@@ -90,17 +90,7 @@ async function guardedFetch(
   timeoutMs: number = OUTBOUND_TIMEOUT_MS,
 ): Promise<Response> {
   const { safeFetch } = await import("@/utils/ssrfGuard.server");
-  try {
-    return await safeFetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
-  } catch (e) {
-    const msg = (e as Error)?.message || String(e);
-    if (/private\/internal host|resolves to a private/i.test(msg)) {
-      throw new Error(
-        `${msg}. If this is an intentional internal target (e.g. a local Ollama / vLLM / n8n server), set ALLOW_PRIVATE_NETWORK_FETCH=true on the server.`,
-      );
-    }
-    throw e;
-  }
+  return safeFetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
 }
 
 function normalizeAnthropicBaseUrl(v: unknown): string {

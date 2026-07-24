@@ -1,66 +1,110 @@
 // SSRF guard for server-side fetches of user- or model-supplied URLs.
 //
-// The swarm `http` node takes a URL the user authored, and the `web_browse`
-// tool takes one the MODEL chose (so it is reachable by prompt injection, incl.
-// through a public embed). Both run server-side, inside the deployment's
-// network. Without a guard they can reach:
-//   - cloud instance metadata (169.254.169.254) — on the documented VM targets
-//     (OCI/AWS/GCP) that can return the instance's IAM credentials,
-//   - the app's own loopback endpoints,
-//   - anything else on the private network.
+// The swarm `http` node and provider/MCP/n8n endpoints take a URL the user
+// authored; the `web_browse` tool takes one the MODEL chose (reachable by
+// prompt injection, incl. through a public embed). All run server-side, inside
+// the deployment's network.
 //
-// Generalised from the check already applied to A2A endpoints (routes/api/a2a),
-// with two additions that a hostname-only check misses: the hostname is
-// RESOLVED and every resulting IP is checked, and redirects are followed
-// manually so a public URL can't 302 into the private range.
+// POLICY (two tiers):
+//   1. Link-local / cloud-metadata / unspecified / multicast addresses are
+//      ALWAYS refused. 169.254.169.254 (AWS/GCP/Azure/OCI instance metadata)
+//      can hand out the host's IAM credentials and has no legitimate use as a
+//      fetch target, so nothing can enable it.
+//   2. Ordinary private networks (localhost, RFC1918, CGNAT, IPv6 ULA) are
+//      ALLOWED BY DEFAULT — self-hosted model servers (Ollama/vLLM), in-cluster
+//      MCP servers and self-hosted n8n live there, and this is a self-hostable
+//      tool. Operators running untrusted multi-tenant or public embeds can set
+//      BLOCK_PRIVATE_NETWORK_FETCH=true to refuse those too.
 //
-// RESIDUAL RISK: DNS rebinding. We validate the resolved address, then fetch()
+// The hostname is RESOLVED and every resulting IP is checked, and redirects are
+// followed manually, so a public URL can't 302 into a blocked range.
+//
+// RESIDUAL RISK: DNS rebinding — we validate the resolved address, then fetch()
 // resolves again; a hostile resolver could answer differently the second time.
 // Fully closing that needs connection-level IP pinning, which fetch() does not
 // expose. Egress firewall rules remain the strongest control.
 import { lookup } from "node:dns/promises";
 
-/** Escape hatch for self-hosters who deliberately call internal services. */
-function privateNetworkAllowed(): boolean {
-  return /^(1|true|yes)$/i.test(process.env.ALLOW_PRIVATE_NETWORK_FETCH ?? "");
-}
-
-/** True for loopback, private, link-local, multicast and reserved addresses. */
-export function isPrivateAddress(host: string): boolean {
-  const h = host
+function normalize(host: string): string {
+  return host
     .toLowerCase()
     .replace(/^\[|\]$/g, "")
     .trim();
-  if (!h) return true;
-  if (h === "localhost" || h.endsWith(".localhost") || h.endsWith(".local")) return true;
+}
 
-  // IPv6 loopback / unique-local / link-local / unspecified.
-  if (h === "::1" || h === "0:0:0:0:0:0:0:1" || h === "::") return true;
-  if (/^f[cd]/.test(h)) return true; // ULA fc00::/7
-  if (h.startsWith("fe80:")) return true; // link-local
-
-  // IPv4, including IPv4-mapped IPv6 (::ffff:192.168.1.1).
+/** Parse an IPv4 (incl. IPv4-mapped IPv6) into octets, or null if not IPv4. */
+function extractV4(h: string): [number, number, number, number] | null {
   const mapped = h.match(/(?:^|:)((?:\d{1,3}\.){3}\d{1,3})$/);
   const v4 = mapped ? mapped[1] : /^\d{1,3}(\.\d{1,3}){3}$/.test(h) ? h : null;
+  if (!v4) return null;
+  const parts = v4.split(".").map(Number);
+  if (parts.length !== 4 || parts.some((n) => Number.isNaN(n) || n < 0 || n > 255)) return null;
+  return parts as [number, number, number, number];
+}
+
+/**
+ * Addresses that are NEVER a legitimate fetch target — refused regardless of
+ * the private-network policy: cloud instance metadata (169.254.169.254), the
+ * rest of link-local, the unspecified address, and multicast/reserved.
+ */
+export function isBlockedAlways(host: string): boolean {
+  const h = normalize(host);
+  if (!h) return true;
+  if (h === "::") return true; // unspecified
+  if (h.startsWith("fe80:")) return true; // IPv6 link-local
+  if (h === "fd00:ec2::254") return true; // AWS instance metadata over IPv6
+  const v4 = extractV4(h);
   if (v4) {
-    const parts = v4.split(".").map(Number);
-    if (parts.some((n) => Number.isNaN(n) || n < 0 || n > 255)) return true;
-    const [a, b] = parts;
-    if (a === 0) return true; // 0.0.0.0/8
-    if (a === 10) return true; // 10.0.0.0/8
-    if (a === 127) return true; // loopback
-    if (a === 169 && b === 254) return true; // link-local + cloud metadata
-    if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
-    if (a === 192 && b === 168) return true; // 192.168.0.0/16
-    if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT 100.64.0.0/10
+    const [a, b] = v4;
+    if (a === 0) return true; // 0.0.0.0/8 (can resolve to localhost)
+    if (a === 169 && b === 254) return true; // 169.254.0.0/16 link-local incl. cloud metadata
     if (a >= 224) return true; // multicast / reserved
   }
   return false;
 }
 
 /**
- * Validate a URL for server-side fetching: http(s) only, and neither the
- * hostname nor any address it resolves to may be private/internal.
+ * Ordinary private / internal networks that ARE legitimate for self-hosted
+ * tools. Allowed by default; refused only under BLOCK_PRIVATE_NETWORK_FETCH.
+ */
+export function isPrivateNetwork(host: string): boolean {
+  const h = normalize(host);
+  if (!h) return false;
+  if (h === "localhost" || h.endsWith(".localhost") || h.endsWith(".local")) return true;
+  if (h === "::1" || h === "0:0:0:0:0:0:0:1") return true; // IPv6 loopback
+  if (/^f[cd]/.test(h)) return true; // IPv6 ULA fc00::/7 (fd00:ec2::254 already blocked above)
+  const v4 = extractV4(h);
+  if (v4) {
+    const [a, b] = v4;
+    if (a === 10) return true; // 10.0.0.0/8
+    if (a === 127) return true; // loopback
+    if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
+    if (a === 192 && b === 168) return true; // 192.168.0.0/16
+    if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT 100.64.0.0/10
+  }
+  return false;
+}
+
+/** Back-compat: any address that is either always-blocked or a private network. */
+export function isPrivateAddress(host: string): boolean {
+  return isBlockedAlways(host) || isPrivateNetwork(host);
+}
+
+/**
+ * Whether ordinary private networks should be refused. Off by default (they're
+ * allowed). ALLOW_PRIVATE_NETWORK_FETCH is honoured for backward compatibility
+ * and forces the permissive behaviour even if BLOCK is also set.
+ */
+function blockPrivateNetworks(): boolean {
+  if (/^(1|true|yes)$/i.test(process.env.ALLOW_PRIVATE_NETWORK_FETCH ?? "")) return false;
+  return /^(1|true|yes)$/i.test(process.env.BLOCK_PRIVATE_NETWORK_FETCH ?? "");
+}
+
+/**
+ * Validate a URL for server-side fetching: http(s) only; never a link-local /
+ * metadata address; and — when BLOCK_PRIVATE_NETWORK_FETCH is set — never an
+ * ordinary private/internal address either. Checks the hostname and every IP it
+ * resolves to.
  */
 export async function assertPublicUrl(
   rawUrl: string,
@@ -74,21 +118,25 @@ export async function assertPublicUrl(
   if (u.protocol !== "https:" && u.protocol !== "http:") {
     return { ok: false, error: "Only http(s) URLs are allowed" };
   }
-  if (privateNetworkAllowed()) return { ok: true, url: u };
 
-  if (isPrivateAddress(u.hostname)) {
-    return { ok: false, error: `Refusing to fetch private/internal host: ${u.hostname}` };
-  }
-  // A public-looking name can still resolve into the private range.
+  const strict = blockPrivateNetworks();
+  const classify = (host: string): string | null => {
+    if (isBlockedAlways(host)) return `Refusing to fetch link-local/metadata address: ${host}`;
+    if (strict && isPrivateNetwork(host)) {
+      return `Refusing to fetch private/internal host ${host} — BLOCK_PRIVATE_NETWORK_FETCH is enabled`;
+    }
+    return null;
+  };
+
+  const hostErr = classify(u.hostname);
+  if (hostErr) return { ok: false, error: hostErr };
+
+  // A public-looking name can still resolve into a blocked range.
   try {
     const addrs = await lookup(u.hostname, { all: true });
     for (const a of addrs) {
-      if (isPrivateAddress(a.address)) {
-        return {
-          ok: false,
-          error: `Refusing to fetch ${u.hostname}: it resolves to a private address (${a.address})`,
-        };
-      }
+      const err = classify(a.address);
+      if (err) return { ok: false, error: `${err} (resolved from ${u.hostname})` };
     }
   } catch {
     // Resolution failure isn't itself an SSRF signal — let fetch report it.
@@ -98,7 +146,7 @@ export async function assertPublicUrl(
 
 /**
  * fetch() that validates the target and every redirect hop, so a public URL
- * cannot bounce the request into the private network.
+ * cannot bounce the request into a blocked range.
  */
 export async function safeFetch(
   rawUrl: string,
