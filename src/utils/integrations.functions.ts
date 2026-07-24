@@ -76,6 +76,33 @@ function clean(v: unknown): string {
     .replace(/^["']+|["']+$/g, "");
 }
 
+// Every provider "test" call and the n8n webhook fetch a URL the USER supplied
+// (base_url / endpoint / instance_url / webhookUrl) from inside the server's
+// network, so they must go through the SSRF guard — otherwise a signed-in user
+// could point them at cloud metadata or internal services and read the reply.
+// safeFetch is dynamically imported because this module is also bundled into
+// client routes (it pulls in node:dns). A bounded timeout stops a slow/hostile
+// upstream from tying up a server worker indefinitely.
+const OUTBOUND_TIMEOUT_MS = 12_000;
+async function guardedFetch(
+  url: string,
+  init: RequestInit = {},
+  timeoutMs: number = OUTBOUND_TIMEOUT_MS,
+): Promise<Response> {
+  const { safeFetch } = await import("@/utils/ssrfGuard.server");
+  try {
+    return await safeFetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+  } catch (e) {
+    const msg = (e as Error)?.message || String(e);
+    if (/private\/internal host|resolves to a private/i.test(msg)) {
+      throw new Error(
+        `${msg}. If this is an intentional internal target (e.g. a local Ollama / vLLM / n8n server), set ALLOW_PRIVATE_NETWORK_FETCH=true on the server.`,
+      );
+    }
+    throw e;
+  }
+}
+
 function normalizeAnthropicBaseUrl(v: unknown): string {
   const base = (typeof v === "string" ? v.trim() : "") || "https://api.anthropic.com/v1";
   const stripped = base.replace(/^["']+|["']+$/g, "").replace(/\/+$/, "");
@@ -131,7 +158,7 @@ async function testOpenAI(cfg: Record<string, string>): Promise<TestResult> {
     "Content-Type": "application/json",
   };
   if (cfg.organization_id) headers["OpenAI-Organization"] = cfg.organization_id;
-  const r = await fetch(`${baseUrl}/models`, { method: "GET", headers });
+  const r = await guardedFetch(`${baseUrl}/models`, { method: "GET", headers });
   if (r.ok) return { ok: true, detail: "Authenticated against OpenAI /v1/models" };
   return fmtFail("OpenAI", r, await extractUpstreamError(r));
 }
@@ -143,10 +170,10 @@ async function testAnthropic(cfg: Record<string, string>): Promise<TestResult> {
   const version = cfg.anthropic_version || "2023-06-01";
   // /models requires the same auth and is the cheapest authed call.
   const url = `${baseUrl}/models`;
-  console.log(`[testAnthropic] GET ${url} (version=${version}, keyPrefix=${key.slice(0, 10)}…)`);
+  console.log(`[testAnthropic] GET ${url} (version=${version})`);
   let r: Response;
   try {
-    r = await fetch(url, {
+    r = await guardedFetch(url, {
       method: "GET",
       headers: { "x-api-key": key, "anthropic-version": version },
     });
@@ -163,10 +190,13 @@ async function testAnthropic(cfg: Record<string, string>): Promise<TestResult> {
 async function testGemini(cfg: Record<string, string>): Promise<TestResult> {
   const key = clean(cfg.api_key);
   if (!key) return { ok: false, detail: "API key is required" };
-  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=1`, {
-    method: "GET",
-    headers: { "x-goog-api-key": key },
-  });
+  const r = await guardedFetch(
+    `https://generativelanguage.googleapis.com/v1beta/models?pageSize=1`,
+    {
+      method: "GET",
+      headers: { "x-goog-api-key": key },
+    },
+  );
   if (r.ok) return { ok: true, detail: "Authenticated against Google AI Studio" };
   return fmtFail("Gemini", r, await extractUpstreamError(r));
 }
@@ -175,7 +205,7 @@ async function testGrok(cfg: Record<string, string>): Promise<TestResult> {
   const key = clean(cfg.api_key);
   if (!key) return { ok: false, detail: "API key is required" };
   const baseUrl = (cfg.base_url || "https://api.x.ai/v1").replace(/\/+$/, "");
-  const r = await fetch(`${baseUrl}/models`, {
+  const r = await guardedFetch(`${baseUrl}/models`, {
     method: "GET",
     headers: { Authorization: `Bearer ${key}` },
   });
@@ -188,7 +218,7 @@ async function testOllama(cfg: Record<string, string>): Promise<TestResult> {
   if (!endpoint) return { ok: false, detail: "Server URL is required" };
   try {
     // /api/tags returns 200 + list of available models; works without auth.
-    const r = await fetch(`${endpoint}/api/tags`, { method: "GET" });
+    const r = await guardedFetch(`${endpoint}/api/tags`, { method: "GET" });
     if (r.ok) {
       const j = (await r.json().catch(() => null)) as { models?: unknown[] } | null;
       const count = Array.isArray(j?.models) ? j!.models!.length : 0;
@@ -213,17 +243,17 @@ async function testOpenRouter(cfg: Record<string, string>): Promise<TestResult> 
   // /auth/key returns the key's metadata (limit, usage, label) and requires
   // auth — perfect cheap probe. Falls back to /models on 404.
   const url = `${baseUrl}/auth/key`;
-  console.log(`[testOpenRouter] GET ${url} (keyPrefix=${key.slice(0, 12)}…)`);
+  console.log(`[testOpenRouter] GET ${url}`);
   let r: Response;
   try {
-    r = await fetch(url, { method: "GET", headers });
+    r = await guardedFetch(url, { method: "GET", headers });
   } catch (e) {
     return { ok: false, detail: `Network error reaching ${url}: ${(e as Error).message}` };
   }
   if (r.status === 404) {
     const fallbackUrl = `${baseUrl}/models`;
     try {
-      r = await fetch(fallbackUrl, { method: "GET", headers });
+      r = await guardedFetch(fallbackUrl, { method: "GET", headers });
     } catch (e) {
       return {
         ok: false,
@@ -250,7 +280,7 @@ async function testGroq(cfg: Record<string, string>): Promise<TestResult> {
   if (!key) return { ok: false, detail: "API key is required" };
   const baseUrl = (cfg.base_url || "https://api.groq.com/openai/v1").replace(/\/+$/, "");
   // GET /models is the cheapest authed call on Groq's OpenAI-compat surface.
-  const r = await fetch(`${baseUrl}/models`, {
+  const r = await guardedFetch(`${baseUrl}/models`, {
     method: "GET",
     headers: { Authorization: `Bearer ${key}` },
   });
@@ -273,10 +303,10 @@ async function testQwen(cfg: Record<string, string>): Promise<TestResult> {
   // GET /models works on the OpenAI-compatible endpoint and is the cheapest
   // authed probe — same pattern we use for OpenAI/Grok/Groq.
   const url = `${baseUrl}/models`;
-  console.log(`[testQwen] GET ${url} (keyPrefix=${key.slice(0, 8)}…)`);
+  console.log(`[testQwen] GET ${url}`);
   let r: Response;
   try {
-    r = await fetch(url, {
+    r = await guardedFetch(url, {
       method: "GET",
       headers: { Authorization: `Bearer ${key}` },
     });
@@ -308,7 +338,7 @@ async function testVLLM(cfg: Record<string, string>): Promise<TestResult> {
   console.log(`[testVLLM] GET ${url} (auth=${key ? "yes" : "no"})`);
   let r: Response;
   try {
-    r = await fetch(url, { method: "GET", headers });
+    r = await guardedFetch(url, { method: "GET", headers });
   } catch (e) {
     return { ok: false, detail: `Network error reaching ${url}: ${(e as Error).message}` };
   }
@@ -340,10 +370,10 @@ async function testNvidia(cfg: Record<string, string>): Promise<TestResult> {
   if (!key) return { ok: false, detail: "API key is required (get one at build.nvidia.com)" };
   const baseUrl = (cfg.base_url || "https://integrate.api.nvidia.com/v1").replace(/\/+$/, "");
   const url = `${baseUrl}/models`;
-  console.log(`[testNvidia] GET ${url} (keyPrefix=${key.slice(0, 10)}…)`);
+  console.log(`[testNvidia] GET ${url}`);
   let r: Response;
   try {
-    r = await fetch(url, {
+    r = await guardedFetch(url, {
       method: "GET",
       headers: { Authorization: `Bearer ${key}`, Accept: "application/json" },
     });
@@ -478,7 +508,7 @@ export const testN8nInstance = createServerFn({ method: "POST" })
       headers["Authorization"] = `Basic ${btoa(token)}`;
     }
     try {
-      const r = await fetch(url, { method: "GET", headers });
+      const r = await guardedFetch(url, { method: "GET", headers });
       if (!r.ok) {
         const txt = await r.text().catch(() => "");
         return {
@@ -516,21 +546,17 @@ export async function notifyN8nWebhook(opts: {
 }): Promise<{ ok: boolean; status?: number; detail?: string }> {
   const url = (opts.webhookUrl || "").trim();
   if (!url) return { ok: false, detail: "No webhook URL" };
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 5000);
   try {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (opts.authHeader) headers["Authorization"] = opts.authHeader;
-    const r = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(opts.payload),
-      signal: ctrl.signal,
-    });
+    // SSRF-guarded (the webhook URL is user-authored) with its own short budget.
+    const r = await guardedFetch(
+      url,
+      { method: "POST", headers, body: JSON.stringify(opts.payload) },
+      opts.timeoutMs ?? 5000,
+    );
     return { ok: r.ok, status: r.status };
   } catch (e) {
     return { ok: false, detail: (e as Error).message };
-  } finally {
-    clearTimeout(t);
   }
 }

@@ -122,8 +122,18 @@ export const updateSecret = createServerFn({ method: "POST" })
       if (data.value !== undefined) patch.value = await encryptJson(data.value);
       if (Object.keys(patch).length === 0) return { ok: true };
       // RLS: only the owner's UPDATE policy matches — grantees can't write.
-      const { error } = await sb.from("user_secrets").update(patch).eq("id", data.secret_id);
+      // .select() returns the RLS-filtered affected rows, so an empty result
+      // means the row doesn't exist or the caller isn't its owner (rather than
+      // silently reporting success on a no-op update).
+      const { data: updated, error } = await sb
+        .from("user_secrets")
+        .update(patch)
+        .eq("id", data.secret_id)
+        .select("id");
       if (error) return { ok: false, error: error.message };
+      if (!updated || updated.length === 0) {
+        return { ok: false, error: "Secret not found or you don't have permission to modify it" };
+      }
       auditEvent({
         userId,
         action: "secret.update",
@@ -143,8 +153,15 @@ export const deleteSecret = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<{ ok: true } | { ok: false; error: string }> => {
     try {
       const { sb, userId } = await requireUser(data.access_token);
-      const { error } = await sb.from("user_secrets").delete().eq("id", data.secret_id);
+      const { data: deleted, error } = await sb
+        .from("user_secrets")
+        .delete()
+        .eq("id", data.secret_id)
+        .select("id");
       if (error) return { ok: false, error: error.message };
+      if (!deleted || deleted.length === 0) {
+        return { ok: false, error: "Secret not found or you don't have permission to delete it" };
+      }
       auditEvent({
         userId,
         action: "secret.delete",

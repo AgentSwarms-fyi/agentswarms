@@ -7,10 +7,35 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Plus, Database, FolderTree, GitBranch, Globe, Boxes, Trash2, RefreshCw, Wifi, WifiOff, ChevronRight } from "lucide-react";
+import {
+  Plus,
+  Database,
+  FolderTree,
+  GitBranch,
+  Globe,
+  Boxes,
+  Trash2,
+  RefreshCw,
+  Wifi,
+  WifiOff,
+  ChevronRight,
+} from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
@@ -36,7 +61,6 @@ type McpServer = {
   auth_type: McpAuthType;
   last_ping: string | null;
 };
-
 
 const TYPE_ICON: Record<McpServerType, any> = {
   database: Database,
@@ -83,7 +107,9 @@ function McpPage() {
       .channel("mcp-changes")
       .on("postgres_changes", { event: "*", schema: "public", table: "mcp_servers" }, load)
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [user]);
 
   const probeServer = async (id: string, opts?: { silent?: boolean }) => {
@@ -94,7 +120,7 @@ function McpPage() {
           toast.success(
             result.toolsCount > 0
               ? `Discovered ${result.toolsCount} tool${result.toolsCount === 1 ? "" : "s"}`
-              : result.message ?? "Connected",
+              : (result.message ?? "Connected"),
           );
         } else {
           toast.error(`Probe failed: ${result.message ?? "unknown error"}`);
@@ -128,20 +154,31 @@ function McpPage() {
     await load();
   };
 
-  const addServer = async (server: { name: string; type: McpServerType; endpoint: string; description: string; auth_type: McpAuthType; auth_token: string }) => {
+  const addServer = async (server: {
+    name: string;
+    type: McpServerType;
+    endpoint: string;
+    description: string;
+    auth_type: McpAuthType;
+    auth_token: string;
+  }) => {
     if (!user) return;
-    const { data: inserted, error } = await supabase.from("mcp_servers").insert({
-      user_id: user.id,
-      name: server.name,
-      type: server.type,
-      endpoint: server.endpoint,
-      description: server.description || "Custom MCP server.",
-      auth_type: server.auth_type,
-      auth_token: server.auth_token || null,
-      status: "connected",
-      tools_count: 0,
-      last_ping: new Date().toISOString(),
-    }).select("id").maybeSingle();
+    const { data: inserted, error } = await supabase
+      .from("mcp_servers")
+      .insert({
+        user_id: user.id,
+        name: server.name,
+        type: server.type,
+        endpoint: server.endpoint,
+        description: server.description || "Custom MCP server.",
+        auth_type: server.auth_type,
+        auth_token: server.auth_token || null,
+        status: "connected",
+        tools_count: 0,
+        last_ping: new Date().toISOString(),
+      })
+      .select("id")
+      .maybeSingle();
     if (error) {
       toast.error("Failed to add server");
     } else {
@@ -155,154 +192,194 @@ function McpPage() {
     }
   };
 
-
   const connectedCount = servers.filter((s) => s.status === "connected").length;
-  const totalTools = servers.reduce((acc, s) => acc + (s.status === "connected" ? s.tools_count : 0), 0);
+  const totalTools = servers.reduce(
+    (acc, s) => acc + (s.status === "connected" ? s.tools_count : 0),
+    0,
+  );
 
   return (
     <div className="flex">
-    <div className="flex-1 p-6 space-y-6">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">MCP Integrations</h1>
-          <p className="text-muted-foreground mt-1">Model Context Protocol servers expose tools and resources to your agents.</p>
-          <div className="flex gap-2 mt-3">
-            <Badge variant="outline" className="text-emerald-400 border-emerald-500/30">
-              <Wifi className="h-3 w-3 mr-1" /> {connectedCount} connected
-            </Badge>
-            <Badge variant="outline" className="text-muted-foreground">
-              {totalTools} tools available
-            </Badge>
+      <div className="flex-1 p-6 space-y-6">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">MCP Integrations</h1>
+            <p className="text-muted-foreground mt-1">
+              Model Context Protocol servers expose tools and resources to your agents.
+            </p>
+            <div className="flex gap-2 mt-3">
+              <Badge variant="outline" className="text-emerald-400 border-emerald-500/30">
+                <Wifi className="h-3 w-3 mr-1" /> {connectedCount} connected
+              </Badge>
+              <Badge variant="outline" className="text-muted-foreground">
+                {totalTools} tools available
+              </Badge>
+            </div>
           </div>
+          <Dialog open={addOpen} onOpenChange={setAddOpen}>
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="h-4 w-4 mr-1.5" /> Add MCP Server
+              </Button>
+            </DialogTrigger>
+            <AddServerDialog onAdd={addServer} />
+          </Dialog>
         </div>
-        <Dialog open={addOpen} onOpenChange={setAddOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="h-4 w-4 mr-1.5" /> Add MCP Server
-            </Button>
-          </DialogTrigger>
-          <AddServerDialog onAdd={addServer} />
-        </Dialog>
-      </div>
 
-      {loading ? (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-[220px]" />)}
-        </div>
-      ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {servers.map((server) => {
-            const Icon = TYPE_ICON[server.type] ?? Boxes;
-            const isConnected = server.status === "connected";
-            const isError = server.status === "error";
-            return (
-              <Card key={server.id} className="border-border/50 hover:border-border transition-colors group">
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                        <Icon className="h-4 w-4 text-primary" />
+        {loading ? (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {[1, 2, 3].map((i) => (
+              <Skeleton key={i} className="h-[220px]" />
+            ))}
+          </div>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {servers.map((server) => {
+              const Icon = TYPE_ICON[server.type] ?? Boxes;
+              const isConnected = server.status === "connected";
+              const isError = server.status === "error";
+              return (
+                <Card
+                  key={server.id}
+                  className="border-border/50 hover:border-border transition-colors group"
+                >
+                  <CardHeader className="pb-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                          <Icon className="h-4 w-4 text-primary" />
+                        </div>
+                        <div className="min-w-0">
+                          <CardTitle className="text-sm truncate">{server.name}</CardTitle>
+                          <p className="text-[11px] text-muted-foreground capitalize">
+                            {server.type} · {server.auth_type}
+                          </p>
+                        </div>
                       </div>
-                      <div className="min-w-0">
-                        <CardTitle className="text-sm truncate">{server.name}</CardTitle>
-                        <p className="text-[11px] text-muted-foreground capitalize">{server.type} · {server.auth_type}</p>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span className="relative flex h-2 w-2">
+                          {isConnected && (
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                          )}
+                          <span
+                            className={`relative inline-flex rounded-full h-2 w-2 ${
+                              isConnected
+                                ? "bg-emerald-500"
+                                : isError
+                                  ? "bg-red-500"
+                                  : "bg-muted-foreground/40"
+                            }`}
+                          />
+                        </span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <span className="relative flex h-2 w-2">
-                        {isConnected && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />}
-                        <span className={`relative inline-flex rounded-full h-2 w-2 ${
-                          isConnected ? "bg-emerald-500" : isError ? "bg-red-500" : "bg-muted-foreground/40"
-                        }`} />
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <p className="text-xs text-muted-foreground line-clamp-2 min-h-[32px]">
+                      {server.description}
+                    </p>
+
+                    <div className="rounded-md bg-muted/40 px-2 py-1.5">
+                      <p
+                        className="text-[10px] text-muted-foreground font-mono truncate"
+                        title={server.endpoint}
+                      >
+                        {server.endpoint}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                      <span>
+                        {isConnected ? (
+                          <span className="text-emerald-400">● Active</span>
+                        ) : isError ? (
+                          <span className="text-red-400">● Error</span>
+                        ) : (
+                          <span>○ Disconnected</span>
+                        )}
+                      </span>
+                      <span>
+                        {server.tools_count} tools · {timeAgo(server.last_ping)}
                       </span>
                     </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <p className="text-xs text-muted-foreground line-clamp-2 min-h-[32px]">{server.description}</p>
 
-                  <div className="rounded-md bg-muted/40 px-2 py-1.5">
-                    <p className="text-[10px] text-muted-foreground font-mono truncate" title={server.endpoint}>
-                      {server.endpoint}
-                    </p>
-                  </div>
-
-                  <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                    <span>
-                      {isConnected ? (
-                        <span className="text-emerald-400">● Active</span>
-                      ) : isError ? (
-                        <span className="text-red-400">● Error</span>
-                      ) : (
-                        <span>○ Disconnected</span>
-                      )}
-                    </span>
-                    <span>{server.tools_count} tools · {timeAgo(server.last_ping)}</span>
-                  </div>
-
-                  {Array.isArray(server.tools) && server.tools.length > 0 && (
-                    <div className="rounded-md border border-border/50 bg-background/40 p-2 space-y-1 max-h-64 overflow-y-auto">
-                      <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">
-                        Available tools
-                      </p>
-                      <div className="space-y-1">
-                        {server.tools.map((t) => (
-                          <ToolRow key={t.name} tool={t} />
-                        ))}
+                    {Array.isArray(server.tools) && server.tools.length > 0 && (
+                      <div className="rounded-md border border-border/50 bg-background/40 p-2 space-y-1 max-h-64 overflow-y-auto">
+                        <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">
+                          Available tools
+                        </p>
+                        <div className="space-y-1">
+                          {server.tools.map((t) => (
+                            <ToolRow key={t.name} tool={t} />
+                          ))}
+                        </div>
                       </div>
+                    )}
+
+                    <div className="flex gap-1.5 pt-1">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex-1 h-7 text-xs"
+                        onClick={() => toggleStatus(server)}
+                      >
+                        {isConnected ? (
+                          <WifiOff className="h-3 w-3 mr-1" />
+                        ) : (
+                          <RefreshCw className="h-3 w-3 mr-1" />
+                        )}
+                        {isConnected ? "Disconnect" : "Connect"}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => probeServer(server.id)}
+                        title="Refresh tool definitions from the MCP server"
+                      >
+                        <RefreshCw className="h-3 w-3 mr-1" />
+                        Refresh
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-7 p-0 text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={() => removeServer(server.id)}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
                     </div>
-                  )}
+                  </CardContent>
+                </Card>
+              );
+            })}
 
-
-                  <div className="flex gap-1.5 pt-1">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="flex-1 h-7 text-xs"
-                      onClick={() => toggleStatus(server)}
-                    >
-                      {isConnected ? <WifiOff className="h-3 w-3 mr-1" /> : <RefreshCw className="h-3 w-3 mr-1" />}
-                      {isConnected ? "Disconnect" : "Connect"}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 text-xs"
-                      onClick={() => probeServer(server.id)}
-                      title="Refresh tool definitions from the MCP server"
-                    >
-                      <RefreshCw className="h-3 w-3 mr-1" />
-                      Refresh
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 w-7 p-0 text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
-                      onClick={() => removeServer(server.id)}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-
-          <button
-            onClick={() => setAddOpen(true)}
-            className="rounded-lg border-2 border-dashed border-border hover:border-primary/40 hover:bg-muted/20 transition-all flex flex-col items-center justify-center gap-2 min-h-[200px] text-muted-foreground hover:text-primary"
-          >
-            <Plus className="h-8 w-8" />
-            <span className="text-sm font-medium">Add MCP Server</span>
-          </button>
-        </div>
-      )}
-    </div>
+            <button
+              onClick={() => setAddOpen(true)}
+              className="rounded-lg border-2 border-dashed border-border hover:border-primary/40 hover:bg-muted/20 transition-all flex flex-col items-center justify-center gap-2 min-h-[200px] text-muted-foreground hover:text-primary"
+            >
+              <Plus className="h-8 w-8" />
+              <span className="text-sm font-medium">Add MCP Server</span>
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-function AddServerDialog({ onAdd }: { onAdd: (s: { name: string; type: McpServerType; endpoint: string; description: string; auth_type: McpAuthType; auth_token: string }) => void }) {
+function AddServerDialog({
+  onAdd,
+}: {
+  onAdd: (s: {
+    name: string;
+    type: McpServerType;
+    endpoint: string;
+    description: string;
+    auth_type: McpAuthType;
+    auth_token: string;
+  }) => void;
+}) {
   const [name, setName] = useState("");
   const [type, setType] = useState<McpServerType>("database");
   const [endpoint, setEndpoint] = useState("");
@@ -314,7 +391,12 @@ function AddServerDialog({ onAdd }: { onAdd: (s: { name: string; type: McpServer
     e.preventDefault();
     if (!name || !endpoint) return;
     onAdd({ name, type, endpoint, description, auth_type: authType, auth_token: token });
-    setName(""); setEndpoint(""); setDescription(""); setToken(""); setAuthType("none"); setType("database");
+    setName("");
+    setEndpoint("");
+    setDescription("");
+    setToken("");
+    setAuthType("none");
+    setType("database");
   };
 
   return (
@@ -328,12 +410,19 @@ function AddServerDialog({ onAdd }: { onAdd: (s: { name: string; type: McpServer
       <form onSubmit={handleSubmit} className="space-y-3">
         <div className="space-y-1.5">
           <Label className="text-xs">Server Name *</Label>
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Production PostgreSQL" required />
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. Production PostgreSQL"
+            required
+          />
         </div>
         <div className="space-y-1.5">
           <Label className="text-xs">Server Type</Label>
           <Select value={type} onValueChange={(v: McpServerType) => setType(v)}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
             <SelectContent>
               <SelectItem value="database">Database</SelectItem>
               <SelectItem value="filesystem">Filesystem</SelectItem>
@@ -348,11 +437,14 @@ function AddServerDialog({ onAdd }: { onAdd: (s: { name: string; type: McpServer
           <Input
             value={endpoint}
             onChange={(e) => setEndpoint(e.target.value)}
-            placeholder="sse://mcp.example.com/sse  or  stdio://mcp-server-x"
+            placeholder="https://mcp.example.com/mcp  or  sse://mcp.example.com/sse"
             className="font-mono text-xs"
             required
           />
-          <p className="text-[10px] text-muted-foreground">Supports SSE URLs or stdio commands per the MCP spec.</p>
+          <p className="text-[10px] text-muted-foreground">
+            Must be reachable from the server — an HTTP(S) Streamable or SSE endpoint. stdio servers
+            run locally and can&apos;t be called from here.
+          </p>
         </div>
         <div className="space-y-1.5">
           <Label className="text-xs">Description</Label>
@@ -367,22 +459,30 @@ function AddServerDialog({ onAdd }: { onAdd: (s: { name: string; type: McpServer
           <div className="space-y-1.5">
             <Label className="text-xs">Auth Type</Label>
             <Select value={authType} onValueChange={(v: McpAuthType) => setAuthType(v)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">None</SelectItem>
                 <SelectItem value="token">Bearer Token</SelectItem>
-                <SelectItem value="oauth">OAuth</SelectItem>
               </SelectContent>
             </Select>
           </div>
           {authType !== "none" && (
             <div className="space-y-1.5">
               <Label className="text-xs">Auth Token</Label>
-              <Input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder="••••••••" />
+              <Input
+                type="password"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                placeholder="••••••••"
+              />
             </div>
           )}
         </div>
-        <Button type="submit" className="w-full">Connect Server</Button>
+        <Button type="submit" className="w-full">
+          Connect Server
+        </Button>
       </form>
     </DialogContent>
   );
@@ -397,7 +497,11 @@ function ToolRow({ tool }: { tool: McpTool }) {
   const hasParams = paramEntries.length > 0;
 
   return (
-    <Collapsible open={open} onOpenChange={setOpen} className="rounded border border-border/40 bg-background/60">
+    <Collapsible
+      open={open}
+      onOpenChange={setOpen}
+      className="rounded border border-border/40 bg-background/60"
+    >
       <CollapsibleTrigger className="w-full flex items-center gap-1.5 px-1.5 py-1 text-left hover:bg-muted/40 rounded">
         <ChevronRight
           className={`h-3 w-3 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`}
@@ -427,8 +531,14 @@ function ToolRow({ tool }: { tool: McpTool }) {
                 {paramEntries.map(([name, def]) => {
                   const d = def as any;
                   const type = d?.type
-                    ? Array.isArray(d.type) ? d.type.join(" | ") : String(d.type)
-                    : d?.enum ? "enum" : d?.anyOf ? "anyOf" : "any";
+                    ? Array.isArray(d.type)
+                      ? d.type.join(" | ")
+                      : String(d.type)
+                    : d?.enum
+                      ? "enum"
+                      : d?.anyOf
+                        ? "anyOf"
+                        : "any";
                   return (
                     <tr key={name} className="border-b border-border/20 last:border-0 align-top">
                       <td className="py-1 pr-2 font-mono">{name}</td>
@@ -441,7 +551,8 @@ function ToolRow({ tool }: { tool: McpTool }) {
                         )}
                       </td>
                       <td className="py-1 text-muted-foreground">
-                        {d?.description || (Array.isArray(d?.enum) ? `One of: ${d.enum.join(", ")}` : "—")}
+                        {d?.description ||
+                          (Array.isArray(d?.enum) ? `One of: ${d.enum.join(", ")}` : "—")}
                       </td>
                     </tr>
                   );

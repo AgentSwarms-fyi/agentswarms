@@ -16,7 +16,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { listDataTablesTool, runListDataTables, runSqlQuery, sqlQueryTool } from "./sql.server";
 import { metricQueryTool, runMetricQuery, semanticCatalogForCtx } from "./metric.server";
-import { assertPublicUrl } from "@/utils/ssrfGuard.server";
+import { assertPublicUrl, safeFetch } from "@/utils/ssrfGuard.server";
 import { loadWarehouseConnection } from "@/utils/warehouse/connections.server";
 import { executeWarehouseQuery, listWarehouseTables } from "@/utils/warehouse/drivers.server";
 import {
@@ -959,7 +959,14 @@ async function mcpRequest(
   };
   if (authType === "token" && authToken) headers.Authorization = `Bearer ${authToken}`;
   try {
-    const r = await fetch(endpoint, { method: "POST", headers, body: JSON.stringify(body) });
+    // The endpoint is user-registered but fetched from inside the server's
+    // network, so it goes through the SSRF guard with a bounded timeout.
+    const r = await safeFetch(endpoint, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(15_000),
+    });
     const text = await r.text();
     if (!r.ok) return { ok: false, error: `${r.status}: ${text.slice(0, 300)}` };
     // Some servers return SSE for tool call results; pull the last data: event.

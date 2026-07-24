@@ -21,8 +21,26 @@ type ProbeResult = {
   message?: string;
 };
 
-
 const PROTOCOL_VERSION = "2025-06-18";
+const MCP_PROBE_TIMEOUT_MS = 12_000;
+
+// The MCP endpoint is user-supplied and fetched from inside the server's
+// network, so it goes through the SSRF guard (with a bounded timeout).
+// Dynamically imported because this module is bundled into the client route.
+async function guardedFetch(url: string, init: RequestInit): Promise<Response> {
+  const { safeFetch } = await import("@/utils/ssrfGuard.server");
+  try {
+    return await safeFetch(url, { ...init, signal: AbortSignal.timeout(MCP_PROBE_TIMEOUT_MS) });
+  } catch (e) {
+    const msg = (e as Error)?.message || String(e);
+    if (/private\/internal host|resolves to a private/i.test(msg)) {
+      throw new Error(
+        `${msg}. If this MCP server is on an intentional internal address, set ALLOW_PRIVATE_NETWORK_FETCH=true on the server.`,
+      );
+    }
+    throw e;
+  }
+}
 
 function parseJsonOrSse(text: string, contentType: string): any | null {
   if (contentType.includes("text/event-stream")) {
@@ -63,25 +81,25 @@ export const probeMcpServer = createServerFn({ method: "POST" })
     const isHttp = /^https?:\/\//i.test(endpoint);
     const isSse = /^sse:\/\//i.test(endpoint);
 
-    const probeUrl = isHttp
-      ? endpoint
-      : isSse
-        ? endpoint.replace(/^sse:\/\//i, "https://")
-        : null;
+    const probeUrl = isHttp ? endpoint : isSse ? endpoint.replace(/^sse:\/\//i, "https://") : null;
 
     if (!probeUrl) {
+      // stdio:// (and other non-HTTP transports) run a local process and are
+      // not reachable from the server, so we can't connect to them here.
+      // Mark it honestly rather than showing a green "connected" for something
+      // no agent can actually call.
       await supabase
         .from("mcp_servers")
-        .update({ status: "connected", last_ping: new Date().toISOString() })
+        .update({ status: "error", last_ping: new Date().toISOString() })
         .eq("id", row.id);
       return {
-        ok: true,
+        ok: false,
         toolsCount: row.tools_count ?? 0,
         tools: [],
-        status: "connected",
-        message: "Non-HTTP endpoint — tool count not probed",
+        status: "error",
+        message:
+          "Only HTTP(S)/SSE MCP endpoints can be reached from the server. stdio servers run locally and aren't callable here.",
       };
-
     }
 
     const baseHeaders: Record<string, string> = {
@@ -97,7 +115,7 @@ export const probeMcpServer = createServerFn({ method: "POST" })
     const post = async (body: unknown, sessionId?: string | null) => {
       const headers = { ...baseHeaders };
       if (sessionId) headers["Mcp-Session-Id"] = sessionId;
-      return fetch(probeUrl, {
+      return guardedFetch(probeUrl, {
         method: "POST",
         headers,
         body: JSON.stringify(body),
@@ -130,7 +148,6 @@ export const probeMcpServer = createServerFn({ method: "POST" })
           message: `initialize → HTTP ${initRes.status}`,
         };
       }
-
 
       const sessionId = initRes.headers.get("Mcp-Session-Id");
       // Drain initialize response (some servers require it).
@@ -205,4 +222,3 @@ export const probeMcpServer = createServerFn({ method: "POST" })
       };
     }
   });
-
