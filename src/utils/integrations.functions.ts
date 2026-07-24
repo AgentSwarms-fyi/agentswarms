@@ -535,6 +535,73 @@ export const testN8nInstance = createServerFn({ method: "POST" })
     }
   });
 
+// Save an integration row with any secret config field (api_key /
+// webhook_token) encrypted at rest. The browser used to write integrations
+// directly in plaintext; it now posts here. Leaving a secret field blank on an
+// update keeps the previously-stored (encrypted) value, so users can edit
+// non-secret fields without re-typing keys.
+const SaveIntegrationSchema = z.object({
+  access_token: z.string().min(1).max(10000),
+  id: z.string().uuid().optional(),
+  type: z.string().min(1).max(60),
+  provider: z.string().max(60).default(""),
+  name: z.string().max(120).default(""),
+  config: z.record(z.string(), z.any()).default({}),
+  is_active: z.boolean().default(true),
+});
+
+export const saveIntegration = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) => SaveIntegrationSchema.parse(input))
+  .handler(async ({ data }): Promise<{ ok: true } | { ok: false; error: string }> => {
+    const auth = await validateAccessToken(data.access_token);
+    if (!auth.ok) return { ok: false, error: auth.detail };
+    const userId = auth.userId;
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { encryptIntegrationConfig, preserveBlankSecrets } =
+      await import("./providers/integrationConfig.server");
+
+    let existingConfig: Record<string, unknown> | null = null;
+    if (data.id) {
+      const { data: ex } = await supabaseAdmin
+        .from("integrations")
+        .select("config")
+        .eq("id", data.id)
+        .eq("user_id", userId)
+        .maybeSingle();
+      existingConfig = (ex?.config ?? null) as Record<string, unknown> | null;
+    }
+
+    let cfg = await encryptIntegrationConfig(data.type, data.config as Record<string, unknown>);
+    cfg = preserveBlankSecrets(data.type, cfg, existingConfig);
+
+    if (data.id) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error } = await (supabaseAdmin.from("integrations") as any)
+        .update({
+          config: cfg,
+          is_active: data.is_active,
+          name: data.name,
+          provider: data.provider,
+          type: data.type,
+        })
+        .eq("id", data.id)
+        .eq("user_id", userId);
+      if (error) return { ok: false, error: error.message };
+    } else {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error } = await (supabaseAdmin.from("integrations") as any).insert({
+        user_id: userId,
+        type: data.type,
+        provider: data.provider,
+        name: data.name,
+        config: cfg,
+        is_active: data.is_active,
+      });
+      if (error) return { ok: false, error: error.message };
+    }
+    return { ok: true };
+  });
+
 // Fire-and-forget post-turn notification to an agent's n8n webhook. Called
 // from server-side handlers after an assistant reply so workflows can log,
 // route, or react to the conversation.

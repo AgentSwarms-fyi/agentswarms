@@ -40,7 +40,11 @@ import {
   Sparkles,
   HardDrive,
 } from "lucide-react";
-import { testIntegrationKey, testN8nInstance } from "@/utils/integrations.functions";
+import {
+  testIntegrationKey,
+  testN8nInstance,
+  saveIntegration,
+} from "@/utils/integrations.functions";
 import { saveProviderCredential } from "@/utils/providers/credentials.functions";
 import { detectOllama } from "@/utils/providers/ollama.functions";
 import { invalidateOllamaModels } from "@/hooks/use-ollama-models";
@@ -720,44 +724,37 @@ function IntegrationsPage() {
       }
       if (!testResult.ok) {
         toast.error(`Could not connect: ${testResult.detail}`);
-        // Save the config but mark inactive so the user can fix without retyping.
+        // Save the config (encrypted server-side) but mark inactive so the user
+        // can fix without retyping.
         const existingFail = integrations.find((i) => i.provider === providerId);
-        if (existingFail) {
-          await supabase
-            .from("integrations")
-            .update({ config: normalizedConfig, is_active: false })
-            .eq("id", existingFail.id);
-        } else {
-          await supabase.from("integrations").insert({
-            user_id: user.id,
+        await saveIntegration({
+          data: {
+            access_token: session.access_token,
+            id: existingFail && !existingFail.id.startsWith("enc-") ? existingFail.id : undefined,
             type: "llm_provider",
-            name: LLM_PROVIDERS.find((p) => p.id === providerId)?.name || providerId,
             provider: providerId,
+            name: LLM_PROVIDERS.find((p) => p.id === providerId)?.name || providerId,
             config: normalizedConfig,
             is_active: false,
-          });
-        }
+          },
+        });
         loadIntegrations();
         return { ok: false, detail: testResult.detail };
       }
     }
 
     const existing = integrations.find((i) => i.provider === providerId);
-    if (existing) {
-      await supabase
-        .from("integrations")
-        .update({ config: normalizedConfig, is_active: true })
-        .eq("id", existing.id);
-    } else {
-      await supabase.from("integrations").insert({
-        user_id: user.id,
+    await saveIntegration({
+      data: {
+        access_token: session.access_token,
+        id: existing && !existing.id.startsWith("enc-") ? existing.id : undefined,
         type: "llm_provider",
-        name: LLM_PROVIDERS.find((p) => p.id === providerId)?.name || providerId,
         provider: providerId,
+        name: LLM_PROVIDERS.find((p) => p.id === providerId)?.name || providerId,
         config: normalizedConfig,
         is_active: true,
-      });
-    }
+      },
+    });
     toast.success(`Connected — ${testResult.detail}`);
     loadIntegrations();
     return { ok: true, detail: testResult.detail };
@@ -787,18 +784,27 @@ function IntegrationsPage() {
 
   async function saveGateway() {
     if (!user) return;
+    if (!session?.access_token) {
+      toast.error("Your session expired. Please sign in again.");
+      return;
+    }
     const existing = integrations.find((i) => i.type === "llm_gateway");
-    const payload = {
-      user_id: user.id,
-      type: "llm_gateway" as const,
-      name: "LLM Gateway",
-      config: { base_url: gatewayUrl, api_key: gatewayKey, provider: gatewayProvider },
-      is_active: gatewayRoute,
-    };
-    if (existing) {
-      await supabase.from("integrations").update(payload).eq("id", existing.id);
-    } else {
-      await supabase.from("integrations").insert(payload);
+    // api_key is encrypted server-side; leaving the key field blank on an
+    // existing gateway keeps the previously-saved key.
+    const res = await saveIntegration({
+      data: {
+        access_token: session.access_token,
+        id: existing?.id,
+        type: "llm_gateway",
+        provider: gatewayProvider,
+        name: "LLM Gateway",
+        config: { base_url: gatewayUrl, api_key: gatewayKey, provider: gatewayProvider },
+        is_active: gatewayRoute,
+      },
+    });
+    if (!res.ok) {
+      toast.error(`Could not save gateway: ${res.error}`);
+      return;
     }
     toast.success("Gateway saved");
     loadIntegrations();
@@ -832,26 +838,27 @@ function IntegrationsPage() {
     setN8nTesting(false);
 
     const existing = integrations.find((i) => i.type === "n8n");
-    const payload = {
-      user_id: user.id,
-      type: "n8n" as const,
-      name: "n8n",
-      config: {
-        instance_url: n8nUrl,
-        webhook_token: n8nToken,
-        auth_type: n8nAuthType,
-        last_test_status: testResult.ok ? "success" : "error",
-        last_test_detail: testResult.detail,
-        last_tested_at: new Date().toISOString(),
-        workflow_count: testResult.workflowCount ?? null,
+    // webhook_token is encrypted server-side; a blank token on an existing n8n
+    // integration keeps the previously-saved token.
+    await saveIntegration({
+      data: {
+        access_token: session.access_token,
+        id: existing?.id,
+        type: "n8n",
+        provider: "n8n",
+        name: "n8n",
+        config: {
+          instance_url: n8nUrl,
+          webhook_token: n8nToken,
+          auth_type: n8nAuthType,
+          last_test_status: testResult.ok ? "success" : "error",
+          last_test_detail: testResult.detail,
+          last_tested_at: new Date().toISOString(),
+          workflow_count: testResult.workflowCount ?? null,
+        },
+        is_active: testResult.ok,
       },
-      is_active: testResult.ok,
-    };
-    if (existing) {
-      await supabase.from("integrations").update(payload).eq("id", existing.id);
-    } else {
-      await supabase.from("integrations").insert(payload);
-    }
+    });
     if (testResult.ok) {
       toast.success(`n8n connected — ${testResult.detail}`);
     } else {
@@ -1006,6 +1013,9 @@ function IntegrationsPage() {
                     value={gatewayKey}
                     onChange={(e) => setGatewayKey(e.target.value)}
                   />
+                  <p className="text-[11px] text-muted-foreground">
+                    Stored encrypted, never shown again. Leave blank to keep the saved key.
+                  </p>
                 </div>
                 <div className="flex items-center justify-between">
                   <div>
@@ -1066,6 +1076,9 @@ function IntegrationsPage() {
                       value={n8nToken}
                       onChange={(e) => setN8nToken(e.target.value)}
                     />
+                    <p className="text-[11px] text-muted-foreground">
+                      Stored encrypted, never shown again. Leave blank to keep the saved token.
+                    </p>
                   </div>
                 )}
                 {n8nStatus && (

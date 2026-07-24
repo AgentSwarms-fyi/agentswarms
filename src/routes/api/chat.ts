@@ -1224,6 +1224,10 @@ export const Route = createFileRoute("/api/chat")({
             try {
               const sb = getServerSupabase(authToken);
               if (sb) {
+                // Secrets (gateway api_key / n8n webhook_token) are encrypted at
+                // rest in integrations.config — decrypt them server-side here.
+                const { resolveIntegrationConfig } =
+                  await import("@/utils/providers/integrationConfig.server");
                 const { data: gw } = await sb
                   .from("integrations")
                   .select("config, is_active")
@@ -1231,11 +1235,11 @@ export const Route = createFileRoute("/api/chat")({
                   .eq("is_active", true)
                   .maybeSingle();
                 if (agentRouteThroughGateway && gw?.is_active && gw.config) {
-                  const cfg = gw.config as {
-                    base_url?: string;
-                    api_key?: string;
-                    provider?: string;
-                  };
+                  const cfg = (await resolveIntegrationConfig(
+                    userId,
+                    "llm_gateway",
+                    gw.config as Record<string, unknown>,
+                  )) as { base_url?: string; api_key?: string; provider?: string };
                   if (cfg.base_url && cfg.api_key) {
                     gatewayOverride = {
                       baseUrl: cfg.base_url.replace(/\/+$/, ""),
@@ -1251,7 +1255,11 @@ export const Route = createFileRoute("/api/chat")({
                   .eq("is_active", true)
                   .maybeSingle();
                 if (n8n?.is_active && n8n.config) {
-                  n8nGlobal = n8n.config as unknown as typeof n8nGlobal;
+                  n8nGlobal = (await resolveIntegrationConfig(
+                    userId,
+                    "n8n",
+                    n8n.config as Record<string, unknown>,
+                  )) as unknown as typeof n8nGlobal;
                 }
               }
             } catch {

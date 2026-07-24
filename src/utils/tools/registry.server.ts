@@ -18,6 +18,7 @@ import { listDataTablesTool, runListDataTables, runSqlQuery, sqlQueryTool } from
 import { metricQueryTool, runMetricQuery, semanticCatalogForCtx } from "./metric.server";
 import { assertPublicUrl, safeFetch } from "@/utils/ssrfGuard.server";
 import { resolveMcpAuthToken } from "@/lib/mcp/auth.server";
+import { resolveIntegrationConfig } from "@/utils/providers/integrationConfig.server";
 import { loadWarehouseConnection } from "@/utils/warehouse/connections.server";
 import { executeWarehouseQuery, listWarehouseTables } from "@/utils/warehouse/drivers.server";
 import {
@@ -801,7 +802,12 @@ async function loadN8nIntegration(ctx: AgentToolContext) {
     .eq("is_active", true)
     .maybeSingle();
   if (!data?.is_active) return null;
-  const cfg = (data.config || {}) as {
+  // Decrypt webhook_token (webhook_token_enc) + resolve {{secret:}} refs.
+  const cfg = (await resolveIntegrationConfig(
+    ctx.userId,
+    "n8n",
+    (data.config || {}) as Record<string, unknown>,
+  )) as {
     instance_url?: string;
     webhook_token?: string;
     auth_type?: string;
@@ -828,7 +834,10 @@ export async function runListN8nWorkflows(
       error: "n8n is not connected. Tell the user to add it in Integrations.",
     });
   try {
-    const r = await fetch(`${cfg.baseUrl}/api/v1/workflows?limit=50`, { headers: cfg.headers });
+    const r = await safeFetch(`${cfg.baseUrl}/api/v1/workflows?limit=50`, {
+      headers: cfg.headers,
+      signal: AbortSignal.timeout(15_000),
+    });
     if (!r.ok)
       return JSON.stringify({ error: `n8n ${r.status}: ${(await r.text()).slice(0, 200)}` });
     const j = (await r.json()) as { data?: { id: string; name: string; active: boolean }[] };
@@ -861,10 +870,11 @@ export async function runN8nWorkflow(
     }
   }
   try {
-    const r = await fetch(`${cfg.baseUrl}/api/v1/workflows/${encodeURIComponent(id)}/execute`, {
+    const r = await safeFetch(`${cfg.baseUrl}/api/v1/workflows/${encodeURIComponent(id)}/execute`, {
       method: "POST",
       headers: cfg.headers,
       body: JSON.stringify(args.input ?? {}),
+      signal: AbortSignal.timeout(15_000),
     });
     const text = await r.text();
     if (!r.ok) return JSON.stringify({ error: `n8n ${r.status}: ${text.slice(0, 400)}` });
