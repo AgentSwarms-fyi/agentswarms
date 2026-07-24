@@ -110,6 +110,31 @@ async function buildMetrics(): Promise<string> {
     push("Distinct users with an LLM call in the last 24h.", "agentswarms_active_users_24h", [
       line("agentswarms_active_users_24h", (active ?? []).length),
     ]);
+
+    // Scheduler heartbeat: seconds since the most recent scheduled-work pass.
+    // Both the in-process scheduler and the external /api/bi/cron path stamp
+    // the "scheduler" lease row on every pass, so this is a fleet-wide "is the
+    // background worker alive" signal regardless of deployment mode. A healthy
+    // instance refreshes it about once a minute; alert if it exceeds a few
+    // minutes. Omitted (no series) when the lease table/row doesn't exist yet
+    // (pre-migration, or no pass has run) rather than emitting a misleading 0.
+    try {
+      const { data: lock } = await supabaseAdmin
+        .from("cron_locks")
+        .select("updated_at")
+        .eq("name", "scheduler")
+        .maybeSingle();
+      if (lock?.updated_at) {
+        const ageSec = Math.max(0, (Date.now() - new Date(lock.updated_at).getTime()) / 1000);
+        push(
+          "Seconds since the last scheduled-work pass (in-process or external cron).",
+          "agentswarms_scheduler_last_pass_age_seconds",
+          [line("agentswarms_scheduler_last_pass_age_seconds", Math.round(ageSec))],
+        );
+      }
+    } catch {
+      /* pre-migration lease table, or no pass yet — omit the series */
+    }
   } catch (e) {
     dbUp = 0;
     console.warn("[metrics] db query failed:", e instanceof Error ? e.message : String(e));

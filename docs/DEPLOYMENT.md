@@ -274,7 +274,9 @@ one pass runs at a time (extra callers get `{"skipped": true}`).
 ### Metrics (Prometheus / OpenMetrics)
 `GET /api/metrics` exposes fleet-level operational gauges in the Prometheus text
 exposition format — run and LLM-call volume over the last 24h broken down by
-status (`success`/`error`/`running`), month-to-date AI spend, active users, plus
+status (`success`/`error`/`running`), month-to-date AI spend, active users, a
+scheduler heartbeat (`agentswarms_scheduler_last_pass_age_seconds` — seconds
+since the last scheduled-work pass, in-process or external cron), plus
 `agentswarms_up` / `agentswarms_db_up`. It aggregates **all** tenants, so it is
 **disabled until you set `METRICS_TOKEN`** (returns `404` when unset); once set,
 scrapers must send `Authorization: Bearer <METRICS_TOKEN>`. The payload is cached
@@ -292,8 +294,12 @@ scrape_configs:
 Counts are gauges derived from the database (a purge/retention run lowers them),
 so alert on ratios and rates — e.g. `agentswarms_swarm_runs_24h{status="error"}`
 climbing relative to `success` — rather than treating them as monotonic counters.
-Behind a load balancer each instance reports its own process view; scrape every
-instance and aggregate in your monitoring system.
+The one gauge worth a flat threshold is the scheduler heartbeat: a healthy fleet
+refreshes it about once a minute, so alert if
+`agentswarms_scheduler_last_pass_age_seconds` exceeds a few minutes (that means
+BI refreshes, alerts, scheduled reports, swarm schedules and catalog crawls have
+all stopped firing). Behind a load balancer each instance reports its own process
+view; scrape every instance and aggregate in your monitoring system.
 
 ### Required secret for stored credentials
 If anyone connects a warehouse, saves a Secret, or adds a Data Catalog source,
