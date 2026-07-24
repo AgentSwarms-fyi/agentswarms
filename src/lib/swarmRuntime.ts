@@ -440,6 +440,34 @@ export function hasDoneSignal(output: string): boolean {
   return output.split(/\r?\n/).some((line) => /^\s*DONE[.!]?\s*$/i.test(line));
 }
 
+/**
+ * Resolve a condition node's judge reply to YES / NO, or null when the answer
+ * is ambiguous.
+ *
+ * This used to be `/yes/i.test(reply)`, which matches "yes" ANYWHERE — so
+ * "NO, yes it isn't" took the YES branch, and a wrong branch looks like a
+ * successful run. Order matters here:
+ *   1. the first word, so a clean "Yes." / "NO — because …" is decisive;
+ *   2. otherwise a whole-word search, accepting only when exactly ONE of the
+ *      two appears (so "The answer is yes" still works, while a reply
+ *      containing both is treated as undecided rather than guessed at).
+ * Callers turn null into a thrown error, which lets retryCount re-ask.
+ */
+export function decideYesNo(reply: string): "YES" | "NO" | null {
+  const text = String(reply ?? "").toLowerCase();
+  const first = text
+    .replace(/[^a-z\s]/g, " ")
+    .trim()
+    .split(/\s+/)[0];
+  if (first === "yes") return "YES";
+  if (first === "no") return "NO";
+  const hasYes = /\byes\b/.test(text);
+  const hasNo = /\bno\b/.test(text);
+  if (hasYes && !hasNo) return "YES";
+  if (hasNo && !hasYes) return "NO";
+  return null;
+}
+
 // Pulls a string output from the upstream context — falls back to the latest
 // output if no inputs are declared.
 export function gatherInputs(
@@ -1192,7 +1220,16 @@ export async function runSwarm(
             captureMeta(node.id),
             captureThinking(node.id),
           );
-          const decision = /yes/i.test(judgement) ? "YES" : "NO";
+          const decision = decideYesNo(judgement);
+          if (!decision) {
+            // Undecided rather than guessed: like the router, a branch taken on
+            // a coin-flip looks like a successful run. Throwing lets retryCount
+            // re-ask the judge.
+            throw new Error(
+              `Condition judge gave no clear YES/NO answer: ` +
+                `${String(judgement).trim().slice(0, 200) || "(empty)"}`,
+            );
+          }
           const v = node.data.outputVar || `cond_${node.id}`;
           ctx[v] = decision;
           lastOutput = decision;

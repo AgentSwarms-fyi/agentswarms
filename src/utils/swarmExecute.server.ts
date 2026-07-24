@@ -24,6 +24,7 @@ import {
   gatherInputs,
   topoLevels,
   hasDoneSignal,
+  decideYesNo,
   type SwarmNodeData,
 } from "@/lib/swarmRuntime";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
@@ -540,7 +541,15 @@ export async function executeSwarmServer(opts: {
               systemPrompt: "You are a strict binary classifier. Reply only YES or NO.",
               userMessage: `${d.conditionPrompt || "Should we proceed?"}\n\nINPUT:\n${judgeInput}\n\nAnswer with a single word: YES or NO.`,
             });
-            const decision = /yes/i.test(out) ? "YES" : "NO";
+            const decision = decideYesNo(out);
+            if (!decision) {
+              // Undecided rather than guessed — see decideYesNo. Throwing lets
+              // retryCount re-ask instead of silently taking a branch.
+              throw new Error(
+                `Condition judge gave no clear YES/NO answer: ` +
+                  `${out.trim().slice(0, 200) || "(empty)"}`,
+              );
+            }
             write(decision);
             const deadTargets: string[] = [];
             for (const e of outgoing.get(node.id) ?? []) {
