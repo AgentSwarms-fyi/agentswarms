@@ -121,6 +121,10 @@ export function CatalogView({
   const crawlFn = useServerFn(catalogCrawlSource);
   const deleteFn = useServerFn(catalogDeleteSource);
   const catalogSetScheduleFn = useServerFn(catalogSetSchedule);
+  // A catalog source shared via IAM is read-only for the grantee: they can
+  // browse it but not re-crawl / reschedule / delete / curate.
+  const myId = session?.user?.id ?? "";
+  const ownsSource = (s: CatalogSource) => s.user_id === myId;
 
   const [sources, setSources] = useState<CatalogSource[]>([]);
   const [assets, setAssets] = useState<CatalogAsset[]>([]);
@@ -176,6 +180,7 @@ export function CatalogView({
             }));
             return {
               id: `local:${d.id}`,
+              user_id: myId,
               source_id: LOCAL_SOURCE_ID,
               asset_type: "table" as const,
               schema_name: null,
@@ -218,12 +223,15 @@ export function CatalogView({
       if (piiOnly && !a.pii) return false;
       if (certOnly && a.status !== "certified") return false;
       if (!q) return true;
-      const hay = `${a.fqn} ${a.name} ${a.schema_name ?? ""} ${a.tags.join(" ")} ${a.owner ?? ""} ${a.description ?? ""} ${a.columns.map((c) => c.name).join(" ")}`.toLowerCase();
+      const hay =
+        `${a.fqn} ${a.name} ${a.schema_name ?? ""} ${a.tags.join(" ")} ${a.owner ?? ""} ${a.description ?? ""} ${a.columns.map((c) => c.name).join(" ")}`.toLowerCase();
       return q.split(/\s+/).every((part) => hay.includes(part));
     });
   }, [allAssets, search, sourceFilter, typeFilter, piiOnly, certOnly]);
 
   async function recrawl(source: CatalogSource) {
+    if (!ownsSource(source))
+      return toast.error("This source is shared read-only — only its owner can re-crawl it");
     setCrawlingIds((s) => new Set(s).add(source.id));
     try {
       const res = await crawlFn({ data: { access_token: token, source_id: source.id } });
@@ -256,6 +264,8 @@ export function CatalogView({
   }
 
   async function setSchedule(source: CatalogSource, schedule: CatalogSource["crawl_schedule"]) {
+    if (!ownsSource(source))
+      return toast.error("This source is shared read-only — only its owner can schedule crawls");
     const res = await catalogSetScheduleFn({
       data: { access_token: token, source_id: source.id, schedule },
     });
@@ -269,6 +279,8 @@ export function CatalogView({
   }
 
   async function removeSource(source: CatalogSource) {
+    if (!ownsSource(source))
+      return toast.error("This source is shared read-only — only its owner can remove it");
     if (!window.confirm(`Remove "${source.name}" and its cataloged assets?`)) return;
     const res = await deleteFn({ data: { access_token: token, source_id: source.id } });
     if (!res.ok) return toast.error(res.error);
@@ -402,6 +414,14 @@ export function CatalogView({
                 >
                   {sourceIcon(s)}
                   <span className="truncate">{s.name}</span>
+                  {!ownsSource(s) && (
+                    <span
+                      className="shrink-0 rounded bg-muted px-1 py-0.5 text-[9px] font-medium text-muted-foreground"
+                      title="Shared with you (read-only)"
+                    >
+                      Shared
+                    </span>
+                  )}
                   {s.crawl_schedule !== "manual" && (
                     <CalendarClock
                       className="h-3 w-3 shrink-0 text-muted-foreground"
@@ -574,7 +594,10 @@ export function CatalogView({
                   <TableHead className="text-right text-xs">Columns</TableHead>
                   <TableHead className="text-right text-xs">Rows</TableHead>
                   <TableHead className="text-right text-xs">Size</TableHead>
-                  <TableHead className="text-right text-xs" title="Dashboards, prep flows and metrics built on this asset">
+                  <TableHead
+                    className="text-right text-xs"
+                    title="Dashboards, prep flows and metrics built on this asset"
+                  >
                     Used by
                   </TableHead>
                   <TableHead className="text-xs">Tags</TableHead>
@@ -583,11 +606,7 @@ export function CatalogView({
               </TableHeader>
               <TableBody>
                 {filtered.slice(0, 500).map((a) => (
-                  <TableRow
-                    key={a.id}
-                    className="cursor-pointer"
-                    onClick={() => setSelected(a)}
-                  >
+                  <TableRow key={a.id} className="cursor-pointer" onClick={() => setSelected(a)}>
                     <TableCell className="max-w-72">
                       <div className="flex items-center gap-2">
                         {typeIcon(a.asset_type)}
@@ -625,9 +644,7 @@ export function CatalogView({
                         )}
                       </div>
                     </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">
-                      {sourceName(a)}
-                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{sourceName(a)}</TableCell>
                     <TableCell>
                       <Badge variant="secondary" className="h-5 px-1.5 text-[10px] font-normal">
                         {a.asset_type}
@@ -714,14 +731,16 @@ export function CatalogView({
         onQuery={() => selected && openInWorkbench(selected)}
         onClose={() => setSelected(null)}
         onSaved={(patch) => {
-          setAssets((prev) =>
-            prev.map((x) => (x.id === selected?.id ? { ...x, ...patch } : x)),
-          );
+          setAssets((prev) => prev.map((x) => (x.id === selected?.id ? { ...x, ...patch } : x)));
           setSelected((prev) => (prev ? { ...prev, ...patch } : prev));
         }}
       />
 
-      <AddSourceWizard open={wizardOpen} onOpenChange={setWizardOpen} onDone={() => void reload()} />
+      <AddSourceWizard
+        open={wizardOpen}
+        onOpenChange={setWizardOpen}
+        onDone={() => void reload()}
+      />
 
       <GlossaryDialog
         open={glossaryOpen}
@@ -924,9 +943,7 @@ function AssetSheet({
                           ) : (
                             <span className="font-medium">{r.name}</span>
                           )}
-                          {r.detail && (
-                            <span className="text-muted-foreground"> — {r.detail}</span>
-                          )}
+                          {r.detail && <span className="text-muted-foreground"> — {r.detail}</span>}
                         </span>
                         <span className="shrink-0 text-[9px] uppercase tracking-wider text-muted-foreground">
                           {r.kind === "prep_flow" ? "prep flow" : r.kind}
@@ -1012,7 +1029,9 @@ function AssetSheet({
                                   {c.null_pct !== undefined ? `${c.null_pct}%` : "\u2014"}
                                 </td>
                                 <td className="px-2 py-1 text-right text-[11px] tabular-nums text-muted-foreground">
-                                  {c.distinct_count !== undefined ? fmtCount(c.distinct_count) : "\u2014"}
+                                  {c.distinct_count !== undefined
+                                    ? fmtCount(c.distinct_count)
+                                    : "\u2014"}
                                 </td>
                               </>
                             )}
@@ -1039,10 +1058,10 @@ function AssetSheet({
             {asset.local && (
               <p className="rounded-md border border-dashed border-border bg-muted/20 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
                 Local tables are cataloged automatically and read-only here. Curation — status,
-                owner, tags, description and AI-generated docs — lives on crawled sources: connect
-                a warehouse or bucket with <span className="font-medium">Add</span> in the Sources
-                rail, and manage crawls from the <span className="font-medium">⋯</span> menu on
-                each source.
+                owner, tags, description and AI-generated docs — lives on crawled sources: connect a
+                warehouse or bucket with <span className="font-medium">Add</span> in the Sources
+                rail, and manage crawls from the <span className="font-medium">⋯</span> menu on each
+                source.
               </p>
             )}
 
@@ -1053,7 +1072,10 @@ function AssetSheet({
                     <Label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                       Status
                     </Label>
-                    <Select value={status} onValueChange={(v) => setStatus(v as CatalogAssetStatus)}>
+                    <Select
+                      value={status}
+                      onValueChange={(v) => setStatus(v as CatalogAssetStatus)}
+                    >
                       <SelectTrigger className="h-8 text-xs">
                         <SelectValue />
                       </SelectTrigger>

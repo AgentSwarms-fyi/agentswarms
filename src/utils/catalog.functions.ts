@@ -79,7 +79,11 @@ export const catalogSetSchedule = createServerFn({ method: "POST" })
       const { error, count } = await sb
         .from("catalog_sources")
         .update(
-          { crawl_schedule: data.schedule, next_crawl_at: next, updated_at: new Date().toISOString() },
+          {
+            crawl_schedule: data.schedule,
+            next_crawl_at: next,
+            updated_at: new Date().toISOString(),
+          },
           { count: "exact" },
         )
         .eq("id", data.source_id);
@@ -152,7 +156,10 @@ export const catalogCreateSource = createServerFn({ method: "POST" })
       if (error || !row) {
         return {
           ok: false,
-          error: error?.code === "23505" ? "A source with this name already exists" : (error?.message ?? "Failed"),
+          error:
+            error?.code === "23505"
+              ? "A source with this name already exists"
+              : (error?.message ?? "Failed"),
         };
       }
       return { ok: true, source_id: row.id };
@@ -168,7 +175,6 @@ export const catalogCrawlSource = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<CatalogError | { ok: true; stats: CrawlStats }> => {
     try {
       const { sb, userId } = await requireUser(data.access_token);
-      // Ownership via RLS: invisible rows simply don't come back.
       const { data: source, error } = await sb
         .from("catalog_sources")
         .select("*")
@@ -176,6 +182,12 @@ export const catalogCrawlSource = createServerFn({ method: "POST" })
         .maybeSingle();
       if (error) return { ok: false, error: error.message };
       if (!source) return { ok: false, error: "Source not found" };
+      // A shared source is now READABLE by grantees (IAM), but crawling mutates
+      // the owner's source + uses the owner's warehouse credentials, so only the
+      // owner may re-crawl.
+      if (source.user_id !== userId) {
+        return { ok: false, error: "Only the owner can re-crawl a shared source" };
+      }
       if (source.status === "crawling") return { ok: false, error: "A crawl is already running" };
 
       const stats = await runCrawl(
@@ -198,8 +210,15 @@ export const catalogDeleteSource = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<CatalogError | { ok: true }> => {
     try {
       const { sb } = await requireUser(data.access_token);
-      const { error } = await sb.from("catalog_sources").delete().eq("id", data.source_id);
+      // RLS lets grantees SELECT a shared source but not delete it (owner-only
+      // write policy) — a grantee's delete matches 0 rows, so surface that
+      // rather than a misleading success.
+      const { error, count } = await sb
+        .from("catalog_sources")
+        .delete({ count: "exact" })
+        .eq("id", data.source_id);
       if (error) return { ok: false, error: error.message };
+      if (!count) return { ok: false, error: "Only the owner can delete this source" };
       return { ok: true };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : "Failed" };

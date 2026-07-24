@@ -21,6 +21,7 @@ export type CatalogColumn = {
 
 export type CatalogSource = {
   id: string;
+  user_id: string;
   kind: "warehouse" | "object_storage";
   name: string;
   connection_id: string | null;
@@ -39,6 +40,7 @@ export type CatalogAssetStatus = "draft" | "certified" | "deprecated";
 
 export type CatalogAsset = {
   id: string;
+  user_id: string;
   source_id: string;
   asset_type: "table" | "view" | "file" | "dataset";
   schema_name: string | null;
@@ -68,7 +70,7 @@ export async function listCatalogSources(): Promise<CatalogSource[]> {
   const { data, error } = await supabase
     .from("catalog_sources")
     .select(
-      "id, kind, name, connection_id, config, status, crawl_schedule, next_crawl_at, last_crawl_at, last_error, crawl_stats, created_at",
+      "id, user_id, kind, name, connection_id, config, status, crawl_schedule, next_crawl_at, last_crawl_at, last_error, crawl_stats, created_at",
     )
     .order("created_at", { ascending: true });
   if (error) throw new Error(error.message);
@@ -86,7 +88,7 @@ export async function listCatalogAssets(): Promise<CatalogAsset[]> {
   const { data, error } = await supabase
     .from("catalog_assets")
     .select(
-      "id, source_id, asset_type, schema_name, name, fqn, columns, row_count, size_bytes, format, file_count, description, tags, owner, status, pii, last_crawled_at",
+      "id, user_id, source_id, asset_type, schema_name, name, fqn, columns, row_count, size_bytes, format, file_count, description, tags, owner, status, pii, last_crawled_at",
     )
     .order("fqn", { ascending: true })
     .limit(5000);

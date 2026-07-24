@@ -14,6 +14,7 @@ import {
   Copy,
   Database as DatabaseIcon,
   BookOpen,
+  FolderTree,
   Filter,
   KeyRound,
   Plus,
@@ -1082,7 +1083,8 @@ function AccessTab({
     | "data_table"
     | "secret"
     | "bi_dashboard"
-    | "semantic_model";
+    | "semantic_model"
+    | "catalog_source";
   const [shareResourceType, setShareResourceType] = useState<ShareResourceType>("knowledge_base");
   const [shareResourceId, setShareResourceId] = useState("");
   const [sharePrincipalType, setSharePrincipalType] = useState<"group" | "user">("group");
@@ -1097,6 +1099,7 @@ function AccessTab({
     { value: "secret", label: "🔑 Secret" },
     { value: "bi_dashboard", label: "📊 BI dashboard" },
     { value: "semantic_model", label: "🧮 Semantic model" },
+    { value: "catalog_source", label: "🗂 Data catalog source" },
   ];
   const shareableOfType = resources.filter((r) => r.resource_type === shareResourceType);
 
@@ -1418,6 +1421,8 @@ function AccessTab({
                           <BarChart3 className="h-4 w-4 text-muted-foreground" />
                         ) : g.resource_type === "semantic_model" ? (
                           <Layers className="h-4 w-4 text-muted-foreground" />
+                        ) : g.resource_type === "catalog_source" ? (
+                          <FolderTree className="h-4 w-4 text-muted-foreground" />
                         ) : (
                           <DatabaseIcon className="h-4 w-4 text-muted-foreground" />
                         )}
