@@ -1,6 +1,18 @@
-// Load + decrypt a warehouse connection for the signed-in user.
-// Rows are fetched under the caller's JWT client so RLS enforces ownership;
-// the AES-GCM payload is decrypted with PROVIDER_CREDS_SECRET server-side.
+// Load + decrypt a warehouse connection for a specific owner.
+//
+// Under a caller's JWT client, RLS already enforces ownership. But several
+// callers legitimately use the SERVICE-ROLE client (scheduled dashboard
+// refreshes, catalog crawls, shared semantic models), and there RLS is OFF —
+// so a connection id coming from user-controlled content (a BI widget's
+// source.connection_id, for instance) would otherwise load and DECRYPT another
+// tenant's warehouse credentials, then run the caller's SQL against their
+// warehouse.
+//
+// `ownerUserId` is therefore applied as a hard filter, not just as the scope
+// for {{secret:NAME}} resolution. Every caller already passes the owning user,
+// so this is enforced centrally and a future service-role caller can't forget
+// it. Callers that pass no owner keep the RLS-only behaviour, which is correct
+// for JWT clients but MUST NOT be used with the service role.
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { decryptJson } from "@/utils/providers/crypto.server";
@@ -17,8 +29,12 @@ export type LoadedConnection = {
 export async function loadWarehouseConnection(
   sb: SupabaseClient<Database>,
   ref: { connectionId?: string; name?: string },
-  /** When set, {{secret:NAME}} references in the config are resolved for this user. */
-  resolveSecretsFor?: string,
+  /**
+   * The user who must OWN this connection. Enforced as a query filter (see the
+   * file header — critical when `sb` is the service-role client), and used to
+   * resolve any {{secret:NAME}} references in the stored config.
+   */
+  ownerUserId?: string,
 ): Promise<LoadedConnection> {
   let query = sb
     .from("data_warehouse_connections")
@@ -26,6 +42,7 @@ export async function loadWarehouseConnection(
   if (ref.connectionId) query = query.eq("id", ref.connectionId);
   else if (ref.name) query = query.eq("name", ref.name);
   else throw new Error("connection id or name is required");
+  if (ownerUserId) query = query.eq("user_id", ownerUserId);
 
   const { data: row, error } = await query.maybeSingle();
   if (error) throw new Error(error.message);
@@ -37,9 +54,9 @@ export async function loadWarehouseConnection(
     throw new Error(`Warehouse connection "${row.name}" has no stored credentials`);
   }
   let config = await decryptJson<WarehouseConfig>(enc.ciphertext, enc.iv);
-  if (resolveSecretsFor) {
+  if (ownerUserId) {
     config = (await resolveSecretRefsInObject(
-      resolveSecretsFor,
+      ownerUserId,
       config as unknown as Record<string, unknown>,
     )) as unknown as WarehouseConfig;
   }
