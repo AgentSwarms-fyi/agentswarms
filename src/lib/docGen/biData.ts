@@ -21,7 +21,7 @@ import {
   type DatasetMeta,
   type QueryResult,
 } from "@/lib/sqlEngine";
-import type { DocTable, PptxKpi, PptxPlan, PptxSlide } from "./types";
+import type { DocChart, DocTable, PptxKpi, PptxPlan, PptxSlide } from "./types";
 
 type BiCtx = {
   datasets: DatasetMeta[];
@@ -142,6 +142,36 @@ function kpisFromResult(res: ResultLike): PptxKpi[] {
   }));
 }
 
+const TEMPORAL =
+  /^\s*(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|q[1-4]\b|fy|20\d\d|19\d\d|\d{4}-\d{2}|week|day|month|year)/i;
+
+/** Do the categories look like a time axis (months / quarters / years / dates)? */
+function looksTemporal(cats: string[]): boolean {
+  if (cats.length < 3) return false;
+  const hits = cats.filter((c) => TEMPORAL.test(String(c))).length;
+  return hits >= Math.ceil(cats.length * 0.6);
+}
+
+/**
+ * Pick a data-APPROPRIATE chart type from the real result shape, rotating for
+ * VARIETY across the deck (so it isn't all the same visual): time series → line/
+ * area; a few categories → column/pie/doughnut; many categories → horizontal
+ * bar; multi-series → grouped column (or line over time).
+ */
+function chooseChartType(
+  data: { categories: string[]; series: { name: string; values: number[] }[] },
+  i: number,
+): DocChart["type"] {
+  const single = data.series.length === 1;
+  const n = data.categories.length;
+  const allPositive = data.series.every((s) => s.values.every((v) => v >= 0));
+  if (looksTemporal(data.categories)) return single && i % 3 === 2 ? "area" : "line";
+  if (!single) return "column";
+  if (n <= 6 && allPositive) return i % 3 === 0 ? "column" : i % 3 === 1 ? "pie" : "doughnut";
+  if (n >= 8) return "bar";
+  return i % 2 === 0 ? "column" : "bar";
+}
+
 /** When the model gives a chart no query, derive one from the slide's own text
  * (title + subtitle + its bullets) so the analyst has enough to target the data. */
 function deriveChartQuestion(slide: PptxSlide): string {
@@ -228,6 +258,7 @@ export async function materializePptxWithBI(
   const ctx: BiCtx = { datasets, semantics, metrics, model: opts.model };
 
   const jobs: Array<() => Promise<void>> = [];
+  let chartIdx = 0; // drives chart-type variety across the deck
 
   for (const s of slides) {
     // ── Charts ── EVERY chart slide gets a real data attempt so visuals are
@@ -238,6 +269,7 @@ export async function materializePptxWithBI(
     if (s.chart) {
       const slide = s;
       const chart = s.chart;
+      const ci = chartIdx++;
       const rawSql = !chart.query ? chart.dataSql?.trim() : undefined;
       const question = chart.query?.trim() || (rawSql ? "" : deriveChartQuestion(slide));
       jobs.push(async () => {
@@ -256,6 +288,9 @@ export async function materializePptxWithBI(
         if (data) {
           chart.categories = data.categories;
           chart.series = data.series;
+          // Pick the visual type from the real data shape (with variety across
+          // the deck) rather than trusting the model's guess.
+          chart.type = chooseChartType(data, ci);
           return;
         }
         // No chartable data — drop the guessed/empty chart (chartHasData will

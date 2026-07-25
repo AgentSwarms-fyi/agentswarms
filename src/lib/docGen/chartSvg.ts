@@ -47,6 +47,12 @@ function niceMax(max: number): number {
 
 const FONT = "Segoe UI, Arial, sans-serif";
 
+/** SVG needs a leading '#'; our palette/ink colours are stored without one
+ * (pptxgenjs convention). Without this every fill falls back to BLACK. */
+function hx(c: string): string {
+  return "#" + String(c ?? "").replace(/^#/, "");
+}
+
 type Series = { name: string; values: number[] };
 
 function legendSvg(
@@ -167,7 +173,9 @@ function cartesianSvg(
       );
     });
   } else if (horizontal) {
-    // Horizontal bars (single/grouped)
+    // Horizontal bars (single/grouped). Single series → colour PER CATEGORY so
+    // the chart is multi-colour; grouped → colour per series.
+    const single = series.length === 1;
     const groupH = plotH / n;
     const inner = groupH * 0.68;
     const barH = inner / series.length;
@@ -178,8 +186,9 @@ function cartesianSvg(
         const w = plotW * scale(v) - plotW * scale(0);
         const x = padL + plotW * scale(0);
         const y = gy + barH * si;
+        const color = colors.palette[(single ? i : si) % colors.palette.length];
         parts.push(
-          `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${Math.max(0, w).toFixed(1)}" height="${(barH * 0.86).toFixed(1)}" rx="2" fill="${colors.palette[si % colors.palette.length]}"/>`,
+          `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${Math.max(0, w).toFixed(1)}" height="${(barH * 0.86).toFixed(1)}" rx="2" fill="${color}"/>`,
         );
       });
       parts.push(
@@ -187,11 +196,13 @@ function cartesianSvg(
       );
     });
   } else {
-    // Vertical columns (single/grouped)
+    // Vertical columns (single/grouped). Single series → colour PER CATEGORY so
+    // the chart is multi-colour; grouped → colour per series.
+    const single = series.length === 1;
     const groupW = plotW / n;
     const inner = groupW * 0.66;
     const barW = inner / series.length;
-    const showValues = series.length === 1 && n <= 8;
+    const showValues = single && n <= 8;
     cats.forEach((c, i) => {
       const gx = padL + groupW * i + (groupW - inner) / 2;
       series.forEach((s, si) => {
@@ -200,8 +211,9 @@ function cartesianSvg(
         const zeroY = padT + plotH - plotH * scale(0);
         const y = h >= 0 ? zeroY - h : zeroY;
         const x = gx + barW * si;
+        const color = colors.palette[(single ? i : si) % colors.palette.length];
         parts.push(
-          `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(barW * 0.86).toFixed(1)}" height="${Math.max(0, Math.abs(h)).toFixed(1)}" rx="2.5" fill="${colors.palette[si % colors.palette.length]}"/>`,
+          `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(barW * 0.86).toFixed(1)}" height="${Math.max(0, Math.abs(h)).toFixed(1)}" rx="2.5" fill="${color}"/>`,
         );
         if (showValues)
           parts.push(
@@ -297,10 +309,19 @@ export function chartToSvg(chart: DocChart, colors: ChartSvgColors, W = 900, H =
     .map((s) => ({ name: s.name, values: s.values }));
   if (cats.length === 0 || series.length === 0) return "";
 
+  // Normalise every colour to a valid SVG value (add the '#') — otherwise fills
+  // silently render black, which made every chart monochrome-black.
+  const C: ChartSvgColors = {
+    palette: colors.palette.map(hx),
+    ink: hx(colors.ink),
+    sub: hx(colors.sub),
+    grid: hx(colors.grid),
+  };
+
   const isPie = chart.type === "pie" || chart.type === "doughnut";
   const body = isPie
-    ? pieSvg(chart, cats, series, colors, W, H)
-    : cartesianSvg(chart, cats, series, colors, W, H);
+    ? pieSvg(chart, cats, series, C, W, H)
+    : cartesianSvg(chart, cats, series, C, W, H);
   if (!body) return "";
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><rect width="${W}" height="${H}" fill="#ffffff"/>${body}</svg>`;
 }

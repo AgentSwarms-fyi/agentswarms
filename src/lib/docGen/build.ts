@@ -160,7 +160,20 @@ export async function buildPptx(
   // Accent darkened just enough to read as TEXT on white content slides (a
   // pale accent the model picked would otherwise wash out).
   const accentInk = onLight(accent);
-  const palette = [accentInk, "0EA5E9", "10B981", "F59E0B", "EF4444", "8B5CF6", "EC4899", "14B8A6"];
+  // A vibrant, multi-colour chart palette (independent of the deck accent so
+  // charts are never monochrome). The accent still themes the deck chrome.
+  const palette = [
+    accentInk,
+    "0EA5E9",
+    "10B981",
+    "F59E0B",
+    "EF4444",
+    "8B5CF6",
+    "EC4899",
+    "14B8A6",
+    "F97316",
+    "22C55E",
+  ];
   const deckTitle = plan.title || "Untitled";
   const deckDate = new Date().toLocaleDateString(undefined, {
     year: "numeric",
