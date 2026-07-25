@@ -43,6 +43,7 @@ import {
 import {
   testIntegrationKey,
   testN8nInstance,
+  testFirecrawlKey,
   saveIntegration,
 } from "@/utils/integrations.functions";
 import { saveProviderCredential } from "@/utils/providers/credentials.functions";
@@ -569,6 +570,11 @@ function IntegrationsPage() {
     detail: string;
     workflowCount?: number;
   } | null>(null);
+  const [firecrawlKey, setFirecrawlKey] = useState("");
+  const [firecrawlTesting, setFirecrawlTesting] = useState(false);
+  const [firecrawlStatus, setFirecrawlStatus] = useState<{ ok: boolean; detail: string } | null>(
+    null,
+  );
 
   useEffect(() => {
     loadIntegrations();
@@ -867,6 +873,55 @@ function IntegrationsPage() {
     loadIntegrations();
   }
 
+  async function saveFirecrawl() {
+    const session = (await supabase.auth.getSession()).data.session;
+    if (!session) {
+      toast.error("Please sign in again before saving Firecrawl");
+      return;
+    }
+    const existing = integrations.find((i) => i.type === "firecrawl");
+    const key = firecrawlKey.trim();
+    // No new key + already connected ⇒ nothing to do (key is write-only).
+    if (!key && !existing) {
+      toast.error("Paste your Firecrawl API key first");
+      return;
+    }
+    setFirecrawlTesting(true);
+    setFirecrawlStatus(null);
+    // Only live-test when a new key was entered (we can't read the stored one back).
+    let testResult: { ok: boolean; detail: string } = key
+      ? await testFirecrawlKey({ data: { access_token: session.access_token, api_key: key } })
+      : { ok: true, detail: "Kept the saved key." };
+    setFirecrawlStatus(testResult);
+    if (key && !testResult.ok) {
+      setFirecrawlTesting(false);
+      toast.error(`Firecrawl: ${testResult.detail}`);
+      return;
+    }
+    // api_key is encrypted server-side; a blank key on an existing row keeps
+    // the previously-saved key.
+    await saveIntegration({
+      data: {
+        access_token: session.access_token,
+        id: existing?.id,
+        type: "firecrawl",
+        provider: "firecrawl",
+        name: "Firecrawl",
+        config: {
+          api_key: key,
+          last_test_status: testResult.ok ? "success" : "error",
+          last_test_detail: testResult.detail,
+          last_tested_at: new Date().toISOString(),
+        },
+        is_active: true,
+      },
+    });
+    setFirecrawlKey("");
+    setFirecrawlTesting(false);
+    toast.success("Firecrawl connected — web_search and web_browse are ready.");
+    loadIntegrations();
+  }
+
   const isProviderActive = (id: string) =>
     integrations.some((i) => i.provider === id && i.is_active);
   const isProviderSaved = (id: string) => integrations.some((i) => i.provider === id);
@@ -886,6 +941,7 @@ function IntegrationsPage() {
             <TabsTrigger value="llm">LLM Providers</TabsTrigger>
             <TabsTrigger value="warehouses">Data Sources</TabsTrigger>
             <TabsTrigger value="gateway">LLM Gateway</TabsTrigger>
+            <TabsTrigger value="websearch">Web Search</TabsTrigger>
             <TabsTrigger value="n8n">n8n Workflows</TabsTrigger>
           </TabsList>
 
@@ -1027,6 +1083,88 @@ function IntegrationsPage() {
                   <Switch checked={gatewayRoute} onCheckedChange={setGatewayRoute} />
                 </div>
                 <Button onClick={saveGateway}>Save Gateway</Button>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="websearch" className="space-y-4">
+            <Card className="border-border/50 max-w-lg">
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <div className="h-8 w-8 rounded-md bg-muted flex items-center justify-center shrink-0">
+                    <Globe className="h-4 w-4 text-primary" />
+                  </div>
+                  <CardTitle>Firecrawl (web search &amp; browsing)</CardTitle>
+                </div>
+                <CardDescription>
+                  Powers the agent <code>web_search</code> and <code>web_browse</code> tools for
+                  every agent on this instance. Get a key at{" "}
+                  <a
+                    href="https://firecrawl.dev"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline underline-offset-2"
+                  >
+                    firecrawl.dev
+                  </a>
+                  .
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="rounded-md border border-border/60 bg-muted/40 p-2.5 text-xs text-muted-foreground">
+                  Without a key, <code>web_search</code> still works but falls back to DuckDuckGo
+                  (limited results) and <code>web_browse</code> is unavailable. A key set here is
+                  the workspace default; the <code>FIRECRAWL_API_KEY</code> env var, or a per-agent
+                  key in the agent editor, override it.
+                </div>
+                <div className="space-y-2">
+                  <Label>Firecrawl API Key</Label>
+                  <Input
+                    type="password"
+                    placeholder="fc-..."
+                    value={firecrawlKey}
+                    onChange={(e) => setFirecrawlKey(e.target.value)}
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Stored encrypted, never shown again. Leave blank to keep the saved key.
+                  </p>
+                </div>
+                {firecrawlStatus && (
+                  <div
+                    className={`rounded-md border p-2.5 ${firecrawlStatus.ok ? "border-primary/30 bg-primary/5" : "border-destructive/40 bg-destructive/10"}`}
+                  >
+                    <p
+                      className={`text-xs font-semibold flex items-center gap-1.5 ${firecrawlStatus.ok ? "text-primary" : "text-destructive"}`}
+                    >
+                      {firecrawlStatus.ok ? (
+                        <Check className="h-3 w-3" />
+                      ) : (
+                        <X className="h-3 w-3" />
+                      )}
+                      {firecrawlStatus.ok ? "Connected" : "Connection failed"}
+                    </p>
+                    <p
+                      className={`text-xs mt-0.5 ${firecrawlStatus.ok ? "text-muted-foreground" : "text-destructive/90 font-mono break-words"}`}
+                    >
+                      {firecrawlStatus.detail}
+                    </p>
+                  </div>
+                )}
+                {integrations.find((i) => i.type === "firecrawl" && i.is_active) &&
+                  !firecrawlStatus && (
+                    <Badge variant="outline" className="w-fit text-primary border-primary/30">
+                      <Check className="h-3 w-3 mr-1" /> Currently connected
+                    </Badge>
+                  )}
+                <Button onClick={saveFirecrawl} disabled={firecrawlTesting}>
+                  {firecrawlTesting ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" /> Validating…
+                    </>
+                  ) : (
+                    "Validate & Save"
+                  )}
+                </Button>
               </CardContent>
             </Card>
           </TabsContent>

@@ -249,16 +249,20 @@ Agents can be given two web tools in the agent editor (**Build → Agents → ed
 clean markdown). How well they work depends on whether a key is configured —
 **no key is required to start**, but the free fallback is limited:
 
-| Setup                                              | `web_search`                                                                                                                                           | `web_browse`                                               |
-| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------- |
-| **No key** (default)                               | Works, but falls back to DuckDuckGo's free Instant Answer API — only entity summaries + a few related topics, so thin/often empty for ordinary queries | **Unavailable** (hidden from the agent until a key exists) |
-| **`FIRECRAWL_API_KEY` in `.env`** (workspace-wide) | Real web search via [Firecrawl](https://firecrawl.dev) for every agent                                                                                 | Full-page reads via Firecrawl                              |
-| **Per-agent key** (agent editor, no `.env` change) | Bring your own **Brave / SerpAPI / Tavily** key                                                                                                        | Bring your own **ScrapingBee** or custom **Firecrawl** key |
+| Setup                                                        | `web_search`                                                                                                                                           | `web_browse`                                               |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------- |
+| **No key** (default)                                         | Works, but falls back to DuckDuckGo's free Instant Answer API — only entity summaries + a few related topics, so thin/often empty for ordinary queries | **Unavailable** (hidden from the agent until a key exists) |
+| **Firecrawl connector** (Integrations page → **Web Search**) | Real web search via [Firecrawl](https://firecrawl.dev) for every agent — key stored encrypted, no restart                                              | Full-page reads via Firecrawl                              |
+| **`FIRECRAWL_API_KEY` in `.env`** (workspace-wide)           | Same as above, set via env instead of the UI                                                                                                           | Full-page reads via Firecrawl                              |
+| **Per-agent key** (agent editor, no `.env` change)           | Bring your own **Brave / SerpAPI / Tavily** key                                                                                                        | Bring your own **ScrapingBee** or custom **Firecrawl** key |
 
-So if web search "isn't really searching," that's the DuckDuckGo fallback — add
-`FIRECRAWL_API_KEY` (get one at [firecrawl.dev](https://firecrawl.dev)) and
-restart, or set a per-agent key. A per-agent key overrides the workspace key for
-that agent and needs no restart.
+So if web search "isn't really searching," that's the DuckDuckGo fallback.
+Easiest fix: open **Integrations → Web Search**, paste a Firecrawl key (from
+[firecrawl.dev](https://firecrawl.dev)) and click **Validate & Save** — it takes
+effect immediately, no restart. You can also set `FIRECRAWL_API_KEY` in `.env`,
+or give one agent its own key in the agent editor. Resolution order for the
+built-in Firecrawl path is: per-agent key → `FIRECRAWL_API_KEY` → the
+Integrations connector.
 
 Every URL fetched by `web_browse` is chosen by the model, so it's routed through
 the same SSRF guard as swarm HTTP nodes and connector tests: cloud instance

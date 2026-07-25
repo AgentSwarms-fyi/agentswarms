@@ -18,6 +18,7 @@ const SECRET_FIELDS: Record<string, string[]> = {
   llm_provider: ["api_key"],
   llm_gateway: ["api_key"],
   n8n: ["webhook_token"],
+  firecrawl: ["api_key"],
 };
 
 type EncBlob = { ciphertext?: string; iv?: string };

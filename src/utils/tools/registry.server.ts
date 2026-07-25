@@ -403,8 +403,45 @@ async function serpapiSearch(query: string, limit: number, key: string): Promise
   }
 }
 
+/**
+ * Resolve a Firecrawl API key for this user from the Integrations page
+ * (an `integrations` row of type `firecrawl`, api_key encrypted at rest).
+ * The workspace-wide FIRECRAWL_API_KEY env var still takes precedence; this is
+ * the UI alternative for when it isn't set. Best-effort — never throws.
+ */
+async function loadFirecrawlIntegrationKey(ctx: AgentToolContext): Promise<string | null> {
+  try {
+    const { data } = await ctx.sb
+      .from("integrations")
+      .select("config, is_active")
+      .eq("type", "firecrawl")
+      .eq("is_active", true)
+      .maybeSingle();
+    if (!data?.is_active) return null;
+    const cfg = (await resolveIntegrationConfig(
+      ctx.userId,
+      "firecrawl",
+      (data.config || {}) as Record<string, unknown>,
+    )) as { api_key?: string };
+    return (cfg.api_key || "").trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Effective Firecrawl key: per-agent custom → workspace env → Integrations. */
+async function resolveFirecrawlKey(
+  ctx: AgentToolContext,
+  customKey?: string,
+): Promise<string | undefined> {
+  const custom = (customKey || "").trim();
+  if (custom) return custom;
+  if (process.env.FIRECRAWL_API_KEY) return process.env.FIRECRAWL_API_KEY;
+  return (await loadFirecrawlIntegrationKey(ctx)) || undefined;
+}
+
 export async function runWebSearch(
-  _ctx: AgentToolContext,
+  ctx: AgentToolContext,
   args: { query: string; limit?: number },
   cfg?: ToolConfigs["web_search"],
 ): Promise<string> {
@@ -418,16 +455,16 @@ export async function runWebSearch(
   if (provider === "tavily" && key) return tavilySearch(q, limit, key);
   if (provider === "serpapi" && key) return serpapiSearch(q, limit, key);
 
-  // Firecrawl: custom key when provider=firecrawl_custom and a key is set,
-  // otherwise the workspace-wide FIRECRAWL_API_KEY (firecrawl_builtin).
-  const fcKey = provider === "firecrawl_custom" ? key : undefined;
+  // Firecrawl: per-agent custom key when provider=firecrawl_custom, else the
+  // workspace-wide FIRECRAWL_API_KEY, else the user's Firecrawl integration.
+  const fcKey = await resolveFirecrawlKey(ctx, provider === "firecrawl_custom" ? key : undefined);
   const fc = await firecrawlSearch(q, limit, fcKey);
   if (fc) return fc;
   return duckDuckGoSearch(q);
 }
 
 export async function runWebBrowse(
-  _ctx: AgentToolContext,
+  ctx: AgentToolContext,
   args: { url: string },
   cfg?: ToolConfigs["web_browse"],
 ): Promise<string> {
@@ -473,13 +510,13 @@ export async function runWebBrowse(
     }
   }
 
-  // Firecrawl path (default). Use per-call key when provider=firecrawl_custom,
-  // else workspace key.
-  const key = provider === "firecrawl_custom" && userKey ? userKey : process.env.FIRECRAWL_API_KEY;
+  // Firecrawl path (default). Per-agent custom key → workspace env → the user's
+  // Firecrawl integration (Integrations page).
+  const key = await resolveFirecrawlKey(ctx, provider === "firecrawl_custom" ? userKey : undefined);
   if (!key) {
     return JSON.stringify({
       error:
-        "web_browse needs a Firecrawl key. Either link the Firecrawl connector workspace-wide, choose 'Firecrawl (custom API key)' here and paste a key, or pick the ScrapingBee provider with your key.",
+        "web_browse needs a Firecrawl key. Connect Firecrawl on the Integrations page, set FIRECRAWL_API_KEY, choose 'Firecrawl (custom API key)' here and paste a key, or pick the ScrapingBee provider with your key.",
       provider: "firecrawl",
     });
   }
@@ -1260,12 +1297,16 @@ export async function resolveAgentTools(
     enabled.web = true;
   }
 
-  // Web browse — advertise when EITHER the workspace Firecrawl key is set OR
-  // the user provided a per-call key (custom Firecrawl / ScrapingBee).
-  // Without this widening, agents that paste their own key still wouldn't see
-  // the tool because the old gate only checked process.env.
-  const hasWebBrowseKey =
+  // Web browse — advertise when a Firecrawl/ScrapingBee key is available from
+  // ANY source: the workspace env var, a per-agent key (custom Firecrawl /
+  // ScrapingBee), or the user's Firecrawl integration on the Integrations page.
+  // Without this widening, agents that only connected Firecrawl in the UI (or
+  // pasted their own key) wouldn't see the tool.
+  let hasWebBrowseKey =
     !!process.env.FIRECRAWL_API_KEY || !!(cfg.web_browse?.api_key && cfg.web_browse.api_key.trim());
+  if (!hasWebBrowseKey && allows("web_browse")) {
+    hasWebBrowseKey = !!(await loadFirecrawlIntegrationKey(ctx));
+  }
   if (allows("web_browse") && hasWebBrowseKey) {
     tools.push(webBrowseTool);
     handlers.set("web_browse", (c, a) => runWebBrowse(c, a, cfg.web_browse));

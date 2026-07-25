@@ -40,6 +40,11 @@ const N8nTestSchema = z.object({
   auth_type: z.enum(["header", "basic", "none"]).default("header"),
 });
 
+const FirecrawlTestSchema = z.object({
+  access_token: z.string().min(1).max(10000),
+  api_key: z.string().min(1).max(2000),
+});
+
 type TestResult = { ok: true; detail: string } | { ok: false; detail: string; status?: number };
 
 type AuthResult = { ok: true; userId: string } | { ok: false; detail: string };
@@ -522,6 +527,46 @@ export const testN8nInstance = createServerFn({ method: "POST" })
       };
     } catch (e) {
       return { ok: false, detail: `Could not reach ${base}: ${(e as Error).message}` };
+    }
+  });
+
+// Live-test a Firecrawl API key with a cheap 1-result search so the user knows
+// the key works before we mark the connector active. api.firecrawl.dev is a
+// fixed host (not user-controlled), so a direct fetch is fine here.
+export const testFirecrawlKey = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) => FirecrawlTestSchema.parse(input))
+  .handler(async ({ data }): Promise<TestResult> => {
+    const auth = await validateAccessToken(data.access_token);
+    if (!auth.ok) return { ok: false, detail: auth.detail };
+    const key = clean(data.api_key);
+    if (!key) return { ok: false, detail: "API key is required" };
+    try {
+      const r = await fetch("https://api.firecrawl.dev/v2/search", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ query: "agentswarms connection test", limit: 1 }),
+      });
+      if (r.status === 401 || r.status === 402 || r.status === 403) {
+        const t = await r.text().catch(() => "");
+        return {
+          ok: false,
+          status: r.status,
+          detail:
+            r.status === 402
+              ? `Firecrawl key valid but out of credits: ${t.slice(0, 160)}`
+              : "Firecrawl rejected the API key (unauthorized). Check the key.",
+        };
+      }
+      if (!r.ok) {
+        const t = await r.text().catch(() => "");
+        return { ok: false, status: r.status, detail: `Firecrawl ${r.status}: ${t.slice(0, 200)}` };
+      }
+      return {
+        ok: true,
+        detail: "Firecrawl key is valid — web_search and web_browse are ready.",
+      };
+    } catch (e) {
+      return { ok: false, detail: `Could not reach Firecrawl: ${(e as Error).message}` };
     }
   });
 
