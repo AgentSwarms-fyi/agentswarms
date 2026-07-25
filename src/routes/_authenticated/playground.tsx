@@ -466,6 +466,70 @@ function PlaygroundPage() {
     let traceId: string | null = null;
 
     try {
+      // Visual BI mode: answer data questions with the BI analyst FIRST — a
+      // data-grounded narrative + chart computed from the user's own data —
+      // instead of letting a data-unaware agent reply. That agent reply was the
+      // source of two problems the user hit: it cited irrelevant KB how-to docs,
+      // and it forced a visible "wrong answer, then suddenly corrected" swap.
+      // We fall through to the normal agent path when the question isn't
+      // answerable from data (BI returns nothing), so ordinary chat, KB Q&A and
+      // attachments still work with real citations and token streaming.
+      if (biVisualsRef.current) {
+        const lastUserMsg = [...opts.historySnapshot].reverse().find((m) => m.role === "user");
+        const hasAttachments =
+          Array.isArray(lastUserMsg?.metadata?.attachments) &&
+          (lastUserMsg!.metadata!.attachments as unknown[]).length > 0;
+        const q = lastUserMsg?.content ?? "";
+        if (q && !hasAttachments) {
+          const bi = await generateChatWidget(q, { scope: dataScopeRef.current });
+          if (bi.narrative?.trim() || bi.widget) {
+            const content = bi.narrative?.trim() || "Here's what your data shows.";
+            // The analyst answers from the user's data, so it carries no KB
+            // citations — only the optional chart widget.
+            const meta = bi.widget ? { widgets: [bi.widget] } : {};
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: assistantId,
+                role: "assistant",
+                content,
+                created_at: new Date().toISOString(),
+                metadata: meta,
+              },
+            ]);
+            setLastExchange({
+              requestBody: displayRequestBody,
+              status: 200,
+              responseHeaders: {},
+              responseText: "Answered by the Visual BI analyst (plan → SQL → execute).",
+              startedAt,
+              durationMs: Date.now() - startedAt,
+              traceId: null,
+            });
+            const { data: insertedBi } = await supabase
+              .from("messages")
+              .insert({
+                conversation_id: activeConvo,
+                user_id: user.id,
+                role: "assistant",
+                content,
+                metadata: meta as unknown as Json,
+              })
+              .select("id")
+              .single();
+            if (insertedBi?.id) dbIdMap.current.set(assistantId, insertedBi.id);
+            if (opts.isFirstUserMessage && lastUserMsg) {
+              await supabase
+                .from("conversations")
+                .update({ title: lastUserMsg.content.slice(0, 50) })
+                .eq("id", activeConvo);
+              loadConversations();
+            }
+            return { ok: true };
+          }
+        }
+      }
+
       const { data: sessionData } = await supabase.auth.getSession();
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (sessionData.session?.access_token) {
@@ -651,51 +715,9 @@ function PlaygroundPage() {
         dbIdMap.current.set(assistantId, insertedAssistant.id);
       }
 
-      // Visual BI answer: when it's on, run the user's question through the BI
-      // analyst over their own datasets. When that yields a real result we use
-      // its data-grounded narrative AS the answer (so the text agrees with the
-      // data instead of a generic "upload a CSV" reply from a non-data-aware
-      // agent) and attach the chart inline. Best-effort — a non-data question
-      // (no result) leaves the agent's own reply untouched.
-      if (biVisualsRef.current && assistantContent) {
-        const question =
-          [...opts.historySnapshot].reverse().find((m) => m.role === "user")?.content ?? "";
-        if (question) {
-          void generateChatWidget(question, { scope: dataScopeRef.current }).then((res) => {
-            const narrative = res.narrative?.trim();
-            const widget = res.widget;
-            if (!narrative && !widget) return;
-            const newContent = narrative || assistantContent;
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === assistantId
-                  ? {
-                      ...m,
-                      content: newContent,
-                      metadata: {
-                        ...(m.metadata ?? {}),
-                        ...(widget ? { widgets: [widget] } : {}),
-                      },
-                    }
-                  : m,
-              ),
-            );
-            const dbId = insertedAssistant?.id;
-            if (dbId) {
-              void supabase
-                .from("messages")
-                .update({
-                  content: newContent,
-                  metadata: {
-                    ...(citations.length > 0 ? { citations } : {}),
-                    ...(widget ? { widgets: [widget] } : {}),
-                  } as unknown as Json,
-                })
-                .eq("id", dbId);
-            }
-          });
-        }
-      }
+      // (Visual BI answers are produced up-front by the BI-first branch above;
+      // reaching here means either BI is off or the question wasn't answerable
+      // from data, so the agent's own reply + its KB citations stand.)
 
       if (opts.isFirstUserMessage) {
         const lastUser = [...opts.historySnapshot].reverse().find((m) => m.role === "user");
