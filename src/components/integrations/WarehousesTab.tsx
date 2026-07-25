@@ -19,6 +19,7 @@ import bigqueryLogo from "@/assets/warehouses/bigquery.svg";
 import synapseLogo from "@/assets/warehouses/synapse.svg";
 import postgresLogo from "@/assets/warehouses/postgres.svg";
 import mysqlLogo from "@/assets/warehouses/mysql.svg";
+import trinoLogo from "@/assets/warehouses/trino.svg";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -73,6 +74,7 @@ const PROVIDER_LOGOS: Record<WarehouseProvider, string> = {
   azure_synapse: synapseLogo,
   postgres: postgresLogo,
   mysql: mysqlLogo,
+  trino: trinoLogo,
 };
 
 const PROVIDER_META: Record<
@@ -191,6 +193,50 @@ const PROVIDER_META: Record<
       { key: "password", label: "SQL password", type: "password" },
     ],
     note: "Requires a Node deployment (Docker/bare Node) — Synapse speaks TDS, which isn't available on Cloudflare Workers.",
+  },
+  trino: {
+    description:
+      "Query a Trino, Starburst or Presto cluster over the HTTP protocol — the usual way to reach a raw Iceberg / Delta / Hive lakehouse.",
+    fields: [
+      { key: "host", label: "Coordinator host", placeholder: "trino.example.com" },
+      {
+        key: "port",
+        label: "Port",
+        placeholder: "443 (TLS) / 8080 (plain)",
+        optional: true,
+      },
+      { key: "username", label: "User", placeholder: "analyst" },
+      {
+        key: "password",
+        label: "Password",
+        type: "password",
+        optional: true,
+        hint: "For Basic auth. Leave empty for anonymous coordinators.",
+      },
+      {
+        key: "access_token",
+        label: "JWT / OAuth2 token",
+        type: "password",
+        optional: true,
+        hint: "Bearer token — takes precedence over the password (e.g. Starburst Galaxy).",
+      },
+      {
+        key: "catalog",
+        label: "Catalog",
+        optional: true,
+        placeholder: "iceberg",
+        hint: "The lakehouse catalog to browse/query (iceberg, delta, hive…).",
+      },
+      { key: "schema", label: "Schema", placeholder: "default", optional: true },
+      {
+        key: "ssl",
+        label: "TLS",
+        optional: true,
+        placeholder: "on",
+        hint: 'Set to "disable" for a plain-HTTP coordinator; TLS is used otherwise.',
+      },
+    ],
+    note: "Use read-only credentials — only SELECT statements are ever sent.",
   },
 };
 

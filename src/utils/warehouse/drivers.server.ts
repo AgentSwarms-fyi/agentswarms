@@ -12,6 +12,8 @@
 // All drivers enforce read-only SQL, cap returned rows, and normalise
 // results to { columns, rows } with numeric coercion driven by column types.
 
+import { isBlockedAlways } from "@/utils/ssrfGuard.server";
+
 import type {
   WarehouseColumn,
   WarehouseConfig,
@@ -619,6 +621,104 @@ async function mysqlQuery(
   }
 }
 
+// ── Trino / Starburst / Presto ───────────────────────────────────────────────
+// Speaks the Trino HTTP client protocol: POST the SQL text to /v1/statement,
+// then follow `nextUri` (GET) until it is absent, accumulating `columns` and
+// `data` across pages. Works against Trino, Starburst (Galaxy/Enterprise) and
+// Presto, which is the common way to query a raw Iceberg/Delta/Hive lakehouse.
+
+type TrinoConfig = Extract<WarehouseConfig, { provider: "trino" }>;
+
+type TrinoResponse = {
+  id: string;
+  nextUri?: string;
+  columns?: { name: string; type: string }[];
+  data?: unknown[][];
+  error?: { message?: string; errorName?: string };
+  stats?: { state?: string };
+};
+
+function trinoBaseUrl(cfg: TrinoConfig): { base: string; host: string } {
+  const host = cfg.host
+    .replace(/^https?:\/\//, "")
+    .replace(/\/.*$/, "")
+    .trim();
+  const useHttps = cfg.ssl !== "disable";
+  const port = cfg.port && cfg.port.trim() ? cfg.port.trim() : useHttps ? "443" : "8080";
+  return { base: `${useHttps ? "https" : "http"}://${host}:${port}`, host };
+}
+
+function trinoHeaders(cfg: TrinoConfig): Record<string, string> {
+  const headers: Record<string, string> = {
+    "X-Trino-User": cfg.username,
+    "X-Trino-Source": "agentswarms",
+  };
+  if (cfg.catalog) headers["X-Trino-Catalog"] = cfg.catalog;
+  if (cfg.schema) headers["X-Trino-Schema"] = cfg.schema;
+  if (cfg.access_token) headers["Authorization"] = `Bearer ${cfg.access_token}`;
+  else if (cfg.password)
+    headers["Authorization"] = `Basic ${btoa(`${cfg.username}:${cfg.password}`)}`;
+  return headers;
+}
+
+async function trinoQuery(
+  cfg: TrinoConfig,
+  sql: string,
+  maxRows: number,
+): Promise<{ columns: WarehouseColumn[]; data: unknown[][]; truncated: boolean }> {
+  const { base, host } = trinoBaseUrl(cfg);
+  // SSRF: refuse cloud metadata / link-local targets (private networks stay
+  // allowed — a Trino coordinator commonly lives inside the customer's VPC).
+  if (isBlockedAlways(host)) {
+    throw new Error("Trino: refusing to connect to a blocked host");
+  }
+  const headers = trinoHeaders(cfg);
+
+  let cols: WarehouseColumn[] | null = null;
+  const data: unknown[][] = [];
+  let truncated = false;
+  const deadline = Date.now() + POLL_TIMEOUT_MS;
+
+  let res = await fetch(`${base}/v1/statement`, {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "text/plain" },
+    body: sql,
+  });
+
+  // Trino long-polls each nextUri (~1s) while QUEUED/RUNNING, so no client
+  // sleep is needed; the deadline + iteration cap guard against a stuck query.
+  for (let i = 0; i < 10_000; i++) {
+    if (!res.ok) throw new Error(await readError(res, "Trino"));
+    const body = (await res.json()) as TrinoResponse;
+    if (body.error) {
+      throw new Error(`Trino: ${body.error.message ?? body.error.errorName ?? "query failed"}`);
+    }
+    if (body.columns && !cols) {
+      cols = body.columns.map((c) => ({ name: c.name, type: c.type }));
+    }
+    for (const row of body.data ?? []) {
+      if (data.length >= maxRows) {
+        truncated = true;
+        break;
+      }
+      data.push(row);
+    }
+    // Stop once we have enough rows or the statement is complete.
+    if (!body.nextUri || data.length >= maxRows) {
+      if (body.nextUri && data.length >= maxRows) {
+        truncated = true;
+        // Best-effort cancel so we don't leave the query running.
+        void fetch(body.nextUri, { method: "DELETE", headers }).catch(() => {});
+      }
+      break;
+    }
+    if (Date.now() > deadline) throw new Error("Trino: query timed out");
+    res = await fetch(body.nextUri, { method: "GET", headers });
+  }
+
+  return { columns: cols ?? [], data, truncated };
+}
+
 // ── Public entry points ──────────────────────────────────────────────────────
 
 export async function executeWarehouseQuery(
@@ -652,6 +752,9 @@ export async function executeWarehouseQuery(
       break;
     case "mysql":
       raw = await mysqlQuery(config, safeSql, cappedRows);
+      break;
+    case "trino":
+      raw = await trinoQuery(config, safeSql, cappedRows);
       break;
   }
 
@@ -692,6 +795,14 @@ export async function listWarehouseTables(config: WarehouseConfig): Promise<Ware
     case "redshift":
     case "azure_synapse":
       sql = COLUMNS_QUERY("information_schema.columns");
+      break;
+    case "trino":
+      // Qualify with the catalog when set (X-Trino-Catalog also scopes it).
+      sql = COLUMNS_QUERY(
+        config.catalog
+          ? `"${config.catalog.replace(/"/g, '""')}".information_schema.columns`
+          : "information_schema.columns",
+      );
       break;
   }
   const result = await executeWarehouseQuery(config, sql, ABS_MAX_ROWS);

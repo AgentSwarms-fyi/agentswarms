@@ -8,7 +8,8 @@ export type WarehouseProvider =
   | "bigquery"
   | "azure_synapse"
   | "postgres"
-  | "mysql";
+  | "mysql"
+  | "trino";
 
 export const WAREHOUSE_PROVIDERS: WarehouseProvider[] = [
   "postgres",
@@ -18,6 +19,7 @@ export const WAREHOUSE_PROVIDERS: WarehouseProvider[] = [
   "databricks",
   "bigquery",
   "azure_synapse",
+  "trino",
 ];
 
 export const WAREHOUSE_LABELS: Record<WarehouseProvider, string> = {
@@ -28,6 +30,7 @@ export const WAREHOUSE_LABELS: Record<WarehouseProvider, string> = {
   azure_synapse: "Azure Synapse (dedicated SQL pool)",
   postgres: "PostgreSQL",
   mysql: "MySQL / MariaDB",
+  trino: "Trino / Starburst / Presto",
 };
 
 /** Per-provider connection config. Stored encrypted — never sent back to the client. */
@@ -100,6 +103,25 @@ export type WarehouseConfig =
       database: string;
       username: string;
       password: string;
+      ssl?: string;
+    }
+  | {
+      provider: "trino";
+      /** Coordinator hostname, e.g. "trino.example.com" (no scheme). */
+      host: string;
+      /** Defaults to 443 (TLS) or 8080 (plain). */
+      port?: string;
+      /** Trino user (sent as X-Trino-User; required by the protocol). */
+      username: string;
+      /** Password for Basic auth (optional for anonymous coordinators). */
+      password?: string;
+      /** JWT/OAuth2 bearer token — takes precedence over password when set. */
+      access_token?: string;
+      /** Catalog to query, e.g. "iceberg", "hive", "delta". */
+      catalog?: string;
+      /** Default schema. */
+      schema?: string;
+      /** "disable" turns off TLS (plain http); anything else = https (default). */
       ssl?: string;
     };
 
