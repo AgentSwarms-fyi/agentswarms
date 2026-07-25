@@ -7,6 +7,7 @@
 // helpers run under the caller's JWT, so a query only ever returns rows the
 // caller may actually see.
 import { supabase } from "@/integrations/supabase/client";
+import type { BiDashboardRow } from "@/lib/biDashboards";
 
 export type BiWorkspace = {
   id: string;
@@ -161,4 +162,100 @@ export async function moveDashboard(
     .update({ workspace_id: target.workspace_id, folder_id: target.folder_id })
     .eq("id", dashboardId);
   if (error) throw new Error(error.message);
+}
+
+// ── Dev→prod promotion ──────────────────────────────────────────────────────
+
+export type BiPromotion = {
+  id: string;
+  source_dashboard_id: string;
+  target_dashboard_id: string;
+  target_workspace_id: string;
+  promoted_by: string;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/** Promotion links whose SOURCE is one of these dashboards (for a badge). */
+export async function listPromotionsForSources(sourceIds: string[]): Promise<BiPromotion[]> {
+  if (sourceIds.length === 0) return [];
+  const { data, error } = await supabase
+    .from("bi_promotions")
+    .select("*")
+    .in("source_dashboard_id", sourceIds);
+  if (error) throw new Error(error.message);
+  return (data ?? []) as BiPromotion[];
+}
+
+/**
+ * Promote a dashboard's CURRENT state into a target workspace. The first
+ * promotion creates a copy (owned by the promoter, placed in the workspace,
+ * reset to Draft); a later promotion to the same workspace re-syncs that same
+ * copy's content (keeping the prod copy's own publish state + link). Returns
+ * whether a copy was created or an existing one was updated.
+ */
+export async function promoteDashboard(args: {
+  userId: string;
+  source: BiDashboardRow;
+  targetWorkspaceId: string;
+  note?: string;
+}): Promise<"created" | "updated"> {
+  const { userId, source, targetWorkspaceId, note } = args;
+  const content = {
+    widgets: source.widgets,
+    layout: source.layout,
+    pages: source.pages,
+    filters: source.filters,
+    theme: source.theme,
+    ai_model: source.ai_model,
+  };
+
+  const { data: existing, error: findErr } = await supabase
+    .from("bi_promotions")
+    .select("*")
+    .eq("source_dashboard_id", source.id)
+    .eq("target_workspace_id", targetWorkspaceId)
+    .maybeSingle();
+  if (findErr) throw new Error(findErr.message);
+
+  if (existing) {
+    // Re-sync content only — never clobber the prod copy's publish state/link.
+    const { error: upErr } = await supabase
+      .from("bi_dashboards")
+      .update(content)
+      .eq("id", existing.target_dashboard_id);
+    if (upErr) throw new Error(upErr.message);
+    const { error: linkErr } = await supabase
+      .from("bi_promotions")
+      .update({ note: note ?? existing.note })
+      .eq("id", existing.id);
+    if (linkErr) throw new Error(linkErr.message);
+    return "updated";
+  }
+
+  const { data: created, error: insErr } = await supabase
+    .from("bi_dashboards")
+    .insert({
+      user_id: userId,
+      name: source.name,
+      description: source.description,
+      ...content,
+      workspace_id: targetWorkspaceId,
+      folder_id: null,
+      published: false,
+    })
+    .select("id")
+    .single();
+  if (insErr || !created) throw new Error(insErr?.message ?? "Could not create the promoted copy");
+
+  const { error: linkErr } = await supabase.from("bi_promotions").insert({
+    source_dashboard_id: source.id,
+    target_dashboard_id: created.id,
+    target_workspace_id: targetWorkspaceId,
+    promoted_by: userId,
+    note: note ?? null,
+  });
+  if (linkErr) throw new Error(linkErr.message);
+  return "created";
 }

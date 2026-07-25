@@ -446,6 +446,7 @@ export type Database = {
           last_viewed_at?: string | null;
           layout?: Json;
           name: string;
+          pages?: Json;
           public_slug?: string | null;
           published?: boolean;
           published_at?: string | null;
@@ -534,6 +535,39 @@ export type Database = {
           role?: string;
           created_by?: string | null;
           created_at?: string;
+        };
+        Relationships: [];
+      };
+      bi_promotions: {
+        Row: {
+          id: string;
+          source_dashboard_id: string;
+          target_dashboard_id: string;
+          target_workspace_id: string;
+          promoted_by: string;
+          note: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          source_dashboard_id: string;
+          target_dashboard_id: string;
+          target_workspace_id: string;
+          promoted_by: string;
+          note?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          source_dashboard_id?: string;
+          target_dashboard_id?: string;
+          target_workspace_id?: string;
+          promoted_by?: string;
+          note?: string | null;
+          created_at?: string;
+          updated_at?: string;
         };
         Relationships: [];
       };

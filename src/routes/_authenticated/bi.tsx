@@ -20,6 +20,7 @@ import {
   Network,
   PieChart,
   Plus,
+  Rocket,
   Settings2,
   Table2,
   Trash2,
@@ -48,6 +49,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { DataPrepTab } from "@/components/bi/DataPrepTab";
 import { BiThumbnail } from "@/components/bi/BiThumbnail";
 import { BiMoveDialog } from "@/components/bi/BiMoveDialog";
+import { BiPromoteDialog } from "@/components/bi/BiPromoteDialog";
 import { BiWorkspaceManager } from "@/components/bi/BiWorkspaceManager";
 import { useAuth } from "@/hooks/use-auth";
 import { useIsSuperadmin } from "@/hooks/use-iam";
@@ -101,6 +103,7 @@ function BiWorkspacePage() {
   // Selected folder within the scope (null = everything in scope).
   const [folderSel, setFolderSel] = useState<string | null>(null);
   const [moveTarget, setMoveTarget] = useState<BiDashboardRow | null>(null);
+  const [promoteTarget, setPromoteTarget] = useState<BiDashboardRow | null>(null);
   const [wsManagerOpen, setWsManagerOpen] = useState(false);
   const [addingFolder, setAddingFolder] = useState(false);
   const [folderName, setFolderName] = useState("");
@@ -482,6 +485,17 @@ function BiWorkspacePage() {
                                   )}
                                 </Button>
                               )}
+                              {mine && workspaces.length > 0 && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-7 w-7 p-0 text-muted-foreground"
+                                  title="Promote to a workspace (dev → prod)"
+                                  onClick={() => setPromoteTarget(d)}
+                                >
+                                  <Rocket className="h-3.5 w-3.5" />
+                                </Button>
+                              )}
                               {mine && (
                                 <Button
                                   size="sm"
@@ -563,6 +577,14 @@ function BiWorkspacePage() {
         folders={folders}
         onClose={() => setMoveTarget(null)}
         onMoved={reload}
+      />
+
+      <BiPromoteDialog
+        dashboard={promoteTarget}
+        workspaces={workspaces}
+        userId={user?.id}
+        onClose={() => setPromoteTarget(null)}
+        onDone={reload}
       />
 
       {isAdmin && (
