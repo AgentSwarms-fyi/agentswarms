@@ -20,6 +20,7 @@ import synapseLogo from "@/assets/warehouses/synapse.svg";
 import postgresLogo from "@/assets/warehouses/postgres.svg";
 import mysqlLogo from "@/assets/warehouses/mysql.svg";
 import trinoLogo from "@/assets/warehouses/trino.svg";
+import athenaLogo from "@/assets/warehouses/athena.svg";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -75,6 +76,7 @@ const PROVIDER_LOGOS: Record<WarehouseProvider, string> = {
   postgres: postgresLogo,
   mysql: mysqlLogo,
   trino: trinoLogo,
+  athena: athenaLogo,
 };
 
 const PROVIDER_META: Record<
@@ -237,6 +239,33 @@ const PROVIDER_META: Record<
       },
     ],
     note: "Use read-only credentials — only SELECT statements are ever sent.",
+  },
+  athena: {
+    description:
+      "Query a Glue / Iceberg lakehouse through Amazon Athena — serverless SQL over data in S3.",
+    fields: [
+      { key: "region", label: "AWS region", placeholder: "us-east-1" },
+      { key: "access_key_id", label: "Access key ID" },
+      { key: "secret_access_key", label: "Secret access key", type: "password" },
+      {
+        key: "session_token",
+        label: "Session token",
+        type: "password",
+        optional: true,
+        hint: "Only for temporary (STS) credentials.",
+      },
+      { key: "database", label: "Database (Glue)", placeholder: "default", optional: true },
+      {
+        key: "output_location",
+        label: "Results S3 location",
+        placeholder: "s3://my-bucket/athena-results/",
+        optional: true,
+        hint: "Required unless the workgroup already sets one.",
+      },
+      { key: "workgroup", label: "Workgroup", placeholder: "primary", optional: true },
+      { key: "catalog", label: "Data catalog", placeholder: "AwsDataCatalog", optional: true },
+    ],
+    note: "The IAM user needs athena:StartQueryExecution/GetQueryExecution/GetQueryResults, Glue read, and s3:GetObject/PutObject on the results location.",
   },
 };
 

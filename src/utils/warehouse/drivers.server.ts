@@ -464,6 +464,140 @@ async function redshiftQuery(
   return { columns, data: data.slice(0, maxRows), truncated };
 }
 
+// ── Amazon Athena (SigV4, JSON API) ──────────────────────────────────────────
+// Queries a Glue/Iceberg lakehouse through Athena's API: StartQueryExecution →
+// poll GetQueryExecution → page GetQueryResults. Reuses the SigV4 primitives
+// (hmac/sha256Hex) written for the Redshift Data API.
+
+type AthenaConfig = Extract<WarehouseConfig, { provider: "athena" }>;
+
+async function athenaApi(
+  cfg: AthenaConfig,
+  target: string,
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const service = "athena";
+  // region flows into the host + credential scope — keep it strictly [a-z0-9-].
+  if (!/^[a-z0-9-]+$/.test(cfg.region)) throw new Error("Athena: invalid region");
+  const host = `${service}.${cfg.region}.amazonaws.com`;
+  const body = JSON.stringify(payload);
+  const now = new Date();
+  const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, "");
+  const dateStamp = amzDate.slice(0, 8);
+  const token = cfg.session_token?.trim();
+
+  // Canonical headers must be lexicographically sorted.
+  const canonicalHeaders =
+    `content-type:application/x-amz-json-1.1\n` +
+    `host:${host}\n` +
+    `x-amz-date:${amzDate}\n` +
+    (token ? `x-amz-security-token:${token}\n` : "") +
+    `x-amz-target:AmazonAthena.${target}\n`;
+  const signedHeaders =
+    "content-type;host;x-amz-date;" + (token ? "x-amz-security-token;" : "") + "x-amz-target";
+  const canonicalRequest = `POST\n/\n\n${canonicalHeaders}\n${signedHeaders}\n${await sha256Hex(body)}`;
+  const credentialScope = `${dateStamp}/${cfg.region}/${service}/aws4_request`;
+  const stringToSign = `AWS4-HMAC-SHA256\n${amzDate}\n${credentialScope}\n${await sha256Hex(canonicalRequest)}`;
+
+  const kDate = await hmac(new TextEncoder().encode(`AWS4${cfg.secret_access_key}`), dateStamp);
+  const kRegion = await hmac(kDate, cfg.region);
+  const kService = await hmac(kRegion, service);
+  const kSigning = await hmac(kService, "aws4_request");
+  const signature = [...(await hmac(kSigning, stringToSign))]
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+
+  const res = await fetch(`https://${host}/`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-amz-json-1.1",
+      "X-Amz-Date": amzDate,
+      "X-Amz-Target": `AmazonAthena.${target}`,
+      ...(token ? { "X-Amz-Security-Token": token } : {}),
+      Authorization: `AWS4-HMAC-SHA256 Credential=${cfg.access_key_id}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`,
+    },
+    body,
+  });
+  if (!res.ok) throw new Error(await readError(res, "Athena"));
+  return (await res.json()) as Record<string, unknown>;
+}
+
+async function athenaQuery(
+  cfg: AthenaConfig,
+  sql: string,
+  maxRows: number,
+): Promise<{ columns: WarehouseColumn[]; data: unknown[][]; truncated: boolean }> {
+  const start = await athenaApi(cfg, "StartQueryExecution", {
+    QueryString: sql,
+    QueryExecutionContext: {
+      ...(cfg.database ? { Database: cfg.database } : {}),
+      Catalog: cfg.catalog || "AwsDataCatalog",
+    },
+    ...(cfg.output_location
+      ? { ResultConfiguration: { OutputLocation: cfg.output_location } }
+      : {}),
+    WorkGroup: cfg.workgroup || "primary",
+  });
+  const id = start.QueryExecutionId as string;
+  if (!id) throw new Error("Athena: no query execution id returned");
+
+  const deadline = Date.now() + POLL_TIMEOUT_MS;
+  for (;;) {
+    const desc = (await athenaApi(cfg, "GetQueryExecution", { QueryExecutionId: id })) as {
+      QueryExecution?: { Status?: { State?: string; StateChangeReason?: string } };
+    };
+    const state = desc.QueryExecution?.Status?.State;
+    if (state === "SUCCEEDED") break;
+    if (state === "FAILED" || state === "CANCELLED") {
+      throw new Error(`Athena: ${desc.QueryExecution?.Status?.StateChangeReason ?? state}`);
+    }
+    if (Date.now() > deadline) throw new Error("Athena: query timed out");
+    await sleep(POLL_INTERVAL_MS);
+  }
+
+  type AthenaRow = { Data?: { VarCharValue?: string }[] };
+  let columns: WarehouseColumn[] = [];
+  const data: unknown[][] = [];
+  let nextToken: string | undefined;
+  let firstPage = true;
+  let truncated = false;
+
+  // Athena caps GetQueryResults at 1000 rows/page; the very first page's first
+  // row is the header, which counts toward MaxResults.
+  while (data.length < maxRows) {
+    const want = maxRows - data.length + (firstPage ? 1 : 0);
+    const result = (await athenaApi(cfg, "GetQueryResults", {
+      QueryExecutionId: id,
+      MaxResults: Math.max(1, Math.min(1000, want)),
+      ...(nextToken ? { NextToken: nextToken } : {}),
+    })) as {
+      ResultSet?: {
+        Rows?: AthenaRow[];
+        ResultSetMetadata?: { ColumnInfo?: { Name: string; Type: string }[] };
+      };
+      NextToken?: string;
+    };
+    const colInfo = result.ResultSet?.ResultSetMetadata?.ColumnInfo ?? [];
+    if (columns.length === 0 && colInfo.length) {
+      columns = colInfo.map((c) => ({ name: c.Name, type: c.Type }));
+    }
+    let rows = result.ResultSet?.Rows ?? [];
+    if (firstPage) rows = rows.slice(1); // drop the header row
+    for (const r of rows) {
+      if (data.length >= maxRows) {
+        truncated = true;
+        break;
+      }
+      data.push((r.Data ?? []).map((cell) => cell.VarCharValue ?? null));
+    }
+    nextToken = result.NextToken;
+    firstPage = false;
+    if (!nextToken) break;
+  }
+  if (nextToken) truncated = true;
+  return { columns, data, truncated };
+}
+
 // ── Azure Synapse (TDS via tedious — Node runtimes only) ─────────────────────
 
 type SynapseConfig = Extract<WarehouseConfig, { provider: "azure_synapse" }>;
@@ -756,6 +890,9 @@ export async function executeWarehouseQuery(
     case "trino":
       raw = await trinoQuery(config, safeSql, cappedRows);
       break;
+    case "athena":
+      raw = await athenaQuery(config, safeSql, cappedRows);
+      break;
   }
 
   return {
@@ -803,6 +940,10 @@ export async function listWarehouseTables(config: WarehouseConfig): Promise<Ware
           ? `"${config.catalog.replace(/"/g, '""')}".information_schema.columns`
           : "information_schema.columns",
       );
+      break;
+    case "athena":
+      // Scoped to the configured database via QueryExecutionContext.
+      sql = COLUMNS_QUERY("information_schema.columns");
       break;
   }
   const result = await executeWarehouseQuery(config, sql, ABS_MAX_ROWS);

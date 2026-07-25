@@ -1,0 +1,6 @@
+<svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Amazon Athena">
+  <rect width="48" height="48" rx="10" fill="#1B2430"/>
+  <path d="M24 9l11 6.2v12.4L24 34 13 27.6V15.2L24 9z" fill="none" stroke="#4FB3E8" stroke-width="2" stroke-linejoin="round"/>
+  <circle cx="24" cy="22" r="4.4" fill="none" stroke="#F2994A" stroke-width="2"/>
+  <line x1="27.2" y1="25.2" x2="32" y2="30" stroke="#F2994A" stroke-width="2.2" stroke-linecap="round"/>
+</svg>

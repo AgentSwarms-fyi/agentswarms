@@ -9,7 +9,8 @@ export type WarehouseProvider =
   | "azure_synapse"
   | "postgres"
   | "mysql"
-  | "trino";
+  | "trino"
+  | "athena";
 
 export const WAREHOUSE_PROVIDERS: WarehouseProvider[] = [
   "postgres",
@@ -20,6 +21,7 @@ export const WAREHOUSE_PROVIDERS: WarehouseProvider[] = [
   "bigquery",
   "azure_synapse",
   "trino",
+  "athena",
 ];
 
 export const WAREHOUSE_LABELS: Record<WarehouseProvider, string> = {
@@ -31,6 +33,7 @@ export const WAREHOUSE_LABELS: Record<WarehouseProvider, string> = {
   postgres: "PostgreSQL",
   mysql: "MySQL / MariaDB",
   trino: "Trino / Starburst / Presto",
+  athena: "Amazon Athena",
 };
 
 /** Per-provider connection config. Stored encrypted — never sent back to the client. */
@@ -123,6 +126,23 @@ export type WarehouseConfig =
       schema?: string;
       /** "disable" turns off TLS (plain http); anything else = https (default). */
       ssl?: string;
+    }
+  | {
+      provider: "athena";
+      /** AWS region, e.g. "us-east-1". */
+      region: string;
+      access_key_id: string;
+      secret_access_key: string;
+      /** Optional STS session token for temporary credentials. */
+      session_token?: string;
+      /** Glue database queried by default (also scopes schema browsing). */
+      database?: string;
+      /** Data catalog name (defaults to "AwsDataCatalog"). */
+      catalog?: string;
+      /** Workgroup (defaults to "primary"). */
+      workgroup?: string;
+      /** s3://bucket/prefix/ for query results — required unless the workgroup sets one. */
+      output_location?: string;
     };
 
 export type WarehouseColumn = { name: string; type: string };
