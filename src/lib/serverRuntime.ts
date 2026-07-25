@@ -47,7 +47,10 @@ export class ServerRuntime {
 
   constructor(
     private getAccessToken: () => string | null,
-    private notebookId: string,
+    // A saved notebook's uuid, or null for content with no DB row (e.g. a
+    // bundled sample). Interactive cells run inline over the websocket, so a
+    // binding is optional.
+    private notebookId: string | null,
   ) {}
 
   private authHeaders(): Record<string, string> {
@@ -147,7 +150,8 @@ export class ServerRuntime {
         this.failAll(why);
       };
       setTimeout(() => {
-        if (!this.ready && this.connectReject) this.connectReject(new Error("Kernel connect timed out"));
+        if (!this.ready && this.connectReject)
+          this.connectReject(new Error("Kernel connect timed out"));
       }, 30_000);
     });
   }
@@ -196,7 +200,12 @@ export class ServerRuntime {
 
   private failAll(message: string) {
     for (const [id, run] of this.runs) {
-      run.resolve({ stdout: run.stdout, result: run.result, error: message, durationMs: Date.now() - run.started });
+      run.resolve({
+        stdout: run.stdout,
+        result: run.result,
+        error: message,
+        durationMs: Date.now() - run.started,
+      });
       this.runs.delete(id);
     }
   }
@@ -204,7 +213,12 @@ export class ServerRuntime {
   run(code: string): Promise<CellRunResult> {
     return new Promise((resolve) => {
       if (!this.ws || !this.ready || this.ws.readyState !== WebSocket.OPEN) {
-        return resolve({ stdout: "", result: null, error: "Server runtime not connected", durationMs: 0 });
+        return resolve({
+          stdout: "",
+          result: null,
+          error: "Server runtime not connected",
+          durationMs: 0,
+        });
       }
       const id = crypto.randomUUID();
       this.runs.set(id, { stdout: "", result: null, error: null, started: Date.now(), resolve });

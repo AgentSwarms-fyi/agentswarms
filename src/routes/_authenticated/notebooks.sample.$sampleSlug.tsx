@@ -78,9 +78,11 @@ function SampleNotebookPage() {
   const runCell = useCallback(
     async (cell: PyCell) => {
       setOutputs((o) => ({ ...o, [cell.id]: "running" }));
-      // Samples run on the same server kernel; start it on first use.
+      // Samples run on the same server kernel; start it on first use. A sample
+      // is bundled content with no DB row, so it binds to no notebook (its slug
+      // is not a uuid) — cells execute inline over the kernel websocket.
       if (!kernelRef.current) {
-        const rt = new ServerRuntime(() => session?.access_token ?? null, sampleSlug);
+        const rt = new ServerRuntime(() => session?.access_token ?? null, null);
         kernelRef.current = rt;
         try {
           await rt.start();
@@ -255,7 +257,9 @@ function SampleNotebookPage() {
                     </pre>
                   ) : null}
                   {output.result ? (
-                    <pre className="whitespace-pre-wrap font-mono text-primary">{output.result}</pre>
+                    <pre className="whitespace-pre-wrap font-mono text-primary">
+                      {output.result}
+                    </pre>
                   ) : null}
                   {output.error ? (
                     <pre className="whitespace-pre-wrap font-mono text-destructive">
@@ -265,7 +269,9 @@ function SampleNotebookPage() {
                   {!output.stdout && !output.result && !output.error ? (
                     <span className="text-muted-foreground">No output.</span>
                   ) : null}
-                  <div className="mt-1 text-[10px] text-muted-foreground">{output.durationMs} ms</div>
+                  <div className="mt-1 text-[10px] text-muted-foreground">
+                    {output.durationMs} ms
+                  </div>
                 </div>
               ) : null}
             </div>

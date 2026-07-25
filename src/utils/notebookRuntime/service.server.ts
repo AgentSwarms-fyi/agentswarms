@@ -113,11 +113,19 @@ export async function startSession(opts: {
   const nowIso = new Date().toISOString();
   const expiresAt = new Date(Date.now() + maxMin * 60_000).toISOString();
 
+  // `notebook_id` is a uuid FK to a saved notebook. Interactive kernels driven
+  // over the websocket (e.g. running a bundled sample, which has a slug id like
+  // "langchain", not a DB row) pass no real notebook — coerce anything that
+  // isn't a uuid to null so the insert can't fail with
+  // "invalid input syntax for type uuid".
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const notebookId = opts.notebookId && UUID_RE.test(opts.notebookId) ? opts.notebookId : null;
+
   const { data: row, error } = await supabaseAdmin
     .from("notebook_runtime_sessions")
     .insert({
       user_id: opts.userId,
-      notebook_id: opts.notebookId ?? null,
+      notebook_id: notebookId,
       kind: opts.kind,
       status: batch ? "running" : "starting",
       backend: settings.backend,
@@ -125,7 +133,8 @@ export async function startSession(opts: {
       cpu_limit: cpu,
       mem_limit_mb: mem,
       entrypoint: opts.entrypoint ?? null,
-      inputs: (opts.inputs ?? null) as Database["public"]["Tables"]["notebook_runtime_sessions"]["Insert"]["inputs"],
+      inputs: (opts.inputs ??
+        null) as Database["public"]["Tables"]["notebook_runtime_sessions"]["Insert"]["inputs"],
       started_at: nowIso,
       last_active_at: nowIso,
       expires_at: expiresAt,
@@ -166,7 +175,10 @@ export async function startSession(opts: {
       timeoutSeconds: maxMin * 60,
       env,
     });
-    await supabaseAdmin.from("notebook_runtime_sessions").update({ container_ref: ref }).eq("id", row.id);
+    await supabaseAdmin
+      .from("notebook_runtime_sessions")
+      .update({ container_ref: ref })
+      .eq("id", row.id);
     return { session: { ...row, container_ref: ref }, token, gatewayUrl: gatewayUrl() };
   } catch (e) {
     await supabaseAdmin
