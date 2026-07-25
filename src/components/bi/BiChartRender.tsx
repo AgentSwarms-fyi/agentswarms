@@ -90,6 +90,14 @@ function refLineY(
   return nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : null;
 }
 
+/** Fill opacity for a categorical mark under an active cross-filter: full for
+ *  the clicked category, dimmed for the rest, all-full when nothing is picked.
+ *  Lets bar/column charts show which bar the user clicked (like the map/tree). */
+function selFillOpacity(rawValue: unknown, selected: string | null | undefined): number {
+  if (selected == null) return 1;
+  return String(rawValue) === selected ? 1 : 0.28;
+}
+
 const REF_COLOR = "#e15759";
 
 /** Tableau-style categorical palette — calm, print-safe, colorblind-aware. */
@@ -576,24 +584,36 @@ function BiChartRenderInner({
                   iconSize={8}
                   wrapperStyle={{ fontSize: labelSize }}
                 />,
-                ...pivoted.series.map((s, i) => (
-                  <Bar
-                    key={s}
-                    dataKey={s}
-                    fill={PIE_COLORS[i % PIE_COLORS.length]}
-                    stackId={stacked ? "stack" : undefined}
-                    radius={
-                      stacked
-                        ? i === pivoted.series.length - 1
-                          ? [5, 5, 0, 0]
-                          : [0, 0, 0, 0]
-                        : [5, 5, 0, 0]
-                    }
-                    maxBarSize={44}
-                    onClick={handleClick}
-                    cursor={clickable ? "pointer" : undefined}
-                  />
-                )),
+                ...pivoted.series.map((s, i) => {
+                  const color = PIE_COLORS[i % PIE_COLORS.length];
+                  return (
+                    <Bar
+                      key={s}
+                      dataKey={s}
+                      fill={color}
+                      stackId={stacked ? "stack" : undefined}
+                      radius={
+                        stacked
+                          ? i === pivoted.series.length - 1
+                            ? [5, 5, 0, 0]
+                            : [0, 0, 0, 0]
+                          : [5, 5, 0, 0]
+                      }
+                      maxBarSize={44}
+                      onClick={handleClick}
+                      cursor={clickable ? "pointer" : undefined}
+                    >
+                      {selectedValue != null &&
+                        barData.map((d, idx) => (
+                          <Cell
+                            key={idx}
+                            fill={color}
+                            fillOpacity={selFillOpacity(d[chart.xField], selectedValue)}
+                          />
+                        ))}
+                    </Bar>
+                  );
+                }),
               ]
             ) : (
               <Bar
@@ -603,7 +623,16 @@ function BiChartRenderInner({
                 maxBarSize={44}
                 onClick={handleClick}
                 cursor={clickable ? "pointer" : undefined}
-              />
+              >
+                {selectedValue != null &&
+                  barData.map((d, idx) => (
+                    <Cell
+                      key={idx}
+                      fill={primaryStroke}
+                      fillOpacity={selFillOpacity(d[chart.xField], selectedValue)}
+                    />
+                  ))}
+              </Bar>
             )}
           </BarChart>
         </ResponsiveContainer>
@@ -612,6 +641,7 @@ function BiChartRenderInner({
   }
 
   if (chart.type === "hbar") {
+    const hbarData = aggregateByField(rows, chart.xField, [chart.yField]);
     const handleClick = onElementClick
       ? (data: { payload?: Record<string, unknown> }) => {
           const v = data?.payload?.[chart.xField];
@@ -622,7 +652,7 @@ function BiChartRenderInner({
       <div className={`${heightClass} w-full`}>
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
-            data={aggregateByField(rows, chart.xField, [chart.yField])}
+            data={hbarData}
             layout="vertical"
             margin={{ top: 8, right: 16, left: 8, bottom: 4 }}
           >
@@ -656,7 +686,16 @@ function BiChartRenderInner({
               maxBarSize={22}
               onClick={handleClick}
               cursor={clickable ? "pointer" : undefined}
-            />
+            >
+              {selectedValue != null &&
+                hbarData.map((d, idx) => (
+                  <Cell
+                    key={idx}
+                    fill={primaryStroke}
+                    fillOpacity={selFillOpacity(d[chart.xField], selectedValue)}
+                  />
+                ))}
+            </Bar>
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -731,6 +770,20 @@ function BiChartRenderInner({
                 }}
               />
             )}
+            {/* Vertical marker at the clicked x so the cross-filter source is
+                visible on the line itself. */}
+            {selectedValue != null &&
+              (() => {
+                const match = data.find((d) => String(d[chart.xField]) === selectedValue);
+                return match ? (
+                  <ReferenceLine
+                    x={match[chart.xField] as string | number}
+                    stroke="var(--foreground)"
+                    strokeOpacity={0.55}
+                    strokeDasharray="3 3"
+                  />
+                ) : null;
+              })()}
             {!pivoted && chart.compare && (
               <Line
                 type="monotone"
@@ -885,6 +938,20 @@ function BiChartRenderInner({
                 }}
               />
             )}
+            {/* Vertical marker at the clicked x so the cross-filter source is
+                visible on the area itself. */}
+            {selectedValue != null &&
+              (() => {
+                const match = data.find((d) => String(d[chart.xField]) === selectedValue);
+                return match ? (
+                  <ReferenceLine
+                    x={match[chart.xField] as string | number}
+                    stroke="var(--foreground)"
+                    strokeOpacity={0.55}
+                    strokeDasharray="3 3"
+                  />
+                ) : null;
+              })()}
             {/* Prior-period/-year overlay drawn as a dashed, unfilled area so it
                 reads as a comparison line inside the AreaChart. */}
             {!pivoted && chart.compare && (
@@ -1313,18 +1380,30 @@ function BiChartRenderInner({
                 iconSize={8}
                 wrapperStyle={{ fontSize: labelSize }}
               />,
-              ...pivoted.series.map((s, i) => (
-                <Bar
-                  key={s}
-                  dataKey={s}
-                  stackId="stack"
-                  fill={PIE_COLORS[i % PIE_COLORS.length]}
-                  maxBarSize={26}
-                  radius={i === pivoted.series.length - 1 ? [0, 5, 5, 0] : [0, 0, 0, 0]}
-                  onClick={handleClick}
-                  cursor={clickable ? "pointer" : undefined}
-                />
-              )),
+              ...pivoted.series.map((s, i) => {
+                const color = PIE_COLORS[i % PIE_COLORS.length];
+                return (
+                  <Bar
+                    key={s}
+                    dataKey={s}
+                    stackId="stack"
+                    fill={color}
+                    maxBarSize={26}
+                    radius={i === pivoted.series.length - 1 ? [0, 5, 5, 0] : [0, 0, 0, 0]}
+                    onClick={handleClick}
+                    cursor={clickable ? "pointer" : undefined}
+                  >
+                    {selectedValue != null &&
+                      pivoted.data.map((d, idx) => (
+                        <Cell
+                          key={idx}
+                          fill={color}
+                          fillOpacity={selFillOpacity(d[chart.xField], selectedValue)}
+                        />
+                      ))}
+                  </Bar>
+                );
+              }),
             ]}
           </BarChart>
         </ResponsiveContainer>
