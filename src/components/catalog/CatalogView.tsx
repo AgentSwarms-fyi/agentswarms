@@ -296,7 +296,13 @@ export function CatalogView({
   }
 
   const sourceIcon = (s: CatalogSource) =>
-    s.kind === "warehouse" ? <Server className="h-3.5 w-3.5" /> : <Cloud className="h-3.5 w-3.5" />;
+    s.kind === "warehouse" ? (
+      <Server className="h-3.5 w-3.5" />
+    ) : s.kind === "iceberg_rest" ? (
+      <Database className="h-3.5 w-3.5" />
+    ) : (
+      <Cloud className="h-3.5 w-3.5" />
+    );
 
   const statusDot = (s: CatalogSource) => (
     <span

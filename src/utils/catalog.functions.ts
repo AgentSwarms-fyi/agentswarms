@@ -12,7 +12,13 @@ import type { Database, Json } from "@/integrations/supabase/types";
 import { encryptJson } from "@/utils/providers/crypto.server";
 import { resolveSecretRefsInObject } from "@/utils/secrets.server";
 import { loadWarehouseConnection } from "@/utils/warehouse/connections.server";
-import { loadStorageConfig, runCrawl, type CrawlStats } from "@/utils/catalog/crawler.server";
+import {
+  loadStorageConfig,
+  runCrawl,
+  testIcebergCatalog,
+  type CrawlStats,
+  type IcebergRestConfig,
+} from "@/utils/catalog/crawler.server";
 import { nextCrawlAt } from "@/utils/catalog/schedule.server";
 import { testObjectStore, type ObjectStoreConfig } from "@/utils/catalog/objectStore.server";
 
@@ -45,6 +51,12 @@ const StorageConfigSchema = z.object({
 });
 
 type StorageConfigInput = z.infer<typeof StorageConfigSchema>;
+
+const IcebergConfigSchema = z.object({
+  uri: z.string().url().max(1024),
+  warehouse: z.string().max(255).optional(),
+  token: z.string().max(4096).optional(),
+});
 
 function normalizeStorage(cfg: StorageConfigInput): ObjectStoreConfig {
   return {
@@ -105,9 +117,10 @@ export const catalogCreateSource = createServerFn({ method: "POST" })
           .min(1)
           .max(60)
           .regex(/^[a-zA-Z0-9_\- .]+$/, "Letters, numbers, spaces, - _ . only"),
-        kind: z.enum(["warehouse", "object_storage"]),
+        kind: z.enum(["warehouse", "object_storage", "iceberg_rest"]),
         connection_id: z.string().uuid().optional(),
         storage: StorageConfigSchema.optional(),
+        iceberg: IcebergConfigSchema.optional(),
       })
       .parse(input),
   )
@@ -124,6 +137,19 @@ export const catalogCreateSource = createServerFn({ method: "POST" })
         // Validates ownership (RLS) + that credentials decrypt.
         await loadWarehouseConnection(sb, { connectionId: data.connection_id }, userId);
         connectionId = data.connection_id;
+      } else if (data.kind === "iceberg_rest") {
+        if (!data.iceberg) return { ok: false, error: "Iceberg catalog configuration is required" };
+        // Connectivity + auth check with the token resolved (secret refs allowed).
+        const live = (await resolveSecretRefsInObject(
+          userId,
+          data.iceberg as unknown as Record<string, unknown>,
+        )) as unknown as IcebergRestConfig;
+        await testIcebergCatalog(live);
+        // Public config keeps uri + warehouse; the bearer token is encrypted.
+        config = { uri: data.iceberg.uri, warehouse: data.iceberg.warehouse ?? null } as Json;
+        credentials = data.iceberg.token
+          ? ((await encryptJson({ token: data.iceberg.token })) as unknown as Json)
+          : null;
       } else {
         if (!data.storage) return { ok: false, error: "Storage configuration is required" };
         const cfg = normalizeStorage(data.storage);

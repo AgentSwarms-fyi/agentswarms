@@ -116,7 +116,7 @@ export function AddSourceWizard({
   const listWhFn = useServerFn(listWarehouseConnections);
 
   const [step, setStep] = useState<"type" | "configure" | "crawl">("type");
-  const [kind, setKind] = useState<"warehouse" | "object_storage">("warehouse");
+  const [kind, setKind] = useState<"warehouse" | "object_storage" | "iceberg_rest">("warehouse");
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState<"idle" | "connecting" | "crawling" | "done">("idle");
@@ -136,6 +136,11 @@ export function AddSourceWizard({
   const [accessKey, setAccessKey] = useState("");
   const [secretKey, setSecretKey] = useState("");
   const [pathStyle, setPathStyle] = useState(false);
+
+  // Iceberg REST catalog config
+  const [icebergUri, setIcebergUri] = useState("");
+  const [icebergWarehouse, setIcebergWarehouse] = useState("");
+  const [icebergToken, setIcebergToken] = useState("");
 
   useEffect(() => {
     if (!open) return;
@@ -167,11 +172,13 @@ export function AddSourceWizard({
     name.trim().length > 0 &&
     (kind === "warehouse"
       ? connectionId !== ""
-      : bucket.trim() !== "" &&
-        region.trim() !== "" &&
-        accessKey.trim() !== "" &&
-        secretKey !== "" &&
-        (provider === "aws" || endpoint.trim() !== ""));
+      : kind === "iceberg_rest"
+        ? /^https?:\/\//.test(icebergUri.trim())
+        : bucket.trim() !== "" &&
+          region.trim() !== "" &&
+          accessKey.trim() !== "" &&
+          secretKey !== "" &&
+          (provider === "aws" || endpoint.trim() !== ""));
 
   async function connectAndCrawl() {
     setBusy(true);
@@ -194,6 +201,14 @@ export function AddSourceWizard({
                   path_style: pathStyle,
                   access_key_id: accessKey.trim(),
                   secret_access_key: secretKey,
+                }
+              : undefined,
+          iceberg:
+            kind === "iceberg_rest"
+              ? {
+                  uri: icebergUri.trim(),
+                  warehouse: icebergWarehouse.trim() || undefined,
+                  token: icebergToken.trim() || undefined,
                 }
               : undefined,
         },
@@ -225,7 +240,7 @@ export function AddSourceWizard({
   }
 
   const typeCard = (
-    k: "warehouse" | "object_storage",
+    k: "warehouse" | "object_storage" | "iceberg_rest",
     icon: React.ReactNode,
     title: string,
     desc: string,
@@ -253,8 +268,10 @@ export function AddSourceWizard({
             <Radar className="h-4 w-4 text-primary" /> Add data source
           </DialogTitle>
           <DialogDescription className="text-xs">
-            {step === "type" && "Pick what you want to catalog. Local tables are cataloged automatically."}
-            {step === "configure" && "Connection details are encrypted server-side and never sent back."}
+            {step === "type" &&
+              "Pick what you want to catalog. Local tables are cataloged automatically."}
+            {step === "configure" &&
+              "Connection details are encrypted server-side and never sent back."}
             {step === "crawl" &&
               "The crawler lists every table or object, infers schemas and flags likely-PII columns."}
           </DialogDescription>
@@ -262,7 +279,7 @@ export function AddSourceWizard({
 
         {step === "type" && (
           <div className="space-y-3">
-            <div className="flex gap-3">
+            <div className="flex flex-col gap-2.5">
               {typeCard(
                 "warehouse",
                 <Server className="h-4 w-4" />,
@@ -274,6 +291,12 @@ export function AddSourceWizard({
                 <Cloud className="h-4 w-4" />,
                 "Object storage bucket",
                 "Amazon S3 or any S3-compatible store (R2, MinIO, Spaces, B2). CSV/JSON schemas are inferred by sampling.",
+              )}
+              {typeCard(
+                "iceberg_rest",
+                <Database className="h-4 w-4" />,
+                "Iceberg REST catalog",
+                "Apache Iceberg REST catalog (Polaris, Unity, Nessie, Lakekeeper…). Namespaces, tables and schemas — query via Trino/Athena.",
               )}
             </div>
             <div className="flex justify-end">
@@ -321,18 +344,62 @@ export function AddSourceWizard({
                 </Select>
                 <p className="text-[11px] text-muted-foreground">
                   Connections are managed under{" "}
-                  <Link to="/integrations" className="text-primary underline-offset-2 hover:underline">
+                  <Link
+                    to="/integrations"
+                    className="text-primary underline-offset-2 hover:underline"
+                  >
                     Integrations → Data Warehouses
                   </Link>
                   .
                 </p>
+              </div>
+            ) : kind === "iceberg_rest" ? (
+              <div className="space-y-2.5">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Catalog URI</Label>
+                  <Input
+                    value={icebergUri}
+                    onChange={(e) => setIcebergUri(e.target.value)}
+                    className="h-9 font-mono text-xs"
+                    placeholder="https://catalog.example.com"
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    The REST catalog base URL (the crawler calls its <code>/v1</code> endpoints).
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Warehouse (optional)</Label>
+                  <Input
+                    value={icebergWarehouse}
+                    onChange={(e) => setIcebergWarehouse(e.target.value)}
+                    className="h-9 text-sm"
+                    placeholder="e.g. s3://bucket/warehouse or a catalog name"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Bearer token (optional)</Label>
+                  <Input
+                    type="password"
+                    value={icebergToken}
+                    onChange={(e) => setIcebergToken(e.target.value)}
+                    className="h-9 text-sm"
+                    placeholder="OAuth2 / bearer token, if the catalog requires auth"
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Stored encrypted server-side. Metadata-only — query the tables via a Trino or
+                    Athena connection.
+                  </p>
+                </div>
               </div>
             ) : (
               <>
                 <div className="grid grid-cols-2 gap-2.5">
                   <div className="space-y-1.5">
                     <Label className="text-xs">Provider</Label>
-                    <Select value={provider} onValueChange={(v) => pickProvider(v as StorageProvider)}>
+                    <Select
+                      value={provider}
+                      onValueChange={(v) => pickProvider(v as StorageProvider)}
+                    >
                       <SelectTrigger className="h-9 text-sm">
                         <SelectValue />
                       </SelectTrigger>

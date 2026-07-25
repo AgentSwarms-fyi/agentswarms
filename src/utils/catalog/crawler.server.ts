@@ -16,6 +16,7 @@ import type { Database, Json } from "@/integrations/supabase/types";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { auditEvent } from "@/utils/audit.server";
 import { decryptJson } from "@/utils/providers/crypto.server";
+import { isBlockedAlways } from "@/utils/ssrfGuard.server";
 import { resolveSecretRefsInObject } from "@/utils/secrets.server";
 import { executeWarehouseQuery, listWarehouseTables } from "@/utils/warehouse/drivers.server";
 import type { WarehouseConfig } from "@/utils/warehouse/types";
@@ -670,6 +671,201 @@ async function persistLineage(
 }
 
 /** Run a full crawl for a source row, updating its status/stats around it. */
+// ── Iceberg REST catalog crawling ────────────────────────────────────────
+// Metadata-only connector for an Apache Iceberg REST catalog (Polaris, Unity
+// Catalog's Iceberg REST endpoint, Nessie, Gravitino, Lakekeeper, Tabular…).
+// Lists namespaces + tables and reads each table's current schema; querying the
+// data itself is done via an engine (Trino/Athena), not here.
+
+export type IcebergRestConfig = { uri: string; warehouse?: string; token?: string };
+
+const ICEBERG_MAX_NAMESPACES = 300;
+const ICEBERG_MAX_TABLES = 1000;
+
+/** Reject cloud-metadata / link-local hosts (private/VPC catalogs stay allowed). */
+function assertIcebergHostAllowed(uri: string): string {
+  let host: string;
+  try {
+    host = new URL(uri).hostname;
+  } catch {
+    throw new Error("Iceberg: invalid catalog URI");
+  }
+  if (isBlockedAlways(host)) throw new Error("Iceberg: refusing to connect to a blocked host");
+  return host;
+}
+
+async function icebergGet<T>(base: string, path: string, token?: string): Promise<T> {
+  const res = await fetch(`${base}${path}`, {
+    headers: token
+      ? { Accept: "application/json", Authorization: `Bearer ${token}` }
+      : { Accept: "application/json" },
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Iceberg REST ${res.status}: ${text.slice(0, 200)}`);
+  }
+  return (await res.json()) as T;
+}
+
+/** Connectivity + auth probe used before a source is stored. */
+export async function testIcebergCatalog(cfg: IcebergRestConfig): Promise<void> {
+  assertIcebergHostAllowed(cfg.uri);
+  const base = cfg.uri.replace(/\/+$/, "");
+  const q = cfg.warehouse ? `?warehouse=${encodeURIComponent(cfg.warehouse)}` : "";
+  await icebergGet(base, `/v1/config${q}`, cfg.token);
+}
+
+type IcebergField = { id?: number; name: string; type: unknown; required?: boolean; doc?: string };
+type IcebergSchema = { "schema-id"?: number; fields?: IcebergField[] };
+type IcebergTableResp = {
+  metadata?: {
+    schemas?: IcebergSchema[];
+    "current-schema-id"?: number;
+    schema?: IcebergSchema;
+    "current-snapshot-id"?: number;
+    snapshots?: { "snapshot-id": number; summary?: Record<string, string> }[];
+  };
+};
+
+/** Iceberg type → a display string (nested struct/list/map collapse to a tag). */
+function icebergTypeName(t: unknown): string {
+  if (typeof t === "string") return t;
+  if (t && typeof t === "object") return (t as { type?: string }).type ?? "struct";
+  return "unknown";
+}
+
+function icebergTableToAsset(
+  ns: string[],
+  name: string,
+  resp: IcebergTableResp,
+): CrawledAsset | null {
+  const md = resp.metadata;
+  if (!md) return null;
+  const schema =
+    md.schemas?.find((s) => s["schema-id"] === md["current-schema-id"]) ??
+    md.schemas?.[0] ??
+    md.schema;
+  const fields = schema?.fields ?? [];
+  const { columns, pii } = classify(
+    fields.map((f) => ({ name: f.name, type: icebergTypeName(f.type) })),
+  );
+  for (const f of fields) {
+    if (f.doc) {
+      const col = columns.find((c) => c.name === f.name);
+      if (col) col.comment = f.doc;
+    }
+  }
+  const schemaName = ns.join(".");
+  let row_count: number | null = null;
+  let size_bytes: number | null = null;
+  const snap = md.snapshots?.find((s) => s["snapshot-id"] === md["current-snapshot-id"]);
+  if (snap?.summary) {
+    const rec = Number(snap.summary["total-records"]);
+    if (Number.isFinite(rec)) row_count = rec;
+    const sz = Number(snap.summary["total-files-size"]);
+    if (Number.isFinite(sz)) size_bytes = sz;
+  }
+  return {
+    asset_type: "table",
+    schema_name: schemaName || null,
+    name,
+    fqn: schemaName ? `${schemaName}.${name}` : name,
+    columns,
+    row_count,
+    size_bytes,
+    format: "iceberg",
+    file_count: null,
+    pii,
+  };
+}
+
+export async function crawlIcebergRest(
+  cfg: IcebergRestConfig,
+): Promise<{ assets: CrawledAsset[]; sampled: number }> {
+  assertIcebergHostAllowed(cfg.uri);
+  const base = cfg.uri.replace(/\/+$/, "");
+  const token = cfg.token;
+
+  // Some catalogs (Polaris/Unity) return a routing `prefix` from /v1/config that
+  // must be inserted into subsequent paths.
+  let prefix = "";
+  try {
+    const q = cfg.warehouse ? `?warehouse=${encodeURIComponent(cfg.warehouse)}` : "";
+    const conf = await icebergGet<{
+      overrides?: Record<string, string>;
+      defaults?: Record<string, string>;
+    }>(base, `/v1/config${q}`, token);
+    prefix = conf.overrides?.prefix || conf.defaults?.prefix || "";
+  } catch {
+    /* config is optional on some catalogs */
+  }
+  const pfx = prefix ? `/${prefix.replace(/^\/|\/$/g, "")}` : "";
+  // Multi-level namespaces are joined by the unit-separator (0x1F) in the path.
+  const nsPath = (levels: string[]) => levels.map(encodeURIComponent).join("%1F");
+
+  // Breadth-first namespace discovery (bounded).
+  const allNs: string[][] = [];
+  const queue: (string[] | null)[] = [null];
+  const seen = new Set<string>();
+  while (queue.length && allNs.length < ICEBERG_MAX_NAMESPACES) {
+    const parent = queue.shift() ?? null;
+    const parentQ = parent ? `?parent=${nsPath(parent)}` : "";
+    let listed: { namespaces?: string[][] };
+    try {
+      listed = await icebergGet(base, `/v1${pfx}/namespaces${parentQ}`, token);
+    } catch {
+      continue;
+    }
+    for (const ns of listed.namespaces ?? []) {
+      const key = ns.join("");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      allNs.push(ns);
+      queue.push(ns);
+      if (allNs.length >= ICEBERG_MAX_NAMESPACES) break;
+    }
+  }
+
+  const assets: CrawledAsset[] = [];
+  for (const ns of allNs) {
+    if (assets.length >= ICEBERG_MAX_TABLES) break;
+    let tablesResp: { identifiers?: { namespace: string[]; name: string }[] };
+    try {
+      tablesResp = await icebergGet(base, `/v1${pfx}/namespaces/${nsPath(ns)}/tables`, token);
+    } catch {
+      continue;
+    }
+    for (const ident of tablesResp.identifiers ?? []) {
+      if (assets.length >= ICEBERG_MAX_TABLES) break;
+      try {
+        const loaded = await icebergGet<IcebergTableResp>(
+          base,
+          `/v1${pfx}/namespaces/${nsPath(ns)}/tables/${encodeURIComponent(ident.name)}`,
+          token,
+        );
+        const asset = icebergTableToAsset(ns, ident.name, loaded);
+        if (asset) assets.push(asset);
+      } catch {
+        /* skip a table we can't load */
+      }
+    }
+  }
+  return { assets, sampled: 0 };
+}
+
+/** Decrypt an Iceberg source's stored config + bearer token. */
+export async function loadIcebergConfig(source: CatalogSourceRow): Promise<IcebergRestConfig> {
+  const cfg = (source.config ?? {}) as { uri?: string; warehouse?: string };
+  if (!cfg.uri) throw new Error(`Source "${source.name}" has no catalog URI`);
+  let token: string | undefined;
+  const enc = source.credentials as { ciphertext?: string; iv?: string } | null;
+  if (enc?.ciphertext && enc?.iv) {
+    const dec = await decryptJson<{ token?: string }>(enc.ciphertext, enc.iv);
+    token = dec.token;
+  }
+  return { uri: cfg.uri, warehouse: cfg.warehouse, token };
+}
+
 export async function runCrawl(
   userId: string,
   source: CatalogSourceRow,
@@ -690,6 +886,11 @@ export async function runCrawl(
       if (!source.connection_id) throw new Error("Source has no linked connection");
       warehouseConfig = await loadWarehouseConfig(source.connection_id);
       const res = await crawlWarehouse(warehouseConfig);
+      assets = res.assets;
+      sampled = res.sampled;
+    } else if (source.kind === "iceberg_rest") {
+      const cfg = await loadIcebergConfig(source);
+      const res = await crawlIcebergRest(cfg);
       assets = res.assets;
       sampled = res.sampled;
     } else {

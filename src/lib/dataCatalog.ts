@@ -24,7 +24,7 @@ export type CatalogColumn = {
 export type CatalogSource = {
   id: string;
   user_id: string;
-  kind: "warehouse" | "object_storage";
+  kind: "warehouse" | "object_storage" | "iceberg_rest";
   name: string;
   connection_id: string | null;
   /** Non-secret bucket config (provider, endpoint, region, bucket, prefix). */
