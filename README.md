@@ -8,7 +8,7 @@
   every trace — on your own infrastructure, with your own keys.</p>
 
   <p>
-    <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg" />
+    <img alt="License: Elastic License 2.0" src="https://img.shields.io/badge/license-Elastic%20License%202.0-0B64A0.svg" />
     <img alt="PRs Welcome" src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" />
     <img alt="Node" src="https://img.shields.io/badge/node-%E2%89%A520.19-339933?logo=node.js&logoColor=white" />
     <img alt="TanStack Start" src="https://img.shields.io/badge/TanStack%20Start-React%2019-FF4154?logo=react&logoColor=white" />
@@ -21,14 +21,14 @@
     <a href="#features">Features</a> ·
     <a href="#quickstart">Quickstart</a> ·
     <a href="#documentation">Documentation</a> ·
-    <a href="#this-repo-vs-agentswarmsfyi">Open source vs. hosted</a> ·
+    <a href="#this-repo-vs-agentswarmsfyi">Self-host vs. hosted</a> ·
     <a href="./CONTRIBUTING.md">Contributing</a>
   </p>
 </div>
 
 ---
 
-**AgentSwarms open source** is a complete, self-hostable agentic AI &
+**AgentSwarms** is a complete, self-hostable, **source-available** agentic AI &
 business-intelligence platform: agent chat, a visual multi-agent swarm canvas,
 knowledge bases with RAG, tool use, MCP connections, connected databases &
 warehouses, dashboards, budgets, and full execution traces. It is designed for
@@ -43,7 +43,7 @@ instance can start with zero setup.
 
 Same UI, two different missions:
 
-|              | **This repository (MIT)**                                                                                                                                                  | **[agentswarms.fyi](https://agentswarms.fyi) (hosted)**                                                                                                                 |
+|              | **This repository (source-available, Elastic License 2.0)**                                                                                                                | **[agentswarms.fyi](https://agentswarms.fyi) (hosted)**                                                                                                                 |
 | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Focus**    | **Easy deployment of the full agentic AI &amp; BI platform** on your own infrastructure — agents, swarms, RAG, connected data, dashboards, traces, budgets.                | **Learning first**: a hands-on classroom for agentic AI — guided curriculum, build-along labs, interactive notebooks, presentations, and certification — fully managed. |
 | **Runs on**  | Your Supabase project, your provider keys, your Docker host (or Cloudflare Workers).                                                                                       | Managed infrastructure, including an AI gateway with free-tier models — nothing to configure.                                                                           |
@@ -123,11 +123,22 @@ first.
 Found a vulnerability? Please see **[SECURITY.md](./SECURITY.md)** for how
 to report it responsibly instead of opening a public issue.
 
-## License & acknowledgements
+## License
 
-Released under the **[MIT License](./LICENSE)**. Every direct dependency
-uses a permissive license (MIT / Apache-2.0 / ISC / BSD) — the full audit
-and credits for the open-source projects AgentSwarms builds on live in
+AgentSwarms is **source-available** under the **[Elastic License 2.0](./LICENSE)** (ELv2).
+In plain terms: you may freely **use, self-host, modify, and redistribute** it —
+but you may **not offer it to third parties as a hosted or managed service**, and
+you may not remove the licensing/copyright notices. A separate **commercial
+license** is available from the author for use cases ELv2 doesn't permit
+(including running it as a SaaS) — reach out if that's you.
+
+The **"AgentSwarms" name, logo, and the hosted service are trademarks of the
+project author** and are not licensed for your use; ELv2 covers the code, not the
+brand.
+
+Every direct dependency uses a permissive license (MIT / Apache-2.0 / ISC / BSD),
+compatible with redistribution under ELv2 — the full audit and credits for the
+open-source projects AgentSwarms builds on live in
 **[ACKNOWLEDGEMENTS.md](./ACKNOWLEDGEMENTS.md)**.
 
 ---

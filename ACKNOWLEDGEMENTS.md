@@ -5,11 +5,15 @@ projects. This page credits the ones we depend on directly, with their
 licenses and repositories. Thank you to every maintainer and contributor
 behind them.
 
-**License audit summary** — all 112 direct dependencies use permissive
-licenses (MIT, Apache-2.0, ISC, BSD-2-Clause, MIT-0). There are **no
-copyleft dependencies** (no GPL / LGPL / AGPL / MPL code is bundled), so
-AgentSwarms itself is safely released under the
-**[MIT License](./LICENSE)**. Apache-2.0 dependencies require their
+**License audit summary** — the direct dependencies use permissive licenses
+(MIT, Apache-2.0, ISC, BSD-2-Clause, MIT-0). There is **no strong copyleft**
+in the tree — **no GPL-only or AGPL** code — so AgentSwarms can be distributed
+under its own terms, the **source-available [Elastic License 2.0](./LICENSE)**.
+A few transitive dependencies carry weak or dual licenses, all compatible with
+that redistribution: **jszip** (`MIT OR GPL-3.0`, used under MIT), **lightningcss**
+(MPL-2.0 — a build-time CSS tool, weak per-file copyleft, not part of the shipped
+bundle), and **sharp**/libvips (LGPL-3.0 — a native image library used as a
+separate, dynamically-loaded npm module). Apache-2.0 dependencies require their
 license and notice files to travel with their source, which `npm install`
 preserves inside `node_modules`. To regenerate the full list at any time:
 
