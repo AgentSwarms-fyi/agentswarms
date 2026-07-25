@@ -222,6 +222,9 @@ is documented inline in the file. In short:
   sensible defaults are pre-filled.
 - `OPENAI_API_KEY` — optional; only needed if you want Knowledge Base (RAG)
   document search to use real vector embeddings instead of keyword search.
+- `FIRECRAWL_API_KEY` — optional; powers the agent `web_search` / `web_browse`
+  tools workspace-wide. See [Web search & browsing](#web-search--browsing-optional)
+  below for exactly what works with and without it.
 - `ADMIN_EMAIL` + `VITE_ADMIN_EMAIL` — the one account email allowed to
   access the instance admin dashboard. Set both to the address you'll sign
   up with.
@@ -238,6 +241,30 @@ and logged** (see the `email_send_log` table) — the app works fine without
 email, so it's safe to skip this entirely for local dev. Auth emails
 (confirmation, password reset) are unaffected — Supabase sends those itself
 (step 3.3).
+
+### Web search & browsing (optional)
+
+Agents can be given two web tools in the agent editor (**Build → Agents → edit
+→ Tools**): `web_search` (search the web) and `web_browse` (fetch one page as
+clean markdown). How well they work depends on whether a key is configured —
+**no key is required to start**, but the free fallback is limited:
+
+| Setup                                              | `web_search`                                                                                                                                           | `web_browse`                                               |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------- |
+| **No key** (default)                               | Works, but falls back to DuckDuckGo's free Instant Answer API — only entity summaries + a few related topics, so thin/often empty for ordinary queries | **Unavailable** (hidden from the agent until a key exists) |
+| **`FIRECRAWL_API_KEY` in `.env`** (workspace-wide) | Real web search via [Firecrawl](https://firecrawl.dev) for every agent                                                                                 | Full-page reads via Firecrawl                              |
+| **Per-agent key** (agent editor, no `.env` change) | Bring your own **Brave / SerpAPI / Tavily** key                                                                                                        | Bring your own **ScrapingBee** or custom **Firecrawl** key |
+
+So if web search "isn't really searching," that's the DuckDuckGo fallback — add
+`FIRECRAWL_API_KEY` (get one at [firecrawl.dev](https://firecrawl.dev)) and
+restart, or set a per-agent key. A per-agent key overrides the workspace key for
+that agent and needs no restart.
+
+Every URL fetched by `web_browse` is chosen by the model, so it's routed through
+the same SSRF guard as swarm HTTP nodes and connector tests: cloud instance
+metadata / link-local addresses are always refused, and you can block all
+private/internal targets with `BLOCK_PRIVATE_NETWORK_FETCH=true` (recommended
+for public embeds / untrusted multi-tenant installs).
 
 ## 5. Run the app
 
@@ -272,7 +299,7 @@ Product documentation for every feature ships inside the app at `/docs`.
 ## 7. Optional: the Developer-workspace server runtime
 
 The **Developer workspace** (`/notebooks`) runs notebooks on **secure server
-kernels** — real CPython that can `pip install` and run the *real* frameworks
+kernels** — real CPython that can `pip install` and run the _real_ frameworks
 (LangChain, LlamaIndex, LangGraph). It's off by default; a notebook shows a
 short "runtime required" panel until an admin turns it on. To enable it:
 
@@ -366,4 +393,3 @@ it updates the trigger and repairs already-created agents.
 **Changes to `.env` not taking effect.** Vite bakes `VITE_*` values into
 the bundle when the dev server starts. Stop it (Ctrl+C), run
 `npm run dev` again, and hard-refresh the browser (Ctrl+Shift+R).
-
