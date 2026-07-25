@@ -858,52 +858,12 @@ function BiProjectPage() {
     }
   }
 
-  // ── Render ──────────────────────────────────────────────────────────
-  if (row === null) {
-    return (
-      <div className="space-y-4 p-6">
-        <Skeleton className="h-10 w-72" />
-        <div className="grid grid-cols-2 gap-4">
-          <Skeleton className="h-64" />
-          <Skeleton className="h-64" />
-        </div>
-      </div>
-    );
-  }
-
-  if (row === "missing") {
-    return (
-      <div className="flex flex-col items-center justify-center gap-3 p-16 text-center">
-        <BarChart3 className="h-10 w-10 text-muted-foreground" />
-        <p className="font-medium">
-          This BI project doesn&apos;t exist or you don&apos;t have access.
-        </p>
-        <Button asChild variant="secondary">
-          <Link to="/bi">
-            <ArrowLeft className="mr-1.5 h-4 w-4" /> Back to BI Workspace
-          </Link>
-        </Button>
-      </div>
-    );
-  }
-
-  // Grant row filters must be resolved before a viewer sees any data.
-  if (readOnly && !filtersReady) {
-    return (
-      <div className="space-y-4 p-6">
-        <Skeleton className="h-10 w-72" />
-        <div className="grid grid-cols-2 gap-4">
-          <Skeleton className="h-64" />
-          <Skeleton className="h-64" />
-        </div>
-      </div>
-    );
-  }
-
   // Live "Direct query" widgets: re-run against the warehouse (server-side, as
   // the dashboard owner) whenever the direct widgets or the filters change.
   // Import widgets keep their snapshot. This route only ever renders for an
   // authenticated owner/grantee — public share/embed routes render snapshots.
+  // NOTE: this hook must stay above the early returns below so it runs on every
+  // render (Rules of Hooks).
   const directWidgetIds = widgets
     .filter((w) => w.query_mode === "direct" && w.source?.kind === "warehouse" && w.sql)
     .map((w) => w.id);
@@ -947,6 +907,48 @@ function BiProjectPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [directSig, token, dashboardId]);
+
+  // ── Render ──────────────────────────────────────────────────────────
+  if (row === null) {
+    return (
+      <div className="space-y-4 p-6">
+        <Skeleton className="h-10 w-72" />
+        <div className="grid grid-cols-2 gap-4">
+          <Skeleton className="h-64" />
+          <Skeleton className="h-64" />
+        </div>
+      </div>
+    );
+  }
+
+  if (row === "missing") {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 p-16 text-center">
+        <BarChart3 className="h-10 w-10 text-muted-foreground" />
+        <p className="font-medium">
+          This BI project doesn&apos;t exist or you don&apos;t have access.
+        </p>
+        <Button asChild variant="secondary">
+          <Link to="/bi">
+            <ArrowLeft className="mr-1.5 h-4 w-4" /> Back to BI Workspace
+          </Link>
+        </Button>
+      </div>
+    );
+  }
+
+  // Grant row filters must be resolved before a viewer sees any data.
+  if (readOnly && !filtersReady) {
+    return (
+      <div className="space-y-4 p-6">
+        <Skeleton className="h-10 w-72" />
+        <div className="grid grid-cols-2 gap-4">
+          <Skeleton className="h-64" />
+          <Skeleton className="h-64" />
+        </div>
+      </div>
+    );
+  }
 
   // Mandatory grant row filters first (viewers can't clear them), then
   // dashboard filters + the cross-filter. securedWidgets also feeds the
