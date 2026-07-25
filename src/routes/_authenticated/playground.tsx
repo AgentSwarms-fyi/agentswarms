@@ -44,6 +44,7 @@ import {
 } from "lucide-react";
 import { parseFileToText } from "@/lib/fileParsers";
 import { MarkdownMessage } from "@/components/playground/MarkdownMessage";
+import { DocGenBar } from "@/components/playground/DocGenBar";
 import { toast } from "sonner";
 import {
   ModelFallbackDialog,
@@ -1133,6 +1134,7 @@ function PlaygroundPage() {
                 </Button>
               )}
             </div>
+            <DocGenBar agentId={selectedAgent || undefined} defaultPrompt={input} />
           </div>
         </div>
       </div>

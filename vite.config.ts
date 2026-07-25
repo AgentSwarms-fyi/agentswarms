@@ -48,6 +48,23 @@ export default defineConfig(async ({ command, mode }) => {
     try {
       const { cloudflare } = await import("@cloudflare/vite-plugin");
       plugins.push(cloudflare({ viteEnvironment: { name: "ssr" } }));
+      // pptxgenjs (client-only, loaded via dynamic import for document export)
+      // dynamically imports these Node modules in an image-by-URL path we never
+      // use. The Cloudflare worker bundler can't resolve them and forbids
+      // `resolve.external`, so stub them to an empty module. Safe: our own code
+      // never imports these bare specifiers (Node builtins we use are `node:`-
+      // prefixed), and the pptxgenjs code path that would touch them never runs.
+      const STUB = new Set(["https", "http", "express", "image-size", "os"]);
+      plugins.push({
+        name: "agentswarms-stub-pptxgenjs-node-deps",
+        enforce: "pre",
+        resolveId(id: string) {
+          return STUB.has(id) ? `\0agentswarms-empty:${id}` : null;
+        },
+        load(id: string) {
+          return id.startsWith("\0agentswarms-empty:") ? "export default {};" : null;
+        },
+      });
     } catch {
       // @cloudflare/vite-plugin not installed — fall through to the Node build.
     }
