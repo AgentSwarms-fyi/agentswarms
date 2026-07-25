@@ -691,7 +691,7 @@ function BiProjectPage() {
     toast.success(
       mode === "direct"
         ? "Direct query on — live data from the warehouse"
-        : "Using the imported snapshot",
+        : "Using the in-memory engine (cached snapshot)",
     );
   }
 
@@ -1303,7 +1303,7 @@ function BiProjectPage() {
                                 >
                                   <SearchCode className="mr-2 h-3.5 w-3.5" />
                                   {w.query_mode === "direct"
-                                    ? "Use import (snapshot)"
+                                    ? "Use in-memory engine (snapshot)"
                                     : "Use direct query (live)"}
                                 </DropdownMenuItem>
                               )}
