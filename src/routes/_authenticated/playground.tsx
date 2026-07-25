@@ -51,7 +51,12 @@ import { DocGenBar } from "@/components/playground/DocGenBar";
 import { BiWidgetCard } from "@/components/bi/BiWidgetCard";
 import { generateChatWidget } from "@/lib/chatBi";
 import { parseWidgets } from "@/lib/biDashboards";
-import type { DocScope } from "@/lib/docGen/types";
+import { useServerFn } from "@tanstack/react-start";
+import { DOC_FORMAT_LABEL } from "@/lib/docGen/types";
+import type { DocScope, DocFormat, DocxPlan, PptxPlan, XlsxPlan } from "@/lib/docGen/types";
+import { buildDocx, buildPptx, buildXlsx, materializeXlsxPlan } from "@/lib/docGen/build";
+import { planDocument } from "@/lib/docGen/plan";
+import { gatherDocContext } from "@/utils/docGen.functions";
 import { toast } from "sonner";
 import {
   ModelFallbackDialog,
@@ -147,6 +152,11 @@ function PlaygroundPage() {
   const biVisualsRef = useRef(false);
   // Sample vs. full data scope for doc generation + the Visual BI widget.
   const [dataScope, setDataScope] = useState<DocScope>("sample");
+  // Document generation: the "armed" format turns the chat box into "describe
+  // the document" mode; docPhase drives the inline "Preparing…" status.
+  const [armedDoc, setArmedDoc] = useState<DocFormat | null>(null);
+  const [docPhase, setDocPhase] = useState<"idle" | "gathering" | "planning" | "building">("idle");
+  const gatherDocContextFn = useServerFn(gatherDocContext);
   const dataScopeRef = useRef<DocScope>("sample");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   // Developer inspector (request/tools/trace) — collapsed by default so the
@@ -850,7 +860,66 @@ function PlaygroundPage() {
     }
   }
 
+  // Generate a document from a typed description (the chat box, in "armed" mode)
+  // — gather connected KB/data context, plan it, and build a real editable file.
+  async function runDocGen(format: DocFormat, prompt: string) {
+    const { data: sess } = await supabase.auth.getSession();
+    const token = sess.session?.access_token;
+    if (!token) {
+      toast.error("Please sign in again");
+      return;
+    }
+    try {
+      setDocPhase("gathering");
+      const ctx = await gatherDocContextFn({
+        data: { access_token: token, prompt, agent_id: selectedAgent || undefined },
+      });
+      if (!ctx.ok) throw new Error(ctx.error);
+      setDocPhase("planning");
+      const plan = await planDocument(format, {
+        prompt,
+        context: ctx.context,
+        scope: dataScope,
+        conversation: messages.map((m) => ({
+          role: m.role === "user" ? "user" : ("assistant" as const),
+          content: m.content,
+        })),
+      });
+      setDocPhase("building");
+      const fileBase =
+        prompt
+          .slice(0, 40)
+          .replace(/[^\w.-]+/g, "-")
+          .replace(/^-+|-+$/g, "") || "document";
+      if (format === "pptx") await buildPptx(plan as PptxPlan, fileBase);
+      else if (format === "docx") await buildDocx(plan as DocxPlan, fileBase);
+      else {
+        const materialized = await materializeXlsxPlan(plan as XlsxPlan, dataScope);
+        await buildXlsx(materialized, fileBase);
+      }
+      toast.success(`${DOC_FORMAT_LABEL[format]} generated`);
+    } catch (e) {
+      toast.error((e as Error).message || "Generation failed");
+    } finally {
+      setDocPhase("idle");
+    }
+  }
+
   async function sendMessage() {
+    // Document mode: a format is armed, so the typed text is the doc description.
+    if (armedDoc) {
+      const p = input.trim();
+      if (!p) {
+        toast.error("Describe what the document should contain");
+        return;
+      }
+      const fmt = armedDoc;
+      setInput("");
+      if (textareaRef.current) textareaRef.current.style.height = "auto";
+      setArmedDoc(null);
+      await runDocGen(fmt, p);
+      return;
+    }
     if ((!input.trim() && attachments.length === 0) || !activeConvo || !user) return;
     const userMsg = input.trim();
     const turnAttachments = attachments;
@@ -1233,6 +1302,42 @@ function PlaygroundPage() {
                 onRemove={(idx) => setAttachments((prev) => prev.filter((_, i) => i !== idx))}
               />
             )}
+            {(armedDoc || docPhase !== "idle") && (
+              <div className="mb-1.5 flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs">
+                {docPhase !== "idle" ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                    <span className="font-medium text-foreground">
+                      Preparing {armedDoc ? DOC_FORMAT_LABEL[armedDoc] : "document"}…
+                    </span>
+                    <span className="text-muted-foreground">
+                      {docPhase === "gathering"
+                        ? "analyzing connected data"
+                        : docPhase === "planning"
+                          ? "planning the document"
+                          : "building the file"}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="font-medium text-primary">
+                      {armedDoc ? DOC_FORMAT_LABEL[armedDoc] : ""} mode
+                    </span>
+                    <span className="text-muted-foreground">
+                      — describe the document below, then press send
+                    </span>
+                    <button
+                      type="button"
+                      className="ml-auto text-muted-foreground hover:text-foreground"
+                      onClick={() => setArmedDoc(null)}
+                      title="Cancel"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
             <div className="flex w-full min-w-0 items-end gap-2 rounded-2xl border border-border/70 bg-card p-2 shadow-lg shadow-black/5 transition focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-primary/15">
               <input
                 ref={fileInputRef}
@@ -1276,10 +1381,14 @@ function PlaygroundPage() {
                     sendMessage();
                   }
                 }}
-                placeholder="Type a message... (Shift+Enter for a new line)"
+                placeholder={
+                  armedDoc
+                    ? `Describe the ${DOC_FORMAT_LABEL[armedDoc]} to generate…`
+                    : "Type a message... (Shift+Enter for a new line)"
+                }
                 rows={1}
                 className="min-h-0 max-h-[200px] min-w-0 flex-1 resize-none overflow-y-auto border-none bg-transparent py-1.5 shadow-none focus-visible:ring-0"
-                disabled={!activeConvo || thinking}
+                disabled={(!activeConvo && !armedDoc) || thinking || docPhase !== "idle"}
               />
               {thinking ? (
                 <Button
@@ -1296,19 +1405,24 @@ function PlaygroundPage() {
                   size="sm"
                   className="h-8 w-8 shrink-0 rounded-xl bg-gradient-to-br from-primary to-nexus-glow p-0 shadow-sm transition hover:opacity-90"
                   onClick={sendMessage}
-                  disabled={(!input.trim() && attachments.length === 0) || !activeConvo}
+                  disabled={
+                    docPhase !== "idle" ||
+                    (armedDoc
+                      ? !input.trim()
+                      : (!input.trim() && attachments.length === 0) || !activeConvo)
+                  }
                 >
                   <Send className="h-4 w-4" />
                 </Button>
               )}
             </div>
             <DocGenBar
-              agentId={selectedAgent || undefined}
-              defaultPrompt={input}
-              conversation={messages.map((m) => ({
-                role: m.role === "user" ? "user" : "assistant",
-                content: m.content,
-              }))}
+              armed={armedDoc}
+              onPick={(f) => {
+                setArmedDoc((cur) => (cur === f ? null : f));
+                if (armedDoc !== f) textareaRef.current?.focus();
+              }}
+              busy={docPhase !== "idle"}
               scope={dataScope}
               onScopeChange={setDataScope}
               biControl={selectedAgent ? { enabled: biVisuals, onToggle: setBiVisuals } : undefined}
