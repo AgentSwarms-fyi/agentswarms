@@ -624,6 +624,42 @@ export type Database = {
         };
         Relationships: [];
       };
+      catalog_lineage: {
+        Row: {
+          created_at: string;
+          downstream_column: string | null;
+          downstream_fqn: string;
+          id: string;
+          source_id: string;
+          source_system: string;
+          upstream_column: string | null;
+          upstream_fqn: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          downstream_column?: string | null;
+          downstream_fqn: string;
+          id?: string;
+          source_id: string;
+          source_system?: string;
+          upstream_column?: string | null;
+          upstream_fqn: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          downstream_column?: string | null;
+          downstream_fqn?: string;
+          id?: string;
+          source_id?: string;
+          source_system?: string;
+          upstream_column?: string | null;
+          upstream_fqn?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       catalog_glossary_terms: {
         Row: {
           created_at: string;

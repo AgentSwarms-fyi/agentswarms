@@ -118,6 +118,47 @@ export async function updateCatalogAsset(
   if (error) throw new Error(error.message);
 }
 
+// ── Source-derived lineage (Databricks Unity Catalog system tables) ────────
+
+export type CatalogLineageEdge = {
+  upstream_fqn: string;
+  downstream_fqn: string;
+  upstream_column: string | null;
+  downstream_column: string | null;
+};
+
+/** Match lineage FQNs (often catalog.schema.table) to catalog assets
+ *  (schema.table) by their trailing two segments. */
+export function lineageKey(fqn: string): string {
+  return fqn.toLowerCase().split(".").slice(-2).join(".");
+}
+
+export async function loadCatalogLineage(): Promise<CatalogLineageEdge[]> {
+  const { data, error } = await supabase
+    .from("catalog_lineage")
+    .select("upstream_fqn, downstream_fqn, upstream_column, downstream_column")
+    .limit(20000);
+  if (error) return [];
+  return (data ?? []).map((r) => ({
+    upstream_fqn: r.upstream_fqn,
+    downstream_fqn: r.downstream_fqn,
+    upstream_column: r.upstream_column,
+    downstream_column: r.downstream_column,
+  }));
+}
+
+/** Upstream + downstream neighbours of an asset (by schema.table key). */
+export function sourceLineageFor(
+  edges: CatalogLineageEdge[],
+  assetFqn: string,
+): { upstream: CatalogLineageEdge[]; downstream: CatalogLineageEdge[] } {
+  const key = lineageKey(assetFqn);
+  return {
+    upstream: edges.filter((e) => lineageKey(e.downstream_fqn) === key),
+    downstream: edges.filter((e) => lineageKey(e.upstream_fqn) === key),
+  };
+}
+
 // ── Business glossary ────────────────────────────────────────────────────
 // A term defines a tag: tagging an asset with the term's name links them.
 

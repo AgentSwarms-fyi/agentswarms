@@ -576,6 +576,99 @@ export async function loadStorageConfig(
 
 export type CatalogSourceRow = Database["public"]["Tables"]["catalog_sources"]["Row"];
 
+type LineageEdge = {
+  upstream_fqn: string;
+  downstream_fqn: string;
+  upstream_column?: string | null;
+  downstream_column?: string | null;
+};
+
+/**
+ * Read real upstream→downstream lineage from Databricks Unity Catalog system
+ * tables (system.access.column_lineage for column-level, table_lineage for the
+ * rest). Best-effort — the `system` catalog is often not granted, in which case
+ * this returns nothing and the crawl proceeds.
+ *
+ * NOTE: unverified against a live Unity Catalog workspace.
+ */
+async function fetchDatabricksLineage(config: WarehouseConfig): Promise<LineageEdge[]> {
+  const edges: LineageEdge[] = [];
+  const seen = new Set<string>();
+  const g = (row: Record<string, unknown>, k: string) => row[k] ?? row[k.toUpperCase()];
+  const add = (uf: unknown, df: unknown, uc: unknown, dc: unknown) => {
+    const u = String(uf ?? "").toLowerCase();
+    const d = String(df ?? "").toLowerCase();
+    if (!u || !d || u === d) return;
+    const ucv = uc ? String(uc) : null;
+    const dcv = dc ? String(dc) : null;
+    const key = `${u}|${d}|${ucv ?? ""}|${dcv ?? ""}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    edges.push({
+      upstream_fqn: u,
+      downstream_fqn: d,
+      upstream_column: ucv,
+      downstream_column: dcv,
+    });
+  };
+  try {
+    const r = await executeWarehouseQuery(
+      config,
+      `SELECT DISTINCT source_table_full_name, source_column_name, target_table_full_name, target_column_name
+       FROM system.access.column_lineage
+       WHERE source_table_full_name IS NOT NULL AND target_table_full_name IS NOT NULL`,
+      20000,
+    );
+    for (const row of r.rows) {
+      add(
+        g(row, "source_table_full_name"),
+        g(row, "target_table_full_name"),
+        g(row, "source_column_name"),
+        g(row, "target_column_name"),
+      );
+    }
+  } catch {
+    /* column lineage unavailable */
+  }
+  try {
+    const r = await executeWarehouseQuery(
+      config,
+      `SELECT DISTINCT source_table_full_name, target_table_full_name
+       FROM system.access.table_lineage
+       WHERE source_table_full_name IS NOT NULL AND target_table_full_name IS NOT NULL`,
+      20000,
+    );
+    for (const row of r.rows) {
+      add(g(row, "source_table_full_name"), g(row, "target_table_full_name"), null, null);
+    }
+  } catch {
+    /* table lineage unavailable */
+  }
+  return edges.slice(0, 5000);
+}
+
+/** Replace a source's stored lineage with a freshly-read set. */
+async function persistLineage(
+  userId: string,
+  sourceId: string,
+  edges: LineageEdge[],
+): Promise<void> {
+  await supabaseAdmin.from("catalog_lineage").delete().eq("source_id", sourceId);
+  if (edges.length === 0) return;
+  const rows = edges.map((e) => ({
+    user_id: userId,
+    source_id: sourceId,
+    upstream_fqn: e.upstream_fqn,
+    downstream_fqn: e.downstream_fqn,
+    upstream_column: e.upstream_column ?? null,
+    downstream_column: e.downstream_column ?? null,
+    source_system: "databricks",
+  }));
+  for (let i = 0; i < rows.length; i += 500) {
+    await supabaseAdmin.from("catalog_lineage").insert(rows.slice(i, i + 500));
+  }
+}
+
 /** Run a full crawl for a source row, updating its status/stats around it. */
 export async function runCrawl(
   userId: string,
@@ -592,10 +685,11 @@ export async function runCrawl(
     const existing = await loadExistingAssets(source.id);
     let assets: CrawledAsset[];
     let sampled = 0;
+    let warehouseConfig: WarehouseConfig | null = null;
     if (source.kind === "warehouse") {
       if (!source.connection_id) throw new Error("Source has no linked connection");
-      const config = await loadWarehouseConfig(source.connection_id);
-      const res = await crawlWarehouse(config);
+      warehouseConfig = await loadWarehouseConfig(source.connection_id);
+      const res = await crawlWarehouse(warehouseConfig);
       assets = res.assets;
       sampled = res.sampled;
     } else {
@@ -608,6 +702,19 @@ export async function runCrawl(
       sampled = res.sampled;
     }
     const changes = await persistAssets(userId, source.id, assets, existing);
+
+    // Source-derived lineage (Databricks Unity Catalog system tables).
+    // Best-effort — refreshes the source's edges, or clears them if the system
+    // catalog isn't accessible.
+    if (warehouseConfig?.provider === "databricks") {
+      try {
+        const edges = await fetchDatabricksLineage(warehouseConfig);
+        await persistLineage(userId, source.id, edges);
+      } catch {
+        /* lineage is optional — never fail the crawl over it */
+      }
+    }
+
     const stats: CrawlStats = {
       assets: assets.length,
       columns: assets.reduce((s, a) => s + a.columns.length, 0),

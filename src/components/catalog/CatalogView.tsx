@@ -87,11 +87,14 @@ import {
   listCatalogSources,
   listGlossaryTerms,
   loadLineageIndex,
+  loadCatalogLineage,
   lookupLineage,
+  sourceLineageFor,
   updateCatalogAsset,
   type AssetLineage,
   type CatalogAsset,
   type CatalogAssetStatus,
+  type CatalogLineageEdge,
   type CatalogSource,
   type GlossaryTerm,
   type LineageIndex,
@@ -140,21 +143,24 @@ export function CatalogView({
   const [selected, setSelected] = useState<UnifiedAsset | null>(null);
 
   const [lineage, setLineage] = useState<LineageIndex>(new Map());
+  const [catalogLineage, setCatalogLineage] = useState<CatalogLineageEdge[]>([]);
   const [glossary, setGlossary] = useState<GlossaryTerm[]>([]);
   const [glossaryOpen, setGlossaryOpen] = useState(false);
 
   const reload = useCallback(async () => {
     try {
-      const [src, ast, lin, terms] = await Promise.all([
+      const [src, ast, lin, terms, srcLin] = await Promise.all([
         listCatalogSources(),
         listCatalogAssets(),
         loadLineageIndex(),
         listGlossaryTerms(),
+        loadCatalogLineage(),
       ]);
       setSources(src);
       setAssets(ast);
       setLineage(lin);
       setGlossary(terms);
+      setCatalogLineage(srcLin);
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -723,6 +729,11 @@ export function CatalogView({
         asset={selected}
         sourceName={selected ? sourceName(selected) : ""}
         lineage={selected ? lineageFor(selected) : { usedBy: [], derivedFrom: [] }}
+        sourceLineage={
+          selected
+            ? sourceLineageFor(catalogLineage, selected.fqn)
+            : { upstream: [], downstream: [] }
+        }
         onJumpToAsset={(name) => {
           const target = allAssets.find((x) => x.name.toLowerCase() === name.toLowerCase());
           if (target) setSelected(target);
@@ -766,6 +777,7 @@ function AssetSheet({
   asset,
   sourceName,
   lineage,
+  sourceLineage,
   onJumpToAsset,
   queryable,
   onQuery,
@@ -775,6 +787,8 @@ function AssetSheet({
   asset: UnifiedAsset | null;
   sourceName: string;
   lineage: AssetLineage;
+  /** Real upstream/downstream edges read from the source system (Unity Catalog). */
+  sourceLineage: { upstream: CatalogLineageEdge[]; downstream: CatalogLineageEdge[] };
   /** Navigate the sheet to another asset by table name (derived-from chips). */
   onJumpToAsset: (name: string) => void;
   queryable: boolean;
@@ -950,6 +964,52 @@ function AssetSheet({
                         </span>
                       </div>
                     ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {(sourceLineage.upstream.length > 0 || sourceLineage.downstream.length > 0) && (
+              <div>
+                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Data lineage <span className="font-normal normal-case">· from source</span>
+                </p>
+                {sourceLineage.upstream.length > 0 && (
+                  <div className="mb-2">
+                    <span className="text-[11px] text-muted-foreground">
+                      Upstream ({sourceLineage.upstream.length}):
+                    </span>
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {sourceLineage.upstream.slice(0, 40).map((e, i) => (
+                        <span
+                          key={i}
+                          className="rounded-full border border-border bg-muted/40 px-2 py-0.5 font-mono text-[10px]"
+                          title={e.upstream_fqn}
+                        >
+                          {e.upstream_fqn.split(".").slice(-2).join(".")}
+                          {e.upstream_column ? `.${e.upstream_column}` : ""}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {sourceLineage.downstream.length > 0 && (
+                  <div>
+                    <span className="text-[11px] text-muted-foreground">
+                      Downstream ({sourceLineage.downstream.length}):
+                    </span>
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {sourceLineage.downstream.slice(0, 40).map((e, i) => (
+                        <span
+                          key={i}
+                          className="rounded-full border border-border bg-muted/40 px-2 py-0.5 font-mono text-[10px]"
+                          title={e.downstream_fqn}
+                        >
+                          {e.downstream_fqn.split(".").slice(-2).join(".")}
+                          {e.downstream_column ? `.${e.downstream_column}` : ""}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
