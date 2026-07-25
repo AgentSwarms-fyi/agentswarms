@@ -14,9 +14,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { MarkdownMessage } from "@/components/playground/MarkdownMessage";
+import { BiModelSelect } from "@/components/bi/BiModelSelect";
 import { askDashboardQuestion } from "@/lib/biAgent";
 import type { BiWidget } from "@/lib/biDashboards";
-import { parseModelChoice } from "@/utils/providers/modelChoice";
 
 type Turn = { question: string; answer?: string; error?: string };
 
@@ -40,18 +40,22 @@ export function AskDashboardDialog({
   const [turns, setTurns] = useState<Turn[]>([]);
   const [question, setQuestion] = useState("");
   const [busy, setBusy] = useState(false);
+  // The model that answers. Seeded from the publisher's reader model, but the
+  // viewer can switch to any of their own connected + allowed text models.
+  const [pickModel, setPickModel] = useState<string | null>(model);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (open) {
       setTurns([]);
+      setPickModel(model);
       setQuestion(
         context
           ? `Focusing on ${context.column} = “${context.value}”: what stands out, and how does it compare to the rest?`
           : "",
       );
     }
-  }, [open, context]);
+  }, [open, context, model]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -69,7 +73,7 @@ export function AskDashboardDialog({
     try {
       const answer = await askDashboardQuestion({
         question: q,
-        model: model ?? undefined,
+        model: pickModel ?? undefined,
         widgets: widgets.map((w) => ({
           title: w.title,
           kind: w.kind,
@@ -102,18 +106,21 @@ export function AskDashboardDialog({
             <Sparkles className="h-4 w-4 text-primary" /> Ask AI about “{dashboardName}”
           </DialogTitle>
           <DialogDescription>
-            Answers come from the dashboard's saved data snapshots
-            {model ? (
-              <>
-                {" "}
-                using <code className="text-[11px]">{parseModelChoice(model)?.model ?? model}</code>
-              </>
-            ) : (
-              " using the default model"
-            )}
-            .
+            Answers come from the dashboard's saved data snapshots. Pick which connected model
+            answers below.
           </DialogDescription>
         </DialogHeader>
+
+        <div className="flex items-center gap-2">
+          <span className="shrink-0 text-[11px] font-medium text-muted-foreground">Model</span>
+          <BiModelSelect
+            value={pickModel}
+            onChange={setPickModel}
+            allowUnset
+            disabled={busy}
+            className="flex-1"
+          />
+        </div>
 
         <div
           ref={scrollRef}
