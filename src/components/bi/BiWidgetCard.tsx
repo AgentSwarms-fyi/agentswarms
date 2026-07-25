@@ -199,12 +199,16 @@ export function BiWidgetCard({
   widget,
   actions,
   onElementClick,
+  selectedValue,
 }: {
   widget: BiWidget;
   /** Extra header controls (edit/remove menu) injected by the editor. */
   actions?: React.ReactNode;
   /** Cross-filtering: bar/slice clicks bubble up as (column, value). */
   onElementClick?: (column: string, value: string) => void;
+  /** This widget's active cross-filter value (when it is the filter source) —
+   *  forwarded so the map can outline the selected country. */
+  selectedValue?: string | null;
 }) {
   const isText = widget.kind === "text";
   const isImage = widget.kind === "image";
@@ -274,7 +278,13 @@ export function BiWidgetCard({
         ) : chart.type === "table" ? (
           <WidgetDataTable columns={columns} rows={rows} columnFormats={chart.columnFormats} />
         ) : (
-          <BiChartRender chart={chart} rows={rows} fill onElementClick={onElementClick} />
+          <BiChartRender
+            chart={chart}
+            rows={rows}
+            fill
+            onElementClick={onElementClick}
+            selectedValue={selectedValue}
+          />
         )}
       </div>
     </div>

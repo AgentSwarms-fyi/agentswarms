@@ -118,6 +118,7 @@ export function BiGeoMap({
   valueField,
   mode,
   onElementClick,
+  selectedValue,
 }: {
   rows: Record<string, unknown>[];
   locationField: string;
@@ -125,6 +126,9 @@ export function BiGeoMap({
   mode: "fill" | "bubble";
   /** Cross-filtering: called with the ROW's raw location value (not the atlas name). */
   onElementClick?: (value: string) => void;
+  /** The currently cross-filtered location (raw value) — highlighted so it's
+   *  obvious which country the click selected. */
+  selectedValue?: string | null;
 }) {
   // Styled hover tooltip (native SVG <title> is delayed and easy to miss —
   // this matches the recharts tooltips used by every other visual).
@@ -165,6 +169,14 @@ export function BiGeoMap({
     return { values, unmatched, max };
   }, [rows, locationField, valueField]);
 
+  // Atlas key of the cross-filtered country (if any), so we can outline it.
+  const selectedKey = useMemo(
+    () => (selectedValue != null ? (lookupCountry(selectedValue)?.key ?? null) : null),
+    [selectedValue],
+  );
+  const selectedShape = selectedKey ? SHAPE_BY_KEY.get(selectedKey) : undefined;
+  const selectedEntry = selectedKey ? values.get(selectedKey) : undefined;
+
   return (
     <div ref={wrapRef} className="relative h-full w-full">
       <svg
@@ -177,12 +189,15 @@ export function BiGeoMap({
           const entry = values.get(s.key);
           const t = entry && max > 0 ? entry.value / max : 0;
           const active = hover?.name === s.name;
+          const selected = selectedKey === s.key;
           return (
             <path
               key={s.key}
               d={s.d}
               fill={entry && mode === "fill" ? "var(--primary)" : "var(--muted)"}
-              fillOpacity={entry && mode === "fill" ? (active ? 1 : 0.15 + 0.85 * t) : 1}
+              fillOpacity={
+                entry && mode === "fill" ? (active || selected ? 1 : 0.15 + 0.85 * t) : 1
+              }
               stroke="var(--card)"
               strokeWidth={0.6}
               onPointerMove={
@@ -194,12 +209,25 @@ export function BiGeoMap({
             />
           );
         })}
+        {/* Selected-country outline, drawn last so it sits above neighbouring
+            borders and clearly marks the active cross-filter. */}
+        {mode === "fill" && selectedShape && (
+          <path
+            d={selectedShape.d}
+            fill="none"
+            stroke="var(--foreground)"
+            strokeWidth={2.25}
+            strokeLinejoin="round"
+            pointerEvents="none"
+          />
+        )}
         {mode === "bubble" &&
           [...values.values()]
             .sort((a, b) => b.value - a.value)
             .map(({ shape, value, raw }) => {
               const r = 4 + 22 * Math.sqrt(max > 0 ? value / max : 0);
               const active = hover?.name === shape.name;
+              const selected = selectedKey === shape.key;
               return (
                 <circle
                   key={shape.key}
@@ -207,9 +235,9 @@ export function BiGeoMap({
                   cy={shape.centroid[1]}
                   r={r}
                   fill="var(--primary)"
-                  fillOpacity={active ? 0.75 : 0.45}
-                  stroke="var(--primary)"
-                  strokeWidth={active ? 2 : 1.25}
+                  fillOpacity={active || selected ? 0.75 : 0.45}
+                  stroke={selected ? "var(--foreground)" : "var(--primary)"}
+                  strokeWidth={active || selected ? 2 : 1.25}
                   onPointerMove={(e) => showTip(e, shape.name, value)}
                   onPointerLeave={() => setHover(null)}
                   onClick={onElementClick ? () => onElementClick(raw) : undefined}
@@ -217,6 +245,18 @@ export function BiGeoMap({
                 />
               );
             })}
+        {/* Selection ring for the cross-filtered bubble, drawn on top. */}
+        {mode === "bubble" && selectedShape && selectedEntry && (
+          <circle
+            cx={selectedShape.centroid[0]}
+            cy={selectedShape.centroid[1]}
+            r={4 + 22 * Math.sqrt(max > 0 ? selectedEntry.value / max : 0) + 3}
+            fill="none"
+            stroke="var(--foreground)"
+            strokeWidth={1.75}
+            pointerEvents="none"
+          />
+        )}
       </svg>
       {hover && (
         <div

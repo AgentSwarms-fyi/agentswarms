@@ -1264,6 +1264,9 @@ function BiProjectPage() {
                   <BiWidgetCard
                     widget={w}
                     onElementClick={handleElementClick(id)}
+                    selectedValue={
+                      crossFilter && crossFilter.widgetId === id ? crossFilter.value : null
+                    }
                     actions={
                       readOnly ? undefined : (
                         <div className="flex items-center gap-1">

@@ -360,6 +360,7 @@ function BiChartRenderInner({
   large = false,
   fill = false,
   onElementClick,
+  selectedValue,
 }: {
   chart: ChartSpec;
   rows: Record<string, unknown>[];
@@ -369,6 +370,8 @@ function BiChartRenderInner({
   fill?: boolean;
   /** Cross-filtering: called when a bar / slice is clicked. */
   onElementClick?: (column: string, value: string) => void;
+  /** Currently cross-filtered value — used by the map to outline the pick. */
+  selectedValue?: string | null;
 }) {
   const gradientId = useId();
   const heightClass = fill ? "h-full" : large ? "h-[60vh]" : "h-56";
@@ -509,6 +512,7 @@ function BiChartRenderInner({
         onElementClick={
           onElementClick ? (value) => onElementClick(chart.locationField, value) : undefined
         }
+        selectedValue={selectedValue}
       />
     );
   }
@@ -1572,7 +1576,9 @@ function SankeyNode(props: {
   );
 }
 
-/** Custom treemap cell: palette fill + readable label when the box fits. */
+/** Custom treemap cell: palette fill + readable label. White text carries a
+ *  dark halo (paint-order stroke) so it stays legible over any palette colour,
+ *  and the value is shown too when the box is tall enough. */
 function TreemapCell(props: {
   x?: number;
   y?: number;
@@ -1580,10 +1586,26 @@ function TreemapCell(props: {
   height?: number;
   index?: number;
   name?: string;
+  /** recharts passes the node's sizing value through as `value`. */
+  value?: number;
+  size?: number;
   onCellClick?: (name: string) => void;
 }) {
   const { x = 0, y = 0, width = 0, height = 0, index = 0, name = "", onCellClick } = props;
   if (width <= 0 || height <= 0) return null;
+  const val = props.size ?? props.value;
+  const showLabel = width > 40 && height > 18;
+  const showValue = val !== undefined && width > 56 && height > 34;
+  // ~6.5px per char at 11px; leave an 12px gutter.
+  const maxChars = Math.max(3, Math.floor((width - 12) / 6.5));
+  const label = name.length > maxChars ? `${name.slice(0, Math.max(1, maxChars - 1))}…` : name;
+  // Dark outline behind the glyphs — readable on light and dark fills alike.
+  const halo = {
+    paintOrder: "stroke" as const,
+    stroke: "rgb(15 23 42 / 0.6)",
+    strokeWidth: 3,
+    strokeLinejoin: "round" as const,
+  };
   return (
     <g
       onClick={onCellClick ? () => onCellClick(name) : undefined}
@@ -1596,20 +1618,32 @@ function TreemapCell(props: {
         height={height}
         rx={3}
         fill={PIE_COLORS[index % PIE_COLORS.length]}
-        fillOpacity={0.85}
+        fillOpacity={0.92}
         stroke="var(--card)"
         strokeWidth={2}
       />
-      {width > 52 && height > 22 && (
+      {showLabel && (
         <text
-          x={x + 6}
-          y={y + 15}
+          x={x + 7}
+          y={y + 16}
+          fontSize={11}
+          fontWeight={600}
+          fill="#fff"
+          style={{ pointerEvents: "none", ...halo }}
+        >
+          {label}
+        </text>
+      )}
+      {showValue && (
+        <text
+          x={x + 7}
+          y={y + 31}
           fontSize={10}
           fontWeight={500}
-          fill="#fff"
-          style={{ pointerEvents: "none" }}
+          fill="rgb(255 255 255 / 0.92)"
+          style={{ pointerEvents: "none", ...halo }}
         >
-          {name.length > Math.floor(width / 7) ? `${name.slice(0, Math.floor(width / 7))}…` : name}
+          {fmtBiNumber(val)}
         </text>
       )}
     </g>
@@ -1627,12 +1661,15 @@ export function BiChartRender({
   large = false,
   fill = false,
   onElementClick,
+  selectedValue,
 }: {
   chart: ChartSpec;
   rows: Record<string, unknown>[];
   large?: boolean;
   fill?: boolean;
   onElementClick?: (column: string, value: string) => void;
+  /** Currently cross-filtered value — used by the map to outline the pick. */
+  selectedValue?: string | null;
 }) {
   const [drillPath, setDrillPath] = useState<DrillEntry[]>([]);
   const [grainOverride, setGrainOverride] = useState<"auto" | DateGrain | null>(null);
@@ -1694,6 +1731,7 @@ export function BiChartRender({
       large={large}
       fill={fill}
       onElementClick={drillable || onElementClick ? drillClick : undefined}
+      selectedValue={selectedValue}
     />
   );
   if (!hasControls) return inner;
