@@ -651,20 +651,32 @@ function PlaygroundPage() {
         dbIdMap.current.set(assistantId, insertedAssistant.id);
       }
 
-      // Visual BI answer: when the agent has it on, generate a data widget from
-      // the user's question and attach it to the assistant message (state + DB),
-      // so it renders inline and survives reload/embed. Best-effort — never
-      // affects the text answer.
+      // Visual BI answer: when it's on, run the user's question through the BI
+      // analyst over their own datasets. When that yields a real result we use
+      // its data-grounded narrative AS the answer (so the text agrees with the
+      // data instead of a generic "upload a CSV" reply from a non-data-aware
+      // agent) and attach the chart inline. Best-effort — a non-data question
+      // (no result) leaves the agent's own reply untouched.
       if (biVisualsRef.current && assistantContent) {
         const question =
           [...opts.historySnapshot].reverse().find((m) => m.role === "user")?.content ?? "";
         if (question) {
-          void generateChatWidget(question, { scope: dataScopeRef.current }).then((widget) => {
-            if (!widget) return;
+          void generateChatWidget(question, { scope: dataScopeRef.current }).then((res) => {
+            const narrative = res.narrative?.trim();
+            const widget = res.widget;
+            if (!narrative && !widget) return;
+            const newContent = narrative || assistantContent;
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === assistantId
-                  ? { ...m, metadata: { ...(m.metadata ?? {}), widgets: [widget] } }
+                  ? {
+                      ...m,
+                      content: newContent,
+                      metadata: {
+                        ...(m.metadata ?? {}),
+                        ...(widget ? { widgets: [widget] } : {}),
+                      },
+                    }
                   : m,
               ),
             );
@@ -673,9 +685,10 @@ function PlaygroundPage() {
               void supabase
                 .from("messages")
                 .update({
+                  content: newContent,
                   metadata: {
                     ...(citations.length > 0 ? { citations } : {}),
-                    widgets: [widget],
+                    ...(widget ? { widgets: [widget] } : {}),
                   } as unknown as Json,
                 })
                 .eq("id", dbId);
