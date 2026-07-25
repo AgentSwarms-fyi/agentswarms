@@ -93,7 +93,7 @@ export function DocGenBar({
           .slice(0, 40)
           .replace(/[^\w.-]+/g, "-")
           .replace(/^-+|-+$/g, "") || "document";
-      if (format === "pptx") await buildPptx(plan as PptxPlan, fileBase);
+      if (format === "pptx") await buildPptx(plan as PptxPlan, fileBase, { model });
       else if (format === "docx") await buildDocx(plan as DocxPlan, fileBase);
       else {
         // Resolve any data-bound sheets against the user's real rows (all rows

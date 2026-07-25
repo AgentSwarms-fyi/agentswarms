@@ -25,12 +25,18 @@ export type DocTable = { columns: string[]; rows: (string | number | null)[][] }
 export type DocChart = {
   type: "bar" | "column" | "line" | "area" | "pie" | "doughnut";
   /**
-   * Read-only aggregation SQL over the connected tables (a GROUP BY returning a
-   * small result, ≤~12 rows): the FIRST column becomes the categories and each
-   * remaining numeric column becomes a series. When present the builder RUNS it
-   * over the user's full hydrated data, so the chart is filled with real numbers
-   * — strongly preferred over hand-written categories/series (which the model
-   * can't derive reliably from a small sample).
+   * A natural-language analytical question — e.g. "monthly revenue for the last
+   * 12 months" or "top 8 products by units sold". When present the builder runs
+   * it through the BI analyst (the proven plan → SQL → execute pipeline) over
+   * the user's REAL data and fills categories/series from the actual result.
+   * This is the reliable path: the model describes what to chart, and the
+   * numbers are computed here — never hand-written.
+   */
+  query?: string;
+  /**
+   * Fallback only (used when `query` is absent): raw read-only aggregation SQL
+   * over the connected tables — first column = categories, remaining numeric
+   * columns = series. Run verbatim over the hydrated data.
    */
   dataSql?: string;
   categories?: string[];
@@ -69,6 +75,14 @@ export type PptxSlide = {
   table?: DocTable;
   chart?: DocChart;
   kpis?: PptxKpi[];
+  /**
+   * For a KPI slide: a single analytical question that returns ONE row of
+   * headline metrics (e.g. "total revenue, number of orders and average order
+   * value"). The builder runs it through the BI analyst and turns each returned
+   * column into a metric card — so every figure is real, not guessed. Any
+   * `delta`/`positive` the model set on `kpis[i]` is carried over by position.
+   */
+  kpiQuery?: string;
   /** One-line highlighted insight shown in an accent bar on data slides. */
   takeaway?: string;
   notes?: string;

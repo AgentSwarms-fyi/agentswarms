@@ -4,6 +4,7 @@
 import type { Cell, SheetData } from "write-excel-file/browser";
 
 import { hydrateFromSupabase, runQueryUnlimited } from "@/lib/sqlEngine";
+import { materializePptxWithBI } from "./biData";
 import type {
   DocChart,
   DocScope,
@@ -34,25 +35,28 @@ function downloadBlob(blob: Blob, filename: string): void {
 }
 
 // ── PowerPoint (pptxgenjs) — a modern, data-filled deck ───────────────────────
-// Segoe-UI typography, an accent-panel cover, section dividers with a large
-// index watermark, soft-shadow KPI/chart cards, native editable charts filled
-// from real data (chart.dataSql / kpi.sql run over the hydrated tables), styled
-// tables, per-slide "key insight" bars, and a master with footer + slide numbers.
+// Segoe-UI typography, a deep-ink cover with layered accent rings, section
+// dividers with a large index watermark, soft-shadow KPI cards (accent rule +
+// delta pill), native editable charts filled from REAL data (materializePptxWithBI
+// runs each slide's analytical question through the BI analyst), styled tables,
+// per-slide "key insight" bars, and a master with footer + slide numbers.
 
 const PPTX_FONT = "Segoe UI";
-const PPTX_INK = "1E293B";
+const PPTX_INK = "0F172A"; // near-black slate for headings
+const PPTX_INK_DEEP = "0B1220"; // cover / section background
 const PPTX_SUB = "64748B";
 const PPTX_BODY = "334155";
-const PPTX_BORDER = "E2E8F0";
+const PPTX_BORDER = "E7EBF0";
 const PPTX_CARD = "F8FAFC";
 const PPTX_DEFAULT_ACCENT = "4F46E5";
+const PPTX_GRID = "EEF2F7";
 const PPTX_SHADOW = {
   type: "outer" as const,
-  color: "94A3B8",
-  blur: 9,
+  color: "9AA6B8",
+  blur: 11,
   offset: 3,
   angle: 90,
-  opacity: 0.28,
+  opacity: 0.22,
 };
 
 function normalizeHex(c: string | undefined, fallback: string): string {
@@ -70,19 +74,14 @@ function tintHex(hex: string, amt: number): string {
     .toUpperCase();
 }
 
-/** Compact number formatting for KPI values (1_200_000 → "1.2M"). */
-function compactNumber(n: number): string {
-  const a = Math.abs(n);
-  if (a >= 1e9) return (n / 1e9).toFixed(a >= 1e10 ? 0 : 1).replace(/\.0$/, "") + "B";
-  if (a >= 1e6) return (n / 1e6).toFixed(a >= 1e7 ? 0 : 1).replace(/\.0$/, "") + "M";
-  if (a >= 1e3) return (n / 1e3).toFixed(a >= 1e4 ? 0 : 1).replace(/\.0$/, "") + "K";
-  return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/\.?0+$/, "");
-}
-
-function toNum(v: unknown): number {
-  if (typeof v === "number") return v;
-  const n = Number(String(v ?? "").replace(/[, ]/g, ""));
-  return Number.isFinite(n) ? n : NaN;
+/** Mix a hex colour toward black (amt 0..1) — for a deeper accent shade. */
+function shadeHex(hex: string, amt: number): string {
+  const n = parseInt(hex, 16);
+  const mix = (c: number) => Math.round(c * (1 - amt));
+  return [mix((n >> 16) & 255), mix((n >> 8) & 255), mix(n & 255)]
+    .map((v) => v.toString(16).padStart(2, "0"))
+    .join("")
+    .toUpperCase();
 }
 
 /** A chart is renderable only when it actually has categories + series values. */
@@ -93,60 +92,6 @@ function chartHasData(c?: DocChart): c is DocChart {
     (c.series?.length ?? 0) > 0 &&
     (c.series ?? []).some((sr) => (sr.values?.length ?? 0) > 0)
   );
-}
-
-/**
- * Fill charts/KPIs from real data by running their SQL over the user's hydrated
- * tables (chart.dataSql → categories + series; kpi.sql → a scalar value). Runs
- * once, best-effort: a failed query leaves any model-provided values in place.
- */
-async function materializePptxData(plan: PptxPlan): Promise<void> {
-  const slides = plan.slides ?? [];
-  const needsData =
-    slides.some((s) => s.chart?.dataSql) || slides.some((s) => s.kpis?.some((k) => k.sql));
-  if (!needsData) return;
-  try {
-    await hydrateFromSupabase();
-  } catch {
-    return;
-  }
-  for (const s of slides) {
-    if (s.chart?.dataSql) {
-      try {
-        const res = runQueryUnlimited(s.chart.dataSql, 60);
-        if (res.columns.length >= 2 && res.rows.length > 0) {
-          const catCol = res.columns[0];
-          const numCols = res.columns
-            .slice(1)
-            .filter((c) => res.rows.some((r) => Number.isFinite(toNum(r[c]))));
-          const useCols = numCols.length ? numCols : res.columns.slice(1, 2);
-          s.chart.categories = res.rows.map((r) => String(r[catCol] ?? ""));
-          s.chart.series = useCols.map((c) => ({
-            name: c,
-            values: res.rows.map((r) => {
-              const n = toNum(r[c]);
-              return Number.isFinite(n) ? n : 0;
-            }),
-          }));
-        }
-      } catch {
-        /* keep any model-provided series */
-      }
-    }
-    for (const k of s.kpis ?? []) {
-      if (!k.sql) continue;
-      try {
-        const res = runQueryUnlimited(k.sql, 1);
-        const v = res.rows[0]?.[res.columns[0]];
-        if (v !== undefined && v !== null && v !== "") {
-          const n = toNum(v);
-          k.value = Number.isFinite(n) ? compactNumber(n) : String(v);
-        }
-      } catch {
-        /* keep model-provided value */
-      }
-    }
-  }
 }
 
 function pptxEffectiveLayout(s: PptxSlide): NonNullable<PptxSlide["layout"]> {
@@ -171,8 +116,13 @@ function pptxTableRows(t: DocTable, accent: string) {
   return [header, ...body];
 }
 
-export async function buildPptx(plan: PptxPlan, filename: string): Promise<void> {
-  await materializePptxData(plan);
+export async function buildPptx(
+  plan: PptxPlan,
+  filename: string,
+  opts: { model?: string } = {},
+): Promise<void> {
+  // Fill charts + KPIs from the user's REAL data via the BI analyst pipeline.
+  await materializePptxWithBI(plan, { model: opts.model });
 
   const PptxGen = (await import("pptxgenjs")).default;
   const pptx = new PptxGen();
@@ -180,9 +130,15 @@ export async function buildPptx(plan: PptxPlan, filename: string): Promise<void>
   type Slide = ReturnType<typeof pptx.addSlide>;
 
   const accent = normalizeHex(plan.accent, PPTX_DEFAULT_ACCENT);
-  const accentTint = tintHex(accent, 0.9);
+  const accentTint = tintHex(accent, 0.92);
+  const accentDeep = shadeHex(accent, 0.22);
   const palette = [accent, "0EA5E9", "10B981", "F59E0B", "EF4444", "8B5CF6", "EC4899", "14B8A6"];
   const deckTitle = plan.title || "Untitled";
+  const deckDate = new Date().toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
 
   const CW = 13.333;
   const M = 0.6;
@@ -240,59 +196,81 @@ export async function buildPptx(plan: PptxPlan, filename: string): Promise<void>
       slide.addShape("rect", { x: b.x, y: b.y, w: b.w, h: 0.09, fill: { color: accent } });
   };
 
-  const titleBar = (slide: Slide, title: string, subtitle?: string) => {
-    slide.addShape("roundRect", {
-      x: M,
-      y: 0.45,
-      w: 0.16,
-      h: 0.42,
-      fill: { color: accent },
-      rectRadius: 0.03,
-    });
+  // Header: a small uppercase kicker (the current section), the title, an accent
+  // tick + hairline rule, and optional right-aligned context.
+  const titleBar = (slide: Slide, title: string, kicker?: string, subtitle?: string) => {
+    if (kicker) {
+      slide.addText(kicker.toUpperCase(), {
+        x: M,
+        y: 0.4,
+        w: CONTENT_W,
+        h: 0.26,
+        fontSize: 10.5,
+        bold: true,
+        color: accent,
+        fontFace: PPTX_FONT,
+        charSpacing: 2.5,
+      });
+    }
     slide.addText(title || "", {
-      x: M + 0.34,
-      y: 0.36,
-      w: CONTENT_W - 0.34,
-      h: 0.62,
-      fontSize: 25,
+      x: M - 0.02,
+      y: kicker ? 0.64 : 0.5,
+      w: subtitle ? CONTENT_W - 3.6 : CONTENT_W,
+      h: 0.6,
+      fontSize: 24,
       bold: true,
       color: PPTX_INK,
       fontFace: PPTX_FONT,
     });
-    slide.addShape("rect", { x: M, y: 1.16, w: CONTENT_W, h: 0.014, fill: { color: PPTX_BORDER } });
     if (subtitle) {
       slide.addText(subtitle, {
-        x: M + 0.34,
-        y: 0.98,
-        w: CONTENT_W - 0.34,
+        x: M + CONTENT_W - 3.5,
+        y: kicker ? 0.78 : 0.64,
+        w: 3.5,
         h: 0.34,
-        fontSize: 12,
+        align: "right",
+        fontSize: 11.5,
         color: PPTX_SUB,
         fontFace: PPTX_FONT,
       });
     }
+    slide.addShape("rect", { x: M, y: 1.3, w: 0.5, h: 0.05, fill: { color: accent } });
+    slide.addShape("rect", {
+      x: M + 0.6,
+      y: 1.322,
+      w: CONTENT_W - 0.6,
+      h: 0.012,
+      fill: { color: PPTX_BORDER },
+    });
   };
 
   const takeawayBar = (slide: Slide, text: string) => {
     slide.addShape("roundRect", {
       x: M,
-      y: 6.35,
+      y: 6.4,
       w: CONTENT_W,
-      h: 0.62,
+      h: 0.58,
       fill: { color: accentTint },
-      line: { color: accent, width: 1 },
-      rectRadius: 0.06,
+      rectRadius: 0.08,
+    });
+    slide.addShape("roundRect", {
+      x: M,
+      y: 6.4,
+      w: 0.11,
+      h: 0.58,
+      fill: { color: accent },
+      rectRadius: 0.04,
     });
     slide.addText(
       [
-        { text: "Key insight   ", options: { bold: true, color: accent } },
+        { text: "KEY INSIGHT    ", options: { bold: true, color: accent, charSpacing: 1 } },
         { text, options: { color: PPTX_INK } },
       ],
       {
-        x: M + 0.25,
-        y: 6.35,
-        w: CONTENT_W - 0.5,
-        h: 0.62,
+        x: M + 0.32,
+        y: 6.4,
+        w: CONTENT_W - 0.6,
+        h: 0.58,
         valign: "middle",
         fontSize: 12,
         fontFace: PPTX_FONT,
@@ -316,11 +294,15 @@ export async function buildPptx(plan: PptxPlan, filename: string): Promise<void>
               ? pptx.ChartType.doughnut
               : pptx.ChartType.bar;
     const isPie = chart.type === "pie" || chart.type === "doughnut";
+    const isBarCol = chart.type === "bar" || chart.type === "column";
     const cats = chart.categories ?? [];
     const series = chart.series ?? [];
+    // Value labels on the bars when it stays readable — makes the chart feel
+    // data-rich without clutter (single series, not too many categories).
+    const showBarValues = isBarCol && series.length === 1 && cats.length <= 8;
     // Card frame behind the chart, chart inset with padding.
     card(slide, box);
-    const inset = { x: box.x + 0.25, y: box.y + 0.25, w: box.w - 0.5, h: box.h - 0.5 };
+    const inset = { x: box.x + 0.28, y: box.y + 0.28, w: box.w - 0.56, h: box.h - 0.56 };
     slide.addChart(
       type,
       series.map((ser) => ({ name: ser.name || "Series", labels: cats, values: ser.values ?? [] })),
@@ -333,23 +315,29 @@ export async function buildPptx(plan: PptxPlan, filename: string): Promise<void>
         legendFontSize: 9,
         legendFontFace: PPTX_FONT,
         showTitle: false,
-        showValue: isPie,
+        showValue: isPie || showBarValues,
         showPercent: isPie,
-        dataLabelColor: isPie ? "FFFFFF" : PPTX_BODY,
+        dataLabelColor: isPie ? "FFFFFF" : PPTX_SUB,
         dataLabelFontSize: 9,
         dataLabelFontFace: PPTX_FONT,
+        dataLabelFontBold: showBarValues,
+        dataLabelPosition: showBarValues ? "outEnd" : undefined,
         barDir: chart.type === "bar" ? "bar" : "col",
-        barGapWidthPct: 45,
+        barGapWidthPct: 42,
         catAxisLabelColor: PPTX_SUB,
         catAxisLabelFontSize: 9,
         catAxisLabelFontFace: PPTX_FONT,
+        catAxisLineShow: false,
         valAxisLabelColor: PPTX_SUB,
         valAxisLabelFontSize: 9,
         valAxisLabelFontFace: PPTX_FONT,
-        chartColorsOpacity: chart.type === "area" ? 45 : 100,
-        lineSize: 2,
+        valAxisLineShow: false,
+        valGridLine: isPie ? { style: "none" } : { color: PPTX_GRID, size: 1, style: "solid" },
+        catGridLine: { style: "none" },
+        chartColorsOpacity: chart.type === "area" ? 40 : 100,
+        lineSize: 2.5,
         lineSmooth: true,
-        holeSize: chart.type === "doughnut" ? 55 : undefined,
+        holeSize: chart.type === "doughnut" ? 62 : undefined,
       },
     );
   };
@@ -374,81 +362,123 @@ export async function buildPptx(plan: PptxPlan, filename: string): Promise<void>
     );
   };
 
-  // ── Cover: white with a right accent panel + translucent circles ──
+  // ── Cover: deep-ink canvas with layered translucent accent rings ──
   {
     const s = pptx.addSlide();
-    s.background = { color: "FFFFFF" };
-    s.addShape("rect", { x: 8.4, y: 0, w: CW - 8.4, h: 7.5, fill: { color: accent } });
+    s.background = { color: PPTX_INK_DEEP };
+    // Concentric accent rings bleeding off the top-right corner for depth.
     s.addShape("ellipse", {
-      x: 9.2,
-      y: -1.8,
-      w: 6,
-      h: 6,
-      fill: { color: "FFFFFF", transparency: 88 },
+      x: 8.9,
+      y: -2.6,
+      w: 7.4,
+      h: 7.4,
+      fill: { color: accent, transparency: 80 },
     });
     s.addShape("ellipse", {
-      x: 10.8,
-      y: 4.2,
-      w: 5,
-      h: 5,
-      fill: { color: "FFFFFF", transparency: 90 },
+      x: 10.3,
+      y: -1.0,
+      w: 5.2,
+      h: 5.2,
+      fill: { color: accentDeep, transparency: 74 },
     });
-    s.addShape("rect", { x: 0.85, y: 2.05, w: 1.3, h: 0.1, fill: { color: accent } });
-    s.addText(deckTitle, {
-      x: 0.8,
-      y: 2.35,
-      w: 7.1,
-      h: 2.0,
-      fontSize: 42,
+    s.addShape("ellipse", {
+      x: 11.5,
+      y: 3.3,
+      w: 3.6,
+      h: 3.6,
+      fill: { color: "FFFFFF", transparency: 92 },
+    });
+    // Accent eyebrow: a short rule + spaced uppercase meta.
+    s.addShape("rect", { x: 0.9, y: 2.02, w: 0.62, h: 0.09, fill: { color: accent } });
+    s.addText(`REPORT · ${deckDate.toUpperCase()}`, {
+      x: 1.64,
+      y: 1.82,
+      w: 8,
+      h: 0.4,
+      fontSize: 11.5,
       bold: true,
-      color: PPTX_INK,
+      color: tintHex(accent, 0.45),
+      fontFace: PPTX_FONT,
+      charSpacing: 3,
+    });
+    s.addText(deckTitle, {
+      x: 0.85,
+      y: 2.45,
+      w: 9.6,
+      h: 2.3,
+      fontSize: 46,
+      bold: true,
+      color: "FFFFFF",
       fontFace: PPTX_FONT,
       valign: "top",
+      lineSpacingMultiple: 0.98,
     });
     if (plan.subtitle) {
       s.addText(plan.subtitle, {
-        x: 0.85,
-        y: 4.5,
-        w: 7.0,
-        h: 0.9,
-        fontSize: 17,
-        color: PPTX_SUB,
+        x: 0.9,
+        y: 4.95,
+        w: 8.6,
+        h: 1.0,
+        fontSize: 18,
+        color: "CBD5E1",
         fontFace: PPTX_FONT,
       });
     }
-    s.addText(
-      `Generated ${new Date().toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })}`,
-      { x: 0.85, y: 6.6, w: 7, h: 0.4, fontSize: 11, color: PPTX_SUB, fontFace: PPTX_FONT },
-    );
+    s.addShape("rect", { x: 0.9, y: 6.45, w: 3.0, h: 0.02, fill: { color: "334155" } });
+    s.addText(`${(plan.slides ?? []).length} slides · Generated ${deckDate}`, {
+      x: 0.9,
+      y: 6.6,
+      w: 8,
+      h: 0.4,
+      fontSize: 11,
+      color: "94A3B8",
+      fontFace: PPTX_FONT,
+    });
   }
 
   // ── Content slides ──
   let sectionNo = 0;
+  let currentSection = ""; // drives the small kicker above each slide title
   for (const s of plan.slides ?? []) {
     const layout = pptxEffectiveLayout(s);
 
     if (layout === "section") {
       sectionNo += 1;
+      currentSection = s.title || `Section ${sectionNo}`;
       const slide = pptx.addSlide();
-      slide.background = { color: accent };
+      slide.background = { color: PPTX_INK_DEEP };
+      // Oversized, faint accent index bleeding off the bottom-right.
       slide.addText(String(sectionNo).padStart(2, "0"), {
-        x: 0.5,
-        y: -0.4,
-        w: 6,
-        h: 4.5,
-        fontSize: 200,
+        x: 6.4,
+        y: 1.1,
+        w: 6.6,
+        h: 6.2,
+        fontSize: 300,
         bold: true,
-        color: "FFFFFF",
-        transparency: 86,
+        color: accent,
+        transparency: 84,
+        align: "right",
+        valign: "bottom",
         fontFace: PPTX_FONT,
       });
-      slide.addShape("rect", { x: 0.9, y: 2.55, w: 1.3, h: 0.1, fill: { color: "FFFFFF" } });
+      slide.addShape("rect", { x: 0.9, y: 2.72, w: 0.62, h: 0.09, fill: { color: accent } });
+      slide.addText(`SECTION ${String(sectionNo).padStart(2, "0")}`, {
+        x: 1.64,
+        y: 2.52,
+        w: 8,
+        h: 0.4,
+        fontSize: 11.5,
+        bold: true,
+        color: tintHex(accent, 0.45),
+        fontFace: PPTX_FONT,
+        charSpacing: 3,
+      });
       slide.addText(s.title || "", {
         x: 0.9,
-        y: 2.8,
-        w: 11.5,
-        h: 1.4,
-        fontSize: 34,
+        y: 3.02,
+        w: 9.4,
+        h: 1.5,
+        fontSize: 38,
         bold: true,
         color: "FFFFFF",
         fontFace: PPTX_FONT,
@@ -456,12 +486,12 @@ export async function buildPptx(plan: PptxPlan, filename: string): Promise<void>
       });
       if (s.subtitle) {
         slide.addText(s.subtitle, {
-          x: 0.9,
-          y: 4.2,
-          w: 11.5,
-          h: 0.6,
-          fontSize: 16,
-          color: tintHex(accent, 0.75),
+          x: 0.92,
+          y: 4.6,
+          w: 8.8,
+          h: 0.8,
+          fontSize: 15,
+          color: "CBD5E1",
           fontFace: PPTX_FONT,
         });
       }
@@ -470,57 +500,73 @@ export async function buildPptx(plan: PptxPlan, filename: string): Promise<void>
     }
 
     const slide = pptx.addSlide({ masterName: "AGS_CONTENT" });
-    titleBar(slide, s.title, s.subtitle);
-    const bottom = s.takeaway ? 6.15 : 6.9;
-    const top = 1.5;
+    titleBar(slide, s.title, currentSection || deckTitle, s.subtitle);
+    const bottom = s.takeaway ? 6.25 : 6.95;
+    const top = 1.55;
     const hasChart = chartHasData(s.chart);
 
     if (layout === "kpi" && s.kpis?.length) {
       const kpis = s.kpis.slice(0, 5);
-      const gap = 0.3;
+      const gap = 0.28;
       const cardW = (CONTENT_W - gap * (kpis.length - 1)) / kpis.length;
       const cardY = 1.95;
-      const cardH = 2.35;
+      const cardH = 2.3;
       kpis.forEach((k, i) => {
         const x = M + i * (cardW + gap);
+        // Card with a thin accent top rule.
         card(slide, { x, y: cardY, w: cardW, h: cardH }, true);
-        slide.addText(k.value ?? "", {
-          x: x + 0.1,
-          y: cardY + 0.5,
-          w: cardW - 0.2,
-          h: 0.9,
-          align: "center",
-          fontSize: 32,
+        // Uppercase muted label.
+        slide.addText((k.label ?? "").toUpperCase(), {
+          x: x + 0.26,
+          y: cardY + 0.34,
+          w: cardW - 0.5,
+          h: 0.7,
+          fontSize: 10.5,
           bold: true,
-          color: accent,
-          fontFace: PPTX_FONT,
-        });
-        slide.addText(k.label ?? "", {
-          x: x + 0.15,
-          y: cardY + 1.42,
-          w: cardW - 0.3,
-          h: 0.5,
-          align: "center",
-          fontSize: 12,
           color: PPTX_SUB,
           fontFace: PPTX_FONT,
+          charSpacing: 1.2,
+          valign: "top",
         });
+        // Big value.
+        slide.addText(k.value ?? "", {
+          x: x + 0.24,
+          y: cardY + 0.9,
+          w: cardW - 0.42,
+          h: 0.9,
+          fontSize: 33,
+          bold: true,
+          color: PPTX_INK,
+          fontFace: PPTX_FONT,
+          valign: "middle",
+        });
+        // Delta as a soft colour pill.
         if (k.delta) {
+          const good = k.positive !== false;
+          slide.addShape("roundRect", {
+            x: x + 0.26,
+            y: cardY + cardH - 0.62,
+            w: Math.min(cardW - 0.5, 0.42 + k.delta.length * 0.11),
+            h: 0.34,
+            fill: { color: good ? "DCFCE7" : "FEE2E2" },
+            rectRadius: 0.17,
+          });
           slide.addText(k.delta, {
-            x: x + 0.1,
-            y: cardY + 1.9,
-            w: cardW - 0.2,
-            h: 0.35,
+            x: x + 0.26,
+            y: cardY + cardH - 0.62,
+            w: Math.min(cardW - 0.5, 0.42 + k.delta.length * 0.11),
+            h: 0.34,
             align: "center",
-            fontSize: 12,
+            valign: "middle",
+            fontSize: 10.5,
             bold: true,
-            color: k.positive === false ? "EF4444" : "10B981",
+            color: good ? "047857" : "B91C1C",
             fontFace: PPTX_FONT,
           });
         }
       });
       if (s.bullets?.length)
-        addBullets(slide, s.bullets, { x: M, y: 4.6, w: CONTENT_W, h: bottom - 4.6 });
+        addBullets(slide, s.bullets, { x: M, y: 4.55, w: CONTENT_W, h: bottom - 4.55 });
     } else if (layout === "twoColumn" && (hasChart || s.table)) {
       const leftW = 5.9;
       let ly = top;

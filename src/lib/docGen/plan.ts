@@ -67,18 +67,19 @@ export async function planPptx(args: PlanArgs): Promise<PptxPlan> {
       `"title": string, ` +
       `"layout"?: "section"|"kpi"|"chart"|"table"|"twoColumn"|"bullets", ` +
       `"subtitle"?: string, "bullets"?: string[], "paragraph"?: string, ` +
-      `"kpis"?: [{ "label": string, "value": string, "sql"?: string, "delta"?: string, "positive"?: boolean }], ` +
-      `"chart"?: { "type": "column"|"bar"|"line"|"area"|"pie"|"doughnut", "dataSql"?: string, "categories"?: string[], "series"?: [{ "name": string, "values": number[] }] }, ` +
+      `"kpiQuery"?: string, "kpis"?: [{ "label": string, "value": string, "delta"?: string, "positive"?: boolean }], ` +
+      `"chart"?: { "type": "column"|"bar"|"line"|"area"|"pie"|"doughnut", "query"?: string }, ` +
       `"table"?: { "columns": string[], "rows": (string|number|null)[][] }, ` +
       `"takeaway"?: string, "notes"?: string }] }\n` +
-      `DATA IS COMPUTED FOR YOU — this is the most important rule:\n` +
-      `- For EVERY chart, provide "dataSql": a read-only SELECT with GROUP BY over the DATA TABLES (use their exact SQL names + columns from CONTEXT), returning ≤ 12 rows where the FIRST column is the category label and the remaining numeric column(s) are the measure(s). The app runs it over the user's FULL data and fills the chart — so you do NOT need to hand-write categories/series (leave them out). Example: "SELECT region, SUM(revenue) AS revenue FROM sales GROUP BY region ORDER BY revenue DESC LIMIT 8".\n` +
-      `- For EVERY KPI card, provide "sql": a scalar aggregate returning ONE number (e.g. "SELECT SUM(revenue) FROM sales", "SELECT COUNT(*) FROM sales", "SELECT ROUND(AVG(margin),1) FROM sales"). Put a reasonable placeholder in "value" too. SQL runs in an in-browser engine (SQLite/standard SQL — GROUP BY, SUM/AVG/COUNT/MIN/MAX, ORDER BY, LIMIT, CASE, date functions like strftime).\n` +
-      `- Only reference tables/columns that appear in CONTEXT. If there are NO data tables, omit dataSql/sql and rely on the prompt.\n` +
+      `HOW DATA WORKS — READ CAREFULLY. You do NOT write SQL and you do NOT invent numbers. Instead you write a plain-English analytical QUESTION for each visual, and a built-in BI analyst runs it against the user's REAL data (plan → SQL → execute) and fills the chart/metric with the actual result. This is the ONLY reliable way to get correct figures.\n` +
+      `- For EVERY chart, set "query": a precise question that yields a small grouped result — a category/time dimension plus one or more measures. Examples: "monthly total revenue over the last 12 months", "top 8 products by units sold", "revenue share by region", "average order value by customer segment". Pick "type" to match: trend over time → line/area; comparison/ranking across categories → column/bar; part-of-whole (≤8 slices) → pie/doughnut. Do NOT include categories/series — they are computed.\n` +
+      `- For a "kpi" slide, set "kpiQuery": ONE question returning a single row of 3–5 headline metrics, e.g. "total revenue, number of orders, average order value and gross margin". Each returned column becomes a metric card automatically. You may still list "kpis" with a "delta"/"positive" (e.g. "+12%") — those annotations are kept, but the numeric "value" is overwritten with the real figure.\n` +
+      `- Reference the real subject matter from CONTEXT (table + column names) inside your questions so the analyst targets the right data. If there are NO data tables, omit query/kpiQuery and write the deck from the prompt + knowledge base.\n` +
+      `- Keep each chart question to a SINGLE dimension + measure(s) so it charts cleanly (≤ ~12 categories).\n` +
       `LAYOUT RULES:\n` +
-      `- 12–18 slides. The cover is generated from title/subtitle automatically — do NOT add a cover slide. "accent" is a hex colour without '#'.\n` +
-      `- Open with a "kpi" slide (4–5 metric cards). Include AT LEAST 5 "chart" slides across the deck, varied by type — trend → line/area, comparison → column/bar, composition → pie/doughnut, ranking → bar. Prefer one clear chart per slide.\n` +
-      `- Use 2–3 "section" divider slides to group the deck, and "twoColumn" slides (a chart with 2–4 explaining bullets) for analysis.\n` +
+      `- 12–18 slides. The cover is generated from title/subtitle automatically — do NOT add a cover slide. "accent" is a hex colour without '#' (pick one that fits the topic).\n` +
+      `- Open with a "kpi" slide (4–5 metric cards via kpiQuery). Include AT LEAST 6 "chart" slides across the deck, varied by type — trend → line/area, comparison → column/bar, composition → pie/doughnut, ranking → bar. Prefer one clear chart per slide.\n` +
+      `- Use 2–3 "section" divider slides to group the deck into chapters, and several "twoColumn" slides (a chart on the right with 2–4 explaining bullets on the left) for analysis.\n` +
       `- Use a "table" only when exact figures matter; prefer charts + KPIs over tables and plain text.\n` +
       `- Add a one-line "takeaway" insight to every data slide, and speaker "notes" to every slide.\n` +
       `- End with a "bullets" slide of key takeaways / recommended next steps. Keep bullets to short phrases (≤ ~12 words).`,
