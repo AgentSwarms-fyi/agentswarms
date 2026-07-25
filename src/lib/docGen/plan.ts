@@ -62,23 +62,25 @@ export async function planPptx(args: PlanArgs): Promise<PptxPlan> {
   return llmJson<PptxPlan>({
     systemPrompt:
       `${COMMON}\n` +
-      `You are designing a polished, executive-ready slide deck — rich with visuals, NOT walls of text.\n` +
+      `You are designing a polished, executive-ready slide deck — rich with data-filled visuals, NOT walls of text.\n` +
       `SCHEMA: { "title": string, "subtitle"?: string, "accent"?: string, "slides": [{ ` +
       `"title": string, ` +
       `"layout"?: "section"|"kpi"|"chart"|"table"|"twoColumn"|"bullets", ` +
       `"subtitle"?: string, "bullets"?: string[], "paragraph"?: string, ` +
-      `"kpis"?: [{ "label": string, "value": string, "delta"?: string, "positive"?: boolean }], ` +
-      `"chart"?: { "type": "column"|"bar"|"line"|"area"|"pie"|"doughnut", "categories": string[], "series": [{ "name": string, "values": number[] }] }, ` +
+      `"kpis"?: [{ "label": string, "value": string, "sql"?: string, "delta"?: string, "positive"?: boolean }], ` +
+      `"chart"?: { "type": "column"|"bar"|"line"|"area"|"pie"|"doughnut", "dataSql"?: string, "categories"?: string[], "series"?: [{ "name": string, "values": number[] }] }, ` +
       `"table"?: { "columns": string[], "rows": (string|number|null)[][] }, ` +
       `"takeaway"?: string, "notes"?: string }] }\n` +
-      `RULES:\n` +
-      `- 8–14 slides. The cover is generated from title/subtitle automatically — do NOT add a cover slide.\n` +
-      `- "accent" is a hex colour without '#', chosen to fit the topic (e.g. "4F46E5").\n` +
-      `- Open with a "kpi" slide: 3–5 metric cards with REAL numbers from the data (value like "$1.2M", "18%"), plus a "delta" where it makes sense.\n` +
-      `- Include AT LEAST 3 "chart" slides using a VARIETY of types — trend → line/area, comparison → column/bar, composition → pie/doughnut. Every chart MUST have non-empty "categories" and numeric "series" values grounded in the data; never emit an empty chart.\n` +
-      `- Use 1–2 "section" divider slides to group the deck, and a "twoColumn" slide (bullets + chart) where it helps.\n` +
-      `- Use a "table" ONLY when exact figures matter; prefer charts + KPIs over tables and plain text.\n` +
-      `- Add a one-line "takeaway" insight to data slides, and speaker "notes" to every slide.\n` +
+      `DATA IS COMPUTED FOR YOU — this is the most important rule:\n` +
+      `- For EVERY chart, provide "dataSql": a read-only SELECT with GROUP BY over the DATA TABLES (use their exact SQL names + columns from CONTEXT), returning ≤ 12 rows where the FIRST column is the category label and the remaining numeric column(s) are the measure(s). The app runs it over the user's FULL data and fills the chart — so you do NOT need to hand-write categories/series (leave them out). Example: "SELECT region, SUM(revenue) AS revenue FROM sales GROUP BY region ORDER BY revenue DESC LIMIT 8".\n` +
+      `- For EVERY KPI card, provide "sql": a scalar aggregate returning ONE number (e.g. "SELECT SUM(revenue) FROM sales", "SELECT COUNT(*) FROM sales", "SELECT ROUND(AVG(margin),1) FROM sales"). Put a reasonable placeholder in "value" too. SQL runs in an in-browser engine (SQLite/standard SQL — GROUP BY, SUM/AVG/COUNT/MIN/MAX, ORDER BY, LIMIT, CASE, date functions like strftime).\n` +
+      `- Only reference tables/columns that appear in CONTEXT. If there are NO data tables, omit dataSql/sql and rely on the prompt.\n` +
+      `LAYOUT RULES:\n` +
+      `- 12–18 slides. The cover is generated from title/subtitle automatically — do NOT add a cover slide. "accent" is a hex colour without '#'.\n` +
+      `- Open with a "kpi" slide (4–5 metric cards). Include AT LEAST 5 "chart" slides across the deck, varied by type — trend → line/area, comparison → column/bar, composition → pie/doughnut, ranking → bar. Prefer one clear chart per slide.\n` +
+      `- Use 2–3 "section" divider slides to group the deck, and "twoColumn" slides (a chart with 2–4 explaining bullets) for analysis.\n` +
+      `- Use a "table" only when exact figures matter; prefer charts + KPIs over tables and plain text.\n` +
+      `- Add a one-line "takeaway" insight to every data slide, and speaker "notes" to every slide.\n` +
       `- End with a "bullets" slide of key takeaways / recommended next steps. Keep bullets to short phrases (≤ ~12 words).`,
     userPrompt: userPrompt(args),
     model: args.model,

@@ -24,8 +24,17 @@ export type DocTable = { columns: string[]; rows: (string | number | null)[][] }
 /** A native (editable) chart embedded in a slide. */
 export type DocChart = {
   type: "bar" | "column" | "line" | "area" | "pie" | "doughnut";
-  categories: string[];
-  series: { name: string; values: number[] }[];
+  /**
+   * Read-only aggregation SQL over the connected tables (a GROUP BY returning a
+   * small result, ≤~12 rows): the FIRST column becomes the categories and each
+   * remaining numeric column becomes a series. When present the builder RUNS it
+   * over the user's full hydrated data, so the chart is filled with real numbers
+   * — strongly preferred over hand-written categories/series (which the model
+   * can't derive reliably from a small sample).
+   */
+  dataSql?: string;
+  categories?: string[];
+  series?: { name: string; values: number[] }[];
 };
 
 // ── PowerPoint ────────────────────────────────────────────────────────────────
@@ -33,6 +42,13 @@ export type DocChart = {
 export type PptxKpi = {
   label: string;
   value: string;
+  /**
+   * Scalar-aggregate SQL returning ONE number over the connected tables
+   * (e.g. `SELECT SUM(amount) FROM sales`). When present the builder runs it
+   * over full data and formats the result into `value` — so the metric is real,
+   * not a guess from the sample.
+   */
+  sql?: string;
   /** e.g. "+12%" or "-3.4pts". */
   delta?: string;
   /** Colours the delta green when true / omitted-with-a-"+", red otherwise. */
