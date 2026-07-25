@@ -44,6 +44,9 @@ export type CatalogColumn = {
   pii?: boolean;
   /** Curation/AI documentation — preserved across re-crawls. */
   description?: string;
+  /** Source-of-truth comment ingested from the external catalog (e.g. Unity
+   *  Catalog column comment). Crawler-owned; refreshed each crawl. */
+  comment?: string;
   /** Sample-based profile stats. */
   null_pct?: number;
   distinct_count?: number;
@@ -71,6 +74,12 @@ export type CrawledAsset = {
   format: string | null;
   file_count: number | null;
   pii: boolean;
+  /** External-catalog table comment (e.g. Unity Catalog). Seeds description on
+   *  first discovery only — never overwrites user/AI curation on re-crawl. */
+  description?: string | null;
+  /** External-catalog tags (e.g. Unity Catalog table tags). Seeds tags on
+   *  first discovery only. */
+  tags?: string[];
 };
 
 export type CrawlChanges = {
@@ -161,11 +170,92 @@ function previewSql(provider: WarehouseConfig["provider"], schema: string, table
   }
 }
 
+type UcMetadata = {
+  tableComment: Map<string, string>; // "schema.table" → comment
+  columnComment: Map<string, string>; // "schema.table.column" → comment
+  tableTags: Map<string, string[]>; // "schema.table" → ["name:value", …]
+};
+
+/**
+ * Ingest external-catalog metadata (table/column comments + table tags) from a
+ * Databricks Unity Catalog connection's information_schema. Each query is
+ * best-effort: a missing view or denied permission yields no enrichment, never
+ * a failed crawl.
+ *
+ * NOTE: unverified against a live Unity Catalog workspace — the SQL targets the
+ * documented UC information_schema surface and degrades gracefully if it differs.
+ */
+async function fetchUnityCatalogMetadata(config: WarehouseConfig): Promise<UcMetadata> {
+  const meta: UcMetadata = {
+    tableComment: new Map(),
+    columnComment: new Map(),
+    tableTags: new Map(),
+  };
+  const g = (row: Record<string, unknown>, k: string) => row[k] ?? row[k.toUpperCase()];
+  const key = (s: unknown, t: unknown) =>
+    `${String(s ?? "").toLowerCase()}.${String(t ?? "").toLowerCase()}`;
+
+  try {
+    const r = await executeWarehouseQuery(
+      config,
+      `SELECT table_schema, table_name, comment FROM information_schema.tables WHERE comment IS NOT NULL`,
+      5000,
+    );
+    for (const row of r.rows) {
+      const c = String(g(row, "comment") ?? "").trim();
+      if (c) meta.tableComment.set(key(g(row, "table_schema"), g(row, "table_name")), c);
+    }
+  } catch {
+    /* no table comments available */
+  }
+  try {
+    const r = await executeWarehouseQuery(
+      config,
+      `SELECT table_schema, table_name, column_name, comment FROM information_schema.columns WHERE comment IS NOT NULL`,
+      50000,
+    );
+    for (const row of r.rows) {
+      const c = String(g(row, "comment") ?? "").trim();
+      if (c) {
+        meta.columnComment.set(
+          `${key(g(row, "table_schema"), g(row, "table_name"))}.${String(g(row, "column_name") ?? "").toLowerCase()}`,
+          c,
+        );
+      }
+    }
+  } catch {
+    /* no column comments available */
+  }
+  try {
+    const r = await executeWarehouseQuery(
+      config,
+      `SELECT schema_name, table_name, tag_name, tag_value FROM information_schema.table_tags`,
+      50000,
+    );
+    for (const row of r.rows) {
+      const name = String(g(row, "tag_name") ?? "").trim();
+      if (!name) continue;
+      const val = String(g(row, "tag_value") ?? "").trim();
+      const tag = val ? `${name}:${val}` : name;
+      const k = key(g(row, "schema_name"), g(row, "table_name"));
+      const arr = meta.tableTags.get(k) ?? [];
+      if (!arr.includes(tag)) arr.push(tag);
+      meta.tableTags.set(k, arr);
+    }
+  } catch {
+    /* no tags available */
+  }
+  return meta;
+}
+
 export async function crawlWarehouse(
   config: WarehouseConfig,
 ): Promise<{ assets: CrawledAsset[]; sampled: number }> {
-  const [tables, estimates] = await Promise.all([listWarehouseTables(config), rowEstimates(config)]);
-  const assets = tables.map((t) => {
+  const [tables, estimates] = await Promise.all([
+    listWarehouseTables(config),
+    rowEstimates(config),
+  ]);
+  const assets: CrawledAsset[] = tables.map((t) => {
     const { columns, pii } = classify(t.columns.map((c) => ({ name: c.name, type: c.type })));
     return {
       asset_type: "table" as const,
@@ -180,6 +270,28 @@ export async function crawlWarehouse(
       pii,
     };
   });
+
+  // Unity Catalog enrichment (Databricks): fold table/column comments + table
+  // tags onto the crawled assets. Comments/tags seed catalog metadata but never
+  // overwrite user curation (see persistAssets).
+  if (config.provider === "databricks") {
+    try {
+      const uc = await fetchUnityCatalogMetadata(config);
+      for (const a of assets) {
+        const k = `${a.schema_name ?? ""}.${a.name}`.toLowerCase();
+        const tc = uc.tableComment.get(k);
+        if (tc) a.description = tc;
+        const tags = uc.tableTags.get(k);
+        if (tags && tags.length) a.tags = tags;
+        for (const col of a.columns) {
+          const cc = uc.columnComment.get(`${k}.${col.name.toLowerCase()}`);
+          if (cc) col.comment = cc;
+        }
+      }
+    } catch {
+      /* enrichment is optional — a plain crawl is still valid */
+    }
+  }
 
   // Sample-based column profiling: one cheap preview query per table,
   // biggest tables first, bounded so a large warehouse can't stall a crawl.
@@ -263,8 +375,7 @@ export async function crawlObjectStorage(
   const groups = groupObjects(objects);
   // Sample the biggest groups/files first — they carry the real datasets.
   const ranked = [...groups].sort(
-    (a, b) =>
-      b.objects.reduce((s, o) => s + o.size, 0) - a.objects.reduce((s, o) => s + o.size, 0),
+    (a, b) => b.objects.reduce((s, o) => s + o.size, 0) - a.objects.reduce((s, o) => s + o.size, 0),
   );
   const sampleBudget = new Set(ranked.slice(0, MAX_SAMPLES).map((g) => g));
 
@@ -350,17 +461,21 @@ export type ExistingAsset = {
   columns: CatalogColumn[];
   row_count: number | null;
   schema_hash: string | null;
+  description: string | null;
+  tags: string[];
 };
 
 export async function loadExistingAssets(sourceId: string): Promise<ExistingAsset[]> {
   const { data, error } = await supabaseAdmin
     .from("catalog_assets")
-    .select("id, fqn, columns, row_count, schema_hash")
+    .select("id, fqn, columns, row_count, schema_hash, description, tags")
     .eq("source_id", sourceId);
   if (error) throw new Error(error.message);
   return (data ?? []).map((r) => ({
     ...r,
     columns: (Array.isArray(r.columns) ? r.columns : []) as CatalogColumn[],
+    description: r.description ?? null,
+    tags: Array.isArray(r.tags) ? r.tags : [],
   }));
 }
 
@@ -409,6 +524,11 @@ export async function persistAssets(
       format: a.format,
       file_count: a.file_count,
       pii: a.pii,
+      // External-catalog metadata seeds description/tags on FIRST discovery
+      // only; on re-crawl we write the existing (possibly user-curated) values
+      // back unchanged, so curation is never clobbered.
+      description: prev ? prev.description : (a.description ?? null),
+      tags: prev ? prev.tags : (a.tags ?? []),
       schema_hash: hash,
       last_crawled_at: now,
     };

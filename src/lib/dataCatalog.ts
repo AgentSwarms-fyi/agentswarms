@@ -12,6 +12,8 @@ export type CatalogColumn = {
   pii?: boolean;
   /** Column documentation (AI-generated or hand-written); survives re-crawls. */
   description?: string;
+  /** Comment ingested from the external catalog (e.g. Unity Catalog). */
+  comment?: string;
   /** Sample-based profile stats from the last crawl. */
   null_pct?: number;
   distinct_count?: number;

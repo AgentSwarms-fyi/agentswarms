@@ -1006,12 +1006,12 @@ function AssetSheet({
                                   />
                                 )}
                               </span>
-                              {c.description && (
+                              {(c.description || c.comment) && (
                                 <p
                                   className="truncate font-sans text-[10px] font-normal text-muted-foreground"
-                                  title={c.description}
+                                  title={c.description || c.comment}
                                 >
-                                  {c.description}
+                                  {c.description || c.comment}
                                 </p>
                               )}
                             </td>
