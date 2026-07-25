@@ -98,11 +98,11 @@ function HoverMoreMenu() {
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "AgentSwarms — Open-Source, Self-Hosted Agentic AI Platform" },
+      { title: "AgentSwarms — Source-Available, Self-Hosted Agentic AI Platform" },
       {
         name: "description",
         content:
-          "Run AI agents, multi-agent swarms and AI-native BI on your own infrastructure. Visual builder, RAG, MCP, dashboards with an AI analyst, scheduled alerts, warehouse connectors, budgets, and full traces. One Supabase project, one Docker command, any model provider. MIT licensed.",
+          "Run AI agents, multi-agent swarms and AI-native BI on your own infrastructure. Visual builder, RAG, MCP, dashboards with an AI analyst, scheduled alerts, warehouse connectors, budgets, and full traces. One Supabase project, one Docker command, any model provider. Source-available (Elastic License 2.0).",
       },
       {
         name: "keywords",
@@ -113,13 +113,13 @@ export const Route = createFileRoute("/")({
       {
         property: "og:description",
         content:
-          "Deploy your own agentic AI platform: agents, swarms, RAG, and AI-native BI — dashboards, alerts, and an analyst that writes the SQL. Your Supabase, your model keys, one Docker command. Open source (MIT).",
+          "Deploy your own agentic AI platform: agents, swarms, RAG, and AI-native BI — dashboards, alerts, and an analyst that writes the SQL. Your Supabase, your model keys, one Docker command. Source-available (Elastic License 2.0).",
       },
       { name: "twitter:title", content: "AgentSwarms — Self-Hosted Agentic AI Platform" },
       {
         name: "twitter:description",
         content:
-          "Run agents and swarms on your own infrastructure. Any model provider, full traces, MIT licensed, deployed with one Docker command.",
+          "Run agents and swarms on your own infrastructure. Any model provider, full traces, source-available (Elastic License 2.0), deployed with one Docker command.",
       },
       { name: "twitter:card", content: "summary_large_image" },
       { property: "og:image", content: "/og-image.png" },
@@ -135,8 +135,8 @@ export const Route = createFileRoute("/")({
           applicationCategory: "DeveloperApplication",
           operatingSystem: "Self-hosted (Docker, Node.js, Cloudflare Workers)",
           description:
-            "Open-source, self-hosted agentic AI platform: visual agent builder, multi-agent swarm canvas, RAG, tools, MCP, budgets, and execution traces. Bring your own Supabase project and model provider keys.",
-          license: "https://opensource.org/license/mit",
+            "Source-available, self-hosted agentic AI platform: visual agent builder, multi-agent swarm canvas, RAG, tools, MCP, budgets, and execution traces. Bring your own Supabase project and model provider keys.",
+          license: "https://www.elastic.co/licensing/elastic-license",
           offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
           codeRepository: GITHUB_URL,
         }),
@@ -512,7 +512,7 @@ function LandingPage() {
                   { n: "1", l: "Command Deploy" },
                   { n: "19", l: "BI Visual Types" },
                   { n: "7", l: "Data Connectors" },
-                  { n: "MIT", l: "Licensed" },
+                  { n: "ELv2", l: "Licensed" },
                   { n: "100%", l: "Your Data" },
                 ].map((s) => (
                   <div key={s.l} className="space-y-1">
@@ -530,7 +530,8 @@ function LandingPage() {
                 animate={{ opacity: 1 }}
                 transition={{ duration: 0.55, delay: 0.3 }}
               >
-                Open source (MIT) · Bring your own keys · Docker, bare Node, or Cloudflare Workers
+                Source-available (Elastic License 2.0) · Bring your own keys · Docker, bare Node, or
+                Cloudflare Workers
               </motion.p>
             </div>
 

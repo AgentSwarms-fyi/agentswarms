@@ -38,7 +38,8 @@ export function SiteFooter() {
             </p>
             <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
               Agents, multi-agent swarms and an AI-native BI suite — deployed on your own
-              infrastructure, with your database and your model keys. MIT licensed.
+              infrastructure, with your database and your model keys. Source-available (Elastic
+              License 2.0).
             </p>
           </div>
 
@@ -137,7 +138,7 @@ export function SiteFooter() {
 
         <div className="mt-10 flex flex-col items-center justify-between gap-3 border-t border-border/40 pt-6 text-xs text-muted-foreground sm:flex-row">
           <span>© {year} AgentSwarms — Unified Agentic AI &amp; Business Intelligence.</span>
-          <span>Self-hosted · MIT licensed · Your data, your models.</span>
+          <span>Self-hosted · Source-available (ELv2) · Your data, your models.</span>
         </div>
       </div>
     </footer>
