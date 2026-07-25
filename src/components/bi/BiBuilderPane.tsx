@@ -61,7 +61,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { BiChatMessage } from "@/components/data-sql/BiChatMessage";
-import { BiChartRender, fmtBiNumber } from "@/components/bi/BiChartRender";
+import { BiChartRender, fmtBiValue } from "@/components/bi/BiChartRender";
 import { BiModelSelect } from "@/components/bi/BiModelSelect";
 import { keyFromSource, sourceFromKey, type BiDataContext } from "@/components/bi/biDataContext";
 import { OntologyGraph } from "@/components/bi/OntologyGraph";
@@ -840,13 +840,18 @@ export function BiBuilderPane({
     }
     if (spec.type === "line" || spec.type === "area") {
       if (grainSel !== "auto") analytics.dateGrain = grainSel as ChartSpec["dateGrain"];
-      if (compareSel !== "none") analytics.compare = compareSel as ChartSpec["compare"];
-      if (runningB) analytics.running = true;
-      if (spec.type === "line") {
-        if (trendB) analytics.trend = true;
-        const f = Number(forecastN);
-        if (forecastN.trim() && Number.isFinite(f) && f > 0) {
-          analytics.forecast = Math.min(24, Math.round(f));
+      // Running total / compare / trend / forecast are single-series only — the
+      // renderer skips them once the data is pivoted by a series split, so we
+      // also drop them from the spec to keep it honest.
+      if (!seriesField) {
+        if (compareSel !== "none") analytics.compare = compareSel as ChartSpec["compare"];
+        if (runningB) analytics.running = true;
+        if (spec.type === "line") {
+          if (trendB) analytics.trend = true;
+          const f = Number(forecastN);
+          if (forecastN.trim() && Number.isFinite(f) && f > 0) {
+            analytics.forecast = Math.min(24, Math.round(f));
+          }
         }
       }
     }
@@ -2182,58 +2187,71 @@ export function BiBuilderPane({
                               </SelectContent>
                             </Select>
                           </div>
-                          <div className="space-y-1">
-                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                              Compare
-                            </Label>
-                            <Select value={compareSel} onValueChange={setCompareSel}>
-                              <SelectTrigger className="h-8 text-xs">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="none" className="text-xs">
-                                  None
-                                </SelectItem>
-                                <SelectItem value="prior_period" className="text-xs">
-                                  Prior period
-                                </SelectItem>
-                                <SelectItem value="prior_year" className="text-xs">
-                                  Prior year
-                                </SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div className="col-span-2 flex flex-wrap items-center gap-4">
-                            <Label className="flex cursor-pointer items-center gap-1.5 text-xs font-normal">
-                              <Checkbox
-                                checked={runningB}
-                                onCheckedChange={(v) => setRunningB(Boolean(v))}
-                              />
-                              Running total
-                            </Label>
-                            {chartType === "line" && (
-                              <Label className="flex cursor-pointer items-center gap-1.5 text-xs font-normal">
-                                <Checkbox
-                                  checked={trendB}
-                                  onCheckedChange={(v) => setTrendB(Boolean(v))}
-                                />
-                                Trend line
-                              </Label>
-                            )}
-                            {chartType === "line" && (
-                              <span className="flex items-center gap-1.5 text-xs">
-                                Forecast
-                                <Input
-                                  value={forecastN}
-                                  onChange={(e) => setForecastN(e.target.value)}
-                                  className="h-7 w-14 text-xs"
-                                  placeholder="0"
-                                  inputMode="numeric"
-                                />
-                                periods
-                              </span>
-                            )}
-                          </div>
+                          {/* Running total, comparison, trend and forecast are
+                              single-series calculations — hidden while a series
+                              split is active so we never offer a toggle that the
+                              renderer can't apply. Date grain works either way. */}
+                          {seriesField ? (
+                            <p className="col-span-2 text-[10px] text-muted-foreground">
+                              Running total, compare, trend and forecast apply to single-series
+                              charts. Clear “Split by series” to use them.
+                            </p>
+                          ) : (
+                            <>
+                              <div className="space-y-1">
+                                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                                  Compare
+                                </Label>
+                                <Select value={compareSel} onValueChange={setCompareSel}>
+                                  <SelectTrigger className="h-8 text-xs">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="none" className="text-xs">
+                                      None
+                                    </SelectItem>
+                                    <SelectItem value="prior_period" className="text-xs">
+                                      Prior period
+                                    </SelectItem>
+                                    <SelectItem value="prior_year" className="text-xs">
+                                      Prior year
+                                    </SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="col-span-2 flex flex-wrap items-center gap-4">
+                                <Label className="flex cursor-pointer items-center gap-1.5 text-xs font-normal">
+                                  <Checkbox
+                                    checked={runningB}
+                                    onCheckedChange={(v) => setRunningB(Boolean(v))}
+                                  />
+                                  Running total
+                                </Label>
+                                {chartType === "line" && (
+                                  <Label className="flex cursor-pointer items-center gap-1.5 text-xs font-normal">
+                                    <Checkbox
+                                      checked={trendB}
+                                      onCheckedChange={(v) => setTrendB(Boolean(v))}
+                                    />
+                                    Trend line
+                                  </Label>
+                                )}
+                                {chartType === "line" && (
+                                  <span className="flex items-center gap-1.5 text-xs">
+                                    Forecast
+                                    <Input
+                                      value={forecastN}
+                                      onChange={(e) => setForecastN(e.target.value)}
+                                      className="h-7 w-14 text-xs"
+                                      placeholder="0"
+                                      inputMode="numeric"
+                                    />
+                                    periods
+                                  </span>
+                                )}
+                              </div>
+                            </>
+                          )}
                         </>
                       )}
 
@@ -2366,7 +2384,7 @@ export function BiBuilderPane({
                                       {row[c] === null || row[c] === undefined
                                         ? "null"
                                         : typeof row[c] === "number"
-                                          ? fmtBiNumber(row[c])
+                                          ? fmtBiValue(row[c], colFormats[c])
                                           : String(row[c])}
                                     </td>
                                   ))}

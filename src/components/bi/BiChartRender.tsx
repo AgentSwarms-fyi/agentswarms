@@ -69,15 +69,24 @@ import {
 } from "@/lib/biChartMath";
 import { cn } from "@/lib/utils";
 
-/** Y position for a configured reference line (null = don't draw). */
+/** Y position for a configured reference line (null = don't draw). For an
+ *  "avg" line we average across every value key, so a multi-series (pivoted)
+ *  chart — whose rows hold one column per series, not the raw yField — still
+ *  yields a meaningful line instead of silently drawing nothing. */
 function refLineY(
   ref: BiRefLine | undefined,
   data: Record<string, unknown>[],
-  yKey: string,
+  yKeys: string[],
 ): number | null {
   if (!ref) return null;
   if (ref.mode === "value") return Number.isFinite(ref.value) ? (ref.value as number) : null;
-  const nums = data.map((d) => Number(d[yKey])).filter((n) => Number.isFinite(n));
+  const nums: number[] = [];
+  for (const d of data) {
+    for (const k of yKeys) {
+      const n = Number(d[k]);
+      if (Number.isFinite(n)) nums.push(n);
+    }
+  }
   return nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : null;
 }
 
@@ -533,7 +542,11 @@ function BiChartRenderInner({
               cursor={{ fill: "var(--accent)", opacity: 0.35 }}
             />
             {(() => {
-              const refY = refLineY(chart.refLine, barData, chart.yField);
+              const refY = refLineY(
+                chart.refLine,
+                barData,
+                pivoted ? pivoted.series : [chart.yField],
+              );
               return refY !== null ? (
                 <ReferenceLine
                   y={refY}
@@ -672,7 +685,7 @@ function BiChartRenderInner({
         }
       }
     }
-    const refY = refLineY(chart.refLine, data, chart.yField);
+    const refY = refLineY(chart.refLine, data, pivoted ? pivoted.series : [chart.yField]);
     // Category clicks on the x-axis position cross-filter by the x value.
     const lineClick = onElementClick
       ? (state: { activeLabel?: string | number } | null) => {
@@ -810,6 +823,18 @@ function BiChartRenderInner({
     const pivoted = chart.seriesField
       ? pivotSeries(rows, chart.xField, chart.yField, chart.seriesField)
       : null;
+    // Analytics overlays apply to single-series areas only (mirrors the line
+    // chart) — running total and the prior-period/-year comparison.
+    let data = pivoted ? pivoted.data : aggregateByField(rows, chart.xField, [chart.yField]);
+    if (!pivoted) {
+      if (chart.running) data = cumulative(data, chart.yField);
+      if (chart.compare === "prior_period") {
+        data = priorPeriodOverlay(data, chart.yField, "__prior");
+      } else if (chart.compare === "prior_year") {
+        data = priorYearOverlay(data, chart.xField, chart.yField, "__prior");
+      }
+    }
+    const refY = refLineY(chart.refLine, data, pivoted ? pivoted.series : [chart.yField]);
     const areaClick = onElementClick
       ? (state: { activeLabel?: string | number } | null) => {
           if (state && state.activeLabel !== undefined && state.activeLabel !== null) {
@@ -824,7 +849,7 @@ function BiChartRenderInner({
       >
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart
-            data={pivoted ? pivoted.data : aggregateByField(rows, chart.xField, [chart.yField])}
+            data={data}
             margin={{ top: 12, right: 12, left: 0, bottom: 4 }}
             onClick={areaClick}
           >
@@ -843,6 +868,33 @@ function BiChartRenderInner({
               itemStyle={labelStyle}
               formatter={tooltipFmt}
             />
+            {refY !== null && (
+              <ReferenceLine
+                y={refY}
+                stroke={REF_COLOR}
+                strokeDasharray="4 3"
+                label={{
+                  value: chart.refLine?.label || (chart.refLine?.mode === "avg" ? "avg" : ""),
+                  fontSize: 10,
+                  fill: REF_COLOR,
+                  position: "insideTopRight",
+                }}
+              />
+            )}
+            {/* Prior-period/-year overlay drawn as a dashed, unfilled area so it
+                reads as a comparison line inside the AreaChart. */}
+            {!pivoted && chart.compare && (
+              <Area
+                type="monotone"
+                dataKey="__prior"
+                name={chart.compare === "prior_year" ? "prior year" : "prior period"}
+                stroke="var(--muted-foreground)"
+                strokeDasharray="5 4"
+                strokeWidth={1.5}
+                fill="none"
+                dot={false}
+              />
+            )}
             {/* Arrays, not fragments: recharts ignores fragment children. */}
             {pivoted ? (
               [
@@ -1433,7 +1485,7 @@ function buildSankey(
     const s = String(r[sourceField] ?? "—");
     const t = String(r[targetField] ?? "—");
     if (s === t) continue;
-    const k = `${s} ${t}`;
+    const k = `${s}\u0001${t}`;
     linkAgg.set(k, (linkAgg.get(k) ?? 0) + v);
   }
   if (linkAgg.size === 0) return null;
@@ -1442,7 +1494,7 @@ function buildSankey(
   const srcIdx = new Map<string, number>();
   const tgtIdx = new Map<string, number>();
   for (const key of linkAgg.keys()) {
-    const [s, t] = key.split(" ");
+    const [s, t] = key.split("\u0001");
     if (!srcIdx.has(s)) {
       srcIdx.set(s, srcVals.length);
       srcVals.push(s);
@@ -1454,7 +1506,7 @@ function buildSankey(
   }
   const nodes = [...srcVals, ...tgtVals].map((name) => ({ name }));
   const links = [...linkAgg.entries()].map(([key, value]) => {
-    const [s, t] = key.split(" ");
+    const [s, t] = key.split("\u0001");
     return { source: srcIdx.get(s)!, target: srcVals.length + tgtIdx.get(t)!, value };
   });
   return { nodes, links, srcCount: srcVals.length };
