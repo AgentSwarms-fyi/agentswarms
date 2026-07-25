@@ -3,16 +3,21 @@
 // playground to show a visual alongside an agent's natural-language answer.
 import { runBiTurn, loadSemantics, loadSavedMetrics } from "@/lib/biAgent";
 import { hydrateFromSupabase } from "@/lib/sqlEngine";
-import { widgetFromBiTurn, type BiWidget } from "@/lib/biDashboards";
+import { widgetFromBiTurn, WIDGET_ROW_CAP, type BiWidget } from "@/lib/biDashboards";
+import type { DocScope } from "@/lib/docGen/types";
+
+// The chat widget's row snapshot. `full` lets the visual cover the whole result
+// (up to a safety cap); `sample` keeps it light for a quick answer-side visual.
+const SCOPE_ROW_CAP: Record<DocScope, number> = { sample: WIDGET_ROW_CAP, full: 50_000 };
 
 /**
  * Produce a widget for `question`, or null when there's no usable data / the
  * analyst couldn't chart it. Never throws — a failed BI attempt must not break
- * the chat turn.
+ * the chat turn. `scope` controls how many result rows the widget snapshots.
  */
 export async function generateChatWidget(
   question: string,
-  model?: string,
+  opts: { model?: string; scope?: DocScope } = {},
 ): Promise<BiWidget | null> {
   try {
     const datasets = await hydrateFromSupabase();
@@ -26,13 +31,14 @@ export async function generateChatWidget(
       datasets,
       semantics,
       metrics,
-      model,
+      model: opts.model,
       onUpdate: () => {},
     });
     if (turn.status !== "done" || !turn.result || !turn.chart) return null;
     // A table-only "chart" adds little next to the text answer — skip it.
     if (turn.chart.type === "table") return null;
-    return widgetFromBiTurn(turn, { kind: "local" });
+    const cap = SCOPE_ROW_CAP[opts.scope ?? "sample"] ?? WIDGET_ROW_CAP;
+    return widgetFromBiTurn(turn, { kind: "local" }, cap);
   } catch {
     return null;
   }

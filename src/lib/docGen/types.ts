@@ -10,6 +10,14 @@ export const DOC_FORMAT_LABEL: Record<DocFormat, string> = {
   xlsx: "Excel",
 };
 
+/**
+ * How much of the underlying data to pull into a generated artifact.
+ * - `sample`: a capped preview (fast; a few dozen rows) — good for a quick draft.
+ * - `full`: every row from the query, so the workbook is complete/authoritative.
+ * Applies to Excel materialization and the chat BI widget's row snapshot.
+ */
+export type DocScope = "sample" | "full";
+
 /** A simple tabular block reused across formats. */
 export type DocTable = { columns: string[]; rows: (string | number | null)[][] };
 
@@ -42,8 +50,61 @@ export type DocxPlan = { title: string; blocks: DocxBlock[] };
 // ── Excel ─────────────────────────────────────────────────────────────────────
 // A cell is a literal value or an editable formula (Excel A1 syntax, no leading
 // "="), so a totals row like { formula: "SUM(B2:B10)" } stays live in the sheet.
-export type XlsxCell = string | number | boolean | null | { formula: string };
-export type XlsxSheet = { name: string; headers: string[]; rows: XlsxCell[][] };
+// A formula cell may carry an optional Excel number-format string (e.g. currency).
+export type XlsxCell = string | number | boolean | null | { formula: string; format?: string };
+
+/**
+ * A sheet the LLM authored with literal values (used when there's no table to
+ * query, or for the sampled quick-draft path).
+ */
+export type XlsxLiteralSheet = { name: string; headers: string[]; rows: XlsxCell[][] };
+
+/**
+ * A per-row calculated column appended to a data sheet. `formula` is an Excel
+ * A1-syntax template (no leading "="); the materializer resolves these tokens
+ * against the real, generated row range:
+ *   {col:Header} → that column's letter · {row} → the current data row number.
+ * e.g. "{col:Quantity}{row}*{col:UnitPrice}{row}".
+ */
+export type XlsxComputedColumn = {
+  header: string;
+  formula: string;
+  format?: "number" | "currency" | "percent";
+};
+
+/** A single summary/totals row appended below the data, with live formulas. */
+export type XlsxTotalsRow = {
+  /** Optional label placed in the first column (e.g. "Total"). */
+  label?: string;
+  /**
+   * Per-column aggregate formulas. `column` is a header (data or computed);
+   * `formula` is a template using {col:Header}/{first}/{last}, e.g.
+   * "SUM({col:Revenue}{first}:{col:Revenue}{last})".
+   */
+  cells?: { column: string; formula: string }[];
+};
+
+/**
+ * A data-bound sheet: the materializer runs `sourceSql` over the user's
+ * hydrated tables (ALL rows in `full` scope, capped in `sample`), then appends
+ * any computed columns + a totals row as live formulas over the real ranges.
+ */
+export type XlsxDataSheet = {
+  name: string;
+  sourceSql: string;
+  computedColumns?: XlsxComputedColumn[];
+  totals?: XlsxTotalsRow;
+};
+
+/** A plan sheet is either LLM-literal or data-bound (resolved at build time). */
+export type XlsxSheet = XlsxLiteralSheet | XlsxDataSheet;
 export type XlsxPlan = { sheets: XlsxSheet[] };
+
+/** After materialization every sheet is literal (formula cells preserved). */
+export type MaterializedXlsxPlan = { sheets: XlsxLiteralSheet[] };
+
+export function isXlsxDataSheet(s: XlsxSheet): s is XlsxDataSheet {
+  return typeof (s as XlsxDataSheet).sourceSql === "string";
+}
 
 export type DocPlan = PptxPlan | DocxPlan | XlsxPlan;

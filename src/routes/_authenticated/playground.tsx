@@ -49,6 +49,7 @@ import { DocGenBar } from "@/components/playground/DocGenBar";
 import { BiWidgetCard } from "@/components/bi/BiWidgetCard";
 import { generateChatWidget } from "@/lib/chatBi";
 import { parseWidgets } from "@/lib/biDashboards";
+import type { DocScope } from "@/lib/docGen/types";
 import { toast } from "sonner";
 import {
   ModelFallbackDialog,
@@ -135,6 +136,9 @@ function PlaygroundPage() {
   // A ref mirrors it so the async post-answer generator reads the live value.
   const [biVisuals, setBiVisuals] = useState(false);
   const biVisualsRef = useRef(false);
+  // Sample vs. full data scope for doc generation + the Visual BI widget.
+  const [dataScope, setDataScope] = useState<DocScope>("sample");
+  const dataScopeRef = useRef<DocScope>("sample");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -630,7 +634,7 @@ function PlaygroundPage() {
         const question =
           [...opts.historySnapshot].reverse().find((m) => m.role === "user")?.content ?? "";
         if (question) {
-          void generateChatWidget(question).then((widget) => {
+          void generateChatWidget(question, { scope: dataScopeRef.current }).then((widget) => {
             if (!widget) return;
             setMessages((prev) =>
               prev.map((m) =>
@@ -926,6 +930,9 @@ function PlaygroundPage() {
   useEffect(() => {
     biVisualsRef.current = biVisuals;
   }, [biVisuals]);
+  useEffect(() => {
+    dataScopeRef.current = dataScope;
+  }, [dataScope]);
 
   // Resolve template id for the guided tour. Prefer the agent's stored
   // tools.templateId; fall back to the value the templates page wrote into
@@ -1188,6 +1195,12 @@ function PlaygroundPage() {
             <DocGenBar
               agentId={selectedAgent || undefined}
               defaultPrompt={input}
+              conversation={messages.map((m) => ({
+                role: m.role === "user" ? "user" : "assistant",
+                content: m.content,
+              }))}
+              scope={dataScope}
+              onScopeChange={setDataScope}
               biControl={selectedAgent ? { enabled: biVisuals, onToggle: setBiVisuals } : undefined}
             />
           </div>

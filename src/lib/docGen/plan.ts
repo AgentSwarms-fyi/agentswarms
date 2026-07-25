@@ -5,12 +5,15 @@
 import { llmJson } from "@/lib/biAgent";
 import type { DocContext } from "@/utils/docGen.functions";
 
-import type { DocFormat, DocxPlan, PptxPlan, XlsxPlan } from "./types";
+import type { DocFormat, DocScope, DocxPlan, PptxPlan, XlsxPlan } from "./types";
+
+/** A trimmed slice of the chat so the document reflects the conversation. */
+export type PlanConversationTurn = { role: "user" | "assistant"; content: string };
 
 function contextBlock(ctx: DocContext): string {
   const parts: string[] = [];
   if (ctx.tables.length) {
-    parts.push("DATA TABLES (name — columns; then sample rows as JSON):");
+    parts.push("DATA TABLES (SQL name — columns; then sample rows as JSON):");
     for (const t of ctx.tables) {
       parts.push(`- ${t.name} — [${t.columns.join(", ")}]`);
       if (t.sample.length) parts.push(`  sample: ${JSON.stringify(t.sample.slice(0, 8))}`);
@@ -24,18 +27,37 @@ function contextBlock(ctx: DocContext): string {
   return parts.join("\n").slice(0, 12000);
 }
 
-const COMMON =
-  "You are a document-authoring assistant. Ground the content in the provided CONTEXT (data tables + knowledge-base excerpts) — prefer real values from the sample rows, and never invent numbers that contradict them. Output ONLY valid JSON matching the requested schema exactly: no prose, no markdown code fences.";
-
-function userPrompt(prompt: string, ctx: DocContext): string {
-  return `TASK: ${prompt}\n\nCONTEXT:\n${contextBlock(ctx)}`;
+/** Format the recent chat turns so the LLM can carry them into the document. */
+function conversationBlock(turns?: PlanConversationTurn[]): string {
+  if (!turns || turns.length === 0) return "";
+  const recent = turns.slice(-8).map((t) => {
+    const who = t.role === "user" ? "User" : "Assistant";
+    return `${who}: ${t.content.trim().slice(0, 800)}`;
+  });
+  return `\n\nCONVERSATION SO FAR (build on this — it's what the user was just discussing):\n${recent.join("\n")}`.slice(
+    0,
+    6000,
+  );
 }
 
-export async function planPptx(args: {
+const COMMON =
+  "You are a document-authoring assistant. Ground the content in the provided CONTEXT (data tables + knowledge-base excerpts) and the CONVERSATION — prefer real values from the sample rows, and never invent numbers that contradict them. Output ONLY valid JSON matching the requested schema exactly: no prose, no markdown code fences.";
+
+type PlanArgs = {
   prompt: string;
   context: DocContext;
   model?: string;
-}): Promise<PptxPlan> {
+  scope?: DocScope;
+  conversation?: PlanConversationTurn[];
+};
+
+function userPrompt(args: PlanArgs): string {
+  return `TASK: ${args.prompt}${conversationBlock(args.conversation)}\n\nCONTEXT:\n${contextBlock(
+    args.context,
+  )}`;
+}
+
+export async function planPptx(args: PlanArgs): Promise<PptxPlan> {
   return llmJson<PptxPlan>({
     systemPrompt:
       `${COMMON}\n` +
@@ -45,17 +67,13 @@ export async function planPptx(args: {
       `"chart"?: { "type": "bar"|"line"|"pie", "categories": string[], "series": [{ "name": string, "values": number[] }] }, ` +
       `"notes"?: string }] }\n` +
       `Produce 6–12 well-structured slides. Add a chart when the data supports a trend/comparison/breakdown. Use a table for detailed figures. Keep bullets concise.`,
-    userPrompt: userPrompt(args.prompt, args.context),
+    userPrompt: userPrompt(args),
     model: args.model,
     temperature: 0.4,
   });
 }
 
-export async function planDocx(args: {
-  prompt: string;
-  context: DocContext;
-  model?: string;
-}): Promise<DocxPlan> {
+export async function planDocx(args: PlanArgs): Promise<DocxPlan> {
   return llmJson<DocxPlan>({
     systemPrompt:
       `${COMMON}\n` +
@@ -65,27 +83,36 @@ export async function planDocx(args: {
       `{ "type": "bullets", "items": string[] } | ` +
       `{ "type": "table", "table": { "columns": string[], "rows": (string|number|null)[][] } }> }\n` +
       `Write a complete, well-organized document with headings, prose paragraphs, bullet lists and tables where useful.`,
-    userPrompt: userPrompt(args.prompt, args.context),
+    userPrompt: userPrompt(args),
     model: args.model,
     temperature: 0.4,
   });
 }
 
-export async function planXlsx(args: {
-  prompt: string;
-  context: DocContext;
-  model?: string;
-}): Promise<XlsxPlan> {
+export async function planXlsx(args: PlanArgs): Promise<XlsxPlan> {
+  const full = args.scope === "full";
   return llmJson<XlsxPlan>({
     systemPrompt:
       `${COMMON}\n` +
-      `SCHEMA: { "sheets": [{ "name": string, "headers": string[], ` +
-      `"rows": Array<Array<string | number | boolean | null | { "formula": string }>> }] }\n` +
-      `Build a real spreadsheet: a header row plus data rows. For COMPUTED cells emit a live formula as ` +
-      `{ "formula": "SUM(B2:B10)" } using Excel A1 syntax WITHOUT a leading "=". Reference actual cells ` +
-      `(row 1 is the header, so data starts at row 2). Add a totals/summary row with SUM/AVERAGE formulas ` +
-      `when it makes sense. Keep each row's length equal to headers.length.`,
-    userPrompt: userPrompt(args.prompt, args.context),
+      `A sheet is EITHER data-bound OR literal:\n` +
+      `• DATA-BOUND (STRONGLY PREFERRED whenever a relevant DATA TABLE exists): ` +
+      `{ "name": string, "sourceSql": string, ` +
+      `"computedColumns"?: [{ "header": string, "formula": string, "format"?: "number"|"currency"|"percent" }], ` +
+      `"totals"?: { "label"?: string, "cells"?: [{ "column": string, "formula": string }] } }. ` +
+      `"sourceSql" is a read-only SELECT over the DATA TABLES by their exact SQL name — it is executed for real and its ` +
+      `${full ? "FULL result (every row)" : "sampled result"} fills the sheet, so DO NOT list data rows yourself. ` +
+      `Select and alias the columns you want as headers. In "computedColumns" and "totals", formulas are Excel A1 ` +
+      `templates WITHOUT a leading "=", using these tokens which the builder resolves against the real rows: ` +
+      `{col:Header} = that column's letter, {row} = current data row number, {first}/{last} = first/last data row. ` +
+      `Example computedColumn formula "{col:Quantity}{row}*{col:UnitPrice}{row}"; example totals cell ` +
+      `"SUM({col:LineTotal}{first}:{col:LineTotal}{last})".\n` +
+      `• LITERAL (only when NO table applies, e.g. a KB-derived summary): ` +
+      `{ "name": string, "headers": string[], "rows": Array<Array<string|number|boolean|null|{ "formula": string }>> } ` +
+      `where formulas use plain A1 refs (row 1 is the header, data starts at row 2).\n` +
+      `SCHEMA: { "sheets": [ <data-bound or literal sheet> ] }\n` +
+      `Design a genuinely useful workbook: e.g. a bill of materials = a line-items sheet (sourceSql over the pricing ` +
+      `table, computed line totals) plus a summary sheet with monthly/annual roll-ups. Use multiple sheets when it helps.`,
+    userPrompt: userPrompt(args),
     model: args.model,
     temperature: 0.3,
   });
@@ -93,7 +120,7 @@ export async function planXlsx(args: {
 
 export async function planDocument(
   format: DocFormat,
-  args: { prompt: string; context: DocContext; model?: string },
+  args: PlanArgs,
 ): Promise<PptxPlan | DocxPlan | XlsxPlan> {
   if (format === "pptx") return planPptx(args);
   if (format === "docx") return planDocx(args);

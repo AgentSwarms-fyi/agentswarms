@@ -604,12 +604,19 @@ export function makeEmptyPage(name: string): BiPage {
   return { id: crypto.randomUUID(), name, widgets: [], layout: [] };
 }
 
-export function snapshotRows(rows: Record<string, unknown>[]): Record<string, unknown>[] {
-  return rows.slice(0, WIDGET_ROW_CAP);
+export function snapshotRows(
+  rows: Record<string, unknown>[],
+  cap: number = WIDGET_ROW_CAP,
+): Record<string, unknown>[] {
+  return rows.slice(0, Math.max(1, cap));
 }
 
 /** Build a chart widget from a finished BI-agent turn. */
-export function widgetFromBiTurn(turn: BiTurn, source: BiWidgetSource): BiWidget | null {
+export function widgetFromBiTurn(
+  turn: BiTurn,
+  source: BiWidgetSource,
+  rowCap: number = WIDGET_ROW_CAP,
+): BiWidget | null {
   if (!turn.sql || !turn.result || turn.status !== "done") return null;
   return {
     id: crypto.randomUUID(),
@@ -619,7 +626,7 @@ export function widgetFromBiTurn(turn: BiTurn, source: BiWidgetSource): BiWidget
     sql: turn.sql,
     chart: turn.chart ?? { type: "table" },
     columns: turn.result.columns,
-    rows: snapshotRows(turn.result.rows),
+    rows: snapshotRows(turn.result.rows, rowCap),
     narrative: turn.narrative,
     refreshed_at: new Date().toISOString(),
   };

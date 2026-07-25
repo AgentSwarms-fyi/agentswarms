@@ -3,7 +3,20 @@
 // user actually generates a document.
 import type { Cell, SheetData } from "write-excel-file/browser";
 
-import type { DocTable, DocxPlan, PptxPlan, XlsxCell, XlsxPlan } from "./types";
+import { hydrateFromSupabase, runQueryUnlimited } from "@/lib/sqlEngine";
+import type {
+  DocScope,
+  DocTable,
+  DocxPlan,
+  MaterializedXlsxPlan,
+  PptxPlan,
+  XlsxCell,
+  XlsxComputedColumn,
+  XlsxLiteralSheet,
+  XlsxPlan,
+  XlsxTotalsRow,
+} from "./types";
+import { isXlsxDataSheet } from "./types";
 
 function withExt(name: string, ext: string): string {
   const base = (name || "document").trim() || "document";
@@ -202,18 +215,158 @@ export async function buildDocx(plan: DocxPlan, filename: string): Promise<void>
   downloadBlob(blob, withExt(filename, "docx"));
 }
 
+// ── Excel materialization — turn data-bound sheets into literal ones ───────────
+// A data-bound sheet declares a `sourceSql`; here we run it over the user's
+// hydrated tables (ALL rows in `full` scope, capped in `sample`), then append
+// any computed columns and totals row as live Excel formulas resolved against
+// the real, now-known row ranges. Literal sheets pass straight through.
+
+const SCOPE_ROW_CAP: Record<DocScope, number> = { sample: 100, full: 100_000 };
+
+/** 0 → "A", 25 → "Z", 26 → "AA". */
+function colLetter(index0: number): string {
+  let n = index0;
+  let s = "";
+  do {
+    s = String.fromCharCode(65 + (n % 26)) + s;
+    n = Math.floor(n / 26) - 1;
+  } while (n >= 0);
+  return s;
+}
+
+/** Resolve {col:Header} / {row} / {first} / {last} tokens in a formula template. */
+function resolveFormula(
+  tmpl: string,
+  headerToLetter: Map<string, string>,
+  ctx: { row?: number; first?: number; last?: number },
+): string {
+  return tmpl
+    .replace(/\{col:([^}]+)\}/g, (_m, h: string) => headerToLetter.get(h.trim()) ?? "A")
+    .replace(/\{row\}/g, ctx.row != null ? String(ctx.row) : "")
+    .replace(/\{first\}/g, ctx.first != null ? String(ctx.first) : "")
+    .replace(/\{last\}/g, ctx.last != null ? String(ctx.last) : "");
+}
+
+const NUMBER_FORMATS: Record<NonNullable<XlsxComputedColumn["format"]>, string> = {
+  number: "#,##0.00",
+  currency: "$#,##0.00",
+  percent: "0.00%",
+};
+
+/** Coerce an arbitrary query value into a literal spreadsheet cell. */
+function toLiteral(v: unknown): XlsxCell {
+  if (v === null || v === undefined) return null;
+  if (typeof v === "number") return v;
+  if (typeof v === "boolean") return v;
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  return String(v);
+}
+
+function noteSheet(name: string, message: string): XlsxLiteralSheet {
+  return { name, headers: ["Note"], rows: [[message]] };
+}
+
+function materializeDataSheet(
+  name: string,
+  sourceSql: string,
+  computed: XlsxComputedColumn[],
+  totals: XlsxTotalsRow | undefined,
+  cap: number,
+): XlsxLiteralSheet {
+  let result: { columns: string[]; rows: Record<string, unknown>[] };
+  try {
+    result = runQueryUnlimited(sourceSql, cap);
+  } catch (e) {
+    return noteSheet(name, `Could not run query: ${(e as Error).message}`);
+  }
+
+  const headers = [...result.columns, ...computed.map((c) => c.header)];
+  const headerToLetter = new Map<string, string>();
+  headers.forEach((h, i) => {
+    if (!headerToLetter.has(h)) headerToLetter.set(h, colLetter(i));
+  });
+
+  const first = 2; // row 1 is the header
+  const last = 1 + result.rows.length;
+
+  const dataRows: XlsxCell[][] = result.rows.map((r, i) => {
+    const excelRow = first + i;
+    const base: XlsxCell[] = result.columns.map((c) => toLiteral(r[c]));
+    const calc: XlsxCell[] = computed.map((c) => ({
+      formula: resolveFormula(c.formula, headerToLetter, { row: excelRow }),
+      ...(c.format ? { format: NUMBER_FORMATS[c.format] } : {}),
+    }));
+    return [...base, ...calc];
+  });
+
+  const rows = [...dataRows];
+  if (totals && result.rows.length > 0 && (totals.label || totals.cells?.length)) {
+    const totalRow: XlsxCell[] = headers.map(() => null);
+    if (totals.label) totalRow[0] = totals.label;
+    for (const cell of totals.cells ?? []) {
+      const idx = headers.indexOf(cell.column);
+      if (idx >= 0) {
+        totalRow[idx] = { formula: resolveFormula(cell.formula, headerToLetter, { first, last }) };
+      }
+    }
+    rows.push(totalRow);
+  }
+
+  return { name, headers, rows };
+}
+
+/**
+ * Resolve a plan's data-bound sheets against the user's real data. Hydrates the
+ * in-browser SQL engine once (only when needed). Never throws for a single bad
+ * sheet — that sheet becomes a small note so the rest of the workbook still
+ * generates.
+ */
+export async function materializeXlsxPlan(
+  plan: XlsxPlan,
+  scope: DocScope,
+): Promise<MaterializedXlsxPlan> {
+  const cap = SCOPE_ROW_CAP[scope] ?? SCOPE_ROW_CAP.sample;
+  const hasData = (plan.sheets ?? []).some(isXlsxDataSheet);
+  if (hasData) {
+    try {
+      await hydrateFromSupabase();
+    } catch {
+      /* queries will surface a clear per-sheet note if tables are missing */
+    }
+  }
+
+  const sheets: XlsxLiteralSheet[] = (plan.sheets ?? []).map((s) => {
+    if (isXlsxDataSheet(s)) {
+      return materializeDataSheet(
+        s.name || "Sheet1",
+        s.sourceSql,
+        s.computedColumns ?? [],
+        s.totals,
+        cap,
+      );
+    }
+    return { name: s.name || "Sheet1", headers: s.headers ?? [], rows: s.rows ?? [] };
+  });
+
+  return { sheets };
+}
+
 // ── Excel (write-excel-file) — real cells + live formulas ─────────────────────
 function toXlsxCell(v: XlsxCell): Cell {
   if (v === null || v === undefined) return null;
   if (typeof v === "object" && "formula" in v) {
-    return { type: "Formula", value: v.formula } as unknown as Cell;
+    return {
+      type: "Formula",
+      value: v.formula,
+      ...(v.format ? { format: v.format } : {}),
+    } as unknown as Cell;
   }
   if (typeof v === "number") return Number.isFinite(v) ? { type: Number, value: v } : null;
   if (typeof v === "boolean") return { type: Boolean, value: v };
   return { type: String, value: String(v) };
 }
 
-export async function buildXlsx(plan: XlsxPlan, filename: string): Promise<void> {
+export async function buildXlsx(plan: MaterializedXlsxPlan, filename: string): Promise<void> {
   const writeXlsxFile = (await import("write-excel-file/browser")).default;
   const sheets = (plan.sheets ?? []).filter((s) => s && (s.headers?.length || s.rows?.length));
   if (sheets.length === 0) throw new Error("The plan produced no sheets");

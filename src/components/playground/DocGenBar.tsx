@@ -18,10 +18,12 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
-import { buildDocx, buildPptx, buildXlsx } from "@/lib/docGen/build";
+import { buildDocx, buildPptx, buildXlsx, materializeXlsxPlan } from "@/lib/docGen/build";
 import { planDocument } from "@/lib/docGen/plan";
-import { DOC_FORMAT_LABEL, type DocFormat } from "@/lib/docGen/types";
+import type { PlanConversationTurn } from "@/lib/docGen/plan";
+import { DOC_FORMAT_LABEL, type DocFormat, type DocScope } from "@/lib/docGen/types";
 import type { DocxPlan, PptxPlan, XlsxPlan } from "@/lib/docGen/types";
 import { gatherDocContext } from "@/utils/docGen.functions";
 
@@ -31,12 +33,20 @@ export function DocGenBar({
   agentId,
   defaultPrompt,
   model,
+  // Recent chat turns, so generated docs build on the conversation.
+  conversation,
+  // Sample vs. full data scope, shared with the playground's Visual BI widget.
+  scope = "sample",
+  onScopeChange,
   // Optional "Visual BI" toggle (wired by the playground when an agent is selected).
   biControl,
 }: {
   agentId?: string;
   defaultPrompt: string;
   model?: string;
+  conversation?: PlanConversationTurn[];
+  scope?: DocScope;
+  onScopeChange?: (next: DocScope) => void;
   biControl?: { enabled: boolean; onToggle: (next: boolean) => void; disabled?: boolean };
 }) {
   const { session } = useAuth();
@@ -68,7 +78,13 @@ export function DocGenBar({
       if (!ctx.ok) throw new Error(ctx.error);
 
       setPhase("planning");
-      const plan = await planDocument(format, { prompt: task, context: ctx.context, model });
+      const plan = await planDocument(format, {
+        prompt: task,
+        context: ctx.context,
+        model,
+        scope,
+        conversation,
+      });
 
       setPhase("building");
       const fileBase =
@@ -78,7 +94,12 @@ export function DocGenBar({
           .replace(/^-+|-+$/g, "") || "document";
       if (format === "pptx") await buildPptx(plan as PptxPlan, fileBase);
       else if (format === "docx") await buildDocx(plan as DocxPlan, fileBase);
-      else await buildXlsx(plan as XlsxPlan, fileBase);
+      else {
+        // Resolve any data-bound sheets against the user's real rows (all rows
+        // in full scope) before writing the workbook.
+        const materialized = await materializeXlsxPlan(plan as XlsxPlan, scope);
+        await buildXlsx(materialized, fileBase);
+      }
 
       toast.success(`${DOC_FORMAT_LABEL[format]} generated`);
       setFormat(null);
@@ -114,6 +135,28 @@ export function DocGenBar({
           >
             <BarChart3 className="h-3.5 w-3.5" /> Visual BI
           </Button>
+        )}
+        {onScopeChange && (
+          <div
+            className="flex h-7 items-center rounded-md border border-border bg-background p-0.5"
+            title="How much data to pull into Excel workbooks and the BI widget"
+          >
+            {(["sample", "full"] as const).map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => onScopeChange(s)}
+                className={cn(
+                  "rounded px-2 py-0.5 text-[11px] font-medium transition-colors",
+                  scope === s
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {s === "sample" ? "Sample" : "Full data"}
+              </button>
+            ))}
+          </div>
         )}
         <Button
           type="button"
@@ -153,7 +196,18 @@ export function DocGenBar({
             <DialogTitle>Generate {format ? DOC_FORMAT_LABEL[format] : ""}</DialogTitle>
             <DialogDescription>
               Describe the document. It&apos;s planned from your connected knowledge bases and data
-              tables, then built as a fully-editable file.
+              tables{conversation && conversation.length > 0 ? " and the current conversation" : ""}
+              , then built as a fully-editable file.
+              {format === "xlsx" && (
+                <>
+                  {" "}
+                  Using{" "}
+                  <span className="font-medium text-foreground">
+                    {scope === "full" ? "full data" : "a data sample"}
+                  </span>{" "}
+                  — change this with the toggle next to the generate buttons.
+                </>
+              )}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
