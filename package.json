@@ -113,6 +113,7 @@
     "vaul": "^1.1.2",
     "vite-tsconfig-paths": "^6.0.2",
     "world-atlas": "^2.0.2",
+    "write-excel-file": "^4.1.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {

@@ -59,11 +59,11 @@ import {
   hydrateFromSupabase,
   runQuery,
   deleteDataset,
-  resultToCsv,
   PLAYGROUND_ROW_CAP,
   type DatasetMeta,
   type QueryResult,
 } from "@/lib/sqlEngine";
+import { downloadCsv, downloadXlsx } from "@/lib/exportData";
 import { ensureSampleDataset, forceSeedSampleDataset, SAMPLE_TABLE_NAME } from "@/lib/sampleData";
 import { CsvUploadDialog } from "@/components/data-sql/CsvUploadDialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -567,14 +567,12 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
 
   function handleExport() {
     if (!result) return;
-    const csv = resultToCsv(result);
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "query-result.csv";
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadCsv(result.columns, result.rows, "query-result");
+  }
+
+  function handleExportXlsx() {
+    if (!result) return;
+    void downloadXlsx(result.columns, result.rows, "query-result", { sheet: "Query result" });
   }
 
   async function handleDeleteTable(d: DatasetMeta) {
@@ -1224,14 +1222,24 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
               )}
             </div>
             {result && result.row_count > 0 && (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={handleExport}
-                className="h-7 text-xs text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-foreground dark:hover:text-foreground dark:hover:bg-accent"
-              >
-                <Download className="h-3.5 w-3.5 mr-1.5" /> Export CSV
-              </Button>
+              <>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={handleExport}
+                  className="h-7 text-xs text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-foreground dark:hover:text-foreground dark:hover:bg-accent"
+                >
+                  <Download className="h-3.5 w-3.5 mr-1.5" /> CSV
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={handleExportXlsx}
+                  className="h-7 text-xs text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-foreground dark:hover:text-foreground dark:hover:bg-accent"
+                >
+                  <Download className="h-3.5 w-3.5 mr-1.5" /> Excel
+                </Button>
+              </>
             )}
           </div>
           <div className="flex-1 min-w-0 w-full overflow-auto bg-slate-50/30 dark:bg-muted/30">

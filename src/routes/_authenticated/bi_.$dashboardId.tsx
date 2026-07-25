@@ -112,6 +112,7 @@ import {
   type BiWidgetTheme,
 } from "@/lib/biDashboards";
 import { exportDashboardPdf } from "@/lib/biPdf";
+import { downloadCsv, downloadXlsx } from "@/lib/exportData";
 import { listPrepFlows } from "@/lib/dataPrep";
 import { fetchWarehouseSchema, runWarehouseQuery, runBiDirectQuery } from "@/lib/warehouseClient";
 import type { DirectFilter } from "@/lib/biDirectQuery";
@@ -1327,6 +1328,43 @@ function BiProjectPage() {
                                 <DropdownMenuItem onClick={() => setExploreWidget(w)}>
                                   <SearchCode className="mr-2 h-3.5 w-3.5" /> Explore data
                                 </DropdownMenuItem>
+                              )}
+                              {w.kind === "chart" && (w.rows?.length ?? 0) > 0 && (
+                                <DropdownMenuSub>
+                                  <DropdownMenuSubTrigger>
+                                    <FileDown className="mr-2 h-3.5 w-3.5" /> Export data
+                                  </DropdownMenuSubTrigger>
+                                  <DropdownMenuPortal>
+                                    <DropdownMenuSubContent>
+                                      <DropdownMenuItem
+                                        onClick={() =>
+                                          downloadCsv(
+                                            w.columns ?? [],
+                                            w.rows ?? [],
+                                            w.title || "widget",
+                                          )
+                                        }
+                                      >
+                                        CSV (.csv)
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem
+                                        onClick={() =>
+                                          void downloadXlsx(
+                                            w.columns ?? [],
+                                            w.rows ?? [],
+                                            w.title || "widget",
+                                            {
+                                              sheet: w.title || "Data",
+                                              columnFormats: w.chart?.columnFormats,
+                                            },
+                                          )
+                                        }
+                                      >
+                                        Excel (.xlsx)
+                                      </DropdownMenuItem>
+                                    </DropdownMenuSubContent>
+                                  </DropdownMenuPortal>
+                                </DropdownMenuSub>
                               )}
                               <DropdownMenuItem onClick={() => duplicateWidget(w.id)}>
                                 <Copy className="mr-2 h-3.5 w-3.5" /> Duplicate

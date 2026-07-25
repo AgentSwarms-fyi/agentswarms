@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import { WidgetDataTable } from "@/components/bi/BiWidgetCard";
 import { useAuth } from "@/hooks/use-auth";
+import { downloadCsv, downloadXlsx } from "@/lib/exportData";
 import { hydrateFromSupabase, isTableRegistered, runQueryUnlimited } from "@/lib/sqlEngine";
 import { runWarehouseQuery } from "@/lib/warehouseClient";
 import type { BiCrossFilter, BiWidget } from "@/lib/biDashboards";
@@ -100,22 +101,7 @@ export function BiExploreDialog({
     return rows.filter((r) => String(r[context.column]) === context.value);
   }, [rows, context, applyContext, contextApplies]);
 
-  function downloadCsv() {
-    const esc = (v: unknown) => {
-      const s = v === null || v === undefined ? "" : String(v);
-      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-    };
-    const lines = [
-      columns.map(esc).join(","),
-      ...view.map((r) => columns.map((c) => esc(r[c])).join(",")),
-    ];
-    const blob = new Blob([lines.join("\n")], { type: "text/csv" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `${table ?? "data"}-underlying.csv`;
-    a.click();
-    URL.revokeObjectURL(a.href);
-  }
+  const exportName = `${table ?? "data"}-underlying`;
 
   return (
     <Dialog open={widget !== null} onOpenChange={(o) => !o && onClose()}>
@@ -151,10 +137,21 @@ export function BiExploreDialog({
               size="sm"
               variant="outline"
               className="h-7 gap-1 text-xs"
-              onClick={downloadCsv}
+              onClick={() => downloadCsv(columns, view, exportName)}
               disabled={loading || view.length === 0}
             >
               <Download className="h-3 w-3" /> CSV
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 gap-1 text-xs"
+              onClick={() =>
+                void downloadXlsx(columns, view, exportName, { sheet: table ?? "data" })
+              }
+              disabled={loading || view.length === 0}
+            >
+              <Download className="h-3 w-3" /> Excel
             </Button>
           </div>
         </div>
