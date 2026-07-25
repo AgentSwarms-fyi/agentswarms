@@ -21,7 +21,7 @@ import {
   type DatasetMeta,
   type QueryResult,
 } from "@/lib/sqlEngine";
-import type { PptxKpi, PptxPlan } from "./types";
+import type { DocTable, PptxKpi, PptxPlan, PptxSlide } from "./types";
 
 type BiCtx = {
   datasets: DatasetMeta[];
@@ -135,6 +135,42 @@ function kpisFromResult(res: ResultLike): PptxKpi[] {
   }));
 }
 
+/** When the model gives a chart no query, derive one from the slide's own text. */
+function deriveChartQuestion(slide: PptxSlide): string {
+  const parts = [slide.title, slide.subtitle].map((p) => (p || "").trim()).filter(Boolean);
+  return parts.join(" — ") || (slide.takeaway || "").trim() || "key metrics overview";
+}
+
+/** A small, display-ready table from a query result — the never-empty fallback. */
+function resultToTable(res: ResultLike): DocTable {
+  const cols = res.columns.slice(0, 6);
+  const rows = res.rows.slice(0, 10).map((r) =>
+    cols.map((c): string | number | null => {
+      const v = r[c];
+      if (v === null || v === undefined) return "";
+      if (typeof v === "number") return v;
+      const n = toNum(v);
+      return Number.isFinite(n) && String(v).trim() !== "" && !/[a-z]/i.test(String(v))
+        ? n
+        : String(v);
+    }),
+  );
+  return { columns: cols.map(prettifyLabel), rows };
+}
+
+/** Last-resort content so a slide is never blank: a peek at the primary table. */
+function fallbackTable(ctx: BiCtx): DocTable | null {
+  const ds = ctx.datasets[0];
+  if (!ds) return null;
+  try {
+    const r = runQueryUnlimited(`SELECT * FROM \`${ds.name}\` LIMIT 8`, 8);
+    if (!r.rows.length) return null;
+    return resultToTable({ columns: r.columns, rows: r.rows });
+  } catch {
+    return null;
+  }
+}
+
 /** Bounded-concurrency runner so we don't fire 15 LLM calls at the provider at once. */
 async function runPool(jobs: Array<() => Promise<void>>, limit: number): Promise<void> {
   let i = 0;
@@ -158,9 +194,7 @@ export async function materializePptxWithBI(
   opts: { model?: string } = {},
 ): Promise<void> {
   const slides = plan.slides ?? [];
-  const needs = slides.some(
-    (s) => s.chart?.query || s.chart?.dataSql || s.kpiQuery || s.kpis?.some((k) => k.sql),
-  );
+  const needs = slides.some((s) => s.chart || s.kpiQuery || s.kpis?.some((k) => k.sql));
   if (!needs) return;
 
   let datasets: DatasetMeta[] = [];
@@ -180,30 +214,47 @@ export async function materializePptxWithBI(
   const jobs: Array<() => Promise<void>> = [];
 
   for (const s of slides) {
-    // ── Charts ── prefer the NL question (BI analyst); else raw dataSql (no LLM).
-    if (s.chart?.query) {
+    // ── Charts ── EVERY chart slide gets a real data attempt so visuals are
+    // never empty. Use the model's NL query, else its raw dataSql, else a
+    // question derived from the slide title. Real results overwrite any values
+    // the model guessed; if the data can't be charted, fall back to a real
+    // table (or a peek at the primary table) so the slide is never blank.
+    if (s.chart) {
+      const slide = s;
       const chart = s.chart;
-      const q = chart.query;
+      const rawSql = !chart.query ? chart.dataSql?.trim() : undefined;
+      const question = chart.query?.trim() || (rawSql ? "" : deriveChartQuestion(slide));
       jobs.push(async () => {
-        const res = await analyze(q ?? "", ctx);
+        let res: ResultLike | null = null;
+        if (rawSql) {
+          try {
+            const r = runQueryUnlimited(rawSql, 60);
+            res = { columns: r.columns, rows: r.rows };
+          } catch {
+            res = null;
+          }
+        } else if (question) {
+          res = await analyze(question, ctx);
+        }
         const data = res ? chartDataFromResult(res) : null;
         if (data) {
           chart.categories = data.categories;
           chart.series = data.series;
+          return;
+        }
+        // No chartable data — drop the guessed/empty chart (chartHasData will
+        // skip it) and make sure the slide still shows something real.
+        chart.categories = undefined;
+        chart.series = undefined;
+        const blank = !slide.table && !(slide.bullets && slide.bullets.length) && !slide.paragraph;
+        if (blank) {
+          if (res && res.rows.length) slide.table = resultToTable(res);
+          else {
+            const fb = fallbackTable(ctx);
+            if (fb) slide.table = fb;
+          }
         }
       });
-    } else if (s.chart?.dataSql) {
-      const chart = s.chart;
-      try {
-        const r = runQueryUnlimited(chart.dataSql ?? "", 60);
-        const data = chartDataFromResult({ columns: r.columns, rows: r.rows });
-        if (data) {
-          chart.categories = data.categories;
-          chart.series = data.series;
-        }
-      } catch {
-        /* keep any model-provided series */
-      }
     }
 
     // ── KPIs ── prefer one multi-metric question; else per-card scalar sql.

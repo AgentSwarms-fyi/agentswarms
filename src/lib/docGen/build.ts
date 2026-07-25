@@ -84,6 +84,30 @@ function shadeHex(hex: string, amt: number): string {
     .toUpperCase();
 }
 
+/** Relative luminance (0..1) of a hex colour. */
+function luminance(hex: string): number {
+  const n = parseInt(hex, 16);
+  return (0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255;
+}
+
+/**
+ * A version of `hex` guaranteed to read on the DARK cover/section background —
+ * lighten until it's clearly visible. Fixes dark accents (e.g. navy) that the
+ * model may pick, which would otherwise be invisible on the deep-ink slides.
+ */
+function onDark(hex: string): string {
+  let c = tintHex(hex, 0.4);
+  for (let i = 0; i < 6 && luminance(c) < 0.62; i++) c = tintHex(c, 0.3);
+  return c;
+}
+
+/** A version of `hex` guaranteed to read as TEXT on white content slides. */
+function onLight(hex: string): string {
+  let c = hex;
+  for (let i = 0; i < 6 && luminance(c) > 0.6; i++) c = shadeHex(c, 0.28);
+  return c;
+}
+
 /** A chart is renderable only when it actually has categories + series values. */
 function chartHasData(c?: DocChart): c is DocChart {
   return (
@@ -132,7 +156,10 @@ export async function buildPptx(
   const accent = normalizeHex(plan.accent, PPTX_DEFAULT_ACCENT);
   const accentTint = tintHex(accent, 0.92);
   const accentDeep = shadeHex(accent, 0.22);
-  const palette = [accent, "0EA5E9", "10B981", "F59E0B", "EF4444", "8B5CF6", "EC4899", "14B8A6"];
+  // Accent darkened just enough to read as TEXT on white content slides (a
+  // pale accent the model picked would otherwise wash out).
+  const accentInk = onLight(accent);
+  const palette = [accentInk, "0EA5E9", "10B981", "F59E0B", "EF4444", "8B5CF6", "EC4899", "14B8A6"];
   const deckTitle = plan.title || "Untitled";
   const deckDate = new Date().toLocaleDateString(undefined, {
     year: "numeric",
@@ -200,14 +227,14 @@ export async function buildPptx(
   // tick + hairline rule, and optional right-aligned context.
   const titleBar = (slide: Slide, title: string, kicker?: string, subtitle?: string) => {
     if (kicker) {
-      slide.addText(kicker.toUpperCase(), {
+      slide.addText(kicker.toUpperCase().slice(0, 60), {
         x: M,
         y: 0.4,
         w: CONTENT_W,
         h: 0.26,
         fontSize: 10.5,
         bold: true,
-        color: accent,
+        color: accentInk,
         fontFace: PPTX_FONT,
         charSpacing: 2.5,
       });
@@ -216,11 +243,12 @@ export async function buildPptx(
       x: M - 0.02,
       y: kicker ? 0.64 : 0.5,
       w: subtitle ? CONTENT_W - 3.6 : CONTENT_W,
-      h: 0.6,
-      fontSize: 24,
+      h: 0.62,
+      fontSize: (title || "").length > 60 ? 20 : 24,
       bold: true,
       color: PPTX_INK,
       fontFace: PPTX_FONT,
+      fit: "shrink",
     });
     if (subtitle) {
       slide.addText(subtitle, {
@@ -263,8 +291,8 @@ export async function buildPptx(
     });
     slide.addText(
       [
-        { text: "KEY INSIGHT    ", options: { bold: true, color: accent, charSpacing: 1 } },
-        { text, options: { color: PPTX_INK } },
+        { text: "KEY INSIGHT    ", options: { bold: true, color: accentInk, charSpacing: 1 } },
+        { text: (text || "").slice(0, 240), options: { color: PPTX_INK } },
       ],
       {
         x: M + 0.32,
@@ -274,6 +302,7 @@ export async function buildPptx(
         valign: "middle",
         fontSize: 12,
         fontFace: PPTX_FONT,
+        fit: "shrink",
       },
     );
   };
@@ -397,7 +426,7 @@ export async function buildPptx(
       h: 0.4,
       fontSize: 11.5,
       bold: true,
-      color: tintHex(accent, 0.45),
+      color: onDark(accent),
       fontFace: PPTX_FONT,
       charSpacing: 3,
     });
@@ -406,12 +435,13 @@ export async function buildPptx(
       y: 2.45,
       w: 9.6,
       h: 2.3,
-      fontSize: 46,
+      fontSize: deckTitle.length > 48 ? 36 : 46,
       bold: true,
       color: "FFFFFF",
       fontFace: PPTX_FONT,
       valign: "top",
       lineSpacingMultiple: 0.98,
+      fit: "shrink",
     });
     if (plan.subtitle) {
       s.addText(plan.subtitle, {
@@ -447,7 +477,7 @@ export async function buildPptx(
       currentSection = s.title || `Section ${sectionNo}`;
       const slide = pptx.addSlide();
       slide.background = { color: PPTX_INK_DEEP };
-      // Oversized, faint accent index bleeding off the bottom-right.
+      // Oversized, faint index bleeding off the bottom-right (readable on dark).
       slide.addText(String(sectionNo).padStart(2, "0"), {
         x: 6.4,
         y: 1.1,
@@ -455,13 +485,19 @@ export async function buildPptx(
         h: 6.2,
         fontSize: 300,
         bold: true,
-        color: accent,
-        transparency: 84,
+        color: onDark(accent),
+        transparency: 86,
         align: "right",
         valign: "bottom",
         fontFace: PPTX_FONT,
       });
-      slide.addShape("rect", { x: 0.9, y: 2.72, w: 0.62, h: 0.09, fill: { color: accent } });
+      slide.addShape("rect", {
+        x: 0.9,
+        y: 2.72,
+        w: 0.62,
+        h: 0.09,
+        fill: { color: onDark(accent) },
+      });
       slide.addText(`SECTION ${String(sectionNo).padStart(2, "0")}`, {
         x: 1.64,
         y: 2.52,
@@ -469,7 +505,7 @@ export async function buildPptx(
         h: 0.4,
         fontSize: 11.5,
         bold: true,
-        color: tintHex(accent, 0.45),
+        color: onDark(accent),
         fontFace: PPTX_FONT,
         charSpacing: 3,
       });
@@ -478,11 +514,12 @@ export async function buildPptx(
         y: 3.02,
         w: 9.4,
         h: 1.5,
-        fontSize: 38,
+        fontSize: (s.title || "").length > 42 ? 30 : 38,
         bold: true,
         color: "FFFFFF",
         fontFace: PPTX_FONT,
         valign: "top",
+        fit: "shrink",
       });
       if (s.subtitle) {
         slide.addText(s.subtitle, {
