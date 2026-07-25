@@ -129,6 +129,10 @@ export type BiDashboardRow = {
   /** Usage analytics: opens across editor, shares and embeds. */
   view_count: number;
   last_viewed_at: string | null;
+  /** Optional placement: a shared workspace and/or a folder within it (or a
+   *  personal folder when workspace_id is null). Both null = personal + ungrouped. */
+  workspace_id: string | null;
+  folder_id: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -736,6 +740,8 @@ export async function updateDashboard(
     published: boolean;
     public_slug: string | null;
     published_at: string | null;
+    workspace_id: string | null;
+    folder_id: string | null;
   }>,
 ): Promise<void> {
   const { error } = await supabase.from("bi_dashboards").update(patch).eq("id", id);

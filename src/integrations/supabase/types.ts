@@ -434,6 +434,8 @@ export type Database = {
           user_id: string;
           view_count: number;
           widgets: Json;
+          workspace_id: string | null;
+          folder_id: string | null;
         };
         Insert: {
           ai_model?: string | null;
@@ -452,6 +454,8 @@ export type Database = {
           user_id: string;
           view_count?: number;
           widgets?: Json;
+          workspace_id?: string | null;
+          folder_id?: string | null;
         };
         Update: {
           ai_model?: string | null;
@@ -471,6 +475,92 @@ export type Database = {
           user_id?: string;
           view_count?: number;
           widgets?: Json;
+          workspace_id?: string | null;
+          folder_id?: string | null;
+        };
+        Relationships: [];
+      };
+      bi_workspaces: {
+        Row: {
+          id: string;
+          name: string;
+          description: string | null;
+          created_by: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          description?: string | null;
+          created_by: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          name?: string;
+          description?: string | null;
+          created_by?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      bi_workspace_members: {
+        Row: {
+          id: string;
+          workspace_id: string;
+          principal_type: string;
+          principal_id: string;
+          role: string;
+          created_by: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          workspace_id: string;
+          principal_type: string;
+          principal_id: string;
+          role?: string;
+          created_by?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          workspace_id?: string;
+          principal_type?: string;
+          principal_id?: string;
+          role?: string;
+          created_by?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      bi_folders: {
+        Row: {
+          id: string;
+          workspace_id: string | null;
+          user_id: string;
+          parent_id: string | null;
+          name: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          workspace_id?: string | null;
+          user_id: string;
+          parent_id?: string | null;
+          name: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          workspace_id?: string | null;
+          user_id?: string;
+          parent_id?: string | null;
+          name?: string;
+          created_at?: string;
         };
         Relationships: [];
       };
