@@ -13,6 +13,7 @@ import {
   FolderInput,
   FolderPlus,
   Gauge,
+  GitBranch,
   Globe,
   LayoutDashboard,
   Link2,
@@ -51,6 +52,7 @@ import { BiThumbnail } from "@/components/bi/BiThumbnail";
 import { BiMoveDialog } from "@/components/bi/BiMoveDialog";
 import { BiPromoteDialog } from "@/components/bi/BiPromoteDialog";
 import { BiWorkspaceManager } from "@/components/bi/BiWorkspaceManager";
+import { BiGitSyncDialog } from "@/components/bi/BiGitSyncDialog";
 import { useAuth } from "@/hooks/use-auth";
 import { useIsSuperadmin } from "@/hooks/use-iam";
 import {
@@ -105,6 +107,7 @@ function BiWorkspacePage() {
   const [moveTarget, setMoveTarget] = useState<BiDashboardRow | null>(null);
   const [promoteTarget, setPromoteTarget] = useState<BiDashboardRow | null>(null);
   const [wsManagerOpen, setWsManagerOpen] = useState(false);
+  const [gitSyncOpen, setGitSyncOpen] = useState(false);
   const [addingFolder, setAddingFolder] = useState(false);
   const [folderName, setFolderName] = useState("");
 
@@ -225,9 +228,16 @@ function BiWorkspacePage() {
             with the AI analyst — then publish them with a link or share them with groups.
           </p>
         </div>
-        <Button className="gap-1.5" onClick={() => setCreateOpen(true)}>
-          <Plus className="h-4 w-4" /> New BI project
-        </Button>
+        <div className="flex items-center gap-2">
+          {isAdmin && (
+            <Button variant="outline" className="gap-1.5" onClick={() => setGitSyncOpen(true)}>
+              <GitBranch className="h-4 w-4" /> Git sync
+            </Button>
+          )}
+          <Button className="gap-1.5" onClick={() => setCreateOpen(true)}>
+            <Plus className="h-4 w-4" /> New BI project
+          </Button>
+        </div>
       </div>
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as "projects" | "prep")}>
@@ -595,6 +605,8 @@ function BiWorkspacePage() {
           onChanged={reloadOrg}
         />
       )}
+
+      {isAdmin && <BiGitSyncDialog open={gitSyncOpen} onClose={() => setGitSyncOpen(false)} />}
     </div>
   );
 }

@@ -538,6 +538,51 @@ export type Database = {
         };
         Relationships: [];
       };
+      git_export_config: {
+        Row: {
+          user_id: string;
+          provider: string;
+          repo: string;
+          branch: string;
+          base_path: string;
+          host: string | null;
+          token_enc: Json | null;
+          last_export_at: string | null;
+          last_status: string | null;
+          last_error: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          provider: string;
+          repo: string;
+          branch?: string;
+          base_path?: string;
+          host?: string | null;
+          token_enc?: Json | null;
+          last_export_at?: string | null;
+          last_status?: string | null;
+          last_error?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          user_id?: string;
+          provider?: string;
+          repo?: string;
+          branch?: string;
+          base_path?: string;
+          host?: string | null;
+          token_enc?: Json | null;
+          last_export_at?: string | null;
+          last_status?: string | null;
+          last_error?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       bi_promotions: {
         Row: {
           id: string;
