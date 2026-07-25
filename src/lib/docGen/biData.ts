@@ -142,10 +142,19 @@ function kpisFromResult(res: ResultLike): PptxKpi[] {
   }));
 }
 
-/** When the model gives a chart no query, derive one from the slide's own text. */
+/** When the model gives a chart no query, derive one from the slide's own text
+ * (title + subtitle + its bullets) so the analyst has enough to target the data. */
 function deriveChartQuestion(slide: PptxSlide): string {
-  const parts = [slide.title, slide.subtitle].map((p) => (p || "").trim()).filter(Boolean);
-  return parts.join(" — ") || (slide.takeaway || "").trim() || "key metrics overview";
+  const base = [slide.title, slide.subtitle]
+    .map((p) => (p || "").trim())
+    .filter(Boolean)
+    .join(" — ");
+  const hints = (slide.bullets ?? [])
+    .map((b) => b.trim())
+    .filter(Boolean)
+    .slice(0, 3)
+    .join(" ");
+  return [base, hints].filter(Boolean).join(". ") || (slide.takeaway || "").trim() || "key metrics";
 }
 
 /** A small, display-ready table from a query result — the never-empty fallback. */
@@ -250,11 +259,12 @@ export async function materializePptxWithBI(
           return;
         }
         // No chartable data — drop the guessed/empty chart (chartHasData will
-        // skip it) and make sure the slide still shows something real.
+        // skip it) and ALWAYS leave a real data table in the visual area, so the
+        // slide never has an empty gap where a chart should be (even when it
+        // already has bullets — the renderer puts the table + bullets together).
         chart.categories = undefined;
         chart.series = undefined;
-        const blank = !slide.table && !(slide.bullets && slide.bullets.length) && !slide.paragraph;
-        if (blank) {
+        if (!slide.table) {
           if (res && res.rows.length) slide.table = resultToTable(res);
           else {
             const fb = fallbackTable(ctx);
@@ -294,5 +304,7 @@ export async function materializePptxWithBI(
     }
   }
 
-  await runPool(jobs, 4);
+  // Modest concurrency — enough to be quick, low enough to avoid provider
+  // rate-limits that would fail individual chart queries.
+  await runPool(jobs, 3);
 }

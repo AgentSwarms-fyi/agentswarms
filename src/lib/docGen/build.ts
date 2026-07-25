@@ -380,11 +380,11 @@ export async function buildPptx(
       bullets.map((b) => ({
         text: b,
         options: {
-          bullet: { characterCode: "25AA", indent: 20 },
-          fontSize: 16,
+          bullet: { characterCode: "25AA", indent: 22 },
+          fontSize: 18,
           color: PPTX_BODY,
           fontFace: PPTX_FONT,
-          paraSpaceAfter: 13,
+          paraSpaceAfter: 15,
         },
       })),
       { ...box, valign: "top", fit: "shrink" },
@@ -604,71 +604,66 @@ export async function buildPptx(
       });
       if (s.bullets?.length)
         addBullets(slide, s.bullets, { x: M, y: 4.55, w: CONTENT_W, h: bottom - 4.55 });
-    } else if (layout === "twoColumn" && (hasChart || s.table)) {
-      const leftW = 5.9;
-      let ly = top;
-      if (s.paragraph) {
-        slide.addText(s.paragraph, {
-          x: M,
-          y: ly,
-          w: leftW,
-          h: 1.5,
-          fontSize: 15,
-          color: PPTX_BODY,
-          fontFace: PPTX_FONT,
-          fit: "shrink",
-        });
-        ly += 1.6;
-      }
-      if (s.bullets?.length)
-        addBullets(slide, s.bullets, { x: M, y: ly, w: leftW, h: bottom - ly });
-      if (hasChart && s.chart) {
-        addChart(slide, s.chart, { x: 6.8, y: top, w: 5.93, h: bottom - top });
-      } else if (s.table) {
-        slide.addTable(pptxTableRows(s.table, accent), {
-          x: 6.8,
+    } else {
+      // A VISUAL (chart preferred; else the real data table the materializer
+      // leaves when a chart can't be built) plus optional text beside it. This
+      // keeps the visual area filled — a data slide never shows an empty gap.
+      const drawTable = (x: number, w: number, fontSize: number) =>
+        slide.addTable(pptxTableRows(s.table!, accent), {
+          x,
           y: top,
-          w: 5.93,
-          fontSize: 12,
+          w,
+          fontSize,
           border: { type: "solid", color: PPTX_BORDER, pt: 1 },
           color: PPTX_BODY,
           autoPage: false,
+          valign: "middle",
         });
-      }
-    } else if (hasChart && s.chart) {
-      if (s.bullets?.length) {
-        addChart(slide, s.chart, { x: M, y: top, w: 7.3, h: bottom - top });
-        addBullets(slide, s.bullets, { x: 8.2, y: top + 0.15, w: 4.5, h: bottom - top - 0.15 });
+      const hasVisual = hasChart || !!s.table;
+      const hasText = !!(s.bullets?.length || s.paragraph);
+      if (hasVisual && hasText) {
+        // Visual on the left, narrative on the right.
+        if (hasChart && s.chart)
+          addChart(slide, s.chart, { x: M, y: top, w: 7.3, h: bottom - top });
+        else drawTable(M, 7.3, 12);
+        let ty = top + 0.05;
+        if (s.paragraph) {
+          slide.addText(s.paragraph, {
+            x: 8.2,
+            y: ty,
+            w: 4.5,
+            h: 1.6,
+            fontSize: 14,
+            color: PPTX_BODY,
+            fontFace: PPTX_FONT,
+            fit: "shrink",
+          });
+          ty += 1.7;
+        }
+        if (s.bullets?.length)
+          addBullets(slide, s.bullets, { x: 8.2, y: ty, w: 4.5, h: bottom - ty });
+      } else if (hasVisual) {
+        if (hasChart && s.chart)
+          addChart(slide, s.chart, { x: M, y: top, w: CONTENT_W, h: bottom - top });
+        else drawTable(M, CONTENT_W, 13);
       } else {
-        addChart(slide, s.chart, { x: M, y: top, w: CONTENT_W, h: bottom - top });
+        let y = top;
+        if (s.paragraph) {
+          slide.addText(s.paragraph, {
+            x: M,
+            y,
+            w: CONTENT_W,
+            h: 1.6,
+            fontSize: 16,
+            color: PPTX_BODY,
+            fontFace: PPTX_FONT,
+            fit: "shrink",
+          });
+          y += 1.7;
+        }
+        if (s.bullets?.length)
+          addBullets(slide, s.bullets, { x: M, y, w: CONTENT_W, h: bottom - y });
       }
-    } else if (s.table) {
-      slide.addTable(pptxTableRows(s.table, accent), {
-        x: M,
-        y: top,
-        w: CONTENT_W,
-        fontSize: 13,
-        border: { type: "solid", color: PPTX_BORDER, pt: 1 },
-        color: PPTX_BODY,
-        autoPage: false,
-        valign: "middle",
-      });
-    } else {
-      let y = top;
-      if (s.paragraph) {
-        slide.addText(s.paragraph, {
-          x: M,
-          y,
-          w: CONTENT_W,
-          h: 1.6,
-          fontSize: 16,
-          color: PPTX_BODY,
-          fontFace: PPTX_FONT,
-          fit: "shrink",
-        });
-        y += 1.7;
-      }
-      if (s.bullets?.length) addBullets(slide, s.bullets, { x: M, y, w: CONTENT_W, h: bottom - y });
     }
 
     if (s.takeaway) takeawayBar(slide, s.takeaway);
