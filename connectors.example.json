@@ -1,0 +1,82 @@
+[
+  {
+    "provider": "postgres",
+    "host": "db.example.com",
+    "port": "5432",
+    "database": "postgres",
+    "username": "readonly_user",
+    "password": "REPLACE_ME",
+    "ssl": "require"
+  },
+  {
+    "provider": "mysql",
+    "host": "mysql.example.com",
+    "port": "3306",
+    "database": "analytics",
+    "username": "readonly_user",
+    "password": "REPLACE_ME",
+    "ssl": "require"
+  },
+  {
+    "provider": "oracle",
+    "ords_url": "https://<id>-<db>.adb.<region>.oraclecloudapps.com/ords",
+    "username": "ANALYST",
+    "password": "REPLACE_ME",
+    "schema": "analyst"
+  },
+  {
+    "provider": "snowflake",
+    "account": "xy12345.eu-west-1",
+    "token": "REPLACE_ME",
+    "warehouse": "COMPUTE_WH",
+    "database": "ANALYTICS",
+    "schema": "PUBLIC"
+  },
+  {
+    "provider": "databricks",
+    "host": "https://dbc-xxxx.cloud.databricks.com",
+    "warehouse_id": "REPLACE_ME",
+    "token": "REPLACE_ME",
+    "catalog": "main",
+    "schema": "default"
+  },
+  {
+    "provider": "bigquery",
+    "project_id": "my-project",
+    "service_account_json": "{\"type\":\"service_account\", ... paste the full key JSON here ... }",
+    "location": "US"
+  },
+  {
+    "provider": "redshift",
+    "region": "us-east-1",
+    "access_key_id": "REPLACE_ME",
+    "secret_access_key": "REPLACE_ME",
+    "database": "dev",
+    "workgroup_name": "default"
+  },
+  {
+    "provider": "athena",
+    "region": "us-east-1",
+    "access_key_id": "REPLACE_ME",
+    "secret_access_key": "REPLACE_ME",
+    "database": "default",
+    "output_location": "s3://my-bucket/athena-results/",
+    "workgroup": "primary"
+  },
+  {
+    "provider": "trino",
+    "host": "trino.example.com",
+    "port": "443",
+    "username": "analyst",
+    "password": "REPLACE_ME",
+    "catalog": "iceberg",
+    "schema": "default"
+  },
+  {
+    "provider": "azure_synapse",
+    "server": "myworkspace.sql.azuresynapse.net",
+    "database": "pool1",
+    "username": "sqladmin",
+    "password": "REPLACE_ME"
+  }
+]

@@ -92,6 +92,29 @@ connected schema's own objects from `USER_TAB_COLUMNS` (Oracle has no
 `information_schema`), and the connectivity probe uses `SELECT 1 FROM DUAL`.
 Use a read-only Oracle user.
 
+## Verifying a connector
+
+Two ways to confirm a connector works end-to-end against your systems:
+
+**From the UI** — in **Data Sources**, click **Test connection** (a `SELECT 1`
+probe), then open the **Data Catalog → SQL workbench**, expand the source to
+confirm its tables list, and run a small `SELECT`. Green on all three means the
+driver, credentials, schema listing and read path all work.
+
+**From the command line** — a harness runs the *real* drivers against your own
+credentials and reports connectivity + schema listing + a read query per
+connector:
+
+```bash
+cp connectors.example.json connectors.json   # fill in real credentials
+npx vite-node scripts/verify-connectors.ts ./connectors.json
+```
+
+`connectors.json` holds real credentials and is gitignored — never commit it.
+The script prints pass/fail and timings per connector and never echoes secret
+values. This is the recommended way to "live-verify" a connector: it exercises
+the exact code the app runs, just with credentials only you hold.
+
 ## Cataloging a source
 
 The **Data Catalog** (`/data-sql`) can crawl a connected warehouse — or an

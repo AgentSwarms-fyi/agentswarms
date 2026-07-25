@@ -23,3 +23,6 @@
 
 # internal notes, not meant for the repo
 CLAUDE.md
+
+# real connector credentials for scripts/verify-connectors.ts (never commit)
+connectors.json
