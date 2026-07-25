@@ -102,20 +102,27 @@ async function analyze(question: string, ctx: BiCtx): Promise<QueryResult | null
   }
 }
 
-/** result → { categories, series }: first column = category, numeric cols = series. */
+/**
+ * result → { categories, series }, robust to column order: the CATEGORY is the
+ * first non-numeric column (else the first column), and the SERIES are the
+ * numeric columns. Returns null when there's nothing numeric to plot (the
+ * caller then shows a table instead of an empty chart) — this also prevents the
+ * "filled but flat" chart you get when a non-numeric column is charted as zeros.
+ */
 function chartDataFromResult(
   res: ResultLike,
 ): { categories: string[]; series: { name: string; values: number[] }[] } | null {
   if (res.columns.length < 2 || res.rows.length === 0) return null;
-  const catCol = res.columns[0];
-  const numCols = res.columns
-    .slice(1)
-    .filter((c) => res.rows.some((r) => Number.isFinite(toNum(r[c]))));
-  const useCols = numCols.length ? numCols : res.columns.slice(1, 2);
+  const isNumericCol = (c: string) => res.rows.some((r) => Number.isFinite(toNum(r[c])));
+  const numericCols = res.columns.filter(isNumericCol);
+  if (numericCols.length === 0) return null;
+  const catCol = res.columns.find((c) => !isNumericCol(c)) ?? res.columns[0];
+  const measures = numericCols.filter((c) => c !== catCol).slice(0, 4);
+  if (measures.length === 0) return null;
   const rows = res.rows.slice(0, 12);
   return {
     categories: rows.map((r) => String(r[catCol] ?? "")),
-    series: useCols.map((c) => ({
+    series: measures.map((c) => ({
       name: prettifyLabel(c),
       values: rows.map((r) => {
         const n = toNum(r[c]);

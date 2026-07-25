@@ -380,14 +380,14 @@ export async function buildPptx(
       bullets.map((b) => ({
         text: b,
         options: {
-          bullet: { characterCode: "25AA", indent: 18 },
-          fontSize: 13,
+          bullet: { characterCode: "25AA", indent: 20 },
+          fontSize: 16,
           color: PPTX_BODY,
           fontFace: PPTX_FONT,
-          paraSpaceAfter: 10,
+          paraSpaceAfter: 13,
         },
       })),
-      { ...box, valign: "top" },
+      { ...box, valign: "top", fit: "shrink" },
     );
   };
 
@@ -612,12 +612,13 @@ export async function buildPptx(
           x: M,
           y: ly,
           w: leftW,
-          h: 1.2,
-          fontSize: 13,
+          h: 1.5,
+          fontSize: 15,
           color: PPTX_BODY,
           fontFace: PPTX_FONT,
+          fit: "shrink",
         });
-        ly += 1.3;
+        ly += 1.6;
       }
       if (s.bullets?.length)
         addBullets(slide, s.bullets, { x: M, y: ly, w: leftW, h: bottom - ly });
@@ -628,7 +629,7 @@ export async function buildPptx(
           x: 6.8,
           y: top,
           w: 5.93,
-          fontSize: 10,
+          fontSize: 12,
           border: { type: "solid", color: PPTX_BORDER, pt: 1 },
           color: PPTX_BODY,
           autoPage: false,
@@ -646,7 +647,7 @@ export async function buildPptx(
         x: M,
         y: top,
         w: CONTENT_W,
-        fontSize: 11,
+        fontSize: 13,
         border: { type: "solid", color: PPTX_BORDER, pt: 1 },
         color: PPTX_BODY,
         autoPage: false,
@@ -659,12 +660,13 @@ export async function buildPptx(
           x: M,
           y,
           w: CONTENT_W,
-          h: 1.2,
-          fontSize: 14,
+          h: 1.6,
+          fontSize: 16,
           color: PPTX_BODY,
           fontFace: PPTX_FONT,
+          fit: "shrink",
         });
-        y += 1.3;
+        y += 1.7;
       }
       if (s.bullets?.length) addBullets(slide, s.bullets, { x: M, y, w: CONTENT_W, h: bottom - y });
     }
