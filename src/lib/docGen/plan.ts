@@ -16,7 +16,8 @@ function contextBlock(ctx: DocContext): string {
     parts.push("DATA TABLES (SQL name — columns; then sample rows as JSON):");
     for (const t of ctx.tables) {
       parts.push(`- ${t.name} — [${t.columns.join(", ")}]`);
-      if (t.sample.length) parts.push(`  sample: ${JSON.stringify(t.sample.slice(0, 8))}`);
+      // t.sample is already a JSON string of up to 8 rows (serialized server-side).
+      if (t.sample && t.sample !== "[]") parts.push(`  sample: ${t.sample}`);
     }
   }
   if (ctx.kb.length) {

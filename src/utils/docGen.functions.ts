@@ -6,7 +6,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 
-import type { Database, Json } from "@/integrations/supabase/types";
+import type { Database } from "@/integrations/supabase/types";
 import { retrieveCitationsServer } from "@/utils/tools/kb.server";
 
 function userClient(accessToken: string) {
@@ -29,8 +29,13 @@ async function requireUser(accessToken: string) {
 export type DocContextTable = {
   name: string;
   columns: string[];
-  /** Sample rows as raw JSON (serializable across the server-fn boundary). */
-  sample: Json[];
+  /**
+   * Up to 8 sample rows, pre-serialized to a JSON STRING on the server.
+   * Returning a string (not raw row objects) keeps the server-fn response safe
+   * for seroval: arbitrary user data can contain keys like "constructor" that
+   * otherwise break serialization ("Seroval Error").
+   */
+  sample: string;
 };
 export type DocContext = {
   kb: { name: string; snippet: string }[];
@@ -91,7 +96,9 @@ export const gatherDocContext = createServerFn({ method: "POST" })
           tables.push({
             name: t.name,
             columns: cols,
-            sample: (rows ?? []).map((r) => r.row),
+            // Pre-serialize on the server (see DocContextTable.sample) so the
+            // server-fn response can't trip seroval on hostile row keys.
+            sample: JSON.stringify((rows ?? []).map((r) => r.row).slice(0, 8)),
           });
         }
 
