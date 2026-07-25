@@ -19,6 +19,8 @@ import { Badge } from "@/components/ui/badge";
 import {
   Send,
   PanelLeftOpen,
+  PanelRightOpen,
+  PanelRightClose,
   Plus,
   Trash2,
   Paperclip,
@@ -58,6 +60,13 @@ import {
 import { TemplateTour, type TourSignals } from "@/components/playground/TemplateTour";
 import { SkillSampleTour } from "@/components/playground/SkillSampleTour";
 import { ensureSampleAgentsForUser } from "@/lib/sampleAgentsWithSkills";
+
+// Shown as clickable chips on the empty chat state to get people started.
+const STARTER_PROMPTS = [
+  "What can you help me with?",
+  "What data and tools can you access?",
+  "Suggest 3 questions I could ask you",
+];
 
 export const Route = createFileRoute("/_authenticated/playground")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -140,6 +149,22 @@ function PlaygroundPage() {
   const [dataScope, setDataScope] = useState<DocScope>("sample");
   const dataScopeRef = useRef<DocScope>("sample");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Developer inspector (request/tools/trace) — collapsed by default so the
+  // chat is the star; the choice is remembered per browser.
+  const [inspectorOpen, setInspectorOpen] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem("agentswarms.chat_inspector") === "1";
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("agentswarms.chat_inspector", inspectorOpen ? "1" : "0");
+    } catch {
+      /* private mode */
+    }
+  }, [inspectorOpen]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -1001,17 +1026,20 @@ function PlaygroundPage() {
 
       {/* Main chat area */}
       <div className="flex w-full min-w-0 flex-1 flex-col">
-        {/* Top bar with agent selector */}
-        <div className="flex items-center justify-between border-b border-border px-4 py-2">
+        {/* Top bar */}
+        <div className="flex items-center gap-2 border-b border-border/70 bg-background/80 px-3 py-2.5 backdrop-blur supports-[backdrop-filter]:bg-background/60">
           <Button
             variant="ghost"
-            size="sm"
-            className="md:hidden"
+            size="icon"
+            className="h-8 w-8 shrink-0 md:hidden"
             onClick={() => setSidebarOpen(true)}
           >
             <PanelLeftOpen className="h-4 w-4" />
           </Button>
-          <div className="flex-1 flex justify-center items-center gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-2.5">
+            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-primary to-nexus-glow text-primary-foreground shadow-sm">
+              <Bot className="h-4 w-4" />
+            </div>
             <Select
               value={selectedAgent}
               onValueChange={(v) => {
@@ -1020,14 +1048,14 @@ function PlaygroundPage() {
                 setMessages([]);
               }}
             >
-              <SelectTrigger className="w-64 border-none bg-transparent text-center font-medium">
-                <SelectValue placeholder="Select an agent..." />
+              <SelectTrigger className="h-9 w-auto min-w-[170px] max-w-[260px] gap-1.5 rounded-lg border-border/70 bg-card/60 px-3 font-semibold shadow-sm hover:bg-card">
+                <SelectValue placeholder="Select an agent…" />
               </SelectTrigger>
               <SelectContent>
                 {agents.map((a) => (
                   <SelectItem key={a.id} value={a.id}>
                     <div className="flex items-center gap-2">
-                      <Bot className="h-3 w-3" />
+                      <Bot className="h-3.5 w-3.5 text-primary" />
                       {a.name}
                     </div>
                   </SelectItem>
@@ -1036,46 +1064,93 @@ function PlaygroundPage() {
             </Select>
             {!selectedAgent && (
               <div
-                className="flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-amber-600 dark:text-amber-400 animate-pulse"
+                className="flex animate-pulse items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-amber-600 dark:text-amber-400"
                 title="Pick the agent you want to chat with from the dropdown"
               >
                 <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                <span className="hidden sm:inline text-[11px] font-medium whitespace-nowrap">
-                  ← Pick the right agent first
+                <span className="hidden whitespace-nowrap text-[11px] font-medium sm:inline">
+                  Pick an agent to begin
                 </span>
               </div>
             )}
           </div>
-          {overrideModel ? (
-            <Badge
-              variant="outline"
-              className="gap-1 cursor-pointer hover:bg-muted"
-              onClick={() => setOverrideModel(null)}
-              title="Click to revert to the agent's default model"
+          <div className="flex shrink-0 items-center gap-1.5">
+            {overrideModel && (
+              <Badge
+                variant="outline"
+                className="cursor-pointer gap-1 hover:bg-muted"
+                onClick={() => setOverrideModel(null)}
+                title="Click to revert to the agent's default model"
+              >
+                <Sparkles className="h-3 w-3 text-primary" />
+                <span className="max-w-[140px] truncate text-[10px] font-medium">
+                  Using {overrideModel.label}
+                </span>
+              </Badge>
+            )}
+            <Button
+              variant={inspectorOpen ? "secondary" : "ghost"}
+              size="sm"
+              className="hidden h-8 gap-1.5 px-2.5 text-xs text-muted-foreground hover:text-foreground lg:inline-flex"
+              onClick={() => setInspectorOpen((v) => !v)}
+              title={
+                inspectorOpen
+                  ? "Hide the developer inspector"
+                  : "Show request, tool calls & execution trace"
+              }
             >
-              <Sparkles className="h-3 w-3 text-primary" />
-              <span className="text-[10px] font-medium truncate max-w-[140px]">
-                Using {overrideModel.label}
-              </span>
-            </Badge>
-          ) : (
-            <div className="w-10" />
-          )}
+              {inspectorOpen ? (
+                <PanelRightClose className="h-4 w-4" />
+              ) : (
+                <PanelRightOpen className="h-4 w-4" />
+              )}
+              <span className="hidden xl:inline">Inspector</span>
+              {!inspectorOpen && toolEvents.length > 0 && (
+                <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary/20 px-1 text-[9px] font-medium text-primary">
+                  {toolEvents.filter((e) => e.type === "tool_call").length}
+                </span>
+              )}
+            </Button>
+          </div>
         </div>
 
         {/* Messages area */}
-        <div className="relative flex-1 min-w-0 overflow-hidden">
-          <ScrollArea className="h-full w-full px-4 lg:px-6 [&>[data-radix-scroll-area-viewport]>div]:!block [&>[data-radix-scroll-area-viewport]]:!w-full">
-            <div className="w-full max-w-full min-w-0 py-6 space-y-6 pr-2">
+        <div className="relative flex-1 min-w-0 overflow-hidden bg-gradient-to-b from-muted/20 via-background to-background">
+          {/* soft premium glow behind the conversation */}
+          <div className="pointer-events-none absolute -top-24 left-1/2 h-64 w-[36rem] -translate-x-1/2 rounded-full bg-primary/5 blur-3xl" />
+          <ScrollArea className="relative h-full w-full [&>[data-radix-scroll-area-viewport]>div]:!block [&>[data-radix-scroll-area-viewport]]:!w-full">
+            <div className="mx-auto w-full min-w-0 max-w-3xl space-y-6 px-4 py-8">
               {messages.length === 0 && !thinking && (
-                <div className="flex flex-col items-center justify-center py-20 text-center">
-                  <Bot className="mb-4 h-16 w-16 text-muted-foreground/30" />
-                  <h2 className="text-xl font-semibold text-muted-foreground">
+                <div className="flex flex-col items-center justify-center py-24 text-center">
+                  <div className="mb-5 grid h-16 w-16 place-items-center rounded-2xl bg-gradient-to-br from-primary to-nexus-glow text-primary-foreground shadow-lg shadow-primary/20">
+                    <Bot className="h-8 w-8" />
+                  </div>
+                  <h2 className="text-2xl font-semibold tracking-tight">
                     {currentAgent ? `Chat with ${currentAgent.name}` : "Select an agent to start"}
                   </h2>
-                  <p className="mt-1 text-sm text-muted-foreground/70">
-                    Send a message to begin the conversation.
+                  <p className="mt-1.5 max-w-sm text-sm text-muted-foreground">
+                    {currentAgent
+                      ? "Ask a question, share a task, or try a starter below."
+                      : "Choose an agent from the top bar, then send your first message."}
                   </p>
+                  {currentAgent && activeConvo && (
+                    <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+                      {STARTER_PROMPTS.map((p) => (
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => {
+                            setInput(p);
+                            textareaRef.current?.focus();
+                          }}
+                          className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-card/60 px-3.5 py-2 text-xs text-muted-foreground shadow-sm transition-colors hover:border-primary/40 hover:bg-card hover:text-foreground"
+                        >
+                          <Sparkles className="h-3.5 w-3.5 text-primary" />
+                          {p}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1115,15 +1190,15 @@ function PlaygroundPage() {
         </div>
 
         {/* Input area */}
-        <div className="w-full border-t border-border p-4">
-          <div className="w-full min-w-0 space-y-2">
+        <div className="w-full border-t border-border/70 bg-background/80 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+          <div className="mx-auto w-full min-w-0 max-w-3xl space-y-2">
             {attachments.length > 0 && (
               <AttachmentChips
                 attachments={attachments}
                 onRemove={(idx) => setAttachments((prev) => prev.filter((_, i) => i !== idx))}
               />
             )}
-            <div className="flex w-full min-w-0 items-end gap-2 rounded-xl border border-border bg-card p-2">
+            <div className="flex w-full min-w-0 items-end gap-2 rounded-2xl border border-border/70 bg-card p-2 shadow-lg shadow-black/5 transition focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-primary/15">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -1184,7 +1259,7 @@ function PlaygroundPage() {
               ) : (
                 <Button
                   size="sm"
-                  className="h-8 w-8 p-0"
+                  className="h-8 w-8 shrink-0 rounded-xl bg-gradient-to-br from-primary to-nexus-glow p-0 shadow-sm transition hover:opacity-90"
                   onClick={sendMessage}
                   disabled={(!input.trim() && attachments.length === 0) || !activeConvo}
                 >
@@ -1207,16 +1282,34 @@ function PlaygroundPage() {
         </div>
       </div>
 
-      {/* Right inspector panel */}
-      <aside className="hidden lg:flex w-[420px] shrink-0 flex-col border-l border-border bg-card/40">
-        <InspectorPanel
-          agent={currentAgent}
-          thinking={thinking}
-          messageCount={messages.length}
-          lastExchange={lastExchange}
-          toolEvents={toolEvents}
-        />
-      </aside>
+      {/* Right inspector panel — collapsible (default hidden; toggled from the top bar) */}
+      {inspectorOpen && (
+        <aside className="hidden w-[400px] shrink-0 flex-col border-l border-border/70 bg-card/40 lg:flex">
+          <div className="flex items-center justify-between border-b border-border/70 px-3 py-2">
+            <p className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+              <Code2 className="h-3.5 w-3.5 text-primary" /> Developer inspector
+            </p>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-muted-foreground hover:text-foreground"
+              onClick={() => setInspectorOpen(false)}
+              title="Hide inspector"
+            >
+              <PanelRightClose className="h-4 w-4" />
+            </Button>
+          </div>
+          <div className="min-h-0 flex-1">
+            <InspectorPanel
+              agent={currentAgent}
+              thinking={thinking}
+              messageCount={messages.length}
+              lastExchange={lastExchange}
+              toolEvents={toolEvents}
+            />
+          </div>
+        </aside>
+      )}
 
       <ModelFallbackDialog
         open={!!fallbackInfo}
@@ -1878,8 +1971,8 @@ function MessageBubble({
   if (editing) {
     return (
       <div className="flex gap-3">
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10">
-          <User className="h-3.5 w-3.5 text-primary" />
+        <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-slate-500 to-slate-700 text-white shadow-sm">
+          <User className="h-4 w-4" />
         </div>
         <div className="flex-1 min-w-0 space-y-2">
           <Textarea
@@ -1918,15 +2011,13 @@ function MessageBubble({
   return (
     <div className="group flex gap-3">
       <div
-        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
-          isUser ? "bg-primary/10" : "bg-nexus-glow/15"
+        className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg text-white shadow-sm ${
+          isUser
+            ? "bg-gradient-to-br from-slate-500 to-slate-700"
+            : "bg-gradient-to-br from-primary to-nexus-glow"
         }`}
       >
-        {isUser ? (
-          <User className="h-3.5 w-3.5 text-primary" />
-        ) : (
-          <Bot className="h-3.5 w-3.5 text-nexus-glow" />
-        )}
+        {isUser ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
       </div>
       <div className="flex-1 min-w-0">
         <div className="mb-1 flex items-center gap-2">
@@ -2078,8 +2169,8 @@ function Citations({ citations }: { citations: Citation[] }) {
 function ThinkingIndicator({ agent }: { agent?: Agent | null }) {
   return (
     <div className="flex gap-3">
-      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-nexus-glow/15">
-        <Bot className="h-3.5 w-3.5 text-nexus-glow" />
+      <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-primary to-nexus-glow text-white shadow-sm">
+        <Bot className="h-4 w-4" />
       </div>
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <span className="flex gap-1">
