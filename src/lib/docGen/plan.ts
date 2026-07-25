@@ -62,12 +62,24 @@ export async function planPptx(args: PlanArgs): Promise<PptxPlan> {
   return llmJson<PptxPlan>({
     systemPrompt:
       `${COMMON}\n` +
-      `SCHEMA: { "title": string, "subtitle"?: string, "slides": [{ "title": string, ` +
-      `"bullets"?: string[], "paragraph"?: string, ` +
+      `You are designing a polished, executive-ready slide deck — rich with visuals, NOT walls of text.\n` +
+      `SCHEMA: { "title": string, "subtitle"?: string, "accent"?: string, "slides": [{ ` +
+      `"title": string, ` +
+      `"layout"?: "section"|"kpi"|"chart"|"table"|"twoColumn"|"bullets", ` +
+      `"subtitle"?: string, "bullets"?: string[], "paragraph"?: string, ` +
+      `"kpis"?: [{ "label": string, "value": string, "delta"?: string, "positive"?: boolean }], ` +
+      `"chart"?: { "type": "column"|"bar"|"line"|"area"|"pie"|"doughnut", "categories": string[], "series": [{ "name": string, "values": number[] }] }, ` +
       `"table"?: { "columns": string[], "rows": (string|number|null)[][] }, ` +
-      `"chart"?: { "type": "bar"|"line"|"pie", "categories": string[], "series": [{ "name": string, "values": number[] }] }, ` +
-      `"notes"?: string }] }\n` +
-      `Produce 6–12 well-structured slides. Add a chart when the data supports a trend/comparison/breakdown. Use a table for detailed figures. Keep bullets concise.`,
+      `"takeaway"?: string, "notes"?: string }] }\n` +
+      `RULES:\n` +
+      `- 8–14 slides. The cover is generated from title/subtitle automatically — do NOT add a cover slide.\n` +
+      `- "accent" is a hex colour without '#', chosen to fit the topic (e.g. "4F46E5").\n` +
+      `- Open with a "kpi" slide: 3–5 metric cards with REAL numbers from the data (value like "$1.2M", "18%"), plus a "delta" where it makes sense.\n` +
+      `- Include AT LEAST 3 "chart" slides using a VARIETY of types — trend → line/area, comparison → column/bar, composition → pie/doughnut. Every chart MUST have non-empty "categories" and numeric "series" values grounded in the data; never emit an empty chart.\n` +
+      `- Use 1–2 "section" divider slides to group the deck, and a "twoColumn" slide (bullets + chart) where it helps.\n` +
+      `- Use a "table" ONLY when exact figures matter; prefer charts + KPIs over tables and plain text.\n` +
+      `- Add a one-line "takeaway" insight to data slides, and speaker "notes" to every slide.\n` +
+      `- End with a "bullets" slide of key takeaways / recommended next steps. Keep bullets to short phrases (≤ ~12 words).`,
     userPrompt: userPrompt(args),
     model: args.model,
     temperature: 0.4,

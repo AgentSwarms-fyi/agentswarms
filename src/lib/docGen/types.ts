@@ -23,21 +23,48 @@ export type DocTable = { columns: string[]; rows: (string | number | null)[][] }
 
 /** A native (editable) chart embedded in a slide. */
 export type DocChart = {
-  type: "bar" | "line" | "pie";
+  type: "bar" | "column" | "line" | "area" | "pie" | "doughnut";
   categories: string[];
   series: { name: string; values: number[] }[];
 };
 
 // ── PowerPoint ────────────────────────────────────────────────────────────────
+/** A big-number metric callout rendered as a card on a KPI slide. */
+export type PptxKpi = {
+  label: string;
+  value: string;
+  /** e.g. "+12%" or "-3.4pts". */
+  delta?: string;
+  /** Colours the delta green when true / omitted-with-a-"+", red otherwise. */
+  positive?: boolean;
+};
+
 export type PptxSlide = {
   title: string;
+  /**
+   * Layout hint. The builder also infers from whichever fields are present, so
+   * this is optional — but it drives the visual treatment (cover, section
+   * divider, KPI cards, chart, table, two-column).
+   */
+  layout?: "cover" | "section" | "kpi" | "chart" | "table" | "bullets" | "twoColumn";
+  subtitle?: string;
   bullets?: string[];
   paragraph?: string;
   table?: DocTable;
   chart?: DocChart;
+  kpis?: PptxKpi[];
+  /** One-line highlighted insight shown in an accent bar on data slides. */
+  takeaway?: string;
   notes?: string;
 };
-export type PptxPlan = { title: string; subtitle?: string; slides: PptxSlide[] };
+
+export type PptxPlan = {
+  title: string;
+  subtitle?: string;
+  /** Deck accent colour as a hex string, no leading "#" (e.g. "4F46E5"). */
+  accent?: string;
+  slides: PptxSlide[];
+};
 
 // ── Word ──────────────────────────────────────────────────────────────────────
 export type DocxBlock =

@@ -5,11 +5,13 @@ import type { Cell, SheetData } from "write-excel-file/browser";
 
 import { hydrateFromSupabase, runQueryUnlimited } from "@/lib/sqlEngine";
 import type {
+  DocChart,
   DocScope,
   DocTable,
   DocxPlan,
   MaterializedXlsxPlan,
   PptxPlan,
+  PptxSlide,
   XlsxCell,
   XlsxComputedColumn,
   XlsxLiteralSheet,
@@ -31,114 +33,395 @@ function downloadBlob(blob: Blob, filename: string): void {
   URL.revokeObjectURL(a.href);
 }
 
-// ── PowerPoint (pptxgenjs) — native text, tables and editable charts ──────────
+// ── PowerPoint (pptxgenjs) — a designed deck ──────────────────────────────────
+// Cover + section dividers, KPI cards, native editable charts with a colour
+// palette, styled tables, per-slide "key insight" bars, and a consistent accent
+// theme with a footer + automatic slide numbers.
+
+const PPTX_INK = "1E293B";
+const PPTX_SUB = "64748B";
+const PPTX_BODY = "334155";
+const PPTX_BORDER = "E2E8F0";
+const PPTX_CARD = "F8FAFC";
+const PPTX_DEFAULT_ACCENT = "4F46E5";
+
+function normalizeHex(c: string | undefined, fallback: string): string {
+  const h = (c ?? "").replace(/^#/, "").trim();
+  return /^[0-9a-fA-F]{6}$/.test(h) ? h.toUpperCase() : fallback;
+}
+
+/** Mix a hex colour toward white (amt 0..1) — for light accent tints. */
+function tintHex(hex: string, amt: number): string {
+  const n = parseInt(hex, 16);
+  const mix = (c: number) => Math.round(c + (255 - c) * amt);
+  return [mix((n >> 16) & 255), mix((n >> 8) & 255), mix(n & 255)]
+    .map((v) => v.toString(16).padStart(2, "0"))
+    .join("")
+    .toUpperCase();
+}
+
+function pptxEffectiveLayout(s: PptxSlide): NonNullable<PptxSlide["layout"]> {
+  if (s.layout) return s.layout;
+  if (s.kpis?.length) return "kpi";
+  if (s.chart && s.chart.series.length > 0) return "chart";
+  if (s.table) return "table";
+  return "bullets";
+}
+
+function pptxTableRows(t: DocTable, accent: string) {
+  const header = t.columns.map((c) => ({
+    text: String(c),
+    options: { bold: true, fill: { color: accent }, color: "FFFFFF" },
+  }));
+  const body = (t.rows ?? []).map((r, ri) =>
+    r.map((cell) => ({
+      text: cell === null || cell === undefined ? "" : String(cell),
+      options: { fill: { color: ri % 2 === 0 ? "FFFFFF" : PPTX_CARD } },
+    })),
+  );
+  return [header, ...body];
+}
+
 export async function buildPptx(plan: PptxPlan, filename: string): Promise<void> {
   const PptxGen = (await import("pptxgenjs")).default;
   const pptx = new PptxGen();
-  pptx.layout = "LAYOUT_WIDE";
+  pptx.layout = "LAYOUT_WIDE"; // 13.333 × 7.5 in
+  type Slide = ReturnType<typeof pptx.addSlide>;
 
-  // Title slide.
-  const title = pptx.addSlide();
-  title.addText(plan.title || "Untitled", {
-    x: 0.5,
-    y: 2.2,
-    w: 12.3,
-    h: 1.2,
-    fontSize: 40,
-    bold: true,
-    align: "center",
-    color: "1E293B",
+  const accent = normalizeHex(plan.accent, PPTX_DEFAULT_ACCENT);
+  const accentTint = tintHex(accent, 0.9);
+  const palette = [accent, "0EA5E9", "10B981", "F59E0B", "EF4444", "8B5CF6", "EC4899", "14B8A6"];
+  const deckTitle = plan.title || "Untitled";
+
+  const CW = 13.333;
+  const M = 0.6;
+  const CONTENT_W = CW - M * 2;
+
+  // Content-slide master: accent spine + footer + auto slide number.
+  pptx.defineSlideMaster({
+    title: "AGS_CONTENT",
+    background: { color: "FFFFFF" },
+    objects: [
+      { rect: { x: 0, y: 0, w: 0.16, h: 7.5, fill: { color: accent } } },
+      {
+        text: {
+          text: deckTitle,
+          options: {
+            x: 0.5,
+            y: 7.06,
+            w: 9,
+            h: 0.34,
+            fontSize: 8,
+            color: PPTX_SUB,
+            valign: "middle",
+          },
+        },
+      },
+    ],
+    slideNumber: {
+      x: 12.4,
+      y: 7.06,
+      w: 0.6,
+      h: 0.34,
+      fontSize: 8,
+      color: PPTX_SUB,
+      align: "right",
+    },
   });
-  if (plan.subtitle) {
-    title.addText(plan.subtitle, {
-      x: 0.5,
-      y: 3.5,
-      w: 12.3,
-      h: 0.8,
-      fontSize: 18,
-      align: "center",
-      color: "64748B",
+
+  const titleBar = (slide: Slide, title: string, subtitle?: string) => {
+    slide.addText(title || "", {
+      x: M,
+      y: 0.36,
+      w: CONTENT_W,
+      h: 0.7,
+      fontSize: 24,
+      bold: true,
+      color: PPTX_INK,
     });
+    slide.addShape("rect", { x: M + 0.02, y: 1.08, w: 0.9, h: 0.06, fill: { color: accent } });
+    if (subtitle) {
+      slide.addText(subtitle, {
+        x: M,
+        y: 1.16,
+        w: CONTENT_W,
+        h: 0.4,
+        fontSize: 12,
+        color: PPTX_SUB,
+      });
+    }
+  };
+
+  const takeawayBar = (slide: Slide, text: string) => {
+    slide.addShape("roundRect", {
+      x: M,
+      y: 6.35,
+      w: CONTENT_W,
+      h: 0.62,
+      fill: { color: accentTint },
+      line: { color: accent, width: 1 },
+      rectRadius: 0.06,
+    });
+    slide.addText(
+      [
+        { text: "Key insight   ", options: { bold: true, color: accent } },
+        { text, options: { color: PPTX_INK } },
+      ],
+      { x: M + 0.25, y: 6.35, w: CONTENT_W - 0.5, h: 0.62, valign: "middle", fontSize: 12 },
+    );
+  };
+
+  const addChart = (
+    slide: Slide,
+    chart: DocChart,
+    box: { x: number; y: number; w: number; h: number },
+  ) => {
+    const type =
+      chart.type === "line"
+        ? pptx.ChartType.line
+        : chart.type === "area"
+          ? pptx.ChartType.area
+          : chart.type === "pie"
+            ? pptx.ChartType.pie
+            : chart.type === "doughnut"
+              ? pptx.ChartType.doughnut
+              : pptx.ChartType.bar;
+    const isPie = chart.type === "pie" || chart.type === "doughnut";
+    const data = chart.series.map((ser) => ({
+      name: ser.name || "Series",
+      labels: chart.categories,
+      values: ser.values,
+    }));
+    slide.addChart(type, data, {
+      ...box,
+      chartColors: palette,
+      showLegend: isPie || chart.series.length > 1,
+      legendPos: "b",
+      legendColor: PPTX_SUB,
+      legendFontSize: 9,
+      showTitle: false,
+      showValue: isPie,
+      showPercent: isPie,
+      dataLabelColor: isPie ? "FFFFFF" : PPTX_BODY,
+      dataLabelFontSize: 9,
+      barDir: chart.type === "bar" ? "bar" : "col",
+      barGapWidthPct: 40,
+      catAxisLabelColor: PPTX_SUB,
+      catAxisLabelFontSize: 9,
+      valAxisLabelColor: PPTX_SUB,
+      valAxisLabelFontSize: 9,
+      chartColorsOpacity: chart.type === "area" ? 45 : 100,
+      lineSize: 2,
+      lineSmooth: true,
+      holeSize: chart.type === "doughnut" ? 55 : undefined,
+    });
+  };
+
+  const addBullets = (
+    slide: Slide,
+    bullets: string[],
+    box: { x: number; y: number; w: number; h: number },
+  ) => {
+    slide.addText(
+      bullets.map((b) => ({
+        text: b,
+        options: {
+          bullet: { characterCode: "2022", indent: 16 },
+          fontSize: 13,
+          color: PPTX_BODY,
+          paraSpaceAfter: 8,
+        },
+      })),
+      { ...box, valign: "top" },
+    );
+  };
+
+  // ── Cover ──
+  {
+    const s = pptx.addSlide();
+    s.background = { color: "FFFFFF" };
+    s.addShape("rect", { x: 0, y: 0, w: CW, h: 3.5, fill: { color: accent } });
+    s.addShape("rect", { x: 0, y: 3.5, w: CW, h: 0.12, fill: { color: accentTint } });
+    s.addText(deckTitle, {
+      x: 0.8,
+      y: 1.0,
+      w: 11.7,
+      h: 1.5,
+      fontSize: 40,
+      bold: true,
+      color: "FFFFFF",
+      valign: "middle",
+    });
+    if (plan.subtitle) {
+      s.addText(plan.subtitle, { x: 0.8, y: 2.5, w: 11.7, h: 0.7, fontSize: 18, color: "FFFFFF" });
+    }
+    s.addText(
+      `Generated ${new Date().toLocaleDateString(undefined, {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      })}`,
+      { x: 0.8, y: 4.0, w: 11.7, h: 0.4, fontSize: 12, color: PPTX_SUB },
+    );
   }
 
+  // ── Content slides ──
   for (const s of plan.slides ?? []) {
-    const slide = pptx.addSlide();
-    slide.addText(s.title || "", {
-      x: 0.5,
-      y: 0.35,
-      w: 12.3,
-      h: 0.8,
-      fontSize: 26,
-      bold: true,
-      color: "1E293B",
-    });
-    let cursorY = 1.4;
-    if (s.paragraph) {
-      slide.addText(s.paragraph, {
-        x: 0.6,
-        y: cursorY,
-        w: 12,
-        h: 1,
-        fontSize: 14,
-        color: "334155",
+    const layout = pptxEffectiveLayout(s);
+
+    if (layout === "section") {
+      const slide = pptx.addSlide();
+      slide.background = { color: accent };
+      slide.addText(s.title || "", {
+        x: 0.9,
+        y: 2.7,
+        w: 11.5,
+        h: 1.6,
+        fontSize: 34,
+        bold: true,
+        color: "FFFFFF",
+        valign: "middle",
       });
-      cursorY += 1.1;
+      if (s.subtitle) {
+        slide.addText(s.subtitle, {
+          x: 0.9,
+          y: 4.2,
+          w: 11.5,
+          h: 0.6,
+          fontSize: 16,
+          color: tintHex(accent, 0.72),
+        });
+      }
+      if (s.notes) slide.addNotes(s.notes);
+      continue;
     }
-    if (s.bullets?.length) {
-      slide.addText(
-        s.bullets.map((b) => ({
-          text: b,
-          options: { bullet: true, fontSize: 16, color: "334155" },
-        })),
-        { x: 0.7, y: cursorY, w: 11.8, h: Math.min(4.5, s.bullets.length * 0.45 + 0.3) },
-      );
-      cursorY += Math.min(4.5, s.bullets.length * 0.45 + 0.5);
-    }
-    if (s.chart && s.chart.series.length > 0) {
-      const type =
-        s.chart.type === "line"
-          ? pptx.ChartType.line
-          : s.chart.type === "pie"
-            ? pptx.ChartType.pie
-            : pptx.ChartType.bar;
-      const data = s.chart.series.map((ser) => ({
-        name: ser.name,
-        labels: s.chart!.categories,
-        values: ser.values,
-      }));
-      slide.addChart(type, data, {
-        x: 0.7,
-        y: Math.min(cursorY, 3),
-        w: 11.8,
-        h: Math.min(4.2, 6.8 - Math.min(cursorY, 3)),
-        showLegend: s.chart.series.length > 1 || s.chart.type === "pie",
-        showTitle: false,
+
+    const slide = pptx.addSlide({ masterName: "AGS_CONTENT" });
+    titleBar(slide, s.title, s.subtitle);
+    const bottom = s.takeaway ? 6.15 : 6.9;
+    const top = s.subtitle ? 1.7 : 1.5;
+
+    if (layout === "kpi" && s.kpis?.length) {
+      const kpis = s.kpis.slice(0, 5);
+      const gap = 0.3;
+      const cardW = (CONTENT_W - gap * (kpis.length - 1)) / kpis.length;
+      const cardY = 1.95;
+      const cardH = 2.3;
+      kpis.forEach((k, i) => {
+        const x = M + i * (cardW + gap);
+        slide.addShape("roundRect", {
+          x,
+          y: cardY,
+          w: cardW,
+          h: cardH,
+          fill: { color: PPTX_CARD },
+          line: { color: PPTX_BORDER, width: 1 },
+          rectRadius: 0.08,
+        });
+        slide.addShape("rect", { x, y: cardY, w: cardW, h: 0.1, fill: { color: accent } });
+        slide.addText(k.value ?? "", {
+          x: x + 0.1,
+          y: cardY + 0.45,
+          w: cardW - 0.2,
+          h: 0.9,
+          align: "center",
+          fontSize: 30,
+          bold: true,
+          color: accent,
+        });
+        slide.addText(k.label ?? "", {
+          x: x + 0.15,
+          y: cardY + 1.35,
+          w: cardW - 0.3,
+          h: 0.5,
+          align: "center",
+          fontSize: 12,
+          color: PPTX_SUB,
+        });
+        if (k.delta) {
+          slide.addText(k.delta, {
+            x: x + 0.1,
+            y: cardY + 1.85,
+            w: cardW - 0.2,
+            h: 0.35,
+            align: "center",
+            fontSize: 12,
+            bold: true,
+            color: k.positive === false ? "EF4444" : "10B981",
+          });
+        }
       });
-    } else if (s.table) {
-      slide.addTable(tableToPptxRows(s.table), {
-        x: 0.6,
-        y: Math.min(cursorY, 3),
-        w: 12.1,
+      if (s.bullets?.length) {
+        addBullets(slide, s.bullets, { x: M, y: 4.5, w: CONTENT_W, h: bottom - 4.5 });
+      }
+    } else if (layout === "chart" && s.chart && s.chart.series.length > 0) {
+      if (s.bullets?.length) {
+        addChart(slide, s.chart, { x: M, y: top, w: 7.4, h: bottom - top });
+        addBullets(slide, s.bullets, { x: 8.3, y: top + 0.1, w: 4.4, h: bottom - top - 0.1 });
+      } else {
+        addChart(slide, s.chart, { x: M, y: top, w: CONTENT_W, h: bottom - top });
+      }
+    } else if (layout === "twoColumn") {
+      const leftW = 6.0;
+      let ly = top;
+      if (s.paragraph) {
+        slide.addText(s.paragraph, {
+          x: M,
+          y: ly,
+          w: leftW,
+          h: 1.2,
+          fontSize: 13,
+          color: PPTX_BODY,
+        });
+        ly += 1.3;
+      }
+      if (s.bullets?.length)
+        addBullets(slide, s.bullets, { x: M, y: ly, w: leftW, h: bottom - ly });
+      if (s.chart && s.chart.series.length > 0) {
+        addChart(slide, s.chart, { x: 6.9, y: top, w: 5.83, h: bottom - top });
+      } else if (s.table) {
+        slide.addTable(pptxTableRows(s.table, accent), {
+          x: 6.9,
+          y: top,
+          w: 5.83,
+          fontSize: 10,
+          border: { type: "solid", color: PPTX_BORDER, pt: 1 },
+          color: PPTX_BODY,
+          autoPage: false,
+        });
+      }
+    } else if (layout === "table" && s.table) {
+      slide.addTable(pptxTableRows(s.table, accent), {
+        x: M,
+        y: top,
+        w: CONTENT_W,
         fontSize: 11,
-        border: { type: "solid", color: "E2E8F0", pt: 1 },
-        color: "334155",
+        border: { type: "solid", color: PPTX_BORDER, pt: 1 },
+        color: PPTX_BODY,
+        autoPage: false,
+        valign: "middle",
       });
+    } else {
+      let y = top;
+      if (s.paragraph) {
+        slide.addText(s.paragraph, {
+          x: M,
+          y,
+          w: CONTENT_W,
+          h: 1.2,
+          fontSize: 14,
+          color: PPTX_BODY,
+        });
+        y += 1.3;
+      }
+      if (s.bullets?.length) addBullets(slide, s.bullets, { x: M, y, w: CONTENT_W, h: bottom - y });
     }
+
+    if (s.takeaway) takeawayBar(slide, s.takeaway);
     if (s.notes) slide.addNotes(s.notes);
   }
 
   await pptx.writeFile({ fileName: withExt(filename, "pptx") });
-}
-
-function tableToPptxRows(t: DocTable) {
-  const header = t.columns.map((c) => ({
-    text: String(c),
-    options: { bold: true, fill: { color: "F1F5F9" }, color: "0F172A" },
-  }));
-  const body = (t.rows ?? []).map((r) =>
-    r.map((cell) => ({ text: cell === null || cell === undefined ? "" : String(cell) })),
-  );
-  return [header, ...body];
 }
 
 // ── Word (docx) — headings, paragraphs, bullet lists, tables ──────────────────
