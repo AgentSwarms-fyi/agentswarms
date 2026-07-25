@@ -4,7 +4,7 @@
 //   Cloudflare Workers plugin on `vite build` (skip with DEPLOY_TARGET=node).
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { defineConfig, loadEnv, type PluginOption } from "vite";
+import { defineConfig, loadEnv, type PluginOption, type UserConfig } from "vite";
 import tailwindcss from "@tailwindcss/vite";
 import tsConfigPaths from "vite-tsconfig-paths";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
@@ -12,10 +12,7 @@ import viteReact from "@vitejs/plugin-react";
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
 
-const alasqlBrowserBuild = path.resolve(
-  rootDir,
-  "node_modules/alasql/dist/alasql.min.js",
-);
+const alasqlBrowserBuild = path.resolve(rootDir, "node_modules/alasql/dist/alasql.min.js");
 
 function stripExternalCssFontImports(): PluginOption {
   return {
@@ -83,22 +80,50 @@ export default defineConfig(async ({ command, mode }) => {
     envDefine[`import.meta.env.${key}`] = JSON.stringify(value);
   }
 
+  // Dev-only dependency optimization. Typed via UserConfig so the inline esbuild
+  // plugin picks up its types without a direct esbuild import.
+  //
+  // `nodemailer` is server-only (email delivery) and its bare require('https')
+  // breaks the browser dep scanner, so it stays excluded. The document-export
+  // libs are the opposite: buildPptx/Docx/Xlsx import them dynamically IN THE
+  // BROWSER, so they MUST be pre-bundled — otherwise the runtime dynamic import
+  // fails with "Failed to fetch dynamically imported module" (they're CommonJS,
+  // and pptxgenjs/image-size reference Node builtins on an image path we never
+  // use). Force-include them and stub those builtins during the esbuild
+  // pre-bundle so the browser gets a clean, loadable module.
+  const serveOptimize: Pick<UserConfig, "optimizeDeps"> =
+    command === "serve"
+      ? {
+          optimizeDeps: {
+            exclude: ["nodemailer"],
+            include: ["pptxgenjs", "docx", "write-excel-file/browser"],
+            esbuildOptions: {
+              plugins: [
+                {
+                  name: "agentswarms-stub-docgen-node-deps",
+                  setup(build) {
+                    const BUILTINS = /^(node:)?(https?|os|fs|path|express)$/;
+                    build.onResolve({ filter: BUILTINS }, (args) =>
+                      /pptxgenjs|image-size/.test(args.importer)
+                        ? { path: args.path, namespace: "agentswarms-docgen-empty" }
+                        : undefined,
+                    );
+                    build.onLoad({ filter: /.*/, namespace: "agentswarms-docgen-empty" }, () => ({
+                      contents: "module.exports = {};",
+                      loader: "js",
+                    }));
+                  },
+                },
+              ],
+            },
+          },
+        }
+      : {};
+
   return {
     define: envDefine,
     plugins,
-    // Dev only: keep these out of the browser dep pre-bundle. `nodemailer` is
-    // server-only (email delivery) and `require`s Node's `https`, which breaks
-    // the dev scanner; the document-export libs load via client-side dynamic
-    // import on demand. In `build`, leaving these to normal resolution is what
-    // lets the Cloudflare worker bundle nodemailer via nodejs_compat, so the
-    // exclusion is scoped to `serve`.
-    ...(command === "serve"
-      ? {
-          optimizeDeps: {
-            exclude: ["nodemailer", "pptxgenjs", "docx", "write-excel-file"],
-          },
-        }
-      : {}),
+    ...serveOptimize,
     resolve: {
       alias: [
         { find: "@", replacement: path.resolve(rootDir, "src") },
