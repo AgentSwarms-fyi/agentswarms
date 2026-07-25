@@ -48,21 +48,24 @@ export default defineConfig(async ({ command, mode }) => {
     try {
       const { cloudflare } = await import("@cloudflare/vite-plugin");
       plugins.push(cloudflare({ viteEnvironment: { name: "ssr" } }));
-      // pptxgenjs (client-only, loaded via dynamic import for document export)
-      // dynamically imports these Node modules in an image-by-URL path we never
-      // use. The Cloudflare worker bundler can't resolve them and forbids
-      // `resolve.external`, so stub them to an empty module. Safe: our own code
-      // never imports these bare specifiers (Node builtins we use are `node:`-
-      // prefixed), and the pptxgenjs code path that would touch them never runs.
+      // Stub Node builtins the worker bundler can't resolve to an empty module.
+      // These come from (a) pptxgenjs's unused image-by-URL path (client-lazy)
+      // and (b) nodemailer, which uses raw TCP/TLS and therefore CANNOT run in
+      // workerd at all — email delivery runs only on the Node/Docker build
+      // (DEPLOY_TARGET=node), which skips this branch and keeps real builtins.
+      // So emptying them in the worker build is safe: none of these code paths
+      // execute there, and our own code uses `fetch`/WebCrypto, not these.
       const STUB = new Set(["https", "http", "express", "image-size", "os"]);
       plugins.push({
-        name: "agentswarms-stub-pptxgenjs-node-deps",
+        name: "agentswarms-stub-worker-node-deps",
         enforce: "pre",
         resolveId(id: string) {
           return STUB.has(id) ? `\0agentswarms-empty:${id}` : null;
         },
         load(id: string) {
-          return id.startsWith("\0agentswarms-empty:") ? "export default {};" : null;
+          return id.startsWith("\0agentswarms-empty:")
+            ? "export default {}; export const __esModule = true;"
+            : null;
         },
       });
     } catch {
@@ -83,6 +86,19 @@ export default defineConfig(async ({ command, mode }) => {
   return {
     define: envDefine,
     plugins,
+    // Dev only: keep these out of the browser dep pre-bundle. `nodemailer` is
+    // server-only (email delivery) and `require`s Node's `https`, which breaks
+    // the dev scanner; the document-export libs load via client-side dynamic
+    // import on demand. In `build`, leaving these to normal resolution is what
+    // lets the Cloudflare worker bundle nodemailer via nodejs_compat, so the
+    // exclusion is scoped to `serve`.
+    ...(command === "serve"
+      ? {
+          optimizeDeps: {
+            exclude: ["nodemailer", "pptxgenjs", "docx", "write-excel-file"],
+          },
+        }
+      : {}),
     resolve: {
       alias: [
         { find: "@", replacement: path.resolve(rootDir, "src") },
