@@ -1248,6 +1248,7 @@ function BiChartRenderInner({
             isAnimationActive={false}
             content={
               <TreemapCell
+                selectedName={selectedValue}
                 onCellClick={
                   onElementClick ? (name) => onElementClick(chart.nameField, name) : undefined
                 }
@@ -1589,11 +1590,15 @@ function TreemapCell(props: {
   /** recharts passes the node's sizing value through as `value`. */
   value?: number;
   size?: number;
+  /** Currently cross-filtered cell name — outlined so the pick is obvious. */
+  selectedName?: string | null;
   onCellClick?: (name: string) => void;
 }) {
   const { x = 0, y = 0, width = 0, height = 0, index = 0, name = "", onCellClick } = props;
   if (width <= 0 || height <= 0) return null;
   const val = props.size ?? props.value;
+  const selected = !!props.selectedName && props.selectedName === name;
+  const dimmed = !!props.selectedName && !selected;
   const showLabel = width > 40 && height > 18;
   const showValue = val !== undefined && width > 56 && height > 34;
   // ~6.5px per char at 11px; leave an 12px gutter.
@@ -1618,9 +1623,9 @@ function TreemapCell(props: {
         height={height}
         rx={3}
         fill={PIE_COLORS[index % PIE_COLORS.length]}
-        fillOpacity={0.92}
-        stroke="var(--card)"
-        strokeWidth={2}
+        fillOpacity={selected ? 1 : dimmed ? 0.4 : 0.92}
+        stroke={selected ? "var(--foreground)" : "var(--card)"}
+        strokeWidth={selected ? 2.5 : 2}
       />
       {showLabel && (
         <text
