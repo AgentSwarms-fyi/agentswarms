@@ -113,7 +113,8 @@ import {
 } from "@/lib/biDashboards";
 import { exportDashboardPdf } from "@/lib/biPdf";
 import { listPrepFlows } from "@/lib/dataPrep";
-import { fetchWarehouseSchema, runWarehouseQuery } from "@/lib/warehouseClient";
+import { fetchWarehouseSchema, runWarehouseQuery, runBiDirectQuery } from "@/lib/warehouseClient";
+import type { DirectFilter } from "@/lib/biDirectQuery";
 import { hydrateFromSupabase, runQuery, type DatasetMeta, type QueryResult } from "@/lib/sqlEngine";
 import { listWarehouseConnections } from "@/utils/warehouse.functions";
 import type { WarehouseConnectionSummary, WarehouseTable } from "@/utils/warehouse/types";
@@ -124,6 +125,24 @@ export const Route = createFileRoute("/_authenticated/bi_/$dashboardId")({
   }),
   component: BiProjectPage,
 });
+
+/** Convert active dashboard filters into pushdown-able DirectFilter[] for a
+ *  direct-query widget (the server applies them safely as a WHERE clause). */
+function toDirectFilters(configs: BiFilterConfig[], state: BiFilterState): DirectFilter[] {
+  const out: DirectFilter[] = [];
+  for (const c of configs) {
+    const s = state[c.id];
+    if (!s) continue;
+    if (c.kind === "select" && s.values && s.values.length) {
+      out.push({ column: c.column, kind: "select", values: s.values });
+    } else if (c.kind === "daterange" && (s.from || s.to)) {
+      out.push({ column: c.column, kind: "daterange", from: s.from, to: s.to });
+    } else if (c.kind === "numrange" && (s.min != null || s.max != null)) {
+      out.push({ column: c.column, kind: "numrange", min: s.min, max: s.max });
+    }
+  }
+  return out;
+}
 
 // Page tabs strip shown above the dashboard grid. Owners can switch, add,
 // rename (double-click), and delete pages; viewers just switch.
@@ -281,6 +300,10 @@ function BiProjectPage() {
   // Dashboard filters: definitions persist, selections are runtime-only.
   const [filterConfigs, setFilterConfigs] = useState<BiFilterConfig[]>([]);
   const [filterState, setFilterState] = useState<BiFilterState>({});
+  // Live results for Direct-query widgets, keyed by widget id.
+  const [directRows, setDirectRows] = useState<
+    Map<string, { columns: string[]; rows: Record<string, unknown>[] } | "loading" | "error">
+  >(new Map());
   // Drill-through target — non-null opens the explore dialog.
   const [exploreWidget, setExploreWidget] = useState<BiWidget | null>(null);
   const [crossFilter, setCrossFilter] = useState<BiCrossFilter>(null);
@@ -654,6 +677,24 @@ function BiProjectPage() {
       layout.filter((l) => l.i !== id),
     );
 
+  // Toggle a warehouse widget between Import (snapshot) and Direct query (live).
+  // Use the ORIGINAL stored widget (widgetById may have swapped in live rows),
+  // so switching mode never overwrites the saved snapshot.
+  function setWidgetQueryMode(w: BiWidget, mode: "import" | "direct") {
+    const orig = widgets.find((x) => x.id === w.id) ?? w;
+    replaceWidget({ ...orig, query_mode: mode });
+    setDirectRows((prev) => {
+      const next = new Map(prev);
+      next.delete(w.id);
+      return next;
+    });
+    toast.success(
+      mode === "direct"
+        ? "Direct query on — live data from the warehouse"
+        : "Using the imported snapshot",
+    );
+  }
+
   const duplicateWidget = (id: string) => {
     const src = widgets.find((w) => w.id === id);
     if (!src) return;
@@ -859,6 +900,54 @@ function BiProjectPage() {
     );
   }
 
+  // Live "Direct query" widgets: re-run against the warehouse (server-side, as
+  // the dashboard owner) whenever the direct widgets or the filters change.
+  // Import widgets keep their snapshot. This route only ever renders for an
+  // authenticated owner/grantee — public share/embed routes render snapshots.
+  const directWidgetIds = widgets
+    .filter((w) => w.query_mode === "direct" && w.source?.kind === "warehouse" && w.sql)
+    .map((w) => w.id);
+  const activeDirectFilters = toDirectFilters(filterConfigs, filterState);
+  const directSig = JSON.stringify([directWidgetIds, activeDirectFilters, crossFilter]);
+  useEffect(() => {
+    if (!token || directWidgetIds.length === 0) return;
+    let cancelled = false;
+    setDirectRows((prev) => {
+      const next = new Map(prev);
+      for (const id of directWidgetIds) if (!next.has(id)) next.set(id, "loading");
+      return next;
+    });
+    void Promise.all(
+      directWidgetIds.map(async (id) => {
+        const perWidget: DirectFilter[] =
+          crossFilter && crossFilter.widgetId !== id
+            ? [
+                ...activeDirectFilters,
+                { column: crossFilter.column, kind: "select", values: [crossFilter.value] },
+              ]
+            : activeDirectFilters;
+        try {
+          const res = await runBiDirectQuery(token, {
+            dashboardId,
+            widgetId: id,
+            filters: perWidget,
+          });
+          if (!cancelled) {
+            setDirectRows((prev) =>
+              new Map(prev).set(id, { columns: res.columns, rows: res.rows }),
+            );
+          }
+        } catch {
+          if (!cancelled) setDirectRows((prev) => new Map(prev).set(id, "error"));
+        }
+      }),
+    );
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [directSig, token, dashboardId]);
+
   // Mandatory grant row filters first (viewers can't clear them), then
   // dashboard filters + the cross-filter. securedWidgets also feeds the
   // filter bar and Ask AI so restricted rows never reach the viewer's UI
@@ -871,12 +960,23 @@ function BiProjectPage() {
       )
     : widgets;
   const widgetById = new Map(
-    securedWidgets.map((w) => [
-      w.id,
-      w.kind === "chart" && (w.rows?.length ?? 0) > 0
-        ? { ...w, rows: filterWidgetRows(w, filterConfigs, filterState, crossFilter) }
-        : w,
-    ]),
+    securedWidgets.map((w) => {
+      // Direct-query widget: prefer the live, server-filtered warehouse result;
+      // fall back to the snapshot while it loads or if the live query errored.
+      if (w.query_mode === "direct" && w.source?.kind === "warehouse" && w.sql) {
+        const live = directRows.get(w.id);
+        if (live && live !== "loading" && live !== "error") {
+          return [w.id, { ...w, columns: live.columns, rows: live.rows }] as const;
+        }
+        return [w.id, w] as const;
+      }
+      return [
+        w.id,
+        w.kind === "chart" && (w.rows?.length ?? 0) > 0
+          ? { ...w, rows: filterWidgetRows(w, filterConfigs, filterState, crossFilter) }
+          : w,
+      ] as const;
+    }),
   );
 
   const handleElementClick = (widgetId: string) => (column: string, value: string) =>
@@ -1188,6 +1288,21 @@ function BiProjectPage() {
                               ) : (
                                 <DropdownMenuItem onClick={() => editWidget(w)}>
                                   <Pencil className="mr-2 h-3.5 w-3.5" /> Edit
+                                </DropdownMenuItem>
+                              )}
+                              {w.source?.kind === "warehouse" && (
+                                <DropdownMenuItem
+                                  onClick={() =>
+                                    setWidgetQueryMode(
+                                      w,
+                                      w.query_mode === "direct" ? "import" : "direct",
+                                    )
+                                  }
+                                >
+                                  <SearchCode className="mr-2 h-3.5 w-3.5" />
+                                  {w.query_mode === "direct"
+                                    ? "Use import (snapshot)"
+                                    : "Use direct query (live)"}
                                 </DropdownMenuItem>
                               )}
                               {w.kind === "chart" && (

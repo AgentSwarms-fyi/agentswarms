@@ -81,6 +81,7 @@ import { Route as ApiKbBuildGraphRouteImport } from './routes/api/kb/build-graph
 import { Route as ApiHealthReadyRouteImport } from './routes/api/health.ready'
 import { Route as ApiEmbedChatRouteImport } from './routes/api/embed.chat'
 import { Route as ApiEmailSendRouteImport } from './routes/api/email/send'
+import { Route as ApiBiDirectQueryRouteImport } from './routes/api/bi.direct-query'
 import { Route as ApiBiCronRouteImport } from './routes/api/bi.cron'
 import { Route as ApiAuthSsoConfigRouteImport } from './routes/api/auth/sso-config'
 import { Route as ApiAuditExportRouteImport } from './routes/api/audit.export'
@@ -460,6 +461,11 @@ const ApiEmailSendRoute = ApiEmailSendRouteImport.update({
   path: '/api/email/send',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiBiDirectQueryRoute = ApiBiDirectQueryRouteImport.update({
+  id: '/direct-query',
+  path: '/direct-query',
+  getParentRoute: () => ApiBiRoute,
+} as any)
 const ApiBiCronRoute = ApiBiCronRouteImport.update({
   id: '/cron',
   path: '/cron',
@@ -609,6 +615,7 @@ export interface FileRoutesByFullPath {
   '/api/audit/export': typeof ApiAuditExportRoute
   '/api/auth/sso-config': typeof ApiAuthSsoConfigRoute
   '/api/bi/cron': typeof ApiBiCronRoute
+  '/api/bi/direct-query': typeof ApiBiDirectQueryRoute
   '/api/email/send': typeof ApiEmailSendRoute
   '/api/embed/chat': typeof ApiEmbedChatRoute
   '/api/health/ready': typeof ApiHealthReadyRoute
@@ -696,6 +703,7 @@ export interface FileRoutesByTo {
   '/api/audit/export': typeof ApiAuditExportRoute
   '/api/auth/sso-config': typeof ApiAuthSsoConfigRoute
   '/api/bi/cron': typeof ApiBiCronRoute
+  '/api/bi/direct-query': typeof ApiBiDirectQueryRoute
   '/api/email/send': typeof ApiEmailSendRoute
   '/api/embed/chat': typeof ApiEmbedChatRoute
   '/api/health/ready': typeof ApiHealthReadyRoute
@@ -786,6 +794,7 @@ export interface FileRoutesById {
   '/api/audit/export': typeof ApiAuditExportRoute
   '/api/auth/sso-config': typeof ApiAuthSsoConfigRoute
   '/api/bi/cron': typeof ApiBiCronRoute
+  '/api/bi/direct-query': typeof ApiBiDirectQueryRoute
   '/api/email/send': typeof ApiEmailSendRoute
   '/api/embed/chat': typeof ApiEmbedChatRoute
   '/api/health/ready': typeof ApiHealthReadyRoute
@@ -876,6 +885,7 @@ export interface FileRouteTypes {
     | '/api/audit/export'
     | '/api/auth/sso-config'
     | '/api/bi/cron'
+    | '/api/bi/direct-query'
     | '/api/email/send'
     | '/api/embed/chat'
     | '/api/health/ready'
@@ -963,6 +973,7 @@ export interface FileRouteTypes {
     | '/api/audit/export'
     | '/api/auth/sso-config'
     | '/api/bi/cron'
+    | '/api/bi/direct-query'
     | '/api/email/send'
     | '/api/embed/chat'
     | '/api/health/ready'
@@ -1052,6 +1063,7 @@ export interface FileRouteTypes {
     | '/api/audit/export'
     | '/api/auth/sso-config'
     | '/api/bi/cron'
+    | '/api/bi/direct-query'
     | '/api/email/send'
     | '/api/embed/chat'
     | '/api/health/ready'
@@ -1627,6 +1639,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiEmailSendRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/bi/direct-query': {
+      id: '/api/bi/direct-query'
+      path: '/direct-query'
+      fullPath: '/api/bi/direct-query'
+      preLoaderRoute: typeof ApiBiDirectQueryRouteImport
+      parentRoute: typeof ApiBiRoute
+    }
     '/api/bi/cron': {
       id: '/api/bi/cron'
       path: '/cron'
@@ -1865,10 +1884,12 @@ const DocsRouteWithChildren = DocsRoute._addFileChildren(DocsRouteChildren)
 
 interface ApiBiRouteChildren {
   ApiBiCronRoute: typeof ApiBiCronRoute
+  ApiBiDirectQueryRoute: typeof ApiBiDirectQueryRoute
 }
 
 const ApiBiRouteChildren: ApiBiRouteChildren = {
   ApiBiCronRoute: ApiBiCronRoute,
+  ApiBiDirectQueryRoute: ApiBiDirectQueryRoute,
 }
 
 const ApiBiRouteWithChildren = ApiBiRoute._addFileChildren(ApiBiRouteChildren)

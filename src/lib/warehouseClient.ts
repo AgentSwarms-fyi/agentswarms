@@ -4,6 +4,44 @@
 // agent and dashboards treat both sources identically.
 import type { QueryResult, DatasetMeta } from "@/lib/sqlEngine";
 import type { WarehouseTable } from "@/utils/warehouse/types";
+import type { DirectFilter } from "@/lib/biDirectQuery";
+
+/**
+ * Live "Direct query" for a BI widget — re-runs the widget's SQL against the
+ * warehouse AS THE DASHBOARD OWNER (server-side), with global filters pushed
+ * down and the caller's row-level-security filter enforced. Used only for
+ * authenticated dashboard views; public embeds/shares render snapshots.
+ */
+export async function runBiDirectQuery(
+  accessToken: string,
+  args: { dashboardId: string; widgetId: string; filters?: DirectFilter[] },
+): Promise<QueryResult> {
+  const resp = await fetch("/api/bi/direct-query", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify({
+      dashboard_id: args.dashboardId,
+      widget_id: args.widgetId,
+      filters: args.filters ?? [],
+    }),
+  });
+  const j = (await resp.json()) as {
+    columns?: ({ name: string } | string)[];
+    rows?: Record<string, unknown>[];
+    row_count?: number;
+    message?: string;
+    error?: string;
+  };
+  if (!resp.ok) throw new Error(j.message || j.error || "Direct query failed");
+  return {
+    columns: (j.columns ?? []).map((c) => (typeof c === "string" ? c : c.name)),
+    rows: j.rows ?? [],
+    row_count: j.row_count ?? 0,
+    total_matched: j.row_count ?? 0,
+    capped: false,
+    duration_ms: 0,
+  };
+}
 
 export async function fetchWarehouseSchema(
   accessToken: string,

@@ -47,6 +47,13 @@ export type BiWidget = {
   chart?: ChartSpec;
   columns?: string[];
   rows?: Record<string, unknown>[];
+  /**
+   * Data mode (warehouse-backed widgets): "import" renders the cached `rows`
+   * snapshot (SPICE-like, fast, sampled); "direct" re-runs `sql` live against
+   * the warehouse at view time for the full current truth. Default "import".
+   * Public embeds/shares always render the snapshot regardless.
+   */
+  query_mode?: "import" | "direct";
   narrative?: string;
   /** Per-widget appearance (accent colour + card surface). */
   theme?: BiWidgetTheme;
