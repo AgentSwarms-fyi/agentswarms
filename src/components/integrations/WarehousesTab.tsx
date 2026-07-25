@@ -1,7 +1,7 @@
-// "Data Warehouses" tab of the Integration Hub: connect Redshift, Snowflake,
-// Databricks, BigQuery, or Azure Synapse. Credentials are encrypted
-// server-side and never come back to the client; queries run through
-// /api/warehouse/* and the warehouse agent tools.
+// "Data Sources" tab of the Integration Hub: connect PostgreSQL, MySQL, Oracle,
+// Redshift, Snowflake, Databricks, BigQuery, Azure Synapse, Trino or Athena.
+// Credentials are encrypted server-side and never come back to the client;
+// queries run through /api/warehouse/* and the warehouse agent tools.
 import { useCallback, useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
@@ -21,6 +21,7 @@ import postgresLogo from "@/assets/warehouses/postgres.svg";
 import mysqlLogo from "@/assets/warehouses/mysql.svg";
 import trinoLogo from "@/assets/warehouses/trino.svg";
 import athenaLogo from "@/assets/warehouses/athena.svg";
+import oracleLogo from "@/assets/warehouses/oracle.svg";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -77,6 +78,7 @@ const PROVIDER_LOGOS: Record<WarehouseProvider, string> = {
   mysql: mysqlLogo,
   trino: trinoLogo,
   athena: athenaLogo,
+  oracle: oracleLogo,
 };
 
 const PROVIDER_META: Record<
@@ -118,6 +120,32 @@ const PROVIDER_META: Record<
       },
     ],
     note: "Use a read-only user — only SELECT statements are ever sent.",
+  },
+  oracle: {
+    description:
+      "Connect Oracle Database or Autonomous Database over ORDS REST SQL — HTTPS only, no wallet or client driver needed.",
+    fields: [
+      {
+        key: "ords_url",
+        label: "ORDS base URL",
+        placeholder: "https://<id>-<db>.adb.<region>.oraclecloudapps.com/ords",
+        hint: "Autonomous DB: Database Actions → copy the base URL up to /ords.",
+      },
+      {
+        key: "username",
+        label: "Database user",
+        placeholder: "ANALYST",
+        hint: "The REST-enabled schema's DB user (HTTP Basic auth).",
+      },
+      { key: "password", label: "Password", type: "password" },
+      {
+        key: "schema",
+        label: "Schema alias",
+        optional: true,
+        hint: "URL path segment from ORDS.ENABLE_SCHEMA. Defaults to the lower-cased user.",
+      },
+    ],
+    note: "Needs ORDS with the schema REST-enabled (Autonomous DB has ORDS on by default). Use a read-only user — only SELECT statements are ever sent.",
   },
   redshift: {
     description: "Query via the Redshift Data API — serverless workgroups or provisioned clusters.",

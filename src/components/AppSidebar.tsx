@@ -54,11 +54,11 @@ const overviewItems: NavItem[] = [{ title: "Dashboard", url: "/dashboard", icon:
 
 const buildItems: NavItem[] = [
   { title: "Agent Builder", url: "/agents", icon: Bot },
+  { title: "Agent Chat", url: "/playground", icon: MessageSquare },
   { title: "Agent Swarms", url: "/swarms", icon: Network },
 ];
 
 const experimentItems: NavItem[] = [
-  { title: "Playground", url: "/playground", icon: MessageSquare },
   { title: "Prompt Compare", url: "/prompt-compare", icon: Columns },
   { title: "Image Playground", url: "/image-playground", icon: ImageIcon },
 ];

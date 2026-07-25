@@ -10,11 +10,13 @@ export type WarehouseProvider =
   | "postgres"
   | "mysql"
   | "trino"
-  | "athena";
+  | "athena"
+  | "oracle";
 
 export const WAREHOUSE_PROVIDERS: WarehouseProvider[] = [
   "postgres",
   "mysql",
+  "oracle",
   "redshift",
   "snowflake",
   "databricks",
@@ -34,6 +36,7 @@ export const WAREHOUSE_LABELS: Record<WarehouseProvider, string> = {
   mysql: "MySQL / MariaDB",
   trino: "Trino / Starburst / Presto",
   athena: "Amazon Athena",
+  oracle: "Oracle Database / Autonomous DB",
 };
 
 /** Per-provider connection config. Stored encrypted — never sent back to the client. */
@@ -143,6 +146,24 @@ export type WarehouseConfig =
       workgroup?: string;
       /** s3://bucket/prefix/ for query results — required unless the workgroup sets one. */
       output_location?: string;
+    }
+  | {
+      provider: "oracle";
+      /**
+       * ORDS base URL. Autonomous Database ships ORDS enabled — copy the base
+       * from Database Actions, e.g.
+       * "https://<id>-<db>.adb.<region>.oraclecloudapps.com/ords". Works over
+       * plain HTTPS (no wallet / Instant Client needed).
+       */
+      ords_url: string;
+      /** DB user for HTTP Basic auth against the REST-enabled schema. */
+      username: string;
+      password: string;
+      /**
+       * URL schema-alias segment (from ORDS.ENABLE_SCHEMA). Defaults to the
+       * lower-cased username, which is ORDS's own default.
+       */
+      schema?: string;
     };
 
 export type WarehouseColumn = { name: string; type: string };

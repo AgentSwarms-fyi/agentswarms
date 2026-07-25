@@ -5,8 +5,9 @@
 import { useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { BarChart3, FileSpreadsheet, FileText, Loader2, Presentation } from "lucide-react";
+import { BarChart3, Loader2 } from "lucide-react";
 
+import { ExcelIcon, PptIcon, WordIcon } from "@/components/playground/FileTypeIcons";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -166,7 +167,7 @@ export function DocGenBar({
           onClick={() => open("pptx")}
           title="Generate a PowerPoint from your data"
         >
-          <Presentation className="h-3.5 w-3.5" /> PPT
+          <PptIcon className="h-4 w-4" /> PPT
         </Button>
         <Button
           type="button"
@@ -176,7 +177,7 @@ export function DocGenBar({
           onClick={() => open("docx")}
           title="Generate a Word document from your data"
         >
-          <FileText className="h-3.5 w-3.5" /> Word
+          <WordIcon className="h-4 w-4" /> Word
         </Button>
         <Button
           type="button"
@@ -186,7 +187,7 @@ export function DocGenBar({
           onClick={() => open("xlsx")}
           title="Generate an Excel workbook from your data"
         >
-          <FileSpreadsheet className="h-3.5 w-3.5" /> Excel
+          <ExcelIcon className="h-4 w-4" /> Excel
         </Button>
       </div>
 

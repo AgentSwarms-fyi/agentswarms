@@ -853,6 +853,84 @@ async function trinoQuery(
   return { columns: cols ?? [], data, truncated };
 }
 
+// ── Oracle (ORDS REST SQL — Autonomous DB & any ORDS-enabled database) ────────
+// Runs SQL over HTTPS via ORDS's REST SQL Service (POST {base}/{schema}/_/sql),
+// so no wallet, Instant Client, or native driver is needed — it works on both
+// the Cloudflare and Node builds. Autonomous Database ships ORDS enabled;
+// on-prem databases need ORDS installed and the schema REST-enabled
+// (ORDS.ENABLE_SCHEMA) with a password for HTTP Basic auth.
+
+type OracleConfig = Extract<WarehouseConfig, { provider: "oracle" }>;
+
+function oracleSchemaAlias(cfg: OracleConfig): string {
+  return (cfg.schema?.trim() || cfg.username.trim().toLowerCase()).replace(/[^A-Za-z0-9_.-]/g, "");
+}
+
+async function oracleQuery(
+  cfg: OracleConfig,
+  sql: string,
+  maxRows: number,
+): Promise<{ columns: WarehouseColumn[]; data: unknown[][]; truncated: boolean }> {
+  const base = cfg.ords_url.trim().replace(/\/+$/, "");
+  const host = base
+    .replace(/^https?:\/\//, "")
+    .replace(/\/.*$/, "")
+    .trim();
+  if (!host) throw new Error("Oracle: ORDS URL is required");
+  // SSRF: block cloud-metadata / link-local targets (private ORDS hosts stay
+  // allowed — an on-prem ORDS commonly lives inside the customer's network).
+  if (isBlockedAlways(host)) throw new Error("Oracle: refusing to connect to a blocked host");
+
+  const schema = oracleSchemaAlias(cfg);
+  const url = `${base}/${encodeURIComponent(schema)}/_/sql?limit=${maxRows + 1}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/sql",
+      Accept: "application/json",
+      Authorization: `Basic ${btoa(`${cfg.username}:${cfg.password}`)}`,
+    },
+    body: sql,
+  });
+  if (!res.ok) throw new Error(await readError(res, "Oracle"));
+
+  type OrdsMeta = { columnName?: string; jsonColumnName?: string; columnTypeName?: string };
+  type OrdsStatement = {
+    resultSet?: { metadata?: OrdsMeta[]; items?: Record<string, unknown>[]; hasMore?: boolean };
+    errorCode?: string;
+    errorMessage?: string;
+    errorLine?: number;
+  };
+  const body = (await res.json()) as { items?: OrdsStatement[] };
+  const stmts = body.items ?? [];
+  const errored = stmts.find((s) => s.errorMessage);
+  if (errored?.errorMessage) throw new Error(`Oracle: ${errored.errorMessage}`);
+
+  const rs = (stmts.find((s) => s.resultSet) ?? stmts[0])?.resultSet;
+  const meta = rs?.metadata ?? [];
+  const columns: WarehouseColumn[] = meta.map((m) => ({
+    name: m.columnName ?? m.jsonColumnName ?? "",
+    type: m.columnTypeName ?? "",
+  }));
+  // ORDS keys each row object by jsonColumnName (defaults to the lower-cased
+  // column name); fall back defensively across casings.
+  const keys = meta.map((m, i) => ({
+    json: m.jsonColumnName,
+    upper: m.columnName,
+    lower: (m.columnName ?? columns[i]?.name ?? "").toLowerCase(),
+  }));
+  const items = rs?.items ?? [];
+  const data = items.slice(0, maxRows).map((row) =>
+    keys.map((k) => {
+      if (k.json && k.json in row) return row[k.json];
+      if (k.upper && k.upper in row) return row[k.upper];
+      return row[k.lower];
+    }),
+  );
+  const truncated = Boolean(rs?.hasMore) || items.length > maxRows;
+  return { columns, data, truncated };
+}
+
 // ── Public entry points ──────────────────────────────────────────────────────
 
 export async function executeWarehouseQuery(
@@ -892,6 +970,9 @@ export async function executeWarehouseQuery(
       break;
     case "athena":
       raw = await athenaQuery(config, safeSql, cappedRows);
+      break;
+    case "oracle":
+      raw = await oracleQuery(config, safeSql, cappedRows);
       break;
   }
 
@@ -945,6 +1026,13 @@ export async function listWarehouseTables(config: WarehouseConfig): Promise<Ware
       // Scoped to the configured database via QueryExecutionContext.
       sql = COLUMNS_QUERY("information_schema.columns");
       break;
+    case "oracle":
+      // Oracle has no information_schema; list the REST-enabled schema's own
+      // tables from the data dictionary (Oracle 12c+ uses FETCH FIRST, not LIMIT).
+      sql =
+        "SELECT USER AS table_schema, table_name, column_name, data_type " +
+        "FROM user_tab_columns ORDER BY table_name, column_id FETCH FIRST 5000 ROWS ONLY";
+      break;
   }
   const result = await executeWarehouseQuery(config, sql, ABS_MAX_ROWS);
   // Normalise column-name casing across dialects before grouping.
@@ -958,5 +1046,7 @@ export async function listWarehouseTables(config: WarehouseConfig): Promise<Ware
 
 /** Cheap connectivity probe used by the "Test connection" button. */
 export async function testWarehouseConnection(config: WarehouseConfig): Promise<void> {
-  await executeWarehouseQuery(config, "SELECT 1", 1);
+  // Oracle has no bare `SELECT 1` — it must select FROM DUAL.
+  const probe = config.provider === "oracle" ? "SELECT 1 FROM DUAL" : "SELECT 1";
+  await executeWarehouseQuery(config, probe, 1);
 }

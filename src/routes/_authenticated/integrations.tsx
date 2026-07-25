@@ -884,7 +884,7 @@ function IntegrationsPage() {
         <Tabs defaultValue="llm" className="space-y-4">
           <TabsList>
             <TabsTrigger value="llm">LLM Providers</TabsTrigger>
-            <TabsTrigger value="warehouses">Data Warehouses</TabsTrigger>
+            <TabsTrigger value="warehouses">Data Sources</TabsTrigger>
             <TabsTrigger value="gateway">LLM Gateway</TabsTrigger>
             <TabsTrigger value="n8n">n8n Workflows</TabsTrigger>
           </TabsList>
