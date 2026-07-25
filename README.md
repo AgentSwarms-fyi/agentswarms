@@ -3,7 +3,7 @@
 
   <h1>AgentSwarms</h1>
 
-  <p><strong>Deploy your own agentic AI platform — with learning guidance built in.</strong><br />
+  <p><strong>Deploy your own agentic AI &amp; business-intelligence platform.</strong><br />
   Build agents, run multi-agent swarms, ground them in your data, and inspect
   every trace — on your own infrastructure, with your own keys.</p>
 
@@ -28,12 +28,12 @@
 
 ---
 
-**AgentSwarms open source** is a complete, self-hostable agentic AI platform:
-an agent playground, a visual multi-agent swarm canvas, knowledge bases with
-RAG, tool use, MCP connections, budgets, and full execution traces — plus the
-guided learning content to make sense of it all. It is designed for **easy
-deployment**: one Supabase project as the backend, one Docker command to run,
-and **bring-your-own-everything** — your data lives in your own Supabase
+**AgentSwarms open source** is a complete, self-hostable agentic AI &
+business-intelligence platform: agent chat, a visual multi-agent swarm canvas,
+knowledge bases with RAG, tool use, MCP connections, connected databases &
+warehouses, dashboards, budgets, and full execution traces. It is designed for
+**easy deployment**: one Supabase project as the backend, one Docker command to
+run, and **bring-your-own-everything** — your data lives in your own Supabase
 project, and models run against your own provider keys (OpenRouter, OpenAI,
 Anthropic, Gemini, Bedrock, Azure, OCI, Qwen, Grok, Groq, Ollama, vLLM…).
 Optionally set one instance-wide OpenRouter key so every user on your
@@ -45,7 +45,7 @@ Same UI, two different missions:
 
 |              | **This repository (MIT)**                                                                                                                                                  | **[agentswarms.fyi](https://agentswarms.fyi) (hosted)**                                                                                                                 |
 | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Focus**    | **Easy deployment of the full agentic AI platform** on your own infrastructure — agents, swarms, RAG, traces, budgets — with the learning curriculum included as guidance. | **Learning first**: a hands-on classroom for agentic AI — guided curriculum, build-along labs, interactive notebooks, presentations, and certification — fully managed. |
+| **Focus**    | **Easy deployment of the full agentic AI &amp; BI platform** on your own infrastructure — agents, swarms, RAG, connected data, dashboards, traces, budgets.                | **Learning first**: a hands-on classroom for agentic AI — guided curriculum, build-along labs, interactive notebooks, presentations, and certification — fully managed. |
 | **Runs on**  | Your Supabase project, your provider keys, your Docker host (or Cloudflare Workers).                                                                                       | Managed infrastructure, including an AI gateway with free-tier models — nothing to configure.                                                                           |
 | **Extras**   | Headless control of your own data; no usage caps other than your own budgets.                                                                                              | Hosted-only surfaces: field-engineering blog, community galleries, voice agents, website embeds, and free standalone tools.                                             |
 | **Best for** | Teams and tinkerers who want to **run** an agentic AI platform they own.                                                                                                   | Learners who want to **study and practice** agentic AI without setting anything up.                                                                                     |
@@ -66,17 +66,8 @@ The "AgentSwarms" name and the hosted service remain with the project author.
 | 🔍 **Observability**         | Inspect every tool call, token, and cost in a full execution trace — plus an audit trail of who did what (model calls, dataset & warehouse queries, dashboard views, catalog crawls) with a configurable retention window, and admin-only spend analytics broken down by user and IAM group. |
 | 🔌 **BYOK + MCP + A2A**      | Encrypted per-user provider keys, MCP server connections, swarm export to LangGraph/CrewAI/OpenAI SDK/Strands, and an A2A endpoint.                                                                     |
 | 🛂 **IAM**                   | Superadmins, groups, invite/manual user provisioning, per-user/group model allow-lists, read-only sharing of KBs and data tables, invite-only mode.                                                     |
-| 🧭 **Guided curriculum**     | Five tracks — Foundations, Patterns & Tools, SQL Agents, Multi-Agent Swarms, Scaling & Enterprise — each chapter pairs a concept with something you actually run.                                       |
 | 📓 **Developer workspace**   | In-browser Python notebooks (Pyodide). Ships with read-only, runnable samples for **LangChain**, **LangGraph**, **LlamaIndex** and a mixed agentic-stack capstone (knowledge base, tools, skills, guardrails, MCP) — fork any of them to edit. Built-in `agentswarms` helper calls your connected models and searches your knowledge base, governed by IAM rules and logged in Traces. |
-| 🛡️ **Guardrails & evals**    | Prompt-injection tests, PII redaction, LLM-as-judge scoring — hands-on, not hypothetical.                                                                                                               |
-| 🎓 **Certification**         | Pass the exam, get a verifiable certificate and badge.                                                                                                                                                  |
-
-<div align="center">
-  <img src="public/sample-badge-current.png" alt="AgentSwarms Certified Agentic AI Practitioner badge" width="220" />
-  <br />
-  <sub>Every learner who passes the certification exam earns a verifiable badge like this one.</sub>
-</div>
-
+| 🛡️ **Guardrails & evals**    | Prompt-injection tests, PII redaction, and LLM-as-judge scoring you can run against your own agents.                                                                                                     |
 
 ## Quickstart
 
@@ -142,5 +133,5 @@ and credits for the open-source projects AgentSwarms builds on live in
 ---
 
 <div align="center">
-  <sub>Built with TanStack Start, Supabase, and a genuine dislike of theory-only AI courses.</sub>
+  <sub>Built with TanStack Start and Supabase — an agentic AI &amp; BI platform you own.</sub>
 </div>

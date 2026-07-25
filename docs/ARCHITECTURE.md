@@ -24,7 +24,7 @@ agentswarms/
 ├── src/
 │   ├── routes/       # pages and API routes (file-based routing)
 │   ├── components/   # UI, organized by feature (agents, swarms, playground, bi, ...)
-│   ├── lib/          # curriculum, agent/swarm export, BI/charts, docGen, sample data
+│   ├── lib/          # agent/swarm export, BI/charts, docGen, sample data
 │   └── utils/        # server-side utilities (providers, tools, warehouse, catalog, iam, observability)
 └── supabase/
     └── migrations/   # the full database schema, as SQL migrations
