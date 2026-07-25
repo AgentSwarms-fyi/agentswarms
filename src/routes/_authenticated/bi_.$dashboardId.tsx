@@ -99,6 +99,7 @@ import {
   snapshotRows,
   touchDashboardView,
   updateDashboard,
+  DashboardConflictError,
   type BiCrossFilter,
   type BiRowFilter,
   type BiDashboardRow,
@@ -265,7 +266,12 @@ function BiProjectPage() {
   const activePageIdRef = useRef<string>("");
   activePageIdRef.current = activePageId;
   const [name, setName] = useState("");
-  const [saveState, setSaveState] = useState<"saved" | "saving" | "error">("saved");
+  const [saveState, setSaveState] = useState<"saved" | "saving" | "error" | "conflict">("saved");
+  // Optimistic-concurrency guard for content saves. `versionRef` holds the
+  // last version we successfully loaded/wrote; `conflictRef` latches once a
+  // concurrent save is detected so we stop clobbering until the user reloads.
+  const versionRef = useRef(0);
+  const conflictRef = useRef(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Connected data (owner only — viewers render snapshots).
@@ -314,10 +320,44 @@ function BiProjectPage() {
     [row],
   );
 
+  // One content save through the optimistic-concurrency guard. Bumps the
+  // tracked version on success so back-to-back saves stay in step.
+  const commitPatch = useCallback(
+    async (patch: Parameters<typeof updateDashboard>[1]) => {
+      const next = await updateDashboard(dashboardId, patch, {
+        expectedVersion: versionRef.current,
+      });
+      if (typeof next === "number") versionRef.current = next;
+    },
+    [dashboardId],
+  );
+
+  // Shared save-error handler. A concurrent-write conflict latches (we stop
+  // autosaving so we never clobber the other session) and prompts a reload;
+  // anything else is a transient error.
+  const onSaveError = useCallback((e: unknown) => {
+    if (e instanceof DashboardConflictError) {
+      conflictRef.current = true;
+      setSaveState("conflict");
+      toast.error("This dashboard was changed in another session.", {
+        description: "Reload to get the latest version before editing further.",
+        action: { label: "Reload", onClick: () => window.location.reload() },
+        duration: Infinity,
+      });
+      return;
+    }
+    setSaveState("error");
+    toast.error(`Save failed: ${(e as Error).message}`);
+  }, []);
+
   async function saveTheme(t: BiDashTheme) {
     if (row === null || row === "missing") return;
-    await updateDashboard(row.id, { theme: t as Json });
-    setRow({ ...row, theme: t as Json });
+    try {
+      await commitPatch({ theme: t as Json });
+      setRow({ ...row, theme: t as Json });
+    } catch (e) {
+      onSaveError(e);
+    }
   }
 
   function setWidgetTheme(id: string, patch: Partial<BiWidgetTheme>) {
@@ -369,6 +409,8 @@ function BiProjectPage() {
       .then((r) => {
         if (!r) return setRow("missing");
         setRow(r);
+        versionRef.current = r.version ?? 0;
+        conflictRef.current = false;
         setName(r.name);
         const w = parseWidgets(r.widgets);
         const pgs = parsePages(r.pages, w, parseLayout(r.layout, w));
@@ -526,11 +568,11 @@ function BiProjectPage() {
   // widgets/layout columns so older readers keep working.
   const savePages = useCallback(
     (nextPages: BiPage[]) => {
-      if (readOnly) return;
+      if (readOnly || conflictRef.current) return;
       setSaveState("saving");
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(() => {
-        updateDashboard(dashboardId, {
+        commitPatch({
           pages: nextPages as unknown as Json,
           widgets: (nextPages[0]?.widgets ?? []) as unknown as Json,
           layout: (nextPages[0]?.layout ?? []) as unknown as Json,
@@ -539,13 +581,10 @@ function BiProjectPage() {
             setSaveState("saved");
             maybeAutoSnapshot();
           })
-          .catch((e) => {
-            setSaveState("error");
-            toast.error(`Save failed: ${(e as Error).message}`);
-          });
+          .catch(onSaveError);
       }, 700);
     },
-    [dashboardId, readOnly, maybeAutoSnapshot],
+    [readOnly, commitPatch, onSaveError, maybeAutoSnapshot],
   );
 
   const persist = useCallback(
@@ -640,14 +679,11 @@ function BiProjectPage() {
 
   function persistFilterConfigs(next: BiFilterConfig[]) {
     setFilterConfigs(next);
-    if (readOnly) return;
+    if (readOnly || conflictRef.current) return;
     setSaveState("saving");
-    updateDashboard(dashboardId, { filters: next as unknown as Json })
+    commitPatch({ filters: next as unknown as Json })
       .then(() => setSaveState("saved"))
-      .catch((e) => {
-        setSaveState("error");
-        toast.error(`Save failed: ${(e as Error).message}`);
-      });
+      .catch(onSaveError);
   }
 
   async function saveName() {
@@ -655,9 +691,10 @@ function BiProjectPage() {
     const trimmed = name.trim();
     if (!trimmed || trimmed === row.name) return setName(row.name);
     try {
-      await updateDashboard(dashboardId, { name: trimmed });
+      await commitPatch({ name: trimmed });
       setRow({ ...row, name: trimmed });
     } catch (e) {
+      if (e instanceof DashboardConflictError) return onSaveError(e);
       toast.error((e as Error).message);
       setName(row.name);
     }
@@ -1054,12 +1091,18 @@ function BiProjectPage() {
                 className={`h-1.5 w-1.5 rounded-full ${
                   saveState === "saving"
                     ? "animate-pulse bg-amber-500"
-                    : saveState === "error"
+                    : saveState === "error" || saveState === "conflict"
                       ? "bg-destructive"
                       : "bg-emerald-500"
                 }`}
               />
-              {saveState === "saving" ? "Saving" : saveState === "error" ? "Save failed" : "Saved"}
+              {saveState === "saving"
+                ? "Saving"
+                : saveState === "conflict"
+                  ? "Changed elsewhere — reload"
+                  : saveState === "error"
+                    ? "Save failed"
+                    : "Saved"}
             </span>
           )}
           {!readOnly && (

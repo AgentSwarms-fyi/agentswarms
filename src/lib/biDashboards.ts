@@ -133,6 +133,8 @@ export type BiDashboardRow = {
    *  personal folder when workspace_id is null). Both null = personal + ungrouped. */
   workspace_id: string | null;
   folder_id: string | null;
+  /** Optimistic-concurrency counter — bumped on every editor content save. */
+  version: number;
   created_at: string;
   updated_at: string;
 };
@@ -734,6 +736,14 @@ export async function createDashboard(args: {
   return data as BiDashboardRow;
 }
 
+/** Thrown when an optimistic-concurrency save loses to a concurrent write. */
+export class DashboardConflictError extends Error {
+  constructor() {
+    super("This dashboard was changed in another session.");
+    this.name = "DashboardConflictError";
+  }
+}
+
 export async function updateDashboard(
   id: string,
   patch: Partial<{
@@ -750,9 +760,29 @@ export async function updateDashboard(
     workspace_id: string | null;
     folder_id: string | null;
   }>,
-): Promise<void> {
+  opts?: { expectedVersion?: number },
+): Promise<number | null> {
+  // Optimistic concurrency: only the editor's content saves pass an
+  // expectedVersion. The update is guarded on the version it loaded and bumps
+  // it atomically; zero rows back means someone else saved first — reject
+  // instead of clobbering. Callers without a version keep last-write-wins,
+  // which is correct for one-shot writes (publish, move, rename from lists).
+  if (opts && typeof opts.expectedVersion === "number") {
+    const expected = opts.expectedVersion;
+    const { data, error } = await supabase
+      .from("bi_dashboards")
+      .update({ ...patch, version: expected + 1 })
+      .eq("id", id)
+      .eq("version", expected)
+      .select("version")
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) throw new DashboardConflictError();
+    return (data as { version: number }).version;
+  }
   const { error } = await supabase.from("bi_dashboards").update(patch).eq("id", id);
   if (error) throw new Error(error.message);
+  return null;
 }
 
 export async function deleteDashboard(id: string): Promise<void> {

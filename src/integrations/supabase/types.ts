@@ -436,6 +436,7 @@ export type Database = {
           widgets: Json;
           workspace_id: string | null;
           folder_id: string | null;
+          version: number;
         };
         Insert: {
           ai_model?: string | null;
@@ -457,6 +458,7 @@ export type Database = {
           widgets?: Json;
           workspace_id?: string | null;
           folder_id?: string | null;
+          version?: number;
         };
         Update: {
           ai_model?: string | null;
@@ -478,6 +480,7 @@ export type Database = {
           widgets?: Json;
           workspace_id?: string | null;
           folder_id?: string | null;
+          version?: number;
         };
         Relationships: [];
       };
