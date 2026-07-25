@@ -52,6 +52,9 @@ node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json
 | [topojson-client](https://github.com/topojson/topojson-client) + [world-atlas](https://github.com/topojson/world-atlas) | ISC | Map geometry (derived from the public-domain [Natural Earth](https://www.naturalearthdata.com/) dataset) |
 | [pdf-lib](https://github.com/Hopding/pdf-lib) | MIT | Dashboard PDF export |
 | [html2canvas-pro](https://github.com/yorickshan/html2canvas-pro) | MIT | Widget/dashboard rasterisation for PDF & PNG export |
+| [PptxGenJS](https://github.com/gitbrent/PptxGenJS) | MIT | AI-generated PowerPoint files (Agent Chat) |
+| [docx](https://github.com/dolanmiu/docx) | MIT | AI-generated Word documents (Agent Chat) |
+| [write-excel-file](https://gitlab.com/catamphetamine/write-excel-file) | MIT | AI-generated Excel workbooks with live formulas (Agent Chat) |
 | [Papa Parse](https://github.com/mholt/PapaParse) | MIT | CSV parsing |
 | [node-sql-parser](https://github.com/taozhi8833998/node-sql-parser) | Apache-2.0 | SQL validation |
 | [pdfjs-dist](https://github.com/mozilla/pdf.js) | Apache-2.0 | PDF text extraction for knowledge bases |

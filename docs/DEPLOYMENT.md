@@ -271,6 +271,15 @@ one pass runs at a time (extra callers get `{"skipped": true}`).
   than sent traffic. (Don't point liveness at this — a shared-DB blip would then
   restart every pod at once instead of just draining them.)
 
+### Progressive Web App (PWA)
+The app ships an installable PWA: `public/manifest.webmanifest` plus a
+conservative service worker (`public/sw.js`) registered from the root. It
+caches only same-origin static assets (cache-first) and serves an offline
+shell (`public/offline.html`) for navigations when the network is down — it
+**never** caches HTML, `/api/*`, auth or cross-origin requests, so there's no
+stale-data or auth risk. Nothing extra to configure; it activates once the app
+is served over HTTPS. Users get an "Install" prompt in supported browsers.
+
 ### Metrics (Prometheus / OpenMetrics)
 `GET /api/metrics` exposes fleet-level operational gauges in the Prometheus text
 exposition format — run and LLM-call volume over the last 24h broken down by

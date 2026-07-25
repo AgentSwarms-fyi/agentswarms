@@ -258,7 +258,7 @@ browser.
    email" prompt — the confirmation email comes from Supabase's default
    mailer per step 3.3.
 2. Go to **Agents** and create one (or pick one of the seeded sample
-   agents), then open it in the **Playground** and send a message. If
+   agents), then open it in **Build → Agent Chat** and send a message. If
    `OPENROUTER_API_KEY` is set, this should work immediately with no further
    configuration.
 3. Open **Knowledge Base**, create one, and upload a document. If

@@ -134,6 +134,18 @@ and reports. An editable dashboard is called a **BI project**:
   appear read-only in members' BI Workspace. Viewers always see the stored
   snapshots — your warehouse credentials are never used on their behalf and
   never leave the server.
+- **Workspaces, folders & promotion** — group dashboards into **workspaces**
+  (with user- or IAM-group members, read-only for members) and nest them in
+  **folders**; a `null` workspace stays your private *Personal* space, so this
+  is entirely opt-in. **Promote** an owned dashboard from a personal draft
+  into a shared workspace (the first promote copies it in as a Draft;
+  re-promoting re-syncs the content while keeping the promoted copy's publish
+  link) for a lightweight dev→prod flow. Workspace/member management is
+  superadmin-gated.
+- **Git export (versioning)** — admins can connect a **GitHub or GitLab**
+  repo (per-user, encrypted token) and push **model + dashboard definitions**
+  as one commit for review/versioning. Only definitions are exported — widget
+  **data rows are stripped**, never the snapshots.
 
 
 ## Theming

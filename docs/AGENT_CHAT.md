@@ -1,0 +1,102 @@
+# Agent Chat & document generation
+
+> Part of the [AgentSwarms docs](../README.md#documentation).
+
+**Agent Chat** (**Build → Agent Chat**, `/playground`) is where you talk to a
+saved agent in the browser. Beyond plain chat it can render a **BI chart** next
+to an answer and generate fully-editable **PowerPoint / Word / Excel** files
+grounded in your own data.
+
+## Chatting with an agent
+
+1. Pick an agent from the selector (create one first in **Agent Builder**).
+2. Type a message. The agent runs with its configured system prompt, tools,
+   knowledge base and model.
+3. The right-hand **inspector** shows the live thinking, tool calls, and the
+   full request/response for the last turn; everything is also recorded in
+   **Traces**.
+
+You can override the model per session, edit/regenerate messages, and attach
+files. Conversations are saved per agent.
+
+## Visual BI answers
+
+Turn on **Visual BI** to get a chart generated from your connected tables
+alongside the text answer — similar to asking a question and getting both a
+narrative and a visualization back.
+
+- **Enable it per agent.** In **Agent Builder**, flip the **Visual BI answers**
+  switch. The setting is saved on the agent (`tools.biVisuals`), so it also
+  applies wherever the agent runs — including website **embeds**.
+- **Toggle it for the session.** The **Visual BI** button in the composer bar
+  is seeded from the agent's setting and can be flipped on/off for the current
+  chat.
+
+When it's on, after each answer the BI analyst (plan → SQL → execute → chart)
+runs over your datasets and, if the result charts well, a widget is stored on
+the message and rendered inline. It survives reload and appears in embeds. It's
+best-effort: if there's no usable data or the result is table-only, no widget
+is shown and the text answer is never affected.
+
+## Generating documents (PowerPoint / Word / Excel)
+
+The **PPT**, **Word** and **Excel** buttons under the composer generate a real,
+fully-editable Office file from a prompt:
+
+1. Click a format and describe what you want (the prompt box is pre-filled with
+   whatever you'd typed).
+2. AgentSwarms **gathers context** — relevant knowledge-base excerpts, your
+   data-table schemas + samples, and the **recent conversation**.
+3. An LLM **plans** the document, then it's **built client-side** into a native
+   file and downloaded:
+   - **PowerPoint** — titled slides with bullets, tables and native (editable)
+     charts.
+   - **Word** — headings, prose, bullet lists and tables.
+   - **Excel** — a real workbook with header rows, typed cells and **live
+     formulas** (editable in Excel, not baked-in text).
+
+Nothing is a screenshot or a flat dump — every file opens for editing in its
+native app.
+
+### Sample vs. full data
+
+The **Sample / Full data** selector in the composer bar controls how much data
+is pulled in:
+
+- **Sample** (default) — a fast, capped preview; good for a quick draft.
+- **Full data** — the complete result set (up to a safety cap).
+
+It applies to **Excel generation** and to the **Visual BI** widget's row
+snapshot.
+
+### Full-data Excel with live formulas
+
+For Excel, the planner prefers **data-bound sheets**: instead of writing rows
+itself, it emits a read-only `SELECT` over your tables plus optional
+**computed columns** and a **totals** row expressed as Excel formula templates.
+On build, the query runs in the browser SQL engine and fills the sheet with
+**every row** (Sample scope caps it), while the formula templates are resolved
+against the real cell ranges — so a computed line total or a `SUM`/`AVERAGE`
+total stays a **live, editable formula** in the delivered workbook, correct for
+whatever the row count turns out to be.
+
+This is what lets a prompt like *"build a bill of materials from this pricing
+sheet"* produce a multi-sheet workbook with real unit-price calculations and
+monthly/annual roll-ups. When no table applies (e.g. a knowledge-base summary)
+the planner falls back to literal rows.
+
+### Which model runs it
+
+Document planning and Visual BI use the same **BYOK** model selection as the
+rest of the app — the agent's model (or your per-session override), executed
+against your connected provider's key, with the operator's shared
+`OPENROUTER_API_KEY` only as a zero-config fallback, and filtered by your IAM
+model rules.
+
+## Embedding an agent
+
+Agents can be embedded on your own site (see **Integrations → Web Embedding**,
+`/embeds`). The **Visual BI answers** setting is inherited by the embed. Because
+anonymous embed visitors have **no data access**, the widget is generated
+server-side with the agent **owner's** data (scoped to the owner as a tenant
+guard) and streamed into the embedded answer.
