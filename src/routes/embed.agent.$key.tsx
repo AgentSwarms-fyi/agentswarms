@@ -8,6 +8,8 @@ import { Bot, Loader2, Send, ShieldAlert } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { MarkdownMessage } from "@/components/playground/MarkdownMessage";
+import { BiWidgetCard } from "@/components/bi/BiWidgetCard";
+import { parseWidgets, type BiWidget } from "@/lib/biDashboards";
 import {
   resolveEmbed,
   streamEmbedChat,
@@ -24,7 +26,7 @@ export const Route = createFileRoute("/embed/agent/$key")({
   component: EmbedAgentPage,
 });
 
-type Turn = EmbedChatMessage & { citations?: Citation[] };
+type Turn = EmbedChatMessage & { citations?: Citation[]; widgets?: BiWidget[] };
 
 export function EmbedErrorCard({ error }: { error: string }) {
   return (
@@ -83,12 +85,16 @@ function EmbedAgentPage() {
     setTurns((prev) => [...prev, { role: "user", content: q }, { role: "assistant", content: "" }]);
     try {
       let citations: Citation[] = [];
+      let widgets: BiWidget[] = [];
       await streamEmbedChat({
         key,
         preview: isPreview,
         messages: history,
         onCitations: (c) => {
           citations = c;
+        },
+        onWidget: (w) => {
+          widgets = parseWidgets([w] as unknown as Parameters<typeof parseWidgets>[0]);
         },
         onToken: (t) =>
           setTurns((prev) => {
@@ -98,10 +104,14 @@ function EmbedAgentPage() {
             return copy;
           }),
       });
-      if (citations.length > 0) {
+      if (citations.length > 0 || widgets.length > 0) {
         setTurns((prev) => {
           const copy = [...prev];
-          copy[copy.length - 1] = { ...copy[copy.length - 1], citations };
+          copy[copy.length - 1] = {
+            ...copy[copy.length - 1],
+            ...(citations.length > 0 ? { citations } : {}),
+            ...(widgets.length > 0 ? { widgets } : {}),
+          };
           return copy;
         });
       }
@@ -167,6 +177,17 @@ function EmbedAgentPage() {
                   <MarkdownMessage content={t.content} />
                 ) : (
                   <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                )}
+                {t.widgets && t.widgets.length > 0 && (
+                  <div className="mt-2 space-y-2">
+                    {t.widgets
+                      .filter((w) => w.kind === "chart" && (w.rows?.length ?? 0) > 0)
+                      .map((w) => (
+                        <div key={w.id} className="h-56">
+                          <BiWidgetCard widget={w} />
+                        </div>
+                      ))}
+                  </div>
                 )}
                 {t.citations && t.citations.length > 0 && (
                   <p className="mt-1.5 border-t border-border/40 pt-1.5 text-[10px] text-muted-foreground">

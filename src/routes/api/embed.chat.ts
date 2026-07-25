@@ -20,6 +20,7 @@ import { recordGatewayCall } from "@/utils/observability/recordGatewayUsage.serv
 import { resolveOpenAICompatTransport } from "@/utils/providers/credentials.server";
 import type { ProviderId } from "@/utils/providers/types";
 import { retrieveCitationsServer, type Citation } from "@/utils/tools/kb.server";
+import { generateEmbedWidget } from "@/utils/embedBi.server";
 import {
   applyOutputGuardrails,
   evaluateInputGuardrails,
@@ -101,6 +102,8 @@ type ResolvedConfig = {
   kbIds: string[];
   reranker?: { provider: string; model: string };
   guardrails: Guardrails;
+  /** Agent-only: generate a visual BI widget alongside the answer. */
+  biVisuals: boolean;
 };
 
 /** Load the effective config for this embed call from the owner's rows. */
@@ -123,6 +126,7 @@ async function resolveConfig(
       knowledgeBaseIds?: unknown;
       reranker?: { provider?: string; model?: string };
       guardrails?: unknown;
+      biVisuals?: unknown;
     };
     const kbIds = [
       ...(agent.knowledge_base_id ? [agent.knowledge_base_id] : []),
@@ -145,6 +149,7 @@ async function resolveConfig(
             ? { provider: tools.reranker.provider, model: tools.reranker.model }
             : undefined,
         guardrails: parseGuardrails(tools.guardrails),
+        biVisuals: !!tools.biVisuals,
       },
     };
   }
@@ -230,6 +235,7 @@ async function resolveConfig(
           ? { provider: reranker.provider, model: reranker.model }
           : undefined,
       guardrails: mergedGuardrails,
+      biVisuals: false,
     },
   };
 }
@@ -437,6 +443,15 @@ export const Route = createFileRoute("/api/embed/chat")({
             payload += `event: citations\ndata: ${JSON.stringify({ citations })}\n\n`;
           }
           payload += `data: ${JSON.stringify({ choices: [{ delta: { content: finalText } }] })}\n\n`;
+          if (cfg.biVisuals && !decision.blocked) {
+            const widget = await generateEmbedWidget({
+              ownerId: keyRow.user_id,
+              provider: cfg.provider,
+              model: cfg.model,
+              question: userText,
+            });
+            if (widget) payload += `event: widget\ndata: ${JSON.stringify({ widget })}\n\n`;
+          }
           payload += "data: [DONE]\n\n";
           return new Response(payload, {
             headers: {
@@ -462,6 +477,25 @@ export const Route = createFileRoute("/api/embed/chat")({
                 if (value) {
                   consumeChunk(decoder.decode(value, { stream: true }));
                   controller.enqueue(value);
+                }
+              }
+              // Visual BI answer: after the text, append a widget generated from
+              // the owner's data (best-effort, never breaks the answer stream).
+              if (cfg.biVisuals) {
+                try {
+                  const widget = await generateEmbedWidget({
+                    ownerId: keyRow.user_id,
+                    provider: cfg.provider,
+                    model: cfg.model,
+                    question: userText,
+                  });
+                  if (widget) {
+                    controller.enqueue(
+                      encoder.encode(`event: widget\ndata: ${JSON.stringify({ widget })}\n\n`),
+                    );
+                  }
+                } catch {
+                  /* widget is optional */
                 }
               }
               finishTrace("success");

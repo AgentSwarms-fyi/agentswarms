@@ -106,6 +106,8 @@ export async function streamEmbedChat(args: {
   nodeId?: string;
   onToken: (t: string) => void;
   onCitations?: (c: Citation[]) => void;
+  /** A visual BI widget generated for this answer (agents with biVisuals on). */
+  onWidget?: (w: unknown) => void;
   signal?: AbortSignal;
 }): Promise<string> {
   const res = await fetch("/api/embed/chat", {
@@ -159,10 +161,15 @@ export async function streamEmbedChat(args: {
       try {
         const p = JSON.parse(payload) as {
           citations?: Citation[];
+          widget?: unknown;
           choices?: Array<{ delta?: { content?: string }; message?: { content?: string } }>;
         };
         if (currentEvent === "citations" && p.citations) {
           args.onCitations?.(p.citations);
+          continue;
+        }
+        if (currentEvent === "widget" && p.widget) {
+          args.onWidget?.(p.widget);
           continue;
         }
         const delta = p.choices?.[0]?.delta?.content ?? p.choices?.[0]?.message?.content ?? "";
