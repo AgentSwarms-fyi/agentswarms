@@ -1,0 +1,20 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="AgentSwarms">
+  <rect width="512" height="512" fill="#0F172A"/>
+  <g stroke="#6366F1" stroke-width="10" fill="none" opacity="0.9">
+    <line x1="256" y1="256" x2="150" y2="150"/>
+    <line x1="256" y1="256" x2="362" y2="150"/>
+    <line x1="256" y1="256" x2="150" y2="362"/>
+    <line x1="256" y1="256" x2="362" y2="362"/>
+    <line x1="256" y1="256" x2="256" y2="120"/>
+    <line x1="256" y1="256" x2="256" y2="392"/>
+  </g>
+  <g fill="#818CF8">
+    <circle cx="150" cy="150" r="26"/>
+    <circle cx="362" cy="150" r="26"/>
+    <circle cx="150" cy="362" r="26"/>
+    <circle cx="362" cy="362" r="26"/>
+    <circle cx="256" cy="120" r="22"/>
+    <circle cx="256" cy="392" r="22"/>
+  </g>
+  <circle cx="256" cy="256" r="40" fill="#6366F1"/>
+</svg>
