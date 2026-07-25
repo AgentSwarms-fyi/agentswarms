@@ -649,6 +649,9 @@ export function AgentForm({
   const [routeThroughGateway, setRouteThroughGateway] = useState<boolean>(
     !!existingTools.routeThroughGateway,
   );
+  // Visual BI answers: when on, chat answers include an auto-generated data
+  // widget (saved under tools.biVisuals so embeds inherit it).
+  const [biVisuals, setBiVisuals] = useState<boolean>(!!existingTools.biVisuals);
   const [gatewayConnected, setGatewayConnected] = useState<{
     connected: boolean;
     provider?: string;
@@ -850,6 +853,7 @@ export function AgentForm({
         : {}),
       skillIds,
       routeThroughGateway,
+      biVisuals,
       webhooks: useN8n && n8nWebhook ? [{ type: "n8n_webhook", url: n8nWebhook }] : [],
     };
 
@@ -1093,6 +1097,23 @@ export function AgentForm({
                 Open Integrations →
               </a>
             )}
+          </div>
+
+          {/* Visual BI answers — saved under tools.biVisuals so the chat
+              playground AND embeds render a data widget alongside answers. */}
+          <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-xs">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <Label className="text-xs font-medium flex items-center gap-1">
+                  <BarChart3 className="h-3 w-3 text-primary" /> Visual BI answers
+                </Label>
+                <p className="text-muted-foreground mt-0.5">
+                  When on, answers include an auto-generated chart from your connected data (shown
+                  in chat and in embeds of this agent).
+                </p>
+              </div>
+              <Switch checked={biVisuals} onCheckedChange={setBiVisuals} />
+            </div>
           </div>
           <div className="space-y-2">
             <div className="flex items-center justify-between">

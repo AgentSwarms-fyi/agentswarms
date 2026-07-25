@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import type { Json } from "@/integrations/supabase/types";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -45,6 +46,9 @@ import {
 import { parseFileToText } from "@/lib/fileParsers";
 import { MarkdownMessage } from "@/components/playground/MarkdownMessage";
 import { DocGenBar } from "@/components/playground/DocGenBar";
+import { BiWidgetCard } from "@/components/bi/BiWidgetCard";
+import { generateChatWidget } from "@/lib/chatBi";
+import { parseWidgets } from "@/lib/biDashboards";
 import { toast } from "sonner";
 import {
   ModelFallbackDialog,
@@ -127,6 +131,10 @@ function PlaygroundPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
+  // Visual BI answers: session state seeded from the agent's saved setting.
+  // A ref mirrors it so the async post-answer generator reads the live value.
+  const [biVisuals, setBiVisuals] = useState(false);
+  const biVisualsRef = useRef(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -614,6 +622,39 @@ function PlaygroundPage() {
         dbIdMap.current.set(assistantId, insertedAssistant.id);
       }
 
+      // Visual BI answer: when the agent has it on, generate a data widget from
+      // the user's question and attach it to the assistant message (state + DB),
+      // so it renders inline and survives reload/embed. Best-effort — never
+      // affects the text answer.
+      if (biVisualsRef.current && assistantContent) {
+        const question =
+          [...opts.historySnapshot].reverse().find((m) => m.role === "user")?.content ?? "";
+        if (question) {
+          void generateChatWidget(question).then((widget) => {
+            if (!widget) return;
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId
+                  ? { ...m, metadata: { ...(m.metadata ?? {}), widgets: [widget] } }
+                  : m,
+              ),
+            );
+            const dbId = insertedAssistant?.id;
+            if (dbId) {
+              void supabase
+                .from("messages")
+                .update({
+                  metadata: {
+                    ...(citations.length > 0 ? { citations } : {}),
+                    widgets: [widget],
+                  } as unknown as Json,
+                })
+                .eq("id", dbId);
+            }
+          });
+        }
+      }
+
       if (opts.isFirstUserMessage) {
         const lastUser = [...opts.historySnapshot].reverse().find((m) => m.role === "user");
         if (lastUser) {
@@ -876,6 +917,16 @@ function PlaygroundPage() {
 
   const currentAgent = agents.find((a) => a.id === selectedAgent);
 
+  // Seed the Visual-BI toggle from the selected agent's saved setting.
+  useEffect(() => {
+    const on = !!(currentAgent?.tools as { biVisuals?: boolean } | undefined)?.biVisuals;
+    setBiVisuals(on);
+  }, [currentAgent]);
+  // Keep the ref in sync so the async post-answer generator sees the live value.
+  useEffect(() => {
+    biVisualsRef.current = biVisuals;
+  }, [biVisuals]);
+
   // Resolve template id for the guided tour. Prefer the agent's stored
   // tools.templateId; fall back to the value the templates page wrote into
   // sessionStorage at provision time.
@@ -1134,7 +1185,11 @@ function PlaygroundPage() {
                 </Button>
               )}
             </div>
-            <DocGenBar agentId={selectedAgent || undefined} defaultPrompt={input} />
+            <DocGenBar
+              agentId={selectedAgent || undefined}
+              defaultPrompt={input}
+              biControl={selectedAgent ? { enabled: biVisuals, onToggle: setBiVisuals } : undefined}
+            />
           </div>
         </div>
       </div>
@@ -1923,6 +1978,21 @@ function MessageBubble({
           <MemoryChip items={memoryUsed.items} summaryUsed={memoryUsed.summaryUsed} />
         )}
         {!isUser && citations.length > 0 && <Citations citations={citations} />}
+        {!isUser &&
+          (() => {
+            const widgets = parseWidgets(message.metadata?.widgets ?? []).filter(
+              (w) => w.kind === "chart" && (w.rows?.length ?? 0) > 0,
+            );
+            return widgets.length > 0 ? (
+              <div className="mt-3 space-y-3">
+                {widgets.map((w) => (
+                  <div key={w.id} className="h-72 max-w-2xl">
+                    <BiWidgetCard widget={w} />
+                  </div>
+                ))}
+              </div>
+            ) : null;
+          })()}
       </div>
     </div>
   );
