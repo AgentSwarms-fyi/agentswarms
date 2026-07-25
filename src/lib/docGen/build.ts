@@ -5,6 +5,7 @@ import type { Cell, SheetData } from "write-excel-file/browser";
 
 import { hydrateFromSupabase, runQueryUnlimited } from "@/lib/sqlEngine";
 import { materializePptxWithBI } from "./biData";
+import { chartToSvg, svgToDataUri } from "./chartSvg";
 import type {
   DocChart,
   DocScope,
@@ -307,68 +308,26 @@ export async function buildPptx(
     );
   };
 
+  // Charts are rendered by OUR OWN SVG renderer and embedded as an image (with a
+  // pptxgenjs-generated PNG fallback). We moved off pptxgenjs native charts
+  // because they sometimes embedded a chart frame with axes + gridlines but no
+  // plotted series — an empty-looking visual. Drawing the SVG ourselves
+  // guarantees the bars/lines/slices are always visible when data exists.
   const addChart = (
     slide: Slide,
     chart: DocChart,
     box: { x: number; y: number; w: number; h: number },
   ) => {
-    const type =
-      chart.type === "line"
-        ? pptx.ChartType.line
-        : chart.type === "area"
-          ? pptx.ChartType.area
-          : chart.type === "pie"
-            ? pptx.ChartType.pie
-            : chart.type === "doughnut"
-              ? pptx.ChartType.doughnut
-              : pptx.ChartType.bar;
-    const isPie = chart.type === "pie" || chart.type === "doughnut";
-    const isBarCol = chart.type === "bar" || chart.type === "column";
-    const cats = chart.categories ?? [];
-    const series = chart.series ?? [];
-    // Value labels on the bars when it stays readable — makes the chart feel
-    // data-rich without clutter (single series, not too many categories).
-    const showBarValues = isBarCol && series.length === 1 && cats.length <= 8;
-    // Card frame behind the chart, chart inset with padding.
-    card(slide, box);
-    const inset = { x: box.x + 0.28, y: box.y + 0.28, w: box.w - 0.56, h: box.h - 0.56 };
-    slide.addChart(
-      type,
-      series.map((ser) => ({ name: ser.name || "Series", labels: cats, values: ser.values ?? [] })),
-      {
-        ...inset,
-        chartColors: palette,
-        showLegend: isPie || series.length > 1,
-        legendPos: "b",
-        legendColor: PPTX_SUB,
-        legendFontSize: 9,
-        legendFontFace: PPTX_FONT,
-        showTitle: false,
-        showValue: isPie || showBarValues,
-        showPercent: isPie,
-        dataLabelColor: isPie ? "FFFFFF" : PPTX_SUB,
-        dataLabelFontSize: 9,
-        dataLabelFontFace: PPTX_FONT,
-        dataLabelFontBold: showBarValues,
-        dataLabelPosition: showBarValues ? "outEnd" : undefined,
-        barDir: chart.type === "bar" ? "bar" : "col",
-        barGapWidthPct: 42,
-        catAxisLabelColor: PPTX_SUB,
-        catAxisLabelFontSize: 9,
-        catAxisLabelFontFace: PPTX_FONT,
-        catAxisLineShow: false,
-        valAxisLabelColor: PPTX_SUB,
-        valAxisLabelFontSize: 9,
-        valAxisLabelFontFace: PPTX_FONT,
-        valAxisLineShow: false,
-        valGridLine: isPie ? { style: "none" } : { color: PPTX_GRID, size: 1, style: "solid" },
-        catGridLine: { style: "none" },
-        chartColorsOpacity: chart.type === "area" ? 40 : 100,
-        lineSize: 2.5,
-        lineSmooth: true,
-        holeSize: chart.type === "doughnut" ? 62 : undefined,
-      },
+    const inset = { x: box.x + 0.22, y: box.y + 0.22, w: box.w - 0.44, h: box.h - 0.44 };
+    const svg = chartToSvg(
+      chart,
+      { palette, ink: PPTX_INK, sub: PPTX_SUB, grid: PPTX_GRID },
+      960,
+      Math.max(360, Math.round((960 * inset.h) / inset.w)),
     );
+    if (!svg) return; // nothing plottable (guarded upstream by chartHasData)
+    card(slide, box);
+    slide.addImage({ data: svgToDataUri(svg), x: inset.x, y: inset.y, w: inset.w, h: inset.h });
   };
 
   const addBullets = (
