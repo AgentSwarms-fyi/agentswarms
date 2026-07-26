@@ -691,6 +691,9 @@ export async function buildDocx(plan: DocxPlan, filename: string): Promise<Built
     TableCell,
     WidthType,
     TextRun,
+    BorderStyle,
+    ShadingType,
+    TableLayoutType,
   } = docx;
 
   const headingFor = (lvl: 1 | 2 | 3) =>
@@ -700,50 +703,85 @@ export async function buildDocx(plan: DocxPlan, filename: string): Promise<Built
         ? HeadingLevel.HEADING_2
         : HeadingLevel.HEADING_3;
 
+  // Table styling: full page width, FIXED layout with explicit column widths (so
+  // columns don't collapse and the data is visible), light shaded header, thin
+  // borders on every cell, and padding. USABLE = Letter width minus 1" margins.
+  const USABLE = 9360;
+  const cellBorder = { style: BorderStyle.SINGLE, size: 4, color: "D9DEE5" };
+  const cellMargins = { top: 60, bottom: 60, left: 110, right: 110 };
+
   // Section children mix Paragraph + Table; keep it loose and cast at the end.
   const children: unknown[] = [];
   children.push(new Paragraph({ text: plan.title || "Untitled", heading: HeadingLevel.TITLE }));
 
+  let seenH1 = false; // start each major (level-1) section on a fresh page
   for (const b of plan.blocks ?? []) {
     if (b.type === "heading") {
-      children.push(new Paragraph({ text: b.text, heading: headingFor(b.level) }));
-    } else if (b.type === "paragraph") {
-      children.push(new Paragraph({ children: [new TextRun(b.text)] }));
-    } else if (b.type === "bullets") {
-      for (const item of b.items) {
-        children.push(new Paragraph({ text: item, bullet: { level: 0 } }));
-      }
-    } else if (b.type === "table") {
+      const isH1 = b.level === 1;
       children.push(
-        new Table({
-          width: { size: 100, type: WidthType.PERCENTAGE },
-          rows: [
-            new TableRow({
-              children: b.table.columns.map(
-                (c) =>
-                  new TableCell({
-                    children: [
-                      new Paragraph({ children: [new TextRun({ text: String(c), bold: true })] }),
-                    ],
-                  }),
-              ),
-            }),
-            ...(b.table.rows ?? []).map(
-              (row) =>
-                new TableRow({
-                  children: row.map(
-                    (cell) =>
-                      new TableCell({
-                        children: [
-                          new Paragraph(cell === null || cell === undefined ? "" : String(cell)),
-                        ],
-                      }),
-                  ),
-                }),
-            ),
-          ],
+        new Paragraph({
+          text: b.text,
+          heading: headingFor(b.level),
+          pageBreakBefore: isH1 && seenH1,
+          spacing: { before: 240, after: 120 },
         }),
       );
+      if (isH1) seenH1 = true;
+    } else if (b.type === "paragraph") {
+      children.push(
+        new Paragraph({ children: [new TextRun(b.text)], spacing: { after: 160, line: 300 } }),
+      );
+    } else if (b.type === "bullets") {
+      for (const item of b.items) {
+        children.push(new Paragraph({ text: item, bullet: { level: 0 }, spacing: { after: 60 } }));
+      }
+    } else if (b.type === "table") {
+      const cols = Math.max(1, b.table.columns.length);
+      const colW = Math.floor(USABLE / cols);
+      const headerRow = new TableRow({
+        tableHeader: true,
+        children: b.table.columns.map(
+          (c) =>
+            new TableCell({
+              width: { size: colW, type: WidthType.DXA },
+              margins: cellMargins,
+              shading: { type: ShadingType.CLEAR, fill: "EEF2F7", color: "auto" },
+              children: [
+                new Paragraph({ children: [new TextRun({ text: String(c), bold: true })] }),
+              ],
+            }),
+        ),
+      });
+      const bodyRows = (b.table.rows ?? []).map(
+        (row) =>
+          new TableRow({
+            children: Array.from({ length: cols }, (_, ci) => {
+              const cell = row[ci];
+              return new TableCell({
+                width: { size: colW, type: WidthType.DXA },
+                margins: cellMargins,
+                children: [new Paragraph(cell === null || cell === undefined ? "" : String(cell))],
+              });
+            }),
+          }),
+      );
+      children.push(
+        new Table({
+          width: { size: USABLE, type: WidthType.DXA },
+          columnWidths: Array.from({ length: cols }, () => colW),
+          layout: TableLayoutType.FIXED,
+          borders: {
+            top: cellBorder,
+            bottom: cellBorder,
+            left: cellBorder,
+            right: cellBorder,
+            insideHorizontal: cellBorder,
+            insideVertical: cellBorder,
+          },
+          rows: [headerRow, ...bodyRows],
+        }),
+      );
+      children.push(new Paragraph({ text: "", spacing: { after: 140 } }));
     }
   }
 

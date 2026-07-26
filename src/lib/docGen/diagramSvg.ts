@@ -20,6 +20,33 @@ function hx(c: string): string {
   return "#" + String(c ?? "").replace(/^#/, "");
 }
 
+/** Darken a #hex toward black by amt (0..1) — for gradient stops. */
+function shade(hex: string, amt: number): string {
+  const n = parseInt(hex.replace(/^#/, ""), 16);
+  const m = (ch: number) => Math.round(ch * (1 - amt));
+  return (
+    "#" +
+    [m((n >> 16) & 255), m((n >> 8) & 255), m(n & 255)]
+      .map((v) => v.toString(16).padStart(2, "0"))
+      .join("")
+  );
+}
+
+/** Vertical gradient per palette colour (grad0, grad1, …) for depth. */
+function gradientDefs(palette: string[]): string {
+  return palette
+    .map(
+      (col, i) =>
+        `<linearGradient id="grad${i}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${col}"/><stop offset="1" stop-color="${shade(col, 0.24)}"/></linearGradient>`,
+    )
+    .join("");
+}
+
+/** Gradient fill for palette index i. */
+function grad(i: number, len: number): string {
+  return `url(#grad${i % len})`;
+}
+
 function esc(s: string): string {
   return String(s ?? "")
     .replace(/&/g, "&amp;")
@@ -316,9 +343,8 @@ function funnelSvg(
     const wBot = maxW - ((maxW - minW) * (i + 1)) / n;
     const y = i * (rowH + gap);
     const cxc = W / 2;
-    const color = c.palette[i % c.palette.length];
     parts.push(
-      `<path d="M ${(cxc - wTop / 2).toFixed(1)} ${y.toFixed(1)} L ${(cxc + wTop / 2).toFixed(1)} ${y.toFixed(1)} L ${(cxc + wBot / 2).toFixed(1)} ${(y + rowH).toFixed(1)} L ${(cxc - wBot / 2).toFixed(1)} ${(y + rowH).toFixed(1)} Z" fill="${color}"/>`,
+      `<path d="M ${(cxc - wTop / 2).toFixed(1)} ${y.toFixed(1)} L ${(cxc + wTop / 2).toFixed(1)} ${y.toFixed(1)} L ${(cxc + wBot / 2).toFixed(1)} ${(y + rowH).toFixed(1)} L ${(cxc - wBot / 2).toFixed(1)} ${(y + rowH).toFixed(1)} Z" fill="${grad(i, c.palette.length)}"/>`,
     );
     const label = s.value ? `${s.title} — ${s.value}` : s.title;
     parts.push(
@@ -349,7 +375,7 @@ function pyramidSvg(
     const y = i * (rowH + gap);
     const color = c.palette[i % c.palette.length];
     parts.push(
-      `<path d="M ${(cxc - wTop / 2).toFixed(1)} ${y.toFixed(1)} L ${(cxc + wTop / 2).toFixed(1)} ${y.toFixed(1)} L ${(cxc + wBot / 2).toFixed(1)} ${(y + rowH).toFixed(1)} L ${(cxc - wBot / 2).toFixed(1)} ${(y + rowH).toFixed(1)} Z" fill="${color}"/>`,
+      `<path d="M ${(cxc - wTop / 2).toFixed(1)} ${y.toFixed(1)} L ${(cxc + wTop / 2).toFixed(1)} ${y.toFixed(1)} L ${(cxc + wBot / 2).toFixed(1)} ${(y + rowH).toFixed(1)} L ${(cxc - wBot / 2).toFixed(1)} ${(y + rowH).toFixed(1)} Z" fill="${grad(i, c.palette.length)}"/>`,
     );
     parts.push(
       `<text x="${cxc.toFixed(1)}" y="${(y + rowH / 2 + 6).toFixed(1)}" font-family="${FONT}" font-size="16" font-weight="700" fill="#ffffff" text-anchor="middle">${esc(s.title)}</text>`,
@@ -368,6 +394,300 @@ function pyramidSvg(
         }),
       );
     }
+  });
+  return parts.join("");
+}
+
+// ── matrix: a 2×2 quadrant grid (SWOT / priority / BCG) ───────────────────────
+function matrixSvg(
+  quadrants: { title: string; items?: string[] }[],
+  axisX: [string, string] | undefined,
+  axisY: [string, string] | undefined,
+  c: DiagramColors,
+  W: number,
+  H: number,
+): string {
+  const q = quadrants.slice(0, 4);
+  if (!q.length) return "";
+  const padL = axisY ? 26 : 6;
+  const padB = axisX ? 24 : 6;
+  const gx = padL;
+  const gy = 6;
+  const gw = W - padL - 6;
+  const gh = H - padB - 6;
+  const cw = (gw - 14) / 2;
+  const ch = (gh - 14) / 2;
+  const parts: string[] = [];
+  const pos = [
+    [gx, gy],
+    [gx + cw + 14, gy],
+    [gx, gy + ch + 14],
+    [gx + cw + 14, gy + ch + 14],
+  ];
+  q.forEach((quad, i) => {
+    const [x, y] = pos[i];
+    const color = c.palette[i % c.palette.length];
+    parts.push(roundRect(x, y, cw, ch, 12, `${color}14`, { stroke: color, strokeW: 1.5 }));
+    parts.push(
+      `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${cw.toFixed(1)}" height="30" rx="12" fill="${grad(i, c.palette.length)}"/>`,
+    );
+    parts.push(
+      `<rect x="${x.toFixed(1)}" y="${(y + 16).toFixed(1)}" width="${cw.toFixed(1)}" height="14" fill="${color}"/>`,
+    );
+    parts.push(
+      `<text x="${(x + 14).toFixed(1)}" y="${(y + 20).toFixed(1)}" font-family="${FONT}" font-size="14" font-weight="700" fill="#ffffff">${esc(quad.title)}</text>`,
+    );
+    let iy = y + 50;
+    (quad.items ?? []).slice(0, 4).forEach((it) => {
+      parts.push(
+        `<circle cx="${(x + 18).toFixed(1)}" cy="${(iy - 4).toFixed(1)}" r="3" fill="${color}"/>`,
+      );
+      const lines = wrap(it, Math.floor((cw - 40) / 7), 2);
+      parts.push(textLines(x + 28, iy, lines, { size: 12.5, color: c.sub, lineH: 16 }));
+      iy += 16 * lines.length + 8;
+    });
+  });
+  if (axisY)
+    parts.push(
+      `<text x="14" y="${(gy + gh / 2).toFixed(1)}" font-family="${FONT}" font-size="11" font-weight="700" fill="${c.sub}" text-anchor="middle" transform="rotate(-90 14 ${(gy + gh / 2).toFixed(1)})">${esc(axisY[1])} ↑ ${esc(axisY[0])}</text>`,
+    );
+  if (axisX)
+    parts.push(
+      `<text x="${(gx + gw / 2).toFixed(1)}" y="${(H - 6).toFixed(1)}" font-family="${FONT}" font-size="11" font-weight="700" fill="${c.sub}" text-anchor="middle">${esc(axisX[0])} → ${esc(axisX[1])}</text>`,
+    );
+  return parts.join("");
+}
+
+// ── roadmap: phased columns with milestone chips ──────────────────────────────
+function roadmapSvg(
+  phases: { title: string; date?: string; items: string[] }[],
+  c: DiagramColors,
+  W: number,
+  H: number,
+): string {
+  const ph = phases.slice(0, 5);
+  const n = ph.length;
+  if (!n) return "";
+  const gap = 18;
+  const colW = (W - gap * (n - 1)) / n;
+  const parts: string[] = [];
+  ph.forEach((p, i) => {
+    const x = i * (colW + gap);
+    const color = c.palette[i % c.palette.length];
+    // header pill
+    parts.push(
+      `<rect x="${x.toFixed(1)}" y="0" width="${colW.toFixed(1)}" height="46" rx="10" fill="${grad(i, c.palette.length)}"/>`,
+    );
+    parts.push(
+      `<text x="${(x + colW / 2).toFixed(1)}" y="22" font-family="${FONT}" font-size="15" font-weight="700" fill="#ffffff" text-anchor="middle">${esc(p.title)}</text>`,
+    );
+    if (p.date)
+      parts.push(
+        `<text x="${(x + colW / 2).toFixed(1)}" y="38" font-family="${FONT}" font-size="11" fill="#ffffff" fill-opacity="0.85" text-anchor="middle">${esc(p.date)}</text>`,
+      );
+    // arrow to next
+    if (i < n - 1)
+      parts.push(
+        `<path d="M ${(x + colW + 3).toFixed(1)} 23 L ${(x + colW + gap - 3).toFixed(1)} 23" stroke="${c.border}" stroke-width="3"/><path d="M ${(x + colW + gap - 8).toFixed(1)} 18 L ${(x + colW + gap - 1).toFixed(1)} 23 L ${(x + colW + gap - 8).toFixed(1)} 28 Z" fill="${c.border}"/>`,
+      );
+    let iy = 74;
+    (p.items ?? []).slice(0, 6).forEach((it) => {
+      const lines = wrap(it, Math.floor((colW - 26) / 7), 2);
+      const boxH = 16 * lines.length + 14;
+      parts.push(roundRect(x, iy - 16, colW, boxH, 8, c.card, { stroke: c.border }));
+      parts.push(
+        `<circle cx="${(x + 12).toFixed(1)}" cy="${(iy - 16 + boxH / 2).toFixed(1)}" r="3.5" fill="${color}"/>`,
+      );
+      parts.push(textLines(x + 22, iy, lines, { size: 12.5, color: c.sub, lineH: 16 }));
+      iy += boxH + 8;
+    });
+  });
+  return parts.join("");
+}
+
+// ── cycle: steps around a ring with a centre label ────────────────────────────
+function cycleSvg(
+  steps: { title: string; detail?: string }[],
+  c: DiagramColors,
+  W: number,
+  H: number,
+): string {
+  const items = steps.slice(0, 6);
+  const n = items.length;
+  if (!n) return "";
+  const cx = W / 2;
+  const cy = H / 2;
+  const R = Math.min(W, H) / 2 - 70;
+  const parts: string[] = [];
+  // ring
+  parts.push(
+    `<circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="${c.border}" stroke-width="2" stroke-dasharray="4 6"/>`,
+  );
+  items.forEach((s, i) => {
+    const ang = -Math.PI / 2 + (i / n) * Math.PI * 2;
+    const x = cx + R * Math.cos(ang);
+    const y = cy + R * Math.sin(ang);
+    const color = c.palette[i % c.palette.length];
+    parts.push(
+      `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="30" fill="${grad(i, c.palette.length)}" filter="url(#ds)"/>`,
+    );
+    parts.push(
+      `<text x="${x.toFixed(1)}" y="${(y + 6).toFixed(1)}" font-family="${FONT}" font-size="18" font-weight="700" fill="#ffffff" text-anchor="middle">${i + 1}</text>`,
+    );
+    // label outside
+    const lx = cx + (R + 46) * Math.cos(ang);
+    const ly = cy + (R + 46) * Math.sin(ang);
+    const anchor = Math.abs(Math.cos(ang)) < 0.3 ? "middle" : Math.cos(ang) > 0 ? "start" : "end";
+    parts.push(
+      textLines(lx, ly, wrap(s.title, 18, 2), {
+        size: 13.5,
+        color: c.ink,
+        weight: 700,
+        anchor,
+        lineH: 17,
+      }),
+    );
+  });
+  return parts.join("");
+}
+
+// ── hierarchy: a root box with a row of children ──────────────────────────────
+function hierarchySvg(
+  root: string,
+  children: { title: string; detail?: string }[],
+  c: DiagramColors,
+  W: number,
+  H: number,
+): string {
+  const kids = children.slice(0, 5);
+  const n = kids.length || 1;
+  const parts: string[] = [];
+  const rootW = Math.min(300, W * 0.4);
+  const rootX = (W - rootW) / 2;
+  parts.push(roundRect(rootX, 10, rootW, 54, 12, grad(0, c.palette.length), { shadow: true }));
+  parts.push(
+    `<text x="${(W / 2).toFixed(1)}" y="42" font-family="${FONT}" font-size="17" font-weight="700" fill="#ffffff" text-anchor="middle">${esc(wrap(root, 34, 1)[0] || "")}</text>`,
+  );
+  const gap = 18;
+  const cardW = (W - gap * (n - 1)) / n;
+  const cardY = 130;
+  const cardH = Math.min(H - cardY - 6, 150);
+  kids.forEach((k, i) => {
+    const x = i * (cardW + gap);
+    const cxk = x + cardW / 2;
+    const color = c.palette[(i + 1) % c.palette.length];
+    // connector
+    parts.push(
+      `<path d="M ${(W / 2).toFixed(1)} 64 L ${(W / 2).toFixed(1)} 100 L ${cxk.toFixed(1)} 100 L ${cxk.toFixed(1)} ${cardY}" fill="none" stroke="${c.border}" stroke-width="2"/>`,
+    );
+    parts.push(roundRect(x, cardY, cardW, cardH, 12, c.card, { stroke: c.border, shadow: true }));
+    parts.push(
+      `<rect x="${x.toFixed(1)}" y="${cardY.toFixed(1)}" width="${cardW.toFixed(1)}" height="6" rx="3" fill="${color}"/>`,
+    );
+    parts.push(
+      textLines(x + 16, cardY + 34, wrap(k.title, Math.floor(cardW / 9.5), 2), {
+        size: 15,
+        color: c.ink,
+        weight: 700,
+        lineH: 20,
+      }),
+    );
+    if (k.detail)
+      parts.push(
+        textLines(x + 16, cardY + 78, wrap(k.detail, Math.floor(cardW / 8), 3), {
+          size: 12.5,
+          color: c.sub,
+          lineH: 17,
+        }),
+      );
+  });
+  return parts.join("");
+}
+
+// ── venn: 2–3 overlapping circles ─────────────────────────────────────────────
+function vennSvg(
+  sets: { label: string }[],
+  overlap: string | undefined,
+  c: DiagramColors,
+  W: number,
+  H: number,
+): string {
+  const s = sets.slice(0, 3);
+  if (s.length < 2) return "";
+  const cy = H / 2;
+  const R = Math.min(H / 2 - 20, 150);
+  const parts: string[] = [];
+  const centers =
+    s.length === 2
+      ? [
+          [W / 2 - R * 0.55, cy],
+          [W / 2 + R * 0.55, cy],
+        ]
+      : [
+          [W / 2, cy - R * 0.5],
+          [W / 2 - R * 0.6, cy + R * 0.45],
+          [W / 2 + R * 0.6, cy + R * 0.45],
+        ];
+  centers.forEach(([x, y], i) => {
+    const color = c.palette[i % c.palette.length];
+    parts.push(
+      `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${R}" fill="${color}" fill-opacity="0.32" stroke="${color}" stroke-width="2"/>`,
+    );
+  });
+  centers.forEach(([x, y], i) => {
+    const lx = s.length === 2 ? (i === 0 ? x - R * 0.5 : x + R * 0.5) : x;
+    const ly = s.length === 2 ? y : i === 0 ? y - R * 0.55 : y + R * 0.35;
+    parts.push(
+      `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" font-family="${FONT}" font-size="15" font-weight="700" fill="${c.ink}" text-anchor="middle">${esc(wrap(s[i].label, 16, 1)[0] || "")}</text>`,
+    );
+  });
+  if (overlap)
+    parts.push(
+      `<text x="${(W / 2).toFixed(1)}" y="${(cy + (s.length === 2 ? 5 : 20)).toFixed(1)}" font-family="${FONT}" font-size="13" font-weight="600" fill="${c.ink}" text-anchor="middle">${esc(wrap(overlap, 18, 1)[0] || "")}</text>`,
+    );
+  return parts.join("");
+}
+
+// ── kanban: columns of cards ──────────────────────────────────────────────────
+function kanbanSvg(
+  columns: { title: string; cards: string[] }[],
+  c: DiagramColors,
+  W: number,
+  H: number,
+): string {
+  const cols = columns.slice(0, 4);
+  const n = cols.length;
+  if (!n) return "";
+  const gap = 16;
+  const colW = (W - gap * (n - 1)) / n;
+  const parts: string[] = [];
+  cols.forEach((col, i) => {
+    const x = i * (colW + gap);
+    const color = c.palette[i % c.palette.length];
+    parts.push(roundRect(x, 0, colW, H, 12, "#F1F5F9", { stroke: c.border }));
+    parts.push(
+      `<rect x="${x.toFixed(1)}" y="0" width="${colW.toFixed(1)}" height="36" rx="12" fill="${grad(i, c.palette.length)}"/>`,
+    );
+    parts.push(
+      `<rect x="${x.toFixed(1)}" y="20" width="${colW.toFixed(1)}" height="16" fill="${color}"/>`,
+    );
+    parts.push(
+      `<text x="${(x + 14).toFixed(1)}" y="24" font-family="${FONT}" font-size="14" font-weight="700" fill="#ffffff">${esc(col.title)}</text>`,
+    );
+    let iy = 48;
+    (col.cards ?? []).slice(0, 5).forEach((card) => {
+      const lines = wrap(card, Math.floor((colW - 28) / 7), 3);
+      const boxH = 15 * lines.length + 16;
+      if (iy + boxH > H - 6) return;
+      parts.push(
+        roundRect(x + 8, iy, colW - 16, boxH, 8, "#ffffff", { stroke: c.border, shadow: true }),
+      );
+      parts.push(
+        `<rect x="${(x + 8).toFixed(1)}" y="${iy.toFixed(1)}" width="4" height="${boxH}" rx="2" fill="${color}"/>`,
+      );
+      parts.push(textLines(x + 20, iy + 20, lines, { size: 12.5, color: c.sub, lineH: 15 }));
+      iy += boxH + 8;
+    });
   });
   return parts.join("");
 }
@@ -407,7 +727,25 @@ export function diagramToSvg(
     case "pyramid":
       body = pyramidSvg(diagram.tiers ?? [], c, W, H);
       break;
+    case "matrix":
+      body = matrixSvg(diagram.quadrants ?? [], diagram.axisX, diagram.axisY, c, W, H);
+      break;
+    case "roadmap":
+      body = roadmapSvg(diagram.phases ?? [], c, W, H);
+      break;
+    case "cycle":
+      body = cycleSvg(diagram.steps ?? [], c, W, H);
+      break;
+    case "hierarchy":
+      body = hierarchySvg(diagram.root ?? "", diagram.children ?? [], c, W, H);
+      break;
+    case "venn":
+      body = vennSvg(diagram.sets ?? [], diagram.overlap, c, W, H);
+      break;
+    case "kanban":
+      body = kanbanSvg(diagram.columns ?? [], c, W, H);
+      break;
   }
   if (!body) return "";
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><defs>${SHADOW}</defs><rect width="${W}" height="${H}" fill="#ffffff"/>${body}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><defs>${SHADOW}${gradientDefs(c.palette)}</defs><rect width="${W}" height="${H}" fill="#ffffff"/>${body}</svg>`;
 }

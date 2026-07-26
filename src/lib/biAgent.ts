@@ -171,6 +171,8 @@ export async function llmJson<T>(opts: {
   userPrompt: string;
   model?: string;
   temperature?: number;
+  /** Completion-token cap; raise it for large structured outputs (deck plans). */
+  maxTokens?: number;
 }): Promise<T> {
   const { data: sessionData } = await supabase.auth.getSession();
   const token = sessionData.session?.access_token;
@@ -196,6 +198,7 @@ export async function llmJson<T>(opts: {
         provider: choice?.provider,
         model: choice?.model,
         temperature: opts.temperature,
+        maxTokens: opts.maxTokens,
       }),
       signal: ctrl.signal,
     });

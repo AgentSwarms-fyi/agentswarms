@@ -78,17 +78,23 @@ export async function planPptx(args: PlanArgs): Promise<PptxPlan> {
       `- Reference the real subject matter from CONTEXT (table + column names) inside your questions so the analyst targets the right data. If there are NO data tables, omit query/kpiQuery and write the deck from the prompt + knowledge base.\n` +
       `- Keep each chart question to a SINGLE dimension + measure(s) so it charts cleanly (≤ ~12 categories).\n` +
       `NEVER LEAVE A SLIDE THIN — every "chart" and "twoColumn" slide MUST also include 2–4 short "bullets" (the analysis/context) AND a "takeaway". That way the slide is substantive even before the chart renders. Do not create a slide whose only content is a chart.\n` +
-      `DIAGRAM SLIDES — use these instead of plain bullet slides to make the deck look designed (each renders as a polished graphic with rounded cards, connectors, colours). Set "layout":"diagram" and provide "diagram":\n` +
-      `- process: { "kind":"process", "steps":[{ "title": string, "detail"?: string }] } — a workflow / how-it-works (3–5 steps).\n` +
-      `- timeline: { "kind":"timeline", "steps":[{ "title": string, "detail"?: string, "date"?: string }] } — roadmap / milestones (3–6).\n` +
-      `- comparison: { "kind":"comparison", "columns":[{ "heading": string, "points": string[] }] } — options / vs / pros-cons (2–3 columns, ≤6 points each).\n` +
-      `- cards: { "kind":"cards", "cards":[{ "title": string, "detail"?: string }] } — features / pillars / benefits (2–4 cards).\n` +
-      `- funnel: { "kind":"funnel", "stages":[{ "title": string, "value"?: string }] } — pipeline / conversion (3–6 stages).\n` +
-      `- pyramid: { "kind":"pyramid", "tiers":[{ "title": string, "detail"?: string }] } — hierarchy / maturity levels (3–5).\n` +
-      `Whenever content is a sequence of steps, a comparison, a set of features, a roadmap, a funnel or a hierarchy, use the matching diagram INSTEAD of a bullets slide.\n` +
+      `DIAGRAM SLIDES — use these instead of plain bullet slides to make the deck look designed (each renders as a polished graphic with rounded cards, connectors, gradients, colours). Set "layout":"diagram" and provide "diagram" with one of these 12 kinds:\n` +
+      `- process: { "kind":"process", "steps":[{ "title", "detail"? }] } — a linear workflow / how-it-works (3–5).\n` +
+      `- timeline: { "kind":"timeline", "steps":[{ "title", "detail"?, "date"? }] } — dated milestones (3–6).\n` +
+      `- roadmap: { "kind":"roadmap", "phases":[{ "title", "date"?, "items": string[] }] } — phased plan, each phase a column of items (2–5 phases).\n` +
+      `- comparison: { "kind":"comparison", "columns":[{ "heading", "points": string[] }] } — options / vs / pros-cons (2–3 columns).\n` +
+      `- matrix: { "kind":"matrix", "quadrants":[{ "title", "items"?: string[] }], "axisX"?:[string,string], "axisY"?:[string,string] } — a 2×2 (SWOT, priority, risk-vs-value); give EXACTLY 4 quadrants.\n` +
+      `- cards: { "kind":"cards", "cards":[{ "title", "detail"? }] } — features / pillars / benefits (2–4).\n` +
+      `- funnel: { "kind":"funnel", "stages":[{ "title", "value"? }] } — pipeline / conversion (3–6).\n` +
+      `- pyramid: { "kind":"pyramid", "tiers":[{ "title", "detail"? }] } — hierarchy / maturity (3–5, base first).\n` +
+      `- cycle: { "kind":"cycle", "steps":[{ "title", "detail"? }] } — a recurring/looping process (3–6).\n` +
+      `- hierarchy: { "kind":"hierarchy", "root": string, "children":[{ "title", "detail"? }] } — org/tree, one root + 2–5 children.\n` +
+      `- venn: { "kind":"venn", "sets":[{ "label" }], "overlap"?: string } — 2–3 overlapping concepts.\n` +
+      `- kanban: { "kind":"kanban", "columns":[{ "title", "cards": string[] }] } — board columns (e.g. Now/Next/Later) of cards (2–4 columns).\n` +
+      `Whenever content is a sequence, comparison, matrix, roadmap, set of features, funnel, hierarchy, cycle or board, use the matching diagram INSTEAD of a bullets slide.\n` +
       `LAYOUT RULES:\n` +
-      `- 12–18 slides. The cover is generated from title/subtitle automatically — do NOT add a cover slide. "accent" is a 6-hex-digit colour without '#', MEDIUM-to-DARK and saturated (e.g. "4F46E5", "0F766E", "B45309") — never a pale/near-white colour.\n` +
-      `- MIX the layouts for a professional feel — do NOT make every slide the same. Target roughly: 1 "kpi" opener, 5–6 "chart"/"twoColumn" (data), 3–4 "diagram" (process/comparison/cards/timeline/funnel/pyramid), 2–3 "section" dividers, and a closing "bullets".\n` +
+      `- 16–22 slides — a substantial, thorough deck (NOT a short one). The cover is generated from title/subtitle automatically — do NOT add a cover slide. "accent" is a 6-hex-digit colour without '#', MEDIUM-to-DARK and saturated (e.g. "4F46E5", "0F766E", "B45309") — never a pale/near-white colour.\n` +
+      `- MIX the layouts richly. Target roughly: 1 "kpi" opener, 6–7 "chart"/"twoColumn" (data), 6–8 "diagram" slides using AT LEAST 8 DIFFERENT diagram kinds from the list above (do not repeat the same kind more than twice), 3 "section" dividers, and a closing "bullets".\n` +
       `- Charts varied by type — trend → line/area, comparison → column/bar, composition → pie/doughnut, ranking → bar.\n` +
       `- Use a "table" only when exact figures matter; prefer charts + KPIs + diagrams over plain text.\n` +
       `- Add a one-line "takeaway" insight to every data slide, and speaker "notes" to every slide.\n` +
@@ -96,6 +102,7 @@ export async function planPptx(args: PlanArgs): Promise<PptxPlan> {
     userPrompt: userPrompt(args),
     model: args.model,
     temperature: 0.4,
+    maxTokens: 12000, // a 16–22 slide deck with diagrams is a large JSON
   });
 }
 
@@ -108,10 +115,15 @@ export async function planDocx(args: PlanArgs): Promise<DocxPlan> {
       `{ "type": "paragraph", "text": string } | ` +
       `{ "type": "bullets", "items": string[] } | ` +
       `{ "type": "table", "table": { "columns": string[], "rows": (string|number|null)[][] } }> }\n` +
-      `Write a complete, well-organized document with headings, prose paragraphs, bullet lists and tables where useful.`,
+      `Write a THOROUGH, MULTI-PAGE report — not a short summary. Requirements:\n` +
+      `- Start with an "Executive Summary" (level-1 heading + 2–3 paragraphs).\n` +
+      `- Then 6–10 major sections, each a level-1 "heading" (these each start a new page) with 2–4 substantial prose paragraphs (3–6 sentences each), level-2 sub-headings where useful, and bullet lists. End with a "Conclusion / Recommendations" section.\n` +
+      `- Include AT LEAST 3 tables where data helps (comparisons, breakdowns, metrics). Every table needs a clear header row ("columns") and MULTIPLE data rows (≥4 where possible); keep to 3–6 columns with concise cell values. Ground table numbers in the CONTEXT sample rows — never leave a table with one row or empty cells.\n` +
+      `- Aim for enough content to fill several pages. Use real names/figures from CONTEXT and the CONVERSATION; write in a professional, analytical tone.`,
     userPrompt: userPrompt(args),
     model: args.model,
     temperature: 0.4,
+    maxTokens: 12000,
   });
 }
 

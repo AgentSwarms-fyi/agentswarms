@@ -85,6 +85,7 @@ export const Route = createFileRoute("/api/bi")({
           model?: string;
           temperature?: number;
           stage?: string;
+          maxTokens?: number;
         };
         if (!body.userPrompt) return json({ error: "userPrompt required" }, 400);
 
@@ -180,6 +181,11 @@ export const Route = createFileRoute("/api/bi")({
               ],
               response_format: { type: "json_object" },
               temperature: typeof body.temperature === "number" ? body.temperature : 0.1,
+              // Larger structured outputs (e.g. a 20-slide deck plan) need a
+              // higher completion cap or they truncate into invalid JSON.
+              ...(typeof body.maxTokens === "number" && body.maxTokens > 0
+                ? { max_tokens: Math.min(body.maxTokens, 16000) }
+                : {}),
             }),
           });
         } catch (e) {

@@ -56,7 +56,24 @@ export type DocDiagram =
   | { kind: "comparison"; columns: { heading: string; points: string[] }[] }
   | { kind: "cards"; cards: { title: string; detail?: string }[] }
   | { kind: "funnel"; stages: { title: string; value?: string }[] }
-  | { kind: "pyramid"; tiers: { title: string; detail?: string }[] };
+  | { kind: "pyramid"; tiers: { title: string; detail?: string }[] }
+  // 2×2 matrix / quadrant (SWOT, priority, BCG). Optional axis end-labels.
+  | {
+      kind: "matrix";
+      quadrants: { title: string; items?: string[] }[];
+      axisX?: [string, string];
+      axisY?: [string, string];
+    }
+  // Phased roadmap — columns of phases, each with milestone items.
+  | { kind: "roadmap"; phases: { title: string; date?: string; items: string[] }[] }
+  // Circular / recurring process.
+  | { kind: "cycle"; steps: { title: string; detail?: string }[] }
+  // Simple hierarchy: one root with a row of children.
+  | { kind: "hierarchy"; root: string; children: { title: string; detail?: string }[] }
+  // 2–3 overlapping circles.
+  | { kind: "venn"; sets: { label: string }[]; overlap?: string }
+  // Kanban-style columns of cards.
+  | { kind: "kanban"; columns: { title: string; cards: string[] }[] };
 
 // ── PowerPoint ────────────────────────────────────────────────────────────────
 /** A big-number metric callout rendered as a card on a KPI slide. */
