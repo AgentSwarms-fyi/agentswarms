@@ -57,6 +57,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { DOC_FORMAT_LABEL } from "@/lib/docGen/types";
 import type { DocScope, DocFormat, DocxPlan, PptxPlan, XlsxPlan } from "@/lib/docGen/types";
 import {
+  attachDiagramSvgs,
   buildDocx,
   buildPptx,
   buildXlsx,
@@ -64,6 +65,8 @@ import {
   downloadBlob,
   type BuiltDoc,
 } from "@/lib/docGen/build";
+import { materializePptxWithBI } from "@/lib/docGen/biData";
+import { pptxThumbUri } from "@/lib/docGen/docThumb";
 import { planDocument } from "@/lib/docGen/plan";
 import { gatherDocContext } from "@/utils/docGen.functions";
 import { toast } from "sonner";
@@ -901,7 +904,7 @@ function PlaygroundPage() {
           .replace(/[^\w.-]+/g, "-")
           .replace(/^-+|-+$/g, "") || "document";
       let built: BuiltDoc;
-      if (format === "pptx") built = await buildPptx(plan as PptxPlan, fileBase);
+      if (format === "pptx") built = await buildPptxDoc(plan as PptxPlan, fileBase, token);
       else if (format === "docx") built = await buildDocx(plan as DocxPlan, fileBase);
       else {
         const materialized = await materializeXlsxPlan(plan as XlsxPlan, dataScope);
@@ -2286,6 +2289,45 @@ function MessageBubble({
       </div>
     </div>
   );
+}
+
+function b64ToBlob(b64: string, type: string): Blob {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type });
+}
+
+// Build a PPTX: fill data + pre-render diagrams once, try the optional
+// server-side python-pptx renderer (native editable + render-verify), and fall
+// back to the in-browser pptxgenjs builder when it isn't configured/reachable.
+async function buildPptxDoc(plan: PptxPlan, fileBase: string, token: string): Promise<BuiltDoc> {
+  await materializePptxWithBI(plan);
+  attachDiagramSvgs(plan);
+  try {
+    const resp = await fetch("/api/docgen/pptx", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ plan, verify: true }),
+    });
+    if (resp.ok) {
+      const j = (await resp.json()) as { pptx_base64?: string; thumb?: string };
+      if (j.pptx_base64) {
+        return {
+          blob: b64ToBlob(
+            j.pptx_base64,
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+          ),
+          filename: fileBase.toLowerCase().endsWith(".pptx") ? fileBase : `${fileBase}.pptx`,
+          thumb: j.thumb || pptxThumbUri(plan),
+        };
+      }
+    }
+    // 501 not_configured or any non-OK → in-browser build below.
+  } catch {
+    /* network error → in-browser build below */
+  }
+  return buildPptx(plan, fileBase, { skipMaterialize: true });
 }
 
 type DocResultMeta = { format: DocFormat; filename: string; thumb: string; url?: string };

@@ -101,6 +101,26 @@ services:
     networks: [default, nb-internal, nb-dev]
     restart: unless-stopped
 
+  # ── Server-side PowerPoint renderer (opt-in: --profile docgen) ───────────────
+  # python-pptx (native editable charts/tables) + LibreOffice render-verify. When
+  # running this profile, set DOCGEN_SERVICE_URL=http://docgen:8099 in .env so the
+  # app uses it; otherwise the app falls back to the in-browser generator.
+  docgen:
+    build:
+      context: ./docgen-service
+    image: agentswarms/docgen:latest
+    profiles: [docgen]
+    environment:
+      # Used only for the optional render-verify vision loop; falls back to no
+      # verification if unset.
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_DEFAULT_MODEL: ${OPENROUTER_DEFAULT_MODEL:-openai/gpt-4o-mini}
+      # Optional shared secret; if set, also put it in the app's DOCGEN_TOKEN.
+      DOCGEN_TOKEN: ${DOCGEN_TOKEN:-}
+    expose:
+      - "8099"
+    restart: unless-stopped
+
 # Network topology for the runtime (egress control):
 #   nb-internal — internal:true, so kernels have NO direct internet. Members:
 #                 app, gateway, egress proxy, and the per-session kernels.

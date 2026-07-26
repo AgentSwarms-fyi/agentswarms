@@ -136,6 +136,10 @@ export type PptxSlide = {
   /** A SmartArt-style diagram (process / timeline / comparison / cards / funnel
    * / pyramid) rendered as a designed SVG instead of bullets. */
   diagram?: DocDiagram;
+  /** Internal: the diagram pre-rendered to an SVG string, so the server-side
+   * python-pptx renderer can rasterise it. Set by attachDiagramSvgs() at build
+   * time; not authored by the model. */
+  diagramSvg?: string;
   /**
    * For a KPI slide: a single analytical question that returns ONE row of
    * headline metrics (e.g. "total revenue, number of orders and average order

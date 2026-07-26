@@ -1,0 +1,86 @@
+"""
+AgentSwarms doc-gen service — FastAPI wrapper around the python-pptx renderer
+and the optional LibreOffice render-verify loop.
+
+Endpoints:
+  GET  /health                 → liveness + capability flags
+  POST /render  { plan, verify?, model?, verify_rounds? }
+       → { pptx_base64, thumb, notes[] }
+
+Auth: a shared bearer token (env DOCGEN_TOKEN) the app sends; if unset, open
+(intended for a private in-network service only).
+"""
+from __future__ import annotations
+
+import base64
+import os
+import shutil
+from typing import Any
+
+from fastapi import FastAPI, Header, HTTPException
+from pydantic import BaseModel
+
+from renderer import render_pptx
+from verify import apply_fixes, critique, first_thumb, pptx_to_images
+
+app = FastAPI(title="AgentSwarms doc-gen")
+
+HAS_SOFFICE = shutil.which("soffice") is not None
+
+
+class RenderRequest(BaseModel):
+    plan: dict[str, Any]
+    verify: bool = False
+    model: str | None = None
+    verify_rounds: int = 1
+
+
+def _check_auth(authorization: str | None):
+    token = os.environ.get("DOCGEN_TOKEN", "").strip()
+    if not token:
+        return
+    if authorization != f"Bearer {token}":
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+@app.get("/health")
+def health():
+    return {
+        "ok": True,
+        "soffice": HAS_SOFFICE,
+        "verify_available": HAS_SOFFICE and bool(os.environ.get("OPENROUTER_API_KEY")),
+    }
+
+
+@app.post("/render")
+def render(req: RenderRequest, authorization: str | None = Header(default=None)):
+    _check_auth(authorization)
+    plan = req.plan
+    notes: list[str] = []
+    try:
+        pptx = render_pptx(plan)
+    except Exception as e:  # renderer failure → let the caller fall back
+        raise HTTPException(status_code=500, detail=f"render failed: {e}")
+
+    if req.verify and HAS_SOFFICE and os.environ.get("OPENROUTER_API_KEY"):
+        for _ in range(max(0, min(req.verify_rounds, 2))):
+            images = pptx_to_images(pptx)
+            if not images:
+                break
+            fixes = critique(images, plan, req.model)
+            note = fixes.get("summary") if isinstance(fixes, dict) else None
+            if note:
+                notes.append(str(note))
+            if not apply_fixes(plan, fixes):
+                break
+            try:
+                pptx = render_pptx(plan)
+            except Exception:
+                break
+
+    thumb = first_thumb(pptx) if HAS_SOFFICE else None
+    return {
+        "pptx_base64": base64.b64encode(pptx).decode(),
+        "thumb": thumb,
+        "notes": notes,
+    }

@@ -147,13 +147,54 @@ function pptxTableRows(t: DocTable, accent: string) {
   return [header, ...body];
 }
 
+/**
+ * Attach a pre-rendered SVG to every diagram slide (used by the server-side
+ * renderer, which rasterises it). Mirrors the palette/colours buildPptx uses.
+ */
+export function attachDiagramSvgs(plan: PptxPlan): void {
+  const accent = normalizeHex(plan.accent, PPTX_DEFAULT_ACCENT);
+  const accentInk = onLight(accent);
+  const palette = [
+    accentInk,
+    "0EA5E9",
+    "10B981",
+    "F59E0B",
+    "EF4444",
+    "8B5CF6",
+    "EC4899",
+    "14B8A6",
+    "F97316",
+    "22C55E",
+  ];
+  for (const s of plan.slides ?? []) {
+    if (s.diagram && !s.diagramSvg) {
+      const svg = diagramToSvg(
+        s.diagram,
+        {
+          palette,
+          ink: PPTX_INK,
+          sub: PPTX_BODY,
+          card: "FFFFFF",
+          border: PPTX_BORDER,
+          accent: accentInk,
+        },
+        1160,
+        470,
+      );
+      if (svg) s.diagramSvg = svg;
+    }
+  }
+}
+
 export async function buildPptx(
   plan: PptxPlan,
   filename: string,
-  opts: { model?: string } = {},
+  opts: { model?: string; skipMaterialize?: boolean } = {},
 ): Promise<BuiltDoc> {
   // Fill charts + KPIs from the user's REAL data via the BI analyst pipeline.
-  await materializePptxWithBI(plan, { model: opts.model });
+  // (Skipped when the caller already materialised — e.g. the server-side path
+  // that pre-fills the plan before trying the render service.)
+  if (!opts.skipMaterialize) await materializePptxWithBI(plan, { model: opts.model });
 
   const PptxGen = (await import("pptxgenjs")).default;
   const pptx = new PptxGen();
