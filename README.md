@@ -71,9 +71,21 @@ The "AgentSwarms" name and the hosted service remain with the project author.
 
 ## Quickstart
 
-There is no separate backend to install — **Supabase _is_ the backend**
-(Postgres + Auth + Storage), and you run it as a free-tier hosted project
-rather than installing anything yourself:
+**One-command setup** — after you've created a Supabase project and put its keys
+in `.env` (see below), a script handles the rest (secrets, deps, migrations, and
+bringing up the stack):
+
+```bash
+cp .env.example .env      # fill in your Supabase keys, then:
+bash scripts/setup.sh                 # Docker stack  →  http://localhost:8080
+# bash scripts/setup.sh --dev         # local dev server instead
+# bash scripts/setup.sh --docgen      # + server-side PowerPoint renderer
+# Windows PowerShell:  powershell -ExecutionPolicy Bypass -File scripts\setup.ps1
+```
+
+Or do it by hand — there is no separate backend to install, since **Supabase
+_is_ the backend** (Postgres + Auth + Storage), run as a free-tier hosted
+project rather than installing anything yourself:
 
 ```bash
 git clone https://github.com/AgentSwarms-fyi/agentswarms.git
