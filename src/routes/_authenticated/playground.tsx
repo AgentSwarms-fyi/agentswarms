@@ -18,6 +18,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import {
   Send,
+  Download,
   PanelLeftOpen,
   PanelRightOpen,
   PanelRightClose,
@@ -47,6 +48,7 @@ import {
 } from "lucide-react";
 import { parseFileToText } from "@/lib/fileParsers";
 import { MarkdownMessage } from "@/components/playground/MarkdownMessage";
+import { ExcelIcon, PptIcon, WordIcon } from "@/components/playground/FileTypeIcons";
 import { DocGenBar } from "@/components/playground/DocGenBar";
 import { BiWidgetCard } from "@/components/bi/BiWidgetCard";
 import { generateChatWidget } from "@/lib/chatBi";
@@ -54,7 +56,14 @@ import { parseWidgets } from "@/lib/biDashboards";
 import { useServerFn } from "@tanstack/react-start";
 import { DOC_FORMAT_LABEL } from "@/lib/docGen/types";
 import type { DocScope, DocFormat, DocxPlan, PptxPlan, XlsxPlan } from "@/lib/docGen/types";
-import { buildDocx, buildPptx, buildXlsx, materializeXlsxPlan } from "@/lib/docGen/build";
+import {
+  buildDocx,
+  buildPptx,
+  buildXlsx,
+  materializeXlsxPlan,
+  downloadBlob,
+  type BuiltDoc,
+} from "@/lib/docGen/build";
 import { planDocument } from "@/lib/docGen/plan";
 import { gatherDocContext } from "@/utils/docGen.functions";
 import { toast } from "sonner";
@@ -891,13 +900,38 @@ function PlaygroundPage() {
           .slice(0, 40)
           .replace(/[^\w.-]+/g, "-")
           .replace(/^-+|-+$/g, "") || "document";
-      if (format === "pptx") await buildPptx(plan as PptxPlan, fileBase);
-      else if (format === "docx") await buildDocx(plan as DocxPlan, fileBase);
+      let built: BuiltDoc;
+      if (format === "pptx") built = await buildPptx(plan as PptxPlan, fileBase);
+      else if (format === "docx") built = await buildDocx(plan as DocxPlan, fileBase);
       else {
         const materialized = await materializeXlsxPlan(plan as XlsxPlan, dataScope);
-        await buildXlsx(materialized, fileBase);
+        built = await buildXlsx(materialized, fileBase);
       }
-      toast.success(`${DOC_FORMAT_LABEL[format]} generated`);
+      // Show the result as a preview card in chat (thumbnail + download button)
+      // instead of auto-downloading. The blob URL lives for this session; the
+      // persisted copy keeps the thumbnail + filename so the card survives reload.
+      const url = URL.createObjectURL(built.blob);
+      const docId = crypto.randomUUID();
+      const docMeta = { format, filename: built.filename, thumb: built.thumb };
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: docId,
+          role: "assistant",
+          content: `Here's your ${DOC_FORMAT_LABEL[format]} — **${built.filename}**`,
+          created_at: new Date().toISOString(),
+          metadata: { doc: { ...docMeta, url } },
+        },
+      ]);
+      if (activeConvo && user) {
+        void supabase.from("messages").insert({
+          conversation_id: activeConvo,
+          user_id: user.id,
+          role: "assistant",
+          content: `Generated ${DOC_FORMAT_LABEL[format]}: ${built.filename}`,
+          metadata: { doc: docMeta } as unknown as Json,
+        });
+      }
     } catch (e) {
       toast.error((e as Error).message || "Generation failed");
     } finally {
@@ -2246,6 +2280,49 @@ function MessageBubble({
               </div>
             ) : null;
           })()}
+        {!isUser && message.metadata?.doc ? (
+          <DocResultCard doc={message.metadata.doc as unknown as DocResultMeta} />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+type DocResultMeta = { format: DocFormat; filename: string; thumb: string; url?: string };
+
+function DocResultCard({ doc }: { doc: DocResultMeta }) {
+  const Icon = doc.format === "pptx" ? PptIcon : doc.format === "xlsx" ? ExcelIcon : WordIcon;
+  const onDownload = () => {
+    if (!doc.url) return;
+    const a = document.createElement("a");
+    a.href = doc.url;
+    a.download = doc.filename;
+    a.click();
+  };
+  return (
+    <div className="mt-3 w-full max-w-sm overflow-hidden rounded-xl border border-border/70 bg-card shadow-sm">
+      {doc.thumb && (
+        <img
+          src={doc.thumb}
+          alt={doc.filename}
+          className="block w-full border-b border-border/60 bg-muted/30"
+        />
+      )}
+      <div className="flex items-center gap-2 p-2.5">
+        <Icon className="h-6 w-6 shrink-0" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-xs font-medium text-foreground">{doc.filename}</p>
+          <p className="text-[11px] text-muted-foreground">
+            {DOC_FORMAT_LABEL[doc.format]} · ready
+          </p>
+        </div>
+        {doc.url ? (
+          <Button size="sm" className="h-7 gap-1.5 text-xs" onClick={onDownload}>
+            <Download className="h-3.5 w-3.5" /> Download
+          </Button>
+        ) : (
+          <span className="text-[11px] text-muted-foreground">Regenerate to download</span>
+        )}
       </div>
     </div>
   );

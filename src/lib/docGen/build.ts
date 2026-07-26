@@ -7,6 +7,11 @@ import { hydrateFromSupabase, runQueryUnlimited } from "@/lib/sqlEngine";
 import { materializePptxWithBI } from "./biData";
 import { chartToSvg, svgToDataUri } from "./chartSvg";
 import { diagramToSvg } from "./diagramSvg";
+import { docxThumbUri, pptxThumbUri, xlsxThumbUri } from "./docThumb";
+
+/** A generated document: the file blob, its filename, and an SVG-data-URI
+ * thumbnail of the first slide/page/sheet (shown in chat before download). */
+export type BuiltDoc = { blob: Blob; filename: string; thumb: string };
 import type {
   DocChart,
   DocScope,
@@ -28,7 +33,7 @@ function withExt(name: string, ext: string): string {
   return base.toLowerCase().endsWith(`.${ext}`) ? base : `${base}.${ext}`;
 }
 
-function downloadBlob(blob: Blob, filename: string): void {
+export function downloadBlob(blob: Blob, filename: string): void {
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = filename;
@@ -146,7 +151,7 @@ export async function buildPptx(
   plan: PptxPlan,
   filename: string,
   opts: { model?: string } = {},
-): Promise<void> {
+): Promise<BuiltDoc> {
   // Fill charts + KPIs from the user's REAL data via the BI analyst pipeline.
   await materializePptxWithBI(plan, { model: opts.model });
 
@@ -669,11 +674,12 @@ export async function buildPptx(
     if (s.notes) slide.addNotes(s.notes);
   }
 
-  await pptx.writeFile({ fileName: withExt(filename, "pptx") });
+  const blob = (await pptx.write({ outputType: "blob" })) as Blob;
+  return { blob, filename: withExt(filename, "pptx"), thumb: pptxThumbUri(plan) };
 }
 
 // ── Word (docx) — headings, paragraphs, bullet lists, tables ──────────────────
-export async function buildDocx(plan: DocxPlan, filename: string): Promise<void> {
+export async function buildDocx(plan: DocxPlan, filename: string): Promise<BuiltDoc> {
   const docx = await import("docx");
   const {
     Document,
@@ -743,7 +749,7 @@ export async function buildDocx(plan: DocxPlan, filename: string): Promise<void>
 
   const doc = new Document({ sections: [{ children: children as never }] });
   const blob = await Packer.toBlob(doc);
-  downloadBlob(blob, withExt(filename, "docx"));
+  return { blob, filename: withExt(filename, "docx"), thumb: docxThumbUri(plan) };
 }
 
 // ── Excel materialization — turn data-bound sheets into literal ones ───────────
@@ -897,7 +903,7 @@ function toXlsxCell(v: XlsxCell): Cell {
   return { type: String, value: String(v) };
 }
 
-export async function buildXlsx(plan: MaterializedXlsxPlan, filename: string): Promise<void> {
+export async function buildXlsx(plan: MaterializedXlsxPlan, filename: string): Promise<BuiltDoc> {
   const writeXlsxFile = (await import("write-excel-file/browser")).default;
   const sheets = (plan.sheets ?? []).filter((s) => s && (s.headers?.length || s.rows?.length));
   if (sheets.length === 0) throw new Error("The plan produced no sheets");
@@ -916,9 +922,9 @@ export async function buildXlsx(plan: MaterializedXlsxPlan, filename: string): P
     };
   });
 
-  if (built.length === 1) {
-    await writeXlsxFile(built[0].data, { sheet: built[0].sheet }).toFile(withExt(filename, "xlsx"));
-  } else {
-    await writeXlsxFile(built).toFile(withExt(filename, "xlsx"));
-  }
+  const blob =
+    built.length === 1
+      ? await writeXlsxFile(built[0].data, { sheet: built[0].sheet }).toBlob()
+      : await writeXlsxFile(built).toBlob();
+  return { blob, filename: withExt(filename, "xlsx"), thumb: xlsxThumbUri(plan) };
 }
