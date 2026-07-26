@@ -47,16 +47,41 @@ fully-editable Office file from a prompt:
    whatever you'd typed).
 2. AgentSwarms **gathers context** — relevant knowledge-base excerpts, your
    data-table schemas + samples, and the **recent conversation**.
-3. An LLM **plans** the document, then it's **built client-side** into a native
-   file and downloaded:
-   - **PowerPoint** — titled slides with bullets, tables and native (editable)
-     charts.
-   - **Word** — headings, prose, bullet lists and tables.
+3. An LLM **plans** the document, then it's **built** into a native file and
+   shown as a **preview card** in the chat (first-page thumbnail + a **Download**
+   button) instead of auto-downloading:
+   - **PowerPoint** — titled slides with bullets, tables, native (editable)
+     charts and SmartArt-style diagrams.
+   - **Word** — a cover page, headings, prose, bullet lists and tables, with
+     level-1 sections starting new pages.
    - **Excel** — a real workbook with header rows, typed cells and **live
      formulas** (editable in Excel, not baked-in text).
 
 Nothing is a screenshot or a flat dump — every file opens for editing in its
 native app.
+
+### Where generated files live (retention)
+
+The generated file is uploaded to a private **`chat-docs`** storage bucket and
+the preview card references it, so **Download still works after you reload** —
+until the conversation is purged. How long that is comes from the agent's
+**Chat history retention** setting (agent builder → **Memory**), which defaults
+to **7 days** and can only be **increased** (7-day floor). A scheduled purge
+deletes messages past the window and removes their stored files with them. On a
+Cloudflare/serverless deploy without storage configured, the download works for
+the current session only.
+
+### Optional server-side renderer
+
+By default all three formats are built **in the browser**, which works on every
+deploy (including Cloudflare Workers). On a Node/Docker deploy you can also run
+the optional **[doc-gen service](../docgen-service/README.md)** (`--docgen`),
+which renders server-side with the native Office toolchains — **python-pptx**
+(editable charts + a LibreOffice render-verify loop), **python-docx** (cover +
+updatable table of contents + fixed-width tables), and **openpyxl** (formulas
+recalculated by LibreOffice so values show immediately). The browser fills the
+numbers first, then posts the plan to `/api/docgen/{pptx,docx,xlsx}`; if the
+service is unreachable it **silently falls back** to the browser build.
 
 ### Sample vs. full data
 

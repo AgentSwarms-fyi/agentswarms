@@ -101,10 +101,12 @@ services:
     networks: [default, nb-internal, nb-dev]
     restart: unless-stopped
 
-  # ── Server-side PowerPoint renderer (opt-in: --profile docgen) ───────────────
-  # python-pptx (native editable charts/tables) + LibreOffice render-verify. When
-  # running this profile, set DOCGEN_SERVICE_URL=http://docgen:8099 in .env so the
-  # app uses it; otherwise the app falls back to the in-browser generator.
+  # ── Server-side Office renderer (opt-in: --profile docgen) ───────────────────
+  # python-pptx (native editable charts/tables + LibreOffice render-verify),
+  # python-docx (multi-page Word) and openpyxl (Excel with LibreOffice formula
+  # recalc). When running this profile, set DOCGEN_SERVICE_URL=http://docgen:8099
+  # in .env so the app uses it; otherwise the app falls back to the in-browser
+  # generators.
   docgen:
     build:
       context: ./docgen-service

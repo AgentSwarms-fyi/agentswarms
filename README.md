@@ -79,7 +79,7 @@ bringing up the stack):
 cp .env.example .env      # fill in your Supabase keys, then:
 bash scripts/setup.sh                 # Docker stack  →  http://localhost:8080
 # bash scripts/setup.sh --dev         # local dev server instead
-# bash scripts/setup.sh --docgen      # + server-side PowerPoint renderer
+# bash scripts/setup.sh --docgen      # + server-side PowerPoint / Word / Excel renderer
 # Windows PowerShell:  powershell -ExecutionPolicy Bypass -File scripts\setup.ps1
 ```
 

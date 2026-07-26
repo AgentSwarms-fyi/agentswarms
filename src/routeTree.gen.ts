@@ -81,6 +81,9 @@ import { Route as ApiKbBuildGraphRouteImport } from './routes/api/kb/build-graph
 import { Route as ApiHealthReadyRouteImport } from './routes/api/health.ready'
 import { Route as ApiEmbedChatRouteImport } from './routes/api/embed.chat'
 import { Route as ApiEmailSendRouteImport } from './routes/api/email/send'
+import { Route as ApiDocgenXlsxRouteImport } from './routes/api/docgen.xlsx'
+import { Route as ApiDocgenPptxRouteImport } from './routes/api/docgen.pptx'
+import { Route as ApiDocgenDocxRouteImport } from './routes/api/docgen.docx'
 import { Route as ApiBiDirectQueryRouteImport } from './routes/api/bi.direct-query'
 import { Route as ApiBiCronRouteImport } from './routes/api/bi.cron'
 import { Route as ApiAuthSsoConfigRouteImport } from './routes/api/auth/sso-config'
@@ -461,6 +464,21 @@ const ApiEmailSendRoute = ApiEmailSendRouteImport.update({
   path: '/api/email/send',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiDocgenXlsxRoute = ApiDocgenXlsxRouteImport.update({
+  id: '/api/docgen/xlsx',
+  path: '/api/docgen/xlsx',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiDocgenPptxRoute = ApiDocgenPptxRouteImport.update({
+  id: '/api/docgen/pptx',
+  path: '/api/docgen/pptx',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiDocgenDocxRoute = ApiDocgenDocxRouteImport.update({
+  id: '/api/docgen/docx',
+  path: '/api/docgen/docx',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiBiDirectQueryRoute = ApiBiDirectQueryRouteImport.update({
   id: '/direct-query',
   path: '/direct-query',
@@ -616,6 +634,9 @@ export interface FileRoutesByFullPath {
   '/api/auth/sso-config': typeof ApiAuthSsoConfigRoute
   '/api/bi/cron': typeof ApiBiCronRoute
   '/api/bi/direct-query': typeof ApiBiDirectQueryRoute
+  '/api/docgen/docx': typeof ApiDocgenDocxRoute
+  '/api/docgen/pptx': typeof ApiDocgenPptxRoute
+  '/api/docgen/xlsx': typeof ApiDocgenXlsxRoute
   '/api/email/send': typeof ApiEmailSendRoute
   '/api/embed/chat': typeof ApiEmbedChatRoute
   '/api/health/ready': typeof ApiHealthReadyRoute
@@ -704,6 +725,9 @@ export interface FileRoutesByTo {
   '/api/auth/sso-config': typeof ApiAuthSsoConfigRoute
   '/api/bi/cron': typeof ApiBiCronRoute
   '/api/bi/direct-query': typeof ApiBiDirectQueryRoute
+  '/api/docgen/docx': typeof ApiDocgenDocxRoute
+  '/api/docgen/pptx': typeof ApiDocgenPptxRoute
+  '/api/docgen/xlsx': typeof ApiDocgenXlsxRoute
   '/api/email/send': typeof ApiEmailSendRoute
   '/api/embed/chat': typeof ApiEmbedChatRoute
   '/api/health/ready': typeof ApiHealthReadyRoute
@@ -795,6 +819,9 @@ export interface FileRoutesById {
   '/api/auth/sso-config': typeof ApiAuthSsoConfigRoute
   '/api/bi/cron': typeof ApiBiCronRoute
   '/api/bi/direct-query': typeof ApiBiDirectQueryRoute
+  '/api/docgen/docx': typeof ApiDocgenDocxRoute
+  '/api/docgen/pptx': typeof ApiDocgenPptxRoute
+  '/api/docgen/xlsx': typeof ApiDocgenXlsxRoute
   '/api/email/send': typeof ApiEmailSendRoute
   '/api/embed/chat': typeof ApiEmbedChatRoute
   '/api/health/ready': typeof ApiHealthReadyRoute
@@ -886,6 +913,9 @@ export interface FileRouteTypes {
     | '/api/auth/sso-config'
     | '/api/bi/cron'
     | '/api/bi/direct-query'
+    | '/api/docgen/docx'
+    | '/api/docgen/pptx'
+    | '/api/docgen/xlsx'
     | '/api/email/send'
     | '/api/embed/chat'
     | '/api/health/ready'
@@ -974,6 +1004,9 @@ export interface FileRouteTypes {
     | '/api/auth/sso-config'
     | '/api/bi/cron'
     | '/api/bi/direct-query'
+    | '/api/docgen/docx'
+    | '/api/docgen/pptx'
+    | '/api/docgen/xlsx'
     | '/api/email/send'
     | '/api/embed/chat'
     | '/api/health/ready'
@@ -1064,6 +1097,9 @@ export interface FileRouteTypes {
     | '/api/auth/sso-config'
     | '/api/bi/cron'
     | '/api/bi/direct-query'
+    | '/api/docgen/docx'
+    | '/api/docgen/pptx'
+    | '/api/docgen/xlsx'
     | '/api/email/send'
     | '/api/embed/chat'
     | '/api/health/ready'
@@ -1115,6 +1151,9 @@ export interface RootRouteChildren {
   VerifyCodeRoute: typeof VerifyCodeRoute
   ApiAuditExportRoute: typeof ApiAuditExportRoute
   ApiAuthSsoConfigRoute: typeof ApiAuthSsoConfigRoute
+  ApiDocgenDocxRoute: typeof ApiDocgenDocxRoute
+  ApiDocgenPptxRoute: typeof ApiDocgenPptxRoute
+  ApiDocgenXlsxRoute: typeof ApiDocgenXlsxRoute
   ApiEmailSendRoute: typeof ApiEmailSendRoute
   ApiKbBuildGraphRoute: typeof ApiKbBuildGraphRoute
   ApiKbIngestGithubRoute: typeof ApiKbIngestGithubRoute
@@ -1639,6 +1678,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiEmailSendRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/docgen/xlsx': {
+      id: '/api/docgen/xlsx'
+      path: '/api/docgen/xlsx'
+      fullPath: '/api/docgen/xlsx'
+      preLoaderRoute: typeof ApiDocgenXlsxRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/docgen/pptx': {
+      id: '/api/docgen/pptx'
+      path: '/api/docgen/pptx'
+      fullPath: '/api/docgen/pptx'
+      preLoaderRoute: typeof ApiDocgenPptxRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/docgen/docx': {
+      id: '/api/docgen/docx'
+      path: '/api/docgen/docx'
+      fullPath: '/api/docgen/docx'
+      preLoaderRoute: typeof ApiDocgenDocxRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/bi/direct-query': {
       id: '/api/bi/direct-query'
       path: '/direct-query'
@@ -1958,6 +2018,9 @@ const rootRouteChildren: RootRouteChildren = {
   VerifyCodeRoute: VerifyCodeRoute,
   ApiAuditExportRoute: ApiAuditExportRoute,
   ApiAuthSsoConfigRoute: ApiAuthSsoConfigRoute,
+  ApiDocgenDocxRoute: ApiDocgenDocxRoute,
+  ApiDocgenPptxRoute: ApiDocgenPptxRoute,
+  ApiDocgenXlsxRoute: ApiDocgenXlsxRoute,
   ApiEmailSendRoute: ApiEmailSendRoute,
   ApiKbBuildGraphRoute: ApiKbBuildGraphRoute,
   ApiKbIngestGithubRoute: ApiKbIngestGithubRoute,

@@ -30,7 +30,8 @@ def pptx_to_images(pptx_bytes: bytes, max_slides: int = 12) -> list[bytes]:
             f.write(pptx_bytes)
         try:
             subprocess.run(
-                ["soffice", "--headless", "--convert-to", "pdf", "--outdir", d, src],
+                ["soffice", f"-env:UserInstallation=file://{os.path.join(d, 'lo')}",
+                 "--headless", "--convert-to", "pdf", "--outdir", d, src],
                 check=True, timeout=120, capture_output=True,
             )
         except Exception:

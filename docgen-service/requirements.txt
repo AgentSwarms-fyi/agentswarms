@@ -1,6 +1,8 @@
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
 python-pptx==1.0.2
+python-docx==1.1.2
+openpyxl==3.1.5
 cairosvg==2.7.1
 pdf2image==1.17.0
 pillow==11.1.0

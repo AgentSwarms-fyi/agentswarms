@@ -3,10 +3,13 @@
 # in-browser pptxgenjs generator when this service isn't configured.
 FROM python:3.12-slim
 
-# LibreOffice (pptx→pdf for the verify loop), poppler (pdf→png), cairo/pango
-# (SVG rasterisation for diagrams), and fonts.
+# LibreOffice components: Impress (pptx→pdf for the verify loop), Writer
+# (docx→pdf thumbnails) and Calc (xlsx formula recalc + thumbnails). Without
+# Writer/Calc, soffice loads .pptx but reports "source file could not be loaded"
+# for .docx/.xlsx. Plus poppler (pdf→png), cairo/pango (SVG rasterisation for
+# diagrams), and fonts.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      libreoffice-impress libreoffice-core \
+      libreoffice-impress libreoffice-writer libreoffice-calc libreoffice-core \
       libcairo2 libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf-2.0-0 \
       poppler-utils fonts-dejavu fonts-liberation fontconfig \
     && rm -rf /var/lib/apt/lists/*

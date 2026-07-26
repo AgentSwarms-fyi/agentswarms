@@ -55,7 +55,14 @@ import { generateChatWidget } from "@/lib/chatBi";
 import { parseWidgets } from "@/lib/biDashboards";
 import { useServerFn } from "@tanstack/react-start";
 import { DOC_FORMAT_LABEL } from "@/lib/docGen/types";
-import type { DocScope, DocFormat, DocxPlan, PptxPlan, XlsxPlan } from "@/lib/docGen/types";
+import type {
+  DocScope,
+  DocFormat,
+  DocxPlan,
+  PptxPlan,
+  XlsxPlan,
+  MaterializedXlsxPlan,
+} from "@/lib/docGen/types";
 import {
   attachDiagramSvgs,
   buildDocx,
@@ -66,7 +73,7 @@ import {
   type BuiltDoc,
 } from "@/lib/docGen/build";
 import { materializePptxWithBI } from "@/lib/docGen/biData";
-import { pptxThumbUri } from "@/lib/docGen/docThumb";
+import { pptxThumbUri, docxThumbUri, xlsxThumbUri } from "@/lib/docGen/docThumb";
 import { planDocument } from "@/lib/docGen/plan";
 import { gatherDocContext } from "@/utils/docGen.functions";
 import { toast } from "sonner";
@@ -905,10 +912,10 @@ function PlaygroundPage() {
           .replace(/^-+|-+$/g, "") || "document";
       let built: BuiltDoc;
       if (format === "pptx") built = await buildPptxDoc(plan as PptxPlan, fileBase, token);
-      else if (format === "docx") built = await buildDocx(plan as DocxPlan, fileBase);
+      else if (format === "docx") built = await buildDocxDoc(plan as DocxPlan, fileBase, token);
       else {
         const materialized = await materializeXlsxPlan(plan as XlsxPlan, dataScope);
-        built = await buildXlsx(materialized, fileBase);
+        built = await buildXlsxDoc(materialized, fileBase, token);
       }
       // Show the result as a preview card in chat (thumbnail + download button)
       // instead of auto-downloading. The blob URL lives for this session; the
@@ -2342,6 +2349,68 @@ async function buildPptxDoc(plan: PptxPlan, fileBase: string, token: string): Pr
     /* network error → in-browser build below */
   }
   return buildPptx(plan, fileBase, { skipMaterialize: true });
+}
+
+// Try the server-side python-docx renderer (multi-page, real TOC, fixed-width
+// tables); fall back to the in-browser `docx` builder when it isn't configured.
+async function buildDocxDoc(plan: DocxPlan, fileBase: string, token: string): Promise<BuiltDoc> {
+  try {
+    const resp = await fetch("/api/docgen/docx", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ plan }),
+    });
+    if (resp.ok) {
+      const j = (await resp.json()) as { docx_base64?: string; thumb?: string };
+      if (j.docx_base64) {
+        return {
+          blob: b64ToBlob(
+            j.docx_base64,
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          ),
+          filename: fileBase.toLowerCase().endsWith(".docx") ? fileBase : `${fileBase}.docx`,
+          thumb: j.thumb || docxThumbUri(plan),
+        };
+      }
+    }
+  } catch {
+    /* network error → in-browser build below */
+  }
+  return buildDocx(plan, fileBase);
+}
+
+// Try the server-side openpyxl renderer (formulas recalculated by LibreOffice
+// so values are cached); fall back to the in-browser write-excel-file builder.
+// The plan is already materialized (data-bound sheets → literal rows + formula
+// cells), so both paths get identical inputs.
+async function buildXlsxDoc(
+  plan: MaterializedXlsxPlan,
+  fileBase: string,
+  token: string,
+): Promise<BuiltDoc> {
+  try {
+    const resp = await fetch("/api/docgen/xlsx", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ plan }),
+    });
+    if (resp.ok) {
+      const j = (await resp.json()) as { xlsx_base64?: string; thumb?: string };
+      if (j.xlsx_base64) {
+        return {
+          blob: b64ToBlob(
+            j.xlsx_base64,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          ),
+          filename: fileBase.toLowerCase().endsWith(".xlsx") ? fileBase : `${fileBase}.xlsx`,
+          thumb: j.thumb || xlsxThumbUri(plan),
+        };
+      }
+    }
+  } catch {
+    /* network error → in-browser build below */
+  }
+  return buildXlsx(plan, fileBase);
 }
 
 type DocResultMeta = {
