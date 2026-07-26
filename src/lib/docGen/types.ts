@@ -43,6 +43,21 @@ export type DocChart = {
   series?: { name: string; values: number[] }[];
 };
 
+/**
+ * A "SmartArt-style" diagram — a structured layout the builder renders as a
+ * polished SVG (rounded cards, connectors, a multi-colour palette), so a slide
+ * can be a process flow / timeline / comparison / card grid / funnel / pyramid
+ * instead of a wall of bullets. The model supplies the structure; the renderer
+ * (diagramSvg.ts) lays it out.
+ */
+export type DocDiagram =
+  | { kind: "process"; steps: { title: string; detail?: string }[] }
+  | { kind: "timeline"; steps: { title: string; detail?: string; date?: string }[] }
+  | { kind: "comparison"; columns: { heading: string; points: string[] }[] }
+  | { kind: "cards"; cards: { title: string; detail?: string }[] }
+  | { kind: "funnel"; stages: { title: string; value?: string }[] }
+  | { kind: "pyramid"; tiers: { title: string; detail?: string }[] };
+
 // ── PowerPoint ────────────────────────────────────────────────────────────────
 /** A big-number metric callout rendered as a card on a KPI slide. */
 export type PptxKpi = {
@@ -68,13 +83,16 @@ export type PptxSlide = {
    * this is optional — but it drives the visual treatment (cover, section
    * divider, KPI cards, chart, table, two-column).
    */
-  layout?: "cover" | "section" | "kpi" | "chart" | "table" | "bullets" | "twoColumn";
+  layout?: "cover" | "section" | "kpi" | "chart" | "table" | "bullets" | "twoColumn" | "diagram";
   subtitle?: string;
   bullets?: string[];
   paragraph?: string;
   table?: DocTable;
   chart?: DocChart;
   kpis?: PptxKpi[];
+  /** A SmartArt-style diagram (process / timeline / comparison / cards / funnel
+   * / pyramid) rendered as a designed SVG instead of bullets. */
+  diagram?: DocDiagram;
   /**
    * For a KPI slide: a single analytical question that returns ONE row of
    * headline metrics (e.g. "total revenue, number of orders and average order

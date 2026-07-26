@@ -6,6 +6,7 @@ import type { Cell, SheetData } from "write-excel-file/browser";
 import { hydrateFromSupabase, runQueryUnlimited } from "@/lib/sqlEngine";
 import { materializePptxWithBI } from "./biData";
 import { chartToSvg, svgToDataUri } from "./chartSvg";
+import { diagramToSvg } from "./diagramSvg";
 import type {
   DocChart,
   DocScope,
@@ -514,7 +515,33 @@ export async function buildPptx(
     const top = 1.55;
     const hasChart = chartHasData(s.chart);
 
-    if (layout === "kpi" && s.kpis?.length) {
+    // A SmartArt-style diagram takes the whole content area (drawn as a designed
+    // SVG image with its own cards/connectors).
+    const diagramSvg = s.diagram
+      ? diagramToSvg(
+          s.diagram,
+          {
+            palette,
+            ink: PPTX_INK,
+            sub: PPTX_BODY,
+            card: "FFFFFF",
+            border: PPTX_BORDER,
+            accent: accentInk,
+          },
+          1160,
+          Math.max(360, Math.round((1160 * (bottom - top)) / CONTENT_W)),
+        )
+      : "";
+
+    if (diagramSvg) {
+      slide.addImage({
+        data: svgToDataUri(diagramSvg),
+        x: M,
+        y: top,
+        w: CONTENT_W,
+        h: bottom - top,
+      });
+    } else if (layout === "kpi" && s.kpis?.length) {
       const kpis = s.kpis.slice(0, 5);
       const gap = 0.28;
       const cardW = (CONTENT_W - gap * (kpis.length - 1)) / kpis.length;

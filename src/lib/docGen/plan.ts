@@ -65,11 +65,12 @@ export async function planPptx(args: PlanArgs): Promise<PptxPlan> {
       `You are designing a polished, executive-ready slide deck — rich with data-filled visuals, NOT walls of text.\n` +
       `SCHEMA: { "title": string, "subtitle"?: string, "accent"?: string, "slides": [{ ` +
       `"title": string, ` +
-      `"layout"?: "section"|"kpi"|"chart"|"table"|"twoColumn"|"bullets", ` +
+      `"layout"?: "section"|"kpi"|"chart"|"table"|"twoColumn"|"bullets"|"diagram", ` +
       `"subtitle"?: string, "bullets"?: string[], "paragraph"?: string, ` +
       `"kpiQuery"?: string, "kpis"?: [{ "label": string, "value": string, "delta"?: string, "positive"?: boolean }], ` +
       `"chart"?: { "type": "column"|"bar"|"line"|"area"|"pie"|"doughnut", "query"?: string }, ` +
       `"table"?: { "columns": string[], "rows": (string|number|null)[][] }, ` +
+      `"diagram"?: <one diagram spec, see DIAGRAM SLIDES>, ` +
       `"takeaway"?: string, "notes"?: string }] }\n` +
       `HOW DATA WORKS — READ CAREFULLY. You do NOT write SQL and you do NOT invent numbers. Instead you write a plain-English analytical QUESTION for each visual, and a built-in BI analyst runs it against the user's REAL data (plan → SQL → execute) and fills the chart/metric with the actual result. This is the ONLY reliable way to get correct figures.\n` +
       `- For EVERY chart you MUST set "query": a precise question that yields a small grouped result — a category/time dimension plus one or more numeric measures. Examples: "monthly total revenue over the last 12 months", "top 8 products by units sold", "revenue share by region", "average order value by customer segment". Pick "type" to match: trend over time → line/area; comparison/ranking across categories → column/bar; part-of-whole (≤8 slices) → pie/doughnut. NEVER output "categories", "series" or "dataSql" — a chart with those but no "query" will come out EMPTY. Only "query" fills a chart.\n` +
@@ -77,11 +78,19 @@ export async function planPptx(args: PlanArgs): Promise<PptxPlan> {
       `- Reference the real subject matter from CONTEXT (table + column names) inside your questions so the analyst targets the right data. If there are NO data tables, omit query/kpiQuery and write the deck from the prompt + knowledge base.\n` +
       `- Keep each chart question to a SINGLE dimension + measure(s) so it charts cleanly (≤ ~12 categories).\n` +
       `NEVER LEAVE A SLIDE THIN — every "chart" and "twoColumn" slide MUST also include 2–4 short "bullets" (the analysis/context) AND a "takeaway". That way the slide is substantive even before the chart renders. Do not create a slide whose only content is a chart.\n` +
+      `DIAGRAM SLIDES — use these instead of plain bullet slides to make the deck look designed (each renders as a polished graphic with rounded cards, connectors, colours). Set "layout":"diagram" and provide "diagram":\n` +
+      `- process: { "kind":"process", "steps":[{ "title": string, "detail"?: string }] } — a workflow / how-it-works (3–5 steps).\n` +
+      `- timeline: { "kind":"timeline", "steps":[{ "title": string, "detail"?: string, "date"?: string }] } — roadmap / milestones (3–6).\n` +
+      `- comparison: { "kind":"comparison", "columns":[{ "heading": string, "points": string[] }] } — options / vs / pros-cons (2–3 columns, ≤6 points each).\n` +
+      `- cards: { "kind":"cards", "cards":[{ "title": string, "detail"?: string }] } — features / pillars / benefits (2–4 cards).\n` +
+      `- funnel: { "kind":"funnel", "stages":[{ "title": string, "value"?: string }] } — pipeline / conversion (3–6 stages).\n` +
+      `- pyramid: { "kind":"pyramid", "tiers":[{ "title": string, "detail"?: string }] } — hierarchy / maturity levels (3–5).\n` +
+      `Whenever content is a sequence of steps, a comparison, a set of features, a roadmap, a funnel or a hierarchy, use the matching diagram INSTEAD of a bullets slide.\n` +
       `LAYOUT RULES:\n` +
       `- 12–18 slides. The cover is generated from title/subtitle automatically — do NOT add a cover slide. "accent" is a 6-hex-digit colour without '#', MEDIUM-to-DARK and saturated (e.g. "4F46E5", "0F766E", "B45309") — never a pale/near-white colour.\n` +
-      `- Open with a "kpi" slide (4–5 metric cards via kpiQuery). Include AT LEAST 6 "chart" slides across the deck, varied by type — trend → line/area, comparison → column/bar, composition → pie/doughnut, ranking → bar. Prefer "twoColumn" (chart + bullets) for most of them.\n` +
-      `- Use 2–3 "section" divider slides to group the deck into chapters.\n` +
-      `- Use a "table" only when exact figures matter; prefer charts + KPIs over tables and plain text.\n` +
+      `- MIX the layouts for a professional feel — do NOT make every slide the same. Target roughly: 1 "kpi" opener, 5–6 "chart"/"twoColumn" (data), 3–4 "diagram" (process/comparison/cards/timeline/funnel/pyramid), 2–3 "section" dividers, and a closing "bullets".\n` +
+      `- Charts varied by type — trend → line/area, comparison → column/bar, composition → pie/doughnut, ranking → bar.\n` +
+      `- Use a "table" only when exact figures matter; prefer charts + KPIs + diagrams over plain text.\n` +
       `- Add a one-line "takeaway" insight to every data slide, and speaker "notes" to every slide.\n` +
       `- End with a "bullets" slide of key takeaways / recommended next steps. Keep bullets to short phrases (≤ ~12 words).`,
     userPrompt: userPrompt(args),
