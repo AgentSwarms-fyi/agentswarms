@@ -17,7 +17,6 @@ import io
 import re
 from typing import Any
 
-import cairosvg
 from pptx import Presentation
 from pptx.chart.data import CategoryChartData
 from pptx.dml.color import RGBColor
@@ -137,12 +136,19 @@ class Deck:
         return tb
 
     def _svg_image(self, slide, svg: str, x, y, w, h):
-        png = cairosvg.svg2png(
-            bytestring=svg.encode("utf-8"),
-            output_width=int(w * 150),
-            output_height=int(h * 150),
-        )
-        slide.shapes.add_picture(io.BytesIO(png), Inches(x), Inches(y), Inches(w), Inches(h))
+        # Rasterise the diagram SVG. cairosvg needs system libs (cairo/pango);
+        # if unavailable, draw a light placeholder card instead of failing.
+        try:
+            import cairosvg
+
+            png = cairosvg.svg2png(
+                bytestring=svg.encode("utf-8"),
+                output_width=int(w * 150),
+                output_height=int(h * 150),
+            )
+            slide.shapes.add_picture(io.BytesIO(png), Inches(x), Inches(y), Inches(w), Inches(h))
+        except Exception:
+            self._rect(slide, x, y, w, h, CARD, radius=True, line=BORDER)
 
     # ── deck ─────────────────────────────────────────────────────────────
     def build(self) -> bytes:
