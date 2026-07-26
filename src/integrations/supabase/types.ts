@@ -41,6 +41,7 @@ export type Database = {
       agent_memory_config: {
         Row: {
           agent_id: string;
+          chat_retention_days: number;
           created_at: string;
           ltm_auto_extract: boolean;
           ltm_enabled: boolean;
@@ -55,6 +56,7 @@ export type Database = {
         };
         Insert: {
           agent_id: string;
+          chat_retention_days?: number;
           created_at?: string;
           ltm_auto_extract?: boolean;
           ltm_enabled?: boolean;
@@ -69,6 +71,7 @@ export type Database = {
         };
         Update: {
           agent_id?: string;
+          chat_retention_days?: number;
           created_at?: string;
           ltm_auto_extract?: boolean;
           ltm_enabled?: boolean;

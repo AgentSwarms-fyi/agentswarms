@@ -541,6 +541,7 @@ type MemoryConfigForm = {
   ltm_auto_extract: boolean;
   ltm_max_items: number;
   ltm_recall_top_k: number;
+  chat_retention_days: number;
 };
 
 const DEFAULT_MEMORY_CONFIG_FORM: MemoryConfigForm = {
@@ -551,6 +552,7 @@ const DEFAULT_MEMORY_CONFIG_FORM: MemoryConfigForm = {
   ltm_auto_extract: true,
   ltm_max_items: 200,
   ltm_recall_top_k: 5,
+  chat_retention_days: 7,
 };
 
 type MemoryItemRow = {
@@ -800,6 +802,7 @@ export function AgentForm({
             ltm_auto_extract: data.ltm_auto_extract,
             ltm_max_items: data.ltm_max_items,
             ltm_recall_top_k: data.ltm_recall_top_k,
+            chat_retention_days: data.chat_retention_days ?? 7,
           });
         }
         await refreshMemoryItems();
@@ -1454,6 +1457,29 @@ export function AgentForm({
                   onCheckedChange={(v) => updateMemory("stm_summarize", v)}
                   disabled={!memoryConfig.stm_enabled}
                 />
+              </div>
+              <div className="space-y-2 border-t border-border/40 pt-3">
+                <Label>Chat history retention</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={7}
+                    max={3650}
+                    className="w-28"
+                    value={memoryConfig.chat_retention_days}
+                    onChange={(e) =>
+                      updateMemory(
+                        "chat_retention_days",
+                        Math.max(7, Math.min(3650, Math.round(Number(e.target.value) || 7))),
+                      )
+                    }
+                  />
+                  <span className="text-sm text-muted-foreground">days</span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Conversations with this agent — and any PowerPoint / Word / Excel files generated
+                  in them — are kept for this long, then automatically deleted. Minimum 7 days.
+                </p>
               </div>
             </CardContent>
           </Card>

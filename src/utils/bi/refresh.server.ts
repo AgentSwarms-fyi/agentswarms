@@ -848,6 +848,9 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
     await import("@/utils/audit.server")
       .then((m) => m.purgeAuditEvents(force))
       .catch((e) => console.warn("[audit-purge] failed:", (e as Error).message));
+    await import("@/utils/chatRetention.server")
+      .then((m) => m.purgeExpiredChats(force))
+      .catch((e) => console.warn("[chat-retention] failed:", (e as Error).message));
     await import("@/utils/observability/retention.server")
       .then((m) => m.purgeTraces(force))
       .catch((e) => console.warn("[trace-retention] failed:", (e as Error).message));
