@@ -73,7 +73,33 @@ export type DocDiagram =
   // 2–3 overlapping circles.
   | { kind: "venn"; sets: { label: string }[]; overlap?: string }
   // Kanban-style columns of cards.
-  | { kind: "kanban"; columns: { title: string; cards: string[] }[] };
+  | { kind: "kanban"; columns: { title: string; cards: string[] }[] }
+  // Node-and-edge graph (architecture / flowchart / block diagram) — the model
+  // supplies nodes + edges and the renderer auto-lays them out in layers.
+  | {
+      kind: "graph";
+      nodes: { id: string; label: string; group?: string }[];
+      edges: { from: string; to: string; label?: string }[];
+    }
+  // Freeform "excalidraw-style" canvas: the model places primitive shapes on a
+  // 0–100 × 0–100 grid to draw its own explanatory illustration.
+  | { kind: "sketch"; shapes: SketchShape[] };
+
+/** A primitive on a freeform sketch canvas. Coords are 0–100 (percent of the
+ * drawing area); `color` is an optional palette index. */
+export type SketchShape =
+  | { type: "box"; x: number; y: number; w?: number; h?: number; label?: string; color?: number }
+  | {
+      type: "ellipse";
+      x: number;
+      y: number;
+      w?: number;
+      h?: number;
+      label?: string;
+      color?: number;
+    }
+  | { type: "text"; x: number; y: number; label: string }
+  | { type: "arrow"; x: number; y: number; x2: number; y2: number; label?: string };
 
 // ── PowerPoint ────────────────────────────────────────────────────────────────
 /** A big-number metric callout rendered as a card on a KPI slide. */

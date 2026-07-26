@@ -5,7 +5,7 @@
 // connectors, shadows, a multi-colour palette) that build.ts embeds as an image
 // (pptxgenjs adds a PNG fallback). It turns "walls of bullets" into process
 // flows, timelines, comparisons, cards, funnels and pyramids.
-import type { DocDiagram } from "./types";
+import type { DocDiagram, SketchShape } from "./types";
 
 export type DiagramColors = {
   palette: string[];
@@ -79,6 +79,12 @@ function wrap(text: string, maxChars: number, maxLines: number): string[] {
 }
 
 const FONT = "Segoe UI, Arial, sans-serif";
+
+/** Single-line truncate with an ellipsis. */
+function truncate(s: string, max: number): string {
+  const str = String(s ?? "");
+  return str.length > max ? str.slice(0, max - 1) + "…" : str;
+}
 
 function textLines(
   x: number,
@@ -692,6 +698,187 @@ function kanbanSvg(
   return parts.join("");
 }
 
+// ── graph: node-and-edge architecture / flowchart with auto layer layout ──────
+function graphSvg(
+  nodes: { id: string; label: string; group?: string }[],
+  edges: { from: string; to: string; label?: string }[],
+  c: DiagramColors,
+  W: number,
+  H: number,
+): string {
+  const N = nodes.slice(0, 16);
+  if (!N.length) return "";
+  const id2node = new Map(N.map((n) => [n.id, n]));
+  const E = edges.filter((e) => id2node.has(e.from) && id2node.has(e.to)).slice(0, 30);
+
+  // Assign a layer (column) per node = longest path from a root, so edges flow
+  // left→right. Falls back to sequential layers for cyclic/edge-less graphs.
+  const layer = new Map<string, number>();
+  const indeg = new Map(N.map((n) => [n.id, 0]));
+  E.forEach((e) => indeg.set(e.to, (indeg.get(e.to) ?? 0) + 1));
+  const out = new Map<string, string[]>();
+  E.forEach((e) => out.set(e.from, [...(out.get(e.from) ?? []), e.to]));
+  const roots = N.filter((n) => (indeg.get(n.id) ?? 0) === 0).map((n) => n.id);
+  const queue = roots.length ? [...roots] : [N[0].id];
+  queue.forEach((r) => layer.set(r, 0));
+  let guard = 0;
+  const bfs = [...queue];
+  while (bfs.length && guard++ < 400) {
+    const u = bfs.shift()!;
+    const lu = layer.get(u) ?? 0;
+    for (const v of out.get(u) ?? []) {
+      const lv = Math.max(layer.get(v) ?? 0, lu + 1);
+      if (lv !== layer.get(v)) {
+        layer.set(v, lv);
+        bfs.push(v);
+      }
+    }
+  }
+  N.forEach((n, i) => {
+    if (!layer.has(n.id)) layer.set(n.id, i % 3); // orphans spread across columns
+  });
+
+  const cols = new Map<number, string[]>();
+  N.forEach((n) => {
+    const l = layer.get(n.id) ?? 0;
+    cols.set(l, [...(cols.get(l) ?? []), n.id]);
+  });
+  const layers = [...cols.keys()].sort((a, b) => a - b);
+  const nCols = layers.length;
+  const padX = 20;
+  const padY = 16;
+  const colGap = (W - padX * 2) / Math.max(1, nCols);
+  const nodeW = Math.min(colGap - 30, 190);
+  const nodeH = 58;
+
+  const pos = new Map<string, { x: number; y: number }>();
+  layers.forEach((l, li) => {
+    const ids = cols.get(l)!;
+    const cx = padX + colGap * li + (colGap - nodeW) / 2;
+    const slotH = (H - padY * 2) / ids.length;
+    ids.forEach((id, ri) => {
+      const y = padY + slotH * ri + (slotH - nodeH) / 2;
+      pos.set(id, { x: cx, y });
+    });
+  });
+
+  const parts: string[] = [];
+  // edges first (under nodes)
+  E.forEach((e) => {
+    const a = pos.get(e.from)!;
+    const b = pos.get(e.to)!;
+    const x1 = a.x + nodeW;
+    const y1 = a.y + nodeH / 2;
+    const x2 = b.x;
+    const y2 = b.y + nodeH / 2;
+    const mx = (x1 + x2) / 2;
+    // orthogonal-ish curve
+    parts.push(
+      `<path d="M ${x1.toFixed(1)} ${y1.toFixed(1)} C ${mx.toFixed(1)} ${y1.toFixed(1)}, ${mx.toFixed(1)} ${y2.toFixed(1)}, ${(x2 - 8).toFixed(1)} ${y2.toFixed(1)}" fill="none" stroke="${c.sub}" stroke-width="2"/>`,
+    );
+    parts.push(
+      `<path d="M ${(x2 - 9).toFixed(1)} ${(y2 - 5).toFixed(1)} L ${(x2 - 1).toFixed(1)} ${y2.toFixed(1)} L ${(x2 - 9).toFixed(1)} ${(y2 + 5).toFixed(1)} Z" fill="${c.sub}"/>`,
+    );
+    if (e.label)
+      parts.push(
+        `<text x="${mx.toFixed(1)}" y="${((y1 + y2) / 2 - 4).toFixed(1)}" font-family="${FONT}" font-size="11" fill="${c.sub}" text-anchor="middle">${esc(truncate(e.label, 18))}</text>`,
+      );
+  });
+  // nodes
+  N.forEach((n, i) => {
+    const p = pos.get(n.id)!;
+    parts.push(roundRect(p.x, p.y, nodeW, nodeH, 10, grad(i, c.palette.length), { shadow: true }));
+    parts.push(
+      textLines(p.x + nodeW / 2, p.y + nodeH / 2 + 5, wrap(n.label, Math.floor(nodeW / 8.5), 2), {
+        size: 13.5,
+        color: "#ffffff",
+        weight: 700,
+        anchor: "middle",
+        lineH: 16,
+      }),
+    );
+  });
+  return parts.join("");
+}
+
+// ── sketch: a freeform "excalidraw-style" canvas of placed primitives ─────────
+function sketchSvg(shapes: SketchShape[], c: DiagramColors, W: number, H: number): string {
+  const list = (shapes ?? []).slice(0, 40);
+  if (!list.length) return "";
+  const px = 20;
+  const py = 14;
+  const sx = (v: number) => px + (Math.max(0, Math.min(100, v)) / 100) * (W - px * 2);
+  const sy = (v: number) => py + (Math.max(0, Math.min(100, v)) / 100) * (H - py * 2);
+  const sw = (v: number) => (Math.max(0, Math.min(100, v)) / 100) * (W - px * 2);
+  const sh = (v: number) => (Math.max(0, Math.min(100, v)) / 100) * (H - py * 2);
+  const col = (i?: number) => c.palette[(i ?? 0) % c.palette.length];
+  const parts: string[] = [];
+  for (const s of list) {
+    if (s.type === "box") {
+      const w = sw(s.w ?? 22);
+      const h = sh(s.h ?? 14);
+      const x = sx(s.x);
+      const y = sy(s.y);
+      parts.push(
+        roundRect(x, y, w, h, 10, `${col(s.color)}1A`, { stroke: col(s.color), strokeW: 2 }),
+      );
+      if (s.label)
+        parts.push(
+          textLines(x + w / 2, y + h / 2 + 5, wrap(s.label, Math.floor(w / 8), 2), {
+            size: 14,
+            color: c.ink,
+            weight: 600,
+            anchor: "middle",
+            lineH: 17,
+          }),
+        );
+    } else if (s.type === "ellipse") {
+      const w = sw(s.w ?? 20);
+      const h = sh(s.h ?? 16);
+      const cx = sx(s.x) + w / 2;
+      const cy = sy(s.y) + h / 2;
+      parts.push(
+        `<ellipse cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" rx="${(w / 2).toFixed(1)}" ry="${(h / 2).toFixed(1)}" fill="${col(s.color)}1A" stroke="${col(s.color)}" stroke-width="2"/>`,
+      );
+      if (s.label)
+        parts.push(
+          textLines(cx, cy + 5, wrap(s.label, Math.floor(w / 8), 2), {
+            size: 14,
+            color: c.ink,
+            weight: 600,
+            anchor: "middle",
+            lineH: 17,
+          }),
+        );
+    } else if (s.type === "text") {
+      parts.push(
+        textLines(sx(s.x), sy(s.y), wrap(s.label, 40, 3), { size: 14, color: c.ink, lineH: 18 }),
+      );
+    } else if (s.type === "arrow") {
+      const x1 = sx(s.x);
+      const y1 = sy(s.y);
+      const x2 = sx(s.x2);
+      const y2 = sy(s.y2);
+      const ang = Math.atan2(y2 - y1, x2 - x1);
+      const a1x = x2 - 11 * Math.cos(ang - 0.4);
+      const a1y = y2 - 11 * Math.sin(ang - 0.4);
+      const a2x = x2 - 11 * Math.cos(ang + 0.4);
+      const a2y = y2 - 11 * Math.sin(ang + 0.4);
+      parts.push(
+        `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="${c.sub}" stroke-width="2.5"/>`,
+      );
+      parts.push(
+        `<path d="M ${a1x.toFixed(1)} ${a1y.toFixed(1)} L ${x2.toFixed(1)} ${y2.toFixed(1)} L ${a2x.toFixed(1)} ${a2y.toFixed(1)}" fill="none" stroke="${c.sub}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>`,
+      );
+      if (s.label)
+        parts.push(
+          `<text x="${((x1 + x2) / 2).toFixed(1)}" y="${((y1 + y2) / 2 - 5).toFixed(1)}" font-family="${FONT}" font-size="12" fill="${c.sub}" text-anchor="middle">${esc(truncate(s.label, 24))}</text>`,
+        );
+    }
+  }
+  return parts.join("");
+}
+
 /** Render a DocDiagram to an SVG string (or "" when empty). */
 export function diagramToSvg(
   diagram: DocDiagram,
@@ -744,6 +931,12 @@ export function diagramToSvg(
       break;
     case "kanban":
       body = kanbanSvg(diagram.columns ?? [], c, W, H);
+      break;
+    case "graph":
+      body = graphSvg(diagram.nodes ?? [], diagram.edges ?? [], c, W, H);
+      break;
+    case "sketch":
+      body = sketchSvg(diagram.shapes ?? [], c, W, H);
       break;
   }
   if (!body) return "";
