@@ -1350,6 +1350,7 @@ function GuardrailsSection({
     !!g.enableInputFilters ||
     !!g.enableOutputFilters ||
     !!g.blockPII ||
+    (g.piiMode && g.piiMode !== "off") ||
     !!g.blockProfanity ||
     (g.contentSafetyLevel && g.contentSafetyLevel !== "off") ||
     !!g.enableCitationCheck ||
@@ -1405,15 +1406,32 @@ function GuardrailsSection({
           </Select>
         </div>
 
-        {/* PII / profanity */}
-        <div className="flex items-center justify-between gap-2">
-          <div className="min-w-0">
-            <Label className="text-xs">Block PII</Label>
-            <p className="text-[10px] text-muted-foreground">
-              Redact emails, SSNs, phones, card numbers in input + output.
-            </p>
-          </div>
-          <Switch checked={!!g.blockPII} onCheckedChange={(v) => patch({ blockPII: v })} />
+        {/* PII / data protection */}
+        <div className="space-y-1.5">
+          <Label className="text-[10px] text-muted-foreground">Personal data (PII)</Label>
+          <Select
+            value={g.piiMode || (g.blockPII ? "redact" : "off")}
+            onValueChange={(v) =>
+              patch({
+                piiMode: v as "off" | "redact" | "block",
+                // Mirror onto the legacy flag so anything still reading it agrees.
+                blockPII: v !== "off",
+              })
+            }
+          >
+            <SelectTrigger className="h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="off">Off (inherit from agent)</SelectItem>
+              <SelectItem value="redact">Redact — mask identifiers</SelectItem>
+              <SelectItem value="block">Block — refuse the turn</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-[10px] text-muted-foreground">
+            Emails, secrets/API keys, IBANs, national IDs, checksum-validated card numbers, phones,
+            IPs. Applies to what this node sends AND what it returns.
+          </p>
         </div>
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0">

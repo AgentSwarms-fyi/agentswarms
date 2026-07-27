@@ -127,6 +127,12 @@ export type SwarmGuardrails = {
   enableCitationCheck?: boolean;
   enableHallucinationFilter?: boolean;
   contentSafetyLevel?: "off" | "low" | "medium" | "high";
+  // PII policy (see src/utils/guardrails.ts). `blockPII` above is the legacy
+  // switch and still works; these give per-node control over mode, which
+  // identifiers to look for, and which direction it applies to.
+  piiMode?: "off" | "redact" | "block";
+  piiEntities?: string[];
+  piiApplyTo?: "input" | "output" | "both";
 };
 
 export type SwarmNodeData = {

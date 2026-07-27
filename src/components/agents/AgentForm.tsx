@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
@@ -45,6 +46,7 @@ import { ModelRegistryPicker } from "@/components/agents/ModelRegistryPicker";
 import { PromptLibraryPicker } from "@/components/prompts/PromptLibraryPicker";
 import { SkillPicker } from "@/components/skills/SkillPicker";
 import { isImageModelId } from "@/lib/providerSupport";
+import { PII_ENTITIES, PII_ENTITY_LABELS, type PiiEntity } from "@/utils/guardrails";
 
 type BuiltInTool = {
   id: string;
@@ -494,6 +496,11 @@ type Guardrails = {
   enableHallucinationFilter: boolean;
   contentSafetyLevel: "off" | "low" | "medium" | "high";
   customFilterPrompt: string;
+  // PII / data-protection policy — see src/utils/guardrails.ts, which is what
+  // actually enforces this on every LLM call (chat, swarm nodes, embeds).
+  piiMode: "off" | "redact" | "block";
+  piiEntities: PiiEntity[];
+  piiApplyTo: "input" | "output" | "both";
 };
 
 const defaultGuardrails: Guardrails = {
@@ -512,6 +519,9 @@ const defaultGuardrails: Guardrails = {
   enableHallucinationFilter: false,
   contentSafetyLevel: "off",
   customFilterPrompt: "",
+  piiMode: "off",
+  piiEntities: [],
+  piiApplyTo: "both",
 };
 
 type KnowledgeBase = { id: string; name: string };
@@ -1667,17 +1677,95 @@ export function AgentForm({
                   </SelectContent>
                 </Select>
               </div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <Label>Block PII (Emails, SSN, Phone)</Label>
-                  <p className="text-xs text-muted-foreground">
-                    Redact personally identifiable information
-                  </p>
+              {/* ── PII / data protection ────────────────────────────── */}
+              <div className="space-y-3 rounded-lg border border-border/60 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <Label>Personal data (PII)</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Detect identifiers before they reach the model, and before answers reach the
+                      user.
+                    </p>
+                  </div>
+                  <Select
+                    value={guardrails.piiMode}
+                    onValueChange={(v) => {
+                      updateGuardrail("piiMode", v as Guardrails["piiMode"]);
+                      // Keep the legacy flag in step so older readers of this
+                      // agent record still see PII handling as enabled.
+                      updateGuardrail("blockPII", v !== "off");
+                    }}
+                  >
+                    <SelectTrigger className="h-8 w-40 shrink-0 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="off">Off</SelectItem>
+                      <SelectItem value="redact">Redact</SelectItem>
+                      <SelectItem value="block">Block the turn</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
-                <Switch
-                  checked={guardrails.blockPII}
-                  onCheckedChange={(v) => updateGuardrail("blockPII", v)}
-                />
+
+                {guardrails.piiMode !== "off" && (
+                  <>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Applies to</Label>
+                      <Select
+                        value={guardrails.piiApplyTo}
+                        onValueChange={(v) =>
+                          updateGuardrail("piiApplyTo", v as Guardrails["piiApplyTo"])
+                        }
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="both">Prompts and answers</SelectItem>
+                          <SelectItem value="input">Prompts only (outbound)</SelectItem>
+                          <SelectItem value="output">Answers only (inbound)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">
+                        Detect{" "}
+                        <span className="font-normal text-muted-foreground">
+                          (none selected = recommended set)
+                        </span>
+                      </Label>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        {PII_ENTITIES.map((e) => {
+                          const on = guardrails.piiEntities.includes(e);
+                          return (
+                            <label
+                              key={e}
+                              className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground"
+                            >
+                              <Checkbox
+                                checked={on}
+                                onCheckedChange={(v: boolean | "indeterminate") =>
+                                  updateGuardrail(
+                                    "piiEntities",
+                                    v === true
+                                      ? [...guardrails.piiEntities, e]
+                                      : guardrails.piiEntities.filter((x) => x !== e),
+                                  )
+                                }
+                              />
+                              {PII_ENTITY_LABELS[e]}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <p className="text-[11px] leading-relaxed text-muted-foreground">
+                      {guardrails.piiMode === "block"
+                        ? "Turns containing these identifiers are refused outright — use when the data must never transit to a third-party model."
+                        : "Matches are replaced with [REDACTED_…] placeholders. Card numbers are checksum-validated, so order numbers and IDs are left alone."}
+                    </p>
+                  </>
+                )}
               </div>
               <div className="flex items-center justify-between">
                 <div>
