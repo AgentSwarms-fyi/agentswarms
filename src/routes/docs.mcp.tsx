@@ -10,6 +10,7 @@ import {
   NextPrev,
   P,
   Steps,
+  Table,
   UL,
 } from "@/components/docs/DocsShell";
 
@@ -94,6 +95,48 @@ function McpPage() {
           },
         ]}
       />
+
+      <H3 id="server-fields">Every field on a server</H3>
+      <Table
+        headers={["Field", "Values", "Notes"]}
+        rows={[
+          [
+            "Name",
+            "text",
+            "How the agent refers to it — this exact string goes in server_name on a call, and in the agent allow-list.",
+          ],
+          [
+            <C key="a">endpoint</C>,
+            "https URL",
+            "Streamable HTTP MCP endpoint. Must be reachable from where the app runs.",
+          ],
+          [<C key="b">description</C>, "text", "For humans browsing the list."],
+          [
+            <C key="c">auth_type</C>,
+            <>
+              <C key="n">none</C> | <C key="t">token</C>
+            </>,
+            "Bearer token or anonymous.",
+          ],
+          [
+            <C key="d">auth_token</C>,
+            "text",
+            "Encrypted at rest, never returned to the browser after saving. Prefer a Secrets reference.",
+          ],
+          [<C key="e">status</C>, "connected / disconnected", "Read-only, set by the last test."],
+          [
+            <C key="f">tools_count</C>,
+            "number",
+            "Read-only — how many tools the server advertised. Zero after a successful connect is the signal described below.",
+          ],
+          [<C key="g">last_ping</C>, "timestamp", "Read-only."],
+        ]}
+      />
+      <Callout kind="warn" title="The server Name is an identifier, not a label">
+        An agent allow-lists servers by name, and <C>mcp_call_tool</C> takes <C>server_name</C>.
+        Renaming a server after agents reference it breaks those references silently — the agent
+        simply finds no server and reports it cannot do the thing.
+      </Callout>
 
       <H2 id="how-agents-use">How an agent uses it</H2>
       <P>Three tools, used in sequence:</P>

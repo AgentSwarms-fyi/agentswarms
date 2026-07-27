@@ -58,27 +58,56 @@ function ModelsPage() {
         difference between "some vendor sees this" and "the vendor we approved sees this".
       </Callout>
 
-      <H3 id="providers">Supported providers</H3>
+      <H3 id="providers">Supported providers — all 14</H3>
+      <P>
+        These are the provider ids the chat route accepts. Anything else is rejected before a call
+        is made.
+      </P>
       <Table
-        headers={["Provider", "Notes"]}
+        headers={["Provider id", "Name", "What you configure"]}
         rows={[
-          ["OpenAI", "Direct API key; optional organization id."],
-          ["Anthropic", "Direct API key."],
+          [<C key="a">openai</C>, "OpenAI", "API key; optional organization id"],
+          [<C key="b">anthropic</C>, "Anthropic", "API key"],
+          [<C key="c">gemini</C>, "Google Gemini", "API key"],
           [
-            "Amazon Bedrock",
-            "AWS credentials + region. Good when data must stay in your AWS account.",
+            <C key="d">vertex</C>,
+            "Google Vertex AI",
+            "Service-account credentials + project and region",
           ],
-          ["Google Vertex AI", "Service-account credentials + project/region."],
-          ["Azure OpenAI", "Endpoint + deployment name + key."],
-          ["OCI Generative AI", "Oracle Cloud tenancy credentials."],
-          ["Grok (xAI), Qwen", "Direct API keys."],
-          ["OpenRouter", "One key, many models — the simplest way to try several."],
           [
-            "Any OpenAI-compatible endpoint",
-            "Point at a self-hosted or third-party gateway that speaks the OpenAI chat API.",
+            <C key="e">bedrock</C>,
+            "Amazon Bedrock",
+            "AWS credentials + region. Use when data must stay in your AWS account.",
+          ],
+          [<C key="f">azure_openai</C>, "Azure OpenAI", "Endpoint + deployment name + key"],
+          [<C key="g">oci_genai</C>, "OCI Generative AI", "Oracle Cloud tenancy credentials"],
+          [<C key="h">grok</C>, "Grok (xAI)", "API key"],
+          [<C key="i">qwen</C>, "Qwen", "API key"],
+          [<C key="j">groq</C>, "Groq", "API key — fast inference for small models"],
+          [<C key="k">nvidia</C>, "NVIDIA NIM", "API key"],
+          [
+            <C key="l">openrouter</C>,
+            "OpenRouter",
+            "One key, many models — the simplest way to try several",
+          ],
+          [
+            <C key="m">ollama</C>,
+            "Ollama",
+            "Base URL of your Ollama host. Local models, nothing leaves your machine.",
+          ],
+          [
+            <C key="n">vllm</C>,
+            "vLLM",
+            "Base URL of your vLLM server. Self-hosted open-weight models at scale.",
           ],
         ]}
       />
+      <Callout kind="info">
+        <C>ollama</C> and <C>vllm</C> are the two that keep inference entirely on infrastructure you
+        control — worth knowing about if the reason you are self-hosting is that prompts must not
+        leave your network at all.
+      </Callout>
+
       <P>
         Keys are encrypted at rest. Prefer storing them in{" "}
         <DocLink to="/docs/secrets">Secrets</DocLink> and referencing them, so a rotation is one
