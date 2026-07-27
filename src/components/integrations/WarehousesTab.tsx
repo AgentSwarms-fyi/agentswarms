@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { format } from "date-fns";
-import { Check, Loader2, Plug2, Trash2, X } from "lucide-react";
+import { Check, Loader2, Plug2, Trash2, Unplug, X } from "lucide-react";
 
 // Official provider marks, used nominatively to identify each integration.
 // Sources: Simple Icons (CC0) for Snowflake / Databricks / BigQuery;
@@ -23,6 +23,16 @@ import trinoLogo from "@/assets/warehouses/trino.svg";
 import athenaLogo from "@/assets/warehouses/athena.svg";
 import oracleLogo from "@/assets/warehouses/oracle.svg";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -312,6 +322,14 @@ export function WarehousesTab() {
   const [fields, setFields] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
+  // Pending disconnect confirmation: which connection rows would be removed
+  // and a human label for the warning dialog.
+  const [confirmRemove, setConfirmRemove] = useState<{
+    ids: string[];
+    label: string;
+    names: string[];
+  } | null>(null);
+  const [removing, setRemoving] = useState(false);
 
   const reload = useCallback(() => {
     if (!token) return;
@@ -386,13 +404,33 @@ export function WarehousesTab() {
     }
   };
 
-  const remove = async (id: string, connName: string) => {
-    if (!token) return;
-    if (!window.confirm(`Remove warehouse connection "${connName}"?`)) return;
-    const res = await deleteFn({ data: { access_token: token, connection_id: id } });
-    if (!res.ok) return toast.error(res.error);
-    toast.success("Connection removed");
-    reload();
+  // Ask before removing — deleting a connection breaks anything built on it
+  // (dashboards, prep flows, catalog assets, agent SQL). The card's Disconnect
+  // covers every connection of that provider; the table's trash covers one row.
+  const requestRemove = (ids: string[], label: string, names: string[]) =>
+    setConfirmRemove({ ids, label, names });
+
+  const performRemove = async () => {
+    if (!token || !confirmRemove) return;
+    setRemoving(true);
+    try {
+      for (const id of confirmRemove.ids) {
+        const res = await deleteFn({ data: { access_token: token, connection_id: id } });
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
+      }
+      toast.success(
+        confirmRemove.ids.length > 1
+          ? `${confirmRemove.ids.length} connections removed`
+          : "Connection removed",
+      );
+      reload();
+    } finally {
+      setRemoving(false);
+      setConfirmRemove(null);
+    }
   };
 
   const meta = dialogProvider ? PROVIDER_META[dialogProvider] : null;
@@ -421,9 +459,33 @@ export function WarehousesTab() {
               ) : null}
             </CardHeader>
             <CardContent>
-              <Button size="sm" variant="outline" className="gap-1.5" onClick={() => openDialog(p)}>
-                <Plug2 className="h-3.5 w-3.5" /> Connect
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5"
+                  onClick={() => openDialog(p)}
+                >
+                  <Plug2 className="h-3.5 w-3.5" /> Connect
+                </Button>
+                {connections.some((c) => c.provider === p) && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/10 hover:text-destructive"
+                    onClick={() => {
+                      const mine = connections.filter((c) => c.provider === p);
+                      requestRemove(
+                        mine.map((c) => c.id),
+                        WAREHOUSE_LABELS[p],
+                        mine.map((c) => c.name),
+                      );
+                    }}
+                  >
+                    <Unplug className="h-3.5 w-3.5" /> Disconnect
+                  </Button>
+                )}
+              </div>
             </CardContent>
           </Card>
         ))}
@@ -502,7 +564,9 @@ export function WarehousesTab() {
                           size="sm"
                           variant="ghost"
                           className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-                          onClick={() => remove(c.id, c.name)}
+                          onClick={() =>
+                            requestRemove([c.id], WAREHOUSE_LABELS[c.provider], [c.name])
+                          }
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
@@ -587,6 +651,44 @@ export function WarehousesTab() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!confirmRemove} onOpenChange={(o) => !o && setConfirmRemove(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Disconnect {confirmRemove?.label}?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>
+                  {confirmRemove && confirmRemove.names.length > 1
+                    ? `This removes ${confirmRemove.names.length} connections: ${confirmRemove.names.join(", ")}.`
+                    : `This removes the connection "${confirmRemove?.names[0] ?? ""}".`}{" "}
+                  The stored credentials are deleted.
+                </p>
+                <p className="text-destructive">
+                  Anything built on this connection stops working: BI dashboards and prep flows
+                  that query it, catalog assets crawled from it, and agents using it through the
+                  SQL tool. This cannot be undone — reconnecting later requires re-entering
+                  credentials.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={removing}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={removing}
+              onClick={(e) => {
+                // Keep the dialog open while the delete runs.
+                e.preventDefault();
+                void performRemove();
+              }}
+            >
+              {removing ? <Loader2 className="h-4 w-4 animate-spin" /> : "Disconnect"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
