@@ -16,7 +16,15 @@
  */
 import type { PortableSwarm, PortableSwarmNode, PortableSwarmEdge } from "./swarmPortable";
 import { downloadFile } from "./agentExport";
-import { cleanModelId, toolDescription, MODEL_ID_WARNING, FIDELITY_NOTE } from "./swarmExportTools";
+import {
+  cleanModelId,
+  toolDescription,
+  MODEL_ID_WARNING,
+  FIDELITY_NOTE,
+  bridgeAgentEdges,
+  bridgedEntryAgents,
+  viaSuffix,
+} from "./swarmExportTools";
 
 function safePy(name: string): string {
   return name.replace(/[^a-zA-Z0-9_]/g, "_").replace(/^(\d)/, "_$1") || "node";
@@ -61,24 +69,24 @@ function collectTools(agents: PortableSwarmNode[]): string[] {
   return out;
 }
 
-/** Topological order of agent nodes (Kahn). Falls back to input order on cycles. */
+/**
+ * Topological order of agent nodes (Kahn), over BRIDGED edges so a dependency
+ * that runs through a condition/approval/function node still orders correctly.
+ * Falls back to input order on cycles.
+ */
 function topoAgents(nodes: PortableSwarmNode[], edges: PortableSwarmEdge[]): PortableSwarmNode[] {
   const agents = agentNodes(nodes);
-  const agentIds = new Set(agents.map((a) => a.id));
+  const bridged = bridgeAgentEdges(nodes, edges);
   const indeg = new Map<string, number>();
   agents.forEach((a) => indeg.set(a.id, 0));
-  for (const e of edges) {
-    if (agentIds.has(e.source) && agentIds.has(e.target)) {
-      indeg.set(e.target, (indeg.get(e.target) ?? 0) + 1);
-    }
-  }
+  for (const e of bridged) indeg.set(e.target, (indeg.get(e.target) ?? 0) + 1);
   const queue = agents.filter((a) => (indeg.get(a.id) ?? 0) === 0).map((a) => a.id);
   const ordered: string[] = [];
   while (queue.length) {
     const id = queue.shift()!;
     ordered.push(id);
-    for (const e of edges) {
-      if (e.source !== id || !agentIds.has(e.target)) continue;
+    for (const e of bridged) {
+      if (e.source !== id) continue;
       const d = (indeg.get(e.target) ?? 0) - 1;
       indeg.set(e.target, d);
       if (d === 0) queue.push(e.target);
@@ -86,12 +94,6 @@ function topoAgents(nodes: PortableSwarmNode[], edges: PortableSwarmEdge[]): Por
   }
   for (const a of agents) if (!ordered.includes(a.id)) ordered.push(a.id);
   return ordered.map((id) => agents.find((a) => a.id === id)!);
-}
-
-/** Agent→agent edges (both endpoints are agent nodes). */
-function agentEdges(nodes: PortableSwarmNode[], edges: PortableSwarmEdge[]): PortableSwarmEdge[] {
-  const ids = new Set(agentNodes(nodes).map((a) => a.id));
-  return edges.filter((e) => ids.has(e.source) && ids.has(e.target));
 }
 
 /** Stable, unique, human-readable string key per agent (for graph node ids). */
@@ -173,10 +175,11 @@ export function buildStrandsPythonSwarm(swarm: PortableSwarm): string {
   const tools = collectTools(ordered);
   const anyTools = tools.length > 0;
   const keys = nodeKeys(ordered);
-  const aEdges = agentEdges(nodes, edges);
-  // Entry points: agents with no agent-upstream (input-pill upstream is fine).
-  const hasAgentUpstream = new Set(aEdges.map((e) => e.target));
-  const entries = ordered.filter((a) => !hasAgentUpstream.has(a.id));
+  // Bridged, not direct: a path Researcher -> [condition] -> Writer must still
+  // connect the two agents, otherwise Writer becomes a second entry point and a
+  // sequential pipeline silently turns into two parallel roots.
+  const aEdges = bridgeAgentEdges(nodes, edges);
+  const entries = bridgedEntryAgents(nodes, aEdges);
 
   const L: string[] = [];
   L.push(`"""Strands swarm: ${swarm.name}`);
@@ -248,6 +251,7 @@ export function buildStrandsPythonSwarm(swarm: PortableSwarm): string {
     L.push(`builder.add_node(agent_${safePy(a.id)}, ${JSON.stringify(keys.get(a.id)!)})`);
   }
   for (const e of aEdges) {
+    if (e.via.length) L.push(`# bridged${viaSuffix(e.via, e.paths)}`);
     L.push(
       `builder.add_edge(${JSON.stringify(keys.get(e.source)!)}, ${JSON.stringify(keys.get(e.target)!)})`,
     );
@@ -280,7 +284,9 @@ export function buildStrandsTypeScriptSwarm(swarm: PortableSwarm): string {
   const tools = collectTools(ordered);
   const anyTools = tools.length > 0;
   const keys = nodeKeys(ordered);
-  const aEdges = agentEdges(nodes, edges);
+  // See the Python generator: bridge through unsupported node kinds so the
+  // agent chain stays connected.
+  const aEdges = bridgeAgentEdges(nodes, edges);
 
   const L: string[] = [];
   L.push(`/**`);

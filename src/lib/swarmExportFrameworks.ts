@@ -12,7 +12,14 @@
  */
 import type { PortableSwarm, PortableSwarmNode, PortableSwarmEdge } from "./swarmPortable";
 import { downloadFile } from "./agentExport";
-import { cleanModelId, toolDescription, MODEL_ID_WARNING, FIDELITY_NOTE } from "./swarmExportTools";
+import {
+  cleanModelId,
+  toolDescription,
+  MODEL_ID_WARNING,
+  FIDELITY_NOTE,
+  bridgeAgentEdges,
+  viaSuffix,
+} from "./swarmExportTools";
 
 function safePy(name: string): string {
   return name.replace(/[^a-zA-Z0-9_]/g, "_").replace(/^(\d)/, "_$1") || "node";
@@ -76,24 +83,24 @@ function collectTools(agents: PortableSwarmNode[]): string[] {
   return out;
 }
 
-/** Topological order of agent nodes (Kahn). Falls back to input order on cycles. */
+/**
+ * Topological order of agent nodes (Kahn), over BRIDGED edges so a dependency
+ * that runs through a condition/approval/function node still orders correctly.
+ * Falls back to input order on cycles.
+ */
 function topoAgents(nodes: PortableSwarmNode[], edges: PortableSwarmEdge[]): PortableSwarmNode[] {
   const agents = agentNodes(nodes);
-  const agentIds = new Set(agents.map((a) => a.id));
+  const bridged = bridgeAgentEdges(nodes, edges);
   const indeg = new Map<string, number>();
   agents.forEach((a) => indeg.set(a.id, 0));
-  for (const e of edges) {
-    if (agentIds.has(e.source) && agentIds.has(e.target)) {
-      indeg.set(e.target, (indeg.get(e.target) ?? 0) + 1);
-    }
-  }
+  for (const e of bridged) indeg.set(e.target, (indeg.get(e.target) ?? 0) + 1);
   const queue = agents.filter((a) => (indeg.get(a.id) ?? 0) === 0).map((a) => a.id);
   const ordered: string[] = [];
   while (queue.length) {
     const id = queue.shift()!;
     ordered.push(id);
-    for (const e of edges) {
-      if (e.source !== id || !agentIds.has(e.target)) continue;
+    for (const e of bridged) {
+      if (e.source !== id) continue;
       const d = (indeg.get(e.target) ?? 0) - 1;
       indeg.set(e.target, d);
       if (d === 0) queue.push(e.target);
@@ -104,17 +111,20 @@ function topoAgents(nodes: PortableSwarmNode[], edges: PortableSwarmEdge[]): Por
   return ordered.map((id) => agents.find((a) => a.id === id)!);
 }
 
-/** Agent ids that `nodeId` hands off to (direct agent→agent edges). */
+/**
+ * Agents `nodeId` hands off to, tunnelling through node kinds this framework
+ * can't express — a direct-only lookup silently dropped every handoff whose
+ * path crossed a condition/approval/function node.
+ */
 function downstreamAgents(
   nodeId: string,
   nodes: PortableSwarmNode[],
   edges: PortableSwarmEdge[],
-): PortableSwarmNode[] {
-  const agentIds = new Set(agentNodes(nodes).map((a) => a.id));
-  return edges
-    .filter((e) => e.source === nodeId && agentIds.has(e.target))
-    .map((e) => nodes.find((n) => n.id === e.target)!)
-    .filter(Boolean);
+): { node: PortableSwarmNode; via: string[]; paths: number }[] {
+  return bridgeAgentEdges(nodes, edges)
+    .filter((e) => e.source === nodeId)
+    .map((e) => ({ node: nodes.find((n) => n.id === e.target)!, via: e.via, paths: e.paths }))
+    .filter((x) => Boolean(x.node));
 }
 
 function controlFlowNote(nodes: PortableSwarmNode[]): string[] {
@@ -202,12 +212,19 @@ export function buildCrewAISwarm(swarm: PortableSwarm): string {
   // Tasks — one per agent, chained via `context` to upstream tasks (topo order).
   L.push(`# ── Tasks (sequential; each receives upstream task outputs as context) ──`);
   const taskVar = (id: string) => `task_${safePy(id)}`;
+  const bridged = bridgeAgentEdges(nodes, edges);
   for (const a of ordered) {
-    const upstream = edges
-      .filter((e) => e.target === a.id)
-      .map((e) => ordered.find((o) => o.id === e.source))
-      .filter((x): x is PortableSwarmNode => !!x);
-    const ctx = upstream.map((u) => taskVar(u.id));
+    // Bridged upstream: a task fed through a condition/approval node still
+    // needs its predecessor's output as context. Resolving raw edges here
+    // dropped those, because the source was a node kind CrewAI has no task for.
+    const upstream = bridged.filter((e) => e.target === a.id);
+    const ctx = upstream.map((u) => taskVar(u.source));
+    for (const u of upstream) {
+      if (u.via.length) {
+        const from = ordered.find((o) => o.id === u.source)?.label ?? u.source;
+        L.push(`# ${from} → ${a.label}${viaSuffix(u.via, u.paths)}`);
+      }
+    }
     L.push(`${taskVar(a.id)} = Task(`);
     L.push(
       `    description=${JSON.stringify(`${a.systemPrompt || a.label}\n\nWork on the swarm input: {input}`)},`,
@@ -332,7 +349,12 @@ export function buildOpenAIAgentsSwarm(swarm: PortableSwarm): string {
   if (withHandoffs.length) {
     L.push(`# ── Handoffs (from graph edges) ──`);
     for (const a of withHandoffs) {
-      const targets = downstreamAgents(a.id, nodes, edges).map((t) => `agent_${safePy(t.id)}`);
+      const downstream = downstreamAgents(a.id, nodes, edges);
+      const bridged = downstream.filter((d) => d.via.length);
+      for (const d of bridged) {
+        L.push(`# ${a.label} → ${d.node.label}${viaSuffix(d.via, d.paths)}`);
+      }
+      const targets = downstream.map((d) => `agent_${safePy(d.node.id)}`);
       L.push(`agent_${safePy(a.id)}.handoffs = [${targets.join(", ")}]`);
     }
     L.push(``);
