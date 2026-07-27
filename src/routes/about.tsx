@@ -27,24 +27,24 @@ function Github({ className }: { className?: string }) {
 export const Route = createFileRoute("/about")({
   head: () => ({
     meta: [
-      { title: "About AgentSwarms — Open-source, self-hosted agentic AI & BI" },
+      { title: "About AgentSwarms — Source-available, self-hosted agentic AI & BI" },
       {
         name: "description",
         content:
-          "Why AgentSwarms exists: one open-source, self-hosted platform that unifies AI agents, multi-agent swarms and an AI-native BI suite — on your own infrastructure, with your database and your model keys. MIT licensed.",
+          "Why AgentSwarms exists: one source-available, self-hosted platform that unifies AI agents, multi-agent swarms and an AI-native BI suite — on your own infrastructure, with your database and your model keys. Elastic License 2.0.",
       },
       { property: "og:title", content: "About AgentSwarms" },
       {
         property: "og:description",
         content:
-          "One open-source platform for agents, multi-agent swarms and AI-native BI — self-hosted, BYOK, MIT licensed.",
+          "One source-available platform for agents, multi-agent swarms and AI-native BI — self-hosted, BYOK, Elastic License 2.0.",
       },
       { property: "og:url", content: "https://agentswarms.fyi/about" },
       { name: "twitter:card", content: "summary_large_image" },
       { name: "twitter:title", content: "About AgentSwarms" },
       {
         name: "twitter:description",
-        content: "Open-source, self-hosted platform for agents, swarms and AI-native BI.",
+        content: "Source-available, self-hosted platform for agents, swarms and AI-native BI.",
       },
       {
         property: "og:image",
@@ -67,7 +67,7 @@ export const Route = createFileRoute("/about")({
           name: "About AgentSwarms",
           url: "https://agentswarms.fyi/about",
           description:
-            "One open-source, self-hosted platform that unifies AI agents, multi-agent swarms and an AI-native BI suite — on your own infrastructure, with your own model keys.",
+            "One source-available, self-hosted platform that unifies AI agents, multi-agent swarms and an AI-native BI suite — on your own infrastructure, with your own model keys.",
           isPartOf: { "@type": "WebSite", name: "AgentSwarms", url: "https://agentswarms.fyi/" },
         }),
       },
@@ -96,27 +96,27 @@ const principles = [
 
 const comparisons = [
   {
-    them: "Langflow / Flowise",
-    they: "Open-source visual builders for LLM pipelines. Great for wiring up a chain, but they stop at the graph.",
-    we: "We add multi-agent swarms with approvals, evals and budgets — and a full BI suite on the same self-hosted instance.",
+    them: "Langflow · Flowise",
+    they: "Mature, genuinely open-source visual builders with large communities and a big library of components. If your job is to wire up an LLM pipeline quickly and iterate on it, they are excellent at exactly that, and they have been doing it longer than we have.",
+    we: "We put our effort into what happens after the graph: multi-agent swarms with human approval gates, evaluation nodes, per-node guardrails and budgets — plus a BI suite on the same instance. That is more surface area to learn, and it is only worth it if you need those things.",
   },
   {
     them: "Dify",
-    they: "A capable AI-app platform, but heavier to self-host and centred on hosted deployment.",
-    we: "One Docker command on Supabase's free tier, bring-your-own-keys, with dashboards and an AI analyst built in.",
+    they: "A polished, well-documented AI-app platform with a strong hosted offering and a large plugin ecosystem. If you want a managed service and a proven app-building workflow, it is a very solid choice.",
+    we: "We optimise for running it yourself on infrastructure you already have — Docker plus a Supabase project, your own model keys, no hosted tier required — and for having dashboards and an AI analyst in the same place as the agents.",
   },
   {
     them: "A framework + a BI tool + a gateway",
-    they: "The usual stack: LangGraph or CrewAI, plus Metabase or Superset, plus a model gateway, plus an observability tool — glued together yourself.",
-    we: "AgentSwarms is one platform — agents, BI, gateway, traces and IAM together — and you can still export swarms to those frameworks when you outgrow the canvas.",
+    they: "LangGraph and CrewAI are powerful, well-tested libraries with far more control than any canvas; Metabase and Superset are mature BI products with years of polish. Composed yourself, this stack gives you the best tool for each job and no lock-in to our choices.",
+    we: "We trade some of that depth for one system to deploy, secure and observe — agents, BI, model gateway, traces and IAM sharing one login and one permission model. When you outgrow the canvas, every swarm exports to LangGraph, CrewAI, Strands or the OpenAI Agents SDK, so this is a starting point rather than a destination.",
   },
 ];
 
 const features = [
   "Visual Agent Builder + drag-and-drop multi-agent swarm canvas with routers, conditions, loops and functions",
   "RAG, tools, MCP servers, remote A2A agents, and export to LangGraph / CrewAI / the OpenAI Agents SDK",
-  "AI-native BI: dashboards, an analyst that writes the SQL, 19+ chart types, scheduled refresh and data alerts",
-  "Seven database & warehouse connectors: PostgreSQL, MySQL, Snowflake, BigQuery, Databricks, Redshift, Synapse",
+  "AI-native BI: dashboards, an analyst that writes the SQL, 27 chart types, scheduled refresh and data alerts",
+  "Ten database & warehouse connectors: PostgreSQL, MySQL, Oracle, Snowflake, BigQuery, Databricks, Redshift, Synapse, Trino/Starburst, Athena",
   "Human-in-the-loop approvals, per-user budgets with alerts, and a full trace for every model call",
   "IAM with groups & model rules, SAML SSO, and a write-only encrypted secrets vault",
   "One Docker command on any Node host (or Cloudflare Workers), Supabase as the backend, any model provider",
@@ -144,7 +144,7 @@ export default function AboutPage() {
             </p>
             <div className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-emerald-600/40 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:border-emerald-500/30 dark:text-emerald-400">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-              Free and open source — MIT licensed
+              Source-available — Elastic License 2.0
             </div>
           </div>
         </section>
@@ -200,27 +200,28 @@ export default function AboutPage() {
                 <Brain className="h-3.5 w-3.5" /> Where we fit
               </div>
               <h2 className="text-3xl font-bold tracking-tight">
-                How we compare to the usual stack
+                How we fit alongside other tools
               </h2>
               <p className="mx-auto mt-3 max-w-2xl text-muted-foreground">
-                Those are good tools. We're the option that gives you agents, swarms and BI as one
-                self-hosted platform you fully own.
+                These are all good projects, and several of them are more mature than we are in
+                their own area. They solve different shapes of the problem — here is what each is
+                strong at, and where we put our effort, so you can judge which fits your situation.
               </p>
             </div>
             <div className="mt-10 space-y-4">
               {comparisons.map((c) => (
                 <div key={c.them} className="rounded-xl border border-border/60 bg-card/40 p-6">
-                  <h3 className="text-base font-semibold text-primary">vs {c.them}</h3>
+                  <h3 className="text-base font-semibold text-primary">{c.them}</h3>
                   <div className="mt-3 grid gap-3 sm:grid-cols-2">
                     <div>
                       <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                        Them
+                        What they're strong at
                       </p>
                       <p className="mt-1 text-sm text-muted-foreground">{c.they}</p>
                     </div>
                     <div>
                       <p className="text-[11px] font-semibold uppercase tracking-wider text-primary">
-                        AgentSwarms
+                        Where we put our effort
                       </p>
                       <p className="mt-1 text-sm text-foreground">{c.we}</p>
                     </div>
@@ -259,7 +260,8 @@ export default function AboutPage() {
           <div className="mx-auto max-w-2xl px-6 text-center">
             <h2 className="text-3xl font-bold tracking-tight">Built in the open.</h2>
             <p className="mt-3 text-muted-foreground">
-              AgentSwarms is MIT licensed. Star it, fork it, open an issue, or tell us what would
+              AgentSwarms is source-available under the Elastic License 2.0 — read the source, run
+              it yourself, modify it for your own use. Star it, open an issue, or tell us what would
               make it the platform you'd deploy for your team.
             </p>
             <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">

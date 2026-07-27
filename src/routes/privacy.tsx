@@ -9,7 +9,7 @@ export const Route = createFileRoute("/privacy")({
       {
         name: "description",
         content:
-          "How AgentSwarms handles data. It's open-source and self-hosted, so your data stays on your own infrastructure — the maintainers never receive it. The project website collects only what's needed to reply to you.",
+          "How AgentSwarms handles data. It's source-available and self-hosted, so your data stays on your own infrastructure — the maintainers never receive it. The project website collects only what's needed to reply to you.",
       },
       { property: "og:title", content: "Privacy Policy — AgentSwarms" },
       { property: "og:url", content: "https://agentswarms.fyi/privacy" },
@@ -53,8 +53,8 @@ function PrivacyPage() {
               Open source &amp; self-hosted — the short version
             </h2>
             <p>
-              AgentSwarms is <strong className="text-foreground">open-source software</strong> (MIT
-              licensed) that you run on{" "}
+              AgentSwarms is <strong className="text-foreground">source-available software</strong>{" "}
+              (Elastic License 2.0 licensed) that you run on{" "}
               <strong className="text-foreground">your own infrastructure</strong>. When you deploy
               it, everything it stores — your account, agents, swarms, knowledge bases, chats,
               dashboards, execution traces and provider keys — lives in{" "}

@@ -9,20 +9,21 @@ export const Route = createFileRoute("/terms")({
       {
         name: "description",
         content:
-          "The terms for the AgentSwarms project website and any hosted demo. The software itself is open-source under the MIT License and self-hosted on your own infrastructure.",
+          "The terms for the AgentSwarms project website and any hosted demo. The software itself is source-available under the Elastic License 2.0 and self-hosted on your own infrastructure.",
       },
       { property: "og:title", content: "Terms of Use — AgentSwarms" },
       {
         property: "og:description",
         content:
-          "AgentSwarms is open-source (MIT) and self-hosted. These terms cover the project website and hosted demo.",
+          "AgentSwarms is source-available (Elastic License 2.0) and self-hosted. These terms cover the project website and hosted demo.",
       },
       { property: "og:url", content: "https://agentswarms.fyi/terms" },
       { name: "twitter:card", content: "summary_large_image" },
       { name: "twitter:title", content: "Terms of Use — AgentSwarms" },
       {
         name: "twitter:description",
-        content: "Open-source (MIT), self-hosted. Terms for the project website and hosted demo.",
+        content:
+          "Source-available (Elastic License 2.0), self-hosted. Terms for the project website and hosted demo.",
       },
     ],
     links: [{ rel: "canonical", href: "https://agentswarms.fyi/terms" }],
@@ -47,7 +48,7 @@ function TermsPage() {
             <p>
               AgentSwarms is{" "}
               <strong className="text-foreground">
-                open-source software licensed under the MIT License
+                source-available software licensed under the Elastic License 2.0 (ELv2)
               </strong>
               . Your use of the <em>software itself</em> — running, modifying, and redistributing it
               — is governed by that license, which ships in the repository. These Terms of Use
@@ -71,12 +72,16 @@ function TermsPage() {
 
           <section>
             <h2 className="text-lg font-semibold text-foreground">
-              3. The MIT license &amp; your deployment
+              3. The Elastic License 2.0 &amp; your deployment
             </h2>
             <p>
-              Under the MIT License you may use, copy, modify, and distribute the software,
-              including commercially, provided you keep the copyright and license notice. The
-              software is provided "as is", without warranty of any kind. You are{" "}
+              Under ELv2 you may use, copy, modify and redistribute the software, including
+              internally and commercially, provided you keep the licensing and copyright notices
+              intact. ELv2 adds two limits that a permissive licence does not: you may not provide
+              the software to third parties as a hosted or managed service, and you may not
+              circumvent its licence-key functionality. A separate commercial licence is available
+              from the author for uses ELv2 does not permit. The software is provided "as is",
+              without warranty of any kind. You are{" "}
               <strong className="text-foreground">
                 solely responsible for your own deployment
               </strong>
@@ -84,7 +89,7 @@ function TermsPage() {
               compliance with the laws that apply to you and your users. If you host AgentSwarms for
               others, you are their operator and data controller. The{" "}
               <strong className="text-foreground">AgentSwarms name and logo are trademarks</strong>{" "}
-              and are not licensed under MIT — don't use them to imply endorsement or to pass off a
+              and are not licensed under ELv2 — don't use them to imply endorsement or to pass off a
               modified version as official.
             </p>
           </section>
@@ -162,8 +167,9 @@ function TermsPage() {
               TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE AGENTSWARMS MAINTAINERS AND CONTRIBUTORS
               WILL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL OR PUNITIVE
               DAMAGES, OR ANY LOSS OF PROFITS, REVENUE, DATA OR GOODWILL, ARISING FROM THE SOFTWARE
-              OR THE SERVICE. Because the software is provided free of charge under the MIT License,
-              the maintainers' total aggregate liability for any claim will not exceed USD 0.
+              OR THE SERVICE. Because the software is provided free of charge under the Elastic
+              License 2.0, the maintainers' total aggregate liability for any claim will not exceed
+              USD 0.
             </p>
           </section>
 

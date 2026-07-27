@@ -107,7 +107,7 @@ export const Route = createFileRoute("/")({
       {
         name: "keywords",
         content:
-          "self-hosted AI agents, open source agentic AI platform, multi-agent swarms, deploy AI agents Docker, BYOK LLM platform, agent orchestration, MCP, RAG platform, LangGraph export, self-hosted LLM tools",
+          "self-hosted AI agents, source-available agentic AI platform, multi-agent swarms, deploy AI agents Docker, BYOK LLM platform, agent orchestration, MCP, RAG platform, LangGraph export, self-hosted LLM tools",
       },
       { property: "og:title", content: "AgentSwarms — Self-Hosted Agentic AI Platform" },
       {
@@ -475,10 +475,10 @@ function LandingPage() {
                   own infrastructure
                 </h1>
                 <p className="max-w-xl text-lg leading-relaxed text-muted-foreground lg:text-xl">
-                  The open-source agentic AI platform you deploy yourself: visual agent builder,
-                  multi-agent swarm canvas, RAG, and a full AI-native BI suite — dashboards, alerts,
-                  and an analyst that writes the SQL. One Supabase project. One Docker command. Any
-                  model provider.
+                  The source-available agentic AI platform you deploy yourself: visual agent
+                  builder, multi-agent swarm canvas, RAG, and a full AI-native BI suite —
+                  dashboards, alerts, and an analyst that writes the SQL. One Supabase project. One
+                  Docker command. Any model provider.
                 </p>
               </motion.div>
 
