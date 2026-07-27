@@ -8,7 +8,7 @@ import { BarChart3 } from "lucide-react";
 import { ExcelIcon, PptIcon, WordIcon } from "@/components/playground/FileTypeIcons";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { type DocFormat, type DocScope } from "@/lib/docGen/types";
+import { type DocFormat, type DocGenMode, type DocScope } from "@/lib/docGen/types";
 
 export function DocGenBar({
   // The currently-armed doc format (drives the chat box into "describe the doc"
@@ -20,6 +20,9 @@ export function DocGenBar({
   // Sample vs. full data scope, shared with the playground's Visual BI widget.
   scope = "sample",
   onScopeChange,
+  // Browser (fast) vs Deep (slow, server renderer + AI review) build mode.
+  mode = "fast",
+  onModeChange,
   // Optional "Visual BI" toggle (wired by the playground when an agent is selected).
   biControl,
 }: {
@@ -28,6 +31,8 @@ export function DocGenBar({
   busy?: boolean;
   scope?: DocScope;
   onScopeChange?: (next: DocScope) => void;
+  mode?: DocGenMode;
+  onModeChange?: (next: DocGenMode) => void;
   biControl?: { enabled: boolean; onToggle: (next: boolean) => void; disabled?: boolean };
 }) {
   const formatBtn = (f: DocFormat, Icon: typeof PptIcon, label: string, title: string) => (
@@ -77,6 +82,28 @@ export function DocGenBar({
               )}
             >
               {s === "sample" ? "Sample" : "Full data"}
+            </button>
+          ))}
+        </div>
+      )}
+      {onModeChange && (
+        <div
+          className="flex h-7 items-center rounded-md border border-border bg-background p-0.5"
+          title="Browser (fast): builds instantly in your browser. Deep (slow): server renderer with native Office output + an AI visual review — falls back to the browser build if the doc-gen service isn't running."
+        >
+          {(["fast", "deep"] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => onModeChange(m)}
+              className={cn(
+                "rounded px-2 py-0.5 text-[11px] font-medium transition-colors",
+                mode === m
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {m === "fast" ? "Browser · fast" : "Deep · slow"}
             </button>
           ))}
         </div>

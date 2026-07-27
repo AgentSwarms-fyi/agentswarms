@@ -58,6 +58,7 @@ import { DOC_FORMAT_LABEL } from "@/lib/docGen/types";
 import type {
   DocScope,
   DocFormat,
+  DocGenMode,
   DocxPlan,
   PptxPlan,
   XlsxPlan,
@@ -171,6 +172,8 @@ function PlaygroundPage() {
   const biVisualsRef = useRef(false);
   // Sample vs. full data scope for doc generation + the Visual BI widget.
   const [dataScope, setDataScope] = useState<DocScope>("sample");
+  // Browser (fast, in-browser) vs Deep (slow, server renderer + AI review).
+  const [docMode, setDocMode] = useState<DocGenMode>("fast");
   // Document generation: the "armed" format turns the chat box into "describe
   // the document" mode; docPhase drives the inline "Preparing…" status.
   const [armedDoc, setArmedDoc] = useState<DocFormat | null>(null);
@@ -491,7 +494,7 @@ function PlaygroundPage() {
 
     let rawResponseText = "";
     let respStatus: number | null = null;
-    let respHeaders: Record<string, string> = {};
+    const respHeaders: Record<string, string> = {};
     let traceId: string | null = null;
 
     try {
@@ -911,11 +914,12 @@ function PlaygroundPage() {
           .replace(/[^\w.-]+/g, "-")
           .replace(/^-+|-+$/g, "") || "document";
       let built: BuiltDoc;
-      if (format === "pptx") built = await buildPptxDoc(plan as PptxPlan, fileBase, token);
-      else if (format === "docx") built = await buildDocxDoc(plan as DocxPlan, fileBase, token);
+      if (format === "pptx") built = await buildPptxDoc(plan as PptxPlan, fileBase, token, docMode);
+      else if (format === "docx")
+        built = await buildDocxDoc(plan as DocxPlan, fileBase, token, docMode);
       else {
         const materialized = await materializeXlsxPlan(plan as XlsxPlan, dataScope);
-        built = await buildXlsxDoc(materialized, fileBase, token);
+        built = await buildXlsxDoc(materialized, fileBase, token, docMode);
       }
       // Show the result as a preview card in chat (thumbnail + download button)
       // instead of auto-downloading. The blob URL lives for this session; the
@@ -1483,6 +1487,8 @@ function PlaygroundPage() {
               busy={docPhase !== "idle"}
               scope={dataScope}
               onScopeChange={setDataScope}
+              mode={docMode}
+              onModeChange={setDocMode}
               biControl={selectedAgent ? { enabled: biVisuals, onToggle: setBiVisuals } : undefined}
             />
           </div>
@@ -2322,93 +2328,120 @@ function b64ToBlob(b64: string, type: string): Blob {
 // Build a PPTX: fill data + pre-render diagrams once, try the optional
 // server-side python-pptx renderer (native editable + render-verify), and fall
 // back to the in-browser pptxgenjs builder when it isn't configured/reachable.
-async function buildPptxDoc(plan: PptxPlan, fileBase: string, token: string): Promise<BuiltDoc> {
+// One-time notice when Deep mode silently falls back to the browser build.
+function notifyDeepFallback() {
+  toast.info("Deep renderer isn't available — built in the browser instead.", {
+    description: "Run the doc-gen service (docker compose --profile docgen) to enable Deep mode.",
+  });
+}
+
+async function buildPptxDoc(
+  plan: PptxPlan,
+  fileBase: string,
+  token: string,
+  mode: DocGenMode,
+): Promise<BuiltDoc> {
   await materializePptxWithBI(plan);
   attachDiagramSvgs(plan);
-  try {
-    const resp = await fetch("/api/docgen/pptx", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ plan, verify: true }),
-    });
-    if (resp.ok) {
-      const j = (await resp.json()) as { pptx_base64?: string; thumb?: string };
-      if (j.pptx_base64) {
-        return {
-          blob: b64ToBlob(
-            j.pptx_base64,
-            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-          ),
-          filename: fileBase.toLowerCase().endsWith(".pptx") ? fileBase : `${fileBase}.pptx`,
-          thumb: j.thumb || pptxThumbUri(plan),
-        };
+  if (mode === "deep") {
+    try {
+      const resp = await fetch("/api/docgen/pptx", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ plan, verify: true }),
+      });
+      if (resp.ok) {
+        const j = (await resp.json()) as { pptx_base64?: string; thumb?: string };
+        if (j.pptx_base64) {
+          return {
+            blob: b64ToBlob(
+              j.pptx_base64,
+              "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            ),
+            filename: fileBase.toLowerCase().endsWith(".pptx") ? fileBase : `${fileBase}.pptx`,
+            thumb: j.thumb || pptxThumbUri(plan),
+          };
+        }
       }
+      // 501 not_configured or any non-OK → in-browser build below.
+    } catch {
+      /* network error → in-browser build below */
     }
-    // 501 not_configured or any non-OK → in-browser build below.
-  } catch {
-    /* network error → in-browser build below */
+    notifyDeepFallback();
   }
   return buildPptx(plan, fileBase, { skipMaterialize: true });
 }
 
-// Try the server-side python-docx renderer (multi-page, real TOC, fixed-width
-// tables); fall back to the in-browser `docx` builder when it isn't configured.
-async function buildDocxDoc(plan: DocxPlan, fileBase: string, token: string): Promise<BuiltDoc> {
-  try {
-    const resp = await fetch("/api/docgen/docx", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ plan }),
-    });
-    if (resp.ok) {
-      const j = (await resp.json()) as { docx_base64?: string; thumb?: string };
-      if (j.docx_base64) {
-        return {
-          blob: b64ToBlob(
-            j.docx_base64,
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-          ),
-          filename: fileBase.toLowerCase().endsWith(".docx") ? fileBase : `${fileBase}.docx`,
-          thumb: j.thumb || docxThumbUri(plan),
-        };
+// Deep mode: the server-side python-docx renderer (multi-page, real TOC,
+// fixed-width tables); falls back to the in-browser `docx` builder.
+async function buildDocxDoc(
+  plan: DocxPlan,
+  fileBase: string,
+  token: string,
+  mode: DocGenMode,
+): Promise<BuiltDoc> {
+  if (mode === "deep") {
+    try {
+      const resp = await fetch("/api/docgen/docx", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ plan }),
+      });
+      if (resp.ok) {
+        const j = (await resp.json()) as { docx_base64?: string; thumb?: string };
+        if (j.docx_base64) {
+          return {
+            blob: b64ToBlob(
+              j.docx_base64,
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ),
+            filename: fileBase.toLowerCase().endsWith(".docx") ? fileBase : `${fileBase}.docx`,
+            thumb: j.thumb || docxThumbUri(plan),
+          };
+        }
       }
+    } catch {
+      /* network error → in-browser build below */
     }
-  } catch {
-    /* network error → in-browser build below */
+    notifyDeepFallback();
   }
   return buildDocx(plan, fileBase);
 }
 
-// Try the server-side openpyxl renderer (formulas recalculated by LibreOffice
-// so values are cached); fall back to the in-browser write-excel-file builder.
-// The plan is already materialized (data-bound sheets → literal rows + formula
-// cells), so both paths get identical inputs.
+// Deep mode: the server-side openpyxl renderer (formulas recalculated by
+// LibreOffice so values are cached); falls back to the in-browser
+// write-excel-file builder. The plan is already materialized (data-bound
+// sheets → literal rows + formula cells), so both paths get identical inputs.
 async function buildXlsxDoc(
   plan: MaterializedXlsxPlan,
   fileBase: string,
   token: string,
+  mode: DocGenMode,
 ): Promise<BuiltDoc> {
-  try {
-    const resp = await fetch("/api/docgen/xlsx", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ plan }),
-    });
-    if (resp.ok) {
-      const j = (await resp.json()) as { xlsx_base64?: string; thumb?: string };
-      if (j.xlsx_base64) {
-        return {
-          blob: b64ToBlob(
-            j.xlsx_base64,
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-          ),
-          filename: fileBase.toLowerCase().endsWith(".xlsx") ? fileBase : `${fileBase}.xlsx`,
-          thumb: j.thumb || xlsxThumbUri(plan),
-        };
+  if (mode === "deep") {
+    try {
+      const resp = await fetch("/api/docgen/xlsx", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ plan }),
+      });
+      if (resp.ok) {
+        const j = (await resp.json()) as { xlsx_base64?: string; thumb?: string };
+        if (j.xlsx_base64) {
+          return {
+            blob: b64ToBlob(
+              j.xlsx_base64,
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ),
+            filename: fileBase.toLowerCase().endsWith(".xlsx") ? fileBase : `${fileBase}.xlsx`,
+            thumb: j.thumb || xlsxThumbUri(plan),
+          };
+        }
       }
+    } catch {
+      /* network error → in-browser build below */
     }
-  } catch {
-    /* network error → in-browser build below */
+    notifyDeepFallback();
   }
   return buildXlsx(plan, fileBase);
 }
@@ -2478,12 +2511,7 @@ function DocResultCard({ doc }: { doc: DocResultMeta }) {
           </p>
         </div>
         {canDownload ? (
-          <Button
-            size="sm"
-            className="h-7 gap-1.5 text-xs"
-            onClick={onDownload}
-            disabled={busy}
-          >
+          <Button size="sm" className="h-7 gap-1.5 text-xs" onClick={onDownload} disabled={busy}>
             <Download className="h-3.5 w-3.5" /> {busy ? "Preparing…" : "Download"}
           </Button>
         ) : (

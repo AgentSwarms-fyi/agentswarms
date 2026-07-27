@@ -18,6 +18,14 @@ export const DOC_FORMAT_LABEL: Record<DocFormat, string> = {
  */
 export type DocScope = "sample" | "full";
 
+/**
+ * How the file gets built. "fast" renders in the browser (instant, works on
+ * every deploy). "deep" sends the filled plan to the optional server doc-gen
+ * service — native Office toolchains + the AI render-verify loop — and falls
+ * back to the browser build when the service isn't configured.
+ */
+export type DocGenMode = "fast" | "deep";
+
 /** A simple tabular block reused across formats. */
 export type DocTable = { columns: string[]; rows: (string | number | null)[][] };
 
