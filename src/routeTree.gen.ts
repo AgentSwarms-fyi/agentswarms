@@ -21,7 +21,6 @@ import { Route as AboutRouteImport } from './routes/about'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as DocsIndexRouteImport } from './routes/docs.index'
-import { Route as VerifyCodeRouteImport } from './routes/verify.$code'
 import { Route as EmailUnsubscribeRouteImport } from './routes/email/unsubscribe'
 import { Route as DocsSwarmsRouteImport } from './routes/docs.swarms'
 import { Route as DocsSkillsRouteImport } from './routes/docs.skills'
@@ -93,7 +92,6 @@ import { Route as AuthenticatedAnalyticsObservabilityRouteImport } from './route
 import { Route as AuthenticatedAdminRuntimeRouteImport } from './routes/_authenticated/admin.runtime'
 import { Route as AuthenticatedAdminIamRouteImport } from './routes/_authenticated/admin.iam'
 import { Route as ApiPublicHooksRefreshModelRegistryRouteImport } from './routes/api/public/hooks/refresh-model-registry'
-import { Route as ApiPublicHooksGenerateExamSetRouteImport } from './routes/api/public/hooks/generate-exam-set'
 import { Route as ApiNotebookRuntimeSourceRouteImport } from './routes/api/notebook.runtime.source'
 import { Route as ApiNotebookRuntimeResultRouteImport } from './routes/api/notebook.runtime.result'
 import { Route as ApiNotebookRuntimeReapRouteImport } from './routes/api/notebook.runtime.reap'
@@ -159,11 +157,6 @@ const DocsIndexRoute = DocsIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => DocsRoute,
-} as any)
-const VerifyCodeRoute = VerifyCodeRouteImport.update({
-  id: '/verify/$code',
-  path: '/verify/$code',
-  getParentRoute: () => rootRouteImport,
 } as any)
 const EmailUnsubscribeRoute = EmailUnsubscribeRouteImport.update({
   id: '/email/unsubscribe',
@@ -528,12 +521,6 @@ const ApiPublicHooksRefreshModelRegistryRoute =
     path: '/api/public/hooks/refresh-model-registry',
     getParentRoute: () => rootRouteImport,
   } as any)
-const ApiPublicHooksGenerateExamSetRoute =
-  ApiPublicHooksGenerateExamSetRouteImport.update({
-    id: '/api/public/hooks/generate-exam-set',
-    path: '/api/public/hooks/generate-exam-set',
-    getParentRoute: () => rootRouteImport,
-  } as any)
 const ApiNotebookRuntimeSourceRoute =
   ApiNotebookRuntimeSourceRouteImport.update({
     id: '/source',
@@ -624,7 +611,6 @@ export interface FileRoutesByFullPath {
   '/docs/skills': typeof DocsSkillsRoute
   '/docs/swarms': typeof DocsSwarmsRoute
   '/email/unsubscribe': typeof EmailUnsubscribeRoute
-  '/verify/$code': typeof VerifyCodeRoute
   '/docs/': typeof DocsIndexRoute
   '/admin/iam': typeof AuthenticatedAdminIamRoute
   '/admin/runtime': typeof AuthenticatedAdminRuntimeRoute
@@ -659,7 +645,6 @@ export interface FileRoutesByFullPath {
   '/api/notebook/runtime/reap': typeof ApiNotebookRuntimeReapRoute
   '/api/notebook/runtime/result': typeof ApiNotebookRuntimeResultRoute
   '/api/notebook/runtime/source': typeof ApiNotebookRuntimeSourceRoute
-  '/api/public/hooks/generate-exam-set': typeof ApiPublicHooksGenerateExamSetRoute
   '/api/public/hooks/refresh-model-registry': typeof ApiPublicHooksRefreshModelRegistryRoute
 }
 export interface FileRoutesByTo {
@@ -715,7 +700,6 @@ export interface FileRoutesByTo {
   '/docs/skills': typeof DocsSkillsRoute
   '/docs/swarms': typeof DocsSwarmsRoute
   '/email/unsubscribe': typeof EmailUnsubscribeRoute
-  '/verify/$code': typeof VerifyCodeRoute
   '/docs': typeof DocsIndexRoute
   '/admin/iam': typeof AuthenticatedAdminIamRoute
   '/admin/runtime': typeof AuthenticatedAdminRuntimeRoute
@@ -750,7 +734,6 @@ export interface FileRoutesByTo {
   '/api/notebook/runtime/reap': typeof ApiNotebookRuntimeReapRoute
   '/api/notebook/runtime/result': typeof ApiNotebookRuntimeResultRoute
   '/api/notebook/runtime/source': typeof ApiNotebookRuntimeSourceRoute
-  '/api/public/hooks/generate-exam-set': typeof ApiPublicHooksGenerateExamSetRoute
   '/api/public/hooks/refresh-model-registry': typeof ApiPublicHooksRefreshModelRegistryRoute
 }
 export interface FileRoutesById {
@@ -809,7 +792,6 @@ export interface FileRoutesById {
   '/docs/skills': typeof DocsSkillsRoute
   '/docs/swarms': typeof DocsSwarmsRoute
   '/email/unsubscribe': typeof EmailUnsubscribeRoute
-  '/verify/$code': typeof VerifyCodeRoute
   '/docs/': typeof DocsIndexRoute
   '/_authenticated/admin/iam': typeof AuthenticatedAdminIamRoute
   '/_authenticated/admin/runtime': typeof AuthenticatedAdminRuntimeRoute
@@ -844,7 +826,6 @@ export interface FileRoutesById {
   '/api/notebook/runtime/reap': typeof ApiNotebookRuntimeReapRoute
   '/api/notebook/runtime/result': typeof ApiNotebookRuntimeResultRoute
   '/api/notebook/runtime/source': typeof ApiNotebookRuntimeSourceRoute
-  '/api/public/hooks/generate-exam-set': typeof ApiPublicHooksGenerateExamSetRoute
   '/api/public/hooks/refresh-model-registry': typeof ApiPublicHooksRefreshModelRegistryRoute
 }
 export interface FileRouteTypes {
@@ -903,7 +884,6 @@ export interface FileRouteTypes {
     | '/docs/skills'
     | '/docs/swarms'
     | '/email/unsubscribe'
-    | '/verify/$code'
     | '/docs/'
     | '/admin/iam'
     | '/admin/runtime'
@@ -938,7 +918,6 @@ export interface FileRouteTypes {
     | '/api/notebook/runtime/reap'
     | '/api/notebook/runtime/result'
     | '/api/notebook/runtime/source'
-    | '/api/public/hooks/generate-exam-set'
     | '/api/public/hooks/refresh-model-registry'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -994,7 +973,6 @@ export interface FileRouteTypes {
     | '/docs/skills'
     | '/docs/swarms'
     | '/email/unsubscribe'
-    | '/verify/$code'
     | '/docs'
     | '/admin/iam'
     | '/admin/runtime'
@@ -1029,7 +1007,6 @@ export interface FileRouteTypes {
     | '/api/notebook/runtime/reap'
     | '/api/notebook/runtime/result'
     | '/api/notebook/runtime/source'
-    | '/api/public/hooks/generate-exam-set'
     | '/api/public/hooks/refresh-model-registry'
   id:
     | '__root__'
@@ -1087,7 +1064,6 @@ export interface FileRouteTypes {
     | '/docs/skills'
     | '/docs/swarms'
     | '/email/unsubscribe'
-    | '/verify/$code'
     | '/docs/'
     | '/_authenticated/admin/iam'
     | '/_authenticated/admin/runtime'
@@ -1122,7 +1098,6 @@ export interface FileRouteTypes {
     | '/api/notebook/runtime/reap'
     | '/api/notebook/runtime/result'
     | '/api/notebook/runtime/source'
-    | '/api/public/hooks/generate-exam-set'
     | '/api/public/hooks/refresh-model-registry'
   fileRoutesById: FileRoutesById
 }
@@ -1148,7 +1123,6 @@ export interface RootRouteChildren {
   ApiPythonChatRoute: typeof ApiPythonChatRoute
   ApiPythonKbRoute: typeof ApiPythonKbRoute
   EmailUnsubscribeRoute: typeof EmailUnsubscribeRoute
-  VerifyCodeRoute: typeof VerifyCodeRoute
   ApiAuditExportRoute: typeof ApiAuditExportRoute
   ApiAuthSsoConfigRoute: typeof ApiAuthSsoConfigRoute
   ApiDocgenDocxRoute: typeof ApiDocgenDocxRoute
@@ -1168,7 +1142,6 @@ export interface RootRouteChildren {
   EmbedBiKeyRoute: typeof EmbedBiKeyRoute
   EmbedSwarmKeyRoute: typeof EmbedSwarmKeyRoute
   ShareBiSlugRoute: typeof ShareBiSlugRoute
-  ApiPublicHooksGenerateExamSetRoute: typeof ApiPublicHooksGenerateExamSetRoute
   ApiPublicHooksRefreshModelRegistryRoute: typeof ApiPublicHooksRefreshModelRegistryRoute
 }
 
@@ -1257,13 +1230,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/docs/'
       preLoaderRoute: typeof DocsIndexRouteImport
       parentRoute: typeof DocsRoute
-    }
-    '/verify/$code': {
-      id: '/verify/$code'
-      path: '/verify/$code'
-      fullPath: '/verify/$code'
-      preLoaderRoute: typeof VerifyCodeRouteImport
-      parentRoute: typeof rootRouteImport
     }
     '/email/unsubscribe': {
       id: '/email/unsubscribe'
@@ -1762,13 +1728,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicHooksRefreshModelRegistryRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/public/hooks/generate-exam-set': {
-      id: '/api/public/hooks/generate-exam-set'
-      path: '/api/public/hooks/generate-exam-set'
-      fullPath: '/api/public/hooks/generate-exam-set'
-      preLoaderRoute: typeof ApiPublicHooksGenerateExamSetRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/notebook/runtime/source': {
       id: '/api/notebook/runtime/source'
       path: '/source'
@@ -2015,7 +1974,6 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPythonChatRoute: ApiPythonChatRoute,
   ApiPythonKbRoute: ApiPythonKbRoute,
   EmailUnsubscribeRoute: EmailUnsubscribeRoute,
-  VerifyCodeRoute: VerifyCodeRoute,
   ApiAuditExportRoute: ApiAuditExportRoute,
   ApiAuthSsoConfigRoute: ApiAuthSsoConfigRoute,
   ApiDocgenDocxRoute: ApiDocgenDocxRoute,
@@ -2035,7 +1993,6 @@ const rootRouteChildren: RootRouteChildren = {
   EmbedBiKeyRoute: EmbedBiKeyRoute,
   EmbedSwarmKeyRoute: EmbedSwarmKeyRoute,
   ShareBiSlugRoute: ShareBiSlugRoute,
-  ApiPublicHooksGenerateExamSetRoute: ApiPublicHooksGenerateExamSetRoute,
   ApiPublicHooksRefreshModelRegistryRoute:
     ApiPublicHooksRefreshModelRegistryRoute,
 }

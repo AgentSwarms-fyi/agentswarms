@@ -12,7 +12,6 @@ export interface TemplateEntry {
 import { template as contactAdminNotification } from './contact-admin-notification'
 import { template as contactConfirmation } from './contact-confirmation'
 import { template as welcome } from './welcome'
-import { template as certReady } from './cert-ready'
 import { template as budgetAlert } from './budget-alert'
 
 /**
@@ -23,6 +22,5 @@ export const TEMPLATES: Record<string, TemplateEntry> = {
   'contact-admin-notification': contactAdminNotification,
   'contact-confirmation': contactConfirmation,
   'welcome': welcome,
-  'cert-ready': certReady,
   'budget-alert': budgetAlert,
 }
