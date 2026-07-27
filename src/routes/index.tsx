@@ -60,8 +60,9 @@ function Github({ className }: { className?: string }) {
 }
 
 function HoverMoreMenu() {
+  // Docs deliberately absent: it has its own top-level link in the header, and
+  // listing it here too showed the same destination twice on sm+ widths.
   const items = [
-    { to: "/docs", label: "Docs" },
     { to: "/about", label: "About" },
     { to: "/contact", label: "Contact" },
   ] as const;
