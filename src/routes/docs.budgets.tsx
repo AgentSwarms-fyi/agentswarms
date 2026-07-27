@@ -4,7 +4,6 @@ import {
   Callout,
   DocLink,
   DocsHeader,
-  FieldList,
   H2,
   H3,
   NextPrev,
@@ -78,36 +77,84 @@ function BudgetsPage() {
       />
 
       <H2 id="caps">Setting caps</H2>
-      <P>
-        Budgets are set in <strong>Observe → Budgets</strong>, and per group in{" "}
-        <strong>Admin → IAM → Budgets</strong>. A cap can attach to:
-      </P>
-      <FieldList
-        items={[
-          { name: "A user", body: "One person's total spend over the period." },
-          { name: "A group", body: "Everyone in an IAM group, shared." },
-          {
-            name: "An embed key",
-            body: "A public placement. The single most important one to set.",
-          },
-          { name: "A swarm API key", body: "One integration's ceiling." },
+      <P>There are two separate mechanisms, and it is worth knowing which one you are setting.</P>
+
+      <H3 id="cap-user">Per-user cap</H3>
+      <Table
+        headers={["Property", "Value"]}
+        rows={[
+          ["Stored in", <C key="a">budget_settings.monthly_cap_usd</C>],
+          ["Scope", "One person's own spend, across everything they do"],
+          ["Period", "Calendar month"],
+          ["Default", "A very high number — effectively unlimited until you set it"],
         ]}
       />
+
+      <H3 id="cap-scoped">Scoped caps</H3>
       <P>
-        Where several caps apply, the <strong>most restrictive wins</strong>. A user with a $50 cap
-        in a group capped at $20 is limited to $20.
+        Set in <strong>Observe → Budgets</strong>, and per group in{" "}
+        <strong>Admin → IAM → Budgets</strong>. Three scopes exist, enforced by a database
+        constraint:
+      </P>
+      <Table
+        headers={["scope_type", "Applies to", "Why you would set it"]}
+        rows={[
+          [
+            <C key="a">group</C>,
+            "Everyone in an IAM group, shared",
+            "A team's combined monthly ceiling",
+          ],
+          [
+            <C key="b">embed_key</C>,
+            "One public embed placement",
+            "The most important one to set — unbounded strangers, at your expense",
+          ],
+          [
+            <C key="c">swarm_api_key</C>,
+            "One integration",
+            "Bounds a retry storm in someone else's code",
+          ],
+        ]}
+      />
+      <Table
+        headers={["Field", "Type", "Notes"]}
+        rows={[
+          [
+            <C key="a">monthly_cap_usd</C>,
+            "numeric(10,2)",
+            "Must be greater than zero. A calendar-month ceiling in USD.",
+          ],
+          [
+            <C key="b">is_active</C>,
+            "boolean, default true",
+            "Turn a cap off without deleting it.",
+          ],
+        ]}
+      />
+      <Callout kind="info">
+        Where several caps apply, the <strong>most restrictive wins</strong>. A user with a $50
+        personal cap who belongs to a group capped at $20 is limited to $20.
+      </Callout>
+
+      <H3 id="enforcement">Enforcement is opt-in</H3>
+      <P>
+        Caps only <em>block</em> when <C>ENFORCE_BUDGET_CAP</C> is set on the deployment (accepted
+        values: <C>1</C>, <C>true</C>, <C>yes</C>). Without it they still track and alert, but every
+        call proceeds.
       </P>
       <Callout kind="why">
-        Caps are evaluated before a call is dispatched and the check <em>fails open</em> — if the
-        budget service itself errors, work continues rather than the platform bricking itself over
-        an accounting question. That's a deliberate trade: enforcement is a cost control, not a
-        security boundary, and an outage in it shouldn't take down your agents.
+        The default is off because <C>monthly_cap_usd</C> ships at a very high value that nobody
+        chose. Enforcing it on upgrade would have started refusing model calls on instances whose
+        cap was never meant to bite. Turn it on deliberately once your caps reflect reality — and do
+        turn it on before exposing a public embed.
       </Callout>
-      <P>
-        Hard enforcement is opt-in via <C>ENFORCE_BUDGET_CAP</C> on a self-hosted deployment.
-        Without it, caps still track and alert but do not block — which is the right default for a
-        team instance and the wrong one for a public embed.
-      </P>
+      <Callout kind="warn" title="The check fails open">
+        Cap evaluation happens before a call is dispatched, and if the budget lookup itself errors,
+        work continues rather than the platform bricking itself over an accounting question. That is
+        a deliberate trade: enforcement is a cost control, not a security boundary, and an outage in
+        it should not take down your agents. Do not rely on it as the only thing between you and a
+        runaway bill — pair it with rate limits and loop caps.
+      </Callout>
 
       <H2 id="reduce">Reducing spend</H2>
       <UL>
