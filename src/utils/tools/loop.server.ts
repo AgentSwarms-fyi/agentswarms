@@ -12,6 +12,7 @@
 // so the playground inspector can show what's happening in real time.
 
 import type { ToolDef, ToolHandler, AgentToolContext } from "./registry.server";
+import { extractToolSources, type RawSource } from "./sources";
 
 type GatewayMessage = {
   role: "system" | "user" | "assistant" | "tool";
@@ -76,7 +77,20 @@ async function callGateway(opts: {
 
 export type ToolEvent =
   | { type: "tool_call"; name: string; args: string; id: string }
-  | { type: "tool_result"; name: string; id: string; ok: boolean; preview: string };
+  | {
+      type: "tool_result";
+      name: string;
+      id: string;
+      ok: boolean;
+      preview: string;
+      /**
+       * What this call actually retrieved (links, documents, tables, an MCP
+       * tool). The full result JSON only exists here, so attribution is
+       * extracted at the point of execution rather than reconstructed from the
+       * 400-char preview downstream.
+       */
+      sources?: RawSource[];
+    };
 
 // Run the tool-call loop and return the FINAL response (a streaming Response
 // from the gateway with the assistant's user-facing answer). Tool events are
@@ -228,6 +242,7 @@ export async function streamChatWithTools(opts: {
         id: tc.id,
         ok,
         preview: result.slice(0, 400),
+        sources: ok ? extractToolSources(tc.function.name, tc.function.arguments, result) : [],
       });
       transcript.push({
         role: "tool",

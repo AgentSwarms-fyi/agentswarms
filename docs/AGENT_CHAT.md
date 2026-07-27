@@ -19,6 +19,29 @@ grounded in your own data.
 You can override the model per session, edit/regenerate messages, and attach
 files. Conversations are saved per agent.
 
+## Sources
+
+Under each answer, AgentSwarms lists **what the answer actually drew on**, grouped
+by kind:
+
+| Kind               | Shown as                                                    |
+| ------------------ | ----------------------------------------------------------- |
+| **Web**            | The page title as a clickable link, with its hostname       |
+| **Knowledge base** | Document name and the collection it belongs to              |
+| **Data**           | The table(s) the query read, and how many rows came back    |
+| **MCP**            | The remote tool that was called, and the server it lives on |
+| **Tool**           | The tool's name, for anything else (n8n, a custom skill)    |
+
+Sources come from what the tools **returned**, so a web answer lists links, a
+SQL answer lists tables, and an answer that genuinely used several shows several
+groups at once.
+
+Knowledge base documents are a special case: they are retrieved _before_ the
+model runs, so their presence proves nothing about whether the answer used them.
+They are listed when the answer cites them by number (`[1]`), or when nothing
+else grounded the answer — never as a tail of unrelated documents under a web
+result.
+
 ## Visual BI answers
 
 Turn on **Visual BI** to get a chart generated from your connected tables

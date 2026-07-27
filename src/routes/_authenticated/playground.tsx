@@ -45,6 +45,10 @@ import {
   Pencil,
   RefreshCw,
   Square,
+  Globe,
+  Table2,
+  Plug,
+  ExternalLink,
 } from "lucide-react";
 import { parseFileToText } from "@/lib/fileParsers";
 import { MarkdownMessage } from "@/components/playground/MarkdownMessage";
@@ -116,6 +120,19 @@ type Citation = {
   knowledgeBaseId: string;
   knowledgeBaseName: string;
   snippet: string;
+};
+// What the answer actually drew on, tagged by kind so a web answer shows links
+// and a data answer shows tables. Sent as a trailing `sources` event once the
+// text is known; `citations` remains for messages saved before this existed.
+type SourceKind = "kb" | "web" | "table" | "mcp" | "tool";
+type Source = {
+  index: number;
+  kind: SourceKind;
+  title: string;
+  url?: string;
+  detail?: string;
+  snippet?: string;
+  tool?: string;
 };
 type Message = { id: string; role: string; content: string; created_at: string; metadata?: any };
 
@@ -449,6 +466,7 @@ function PlaygroundPage() {
     let assistantContent = "";
     let firstTokenReceived = false;
     let citations: Citation[] = [];
+    let sources: Source[] = [];
 
     const startedAt = Date.now();
     const requestBody = {
@@ -627,7 +645,6 @@ function PlaygroundPage() {
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
       let textBuffer = "";
-      let streamDone = false;
       let currentEvent: string | null = null;
 
       const appendDelta = (delta: string) => {
@@ -651,6 +668,15 @@ function PlaygroundPage() {
         }
       };
 
+      const applySources = (srcs: Source[]) => {
+        sources = srcs;
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId ? { ...m, metadata: { ...(m.metadata || {}), sources: srcs } } : m,
+          ),
+        );
+      };
+
       const applyCitations = (cits: Citation[]) => {
         citations = cits;
         setMessages((prev) =>
@@ -662,7 +688,8 @@ function PlaygroundPage() {
         );
       };
 
-      while (!streamDone) {
+      // Read to the end of the stream, not to [DONE] — see the note there.
+      while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         const chunkText = decoder.decode(value, { stream: true });
@@ -686,13 +713,21 @@ function PlaygroundPage() {
           if (!line.startsWith("data: ")) continue;
           const jsonStr = line.slice(6).trim();
           if (jsonStr === "[DONE]") {
-            streamDone = true;
-            break;
+            // Do NOT stop reading here. Events that depend on the finished
+            // answer — `sources`, and the guardrail rewrite/warning — are
+            // appended AFTER the gateway's [DONE], so breaking out at this
+            // point silently discarded them. The stream ends when the reader
+            // reports done; every wrapper closes its controller.
+            continue;
           }
           try {
             const parsed = JSON.parse(jsonStr);
             if (currentEvent === "citations") {
               if (Array.isArray(parsed?.citations)) applyCitations(parsed.citations as Citation[]);
+              continue;
+            }
+            if (currentEvent === "sources") {
+              if (Array.isArray(parsed?.sources)) applySources(parsed.sources as Source[]);
               continue;
             }
             if (currentEvent === "tool") {
@@ -746,7 +781,10 @@ function PlaygroundPage() {
           user_id: user.id,
           role: "assistant",
           content: assistantContent,
-          metadata: citations.length > 0 ? { citations } : {},
+          metadata: {
+            ...(citations.length > 0 ? { citations } : {}),
+            ...(sources.length > 0 ? { sources } : {}),
+          },
         })
         .select("id")
         .single();
@@ -792,7 +830,10 @@ function PlaygroundPage() {
               user_id: user.id,
               role: "assistant",
               content: assistantContent,
-              metadata: citations.length > 0 ? { citations } : {},
+              metadata: {
+                ...(citations.length > 0 ? { citations } : {}),
+                ...(sources.length > 0 ? { sources } : {}),
+              },
             })
             .select("id")
             .single();
@@ -2185,6 +2226,17 @@ function MessageBubble({
   const citations: Citation[] = Array.isArray(message.metadata?.citations)
     ? (message.metadata.citations as Citation[])
     : [];
+  // Messages saved before sources existed only carry KB citations; show those
+  // rather than dropping attribution on old conversations.
+  const sources: Source[] = Array.isArray(message.metadata?.sources)
+    ? (message.metadata.sources as Source[])
+    : citations.map((c) => ({
+        index: c.index,
+        kind: "kb" as const,
+        title: c.documentName,
+        detail: c.knowledgeBaseName,
+        snippet: c.snippet,
+      }));
   const [copied, setCopied] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(message.content);
@@ -2326,7 +2378,7 @@ function MessageBubble({
         {!isUser && memoryUsed && (memoryUsed.items.length > 0 || memoryUsed.summaryUsed) && (
           <MemoryChip items={memoryUsed.items} summaryUsed={memoryUsed.summaryUsed} />
         )}
-        {!isUser && citations.length > 0 && <Citations citations={citations} />}
+        {!isUser && sources.length > 0 && <Sources sources={sources} />}
         {!isUser &&
           (() => {
             const widgets = parseWidgets(message.metadata?.widgets ?? []).filter(
@@ -2597,27 +2649,82 @@ function MemoryChip({
   );
 }
 
-function Citations({ citations }: { citations: Citation[] }) {
+// Per-kind presentation. The label is what the reader needs in order to judge
+// the answer: a web result is only useful if you can click it, a document is
+// only meaningful next to its collection, an MCP call next to its server.
+const SOURCE_KIND_META: Record<
+  SourceKind,
+  { icon: typeof BookOpen; label: string; className: string }
+> = {
+  web: { icon: Globe, label: "Web", className: "text-sky-600 dark:text-sky-400" },
+  kb: { icon: BookOpen, label: "Knowledge base", className: "text-primary" },
+  table: { icon: Table2, label: "Data", className: "text-emerald-600 dark:text-emerald-400" },
+  mcp: { icon: Plug, label: "MCP", className: "text-violet-600 dark:text-violet-400" },
+  tool: { icon: Wrench, label: "Tool", className: "text-amber-600 dark:text-amber-400" },
+};
+
+const SOURCE_KIND_ORDER: SourceKind[] = ["web", "kb", "table", "mcp", "tool"];
+
+function Sources({ sources }: { sources: Source[] }) {
+  // Grouped by kind so several kinds can appear together without reading as one
+  // undifferentiated list — the answer says which parts came from where.
+  const groups = SOURCE_KIND_ORDER.map((kind) => ({
+    kind,
+    items: sources.filter((s) => s.kind === kind),
+  })).filter((g) => g.items.length > 0);
+
   return (
     <div className="mt-3 rounded-lg border border-border/60 bg-muted/30 p-3">
       <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5 mb-2">
         <BookOpen className="h-3 w-3 text-primary" />
-        Sources ({citations.length})
+        Sources ({sources.length})
       </p>
-      <ol className="space-y-2">
-        {citations.map((c) => (
-          <li key={c.index} className="text-xs flex gap-2">
-            <span className="shrink-0 inline-flex h-5 min-w-5 items-center justify-center rounded bg-primary/10 text-primary font-mono text-[10px] px-1">
-              {c.index}
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="font-medium text-foreground/90 truncate">{c.documentName}</p>
-              <p className="text-[10px] text-muted-foreground mb-1">{c.knowledgeBaseName}</p>
-              <p className="text-muted-foreground line-clamp-3">{c.snippet}</p>
+      <div className="space-y-3">
+        {groups.map((group) => {
+          const meta = SOURCE_KIND_META[group.kind];
+          const Icon = meta.icon;
+          return (
+            <div key={group.kind}>
+              {groups.length > 1 && (
+                <p className="text-[10px] font-medium text-muted-foreground/80 uppercase tracking-wide flex items-center gap-1 mb-1.5">
+                  <Icon className={`h-3 w-3 ${meta.className}`} />
+                  {meta.label}
+                </p>
+              )}
+              <ol className="space-y-2">
+                {group.items.map((s) => (
+                  <li key={`${s.kind}-${s.index}`} className="text-xs flex gap-2">
+                    <span className="shrink-0 inline-flex h-5 min-w-5 items-center justify-center rounded bg-primary/10 text-primary font-mono text-[10px] px-1">
+                      {s.index}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      {s.url ? (
+                        <a
+                          href={s.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-medium text-foreground/90 hover:text-primary hover:underline inline-flex items-center gap-1 max-w-full"
+                        >
+                          <span className="truncate">{s.title}</span>
+                          <ExternalLink className="h-2.5 w-2.5 shrink-0 opacity-60" />
+                        </a>
+                      ) : (
+                        <p className="font-medium text-foreground/90 truncate">{s.title}</p>
+                      )}
+                      {s.detail && (
+                        <p className="text-[10px] text-muted-foreground mb-1">{s.detail}</p>
+                      )}
+                      {s.snippet && (
+                        <p className="text-muted-foreground line-clamp-3">{s.snippet}</p>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ol>
             </div>
-          </li>
-        ))}
-      </ol>
+          );
+        })}
+      </div>
     </div>
   );
 }

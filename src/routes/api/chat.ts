@@ -10,6 +10,7 @@ import type { ProviderId } from "@/utils/providers/types";
 import { notifyN8nWebhook } from "@/utils/integrations.functions";
 import { resolveAgentTools, TOOLABLE_IDS, type ToolableId } from "@/utils/tools/registry.server";
 import { streamChatWithTools, type ToolEvent } from "@/utils/tools/loop.server";
+import { buildSources, type RawSource, type Source } from "@/utils/tools/sources";
 import {
   type Guardrails,
   parseGuardrails,
@@ -279,6 +280,17 @@ async function retrieveCitations(opts: {
   }));
 }
 
+/** Auto-RAG hits as sources, keeping the numbers the model was shown. */
+function citationSources(citations: Citation[]): Source[] {
+  return citations.map((c) => ({
+    index: c.index,
+    kind: "kb" as const,
+    title: c.documentName,
+    detail: c.knowledgeBaseName,
+    snippet: c.snippet,
+  }));
+}
+
 function buildGroundingPrompt(citations: Citation[], userSystemPrompt?: string): string {
   const header = userSystemPrompt?.trim() ? userSystemPrompt.trim() + "\n\n" : "";
   if (citations.length === 0) return userSystemPrompt || "";
@@ -296,6 +308,78 @@ function buildGroundingPrompt(citations: Citation[], userSystemPrompt?: string):
     sources +
     "\n=== END SOURCES ==="
   );
+}
+
+// Emit the answer's SOURCES as a TRAILING event, once the text is known.
+//
+// It has to be a trailer, not a preamble: whether the auto-RAG knowledge-base
+// hits count as sources depends on whether the finished answer actually cited
+// them. Retrieval happens before the model runs, so a preamble could only ever
+// report "documents we looked up", which is how a web-search answer ended up
+// listing knowledge base documents underneath it.
+function withSourcesTrailer(
+  upstream: ReadableStream<Uint8Array> | null,
+  kbSources: Source[],
+  toolSources: RawSource[],
+): ReadableStream<Uint8Array> | null {
+  if (!upstream) return upstream;
+  if (kbSources.length === 0 && toolSources.length === 0) return upstream;
+
+  const reader = upstream.getReader();
+  const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
+  let buffer = "";
+  let answer = "";
+
+  const consumeLine = (line: string) => {
+    if (!line.startsWith("data: ")) return;
+    const payload = line.slice(6).trim();
+    if (!payload || payload === "[DONE]") return;
+    try {
+      const parsed = JSON.parse(payload) as {
+        choices?: { delta?: { content?: string }; message?: { content?: string } }[];
+      };
+      const delta =
+        parsed.choices?.[0]?.delta?.content ?? parsed.choices?.[0]?.message?.content ?? "";
+      if (typeof delta === "string") answer += delta;
+    } catch {
+      /* ignore */
+    }
+  };
+
+  return new ReadableStream<Uint8Array>({
+    async start(controller) {
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (!value) continue;
+          controller.enqueue(value);
+          buffer += decoder.decode(value, { stream: true });
+          let idx: number;
+          while ((idx = buffer.indexOf("\n")) !== -1) {
+            let line = buffer.slice(0, idx);
+            buffer = buffer.slice(idx + 1);
+            if (line.endsWith("\r")) line = line.slice(0, -1);
+            consumeLine(line);
+          }
+        }
+        if (buffer.trim()) consumeLine(buffer.trim());
+        const sources = buildSources(kbSources, toolSources, answer);
+        if (sources.length > 0) {
+          controller.enqueue(
+            encoder.encode(`event: sources\ndata: ${JSON.stringify({ sources })}\n\n`),
+          );
+        }
+        controller.close();
+      } catch (err) {
+        controller.error(err);
+      }
+    },
+    async cancel(reason) {
+      reader.cancel(reason).catch(() => {});
+    },
+  });
 }
 
 // Prefix an SSE stream with a single custom citations event so the client
@@ -1908,7 +1992,15 @@ export const Route = createFileRoute("/api/chat")({
                 const tapped = withTraceTap(upstreamWithTools.body, trace);
                 const withCits = withCitationsPreamble(tapped, citations);
                 const withTools = withToolEventsPreamble(withCits, toolEvents);
-                const withMem = withMemoryUsedPreamble(withTools, recalledItems, memorySummaryUsed);
+                // Attribution comes from what the tools RETURNED, so a web
+                // answer lists links and a table answer lists tables — the
+                // knowledge base only joins them when the answer cites it.
+                const withSrc = withSourcesTrailer(
+                  withTools,
+                  citationSources(citations),
+                  toolEvents.flatMap((e) => (e.type === "tool_result" ? (e.sources ?? []) : [])),
+                );
+                const withMem = withMemoryUsedPreamble(withSrc, recalledItems, memorySummaryUsed);
                 const memoryApiKey = process.env.OPENROUTER_API_KEY;
                 const withPostMem = memoryApiKey
                   ? withPostTurnMemory(withMem, {
@@ -1951,7 +2043,8 @@ export const Route = createFileRoute("/api/chat")({
             });
             const tapped = withTraceTap(upstream.body, trace);
             const withCits = withCitationsPreamble(tapped, citations);
-            const withMem = withMemoryUsedPreamble(withCits, recalledItems, memorySummaryUsed);
+            const withSrc = withSourcesTrailer(withCits, citationSources(citations), []);
+            const withMem = withMemoryUsedPreamble(withSrc, recalledItems, memorySummaryUsed);
             const memoryApiKey = process.env.OPENROUTER_API_KEY;
             const withPostMem = memoryApiKey
               ? withPostTurnMemory(withMem, {
