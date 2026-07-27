@@ -4,7 +4,7 @@
 #
 #   bash scripts/setup.sh                 # Docker stack (default)
 #   bash scripts/setup.sh --dev           # local dev server (npm run dev)
-#   bash scripts/setup.sh --docgen        # + server-side PPTX renderer
+#   bash scripts/setup.sh --docgen        # + server-side PPTX/Word/Excel renderer
 #   bash scripts/setup.sh --notebooks     # + Developer-workspace Python runtime
 #   bash scripts/setup.sh --skip-migrations
 #
@@ -104,7 +104,7 @@ if [ "$MODE" = "docker" ]; then
   # shellcheck disable=SC2086
   docker compose $PROFILE_FLAGS up -d --build
   say "Up. Open http://localhost:8080"
-  [ "$DOCGEN" -eq 1 ] && echo "  Server-side PPTX renderer: http://docgen:8099 (set OPENROUTER_API_KEY in .env for the verify loop)"
+  [ "$DOCGEN" -eq 1 ] && echo "  Server-side PPTX/Word/Excel renderer: http://docgen:8099 (set OPENROUTER_API_KEY in .env for the PPT verify loop)"
 else
   say "Starting dev server (Ctrl+C to stop). Open http://localhost:8080"
   npm run dev

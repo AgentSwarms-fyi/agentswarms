@@ -3,7 +3,7 @@
 
     powershell -ExecutionPolicy Bypass -File scripts\setup.ps1            # Docker stack
     powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -Dev       # local dev server
-    powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -Docgen    # + server-side PPTX renderer
+    powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -Docgen    # + server-side PPTX/Word/Excel renderer
     powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -Notebooks # + Developer-workspace runtime
     powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -SkipMigrations
 
