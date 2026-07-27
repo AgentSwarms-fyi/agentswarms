@@ -87,9 +87,9 @@ function NotebooksDoc() {
           duration appear under the cell.
         </li>
         <li>
-          Cells execute on a <strong>sandboxed container kernel</strong> — non-root, read-only
-          root filesystem, capabilities dropped, network egress restricted to an allowlist. The
-          kernel starts on your first run and is reaped when idle.
+          Cells execute on a <strong>sandboxed container kernel</strong> — non-root, read-only root
+          filesystem, capabilities dropped, network egress restricted to an allowlist. The kernel
+          starts on your first run and is reaped when idle.
         </li>
         <li>
           All cells share one interpreter, Jupyter-style: variables defined in one cell are visible
@@ -113,13 +113,13 @@ function NotebooksDoc() {
             reply = await agentswarms.chat("…", provider="openrouter", model="openai/gpt-4o-mini")
           </code>{" "}
           — a chat completion through any OpenAI-compatible provider you've connected under{" "}
-          <DocLink to="/integrations">Integrations</DocLink> (openrouter, openai, gemini, groq, grok,
-          qwen, ollama, vllm, nvidia).
+          <DocLink to="/integrations">Integrations</DocLink> (openrouter, openai, gemini, groq,
+          grok, qwen, ollama, vllm, nvidia).
         </li>
         <li>
-          <code>hits = await agentswarms.kb_search("refund policy", top_k=5)</code> — hybrid
-          (vector + keyword) retrieval over your <DocLink to="/knowledge">Knowledge Base</DocLink>.
-          Access is enforced by the same rules as everywhere else: you only search KBs you own, were
+          <code>hits = await agentswarms.kb_search("refund policy", top_k=5)</code> — hybrid (vector
+          + keyword) retrieval over your <DocLink to="/knowledge">Knowledge Base</DocLink>. Access
+          is enforced by the same rules as everywhere else: you only search KBs you own, were
           granted, or that are public samples.
         </li>
         <li>

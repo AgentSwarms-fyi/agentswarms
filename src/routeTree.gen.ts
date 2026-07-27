@@ -24,11 +24,27 @@ import { Route as DocsIndexRouteImport } from './routes/docs.index'
 import { Route as EmailUnsubscribeRouteImport } from './routes/email/unsubscribe'
 import { Route as DocsSwarmsRouteImport } from './routes/docs.swarms'
 import { Route as DocsSkillsRouteImport } from './routes/docs.skills'
+import { Route as DocsSemanticsRouteImport } from './routes/docs.semantics'
+import { Route as DocsSelfHostingRouteImport } from './routes/docs.self-hosting'
+import { Route as DocsSecretsRouteImport } from './routes/docs.secrets'
+import { Route as DocsQuickstartRouteImport } from './routes/docs.quickstart'
 import { Route as DocsPlaygroundRouteImport } from './routes/docs.playground'
 import { Route as DocsNotebooksRouteImport } from './routes/docs.notebooks'
+import { Route as DocsModelsRouteImport } from './routes/docs.models'
+import { Route as DocsMcpRouteImport } from './routes/docs.mcp'
+import { Route as DocsKnowledgeRouteImport } from './routes/docs.knowledge'
 import { Route as DocsIntegrationsRouteImport } from './routes/docs.integrations'
+import { Route as DocsIamRouteImport } from './routes/docs.iam'
+import { Route as DocsGuardrailsRouteImport } from './routes/docs.guardrails'
+import { Route as DocsEmbeddingRouteImport } from './routes/docs.embedding'
 import { Route as DocsDebuggingRouteImport } from './routes/docs.debugging'
+import { Route as DocsDataPrepRouteImport } from './routes/docs.data-prep'
+import { Route as DocsDataRouteImport } from './routes/docs.data'
 import { Route as DocsDashboardRouteImport } from './routes/docs.dashboard'
+import { Route as DocsConceptsRouteImport } from './routes/docs.concepts'
+import { Route as DocsBudgetsRouteImport } from './routes/docs.budgets'
+import { Route as DocsBiRouteImport } from './routes/docs.bi'
+import { Route as DocsApiRouteImport } from './routes/docs.api'
 import { Route as DocsAnalyticsRouteImport } from './routes/docs.analytics'
 import { Route as DocsAgentsRouteImport } from './routes/docs.agents'
 import { Route as DocsAccountRouteImport } from './routes/docs.account'
@@ -174,6 +190,26 @@ const DocsSkillsRoute = DocsSkillsRouteImport.update({
   path: '/skills',
   getParentRoute: () => DocsRoute,
 } as any)
+const DocsSemanticsRoute = DocsSemanticsRouteImport.update({
+  id: '/semantics',
+  path: '/semantics',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsSelfHostingRoute = DocsSelfHostingRouteImport.update({
+  id: '/self-hosting',
+  path: '/self-hosting',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsSecretsRoute = DocsSecretsRouteImport.update({
+  id: '/secrets',
+  path: '/secrets',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsQuickstartRoute = DocsQuickstartRouteImport.update({
+  id: '/quickstart',
+  path: '/quickstart',
+  getParentRoute: () => DocsRoute,
+} as any)
 const DocsPlaygroundRoute = DocsPlaygroundRouteImport.update({
   id: '/playground',
   path: '/playground',
@@ -184,9 +220,39 @@ const DocsNotebooksRoute = DocsNotebooksRouteImport.update({
   path: '/notebooks',
   getParentRoute: () => DocsRoute,
 } as any)
+const DocsModelsRoute = DocsModelsRouteImport.update({
+  id: '/models',
+  path: '/models',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsMcpRoute = DocsMcpRouteImport.update({
+  id: '/mcp',
+  path: '/mcp',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsKnowledgeRoute = DocsKnowledgeRouteImport.update({
+  id: '/knowledge',
+  path: '/knowledge',
+  getParentRoute: () => DocsRoute,
+} as any)
 const DocsIntegrationsRoute = DocsIntegrationsRouteImport.update({
   id: '/integrations',
   path: '/integrations',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsIamRoute = DocsIamRouteImport.update({
+  id: '/iam',
+  path: '/iam',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsGuardrailsRoute = DocsGuardrailsRouteImport.update({
+  id: '/guardrails',
+  path: '/guardrails',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsEmbeddingRoute = DocsEmbeddingRouteImport.update({
+  id: '/embedding',
+  path: '/embedding',
   getParentRoute: () => DocsRoute,
 } as any)
 const DocsDebuggingRoute = DocsDebuggingRouteImport.update({
@@ -194,9 +260,39 @@ const DocsDebuggingRoute = DocsDebuggingRouteImport.update({
   path: '/debugging',
   getParentRoute: () => DocsRoute,
 } as any)
+const DocsDataPrepRoute = DocsDataPrepRouteImport.update({
+  id: '/data-prep',
+  path: '/data-prep',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsDataRoute = DocsDataRouteImport.update({
+  id: '/data',
+  path: '/data',
+  getParentRoute: () => DocsRoute,
+} as any)
 const DocsDashboardRoute = DocsDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsConceptsRoute = DocsConceptsRouteImport.update({
+  id: '/concepts',
+  path: '/concepts',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsBudgetsRoute = DocsBudgetsRouteImport.update({
+  id: '/budgets',
+  path: '/budgets',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsBiRoute = DocsBiRouteImport.update({
+  id: '/bi',
+  path: '/bi',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsApiRoute = DocsApiRouteImport.update({
+  id: '/api',
+  path: '/api',
   getParentRoute: () => DocsRoute,
 } as any)
 const DocsAnalyticsRoute = DocsAnalyticsRouteImport.update({
@@ -609,11 +705,27 @@ export interface FileRoutesByFullPath {
   '/docs/account': typeof DocsAccountRoute
   '/docs/agents': typeof DocsAgentsRoute
   '/docs/analytics': typeof DocsAnalyticsRoute
+  '/docs/api': typeof DocsApiRoute
+  '/docs/bi': typeof DocsBiRoute
+  '/docs/budgets': typeof DocsBudgetsRoute
+  '/docs/concepts': typeof DocsConceptsRoute
   '/docs/dashboard': typeof DocsDashboardRoute
+  '/docs/data': typeof DocsDataRoute
+  '/docs/data-prep': typeof DocsDataPrepRoute
   '/docs/debugging': typeof DocsDebuggingRoute
+  '/docs/embedding': typeof DocsEmbeddingRoute
+  '/docs/guardrails': typeof DocsGuardrailsRoute
+  '/docs/iam': typeof DocsIamRoute
   '/docs/integrations': typeof DocsIntegrationsRoute
+  '/docs/knowledge': typeof DocsKnowledgeRoute
+  '/docs/mcp': typeof DocsMcpRoute
+  '/docs/models': typeof DocsModelsRoute
   '/docs/notebooks': typeof DocsNotebooksRoute
   '/docs/playground': typeof DocsPlaygroundRoute
+  '/docs/quickstart': typeof DocsQuickstartRoute
+  '/docs/secrets': typeof DocsSecretsRoute
+  '/docs/self-hosting': typeof DocsSelfHostingRoute
+  '/docs/semantics': typeof DocsSemanticsRoute
   '/docs/skills': typeof DocsSkillsRoute
   '/docs/swarms': typeof DocsSwarmsRoute
   '/email/unsubscribe': typeof EmailUnsubscribeRoute
@@ -699,11 +811,27 @@ export interface FileRoutesByTo {
   '/docs/account': typeof DocsAccountRoute
   '/docs/agents': typeof DocsAgentsRoute
   '/docs/analytics': typeof DocsAnalyticsRoute
+  '/docs/api': typeof DocsApiRoute
+  '/docs/bi': typeof DocsBiRoute
+  '/docs/budgets': typeof DocsBudgetsRoute
+  '/docs/concepts': typeof DocsConceptsRoute
   '/docs/dashboard': typeof DocsDashboardRoute
+  '/docs/data': typeof DocsDataRoute
+  '/docs/data-prep': typeof DocsDataPrepRoute
   '/docs/debugging': typeof DocsDebuggingRoute
+  '/docs/embedding': typeof DocsEmbeddingRoute
+  '/docs/guardrails': typeof DocsGuardrailsRoute
+  '/docs/iam': typeof DocsIamRoute
   '/docs/integrations': typeof DocsIntegrationsRoute
+  '/docs/knowledge': typeof DocsKnowledgeRoute
+  '/docs/mcp': typeof DocsMcpRoute
+  '/docs/models': typeof DocsModelsRoute
   '/docs/notebooks': typeof DocsNotebooksRoute
   '/docs/playground': typeof DocsPlaygroundRoute
+  '/docs/quickstart': typeof DocsQuickstartRoute
+  '/docs/secrets': typeof DocsSecretsRoute
+  '/docs/self-hosting': typeof DocsSelfHostingRoute
+  '/docs/semantics': typeof DocsSemanticsRoute
   '/docs/skills': typeof DocsSkillsRoute
   '/docs/swarms': typeof DocsSwarmsRoute
   '/email/unsubscribe': typeof EmailUnsubscribeRoute
@@ -792,11 +920,27 @@ export interface FileRoutesById {
   '/docs/account': typeof DocsAccountRoute
   '/docs/agents': typeof DocsAgentsRoute
   '/docs/analytics': typeof DocsAnalyticsRoute
+  '/docs/api': typeof DocsApiRoute
+  '/docs/bi': typeof DocsBiRoute
+  '/docs/budgets': typeof DocsBudgetsRoute
+  '/docs/concepts': typeof DocsConceptsRoute
   '/docs/dashboard': typeof DocsDashboardRoute
+  '/docs/data': typeof DocsDataRoute
+  '/docs/data-prep': typeof DocsDataPrepRoute
   '/docs/debugging': typeof DocsDebuggingRoute
+  '/docs/embedding': typeof DocsEmbeddingRoute
+  '/docs/guardrails': typeof DocsGuardrailsRoute
+  '/docs/iam': typeof DocsIamRoute
   '/docs/integrations': typeof DocsIntegrationsRoute
+  '/docs/knowledge': typeof DocsKnowledgeRoute
+  '/docs/mcp': typeof DocsMcpRoute
+  '/docs/models': typeof DocsModelsRoute
   '/docs/notebooks': typeof DocsNotebooksRoute
   '/docs/playground': typeof DocsPlaygroundRoute
+  '/docs/quickstart': typeof DocsQuickstartRoute
+  '/docs/secrets': typeof DocsSecretsRoute
+  '/docs/self-hosting': typeof DocsSelfHostingRoute
+  '/docs/semantics': typeof DocsSemanticsRoute
   '/docs/skills': typeof DocsSkillsRoute
   '/docs/swarms': typeof DocsSwarmsRoute
   '/email/unsubscribe': typeof EmailUnsubscribeRoute
@@ -885,11 +1029,27 @@ export interface FileRouteTypes {
     | '/docs/account'
     | '/docs/agents'
     | '/docs/analytics'
+    | '/docs/api'
+    | '/docs/bi'
+    | '/docs/budgets'
+    | '/docs/concepts'
     | '/docs/dashboard'
+    | '/docs/data'
+    | '/docs/data-prep'
     | '/docs/debugging'
+    | '/docs/embedding'
+    | '/docs/guardrails'
+    | '/docs/iam'
     | '/docs/integrations'
+    | '/docs/knowledge'
+    | '/docs/mcp'
+    | '/docs/models'
     | '/docs/notebooks'
     | '/docs/playground'
+    | '/docs/quickstart'
+    | '/docs/secrets'
+    | '/docs/self-hosting'
+    | '/docs/semantics'
     | '/docs/skills'
     | '/docs/swarms'
     | '/email/unsubscribe'
@@ -975,11 +1135,27 @@ export interface FileRouteTypes {
     | '/docs/account'
     | '/docs/agents'
     | '/docs/analytics'
+    | '/docs/api'
+    | '/docs/bi'
+    | '/docs/budgets'
+    | '/docs/concepts'
     | '/docs/dashboard'
+    | '/docs/data'
+    | '/docs/data-prep'
     | '/docs/debugging'
+    | '/docs/embedding'
+    | '/docs/guardrails'
+    | '/docs/iam'
     | '/docs/integrations'
+    | '/docs/knowledge'
+    | '/docs/mcp'
+    | '/docs/models'
     | '/docs/notebooks'
     | '/docs/playground'
+    | '/docs/quickstart'
+    | '/docs/secrets'
+    | '/docs/self-hosting'
+    | '/docs/semantics'
     | '/docs/skills'
     | '/docs/swarms'
     | '/email/unsubscribe'
@@ -1067,11 +1243,27 @@ export interface FileRouteTypes {
     | '/docs/account'
     | '/docs/agents'
     | '/docs/analytics'
+    | '/docs/api'
+    | '/docs/bi'
+    | '/docs/budgets'
+    | '/docs/concepts'
     | '/docs/dashboard'
+    | '/docs/data'
+    | '/docs/data-prep'
     | '/docs/debugging'
+    | '/docs/embedding'
+    | '/docs/guardrails'
+    | '/docs/iam'
     | '/docs/integrations'
+    | '/docs/knowledge'
+    | '/docs/mcp'
+    | '/docs/models'
     | '/docs/notebooks'
     | '/docs/playground'
+    | '/docs/quickstart'
+    | '/docs/secrets'
+    | '/docs/self-hosting'
+    | '/docs/semantics'
     | '/docs/skills'
     | '/docs/swarms'
     | '/email/unsubscribe'
@@ -1265,6 +1457,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DocsSkillsRouteImport
       parentRoute: typeof DocsRoute
     }
+    '/docs/semantics': {
+      id: '/docs/semantics'
+      path: '/semantics'
+      fullPath: '/docs/semantics'
+      preLoaderRoute: typeof DocsSemanticsRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/self-hosting': {
+      id: '/docs/self-hosting'
+      path: '/self-hosting'
+      fullPath: '/docs/self-hosting'
+      preLoaderRoute: typeof DocsSelfHostingRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/secrets': {
+      id: '/docs/secrets'
+      path: '/secrets'
+      fullPath: '/docs/secrets'
+      preLoaderRoute: typeof DocsSecretsRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/quickstart': {
+      id: '/docs/quickstart'
+      path: '/quickstart'
+      fullPath: '/docs/quickstart'
+      preLoaderRoute: typeof DocsQuickstartRouteImport
+      parentRoute: typeof DocsRoute
+    }
     '/docs/playground': {
       id: '/docs/playground'
       path: '/playground'
@@ -1279,11 +1499,53 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DocsNotebooksRouteImport
       parentRoute: typeof DocsRoute
     }
+    '/docs/models': {
+      id: '/docs/models'
+      path: '/models'
+      fullPath: '/docs/models'
+      preLoaderRoute: typeof DocsModelsRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/mcp': {
+      id: '/docs/mcp'
+      path: '/mcp'
+      fullPath: '/docs/mcp'
+      preLoaderRoute: typeof DocsMcpRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/knowledge': {
+      id: '/docs/knowledge'
+      path: '/knowledge'
+      fullPath: '/docs/knowledge'
+      preLoaderRoute: typeof DocsKnowledgeRouteImport
+      parentRoute: typeof DocsRoute
+    }
     '/docs/integrations': {
       id: '/docs/integrations'
       path: '/integrations'
       fullPath: '/docs/integrations'
       preLoaderRoute: typeof DocsIntegrationsRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/iam': {
+      id: '/docs/iam'
+      path: '/iam'
+      fullPath: '/docs/iam'
+      preLoaderRoute: typeof DocsIamRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/guardrails': {
+      id: '/docs/guardrails'
+      path: '/guardrails'
+      fullPath: '/docs/guardrails'
+      preLoaderRoute: typeof DocsGuardrailsRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/embedding': {
+      id: '/docs/embedding'
+      path: '/embedding'
+      fullPath: '/docs/embedding'
+      preLoaderRoute: typeof DocsEmbeddingRouteImport
       parentRoute: typeof DocsRoute
     }
     '/docs/debugging': {
@@ -1293,11 +1555,53 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DocsDebuggingRouteImport
       parentRoute: typeof DocsRoute
     }
+    '/docs/data-prep': {
+      id: '/docs/data-prep'
+      path: '/data-prep'
+      fullPath: '/docs/data-prep'
+      preLoaderRoute: typeof DocsDataPrepRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/data': {
+      id: '/docs/data'
+      path: '/data'
+      fullPath: '/docs/data'
+      preLoaderRoute: typeof DocsDataRouteImport
+      parentRoute: typeof DocsRoute
+    }
     '/docs/dashboard': {
       id: '/docs/dashboard'
       path: '/dashboard'
       fullPath: '/docs/dashboard'
       preLoaderRoute: typeof DocsDashboardRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/concepts': {
+      id: '/docs/concepts'
+      path: '/concepts'
+      fullPath: '/docs/concepts'
+      preLoaderRoute: typeof DocsConceptsRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/budgets': {
+      id: '/docs/budgets'
+      path: '/budgets'
+      fullPath: '/docs/budgets'
+      preLoaderRoute: typeof DocsBudgetsRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/bi': {
+      id: '/docs/bi'
+      path: '/bi'
+      fullPath: '/docs/bi'
+      preLoaderRoute: typeof DocsBiRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/api': {
+      id: '/docs/api'
+      path: '/api'
+      fullPath: '/docs/api'
+      preLoaderRoute: typeof DocsApiRouteImport
       parentRoute: typeof DocsRoute
     }
     '/docs/analytics': {
@@ -1895,11 +2199,27 @@ interface DocsRouteChildren {
   DocsAccountRoute: typeof DocsAccountRoute
   DocsAgentsRoute: typeof DocsAgentsRoute
   DocsAnalyticsRoute: typeof DocsAnalyticsRoute
+  DocsApiRoute: typeof DocsApiRoute
+  DocsBiRoute: typeof DocsBiRoute
+  DocsBudgetsRoute: typeof DocsBudgetsRoute
+  DocsConceptsRoute: typeof DocsConceptsRoute
   DocsDashboardRoute: typeof DocsDashboardRoute
+  DocsDataRoute: typeof DocsDataRoute
+  DocsDataPrepRoute: typeof DocsDataPrepRoute
   DocsDebuggingRoute: typeof DocsDebuggingRoute
+  DocsEmbeddingRoute: typeof DocsEmbeddingRoute
+  DocsGuardrailsRoute: typeof DocsGuardrailsRoute
+  DocsIamRoute: typeof DocsIamRoute
   DocsIntegrationsRoute: typeof DocsIntegrationsRoute
+  DocsKnowledgeRoute: typeof DocsKnowledgeRoute
+  DocsMcpRoute: typeof DocsMcpRoute
+  DocsModelsRoute: typeof DocsModelsRoute
   DocsNotebooksRoute: typeof DocsNotebooksRoute
   DocsPlaygroundRoute: typeof DocsPlaygroundRoute
+  DocsQuickstartRoute: typeof DocsQuickstartRoute
+  DocsSecretsRoute: typeof DocsSecretsRoute
+  DocsSelfHostingRoute: typeof DocsSelfHostingRoute
+  DocsSemanticsRoute: typeof DocsSemanticsRoute
   DocsSkillsRoute: typeof DocsSkillsRoute
   DocsSwarmsRoute: typeof DocsSwarmsRoute
   DocsIndexRoute: typeof DocsIndexRoute
@@ -1909,11 +2229,27 @@ const DocsRouteChildren: DocsRouteChildren = {
   DocsAccountRoute: DocsAccountRoute,
   DocsAgentsRoute: DocsAgentsRoute,
   DocsAnalyticsRoute: DocsAnalyticsRoute,
+  DocsApiRoute: DocsApiRoute,
+  DocsBiRoute: DocsBiRoute,
+  DocsBudgetsRoute: DocsBudgetsRoute,
+  DocsConceptsRoute: DocsConceptsRoute,
   DocsDashboardRoute: DocsDashboardRoute,
+  DocsDataRoute: DocsDataRoute,
+  DocsDataPrepRoute: DocsDataPrepRoute,
   DocsDebuggingRoute: DocsDebuggingRoute,
+  DocsEmbeddingRoute: DocsEmbeddingRoute,
+  DocsGuardrailsRoute: DocsGuardrailsRoute,
+  DocsIamRoute: DocsIamRoute,
   DocsIntegrationsRoute: DocsIntegrationsRoute,
+  DocsKnowledgeRoute: DocsKnowledgeRoute,
+  DocsMcpRoute: DocsMcpRoute,
+  DocsModelsRoute: DocsModelsRoute,
   DocsNotebooksRoute: DocsNotebooksRoute,
   DocsPlaygroundRoute: DocsPlaygroundRoute,
+  DocsQuickstartRoute: DocsQuickstartRoute,
+  DocsSecretsRoute: DocsSecretsRoute,
+  DocsSelfHostingRoute: DocsSelfHostingRoute,
+  DocsSemanticsRoute: DocsSemanticsRoute,
   DocsSkillsRoute: DocsSkillsRoute,
   DocsSwarmsRoute: DocsSwarmsRoute,
   DocsIndexRoute: DocsIndexRoute,

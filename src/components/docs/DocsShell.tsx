@@ -15,6 +15,25 @@ import {
   ArrowRight,
   ArrowLeft,
   ChevronDown,
+  Rocket,
+  GraduationCap,
+  Database,
+  Workflow,
+  BookOpen,
+  Layers,
+  PieChart,
+  Boxes,
+  Share2,
+  Code2,
+  Webhook,
+  KeyRound,
+  ShieldCheck,
+  ShieldAlert,
+  Wallet,
+  Server,
+  Info,
+  AlertTriangle,
+  Lightbulb,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -34,6 +53,8 @@ export const DOCS_GROUPS: DocGroup[] = [
     label: "Getting started",
     items: [
       { to: "/docs", label: "Introduction", icon: Compass },
+      { to: "/docs/quickstart", label: "Quickstart", icon: Rocket },
+      { to: "/docs/concepts", label: "Core concepts", icon: GraduationCap },
       { to: "/docs/dashboard", label: "Dashboard", icon: LayoutDashboard },
       { to: "/docs/account", label: "Account", icon: Settings },
     ],
@@ -42,24 +63,46 @@ export const DOCS_GROUPS: DocGroup[] = [
     label: "Build",
     items: [
       { to: "/docs/agents", label: "Agent Builder", icon: Bot },
+      { to: "/docs/playground", label: "Agent Chat", icon: MessageSquare },
       { to: "/docs/swarms", label: "Swarm Canvas", icon: Network },
       { to: "/docs/skills", label: "Skills & Prompt Library", icon: Library },
-      { to: "/docs/notebooks", label: "Notebooks", icon: Notebook },
+      { to: "/docs/notebooks", label: "Developer workspace", icon: Notebook },
     ],
   },
   {
-    label: "Run & observe",
+    label: "Data & analytics",
     items: [
-      { to: "/docs/playground", label: "Chat Playground", icon: MessageSquare },
-      { to: "/docs/debugging", label: "Logs & traces", icon: Wrench },
-      { to: "/docs/analytics", label: "Analytics", icon: Activity },
+      { to: "/docs/data", label: "Data Catalog & SQL", icon: Database },
+      { to: "/docs/data-prep", label: "Data preparation", icon: Workflow },
+      { to: "/docs/knowledge", label: "Knowledge Base", icon: BookOpen },
+      { to: "/docs/semantics", label: "Semantic Layer", icon: Layers },
+      { to: "/docs/bi", label: "BI Workspace", icon: PieChart },
     ],
   },
   {
-    label: "Platform",
+    label: "Integrate & ship",
     items: [
       { to: "/docs/integrations", label: "Integrations", icon: Plug },
+      { to: "/docs/models", label: "Models & providers", icon: Boxes },
+      { to: "/docs/mcp", label: "MCP servers", icon: Share2 },
+      { to: "/docs/embedding", label: "Web embedding", icon: Code2 },
+      { to: "/docs/api", label: "API & webhooks", icon: Webhook },
+      { to: "/docs/secrets", label: "Secrets", icon: KeyRound },
     ],
+  },
+  {
+    label: "Govern & operate",
+    items: [
+      { to: "/docs/iam", label: "Access control", icon: ShieldCheck },
+      { to: "/docs/guardrails", label: "Guardrails & PII", icon: ShieldAlert },
+      { to: "/docs/budgets", label: "Budgets & cost", icon: Wallet },
+      { to: "/docs/debugging", label: "Logs & traces", icon: Wrench },
+      { to: "/docs/analytics", label: "Analytics & audit", icon: Activity },
+    ],
+  },
+  {
+    label: "Self-hosting",
+    items: [{ to: "/docs/self-hosting", label: "Install & deploy", icon: Server }],
   },
 ];
 
@@ -259,6 +302,153 @@ export function Note({ children }: { children: React.ReactNode }) {
   return (
     <div className="mt-5 rounded-lg border-l-4 border-primary/60 bg-primary/5 px-4 py-3 text-sm text-foreground/90">
       {children}
+    </div>
+  );
+}
+
+/**
+ * Callout with an explicit intent. `why` is the one we reach for most: these
+ * docs are meant to teach, and the reason a thing works the way it does is
+ * usually the part worth remembering.
+ */
+const CALLOUT_STYLES = {
+  info: {
+    icon: Info,
+    ring: "border-sky-500/50 bg-sky-500/5",
+    tint: "text-sky-600 dark:text-sky-400",
+    label: "Note",
+  },
+  warn: {
+    icon: AlertTriangle,
+    ring: "border-amber-500/50 bg-amber-500/5",
+    tint: "text-amber-600 dark:text-amber-400",
+    label: "Careful",
+  },
+  why: {
+    icon: Lightbulb,
+    ring: "border-primary/50 bg-primary/5",
+    tint: "text-primary",
+    label: "Why it works this way",
+  },
+} as const;
+
+export function Callout({
+  kind = "info",
+  title,
+  children,
+}: {
+  kind?: keyof typeof CALLOUT_STYLES;
+  title?: string;
+  children: React.ReactNode;
+}) {
+  const s = CALLOUT_STYLES[kind];
+  const Icon = s.icon;
+  return (
+    <div className={cn("mt-5 rounded-xl border px-4 py-3.5", s.ring)}>
+      <p
+        className={cn(
+          "flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider",
+          s.tint,
+        )}
+      >
+        <Icon className="h-3.5 w-3.5" />
+        {title ?? s.label}
+      </p>
+      <div className="mt-1.5 text-sm leading-relaxed text-foreground/90">{children}</div>
+    </div>
+  );
+}
+
+/** Numbered walkthrough — for "do this, then this" instructions. */
+export function Steps({ items }: { items: { title: string; body?: React.ReactNode }[] }) {
+  return (
+    <ol className="mt-5 space-y-4">
+      {items.map((step, i) => (
+        <li key={step.title} className="flex gap-3.5">
+          <span className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-primary/15 text-[12px] font-semibold text-primary">
+            {i + 1}
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="font-medium text-foreground">{step.title}</p>
+            {step.body && (
+              <div className="mt-1 text-sm leading-relaxed text-muted-foreground">{step.body}</div>
+            )}
+          </div>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/** Reference table. Scrolls inside itself so the page never scrolls sideways. */
+export function Table({ headers, rows }: { headers: string[]; rows: React.ReactNode[][] }) {
+  return (
+    <div className="mt-5 overflow-x-auto rounded-xl border border-border/60">
+      <table className="w-full min-w-[32rem] text-sm">
+        <thead>
+          <tr className="border-b border-border/60 bg-card/40 text-left">
+            {headers.map((h) => (
+              <th key={h} className="px-4 py-2.5 font-semibold text-foreground">
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border/50">
+          {rows.map((row, i) => (
+            <tr key={i}>
+              {row.map((cell, j) => (
+                <td key={j} className="px-4 py-2.5 align-top text-muted-foreground">
+                  {cell}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** Inline literal — a field name, a path, an env var. */
+export function C({ children }: { children: React.ReactNode }) {
+  return (
+    <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[0.85em] text-foreground">
+      {children}
+    </code>
+  );
+}
+
+/** Fenced block for commands and snippets. */
+export function Code({ children, lang }: { children: string; lang?: string }) {
+  return (
+    <div className="mt-5 overflow-hidden rounded-xl border border-border/60 bg-card/40">
+      {lang && (
+        <div className="border-b border-border/50 px-4 py-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+          {lang}
+        </div>
+      )}
+      <pre className="overflow-x-auto px-4 py-3 text-[12.5px] leading-relaxed">
+        <code className="font-mono text-foreground/90">{children}</code>
+      </pre>
+    </div>
+  );
+}
+
+/** Link grid used on hub pages. */
+export function CardGrid({ items }: { items: { to: string; title: string; body: string }[] }) {
+  return (
+    <div className="mt-5 grid gap-3 sm:grid-cols-2">
+      {items.map((it) => (
+        <Link
+          key={it.to}
+          to={it.to}
+          className="group rounded-xl border border-border/60 bg-card/40 p-4 transition hover:border-primary/50"
+        >
+          <p className="font-medium text-foreground group-hover:text-primary">{it.title}</p>
+          <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{it.body}</p>
+        </Link>
+      ))}
     </div>
   );
 }

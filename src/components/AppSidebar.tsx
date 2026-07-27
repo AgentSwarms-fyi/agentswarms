@@ -25,6 +25,7 @@ import {
   PieChart,
   Code2,
   Server,
+  LifeBuoy,
   type LucideIcon,
 } from "lucide-react";
 
@@ -50,7 +51,12 @@ import { useIsSuperadmin } from "@/hooks/use-iam";
 // Grouped by what the user is trying to do, so the (long) nav stays scannable.
 type NavItem = { title: string; url: string; icon: LucideIcon };
 
-const overviewItems: NavItem[] = [{ title: "Dashboard", url: "/dashboard", icon: LayoutDashboard }];
+const overviewItems: NavItem[] = [
+  { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
+  // The handbook was reachable from the marketing site only, which is the one
+  // place you are NOT standing when you get stuck using the product.
+  { title: "Documentation", url: "/docs", icon: LifeBuoy },
+];
 
 const buildItems: NavItem[] = [
   { title: "Agent Builder", url: "/agents", icon: Bot },
