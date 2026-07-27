@@ -270,6 +270,7 @@ export const Route = createFileRoute("/api/embed/chat")({
           previewToken: body.previewToken,
           ip: clientIp(request),
           userAgent: clientUserAgent(request),
+          request,
         });
         if (!v.ok) return json({ error: v.error }, v.status);
         const keyRow = v.row;

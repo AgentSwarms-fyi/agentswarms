@@ -2,14 +2,31 @@
 //
 // An embed key is a capability token that ships inside a customer page's
 // <iframe src>: it grants access to exactly ONE resource (agent, swarm or
-// BI dashboard), only when the embedding page's origin matches the key's
-// domain allow-list. The parent origin is taken from document.referrer
-// inside the iframe — browsers set it truthfully for real visitors, so a
-// third-party site cannot silently embed someone else's key. Keys can be
-// deactivated instantly from /dashboard.
+// BI dashboard). Two origin checks gate it:
+//
+//   1. The browser-set `Origin` header on the API call (requestOriginAllowed).
+//      Page JavaScript cannot forge this, so it blocks a third-party site that
+//      lifted the key from calling the API from its own page.
+//   2. The `parentOrigin` the embed page reports from document.referrer /
+//      ancestorOrigins, matched against the key's domain allow-list. This is
+//      what stops a real browser from rendering the widget on an unlisted
+//      site.
+//
+// THREAT MODEL, stated plainly: the key is PUBLIC — it is visible in the host
+// page's HTML — and every header is forgeable by a non-browser client. So the
+// domain allow-list is a browser-level control, not an authentication
+// boundary; a determined script with the key can still call the API. What
+// bounds that abuse is the per-key monthly budget, the rate limit, and key
+// expiry (all enforced server-side), plus audited denials and instant
+// deactivation from /dashboard. Treat an embed key like a publishable API
+// key, not a secret.
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { auditEvent } from "@/utils/audit.server";
+import { domainAllowed, hostnameOf, requestOriginAllowed } from "@/utils/embedOrigin";
+
+// Re-exported so existing importers keep working.
+export { domainAllowed, hostnameOf, requestOriginAllowed };
 
 export type EmbedKeyRow = {
   id: string;
@@ -29,34 +46,6 @@ export type EmbedKeyRow = {
 const KEY_COLUMNS =
   "id, user_id, name, key, resource_type, resource_id, allowed_domains, allow_ai, is_active, use_count, expires_at";
 
-export function hostnameOf(originOrUrl: string | null | undefined): string | null {
-  if (!originOrUrl) return null;
-  try {
-    return new URL(originOrUrl).hostname.toLowerCase();
-  } catch {
-    // Bare hostname without scheme
-    const bare = String(originOrUrl).trim().toLowerCase();
-    return /^[a-z0-9.-]+$/.test(bare) ? bare : null;
-  }
-}
-
-/** '*' allows everything; 'example.com' exact; '*.example.com' any subdomain (and the apex). */
-export function domainAllowed(allowed: string[], parentOrigin: string | null | undefined): boolean {
-  const list = (allowed ?? []).map((d) => d.trim().toLowerCase()).filter(Boolean);
-  if (list.includes("*")) return true;
-  const host = hostnameOf(parentOrigin);
-  if (!host) return false;
-  for (const entry of list) {
-    if (entry.startsWith("*.")) {
-      const base = entry.slice(2);
-      if (host === base || host.endsWith("." + base)) return true;
-    } else if (host === entry) {
-      return true;
-    }
-  }
-  return false;
-}
-
 export type EmbedValidation =
   | { ok: true; row: EmbedKeyRow; preview: boolean }
   | { ok: false; status: number; error: string };
@@ -68,6 +57,11 @@ export async function validateEmbedKey(opts: {
   /** Forensic context for denial auditing (see requestMeta.server.ts). */
   ip?: string | null;
   userAgent?: string | null;
+  /**
+   * The incoming request, so the browser-set Origin can be checked against the
+   * key's allow-list — see requestOriginAllowed().
+   */
+  request?: Request;
 }): Promise<EmbedValidation> {
   const key = (opts.key ?? "").trim();
   if (!key.startsWith("emk_") || key.length < 20 || key.length > 80) {
@@ -118,6 +112,21 @@ export async function validateEmbedKey(opts: {
     const { data } = await supabaseAdmin.auth.getUser(opts.previewToken);
     if (data.user?.id === row.user_id) {
       return { ok: true, row: row as EmbedKeyRow, preview: true };
+    }
+  }
+
+  // Browser-set Origin first: unlike `parentOrigin` below, page JavaScript
+  // cannot forge it, so this rejects a third-party site calling the API
+  // directly even when it claims an allowed parentOrigin.
+  if (opts.request) {
+    const originCheck = requestOriginAllowed(opts.request, row.allowed_domains ?? []);
+    if (!originCheck.ok) {
+      denied("request_origin_not_allowed");
+      return {
+        ok: false,
+        status: 403,
+        error: "This embed is not authorized to be called from this origin.",
+      };
     }
   }
 
