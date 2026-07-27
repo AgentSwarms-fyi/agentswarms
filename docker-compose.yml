@@ -104,9 +104,9 @@ services:
   # ── Server-side Office renderer (opt-in: --profile docgen) ───────────────────
   # python-pptx (native editable charts/tables + LibreOffice render-verify),
   # python-docx (multi-page Word) and openpyxl (Excel with LibreOffice formula
-  # recalc). When running this profile, set DOCGEN_SERVICE_URL=http://docgen:8099
-  # in .env so the app uses it; otherwise the app falls back to the in-browser
-  # generators.
+  # recalc). No env wiring needed — the app probes `docgen:8099` (in-network) and
+  # `localhost:8099` (published below) and uses whichever answers, falling back
+  # to the in-browser generators when neither does.
   docgen:
     build:
       context: ./docgen-service

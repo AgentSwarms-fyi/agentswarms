@@ -64,17 +64,10 @@ gen_secret() {
 [ -z "$(getenv PROVIDER_CREDS_SECRET)" ] && { say "Generating PROVIDER_CREDS_SECRET"; setenv PROVIDER_CREDS_SECRET "$(gen_secret)"; }
 [ -z "$(getenv INTERNAL_RUN_SECRET)" ]   && setenv INTERNAL_RUN_SECRET "$(gen_secret)"
 
-# docgen wiring. The hostname differs by mode: inside the compose network the
-# service is `docgen`, but a dev server running on the HOST reaches the
-# published loopback port instead. Getting this wrong makes Deep mode silently
-# fall back to the in-browser builder.
-if [ "$DOCGEN" -eq 1 ] && [ -z "$(getenv DOCGEN_SERVICE_URL)" ]; then
-  if [ "$MODE" = "dev" ]; then
-    setenv DOCGEN_SERVICE_URL "http://localhost:8099"
-  else
-    setenv DOCGEN_SERVICE_URL "http://docgen:8099"
-  fi
-fi
+# DOCGEN_SERVICE_URL is deliberately NOT set here: the app probes both the
+# in-network (`docgen:8099`) and published-loopback (`localhost:8099`) addresses,
+# so the renderer is found in either run mode without a mode-specific value that
+# would be wrong after switching.
 
 # Required Supabase values must be filled by the user.
 MISSING=""

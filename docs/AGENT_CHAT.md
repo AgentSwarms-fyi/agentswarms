@@ -47,7 +47,7 @@ fully-editable Office file from a prompt:
    whatever you'd typed).
 2. AgentSwarms **gathers context** — relevant knowledge-base excerpts, your
    data-table schemas + samples, and the **recent conversation**. If the prompt
-   points at the internet (e.g. *"using prices from the web"*, "latest",
+   points at the internet (e.g. _"using prices from the web"_, "latest",
    "market rates"), it also runs **live web research** — a search plus the full
    text of the top results when Firecrawl is connected — and the planner grounds
    the document in those findings instead of forcing everything through your
@@ -88,12 +88,17 @@ recalculated by LibreOffice so values show immediately). The browser fills the
 numbers first, then posts the plan to `/api/docgen/{pptx,docx,xlsx}`; if the
 service is unreachable it **falls back** to the browser build.
 
-Because that fallback produces a file *identical* to Browser mode, the composer
+Because that fallback produces a file _identical_ to Browser mode, the composer
 probes the service (`GET /api/docgen/status`) and greys out **Deep** with the
 reason when it can't be reached — so "Deep did nothing" is visible up front
-rather than after a generation. Set `DOCGEN_SERVICE_URL` to match how you run
-the app: `http://docgen:8099` for the Docker stack, `http://localhost:8099` for
-a local `npm run dev` (the container publishes 8099 on loopback).
+rather than after a generation.
+
+There is **nothing to configure**: the app finds the renderer at
+`http://docgen:8099` when it runs inside the compose network, or at
+`http://localhost:8099` when you run `npm run dev` on the host (the container
+publishes 8099 on loopback for that case). Set `DOCGEN_SERVICE_URL` only if the
+renderer lives somewhere else; a value that doesn't answer falls back to the
+probe, so a stale setting can't quietly turn Deep mode off.
 
 ### Sample vs. full data
 
@@ -117,8 +122,8 @@ against the real cell ranges — so a computed line total or a `SUM`/`AVERAGE`
 total stays a **live, editable formula** in the delivered workbook, correct for
 whatever the row count turns out to be.
 
-This is what lets a prompt like *"build a bill of materials from this pricing
-sheet"* produce a multi-sheet workbook with real unit-price calculations and
+This is what lets a prompt like _"build a bill of materials from this pricing
+sheet"_ produce a multi-sheet workbook with real unit-price calculations and
 monthly/annual roll-ups. When no table applies (e.g. a knowledge-base summary)
 the planner falls back to literal rows.
 

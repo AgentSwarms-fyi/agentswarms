@@ -4,13 +4,14 @@
 // document with a cover, an updatable table of contents, and fixed-width
 // bordered/shaded tables. Returns { docx_base64, thumb }.
 //
-// When DOCGEN_SERVICE_URL is unset (e.g. Cloudflare Workers, or the container
+// When no service can be reached (e.g. Cloudflare Workers, or the container
 // isn't running) this returns 501 { error: "not_configured" } and the browser
 // falls back to the in-app `docx` generator — so nothing breaks by default.
 //
 // Auth: Bearer token (any signed-in user).
 import { createFileRoute } from "@tanstack/react-router";
 import { createClient } from "@supabase/supabase-js";
+import { resolveDocgenBaseUrl, docgenAuthHeaders } from "@/utils/docgenService.server";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -30,7 +31,9 @@ export const Route = createFileRoute("/api/docgen/docx")({
     handlers: {
       OPTIONS: async () => new Response(null, { headers: corsHeaders }),
       POST: async ({ request }) => {
-        const serviceUrl = (process.env.DOCGEN_SERVICE_URL || "").replace(/\/+$/, "");
+        // Probes for the service rather than trusting configuration, so the
+        // right hostname for the run mode isn't something to get wrong.
+        const serviceUrl = await resolveDocgenBaseUrl();
         if (!serviceUrl) return json({ error: "not_configured" }, 501);
 
         const auth = request.headers.get("authorization") || "";
@@ -56,9 +59,7 @@ export const Route = createFileRoute("/api/docgen/docx")({
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              ...(process.env.DOCGEN_TOKEN
-                ? { Authorization: `Bearer ${process.env.DOCGEN_TOKEN}` }
-                : {}),
+              ...docgenAuthHeaders(),
             },
             body: JSON.stringify({ plan: body.plan }),
             signal: ctrl.signal,

@@ -6,6 +6,7 @@
 // than unconfigured. The composer calls this on mount and disables Deep with
 // the reason when it isn't available.
 import { createFileRoute } from "@tanstack/react-router";
+import { resolveDocgenBaseUrl, docgenAuthHeaders } from "@/utils/docgenService.server";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -38,21 +39,21 @@ export const Route = createFileRoute("/api/docgen/status")({
     handlers: {
       OPTIONS: async () => new Response(null, { headers: corsHeaders }),
       GET: async () => {
-        const serviceUrl = (process.env.DOCGEN_SERVICE_URL || "").replace(/\/+$/, "");
+        // Falls back to probing the well-known hostnames when the env var is
+        // unset, so the common setups work without configuration at all.
+        const serviceUrl = await resolveDocgenBaseUrl();
         if (!serviceUrl) {
           return json({
             available: false,
             reason:
-              "DOCGEN_SERVICE_URL is not set. Start the renderer (docker compose --profile docgen up -d) and point the app at it.",
+              "No doc-gen service found. Start it with `docker compose --profile docgen up -d`, or set DOCGEN_SERVICE_URL if it runs elsewhere.",
           } satisfies DocgenStatus);
         }
         const ctrl = new AbortController();
         const timer = setTimeout(() => ctrl.abort(), 4000);
         try {
           const resp = await fetch(`${serviceUrl}/health`, {
-            headers: process.env.DOCGEN_TOKEN
-              ? { Authorization: `Bearer ${process.env.DOCGEN_TOKEN}` }
-              : {},
+            headers: docgenAuthHeaders(),
             signal: ctrl.signal,
           });
           if (!resp.ok) {
