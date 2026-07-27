@@ -5,7 +5,7 @@
 import { llmJson } from "@/lib/biAgent";
 import type { DocContext } from "@/utils/docGen.functions";
 
-import type { DocFormat, DocScope, DocxPlan, PptxPlan, XlsxPlan } from "./types";
+import type { DocFormat, DocGenMode, DocScope, DocxPlan, PptxPlan, XlsxPlan } from "./types";
 
 /** A trimmed slice of the chat so the document reflects the conversation. */
 export type PlanConversationTurn = { role: "user" | "assistant"; content: string };
@@ -60,7 +60,34 @@ type PlanArgs = {
   model?: string;
   scope?: DocScope;
   conversation?: PlanConversationTurn[];
+  /**
+   * Planning was mode-blind, so "Deep" only changed HOW the same deck was
+   * rendered — same slide count, same diagram mix — which is most of why it
+   * read as "Deep did nothing". Deep now commissions a substantially larger and
+   * more varied deck; the slower renderer is the second half of the promise,
+   * not all of it.
+   */
+  mode?: DocGenMode;
 };
+
+/** Deck size + variety brief — the bulk of what "Deep" actually buys. */
+function deckBrief(mode: DocGenMode | undefined) {
+  const deep = mode === "deep";
+  return {
+    slides: deep
+      ? "24–30 slides — a comprehensive, board-grade deck"
+      : "16–22 slides — a substantial, thorough deck (NOT a short one)",
+    mix: deep
+      ? '2 "kpi" slides (an opener and a mid-deck scorecard), 8–10 "chart"/"twoColumn" data slides, 10–14 "diagram" slides that between them use EVERY ONE of the 14 diagram kinds above at least once (and no kind more than twice), 4–5 "section" dividers, 1–2 "table" slides where exact figures matter, and a closing "bullets"'
+      : '1 "kpi" opener, 6–7 "chart"/"twoColumn" (data), 6–8 "diagram" slides using AT LEAST 8 DIFFERENT diagram kinds from the list above (do not repeat the same kind more than twice), 3 "section" dividers, and a closing "bullets"',
+    depth: deep
+      ? '- GO DEEPER, not merely longer. Every data slide\'s "takeaway" must be a NON-OBVIOUS reading of the numbers — what changed, why it matters, what to do — never a restatement of the chart. Across the deck, cover the second-order angles a thorough analyst would raise: risks, sensitivities, assumptions, alternatives considered, what would falsify the conclusion, and what happens next. Give each diagram a DIFFERENT subject so no two make the same point.\n'
+      : "",
+    // ~30 slides of diagram JSON does not fit in 12k; truncation yields invalid
+    // JSON and the whole plan is lost.
+    maxTokens: deep ? 20000 : 12000,
+  };
+}
 
 function userPrompt(args: PlanArgs): string {
   return `TASK: ${args.prompt}${conversationBlock(args.conversation)}\n\nCONTEXT:\n${contextBlock(
@@ -69,6 +96,7 @@ function userPrompt(args: PlanArgs): string {
 }
 
 export async function planPptx(args: PlanArgs): Promise<PptxPlan> {
+  const brief = deckBrief(args.mode);
   return llmJson<PptxPlan>({
     systemPrompt:
       `${COMMON}\n` +
@@ -105,8 +133,9 @@ export async function planPptx(args: PlanArgs): Promise<PptxPlan> {
       `- sketch: { "kind":"sketch", "shapes":[ { "type":"box"|"ellipse", "x","y","w"?,"h"?, "label"?, "color"? } | { "type":"arrow", "x","y","x2","y2", "label"? } | { "type":"text", "x","y","label" } ] } — a FREEFORM illustration you compose yourself (excalidraw-style) when no structured type fits. Coordinates are 0–100 (percent of the canvas, x→right, y→down); "color" is a palette index 0–5. Place boxes and connect them with arrows to explain a concept, mechanism or relationship.\n` +
       `Whenever content is a sequence, comparison, matrix, roadmap, set of features, funnel, hierarchy, cycle, board, an architecture/flow, or a concept best drawn freely, use the matching diagram INSTEAD of a bullets slide. It's good to include ONE "graph" (architecture/flow) and, where a concept needs a custom picture, one "sketch".\n` +
       `LAYOUT RULES:\n` +
-      `- 16–22 slides — a substantial, thorough deck (NOT a short one). The cover is generated from title/subtitle automatically — do NOT add a cover slide. "accent" is a 6-hex-digit colour without '#', MEDIUM-to-DARK and saturated (e.g. "4F46E5", "0F766E", "B45309") — never a pale/near-white colour.\n` +
-      `- MIX the layouts richly. Target roughly: 1 "kpi" opener, 6–7 "chart"/"twoColumn" (data), 6–8 "diagram" slides using AT LEAST 8 DIFFERENT diagram kinds from the list above (do not repeat the same kind more than twice), 3 "section" dividers, and a closing "bullets".\n` +
+      `- ${brief.slides}. The cover is generated from title/subtitle automatically — do NOT add a cover slide. "accent" is a 6-hex-digit colour without '#', MEDIUM-to-DARK and saturated (e.g. "4F46E5", "0F766E", "B45309") — never a pale/near-white colour.\n` +
+      `- MIX the layouts richly. Target roughly: ${brief.mix}.\n` +
+      brief.depth +
       `- Charts varied by type — trend → line/area, comparison → column/bar, composition → pie/doughnut, ranking → bar.\n` +
       `- Use a "table" only when exact figures matter; prefer charts + KPIs + diagrams over plain text.\n` +
       `- Add a one-line "takeaway" insight to every data slide, and speaker "notes" to every slide.\n` +
@@ -114,7 +143,7 @@ export async function planPptx(args: PlanArgs): Promise<PptxPlan> {
     userPrompt: userPrompt(args),
     model: args.model,
     temperature: 0.4,
-    maxTokens: 12000, // a 16–22 slide deck with diagrams is a large JSON
+    maxTokens: brief.maxTokens,
   });
 }
 

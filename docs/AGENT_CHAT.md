@@ -116,6 +116,13 @@ probes the service (`GET /api/docgen/status`) and greys out **Deep** with the
 reason when it can't be reached — so "Deep did nothing" is visible up front
 rather than after a generation.
 
+Deep is not only a different renderer — it commissions a **bigger deck**. Fast
+plans 16–22 slides using at least 8 diagram kinds; Deep plans **24–30 slides**
+using **all 14** diagram kinds, with a second KPI scorecard, more data slides,
+and takeaways that are asked to be a non-obvious reading of the numbers rather
+than a restatement of the chart. The server renderer also adds a **Contents**
+page when the deck has three or more sections.
+
 There is **nothing to configure**: the app finds the renderer at
 `http://docgen:8099` when it runs inside the compose network, or at
 `http://localhost:8099` when you run `npm run dev` on the host (the container

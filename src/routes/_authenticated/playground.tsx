@@ -950,6 +950,9 @@ function PlaygroundPage() {
         prompt,
         context: ctx.context,
         scope: dataScope,
+        // Deep is not just a different renderer — it commissions a bigger,
+        // more varied deck. Without this the plan was identical to Fast's.
+        mode: docMode,
         conversation: messages.map((m) => ({
           role: m.role === "user" ? "user" : ("assistant" as const),
           content: m.content,

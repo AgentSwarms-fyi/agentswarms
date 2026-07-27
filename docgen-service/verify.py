@@ -103,6 +103,12 @@ def critique(images: list[bytes], plan: dict[str, Any], model: str | None) -> di
         return {}
 
 
+def _has_text(slide: dict[str, Any]) -> bool:
+    """Does the slide still say something once its visual is gone?"""
+    return bool(slide.get("bullets") or slide.get("paragraph") or slide.get("table")
+                or slide.get("kpis"))
+
+
 def apply_fixes(plan: dict[str, Any], fixes: dict[str, Any]) -> bool:
     """Apply the constrained fixes to the plan in place. Returns True if changed.
     `slide` is 1-based over the content slides (the auto cover is not counted)."""
@@ -115,13 +121,26 @@ def apply_fixes(plan: dict[str, Any], fixes: dict[str, Any]) -> bool:
         s = slides[idx]
         action = fix.get("action")
         if action == "shrink_title" and s.get("title"):
-            s["_titleScale"] = 0.8  # renderer may honour; harmless if not
             s["title"] = s["title"][:70]
             changed = True
         elif action == "trim_bullets" and s.get("bullets"):
             s["bullets"] = [b[:90] for b in s["bullets"][:4]]
             changed = True
         elif action == "drop_visual":
+            # The reviewer flags a blank visual and asks us to remove it — but
+            # on a slide whose ONLY content IS that visual, removing it leaves a
+            # title over white space. That turned "chart didn't fill" into "slide
+            # is empty", and it happened in Deep mode only, because only Deep
+            # runs this loop. Promote the notes to body text so the slide still
+            # carries its point; refuse the fix outright if there is nothing to
+            # promote, since a weak visual beats a blank slide.
+            if not _has_text(s):
+                notes = str(s.get("notes") or "").strip()
+                takeaway = str(s.get("takeaway") or "").strip()
+                body = notes or takeaway
+                if not body:
+                    continue
+                s["paragraph"] = body[:600]
             s.pop("chart", None)
             s.pop("diagram", None)
             s.pop("diagramSvg", None)

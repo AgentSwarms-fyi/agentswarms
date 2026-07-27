@@ -234,6 +234,7 @@ class Deck:
     # ── deck ─────────────────────────────────────────────────────────────
     def build(self) -> bytes:
         self._cover()
+        self._contents()
         section_no = 0
         current_section = ""
         for s in self.plan.get("slides", []):
@@ -289,6 +290,43 @@ class Deck:
         n = len(self.plan.get("slides") or [])
         self._text(s, 0.9, 6.6, 8, 0.4, f"{n} slides · Generated {self.date}",
                    size=11, color="94A3B8")
+
+    def _contents(self):
+        """
+        A contents page built from the deck's own section dividers. Only the
+        server renderer produces this, so it is one of the things that visibly
+        marks a Deep deck apart from the in-browser build — and on a 25-slide
+        deck a reader genuinely needs it. Skipped when the deck is too small to
+        warrant one.
+        """
+        sections = [
+            s for s in self.plan.get("slides", [])
+            if (s.get("layout") == "section") and s.get("title")
+        ]
+        if len(sections) < 3:
+            return
+        slide = self._slide("FFFFFF")
+        self._rect(slide, 0, 0, 0.16, CH, self.accent)
+        self._text(slide, M, 0.66, CONTENT_W, 0.7, "Contents", size=30, bold=True, color=INK)
+        self._rect(slide, M, 1.42, 0.5, 0.05, self.accent)
+        self._rect(slide, M + 0.6, 1.442, CONTENT_W - 0.6, 0.012, BORDER)
+
+        # Two columns once a deck has more sections than fit comfortably.
+        per_col = 6
+        cols = 1 if len(sections) <= per_col else 2
+        col_w = (CONTENT_W - (0.6 if cols == 2 else 0)) / cols
+        rows = -(-len(sections) // cols)
+        row_h = min(0.72, (6.6 - 1.9) / max(rows, 1))
+        for i, sec in enumerate(sections[: per_col * 2]):
+            c, r = divmod(i, rows)
+            x = M + c * (col_w + 0.6)
+            y = 1.9 + r * row_h
+            self._text(slide, x, y, 0.6, row_h, f"{i + 1:02d}", size=17, bold=True,
+                       color=self.accent_ink, anchor=MSO_ANCHOR.MIDDLE)
+            self._text(slide, x + 0.62, y, col_w - 0.72, row_h, str(sec["title"]), size=15,
+                       color=INK, anchor=MSO_ANCHOR.MIDDLE)
+            self._rect(slide, x, y + row_h - 0.06, col_w - 0.1, 0.008, BORDER)
+        self._footer(slide)
 
     def _section(self, no: int, s: dict):
         slide = self._slide(INK_DEEP)
@@ -351,6 +389,12 @@ class Deck:
         has_chart = _chart_has_data(s.get("chart"))
         has_visual = has_chart or bool(s.get("table"))
         has_text = bool(s.get("bullets") or s.get("paragraph"))
+        if not has_visual and not has_text:
+            # A "chart" slide whose query returned nothing, or one the verify
+            # loop stripped: the content area would be white space under a
+            # title. Never ship that — say what the slide is about instead.
+            self._empty_state(slide, s, top, bottom)
+            return
         if has_visual and has_text:
             if has_chart:
                 self._chart(slide, s["chart"], M, top, 7.3, bottom - top)
@@ -379,6 +423,21 @@ class Deck:
         runs = [(str(b), {"bullet": True, "size": 18, "color": BODY, "space_after": 15})
                 for b in bullets]
         self._text(slide, x, y, w, h, runs)
+
+    def _empty_state(self, slide, s, top, bottom):
+        """Last-resort content so no slide ever renders as a bare title."""
+        notes = str(s.get("notes") or "").strip()
+        takeaway = str(s.get("takeaway") or "").strip()
+        body = notes or takeaway
+        if body:
+            self._text(slide, M, top + 0.1, CONTENT_W, min(2.4, bottom - top - 0.2),
+                       body, size=16, color=BODY)
+            return
+        h = min(1.1, bottom - top)
+        self._rect(slide, M, top + 0.1, CONTENT_W, h, CARD, radius=True, line=BORDER)
+        self._text(slide, M + 0.4, top + 0.1, CONTENT_W - 0.8, h,
+                   "No data was available for this view.", size=13, color=SUB,
+                   anchor=MSO_ANCHOR.MIDDLE)
 
     def _card(self, slide, x, y, w, h, top_rule=False):
         self._rect(slide, x, y, w, h, "FFFFFF", radius=True, line=BORDER)
