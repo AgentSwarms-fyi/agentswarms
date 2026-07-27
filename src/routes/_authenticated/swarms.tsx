@@ -835,7 +835,6 @@ function SwarmsCanvas({
   const [tourCaseStudies, setTourCaseStudies] = useState<SwarmTemplate["caseStudies"]>([]);
   const [tourOpen, setTourOpen] = useState(false);
 
-
   // run state. Execution lives in the module-level swarmRunManager so a run
   // keeps going across client navigation (the "Gallery" back button) instead
   // of being orphaned when this component unmounts. We derive the live view
@@ -857,7 +856,6 @@ function SwarmsCanvas({
   const activeRun = useMemo(() => {
     if (activeRunId) return managedRuns.find((r) => r.runId === activeRunId) ?? null;
     return getActiveRunForSwarm(swarmId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [managedRuns, activeRunId, swarmId]);
   const running = !!activeRun && (activeRun.status === "running" || activeRun.status === "waiting");
   const events = activeRun?.events ?? EMPTY_EVENTS;
@@ -1580,6 +1578,23 @@ function SwarmsCanvas({
       toast.success(`Imported "${imported.name}"`, {
         description: `${imported.nodes.length} nodes · ${imported.edges.length} edges`,
       });
+      // Function nodes carry code that runs when you press Run. It executes in
+      // an isolated Worker with no network, storage or DOM access, so it can't
+      // reach your session — but it is still someone else's code operating on
+      // your flow data, so say so rather than letting it run unannounced.
+      const withCode = imported.nodes.filter(
+        (n) => (n.data as { kind?: string; functionCode?: string })?.kind === "function",
+      ).length;
+      if (withCode > 0) {
+        toast.warning(
+          `This swarm contains ${withCode} custom-code node${withCode === 1 ? "" : "s"}`,
+          {
+            description:
+              "Review the code in each Function node before running. It runs sandboxed (no network or storage access) but still processes your flow data.",
+            duration: 10000,
+          },
+        );
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to import swarm");
     }
