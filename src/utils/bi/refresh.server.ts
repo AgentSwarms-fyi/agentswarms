@@ -849,8 +849,14 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
       .then((m) => m.purgeAuditEvents(force))
       .catch((e) => console.warn("[audit-purge] failed:", (e as Error).message));
     await import("@/utils/chatRetention.server")
-      .then((m) => m.purgeExpiredChats(force))
+      .then(async (m) => {
+        await m.purgeExpiredChats(force);
+        await m.purgeExpiredEmbedTranscripts(force);
+      })
       .catch((e) => console.warn("[chat-retention] failed:", (e as Error).message));
+    await import("@/utils/swarmWebhook.server")
+      .then((m) => m.purgeIdempotencyRecords())
+      .catch((e) => console.warn("[idempotency-purge] failed:", (e as Error).message));
     await import("@/utils/observability/retention.server")
       .then((m) => m.purgeTraces(force))
       .catch((e) => console.warn("[trace-retention] failed:", (e as Error).message));
@@ -880,7 +886,6 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
 // ── In-process scheduler (long-running node server) ──────────────────────
 
 declare global {
-  // eslint-disable-next-line no-var
   var __biSchedulerStarted: boolean | undefined;
 }
 

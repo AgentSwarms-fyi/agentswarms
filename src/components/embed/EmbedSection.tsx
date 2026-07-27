@@ -367,6 +367,8 @@ function CreateEmbedDialog({
   // Optional per-key spend ceiling. Blank = no key-level limit (the owner's
   // personal and group caps still apply).
   const [monthlyCap, setMonthlyCap] = useState("");
+  // How long we keep what visitors typed (their prompts land in the trace log).
+  const [retentionDays, setRetentionDays] = useState(30);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -377,6 +379,7 @@ function CreateEmbedDialog({
       setAllowAi(false);
       setExpiryDays(90);
       setMonthlyCap("");
+      setRetentionDays(30);
     }
   }, [type]);
 
@@ -409,6 +412,7 @@ function CreateEmbedDialog({
       allow_ai: type === "bi_dashboard" ? allowAi : false,
       expires_at:
         expiryDays > 0 ? new Date(Date.now() + expiryDays * 86_400_000).toISOString() : null,
+      transcript_retention_days: retentionDays,
     };
     const { data, error } = await supabase
       .from("embed_keys")
@@ -511,6 +515,27 @@ function CreateEmbedDialog({
             <p className="text-[11px] text-muted-foreground">
               After this, the key stops working everywhere until you issue a new one. Embed keys are
               visible in the host page's HTML, so a bounded lifetime limits the damage if one leaks.
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Keep visitor messages for</Label>
+            <Select
+              value={String(retentionDays)}
+              onValueChange={(v) => setRetentionDays(Number(v))}
+            >
+              <SelectTrigger className="h-9">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="7">7 days</SelectItem>
+                <SelectItem value="30">30 days</SelectItem>
+                <SelectItem value="90">90 days</SelectItem>
+                <SelectItem value="365">1 year</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] text-muted-foreground">
+              Anything visitors type is recorded in your trace log for observability and cost
+              reporting. A scheduled purge deletes those records once this window passes.
             </p>
           </div>
           <div className="space-y-1.5">

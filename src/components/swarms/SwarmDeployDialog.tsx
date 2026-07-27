@@ -156,6 +156,8 @@ export function SwarmDeployDialog({
   const [keyExpiryDays, setKeyExpiryDays] = useState(90);
   const [creating, setCreating] = useState(false);
   const [newRawKey, setNewRawKey] = useState<string | null>(null);
+  // Shown once alongside the key: receivers use it to verify async callbacks.
+  const [newWebhookSecret, setNewWebhookSecret] = useState<string | null>(null);
 
   // New-schedule form
   const [schedName, setSchedName] = useState("Daily run");
@@ -190,7 +192,10 @@ export function SwarmDeployDialog({
 
   useEffect(() => {
     if (open && swarmId) void load();
-    if (!open) setNewRawKey(null);
+    if (!open) {
+      setNewRawKey(null);
+      setNewWebhookSecret(null);
+    }
   }, [open, swarmId, load]);
 
   const curl = useMemo(
@@ -223,6 +228,7 @@ export function SwarmDeployDialog({
       });
       if (!res.ok) throw new Error(res.error);
       setNewRawKey(res.raw_key);
+      setNewWebhookSecret(res.webhook_secret);
       if (!rotateFrom) setKeyName("Production key");
       setKeyReject(true);
       await load();
@@ -361,6 +367,27 @@ export function SwarmDeployDialog({
                     </code>
                     <CopyButton text={newRawKey} />
                   </div>
+                  {newWebhookSecret && (
+                    <>
+                      <p className="pt-1 text-[11px] font-medium text-emerald-400">
+                        Webhook signing secret (for async runs)
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <code className="flex-1 truncate rounded bg-background/60 px-2 py-1 font-mono text-xs">
+                          {newWebhookSecret}
+                        </code>
+                        <CopyButton text={newWebhookSecret} />
+                      </div>
+                      <p className="text-[10px] text-muted-foreground">
+                        Verify a callback by computing{" "}
+                        <code className="font-mono">
+                          HMAC-SHA256(secret, `${"{timestamp}"}.${"{body}"}`)
+                        </code>{" "}
+                        and comparing it with the{" "}
+                        <code className="font-mono">X-AgentSwarms-Signature</code> header.
+                      </p>
+                    </>
+                  )}
                 </div>
               )}
 
@@ -415,6 +442,18 @@ export function SwarmDeployDialog({
                 <pre className="overflow-x-auto rounded-md border border-border/60 bg-background/60 p-2.5 text-[11px] leading-relaxed font-mono">
                   {curl}
                 </pre>
+                <p className="mt-1.5 text-[10px] text-muted-foreground">
+                  <span className="font-medium text-foreground">Long runs:</span> add{" "}
+                  <code className="font-mono">{`"async": true, "callback_url": "https://…"`}</code>{" "}
+                  to get an immediate <code className="font-mono">202</code> and have the result
+                  POSTed to your endpoint when it finishes (signed with the key's webhook secret in{" "}
+                  <code className="font-mono">X-AgentSwarms-Signature</code>).
+                </p>
+                <p className="mt-1 text-[10px] text-muted-foreground">
+                  <span className="font-medium text-foreground">Safe retries:</span> send an{" "}
+                  <code className="font-mono">Idempotency-Key</code> header — a repeat of the same
+                  key returns the original result instead of running (and billing) again.
+                </p>
                 <p className="mt-1.5 text-[10px] text-muted-foreground">
                   Chatbot mode: add{" "}
                   <code className="font-mono">

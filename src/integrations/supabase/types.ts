@@ -1147,6 +1147,7 @@ export type Database = {
           last_used_ip: string | null;
           revoked_at: string | null;
           rotated_from: string | null;
+          transcript_retention_days: number;
         };
         Insert: {
           allow_ai?: boolean;
@@ -1166,6 +1167,7 @@ export type Database = {
           last_used_ip?: string | null;
           revoked_at?: string | null;
           rotated_from?: string | null;
+          transcript_retention_days?: number;
         };
         Update: {
           allow_ai?: boolean;
@@ -1185,6 +1187,7 @@ export type Database = {
           last_used_ip?: string | null;
           revoked_at?: string | null;
           rotated_from?: string | null;
+          transcript_retention_days?: number;
         };
         Relationships: [];
       };
@@ -2263,6 +2266,42 @@ export type Database = {
         };
         Relationships: [];
       };
+      swarm_run_idempotency: {
+        Row: {
+          api_key_id: string;
+          completed_at: string | null;
+          created_at: string;
+          id: string;
+          idempotency_key: string;
+          request_hash: string;
+          response: Json | null;
+          run_id: string | null;
+          status: string;
+        };
+        Insert: {
+          api_key_id: string;
+          completed_at?: string | null;
+          created_at?: string;
+          id?: string;
+          idempotency_key: string;
+          request_hash: string;
+          response?: Json | null;
+          run_id?: string | null;
+          status?: string;
+        };
+        Update: {
+          api_key_id?: string;
+          completed_at?: string | null;
+          created_at?: string;
+          id?: string;
+          idempotency_key?: string;
+          request_hash?: string;
+          response?: Json | null;
+          run_id?: string | null;
+          status?: string;
+        };
+        Relationships: [];
+      };
       swarm_api_keys: {
         Row: {
           created_at: string;
@@ -2282,6 +2321,8 @@ export type Database = {
           revoked_at: string | null;
           rotated_from: string | null;
           scopes: string[];
+          webhook_secret: string | null;
+          callback_url: string | null;
         };
         Insert: {
           created_at?: string;
@@ -2301,6 +2342,8 @@ export type Database = {
           revoked_at?: string | null;
           rotated_from?: string | null;
           scopes?: string[];
+          webhook_secret?: string | null;
+          callback_url?: string | null;
         };
         Update: {
           created_at?: string;
@@ -2320,6 +2363,8 @@ export type Database = {
           revoked_at?: string | null;
           rotated_from?: string | null;
           scopes?: string[];
+          webhook_secret?: string | null;
+          callback_url?: string | null;
         };
         Relationships: [];
       };

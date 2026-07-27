@@ -5,6 +5,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { auditEvent } from "@/utils/audit.server";
+import { generateWebhookSecret } from "@/utils/swarmWebhook.server";
 
 export async function sha256Hex(input: string): Promise<string> {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
@@ -46,13 +47,18 @@ export const createSwarmApiKey = createServerFn({ method: "POST" })
          * every live caller the instant a new key is minted).
          */
         rotated_from: z.string().uuid().optional(),
+        /** Default destination for async run results (may be overridden per run). */
+        callback_url: z.string().url().max(2000).nullable().optional(),
       })
       .parse(input),
   )
   .handler(
     async ({
       data,
-    }): Promise<{ ok: false; error: string } | { ok: true; id: string; raw_key: string }> => {
+    }): Promise<
+      | { ok: false; error: string }
+      | { ok: true; id: string; raw_key: string; webhook_secret: string | null }
+    > => {
       const userId = await userFromToken(data.access_token);
       if (!userId) return { ok: false, error: "Invalid session" };
 
@@ -101,8 +107,12 @@ export const createSwarmApiKey = createServerFn({ method: "POST" })
           expires_at,
           scopes: data.scopes ?? ["run"],
           rotated_from: data.rotated_from ?? null,
+          // Every key gets a signing secret so async runs can post a verifiable
+          // callback without a second setup step.
+          webhook_secret: generateWebhookSecret(),
+          callback_url: data.callback_url ?? null,
         })
-        .select("id")
+        .select("id, webhook_secret")
         .single();
       if (error || !row) return { ok: false, error: error?.message ?? "Could not create key" };
       auditEvent({
@@ -118,6 +128,6 @@ export const createSwarmApiKey = createServerFn({ method: "POST" })
           ...(data.rotated_from ? { rotated_from: data.rotated_from } : {}),
         },
       });
-      return { ok: true, id: row.id, raw_key: raw };
+      return { ok: true, id: row.id, raw_key: raw, webhook_secret: row.webhook_secret };
     },
   );

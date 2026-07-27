@@ -2,9 +2,20 @@
 //
 //   POST /api/swarm/run
 //   Authorization: Bearer sk_swarm_…
+//   Idempotency-Key: <optional, client-chosen>
 //   { "input": "…", "inputs": { "field": "value" },
-//     "history": [{ "role": "user"|"assistant", "content": "…" }] }
-//   → { "output": "…", "runId": "…" }
+//     "history": [{ "role": "user"|"assistant", "content": "…" }],
+//     "async": false, "callback_url": "https://…" }
+//   → { "output": "…", "runId": "…" }          (sync)
+//   → 202 { "accepted": true, "callback_url": … } (async)
+//
+// Idempotency-Key makes retries safe: repeating a key returns the original
+// result instead of re-running (and re-billing) the swarm. Reusing a key with
+// a different body is rejected with 422.
+//
+// async:true returns immediately and POSTs the result to callback_url when the
+// run finishes, signed with the key's webhook secret (X-AgentSwarms-Signature,
+// HMAC-SHA256 over "<timestamp>.<body>").
 //
 // `history` (optional) turns a swarm into a multi-turn chatbot: prior turns
 // are replayed into every agent node so the swarm answers in context. The
@@ -22,6 +33,7 @@ import { acquireSlot, envInt, rateLimited, releaseSlot } from "@/utils/rateLimit
 import { auditEvent } from "@/utils/audit.server";
 import { clientIp, clientUserAgent } from "@/utils/requestMeta.server";
 import { budgetMessage, getBudgetDecision } from "@/utils/budgetGuard.server";
+import { deliverRunCallback, hashBody } from "@/utils/swarmWebhook.server";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -46,7 +58,9 @@ export const Route = createFileRoute("/api/swarm/run")({
         const keyHash = await sha256Hex(rawKey);
         const { data: key } = await supabaseAdmin
           .from("swarm_api_keys")
-          .select("id, user_id, swarm_id, is_active, reject_approvals, expires_at, scopes")
+          .select(
+            "id, user_id, swarm_id, is_active, reject_approvals, expires_at, scopes, webhook_secret, callback_url",
+          )
           .eq("key_hash", keyHash)
           .maybeSingle();
         if (!key) return json({ error: "Invalid or disabled API key" }, 401);
@@ -104,13 +118,77 @@ export const Route = createFileRoute("/api/swarm/run")({
           return json({ error: budgetMessage(budget) }, 402);
         }
 
+        // Set when a detached async run takes ownership of the concurrency
+        // slot, so the outer finally does not release it early.
+        let asyncStarted = false;
+
         try {
-          let payload: { input?: unknown; inputs?: unknown; history?: unknown } = {};
+          let payload: {
+            input?: unknown;
+            inputs?: unknown;
+            history?: unknown;
+            async?: unknown;
+            callback_url?: unknown;
+          } = {};
           try {
             payload = (await request.json()) as typeof payload;
           } catch {
             /* empty body ok */
           }
+
+          // ── Idempotency ───────────────────────────────────────────────
+          // A retried POST (client timeout, proxy retry, at-least-once queue)
+          // used to re-run the whole swarm and re-bill it. With a key we
+          // return the original result instead.
+          const idemKey = (request.headers.get("idempotency-key") || "").trim().slice(0, 200);
+          const reqHash = idemKey ? await hashBody(payload) : "";
+          if (idemKey) {
+            const { data: existing } = await supabaseAdmin
+              .from("swarm_run_idempotency")
+              .select("status, response, request_hash, run_id")
+              .eq("api_key_id", key.id)
+              .eq("idempotency_key", idemKey)
+              .maybeSingle();
+            if (existing) {
+              // Same key, different body is a client bug — fail loudly rather
+              // than hand back an unrelated run's output.
+              if (existing.request_hash !== reqHash) {
+                return json(
+                  {
+                    error: "This Idempotency-Key was already used with a different request body.",
+                  },
+                  422,
+                );
+              }
+              if (existing.status === "completed" && existing.response) {
+                return json(existing.response as Record<string, unknown>);
+              }
+              if (existing.status === "in_progress") {
+                return json(
+                  {
+                    error: "A run with this Idempotency-Key is still in progress.",
+                    runId: existing.run_id,
+                  },
+                  409,
+                );
+              }
+              // A previously failed attempt may be retried: fall through and
+              // let the insert below refresh it.
+            }
+            const { error: claimErr } = await supabaseAdmin.from("swarm_run_idempotency").upsert(
+              {
+                api_key_id: key.id,
+                idempotency_key: idemKey,
+                request_hash: reqHash,
+                status: "in_progress",
+                response: null,
+                completed_at: null,
+              },
+              { onConflict: "api_key_id,idempotency_key" },
+            );
+            if (claimErr) console.warn("[swarm-run] idempotency claim failed:", claimErr.message);
+          }
+
           const input = typeof payload.input === "string" ? payload.input : "";
           const initialState: Record<string, string> = {};
           if (payload.inputs && typeof payload.inputs === "object") {
@@ -146,17 +224,6 @@ export const Route = createFileRoute("/api/swarm/run")({
           // header, because the executor sends an internal secret to this origin.
           const origin = resolveInternalOrigin();
 
-          const result = await executeSwarmServer({
-            swarm,
-            userId: key.user_id,
-            origin,
-            input,
-            initialState,
-            history,
-            rejectApprovals: key.reject_approvals,
-            source: "api",
-          });
-
           // Best-effort last-used stamp (incl. calling IP, for forensics).
           const ip = clientIp(request);
           void supabaseAdmin
@@ -168,13 +235,104 @@ export const Route = createFileRoute("/api/swarm/run")({
             .eq("id", key.id)
             .then(undefined, () => undefined);
 
-          if (result.status === "error") {
-            return json({ error: result.error, runId: result.runId }, 400);
+          const runSwarm = () =>
+            executeSwarmServer({
+              swarm,
+              userId: key.user_id,
+              origin,
+              input,
+              initialState,
+              history,
+              rejectApprovals: key.reject_approvals,
+              source: "api",
+            });
+
+          /** Record the outcome against the idempotency key, if one was sent. */
+          const finishIdempotency = async (status: "completed" | "failed", body: unknown) => {
+            if (!idemKey) return;
+            await supabaseAdmin
+              .from("swarm_run_idempotency")
+              .update({
+                status,
+                response: body as never,
+                completed_at: new Date().toISOString(),
+              })
+              .eq("api_key_id", key.id)
+              .eq("idempotency_key", idemKey);
+          };
+
+          // ── Async mode ────────────────────────────────────────────────
+          // A long swarm shouldn't hold an HTTP connection open. Return
+          // immediately and POST the result to the callback when it lands.
+          const wantAsync = payload.async === true;
+          const callbackUrl =
+            typeof payload.callback_url === "string" && payload.callback_url.trim()
+              ? payload.callback_url.trim()
+              : (key.callback_url ?? null);
+          if (wantAsync) {
+            if (!callbackUrl) {
+              return json(
+                {
+                  error:
+                    "Async runs need a callback: pass callback_url, or set a default on the API key.",
+                },
+                400,
+              );
+            }
+            // Detached: hold the concurrency slot for the real duration of the
+            // run, and release it in this task rather than the outer finally.
+            void (async () => {
+              try {
+                const result = await runSwarm();
+                const body = {
+                  runId: result.runId,
+                  status: result.status,
+                  output: result.output,
+                  error: result.error,
+                  swarmId: swarm.id,
+                };
+                await finishIdempotency(result.status === "error" ? "failed" : "completed", body);
+                await deliverRunCallback({
+                  url: callbackUrl,
+                  secret: key.webhook_secret,
+                  payload: body,
+                });
+              } catch (e) {
+                const body = {
+                  runId: null,
+                  status: "error" as const,
+                  output: "",
+                  error: (e as Error).message,
+                  swarmId: swarm.id,
+                };
+                await finishIdempotency("failed", body);
+                await deliverRunCallback({
+                  url: callbackUrl,
+                  secret: key.webhook_secret,
+                  payload: body,
+                });
+              } finally {
+                releaseSlot(bucket);
+              }
+            })();
+            asyncStarted = true; // outer finally must not double-release
+            return json({ accepted: true, callback_url: callbackUrl }, 202);
           }
-          return json({ output: result.output, runId: result.runId });
+
+          // ── Synchronous mode (default) ────────────────────────────────
+          const result = await runSwarm();
+          if (result.status === "error") {
+            const body = { error: result.error, runId: result.runId };
+            await finishIdempotency("failed", body);
+            return json(body, 400);
+          }
+          const body = { output: result.output, runId: result.runId };
+          await finishIdempotency("completed", body);
+          return json(body);
         } finally {
-          // Always give the concurrency slot back, including on a thrown error.
-          releaseSlot(bucket);
+          // Give the concurrency slot back — except in async mode, where the
+          // detached task owns it until the run actually finishes.
+          if (!asyncStarted) releaseSlot(bucket);
         }
       },
     },

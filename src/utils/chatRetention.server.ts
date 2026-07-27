@@ -25,6 +25,7 @@ const CHUNK = 100;
 const DOC_BUCKET = "chat-docs";
 
 let lastPurge = 0;
+let lastEmbedPurge = 0;
 
 function chunk<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
@@ -117,5 +118,49 @@ export async function purgeExpiredChats(force = false): Promise<number> {
   }
 
   if (deleted > 0) console.log(`[chat-retention] purged ${deleted} expired message(s)`);
+  return deleted;
+}
+
+/**
+ * Purge what embed visitors typed, past each key's retention window.
+ *
+ * Embeds don't persist a transcript of their own, but every model call lands
+ * in execution_traces WITH the prompt text — so an anonymous widget quietly
+ * accumulates whatever strangers typed into it. This deletes those traces once
+ * the key's `transcript_retention_days` has elapsed. Signed-in conversations
+ * are covered separately by purgeExpiredChats above.
+ */
+export async function purgeExpiredEmbedTranscripts(force = false): Promise<number> {
+  const now = Date.now();
+  if (!force && now - lastEmbedPurge < PURGE_INTERVAL_MS) return 0;
+  lastEmbedPurge = now;
+
+  const { data: keys, error } = await supabaseAdmin
+    .from("embed_keys")
+    .select("id, transcript_retention_days");
+  if (error) {
+    console.warn("[embed-retention] key read failed:", error.message);
+    return 0;
+  }
+
+  let deleted = 0;
+  for (const k of keys ?? []) {
+    const days = Math.max(1, k.transcript_retention_days ?? 30);
+    const cutoff = new Date(now - days * DAY_MS).toISOString();
+    const { data: removed, error: delErr } = await supabaseAdmin
+      .from("execution_traces")
+      .delete()
+      .eq("cost_scope_type", "embed_key")
+      .eq("cost_scope_id", k.id)
+      .lt("created_at", cutoff)
+      .select("id");
+    if (delErr) {
+      console.warn("[embed-retention] delete failed:", delErr.message);
+      continue;
+    }
+    deleted += removed?.length ?? 0;
+  }
+
+  if (deleted > 0) console.log(`[embed-retention] purged ${deleted} expired embed trace(s)`);
   return deleted;
 }
