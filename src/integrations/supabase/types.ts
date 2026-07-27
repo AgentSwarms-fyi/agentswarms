@@ -1080,6 +1080,10 @@ export type Database = {
           updated_at: string;
           use_count: number;
           user_id: string;
+          expires_at: string | null;
+          last_used_ip: string | null;
+          revoked_at: string | null;
+          rotated_from: string | null;
         };
         Insert: {
           allow_ai?: boolean;
@@ -1095,6 +1099,10 @@ export type Database = {
           updated_at?: string;
           use_count?: number;
           user_id: string;
+          expires_at?: string | null;
+          last_used_ip?: string | null;
+          revoked_at?: string | null;
+          rotated_from?: string | null;
         };
         Update: {
           allow_ai?: boolean;
@@ -1110,6 +1118,10 @@ export type Database = {
           updated_at?: string;
           use_count?: number;
           user_id?: string;
+          expires_at?: string | null;
+          last_used_ip?: string | null;
+          revoked_at?: string | null;
+          rotated_from?: string | null;
         };
         Relationships: [];
       };
@@ -2196,6 +2208,11 @@ export type Database = {
           updated_at: string;
           use_count: number;
           user_id: string;
+          expires_at: string | null;
+          last_used_ip: string | null;
+          revoked_at: string | null;
+          rotated_from: string | null;
+          scopes: string[];
         };
         Insert: {
           created_at?: string;
@@ -2210,6 +2227,11 @@ export type Database = {
           updated_at?: string;
           use_count?: number;
           user_id: string;
+          expires_at?: string | null;
+          last_used_ip?: string | null;
+          revoked_at?: string | null;
+          rotated_from?: string | null;
+          scopes?: string[];
         };
         Update: {
           created_at?: string;
@@ -2224,6 +2246,11 @@ export type Database = {
           updated_at?: string;
           use_count?: number;
           user_id?: string;
+          expires_at?: string | null;
+          last_used_ip?: string | null;
+          revoked_at?: string | null;
+          rotated_from?: string | null;
+          scopes?: string[];
         };
         Relationships: [];
       };

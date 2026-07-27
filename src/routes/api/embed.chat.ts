@@ -328,7 +328,7 @@ export const Route = createFileRoute("/api/embed/chat")({
           return json({ error: "This embed's AI provider is not configured." }, 503);
         }
 
-        touchEmbedKey(keyRow);
+        touchEmbedKey(keyRow, clientIp(request));
         const startedAt = Date.now();
         const upstreamCtrl = new AbortController();
         const timer = setTimeout(() => upstreamCtrl.abort(), 180_000);

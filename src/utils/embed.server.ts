@@ -22,7 +22,12 @@ export type EmbedKeyRow = {
   allow_ai: boolean;
   is_active: boolean;
   use_count: number;
+  /** Hard expiry; NULL means the key never expires. */
+  expires_at: string | null;
 };
+
+const KEY_COLUMNS =
+  "id, user_id, name, key, resource_type, resource_id, allowed_domains, allow_ai, is_active, use_count, expires_at";
 
 export function hostnameOf(originOrUrl: string | null | undefined): string | null {
   if (!originOrUrl) return null;
@@ -70,9 +75,7 @@ export async function validateEmbedKey(opts: {
   }
   const { data: row } = await supabaseAdmin
     .from("embed_keys")
-    .select(
-      "id, user_id, name, key, resource_type, resource_id, allowed_domains, allow_ai, is_active, use_count",
-    )
+    .select(KEY_COLUMNS)
     .eq("key", key)
     .maybeSingle();
   // An unknown key can't be attributed to an owner, so there is nobody to
@@ -102,6 +105,12 @@ export async function validateEmbedKey(opts: {
     denied("key_disabled");
     return { ok: false, status: 403, error: "This embed has been disabled by its owner." };
   }
+  // Expiry is enforced here rather than by a cleanup job, so a lapsed key stops
+  // working the moment it lapses even if no purge has run.
+  if (row.expires_at && Date.parse(row.expires_at) <= Date.now()) {
+    denied("key_expired");
+    return { ok: false, status: 403, error: "This embed key has expired." };
+  }
 
   // Owner preview from /dashboard: a signed-in session token belonging to
   // the key's owner bypasses the domain check (nothing else does).
@@ -125,10 +134,14 @@ export async function validateEmbedKey(opts: {
 }
 
 /** Best-effort usage stamp — never blocks the request path. */
-export function touchEmbedKey(row: EmbedKeyRow): void {
+export function touchEmbedKey(row: EmbedKeyRow, ip?: string | null): void {
   void supabaseAdmin
     .from("embed_keys")
-    .update({ use_count: row.use_count + 1, last_used_at: new Date().toISOString() })
+    .update({
+      use_count: row.use_count + 1,
+      last_used_at: new Date().toISOString(),
+      ...(ip ? { last_used_ip: ip } : {}),
+    })
     .eq("id", row.id)
     .then(() => {});
 }

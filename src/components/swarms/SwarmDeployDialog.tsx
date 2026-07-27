@@ -57,7 +57,26 @@ type ApiKeyRow = {
   is_active: boolean;
   last_used_at: string | null;
   created_at: string;
+  expires_at: string | null;
+  last_used_ip: string | null;
+  scopes: string[] | null;
 };
+
+/** Expiry presets. `0` = never (stored as NULL). */
+const EXPIRY_PRESETS: { label: string; days: number }[] = [
+  { label: "30 days", days: 30 },
+  { label: "90 days", days: 90 },
+  { label: "1 year", days: 365 },
+  { label: "Never expires", days: 0 },
+];
+
+function keyExpiry(k: ApiKeyRow): { label: string; expired: boolean; soon: boolean } {
+  if (!k.expires_at) return { label: "Never", expired: false, soon: false };
+  const ms = Date.parse(k.expires_at) - Date.now();
+  if (ms <= 0) return { label: "Expired", expired: true, soon: false };
+  const days = Math.ceil(ms / 86_400_000);
+  return { label: `${days}d left`, expired: false, soon: days <= 14 };
+}
 type ScheduleRow = {
   id: string;
   name: string;
@@ -132,6 +151,9 @@ export function SwarmDeployDialog({
   // New-key form
   const [keyName, setKeyName] = useState("Production key");
   const [keyReject, setKeyReject] = useState(true);
+  // Default to a bounded lifetime: an unbounded credential is the exception,
+  // not the default, for anything internet-facing.
+  const [keyExpiryDays, setKeyExpiryDays] = useState(90);
   const [creating, setCreating] = useState(false);
   const [newRawKey, setNewRawKey] = useState<string | null>(null);
 
@@ -148,7 +170,9 @@ export function SwarmDeployDialog({
     const [{ data: k }, { data: s }] = await Promise.all([
       supabase
         .from("swarm_api_keys")
-        .select("id, name, key_prefix, reject_approvals, is_active, last_used_at, created_at")
+        .select(
+          "id, name, key_prefix, reject_approvals, is_active, last_used_at, created_at, expires_at, last_used_ip, scopes",
+        )
         .eq("swarm_id", swarmId)
         .order("created_at", { ascending: false }),
       supabase
@@ -178,7 +202,9 @@ export function SwarmDeployDialog({
     [origin, newRawKey],
   );
 
-  const createKey = async () => {
+  // `rotateFrom` set = mint a replacement for that key. Both stay live until
+  // the old one is revoked, so callers can be migrated without downtime.
+  const createKey = async (rotateFrom?: ApiKeyRow) => {
     if (!swarmId) return;
     setCreating(true);
     try {
@@ -189,16 +215,22 @@ export function SwarmDeployDialog({
         data: {
           access_token: token,
           swarm_id: swarmId,
-          name: keyName.trim() || "API key",
-          reject_approvals: keyReject,
+          name: rotateFrom ? `${rotateFrom.name} (rotated)` : keyName.trim() || "API key",
+          reject_approvals: rotateFrom ? rotateFrom.reject_approvals : keyReject,
+          expires_in_days: keyExpiryDays > 0 ? keyExpiryDays : null,
+          ...(rotateFrom ? { rotated_from: rotateFrom.id } : {}),
         },
       });
       if (!res.ok) throw new Error(res.error);
       setNewRawKey(res.raw_key);
-      setKeyName("Production key");
+      if (!rotateFrom) setKeyName("Production key");
       setKeyReject(true);
       await load();
-      toast.success("API key created — copy it now, it won't be shown again.");
+      toast.success(
+        rotateFrom
+          ? "Replacement key created — copy it, migrate callers, then revoke the old key."
+          : "API key created — copy it now, it won't be shown again.",
+      );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not create key");
     } finally {
@@ -343,10 +375,28 @@ export function SwarmDeployDialog({
                       className="h-8 text-xs"
                     />
                   </div>
+                  <div className="w-36 space-y-1">
+                    <Label className="text-[10px] text-muted-foreground">Expires</Label>
+                    <Select
+                      value={String(keyExpiryDays)}
+                      onValueChange={(v) => setKeyExpiryDays(Number(v))}
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {EXPIRY_PRESETS.map((p) => (
+                          <SelectItem key={p.days} value={String(p.days)} className="text-xs">
+                            {p.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                   <label className="flex items-center gap-2 text-[11px] text-muted-foreground pb-1.5">
                     <Switch checked={keyReject} onCheckedChange={setKeyReject} /> Reject approvals
                   </label>
-                  <Button size="sm" className="h-8" onClick={createKey} disabled={creating}>
+                  <Button size="sm" className="h-8" onClick={() => createKey()} disabled={creating}>
                     {creating ? (
                       <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
                     ) : (
@@ -387,15 +437,51 @@ export function SwarmDeployDialog({
                       className="flex items-center gap-2 rounded-md border border-border/50 bg-card px-3 py-2"
                     >
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium truncate">{k.name}</p>
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-sm font-medium truncate">{k.name}</p>
+                          {(() => {
+                            const e = keyExpiry(k);
+                            if (e.expired)
+                              return (
+                                <Badge
+                                  variant="outline"
+                                  className="border-destructive/40 text-destructive px-1 text-[9px]"
+                                >
+                                  expired
+                                </Badge>
+                              );
+                            if (e.soon)
+                              return (
+                                <Badge
+                                  variant="outline"
+                                  className="border-amber-500/40 text-amber-600 dark:text-amber-400 px-1 text-[9px]"
+                                >
+                                  {e.label}
+                                </Badge>
+                              );
+                            return null;
+                          })()}
+                        </div>
                         <p className="text-[10px] text-muted-foreground font-mono">
                           {k.key_prefix}
                           {k.reject_approvals && " · rejects approvals"}
+                          {` · expires: ${keyExpiry(k).label}`}
                           {k.last_used_at
                             ? ` · used ${new Date(k.last_used_at).toLocaleDateString()}`
                             : " · never used"}
+                          {k.last_used_ip ? ` from ${k.last_used_ip}` : ""}
                         </p>
                       </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 shrink-0 text-[11px]"
+                        disabled={creating}
+                        onClick={() => void createKey(k)}
+                        title="Mint a replacement key — both stay valid until you revoke this one"
+                      >
+                        Rotate
+                      </Button>
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
                           <Button
@@ -432,7 +518,10 @@ export function SwarmDeployDialog({
             </TabsContent>
 
             {/* ── Schedules ── */}
-            <TabsContent value="schedules" className="flex-1 min-h-0 overflow-y-auto space-y-4 pr-1">
+            <TabsContent
+              value="schedules"
+              className="flex-1 min-h-0 overflow-y-auto space-y-4 pr-1"
+            >
               <div className="rounded-md border border-border/60 bg-muted/20 p-3 space-y-2">
                 <p className="text-xs font-semibold">Add a schedule</p>
                 <div className="grid grid-cols-2 gap-2">
@@ -525,11 +614,16 @@ export function SwarmDeployDialog({
                           )}
                         </p>
                         {s.last_run_error && (
-                          <p className="text-[10px] text-destructive truncate">{s.last_run_error}</p>
+                          <p className="text-[10px] text-destructive truncate">
+                            {s.last_run_error}
+                          </p>
                         )}
                       </div>
                       {s.is_active ? (
-                        <Badge variant="outline" className="text-[9px] border-emerald-500/40 text-emerald-400">
+                        <Badge
+                          variant="outline"
+                          className="text-[9px] border-emerald-500/40 text-emerald-400"
+                        >
                           active
                         </Badge>
                       ) : (

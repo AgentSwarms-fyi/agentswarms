@@ -45,26 +45,37 @@ export const Route = createFileRoute("/api/swarm/run")({
         const keyHash = await sha256Hex(rawKey);
         const { data: key } = await supabaseAdmin
           .from("swarm_api_keys")
-          .select("id, user_id, swarm_id, is_active, reject_approvals")
+          .select("id, user_id, swarm_id, is_active, reject_approvals, expires_at, scopes")
           .eq("key_hash", keyHash)
           .maybeSingle();
         if (!key) return json({ error: "Invalid or disabled API key" }, 401);
-        if (!key.is_active) {
-          // A revoked key still in use is a security signal — record it so the
-          // owner can see it in the audit trail instead of only a 401 in logs.
+
+        // Deny reasons are audited: a revoked or lapsed key still being used is
+        // a security signal the owner should see, not just a 401 in the logs.
+        const denyKey = (reason: string, message: string, status = 401) => {
           auditEvent({
             userId: key.user_id,
             action: "swarm.api_key.denied",
             resourceType: "swarm",
             resourceId: key.swarm_id,
             detail: {
-              reason: "key_disabled",
+              reason,
               key_id: key.id,
               ip: clientIp(request),
               user_agent: clientUserAgent(request),
             },
           });
-          return json({ error: "Invalid or disabled API key" }, 401);
+          return json({ error: message }, status);
+        };
+
+        if (!key.is_active) return denyKey("key_disabled", "Invalid or disabled API key");
+        if (key.expires_at && Date.parse(key.expires_at) <= Date.now()) {
+          return denyKey("key_expired", "This API key has expired.", 403);
+        }
+        // Empty scopes = legacy key minted before scoping; treat as "run".
+        const scopes = key.scopes?.length ? key.scopes : ["run"];
+        if (!scopes.includes("run")) {
+          return denyKey("missing_scope", "This API key is not allowed to run swarms.", 403);
         }
 
         // A swarm run is expensive and can hold a worker for minutes, so bound
@@ -134,10 +145,14 @@ export const Route = createFileRoute("/api/swarm/run")({
             source: "api",
           });
 
-          // Best-effort last-used stamp.
+          // Best-effort last-used stamp (incl. calling IP, for forensics).
+          const ip = clientIp(request);
           void supabaseAdmin
             .from("swarm_api_keys")
-            .update({ last_used_at: new Date().toISOString() })
+            .update({
+              last_used_at: new Date().toISOString(),
+              ...(ip ? { last_used_ip: ip } : {}),
+            })
             .eq("id", key.id)
             .then(undefined, () => undefined);
 

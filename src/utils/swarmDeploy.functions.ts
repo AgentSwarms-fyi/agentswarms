@@ -24,6 +24,10 @@ async function userFromToken(accessToken: string): Promise<string | null> {
   return data.user.id;
 }
 
+/** Scopes a swarm API key can carry. `run` is the only one that grants work. */
+export const SWARM_KEY_SCOPES = ["run", "read_runs"] as const;
+export type SwarmKeyScope = (typeof SWARM_KEY_SCOPES)[number];
+
 export const createSwarmApiKey = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) =>
     z
@@ -32,6 +36,16 @@ export const createSwarmApiKey = createServerFn({ method: "POST" })
         swarm_id: z.string().uuid(),
         name: z.string().trim().min(1).max(80),
         reject_approvals: z.boolean().optional(),
+        /** Days until the key expires; omitted / null = never expires. */
+        expires_in_days: z.number().int().min(1).max(3650).nullable().optional(),
+        scopes: z.array(z.enum(SWARM_KEY_SCOPES)).min(1).optional(),
+        /**
+         * Rotation: the key this one replaces. Both stay valid so callers can
+         * be migrated during an overlap window; the old one is revoked
+         * explicitly afterwards (never auto-revoked here — that would break
+         * every live caller the instant a new key is minted).
+         */
+        rotated_from: z.string().uuid().optional(),
       })
       .parse(input),
   )
@@ -52,9 +66,25 @@ export const createSwarmApiKey = createServerFn({ method: "POST" })
         return { ok: false, error: "Swarm not found or not yours" };
       }
 
+      // A rotation source must be the caller's own key on the same swarm,
+      // otherwise `rotated_from` could be used to point at someone else's row.
+      if (data.rotated_from) {
+        const { data: prev } = await supabaseAdmin
+          .from("swarm_api_keys")
+          .select("id, user_id, swarm_id")
+          .eq("id", data.rotated_from)
+          .maybeSingle();
+        if (!prev || prev.user_id !== userId || prev.swarm_id !== data.swarm_id) {
+          return { ok: false, error: "The key being rotated was not found" };
+        }
+      }
+
       const raw = generateRawKey();
       const key_hash = await sha256Hex(raw);
       const key_prefix = raw.slice(0, 16) + "…";
+      const expires_at = data.expires_in_days
+        ? new Date(Date.now() + data.expires_in_days * 86_400_000).toISOString()
+        : null;
 
       const { data: row, error } = await supabaseAdmin
         .from("swarm_api_keys")
@@ -68,17 +98,25 @@ export const createSwarmApiKey = createServerFn({ method: "POST" })
           // unless the caller explicitly opts into auto-approval we stop at the
           // gate rather than silently bypassing the operator's oversight.
           reject_approvals: data.reject_approvals ?? true,
+          expires_at,
+          scopes: data.scopes ?? ["run"],
+          rotated_from: data.rotated_from ?? null,
         })
         .select("id")
         .single();
       if (error || !row) return { ok: false, error: error?.message ?? "Could not create key" };
       auditEvent({
         userId,
-        action: "swarm.api_key.create",
+        action: data.rotated_from ? "swarm.api_key.rotate" : "swarm.api_key.create",
         resourceType: "swarm",
         resourceId: data.swarm_id,
         resourceName: data.name,
-        detail: { reject_approvals: data.reject_approvals ?? true },
+        detail: {
+          reject_approvals: data.reject_approvals ?? true,
+          expires_at,
+          scopes: data.scopes ?? ["run"],
+          ...(data.rotated_from ? { rotated_from: data.rotated_from } : {}),
+        },
       });
       return { ok: true, id: row.id, raw_key: raw };
     },

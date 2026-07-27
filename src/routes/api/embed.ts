@@ -99,7 +99,7 @@ export const Route = createFileRoute("/api/embed")({
 
         // ── resolve ────────────────────────────────────────────────────
         if (body.action === "resolve") {
-          touchEmbedKey(keyRow);
+          touchEmbedKey(keyRow, clientIp(request));
 
           if (keyRow.resource_type === "agent") {
             const { data: agent } = await supabaseAdmin
@@ -225,7 +225,7 @@ export const Route = createFileRoute("/api/embed")({
         }
         if (!model) return json({ error: "The AI analyst is not configured." }, 503);
 
-        touchEmbedKey(keyRow);
+        touchEmbedKey(keyRow, clientIp(request));
         const startedAt = Date.now();
         const upstreamCtrl = new AbortController();
         const timer = setTimeout(() => upstreamCtrl.abort(), 90_000);

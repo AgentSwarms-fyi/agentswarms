@@ -55,7 +55,25 @@ type EmbedKey = {
   is_active: boolean;
   use_count: number;
   created_at: string;
+  expires_at: string | null;
+  last_used_ip: string | null;
 };
+
+/** Expiry presets for new keys. `0` = never (stored as NULL). */
+const EXPIRY_PRESETS: { label: string; days: number }[] = [
+  { label: "30 days", days: 30 },
+  { label: "90 days", days: 90 },
+  { label: "1 year", days: 365 },
+  { label: "Never expires", days: 0 },
+];
+
+function expiryLabel(k: EmbedKey): { text: string; expired: boolean; soon: boolean } {
+  if (!k.expires_at) return { text: "Never", expired: false, soon: false };
+  const ms = Date.parse(k.expires_at) - Date.now();
+  if (ms <= 0) return { text: "Expired", expired: true, soon: false };
+  const days = Math.ceil(ms / 86_400_000);
+  return { text: `${days}d left`, expired: false, soon: days <= 14 };
+}
 
 type ResourceOption = { id: string; name: string };
 
@@ -114,7 +132,7 @@ export function EmbedSection() {
       supabase
         .from("embed_keys")
         .select(
-          "id, name, key, resource_type, resource_id, allowed_domains, allow_ai, is_active, use_count, created_at",
+          "id, name, key, resource_type, resource_id, allowed_domains, allow_ai, is_active, use_count, created_at, expires_at, last_used_ip",
         )
         .order("created_at", { ascending: false }),
       supabase.from("agents").select("id, name").order("name"),
@@ -208,6 +226,7 @@ export function EmbedSection() {
                     <th className="px-3 py-2 font-medium">Resource</th>
                     <th className="px-3 py-2 font-medium">Allowed domains</th>
                     <th className="px-3 py-2 font-medium">Uses</th>
+                    <th className="px-3 py-2 font-medium">Expires</th>
                     <th className="px-3 py-2 font-medium">Active</th>
                     <th className="px-3 py-2 text-right font-medium">Actions</th>
                   </tr>
@@ -237,6 +256,26 @@ export function EmbedSection() {
                       </td>
                       <td className="px-3 py-2 tabular-nums text-muted-foreground">
                         {k.use_count}
+                        {k.last_used_ip ? (
+                          <span className="ml-1 text-[10px]">({k.last_used_ip})</span>
+                        ) : null}
+                      </td>
+                      <td className="px-3 py-2">
+                        {(() => {
+                          const e = expiryLabel(k);
+                          return (
+                            <span
+                              className={cn(
+                                "text-xs",
+                                e.expired && "text-destructive",
+                                e.soon && "text-amber-600 dark:text-amber-400",
+                                !e.expired && !e.soon && "text-muted-foreground",
+                              )}
+                            >
+                              {e.text}
+                            </span>
+                          );
+                        })()}
                       </td>
                       <td className="px-3 py-2">
                         <Switch
@@ -322,6 +361,9 @@ function CreateEmbedDialog({
   const [name, setName] = useState("");
   const [domains, setDomains] = useState("");
   const [allowAi, setAllowAi] = useState(false);
+  // Bounded by default — an embed key is a public capability token, so an
+  // unbounded lifetime should be a deliberate choice.
+  const [expiryDays, setExpiryDays] = useState(90);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -330,6 +372,7 @@ function CreateEmbedDialog({
       setName("");
       setDomains("");
       setAllowAi(false);
+      setExpiryDays(90);
     }
   }, [type]);
 
@@ -360,12 +403,14 @@ function CreateEmbedDialog({
       resource_id: resourceId,
       allowed_domains: parsedDomains,
       allow_ai: type === "bi_dashboard" ? allowAi : false,
+      expires_at:
+        expiryDays > 0 ? new Date(Date.now() + expiryDays * 86_400_000).toISOString() : null,
     };
     const { data, error } = await supabase
       .from("embed_keys")
       .insert(row)
       .select(
-        "id, name, key, resource_type, resource_id, allowed_domains, allow_ai, is_active, use_count, created_at",
+        "id, name, key, resource_type, resource_id, allowed_domains, allow_ai, is_active, use_count, created_at, expires_at, last_used_ip",
       )
       .single();
     setSaving(false);
@@ -428,6 +473,25 @@ function CreateEmbedDialog({
             <p className="text-[11px] text-muted-foreground">
               Browsers report the embedding page's origin; the server only serves these domains. Use{" "}
               <code>*</code> to allow any site (also lets the URL open directly).
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Expires</Label>
+            <Select value={String(expiryDays)} onValueChange={(v) => setExpiryDays(Number(v))}>
+              <SelectTrigger className="h-9">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {EXPIRY_PRESETS.map((p) => (
+                  <SelectItem key={p.days} value={String(p.days)}>
+                    {p.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] text-muted-foreground">
+              After this, the key stops working everywhere until you issue a new one. Embed keys are
+              visible in the host page's HTML, so a bounded lifetime limits the damage if one leaks.
             </p>
           </div>
           {type === "bi_dashboard" && (
