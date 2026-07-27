@@ -32,7 +32,7 @@ import { SiteFooter } from "@/components/SiteChrome";
 import { BrowserFrame } from "@/components/marketing/BrowserFrame";
 import { GlowCard } from "@/components/marketing/GlowCard";
 import { Reveal } from "@/components/marketing/Reveal";
-import { RealBuilderMock, DeckMock } from "@/components/marketing/HomeMocks";
+import { DeckMock } from "@/components/marketing/HomeMocks";
 import { BiDashboardMock, GenerateFlowMock } from "@/components/marketing/BiMocks";
 import { SectionHeading } from "@/components/marketing/SectionHeading";
 import agentSwarmsLogo from "@/assets/agentswarms-logo.jpg";
@@ -758,57 +758,6 @@ function LandingPage() {
                 </div>
               </div>
             </motion.div>
-          </div>
-        </section>
-
-        {/* Why AgentSwarms — differentiation band */}
-        <section className="border-t border-border/60 py-24">
-          <div className="mx-auto max-w-7xl px-6">
-            <SectionHeading
-              className="mb-14 max-w-3xl"
-              eyebrow="Why AgentSwarms"
-              title="Own the platform, not just an account."
-              lede="Everything runs on infrastructure you control — your database, your model keys, your budgets. No usage caps, no per-seat pricing, no black boxes."
-            />
-            <div className="grid gap-4 lg:grid-cols-3 lg:grid-rows-2">
-              <Reveal className="lg:col-span-2 lg:row-span-2">
-                <GlowCard featured className="flex h-full flex-col p-6 sm:p-8">
-                  <div className="mb-4 inline-flex self-start rounded-lg bg-primary/10 p-2.5">
-                    <Network className="h-5 w-5 text-primary" />
-                  </div>
-                  <h3 className="text-xl font-semibold">A real builder, not a toy</h3>
-                  <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground">
-                    A visual Agent Builder and drag-and-drop swarm canvas with guardrails, tools,
-                    memory, RAG, evals, and human approval — the full prototyping loop, running on
-                    your own instance.
-                  </p>
-                  {/* Mini canvas mock — echoes the real swarm canvas */}
-                  <RealBuilderMock />
-                </GlowCard>
-              </Reveal>
-              {[
-                {
-                  icon: Container,
-                  title: "Run anywhere",
-                  body: "One Dockerfile and compose file deploy the whole platform on any Node host — a $5 VPS, Fly.io, Railway, Render, Kubernetes — or go serverless on Cloudflare Workers. Supabase's free tier is the entire backend.",
-                },
-                {
-                  icon: Cpu,
-                  title: "Connect any model",
-                  body: "OpenRouter works out of the box, with adapters for OpenAI, Anthropic, Gemini, Bedrock, Azure, OCI, Qwen, Grok, Groq, Ollama, and vLLM. Per-user encrypted keys, or one shared instance-wide key.",
-                },
-              ].map((c, i) => (
-                <Reveal key={c.title} delay={0.08 * (i + 1)}>
-                  <GlowCard className="h-full">
-                    <div className="mb-4 inline-flex rounded-lg bg-primary/10 p-2.5">
-                      <c.icon className="h-5 w-5 text-primary" />
-                    </div>
-                    <h3 className="text-lg font-semibold">{c.title}</h3>
-                    <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{c.body}</p>
-                  </GlowCard>
-                </Reveal>
-              ))}
-            </div>
           </div>
         </section>
 

@@ -5,11 +5,15 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createClient } from "@supabase/supabase-js";
 import {
-  OPENROUTER_CHAT_URL,
-  getOpenRouterApiKey,
-} from "@/utils/providers/openrouterDefault.server";
+  resolveOpenAICompatTransport,
+  getProviderDefaultModel,
+} from "@/utils/providers/credentials.server";
+import { isBiCompatProvider } from "@/utils/providers/modelChoice";
+import type { ProviderId } from "@/utils/providers/types";
 
-const MODEL = "openai/gpt-4o-mini";
+// Last-resort model when the caller picked a provider but no model and the
+// integration carries no default. Only meaningful for OpenRouter.
+const FALLBACK_MODEL = "openai/gpt-4o-mini";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -63,22 +67,66 @@ export const Route = createFileRoute("/api/skills/generate")({
           } = await userClient.auth.getUser();
           if (!user) return json({ error: "Unauthorized" }, 401);
 
-          const body = (await request.json().catch(() => ({}))) as { brief?: unknown };
+          const body = (await request.json().catch(() => ({}))) as {
+            brief?: unknown;
+            provider?: unknown;
+            model?: unknown;
+          };
           const brief = typeof body.brief === "string" ? body.brief.trim() : "";
           if (!brief) return json({ error: "brief is required" }, 400);
           if (brief.length > 2000) return json({ error: "brief is too long" }, 400);
 
-          const apiKey = getOpenRouterApiKey();
-          if (!apiKey) return json({ error: "OPENROUTER_API_KEY is not configured" }, 500);
+          // BYOK: the caller chooses which of THEIR connected integrations
+          // drafts the skill. OpenRouter stays the default because it is the
+          // zero-config path with an operator env fallback.
+          const provider =
+            typeof body.provider === "string" && body.provider ? body.provider : "openrouter";
+          if (!isBiCompatProvider(provider)) {
+            return json({ error: `Provider "${provider}" can't be used to generate skills.` }, 400);
+          }
 
-          const resp = await fetch(OPENROUTER_CHAT_URL, {
+          const transport = await resolveOpenAICompatTransport({
+            userId: user.id,
+            provider: provider as ProviderId,
+          });
+          if (!transport || (!transport.apiKey && provider !== "ollama")) {
+            return json(
+              {
+                error:
+                  `${provider} isn't configured. Connect it under Integrations` +
+                  (provider === "openrouter"
+                    ? " (or ask the operator to set OPENROUTER_API_KEY)."
+                    : "."),
+              },
+              503,
+            );
+          }
+
+          // Model precedence: explicit choice → the integration's default →
+          // the OpenRouter-only fallback.
+          let model = typeof body.model === "string" && body.model ? body.model : "";
+          if (!model)
+            model = (await getProviderDefaultModel(user.id, provider as ProviderId)) ?? "";
+          if (!model && provider === "openrouter") model = FALLBACK_MODEL;
+          if (!model) {
+            return json(
+              { error: `Choose a model — ${provider} has no default model configured.` },
+              400,
+            );
+          }
+
+          const resp = await fetch(transport.endpointUrl, {
             method: "POST",
             headers: {
-              Authorization: `Bearer ${apiKey}`,
+              ...(transport.apiKey ? { Authorization: `Bearer ${transport.apiKey}` } : {}),
               "Content-Type": "application/json",
+              ...(transport.organizationId
+                ? { "OpenAI-Organization": transport.organizationId }
+                : {}),
+              ...(transport.extraHeaders ?? {}),
             },
             body: JSON.stringify({
-              model: MODEL,
+              model,
               messages: [
                 { role: "system", content: SYSTEM_PROMPT },
                 { role: "user", content: `Brief:\n${brief}` },
@@ -123,7 +171,7 @@ export const Route = createFileRoute("/api/skills/generate")({
           }
           if (resp.status === 402) {
             return json(
-              { error: "AI credits exhausted. Add credits in Settings → Workspace → Usage." },
+              { error: `Payment required from ${provider} — check the credit on that account.` },
               402,
             );
           }
