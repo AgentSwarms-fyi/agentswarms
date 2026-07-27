@@ -47,6 +47,7 @@ import { PromptLibraryPicker } from "@/components/prompts/PromptLibraryPicker";
 import { SkillPicker } from "@/components/skills/SkillPicker";
 import { isImageModelId } from "@/lib/providerSupport";
 import { PII_ENTITIES, PII_ENTITY_LABELS, type PiiEntity } from "@/utils/guardrails";
+import { snapshotAgentVersion, toSnapshot } from "@/lib/agentVersions";
 
 type BuiltInTool = {
   id: string;
@@ -908,6 +909,17 @@ export function AgentForm({
             { onConflict: "agent_id" },
           );
         if (memErr) console.warn("[memory_config] save failed:", memErr.message);
+      }
+      // Version snapshot. Best-effort and de-duplicated (a save that changed
+      // nothing does not create a version), so history stays meaningful.
+      if (savedAgentId) {
+        void snapshotAgentVersion({
+          agentId: savedAgentId,
+          userId,
+          config: toSnapshot(payload),
+          label: agent ? "Saved" : "Created",
+          kind: "auto",
+        });
       }
       toast.success(agent ? "Agent updated" : "Agent created");
       onSaved();

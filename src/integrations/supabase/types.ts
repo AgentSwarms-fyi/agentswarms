@@ -38,6 +38,36 @@ export type Database = {
         };
         Relationships: [];
       };
+      agent_versions: {
+        Row: {
+          agent_id: string;
+          config: Json;
+          created_at: string;
+          id: string;
+          kind: string;
+          label: string;
+          user_id: string;
+        };
+        Insert: {
+          agent_id: string;
+          config?: Json;
+          created_at?: string;
+          id?: string;
+          kind?: string;
+          label?: string;
+          user_id: string;
+        };
+        Update: {
+          agent_id?: string;
+          config?: Json;
+          created_at?: string;
+          id?: string;
+          kind?: string;
+          label?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       agent_memory_config: {
         Row: {
           agent_id: string;

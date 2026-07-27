@@ -34,6 +34,7 @@ import {
   Share2,
   Upload,
   MoreHorizontal,
+  History,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -48,6 +49,7 @@ import { useLangChainExportAnnouncement } from "@/hooks/use-langchain-export-ann
 import { ExportAgentDialog } from "@/components/agents/ExportAgentDialog";
 import { ShareAgentDialog } from "@/components/agents/ShareAgentDialog";
 import { ImportAgentDialog } from "@/components/agents/ImportAgentDialog";
+import { AgentVersionsDialog } from "@/components/agents/AgentVersionsDialog";
 
 export const Route = createFileRoute("/_authenticated/agents")({
   component: AgentsPage,
@@ -83,6 +85,7 @@ function AgentsPage() {
   const [shareFor, setShareFor] = useState<Agent | null>(null);
   // Deleting an agent cascades to its conversations, memory and embed keys, so
   // it goes through an explicit confirmation rather than a one-click menu item.
+  const [versionsFor, setVersionsFor] = useState<Agent | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Agent | null>(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -267,6 +270,9 @@ function AgentsPage() {
                         <DropdownMenuItem onSelect={() => setShareFor(agent)}>
                           <Share2 className="h-3.5 w-3.5 mr-2" /> Share
                         </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => setVersionsFor(agent)}>
+                          <History className="h-3.5 w-3.5 mr-2" /> Version history
+                        </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
                           className="text-destructive focus:text-destructive"
@@ -298,6 +304,19 @@ function AgentsPage() {
             onOpenChange={(o) => {
               if (!o) setShareFor(null);
             }}
+          />
+        )}
+
+        {versionsFor && user && (
+          <AgentVersionsDialog
+            agentId={versionsFor.id}
+            agentName={versionsFor.name}
+            userId={user.id}
+            open
+            onOpenChange={(o) => {
+              if (!o) setVersionsFor(null);
+            }}
+            onRestored={() => void loadAgents()}
           />
         )}
 
