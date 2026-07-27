@@ -1,5 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { DocLink, DocsHeader, FieldList, H2, NextPrev, Note, P } from "@/components/docs/DocsShell";
+import {
+  DocLink,
+  DocsHeader,
+  FieldList,
+  H2,
+  NextPrev,
+  Note,
+  P,
+  Steps,
+} from "@/components/docs/DocsShell";
 
 export const Route = createFileRoute("/docs/dashboard")({
   head: () => ({
@@ -114,6 +123,60 @@ function DashboardDoc() {
         the dashboard with a short map of how the platform teaches agentic AI. Most authenticated
         screens have one of these panels, scoped to the screen you are on.
       </Note>
+
+      <H2 id="first-run">What to do on a new workspace</H2>
+      <Steps
+        items={[
+          {
+            title: "Connect a model provider",
+            body: (
+              <>
+                <strong>Integrations</strong>. Until you do, calls run on the operator's shared
+                fallback key — fine for a first look, wrong for anything real. See{" "}
+                <DocLink to="/docs/models">Models &amp; providers</DocLink>.
+              </>
+            ),
+          },
+          {
+            title: "Add data or documents",
+            body: (
+              <>
+                <DocLink to="/docs/data">Data Catalog</DocLink> for rows,{" "}
+                <DocLink to="/docs/knowledge">Knowledge Base</DocLink> for prose. An agent with
+                neither is just a chatbot.
+              </>
+            ),
+          },
+          {
+            title: "Build one agent",
+            body: (
+              <>
+                <DocLink to="/docs/agents">Agent Builder</DocLink> — name, prompt, model, one or two
+                tools.
+              </>
+            ),
+          },
+          {
+            title: "Run it and read the trace",
+            body: (
+              <>
+                <DocLink to="/docs/debugging">Logs &amp; traces</DocLink>. This is the habit worth
+                forming early.
+              </>
+            ),
+          },
+          {
+            title: "Before anyone else joins",
+            body: (
+              <>
+                Turn off public signup and set budget caps —{" "}
+                <DocLink to="/docs/iam">Access control</DocLink> and{" "}
+                <DocLink to="/docs/budgets">Budgets</DocLink>.
+              </>
+            ),
+          },
+        ]}
+      />
 
       <NextPrev current="/docs/dashboard" />
     </>

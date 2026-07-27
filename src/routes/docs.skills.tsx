@@ -1,5 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { DocLink, DocsHeader, H2, NextPrev, Note, P, UL } from "@/components/docs/DocsShell";
+import {
+  C,
+  Callout,
+  Code,
+  DocLink,
+  DocsHeader,
+  H2,
+  NextPrev,
+  Note,
+  P,
+  Table,
+  UL,
+} from "@/components/docs/DocsShell";
 
 export const Route = createFileRoute("/docs/skills")({
   head: () => ({
@@ -88,6 +100,57 @@ function SkillsDoc() {
         for…"), it belongs in the Prompt Library. If it is a technique an agent should apply on top
         of its identity ("when reviewing code, always…"), it is a skill.
       </Note>
+
+      <H2 id="skill-fields">Fields on a skill</H2>
+      <Table
+        headers={["Field", "Required", "Notes"]}
+        rows={[
+          ["Name", "Yes", "How you find it in the picker"],
+          ["Description", "No", "What it is for"],
+          [
+            <C key="a">body</C>,
+            "Yes",
+            "The instruction text itself. This is what gets prepended to the agent's prompt.",
+          ],
+          ["Tags", "No", "For filtering a long library"],
+        ]}
+      />
+      <P>
+        Attached skills are resolved at run time and prepended as a{" "}
+        <strong>"Skills available to you"</strong> block ahead of the agent's own system prompt.
+        Both saved agents and individual <DocLink to="/docs/swarms">swarm nodes</DocLink> can attach
+        them.
+      </P>
+      <Callout kind="why">
+        A skill is instructions, not code — which is exactly why it is cheap to add. If a capability
+        only needs the model to know a procedure ("how we format a change request"), it is a skill.
+        If it needs to reach something outside the model, it is a tool, and tools need a handler and
+        a permission gate.
+      </Callout>
+
+      <H2 id="writing">Writing one that works</H2>
+      <Code lang="Skill body — change request format">{`When asked to write a change request, always produce exactly these sections:
+
+TITLE      one line, imperative
+RISK       low | medium | high, with one sentence of justification
+ROLLBACK   the exact steps to undo this, or "none — irreversible"
+BLAST      what breaks if this goes wrong
+
+Never omit ROLLBACK. If a change genuinely cannot be undone, say so
+explicitly rather than leaving the section out.`}</Code>
+      <UL>
+        <li>
+          <strong>Be procedural.</strong> A skill is at its best describing a repeatable format or
+          sequence, not general advice.
+        </li>
+        <li>
+          <strong>Keep it short.</strong> Every attached skill is prompt tokens on every turn.
+        </li>
+        <li>
+          <strong>One skill, one job.</strong> Two loosely-related skills beat one that covers both,
+          because you can attach them independently.
+        </li>
+      </UL>
 
       <NextPrev current="/docs/skills" />
     </>

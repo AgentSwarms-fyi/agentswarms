@@ -1,9 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import {
+  C,
   Callout,
   Diagram,
-  C,
-  Table,
   DocLink,
   DocsHeader,
   FieldList,
@@ -12,6 +11,7 @@ import {
   NextPrev,
   P,
   Steps,
+  Table,
   UL,
 } from "@/components/docs/DocsShell";
 

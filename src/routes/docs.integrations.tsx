@@ -1,5 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { DocLink, DocsHeader, H2, NextPrev, Note, P, UL } from "@/components/docs/DocsShell";
+import {
+  Callout,
+  DocLink,
+  DocsHeader,
+  H2,
+  NextPrev,
+  Note,
+  P,
+  Table,
+  UL,
+} from "@/components/docs/DocsShell";
 
 export const Route = createFileRoute("/docs/integrations")({
   head: () => ({
@@ -100,6 +110,74 @@ function IntegrationsDoc() {
         the caps at <DocLink to="/docs/account">/budgets</DocLink>, and per-agent limits in the{" "}
         <DocLink to="/docs/agents">guardrails section</DocLink>.
       </Note>
+
+      <H2 id="categories">What can be connected</H2>
+      <Table
+        headers={["Category", "Connects", "Documented in"]}
+        rows={[
+          [
+            "Model providers",
+            "14 providers — OpenAI, Anthropic, Gemini, Vertex, Bedrock, Azure OpenAI, OCI, Grok, Qwen, Groq, NVIDIA, OpenRouter, Ollama, vLLM",
+            <DocLink key="a" to="/docs/models">
+              Models &amp; providers
+            </DocLink>,
+          ],
+          [
+            "Data sources",
+            "10 warehouse/database connectors plus object stores and lakehouse catalogs",
+            <DocLink key="b" to="/docs/data">
+              Data Catalog &amp; SQL
+            </DocLink>,
+          ],
+          [
+            "Web search",
+            "Firecrawl (built in), Brave, Tavily, SerpAPI; ScrapingBee for page fetching",
+            <DocLink key="c" to="/docs/agents">
+              Agent Builder → Tools
+            </DocLink>,
+          ],
+          [
+            "Automation",
+            "n8n workflows, triggered by an agent tool",
+            <DocLink key="d" to="/docs/agents">
+              Agent Builder → Tools
+            </DocLink>,
+          ],
+          [
+            "MCP servers",
+            "Any Streamable HTTP MCP endpoint",
+            <DocLink key="e" to="/docs/mcp">
+              MCP servers
+            </DocLink>,
+          ],
+        ]}
+      />
+
+      <H2 id="credentials">Credential handling</H2>
+      <UL>
+        <li>
+          Every secret is <strong>encrypted at rest</strong> and never returned to the browser after
+          saving.
+        </li>
+        <li>
+          Prefer a <DocLink to="/docs/secrets">Secrets</DocLink> reference over pasting a value, so
+          rotation is one edit rather than a hunt through every connection.
+        </li>
+        <li>
+          <strong>Test connection</strong> stores its result and error on the connection, so you can
+          see when something started failing rather than discovering it through a broken dashboard.
+        </li>
+        <li>
+          <strong>Disconnect</strong> asks for confirmation and tells you what depends on the
+          connection first.
+        </li>
+      </UL>
+      <Callout kind="warn" title="Outbound requests are guarded">
+        Connector endpoints resolving to private, loopback or link-local addresses are refused
+        unless the deployment explicitly allows them. A database on a private network must be
+        reachable from wherever the app runs — see{" "}
+        <DocLink to="/docs/self-hosting">Install &amp; deploy</DocLink>.
+      </Callout>
 
       <NextPrev current="/docs/integrations" />
     </>

@@ -1,5 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { DocLink, DocsHeader, H2, NextPrev, Note, P, UL } from "@/components/docs/DocsShell";
+import {
+  C,
+  Callout,
+  DocLink,
+  DocsHeader,
+  H2,
+  H3,
+  NextPrev,
+  Note,
+  P,
+  Table,
+  UL,
+} from "@/components/docs/DocsShell";
 
 export const Route = createFileRoute("/docs/playground")({
   head: () => ({
@@ -87,6 +99,99 @@ function PlaygroundDoc() {
         open the trace for the bad message, and read what the model actually saw and decided. Most
         "the agent is broken" reports dissolve at that step.
       </Note>
+
+      <H2 id="composer">Composer controls — every button</H2>
+      <Table
+        headers={["Control", "What it does"]}
+        rows={[
+          [
+            "Attach",
+            "Attach images or documents to the turn. Text is extracted and included in the prompt; a summary is saved with the message so the history stays readable.",
+          ],
+          [
+            "Visual BI",
+            <>
+              Generate a chart from your connected tables alongside the text answer. Seeded from the
+              agent's <C key="b">tools.biVisuals</C> setting and toggleable per session.
+            </>,
+          ],
+          ["PPT / Word / Excel", "Generate a real, editable Office file from a prompt. See below."],
+          [
+            "Sample / Full data",
+            "How much data is pulled in — applies to Excel generation and the Visual BI row snapshot.",
+          ],
+          [
+            "Model override",
+            "Swap the model for this session only. The fastest A/B test on the platform.",
+          ],
+          ["Stop generating", "Cancels the in-flight turn."],
+          ["Regenerate", "Re-runs the last turn."],
+          ["Edit & resend", "Rewrite your message and rerun from that point."],
+          [
+            "Inspector",
+            "Live thinking, tool calls, and the full request/response for the last turn.",
+          ],
+        ]}
+      />
+
+      <H2 id="sources">Sources under an answer</H2>
+      <P>
+        Every answer lists what it actually drew on, grouped by kind — web links, knowledge base
+        documents, the tables a query read, an MCP tool, or any other tool. Several kinds appear
+        together when the answer genuinely used several.
+      </P>
+      <Callout kind="why">
+        Knowledge base documents are retrieved <em>before</em> the model runs, so their presence
+        proves nothing about whether the answer used them. They are listed only when the answer
+        cites them by number, or when nothing else grounded it — which is why a web-search answer
+        shows links rather than a tail of unrelated documents. Reading this panel is the fastest
+        honesty check available: ask a data question and if the sources show a document rather than
+        a table, the agent answered from prose it half-remembered instead of counting.
+      </Callout>
+
+      <H2 id="docgen">Generating documents</H2>
+      <Table
+        headers={["Phase", "What is happening"]}
+        rows={[
+          [
+            "gathering",
+            "Collecting knowledge excerpts, table schemas and samples, the recent conversation, and — if the prompt points at the internet — live web research.",
+          ],
+          ["planning", "An LLM produces a typed plan for the document."],
+          ["building", "The plan is filled with real numbers and rendered into a file."],
+        ]}
+      />
+      <H3 id="docgen-modes">Browser vs Deep</H3>
+      <Table
+        headers={["", "Browser · fast", "Deep · slow"]}
+        rows={[
+          ["Renders", "In your browser", "Server-side, native Office toolchains"],
+          ["Deck size", "16–22 slides", "24–30 slides"],
+          ["Diagram variety", "≥8 kinds", "All 14 kinds, none more than twice"],
+          ["Extras", "—", "Contents page; render-verify pass"],
+          [
+            "Needs",
+            "Nothing",
+            <>
+              The docgen service running — see{" "}
+              <DocLink key="s" to="/docs/self-hosting">
+                Install &amp; deploy
+              </DocLink>
+            </>,
+          ],
+        ]}
+      />
+      <Callout kind="warn" title="Deep greys out when it cannot run">
+        If the renderer is unreachable, Deep would silently fall back to the browser build and
+        produce a file identical to Fast. The composer probes for the service and disables Deep with
+        the reason instead, so "Deep did nothing" is visible up front rather than after a
+        generation.
+      </Callout>
+      <P>
+        The finished file appears as a preview card with a thumbnail and a Download button, and is
+        stored in a private bucket so Download still works after a reload — until the agent's chat
+        retention window purges it.
+      </P>
 
       <NextPrev current="/docs/playground" />
     </>

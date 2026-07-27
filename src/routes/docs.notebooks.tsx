@@ -1,5 +1,16 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { DocLink, DocsHeader, H2, NextPrev, Note, P, UL } from "@/components/docs/DocsShell";
+import {
+  C,
+  Callout,
+  DocLink,
+  DocsHeader,
+  H2,
+  NextPrev,
+  Note,
+  P,
+  Table,
+  UL,
+} from "@/components/docs/DocsShell";
 
 export const Route = createFileRoute("/docs/notebooks")({
   head: () => ({
@@ -159,6 +170,72 @@ function NotebooksDoc() {
         deployable system on the <DocLink to="/docs/swarms">Swarm Canvas</DocLink> and in{" "}
         <DocLink to="/agents">Agent Builder</DocLink>.
       </P>
+
+      <H2 id="runtimes">The two runtimes</H2>
+      <Table
+        headers={["", "In-browser (default)", "Server runtime"]}
+        rows={[
+          ["Where code runs", "Your browser, via Pyodide", "A real Python kernel in a container"],
+          ["Install packages", "Limited to pure-Python wheels", "Anything pip can install"],
+          ["Libraries", "Restricted", "LangChain, LlamaIndex, LangGraph, pandas — the real ones"],
+          ["Internet", "Browser-limited", "Through a default-deny egress proxy"],
+          [
+            "Setup",
+            "None",
+            <>
+              Enable it and run the notebooks profile — see{" "}
+              <DocLink key="s" to="/docs/self-hosting">
+                Install &amp; deploy
+              </DocLink>
+            </>,
+          ],
+        ]}
+      />
+      <Table
+        headers={["Env var", "Values", "Purpose"]}
+        rows={[
+          [<C key="a">NOTEBOOK_RUNTIME_ENABLED</C>, "on / off", "Master switch"],
+          [
+            <C key="b">NOTEBOOK_RUNTIME_BACKEND</C>,
+            "docker | k8s | e2b",
+            "Where kernels are launched",
+          ],
+          [<C key="c">NOTEBOOK_RUNTIME_IMAGE</C>, "image ref", "Kernel image"],
+          [<C key="d">NOTEBOOK_GATEWAY_URL</C>, "url", "Websocket gateway the browser connects to"],
+          [
+            <C key="e">NOTEBOOK_RUNTIME_SECRET</C>,
+            "secret",
+            "Session-token signing key; generated if omitted",
+          ],
+          [
+            <C key="f">NOTEBOOK_CRON_TOKEN</C>,
+            "token",
+            "Presented by the external cron that reaps idle sessions",
+          ],
+        ]}
+      />
+      <Callout kind="warn" title="The docker backend is single-host">
+        It launches kernel containers on the machine the app runs on. To spread kernels across
+        nodes, use the k8s backend.
+      </Callout>
+
+      <H2 id="egress">Kernel network isolation</H2>
+      <P>
+        Kernels sit on an internal network with <strong>no direct internet access</strong>. Their
+        only route out is a default-deny egress proxy with an allow-list, so a notebook cannot
+        exfiltrate data to an arbitrary host — and a pip install only works for hosts you permit.
+      </P>
+
+      <H2 id="helpers">The agentswarms helper</H2>
+      <P>
+        Notebooks get a helper module that reaches platform capabilities from Python, so a notebook
+        can use the same models and knowledge bases as your agents without you pasting credentials
+        into a cell.
+      </P>
+      <Callout kind="info">
+        Sample notebooks ship read-only. Fork one to get an editable copy — that way the originals
+        stay a working reference no matter what you do to your copy.
+      </Callout>
 
       <NextPrev current="/docs/notebooks" />
     </>

@@ -1,8 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import {
-  Callout,
   C,
-  Code,
+  Callout,
   DocLink,
   DocsHeader,
   FieldList,

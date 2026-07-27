@@ -1,5 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import {
+  C,
+  Callout,
   DocLink,
   DocsHeader,
   FieldList,
@@ -7,6 +9,8 @@ import {
   NextPrev,
   Note,
   P,
+  Steps,
+  Table,
   UL,
 } from "@/components/docs/DocsShell";
 
@@ -116,6 +120,71 @@ function DebuggingDoc() {
         The <DocLink to="/notebooks">Failure Modes Lab notebook</DocLink> is guided practice for
         exactly this skill: it produces a broken trace and asks you to find the cause.
       </Note>
+
+      <H2 id="what-a-trace-holds">What a trace records</H2>
+      <Table
+        headers={["Field", "Why it matters"]}
+        rows={[
+          [
+            "Resolved system prompt",
+            "What the model was ACTUALLY told, after retrieval, memory and routing guidance were folded in. Usually not what you think you configured.",
+          ],
+          [
+            "Each tool call",
+            "Name, arguments and the raw result — including errors the model then papered over.",
+          ],
+          [
+            "Tokens in / out",
+            "Where the cost went; a huge input usually means retrieval or history, not the question.",
+          ],
+          ["Latency", "Per call, so you can see which step is slow."],
+          ["Cost", "Attributed to the user, agent and credential that caused it."],
+          ["Status", "completed / error, with the error message."],
+        ]}
+      />
+      <Callout kind="why">
+        An agent's explanation of its own reasoning is generated text — it is a plausible story
+        about what happened, not a record of it. The trace is the record. When the two disagree, the
+        trace is right. Debug in that order and you will stop chasing phantom problems.
+      </Callout>
+
+      <H2 id="reading">A debugging order that works</H2>
+      <Steps
+        items={[
+          {
+            title: "Read the resolved system prompt first",
+            body: "Half of all surprises are here — a retrieval block that came back empty, memory that recalled something stale, or routing guidance that pushed the model at the wrong tool.",
+          },
+          {
+            title: "Then the tool calls, in order",
+            body: "Look for a call that returned an error or an empty result. Models rarely announce that a tool failed; they answer anyway.",
+          },
+          {
+            title: "Then the token counts",
+            body: "A large input with a small question means retrieval or conversation history is dominating — and paying for it every turn.",
+          },
+          {
+            title: "Only then change the prompt",
+            body: "Most prompt edits made before reading the trace fix the wrong thing.",
+          },
+        ]}
+      />
+
+      <H2 id="swarm-traces">Swarm traces</H2>
+      <P>
+        A swarm run records per-node steps, so you can see which branch a router chose, which nodes
+        were skipped, where an approval waited, and what each node wrote to flow state. Runs
+        triggered through the API are traced identically and attributed to the key that started
+        them.
+      </P>
+
+      <H2 id="prompt-bodies">Prompt bodies</H2>
+      <P>
+        Whether full prompt and response bodies are stored is controlled by{" "}
+        <C>PERSIST_PROMPT_BODIES</C>. Storing them makes debugging far easier and makes the trace
+        store larger and more sensitive — it will contain whatever your users typed. Decide it
+        deliberately, and pair it with a trace retention window.
+      </P>
 
       <NextPrev current="/docs/debugging" />
     </>

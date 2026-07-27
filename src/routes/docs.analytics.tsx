@@ -1,5 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import {
+  C,
+  Callout,
   DocLink,
   DocsHeader,
   FieldList,
@@ -7,6 +9,7 @@ import {
   NextPrev,
   Note,
   P,
+  Table,
   UL,
 } from "@/components/docs/DocsShell";
 
@@ -102,6 +105,74 @@ function AnalyticsDoc() {
         slowest and the most expensive step. Those two nodes are nearly always the next thing worth
         optimizing — a cheaper model, a tighter prompt, or a parallel branch.
       </Note>
+
+      <H2 id="audit-timeline">The audit timeline</H2>
+      <P>
+        The timeline merges <strong>three</strong> sources at read time, which is why an action can
+        appear here without a matching row in any single table:
+      </P>
+      <Table
+        headers={["Source", "Contributes"]}
+        rows={[
+          [
+            <C key="a">audit_events</C>,
+            "User and admin activities — sign-ins, publishes, grants, deletes, agent chats",
+          ],
+          [
+            <C key="b">execution_traces</C>,
+            <>
+              Model calls, surfaced as the <C key="m">model.call</C> action
+            </>,
+          ],
+          [
+            <C key="c">swarm_runs</C>,
+            <>
+              Swarm executions, surfaced as <C key="s">swarm.run</C>
+            </>,
+          ],
+        ]}
+      />
+      <P>
+        Non-administrators see only their own rows — the scoping is done by row-level security, not
+        by the query — while a superadmin sees the whole workspace.
+      </P>
+
+      <H2 id="retention">Retention</H2>
+      <Table
+        headers={["Setting", "Default", "Range", "Notes"]}
+        rows={[
+          [
+            <C key="a">audit_retention_days</C>,
+            "365",
+            "1 – 365",
+            "How long audit events are kept before the scheduled purge.",
+          ],
+          [
+            <C key="b">trace_retention_days</C>,
+            "0 (keep forever)",
+            "0 – 3650",
+            "Zero means no trace purge at all. Set it deliberately — traces can hold prompt bodies.",
+          ],
+          [
+            <C key="c">AUDIT_ARCHIVE_ON_PURGE</C>,
+            "off",
+            "env var",
+            "Archive events on purge instead of dropping them.",
+          ],
+        ]}
+      />
+      <Callout kind="warn" title="Traces are kept forever by default">
+        <C>trace_retention_days</C> ships at 0, meaning nothing is ever purged. Combined with{" "}
+        <C>PERSIST_PROMPT_BODIES</C>, that can mean full prompts and responses accumulating
+        indefinitely. If your prompts carry customer data, set a real retention window — see{" "}
+        <DocLink to="/docs/budgets">Budgets &amp; cost</DocLink>.
+      </Callout>
+
+      <H2 id="export">Export</H2>
+      <P>
+        The audit log exports as NDJSON — one JSON object per line — which streams into most log
+        pipelines without transformation and stays readable when the file is large.
+      </P>
 
       <NextPrev current="/docs/analytics" />
     </>

@@ -1,5 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { DocLink, DocsHeader, FieldList, H2, NextPrev, Note, P } from "@/components/docs/DocsShell";
+import {
+  Callout,
+  DocLink,
+  DocsHeader,
+  FieldList,
+  H2,
+  NextPrev,
+  Note,
+  P,
+  Table,
+} from "@/components/docs/DocsShell";
 
 export const Route = createFileRoute("/docs/account")({
   head: () => ({
@@ -100,6 +110,29 @@ function AccountDoc() {
         Budget settings save automatically as you change them. Per-agent budget caps can also be set
         inside the <DocLink to="/docs/agents">Agent Builder</DocLink>'s guardrails section.
       </Note>
+
+      <H2 id="what-is-yours">What belongs to your account</H2>
+      <Table
+        headers={["Owned by you", "Shared with you"]}
+        rows={[
+          [
+            "Agents, swarms, knowledge collections, data tables, prepared tables, dashboards, secrets, notebooks, API and embed keys",
+            "Anything an administrator granted you read-only access to — shown with a Shared badge",
+          ],
+        ]}
+      />
+      <P>
+        Shared resources cannot be edited or deleted by the recipient; the controls are hidden and
+        writes are blocked by the database regardless. Grants are managed in{" "}
+        <DocLink to="/docs/iam">Access control</DocLink>.
+      </P>
+
+      <H2 id="deletion">Deletion and departure</H2>
+      <Callout kind="warn">
+        Deleting a user cascades to the content they own. If someone leaves and their agents,
+        collections or dashboards matter, transfer or duplicate them first — or <strong>ban</strong>{" "}
+        the account instead, which blocks sign-in while preserving everything.
+      </Callout>
 
       <NextPrev current="/docs/account" />
     </>
