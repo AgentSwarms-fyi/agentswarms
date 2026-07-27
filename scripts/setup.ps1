@@ -57,7 +57,13 @@ function New-Secret {
 
 if ([string]::IsNullOrEmpty((Get-EnvVar "PROVIDER_CREDS_SECRET"))) { Say "Generating PROVIDER_CREDS_SECRET"; Set-EnvVar "PROVIDER_CREDS_SECRET" (New-Secret) }
 if ([string]::IsNullOrEmpty((Get-EnvVar "INTERNAL_RUN_SECRET")))   { Set-EnvVar "INTERNAL_RUN_SECRET" (New-Secret) }
-if ($Docgen -and [string]::IsNullOrEmpty((Get-EnvVar "DOCGEN_SERVICE_URL"))) { Set-EnvVar "DOCGEN_SERVICE_URL" "http://docgen:8099" }
+# The hostname differs by mode: inside the compose network the service is
+# `docgen`, but a dev server on the HOST uses the published loopback port.
+# Getting this wrong makes Deep doc-gen silently fall back to the browser build.
+if ($Docgen -and [string]::IsNullOrEmpty((Get-EnvVar "DOCGEN_SERVICE_URL"))) {
+  if ($Dev) { Set-EnvVar "DOCGEN_SERVICE_URL" "http://localhost:8099" }
+  else      { Set-EnvVar "DOCGEN_SERVICE_URL" "http://docgen:8099" }
+}
 
 $required = @("SUPABASE_URL","SUPABASE_PUBLISHABLE_KEY","SUPABASE_SERVICE_ROLE_KEY","VITE_SUPABASE_URL","VITE_SUPABASE_PUBLISHABLE_KEY","ADMIN_EMAIL","VITE_ADMIN_EMAIL")
 $missing = $required | Where-Object { [string]::IsNullOrEmpty((Get-EnvVar $_)) }

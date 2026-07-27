@@ -23,6 +23,11 @@ export function DocGenBar({
   // Browser (fast) vs Deep (slow, server renderer + AI review) build mode.
   mode = "fast",
   onModeChange,
+  // Whether the server-side renderer is actually reachable. Deep mode silently
+  // falls back to the browser build when it isn't, producing a file identical
+  // to Fast — so the option is disabled with the reason instead.
+  deepAvailable = true,
+  deepReason = null,
   // Optional "Visual BI" toggle (wired by the playground when an agent is selected).
   biControl,
 }: {
@@ -33,6 +38,8 @@ export function DocGenBar({
   onScopeChange?: (next: DocScope) => void;
   mode?: DocGenMode;
   onModeChange?: (next: DocGenMode) => void;
+  deepAvailable?: boolean;
+  deepReason?: string | null;
   biControl?: { enabled: boolean; onToggle: (next: boolean) => void; disabled?: boolean };
 }) {
   const formatBtn = (f: DocFormat, Icon: typeof PptIcon, label: string, title: string) => (
@@ -87,25 +94,35 @@ export function DocGenBar({
         </div>
       )}
       {onModeChange && (
-        <div
-          className="flex h-7 items-center rounded-md border border-border bg-background p-0.5"
-          title="Browser (fast): builds instantly in your browser. Deep (slow): server renderer with native Office output + an AI visual review — falls back to the browser build if the doc-gen service isn't running."
-        >
-          {(["fast", "deep"] as const).map((m) => (
-            <button
-              key={m}
-              type="button"
-              onClick={() => onModeChange(m)}
-              className={cn(
-                "rounded px-2 py-0.5 text-[11px] font-medium transition-colors",
-                mode === m
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {m === "fast" ? "Browser · fast" : "Deep · slow"}
-            </button>
-          ))}
+        <div className="flex h-7 items-center rounded-md border border-border bg-background p-0.5">
+          {(["fast", "deep"] as const).map((m) => {
+            const disabled = m === "deep" && !deepAvailable;
+            return (
+              <button
+                key={m}
+                type="button"
+                disabled={disabled}
+                onClick={() => !disabled && onModeChange(m)}
+                title={
+                  disabled
+                    ? `Deep mode is unavailable — ${deepReason ?? "the doc-gen service isn't reachable"}. Documents would be built in the browser anyway, so this is the same as Fast.`
+                    : m === "fast"
+                      ? "Builds instantly in your browser. Works on every deployment."
+                      : "Server renderer: native Office output (editable charts, real tables) plus an AI visual review pass. Slower."
+                }
+                className={cn(
+                  "rounded px-2 py-0.5 text-[11px] font-medium transition-colors",
+                  disabled && "cursor-not-allowed opacity-40",
+                  !disabled && mode === m
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {m === "fast" ? "Browser · fast" : "Deep · slow"}
+                {disabled && " ✕"}
+              </button>
+            );
+          })}
         </div>
       )}
       {formatBtn(

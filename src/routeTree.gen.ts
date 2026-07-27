@@ -81,6 +81,7 @@ import { Route as ApiHealthReadyRouteImport } from './routes/api/health.ready'
 import { Route as ApiEmbedChatRouteImport } from './routes/api/embed.chat'
 import { Route as ApiEmailSendRouteImport } from './routes/api/email/send'
 import { Route as ApiDocgenXlsxRouteImport } from './routes/api/docgen.xlsx'
+import { Route as ApiDocgenStatusRouteImport } from './routes/api/docgen.status'
 import { Route as ApiDocgenPptxRouteImport } from './routes/api/docgen.pptx'
 import { Route as ApiDocgenDocxRouteImport } from './routes/api/docgen.docx'
 import { Route as ApiBiDirectQueryRouteImport } from './routes/api/bi.direct-query'
@@ -462,6 +463,11 @@ const ApiDocgenXlsxRoute = ApiDocgenXlsxRouteImport.update({
   path: '/api/docgen/xlsx',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiDocgenStatusRoute = ApiDocgenStatusRouteImport.update({
+  id: '/api/docgen/status',
+  path: '/api/docgen/status',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiDocgenPptxRoute = ApiDocgenPptxRouteImport.update({
   id: '/api/docgen/pptx',
   path: '/api/docgen/pptx',
@@ -622,6 +628,7 @@ export interface FileRoutesByFullPath {
   '/api/bi/direct-query': typeof ApiBiDirectQueryRoute
   '/api/docgen/docx': typeof ApiDocgenDocxRoute
   '/api/docgen/pptx': typeof ApiDocgenPptxRoute
+  '/api/docgen/status': typeof ApiDocgenStatusRoute
   '/api/docgen/xlsx': typeof ApiDocgenXlsxRoute
   '/api/email/send': typeof ApiEmailSendRoute
   '/api/embed/chat': typeof ApiEmbedChatRoute
@@ -711,6 +718,7 @@ export interface FileRoutesByTo {
   '/api/bi/direct-query': typeof ApiBiDirectQueryRoute
   '/api/docgen/docx': typeof ApiDocgenDocxRoute
   '/api/docgen/pptx': typeof ApiDocgenPptxRoute
+  '/api/docgen/status': typeof ApiDocgenStatusRoute
   '/api/docgen/xlsx': typeof ApiDocgenXlsxRoute
   '/api/email/send': typeof ApiEmailSendRoute
   '/api/embed/chat': typeof ApiEmbedChatRoute
@@ -803,6 +811,7 @@ export interface FileRoutesById {
   '/api/bi/direct-query': typeof ApiBiDirectQueryRoute
   '/api/docgen/docx': typeof ApiDocgenDocxRoute
   '/api/docgen/pptx': typeof ApiDocgenPptxRoute
+  '/api/docgen/status': typeof ApiDocgenStatusRoute
   '/api/docgen/xlsx': typeof ApiDocgenXlsxRoute
   '/api/email/send': typeof ApiEmailSendRoute
   '/api/embed/chat': typeof ApiEmbedChatRoute
@@ -895,6 +904,7 @@ export interface FileRouteTypes {
     | '/api/bi/direct-query'
     | '/api/docgen/docx'
     | '/api/docgen/pptx'
+    | '/api/docgen/status'
     | '/api/docgen/xlsx'
     | '/api/email/send'
     | '/api/embed/chat'
@@ -984,6 +994,7 @@ export interface FileRouteTypes {
     | '/api/bi/direct-query'
     | '/api/docgen/docx'
     | '/api/docgen/pptx'
+    | '/api/docgen/status'
     | '/api/docgen/xlsx'
     | '/api/email/send'
     | '/api/embed/chat'
@@ -1075,6 +1086,7 @@ export interface FileRouteTypes {
     | '/api/bi/direct-query'
     | '/api/docgen/docx'
     | '/api/docgen/pptx'
+    | '/api/docgen/status'
     | '/api/docgen/xlsx'
     | '/api/email/send'
     | '/api/embed/chat'
@@ -1127,6 +1139,7 @@ export interface RootRouteChildren {
   ApiAuthSsoConfigRoute: typeof ApiAuthSsoConfigRoute
   ApiDocgenDocxRoute: typeof ApiDocgenDocxRoute
   ApiDocgenPptxRoute: typeof ApiDocgenPptxRoute
+  ApiDocgenStatusRoute: typeof ApiDocgenStatusRoute
   ApiDocgenXlsxRoute: typeof ApiDocgenXlsxRoute
   ApiEmailSendRoute: typeof ApiEmailSendRoute
   ApiKbBuildGraphRoute: typeof ApiKbBuildGraphRoute
@@ -1651,6 +1664,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiDocgenXlsxRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/docgen/status': {
+      id: '/api/docgen/status'
+      path: '/api/docgen/status'
+      fullPath: '/api/docgen/status'
+      preLoaderRoute: typeof ApiDocgenStatusRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/docgen/pptx': {
       id: '/api/docgen/pptx'
       path: '/api/docgen/pptx'
@@ -1978,6 +1998,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAuthSsoConfigRoute: ApiAuthSsoConfigRoute,
   ApiDocgenDocxRoute: ApiDocgenDocxRoute,
   ApiDocgenPptxRoute: ApiDocgenPptxRoute,
+  ApiDocgenStatusRoute: ApiDocgenStatusRoute,
   ApiDocgenXlsxRoute: ApiDocgenXlsxRoute,
   ApiEmailSendRoute: ApiEmailSendRoute,
   ApiKbBuildGraphRoute: ApiKbBuildGraphRoute,

@@ -174,6 +174,13 @@ function PlaygroundPage() {
   const [dataScope, setDataScope] = useState<DocScope>("sample");
   // Browser (fast, in-browser) vs Deep (slow, server renderer + AI review).
   const [docMode, setDocMode] = useState<DocGenMode>("fast");
+  // Probed once per mount: Deep silently degrades to the browser build when the
+  // renderer isn't configured, which looks like "Deep did nothing". Knowing up
+  // front lets the control say so instead.
+  const [deepStatus, setDeepStatus] = useState<{ available: boolean; reason: string | null }>({
+    available: true,
+    reason: null,
+  });
   // Document generation: the "armed" format turns the chat box into "describe
   // the document" mode; docPhase drives the inline "Preparing…" status.
   const [armedDoc, setArmedDoc] = useState<DocFormat | null>(null);
@@ -1125,6 +1132,29 @@ function PlaygroundPage() {
     dataScopeRef.current = dataScope;
   }, [dataScope]);
 
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const r = await fetch("/api/docgen/status");
+        const j = (await r.json()) as { available?: boolean; reason?: string | null };
+        if (cancelled) return;
+        const available = !!j.available;
+        setDeepStatus({ available, reason: j.reason ?? null });
+        // Don't leave the user on a mode that cannot run.
+        if (!available) setDocMode("fast");
+      } catch {
+        if (!cancelled) {
+          setDeepStatus({ available: false, reason: "the status probe failed" });
+          setDocMode("fast");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Resolve template id for the guided tour. Prefer the agent's stored
   // tools.templateId; fall back to the value the templates page wrote into
   // sessionStorage at provision time.
@@ -1489,6 +1519,8 @@ function PlaygroundPage() {
               onScopeChange={setDataScope}
               mode={docMode}
               onModeChange={setDocMode}
+              deepAvailable={deepStatus.available}
+              deepReason={deepStatus.reason}
               biControl={selectedAgent ? { enabled: biVisuals, onToggle: setBiVisuals } : undefined}
             />
           </div>
@@ -2330,8 +2362,12 @@ function b64ToBlob(b64: string, type: string): Blob {
 // back to the in-browser pptxgenjs builder when it isn't configured/reachable.
 // One-time notice when Deep mode silently falls back to the browser build.
 function notifyDeepFallback() {
-  toast.info("Deep renderer isn't available — built in the browser instead.", {
-    description: "Run the doc-gen service (docker compose --profile docgen) to enable Deep mode.",
+  // Has to be loud: the fallback file is byte-for-byte what Fast produces, so
+  // an info toast reads as "fine" to someone wondering why Deep changed nothing.
+  toast.warning("Deep mode unavailable — built in the browser instead", {
+    description:
+      "This document is identical to Browser · fast. Start the renderer with `docker compose --profile docgen up -d` and set DOCGEN_SERVICE_URL in .env.",
+    duration: 12000,
   });
 }
 

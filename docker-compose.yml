@@ -121,6 +121,14 @@ services:
       DOCGEN_TOKEN: ${DOCGEN_TOKEN:-}
     expose:
       - "8099"
+    # Also published on the LOOPBACK interface only, so `npm run dev` on the
+    # host can reach it at http://localhost:8099. Without this the renderer is
+    # only addressable from inside the compose network, and Deep mode silently
+    # falls back to the browser build during local development. Bound to
+    # 127.0.0.1 rather than 0.0.0.0 because the service has no auth unless
+    # DOCGEN_TOKEN is set.
+    ports:
+      - "127.0.0.1:8099:8099"
     restart: unless-stopped
 
 # Network topology for the runtime (egress control):

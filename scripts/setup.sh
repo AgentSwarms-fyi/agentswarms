@@ -64,9 +64,16 @@ gen_secret() {
 [ -z "$(getenv PROVIDER_CREDS_SECRET)" ] && { say "Generating PROVIDER_CREDS_SECRET"; setenv PROVIDER_CREDS_SECRET "$(gen_secret)"; }
 [ -z "$(getenv INTERNAL_RUN_SECRET)" ]   && setenv INTERNAL_RUN_SECRET "$(gen_secret)"
 
-# docgen wiring
+# docgen wiring. The hostname differs by mode: inside the compose network the
+# service is `docgen`, but a dev server running on the HOST reaches the
+# published loopback port instead. Getting this wrong makes Deep mode silently
+# fall back to the in-browser builder.
 if [ "$DOCGEN" -eq 1 ] && [ -z "$(getenv DOCGEN_SERVICE_URL)" ]; then
-  setenv DOCGEN_SERVICE_URL "http://docgen:8099"
+  if [ "$MODE" = "dev" ]; then
+    setenv DOCGEN_SERVICE_URL "http://localhost:8099"
+  else
+    setenv DOCGEN_SERVICE_URL "http://docgen:8099"
+  fi
 fi
 
 # Required Supabase values must be filled by the user.
@@ -104,7 +111,7 @@ if [ "$MODE" = "docker" ]; then
   # shellcheck disable=SC2086
   docker compose $PROFILE_FLAGS up -d --build
   say "Up. Open http://localhost:8080"
-  [ "$DOCGEN" -eq 1 ] && echo "  Server-side PPTX/Word/Excel renderer: http://docgen:8099 (set OPENROUTER_API_KEY in .env for the PPT verify loop)"
+  [ "$DOCGEN" -eq 1 ] && echo "  Server-side PPTX/Word/Excel renderer: http://docgen:8099 in-cluster, http://localhost:8099 from the host (set OPENROUTER_API_KEY in .env for the PPT verify loop)"
 else
   say "Starting dev server (Ctrl+C to stop). Open http://localhost:8080"
   npm run dev

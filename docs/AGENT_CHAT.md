@@ -86,7 +86,14 @@ which renders server-side with the native Office toolchains — **python-pptx**
 updatable table of contents + fixed-width tables), and **openpyxl** (formulas
 recalculated by LibreOffice so values show immediately). The browser fills the
 numbers first, then posts the plan to `/api/docgen/{pptx,docx,xlsx}`; if the
-service is unreachable it **silently falls back** to the browser build.
+service is unreachable it **falls back** to the browser build.
+
+Because that fallback produces a file *identical* to Browser mode, the composer
+probes the service (`GET /api/docgen/status`) and greys out **Deep** with the
+reason when it can't be reached — so "Deep did nothing" is visible up front
+rather than after a generation. Set `DOCGEN_SERVICE_URL` to match how you run
+the app: `http://docgen:8099` for the Docker stack, `http://localhost:8099` for
+a local `npm run dev` (the container publishes 8099 on loopback).
 
 ### Sample vs. full data
 
