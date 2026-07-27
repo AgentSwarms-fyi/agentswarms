@@ -59,34 +59,85 @@ function SemanticsPage() {
         consumer inherits it.
       </Callout>
 
-      <H2 id="model">The pieces</H2>
-      <FieldList
-        items={[
-          {
-            name: "Metric",
-            body: (
-              <>
-                A named aggregate over a table: an expression, an aggregation, and the filters that
-                are part of the definition. <C>net_revenue</C> = sum of <C>amount</C> where{" "}
-                <C>status = 'settled'</C>, excluding refunds — including the exclusion, because that
-                is exactly what people argue about.
-              </>
-            ),
-          },
-          {
-            name: "Dimension",
-            body: "A column you're allowed to group or filter by — region, plan, month. Declaring these is what keeps a metric from being sliced in a way that makes it meaningless.",
-          },
-          {
-            name: "Time grain",
-            body: "Which date column drives time, and the grains it supports (day, week, month, quarter, year).",
-          },
-          {
-            name: "Description",
-            body: "What the metric means in business terms, and deliberately what it excludes. This text is read by agents too, so write it for a person.",
-          },
+      <H2 id="model">The pieces — exact fields</H2>
+
+      <H3 id="metric">Metric</H3>
+      <Table
+        headers={["Field", "Required", "Values / notes"]}
+        rows={[
+          [
+            <C key="a">name</C>,
+            "Yes",
+            <>
+              Stable id matching <C key="p">^[a-zA-Z_][a-zA-Z0-9_]*$</C> — it becomes the SQL alias,
+              so no spaces or hyphens.
+            </>,
+          ],
+          [<C key="b">label</C>, "No", "Human-readable display name"],
+          [
+            <C key="c">description</C>,
+            "No",
+            "What it means and what it excludes. Agents read this too.",
+          ],
+          [
+            <C key="d">agg</C>,
+            "Yes",
+            <>
+              <C key="1">sum</C>, <C key="2">avg</C>, <C key="3">count</C>,{" "}
+              <C key="4">count_distinct</C>, <C key="5">min</C>, <C key="6">max</C>,{" "}
+              <C key="7">custom</C>
+            </>,
+          ],
+          [
+            <C key="e">sql</C>,
+            "Depends",
+            <>
+              The column or expression to aggregate. Optional for <C key="c2">count</C>; REQUIRED
+              for <C key="c3">custom</C>, where it is the full aggregate expression, e.g.{" "}
+              <C key="c4">SUM(revenue) - SUM(cost)</C>.
+            </>,
+          ],
+          [
+            <C key="f">filters</C>,
+            "No",
+            <>
+              Boolean SQL fragments ANDed INSIDE the aggregate — a filtered measure, e.g.{" "}
+              <C key="f2">status = 'paid'</C>. Ignored when agg is <C key="f3">custom</C>.
+            </>,
+          ],
+          [<C key="g">format</C>, "No", <>number | currency | percent</>],
+          [<C key="h">currency</C>, "No", "ISO 4217 code when format is currency"],
         ]}
       />
+      <Callout kind="why">
+        <C>filters</C> lands inside the aggregate rather than in the query's WHERE clause. That
+        distinction is the whole point: <C>net_revenue</C> can exclude refunds while sitting on the
+        same row set as <C>gross_revenue</C>, so both can appear in one result without one of them
+        quietly filtering the other.
+      </Callout>
+
+      <H3 id="dimension">Dimension</H3>
+      <Table
+        headers={["Field", "Required", "Values / notes"]}
+        rows={[
+          [<C key="a">name</C>, "Yes", "Same identifier rule as a metric — it is the SQL alias."],
+          [<C key="b">label</C>, "No", "Display name"],
+          [<C key="c">description</C>, "No", "What this slice means"],
+          [
+            <C key="d">sql</C>,
+            "Yes",
+            <>
+              A column, or an expression such as <C key="e2">DATE_TRUNC('month', created_at)</C>.
+            </>,
+          ],
+          [<C key="e">type</C>, "No", "Field type, used for formatting and filter widgets"],
+        ]}
+      />
+      <Callout kind="warn" title="These SQL fields are trusted">
+        Both <C>sql</C> fields are inserted into the compiled query as written. Only people you
+        trust to write SQL against your warehouse should be defining metrics — this is an authoring
+        surface, not a user input.
+      </Callout>
 
       <H2 id="define">Defining a metric</H2>
       <P>

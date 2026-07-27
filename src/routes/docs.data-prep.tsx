@@ -2,6 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
   Callout,
   Diagram,
+  C,
+  Table,
   DocLink,
   DocsHeader,
   FieldList,
@@ -111,41 +113,121 @@ customers┘                          status=       margin =
         catch this.
       </Callout>
 
-      <H2 id="steps">Steps</H2>
-      <P>Beyond joining, a flow can:</P>
-      <FieldList
-        items={[
-          {
-            name: "Filter",
-            body: "Keep rows matching a condition — the fastest way to cut a dataset to the population you actually mean.",
-          },
-          {
-            name: "Select / rename",
-            body: "Drop columns you don't need and give the rest names a human (and a model) can read.",
-          },
-          {
-            name: "Change type",
-            body: "Text→date, text→number. Fixes the imports that make charts and filters misbehave.",
-          },
-          {
-            name: "Computed column",
-            body: "A new column from an expression over existing ones — margin, ratio, bucketed band.",
-          },
-          {
-            name: "Aggregate",
-            body: "Group by one or more columns and summarise the rest (sum, average, count, min, max).",
-          },
-          {
-            name: "Sort / limit",
-            body: "Order the result and optionally cap it — for top-N tables.",
-          },
+      <H2 id="column-types">Column types</H2>
+      <P>
+        Every column carries a type, set on import and changeable in the prep canvas. The type
+        decides which filters, aggregates and charts are available downstream, so getting it right
+        here saves debugging later.
+      </P>
+      <Table
+        headers={["Type", "Use for"]}
+        rows={[
+          [<C key="a">text</C>, "Free text"],
+          [<C key="b">integer</C>, "Whole numbers"],
+          [<C key="c">decimal</C>, "Fractional numbers"],
+          [<C key="d">date</C>, "Dates — required for date filters and time-series charts"],
+          [<C key="e">boolean</C>, "True/false"],
+          [<C key="f">location</C>, "Place names or codes — enables map charts"],
+          [
+            <C key="g">category</C>,
+            "A small set of repeating values; the natural grouping dimension",
+          ],
+          [<C key="h">currency</C>, "Money — formats as currency downstream"],
+          [<C key="i">percent</C>, "Rates and shares"],
+          [
+            <C key="j">id</C>,
+            "Identifiers — excluded from aggregation suggestions, since summing an id is meaningless",
+          ],
         ]}
       />
+
+      <H2 id="steps">The nine steps</H2>
+      <P>Steps apply in order. Any one can be removed, and the preview updates as you go.</P>
+      <Table
+        headers={["Step", "What it does", "Configure"]}
+        rows={[
+          [
+            <>
+              Calculated field <C key="a">calc</C>
+            </>,
+            "Add a column from a formula",
+            "Name, expression, and the resulting column type",
+          ],
+          [
+            <>
+              Filter rows <C key="b">filter</C>
+            </>,
+            "Keep only rows that match",
+            <>
+              One or more conditions, combined with <C key="x">AND</C> or <C key="y">OR</C>
+            </>,
+          ],
+          [
+            <>
+              Summarize <C key="c">aggregate</C>
+            </>,
+            "Group by and roll up",
+            "Group-by columns plus measures (Sum, Average, Count rows, Count distinct, Minimum, Maximum)",
+          ],
+          [
+            <>
+              Append rows <C key="d">append</C>
+            </>,
+            "Union rows from another dataset",
+            <>
+              Source table, columns to keep, and mode <C key="a2">all</C> or{" "}
+              <C key="d2">distinct</C>
+            </>,
+          ],
+          [
+            <>
+              Pivot <C key="e">pivot</C>
+            </>,
+            "Turn row values into columns",
+            "The column to spread, and the value to fill with",
+          ],
+          [
+            <>
+              Unpivot <C key="f">unpivot</C>
+            </>,
+            "Turn columns into rows (wide → long)",
+            "Which columns to melt, and names for the key/value columns",
+          ],
+          [
+            <>
+              Split column <C key="g">split</C>
+            </>,
+            "Split text into multiple columns",
+            "Source column and delimiter",
+          ],
+          [
+            <>
+              Remove duplicates <C key="h">dedupe</C>
+            </>,
+            "Drop duplicate rows",
+            "Which columns define a duplicate",
+          ],
+          [
+            <>
+              Find &amp; replace <C key="i">replace</C>
+            </>,
+            "Replace values in a column",
+            "Column, match and replacement",
+          ],
+        ]}
+      />
+
+      <H3 id="filter-ops">Filter operators</H3>
       <P>
-        Steps apply in order and any one can be removed. Removing a table it depends on is handled
-        rather than silently breaking the flow — a joined table is promoted to base if the original
-        base is deleted.
+        Beyond the usual comparisons, the text and null operators are the ones people look for:{" "}
+        <C>contains</C>, <C>starts with</C>, <C>ends with</C>, <C>is empty</C> and{" "}
+        <C>is not empty</C>.
       </P>
+      <Callout kind="warn" title="is empty is not the same as equals blank">
+        A column can hold a genuine empty string or a null, and they filter differently. If a filter
+        returns fewer rows than expected, check which of the two your data actually contains — the
+        column profile in the <DocLink to="/docs/data">catalog</DocLink> shows the null rate.
+      </Callout>
 
       <H2 id="save-refresh">Saving and refreshing</H2>
       <Steps
