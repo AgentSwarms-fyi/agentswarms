@@ -364,6 +364,9 @@ function CreateEmbedDialog({
   // Bounded by default — an embed key is a public capability token, so an
   // unbounded lifetime should be a deliberate choice.
   const [expiryDays, setExpiryDays] = useState(90);
+  // Optional per-key spend ceiling. Blank = no key-level limit (the owner's
+  // personal and group caps still apply).
+  const [monthlyCap, setMonthlyCap] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -373,6 +376,7 @@ function CreateEmbedDialog({
       setDomains("");
       setAllowAi(false);
       setExpiryDays(90);
+      setMonthlyCap("");
     }
   }, [type]);
 
@@ -413,8 +417,23 @@ function CreateEmbedDialog({
         "id, name, key, resource_type, resource_id, allowed_domains, allow_ai, is_active, use_count, created_at, expires_at, last_used_ip",
       )
       .single();
+    if (error || !data) {
+      setSaving(false);
+      return toast.error(error?.message ?? "Could not create the embed");
+    }
+    // Optional per-key budget. Best-effort: the key is already usable, so a
+    // failure here is surfaced but must not read as "the embed wasn't created".
+    const cap = Number(monthlyCap);
+    if (monthlyCap.trim() !== "" && Number.isFinite(cap) && cap > 0) {
+      const { error: capErr } = await supabase.from("budget_limits").insert({
+        scope_type: "embed_key",
+        scope_id: (data as EmbedKey).id,
+        monthly_cap_usd: cap,
+      });
+      if (capErr)
+        toast.error(`Embed created, but its budget could not be saved: ${capErr.message}`);
+    }
     setSaving(false);
-    if (error || !data) return toast.error(error?.message ?? "Could not create the embed");
     toast.success("Embed created");
     onCreated(data as EmbedKey);
   }
@@ -492,6 +511,22 @@ function CreateEmbedDialog({
             <p className="text-[11px] text-muted-foreground">
               After this, the key stops working everywhere until you issue a new one. Embed keys are
               visible in the host page's HTML, so a bounded lifetime limits the damage if one leaks.
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Monthly AI budget (USD, optional)</Label>
+            <Input
+              type="number"
+              min={0}
+              step="1"
+              value={monthlyCap}
+              onChange={(e) => setMonthlyCap(e.target.value)}
+              placeholder="No key-level limit"
+              className="h-9"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Caps what visitors of this embed can spend of your AI credits in a month. Once
+              reached, the embed answers with a polite notice instead of calling the model.
             </p>
           </div>
           {type === "bi_dashboard" && (

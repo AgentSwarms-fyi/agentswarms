@@ -26,8 +26,10 @@ import {
   Trash2,
   UserPlus,
   Users as UsersIcon,
+  Wallet,
   X,
 } from "lucide-react";
+import { GroupBudgetsTab } from "@/components/admin/GroupBudgetsTab";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -273,6 +275,9 @@ function AdminIamPage() {
           <TabsTrigger value="access" className="gap-1.5">
             <KeyRound className="h-3.5 w-3.5" /> Access
           </TabsTrigger>
+          <TabsTrigger value="budgets" className="gap-1.5">
+            <Wallet className="h-3.5 w-3.5" /> Budgets
+          </TabsTrigger>
           <TabsTrigger value="sso" className="gap-1.5">
             <Building2 className="h-3.5 w-3.5" /> SSO
           </TabsTrigger>
@@ -299,6 +304,9 @@ function AdminIamPage() {
             groupById={groupById}
             reload={reload}
           />
+        </TabsContent>
+        <TabsContent value="budgets" className="mt-4">
+          <GroupBudgetsTab groups={groups} />
         </TabsContent>
         <TabsContent value="sso" className="mt-4">
           <SsoTab

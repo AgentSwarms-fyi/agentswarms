@@ -58,6 +58,12 @@ export type RecordGatewayCallArgs = {
   requestPreview?: unknown;
   responsePreview?: unknown;
   agentId?: string | null;
+  /**
+   * Which credential this call was made through, when it wasn't a signed-in
+   * user acting directly (embed key, swarm API key). Recorded on the trace so
+   * per-credential budgets are computable — see budgetGuard.server.ts.
+   */
+  costScope?: { type: "embed_key" | "swarm_api_key"; id: string } | null;
   // Which backend actually served the call. Defaults to "openrouter" since
   // that's the shared default provider for all internal/background calls;
   // pass the real provider id when a caller knows it (e.g. "openai" for
@@ -113,6 +119,8 @@ export async function recordGatewayCall(args: RecordGatewayCallArgs): Promise<vo
       request_payload: bodyJson(requestPayload),
       response_payload: bodyJson(responsePayload),
       tool_calls: [],
+      cost_scope_type: args.costScope?.type ?? null,
+      cost_scope_id: args.costScope?.id ?? null,
     };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { error } = await (supabaseAdmin.from("execution_traces") as any).insert(insertRow);

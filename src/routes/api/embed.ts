@@ -278,6 +278,7 @@ export const Route = createFileRoute("/api/embed")({
         const usage = extractUsage(data);
         void recordGatewayCall({
           userId: keyRow.user_id,
+          costScope: { type: "embed_key", id: keyRow.id },
           surface: `Embed Ask: ${dash.name}`,
           model: provider === "openrouter" ? model : `${provider}/${model}`,
           promptText: question,

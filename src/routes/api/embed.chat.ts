@@ -17,6 +17,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { rateLimited, touchEmbedKey, validateEmbedKey } from "@/utils/embed.server";
 import { clientIp, clientUserAgent } from "@/utils/requestMeta.server";
+import { budgetMessage, getBudgetDecision } from "@/utils/budgetGuard.server";
 import { recordGatewayCall } from "@/utils/observability/recordGatewayUsage.server";
 import { resolveOpenAICompatTransport } from "@/utils/providers/credentials.server";
 import type { ProviderId } from "@/utils/providers/types";
@@ -320,6 +321,16 @@ export const Route = createFileRoute("/api/embed/chat")({
         }
         const systemPrompt = buildGroundingPrompt(citations, cfg.systemPrompt);
 
+        // Budget gate. Anonymous visitors spend the OWNER's credits here, so
+        // this is the surface where a per-credential cap matters most. Refuse
+        // in-band (SSE) so the embedded chat shows the message instead of a
+        // silent failure.
+        const budget = await getBudgetDecision(keyRow.user_id, {
+          type: "embed_key",
+          id: keyRow.id,
+        });
+        if (budget.over) return sseOnce(budgetMessage(budget));
+
         const transport = await resolveOpenAICompatTransport({
           userId: keyRow.user_id,
           provider: cfg.provider,
@@ -365,6 +376,7 @@ export const Route = createFileRoute("/api/embed/chat")({
           const errText = await upstream.text().catch(() => "");
           void recordGatewayCall({
             userId: keyRow.user_id,
+            costScope: { type: "embed_key", id: keyRow.id },
             surface: `Embed: ${cfg.label}`,
             model: cfg.provider === "openrouter" ? cfg.model : `${cfg.provider}/${cfg.model}`,
             promptText: userText,
@@ -411,6 +423,7 @@ export const Route = createFileRoute("/api/embed/chat")({
           clearTimeout(timer);
           void recordGatewayCall({
             userId: keyRow.user_id,
+            costScope: { type: "embed_key", id: keyRow.id },
             surface: `Embed: ${cfg.label}`,
             model: gatewayModel,
             promptText: userText,

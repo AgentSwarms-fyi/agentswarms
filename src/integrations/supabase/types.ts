@@ -916,6 +916,39 @@ export type Database = {
         };
         Relationships: [];
       };
+      budget_limits: {
+        Row: {
+          created_at: string;
+          created_by: string | null;
+          id: string;
+          is_active: boolean;
+          monthly_cap_usd: number;
+          scope_id: string;
+          scope_type: string;
+          updated_at: string;
+        };
+        Insert: {
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+          is_active?: boolean;
+          monthly_cap_usd: number;
+          scope_id: string;
+          scope_type: string;
+          updated_at?: string;
+        };
+        Update: {
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+          is_active?: boolean;
+          monthly_cap_usd?: number;
+          scope_id?: string;
+          scope_type?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       budget_settings: {
         Row: {
           alert_thresholds: number[];
@@ -1201,6 +1234,8 @@ export type Database = {
           tokens_out: number;
           tool_calls: Json;
           user_id: string;
+          cost_scope_type: string | null;
+          cost_scope_id: string | null;
         };
         Insert: {
           agent_id?: string | null;
@@ -1220,6 +1255,8 @@ export type Database = {
           tokens_out?: number;
           tool_calls?: Json;
           user_id: string;
+          cost_scope_type?: string | null;
+          cost_scope_id?: string | null;
         };
         Update: {
           agent_id?: string | null;
@@ -1239,6 +1276,8 @@ export type Database = {
           tokens_out?: number;
           tool_calls?: Json;
           user_id?: string;
+          cost_scope_type?: string | null;
+          cost_scope_id?: string | null;
         };
         Relationships: [];
       };

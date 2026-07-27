@@ -18,7 +18,7 @@ import {
   applyOutputGuardrails,
   type OutputDecision,
 } from "@/utils/guardrails";
-import { getBudgetStatus } from "@/utils/budgetGuard.server";
+import { budgetMessage, getBudgetDecision } from "@/utils/budgetGuard.server";
 import { internalSecretMatches } from "@/utils/internalOrigin.server";
 import {
   resolveMemoryConfig,
@@ -1053,15 +1053,15 @@ export const Route = createFileRoute("/api/chat")({
             // Hard budget cap. Opt-in (ENFORCE_BUDGET_CAP) — see budgetGuard —
             // and a no-op when no cap is set. Same chokepoint as the model gate,
             // so it covers playground, saved agents and every swarm node.
-            const budget = await getBudgetStatus(userId);
+            // Checks the user's own cap AND every IAM group they belong to.
+            const budget = await getBudgetDecision(userId);
             if (budget.over) {
               return new Response(
                 JSON.stringify({
                   error: "budget_exceeded",
                   message:
-                    `This account has reached its monthly AI budget ` +
-                    `($${budget.spend.toFixed(2)} of $${budget.cap.toFixed(2)}). ` +
-                    `Raise the cap in Budgets, or wait for the next billing month.`,
+                    `${budgetMessage(budget)} ` +
+                    `(spent $${budget.spend.toFixed(2)} of $${budget.cap.toFixed(2)} this month.)`,
                 }),
                 { status: 402, headers: { "Content-Type": "application/json", ...corsHeaders } },
               );

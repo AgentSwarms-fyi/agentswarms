@@ -21,6 +21,7 @@ import { resolveInternalOrigin } from "@/utils/internalOrigin.server";
 import { acquireSlot, envInt, rateLimited, releaseSlot } from "@/utils/rateLimit.server";
 import { auditEvent } from "@/utils/audit.server";
 import { clientIp, clientUserAgent } from "@/utils/requestMeta.server";
+import { budgetMessage, getBudgetDecision } from "@/utils/budgetGuard.server";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -90,6 +91,17 @@ export const Route = createFileRoute("/api/swarm/run")({
             { error: "Too many concurrent runs for this key — retry when one finishes." },
             429,
           );
+        }
+
+        // Budget gate before any work: a swarm run can fan out to many model
+        // calls, so refusing up-front is much cheaper than aborting mid-run.
+        const budget = await getBudgetDecision(key.user_id, {
+          type: "swarm_api_key",
+          id: key.id,
+        });
+        if (budget.over) {
+          releaseSlot(bucket);
+          return json({ error: budgetMessage(budget) }, 402);
         }
 
         try {
