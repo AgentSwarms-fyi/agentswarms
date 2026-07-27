@@ -387,8 +387,22 @@ export function addTableToFlow(
 
 export function removeTableFromFlow(cfg: PrepFlowConfig, name: string): PrepFlowConfig {
   if (cfg.base === name) {
-    if (cfg.joins.length > 0) return cfg; // UI prevents this; keep config valid
-    return emptyPrepConfig();
+    if (cfg.joins.length === 0) return emptyPrepConfig();
+    // Removing the base with joins present: promote the first joined table to
+    // be the new base. Joins that keyed off the removed base are re-pointed at
+    // the promoted table with their key cleared, so the preview flags exactly
+    // what needs re-picking instead of silently guessing a join key.
+    const [promoted, ...rest] = cfg.joins;
+    const newBase = promoted.table;
+    const joins = rest.map((j) =>
+      j.leftTable === name ? { ...j, leftTable: newBase, leftColumn: "" } : j,
+    );
+    return {
+      ...cfg,
+      base: newBase,
+      joins,
+      columns: cfg.columns.filter((c) => c.table !== name),
+    };
   }
   const joins = cfg.joins.filter((j) => j.table !== name);
   const repaired = joins.map((j) =>

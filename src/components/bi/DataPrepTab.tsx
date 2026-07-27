@@ -21,6 +21,7 @@ import {
   ArrowUp,
   Calculator,
   ChevronDown,
+  ChevronRight,
   Clock,
   Code2,
   Columns3,
@@ -38,6 +39,7 @@ import {
   Repeat,
   Rows3,
   Scissors,
+  Server,
   Sigma,
   Table2,
   Trash2,
@@ -188,11 +190,21 @@ export function DataPrepTab() {
   const [cfg, setCfg] = useState<PrepFlowConfig>(emptyPrepConfig());
   const [preview, setPreview] = useState<PreviewState>({ kind: "empty" });
   const [runBusy, setRunBusy] = useState(false);
-  const [importOpen, setImportOpen] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [showSql, setShowSql] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [shapeTab, setShapeTab] = useState("columns");
+
+  // External tables (connected databases/warehouses) shown in the palette
+  // alongside local datasets. Schemas load lazily per connection; clicking a
+  // table imports a snapshot as a local dataset and drops it on the canvas.
+  const listWarehousesFn = useServerFn(listWarehouseConnections);
+  const [whConns, setWhConns] = useState<WarehouseConnectionSummary[] | null>(null);
+  const [whSchemas, setWhSchemas] = useState<
+    Record<string, WarehouseTable[] | "loading" | "error">
+  >({});
+  const [openConns, setOpenConns] = useState<Record<string, boolean>>({});
+  const [importingKey, setImportingKey] = useState<string | null>(null);
 
   const tableInfos: PrepTableInfo[] = useMemo(
     () => (datasets ?? []).map((d) => ({ name: d.name, columns: d.columns })),
@@ -220,6 +232,66 @@ export function DataPrepTab() {
       .then(setFlows)
       .catch(() => {});
   }, [reloadDatasets]);
+
+  useEffect(() => {
+    if (!token) return;
+    listWarehousesFn({ data: { access_token: token } })
+      .then((res) => setWhConns(res.ok ? res.connections.filter((c) => c.is_active) : []))
+      .catch(() => setWhConns([]));
+  }, [token, listWarehousesFn]);
+
+  function loadConnSchema(connId: string) {
+    if (!token) return;
+    setWhSchemas((s) => ({ ...s, [connId]: "loading" }));
+    fetchWarehouseSchema(token, connId)
+      .then((tables) => setWhSchemas((s) => ({ ...s, [connId]: tables })))
+      .catch((e) => {
+        setWhSchemas((s) => ({ ...s, [connId]: "error" }));
+        toast.error((e as Error).message);
+      });
+  }
+
+  function toggleConn(connId: string) {
+    const opening = !openConns[connId];
+    setOpenConns((s) => ({ ...s, [connId]: opening }));
+    if (opening && (!whSchemas[connId] || whSchemas[connId] === "error")) loadConnSchema(connId);
+  }
+
+  // Import an external table as a local snapshot (up to 1,000 rows), then put
+  // it straight on the canvas so the click does what the user meant.
+  async function importExternal(conn: WarehouseConnectionSummary, t: WarehouseTable) {
+    if (!token || !user?.id || importingKey) return;
+    const key = `${conn.id}||${t.schema}||${t.name}`;
+    setImportingKey(key);
+    try {
+      const res = await runWarehouseQuery(
+        token,
+        conn.id,
+        `SELECT * FROM ${t.schema}.${t.name} LIMIT 1000`,
+      );
+      if (res.rows.length === 0) throw new Error("The table returned no rows");
+      const dataset = await saveDataset({
+        userId: user.id,
+        tableName: safeTableName(`${t.schema}_${t.name}`),
+        sourceFilename: `warehouse:${conn.name}`,
+        rows: res.rows,
+        columns: res.columns.map((c) => ({
+          name: c,
+          type: typeof res.rows[0]?.[c] === "number" ? ("number" as const) : ("string" as const),
+        })),
+      });
+      await reloadDatasets();
+      addTable({ name: dataset.name, columns: dataset.columns });
+      toast.success(
+        `Imported ${dataset.row_count.toLocaleString()} rows as "${dataset.name}"` +
+          (res.capped ? " (capped snapshot)" : ""),
+      );
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setImportingKey(null);
+    }
+  }
 
   // ── Live preview (debounced) ────────────────────────────────────────
   useEffect(() => {
@@ -437,24 +509,30 @@ export function DataPrepTab() {
               </Button>
             </CardTitle>
             <CardDescription className="text-xs">
-              Local datasets, plus tables imported from databases &amp; warehouses. Drag onto the
-              canvas — or click to add.
+              Drag a table onto the canvas — or click to add it.
             </CardDescription>
           </CardHeader>
-          <CardContent className="max-h-[420px] space-y-1.5 overflow-y-auto pt-0">
+          <CardContent className="max-h-[560px] space-y-1.5 overflow-y-auto pt-0">
+            {/* ── Local tables ─────────────────────────────────────── */}
+            <p className="pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Local tables
+            </p>
             {datasets === null ? (
               <>
                 <Skeleton className="h-12 w-full" />
                 <Skeleton className="h-12 w-full" />
               </>
             ) : datasets.length === 0 ? (
-              <p className="py-4 text-center text-xs text-muted-foreground">
-                No datasets yet — upload CSVs on the Data &amp; SQL page or import from a source
-                below.
+              <p className="py-3 text-center text-xs text-muted-foreground">
+                No local tables yet — upload a CSV on the Workbench tab, or add one from an external
+                source below.
               </p>
             ) : (
               datasets.map((d) => {
                 const used = onCanvas.has(d.name);
+                const fromWarehouse = d.source_filename?.startsWith("warehouse:")
+                  ? d.source_filename.slice("warehouse:".length)
+                  : null;
                 return (
                   <div
                     key={d.id}
@@ -471,8 +549,9 @@ export function DataPrepTab() {
                     <GripVertical className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-mono font-medium">{d.name}</p>
-                      <p className="text-[10px] text-muted-foreground">
+                      <p className="truncate text-[10px] text-muted-foreground">
                         {d.columns.length} cols · {d.row_count.toLocaleString()} rows
+                        {fromWarehouse ? ` · from ${fromWarehouse}` : ""}
                       </p>
                     </div>
                     {preparedNames.has(d.name) && (
@@ -489,16 +568,96 @@ export function DataPrepTab() {
                 );
               })
             )}
+
+            {/* ── External tables (connected databases & warehouses) ── */}
+            <p className="pb-0.5 pt-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              External tables
+            </p>
+            {whConns === null ? (
+              <Skeleton className="h-9 w-full" />
+            ) : whConns.length === 0 ? (
+              <p className="py-2 text-center text-[11px] text-muted-foreground">
+                No connected sources. Add one under Integrations → Data Sources.
+              </p>
+            ) : (
+              whConns.map((conn) => {
+                const open = Boolean(openConns[conn.id]);
+                const schema = whSchemas[conn.id];
+                return (
+                  <div key={conn.id} className="rounded-md border border-border/60">
+                    <button
+                      type="button"
+                      onClick={() => toggleConn(conn.id)}
+                      className="flex w-full items-center gap-1.5 px-2 py-1.5 text-left text-xs hover:bg-muted/50"
+                    >
+                      {open ? (
+                        <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+                      ) : (
+                        <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
+                      )}
+                      <Server className="h-3 w-3 shrink-0 text-sky-500" />
+                      <span className="min-w-0 flex-1 truncate font-medium">{conn.name}</span>
+                      <span className="shrink-0 text-[9px] text-muted-foreground">
+                        {WAREHOUSE_LABELS[conn.provider]}
+                      </span>
+                    </button>
+                    {open && (
+                      <div className="border-t border-border/50 px-1.5 py-1">
+                        {schema === "loading" || schema === undefined ? (
+                          <p className="flex items-center gap-1 px-1 py-1.5 text-[10px] text-muted-foreground">
+                            <Loader2 className="h-3 w-3 animate-spin" /> Loading tables…
+                          </p>
+                        ) : schema === "error" ? (
+                          <button
+                            type="button"
+                            className="px-1 py-1.5 text-[10px] text-destructive underline-offset-2 hover:underline"
+                            onClick={() => loadConnSchema(conn.id)}
+                          >
+                            Failed to load — retry
+                          </button>
+                        ) : schema.length === 0 ? (
+                          <p className="px-1 py-1.5 text-[10px] text-muted-foreground">
+                            No tables found.
+                          </p>
+                        ) : (
+                          schema.slice(0, 200).map((t) => {
+                            const key = `${conn.id}||${t.schema}||${t.name}`;
+                            const busy = importingKey === key;
+                            return (
+                              <button
+                                key={key}
+                                type="button"
+                                disabled={Boolean(importingKey)}
+                                onClick={() => void importExternal(conn, t)}
+                                className="flex w-full items-center gap-1.5 rounded px-1 py-1 text-left hover:bg-muted/50 disabled:opacity-50"
+                                title="Import a snapshot (up to 1,000 rows) and add it to the canvas"
+                              >
+                                {busy ? (
+                                  <Loader2 className="h-2.5 w-2.5 shrink-0 animate-spin text-primary" />
+                                ) : (
+                                  <Table2 className="h-2.5 w-2.5 shrink-0 text-muted-foreground" />
+                                )}
+                                <span className="truncate font-mono text-[10px]">
+                                  {t.schema}.{t.name}
+                                </span>
+                              </button>
+                            );
+                          })
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+            {whConns && whConns.length > 0 && (
+              <p className="pt-0.5 text-[10px] leading-relaxed text-muted-foreground">
+                Clicking an external table imports a snapshot (up to 1,000 rows) as a local table
+                and adds it to the canvas.
+              </p>
+            )}
           </CardContent>
         </Card>
-        <Button
-          variant="outline"
-          size="sm"
-          className="w-full gap-1.5 text-xs"
-          onClick={() => setImportOpen(true)}
-        >
-          <Database className="h-3.5 w-3.5" /> Import from a source
-        </Button>
       </div>
 
       {/* Main column */}
@@ -623,13 +782,33 @@ export function DataPrepTab() {
             }}
           >
             {!cfg.base ? (
-              <div className="flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border/70 py-14 text-center">
+              <div className="flex flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed border-border/70 py-12 text-center">
                 <Table2 className="h-8 w-8 text-muted-foreground" />
                 <p className="text-sm font-medium">Drag your first table here</p>
                 <p className="max-w-sm text-xs text-muted-foreground">
-                  Or click a table in the palette. Then shape it below — add calculated fields,
-                  filter, summarize, pivot and more.
+                  Local and external tables both work — clicking an external one imports it first.
+                  The first table becomes the base; every next one becomes a join.
                 </p>
+                <div className="mt-1 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+                  <span className="flex items-center gap-1.5">
+                    <span className="flex h-4 w-4 items-center justify-center rounded-full bg-primary/10 font-semibold text-primary">
+                      1
+                    </span>
+                    Add &amp; join tables
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="flex h-4 w-4 items-center justify-center rounded-full bg-primary/10 font-semibold text-primary">
+                      2
+                    </span>
+                    Shape: columns, filters, transforms
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="flex h-4 w-4 items-center justify-center rounded-full bg-primary/10 font-semibold text-primary">
+                      3
+                    </span>
+                    Run &amp; save as a new dataset
+                  </span>
+                </div>
               </div>
             ) : (
               <div className="flex flex-wrap items-center gap-3">
@@ -637,7 +816,8 @@ export function DataPrepTab() {
                   name={cfg.base}
                   info={tableInfos.find((t) => t.name === cfg.base)}
                   isBase
-                  removable={cfg.joins.length === 0}
+                  hasJoins={cfg.joins.length > 0}
+                  removable
                   onRemove={() => setCfg((p) => removeTableFromFlow(p, cfg.base!))}
                 />
                 {cfg.joins.map((j, i) => (
@@ -894,13 +1074,6 @@ export function DataPrepTab() {
         )}
       </div>
 
-      <WarehouseImportDialog
-        open={importOpen}
-        onOpenChange={setImportOpen}
-        token={token}
-        userId={user?.id ?? null}
-        onImported={() => void reloadDatasets()}
-      />
       <ScheduleDialog
         open={scheduleOpen}
         onOpenChange={setScheduleOpen}
@@ -2065,12 +2238,15 @@ function TableNode({
   name,
   info,
   isBase = false,
+  hasJoins = false,
   removable,
   onRemove,
 }: {
   name: string;
   info?: PrepTableInfo;
   isBase?: boolean;
+  /** Base only: whether joins hang off this table (changes the remove hint). */
+  hasJoins?: boolean;
   removable: boolean;
   onRemove: () => void;
 }) {
@@ -2094,7 +2270,13 @@ function TableNode({
               ? "text-muted-foreground hover:text-destructive"
               : "cursor-not-allowed text-muted-foreground/30"
           }`}
-          title={removable ? "Remove from canvas" : "Remove the joined tables first"}
+          title={
+            !removable
+              ? "Cannot remove"
+              : isBase && hasJoins
+                ? "Remove — the next table becomes the base"
+                : "Remove from canvas"
+          }
           onClick={() => removable && onRemove()}
         >
           <X className="h-3 w-3" />
@@ -2201,161 +2383,6 @@ function ScheduleDialog({
           </Button>
           <Button onClick={() => void save()} disabled={busy}>
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// ── Warehouse / DB import ────────────────────────────────────────────────────
-
-function WarehouseImportDialog({
-  open,
-  onOpenChange,
-  token,
-  userId,
-  onImported,
-}: {
-  open: boolean;
-  onOpenChange: (o: boolean) => void;
-  token: string | null;
-  userId: string | null;
-  onImported: () => void;
-}) {
-  const listWarehousesFn = useServerFn(listWarehouseConnections);
-  const [warehouses, setWarehouses] = useState<WarehouseConnectionSummary[] | null>(null);
-  const [connId, setConnId] = useState<string>("");
-  const [tables, setTables] = useState<WarehouseTable[] | "loading" | "error" | null>(null);
-  const [tableKey, setTableKey] = useState<string>("");
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    if (!open || !token) return;
-    setWarehouses(null);
-    setConnId("");
-    setTables(null);
-    setTableKey("");
-    listWarehousesFn({ data: { access_token: token } }).then((res) => {
-      setWarehouses(res.ok ? res.connections.filter((c) => c.is_active) : []);
-    });
-  }, [open, token, listWarehousesFn]);
-
-  useEffect(() => {
-    if (!connId || !token) return;
-    setTables("loading");
-    setTableKey("");
-    fetchWarehouseSchema(token, connId)
-      .then(setTables)
-      .catch((e) => {
-        setTables("error");
-        toast.error((e as Error).message);
-      });
-  }, [connId, token]);
-
-  async function handleImport() {
-    if (!token || !userId || !connId || !tableKey) return;
-    const [schema, name] = tableKey.split("||");
-    setBusy(true);
-    try {
-      const res = await runWarehouseQuery(
-        token,
-        connId,
-        `SELECT * FROM ${schema}.${name} LIMIT 1000`,
-      );
-      if (res.rows.length === 0) throw new Error("The table returned no rows");
-      const conn = warehouses?.find((w) => w.id === connId);
-      const dataset = await saveDataset({
-        userId,
-        tableName: safeTableName(`${schema}_${name}`),
-        sourceFilename: `warehouse:${conn?.name ?? connId}`,
-        rows: res.rows,
-        columns: res.columns.map((c) => ({
-          name: c,
-          type: typeof res.rows[0]?.[c] === "number" ? ("number" as const) : ("string" as const),
-        })),
-      });
-      toast.success(
-        `Imported ${dataset.row_count.toLocaleString()} rows as "${dataset.name}"` +
-          (res.capped ? " (capped snapshot)" : ""),
-      );
-      onImported();
-      onOpenChange(false);
-    } catch (e) {
-      toast.error((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Import a table from a source</DialogTitle>
-          <DialogDescription>
-            Pulls a snapshot (up to 1,000 rows) from a connected database or data warehouse into
-            your local datasets so it can be combined in the prep canvas.
-          </DialogDescription>
-        </DialogHeader>
-        {warehouses === null ? (
-          <Skeleton className="h-9 w-full" />
-        ) : warehouses.length === 0 ? (
-          <p className="py-2 text-sm text-muted-foreground">
-            No active connections. Add a database or warehouse under Integrations → Data Warehouses.
-          </p>
-        ) : (
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label>Connection</Label>
-              <Select value={connId || undefined} onValueChange={setConnId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Pick a connection" />
-                </SelectTrigger>
-                <SelectContent>
-                  {warehouses.map((w) => (
-                    <SelectItem key={w.id} value={w.id}>
-                      {w.name} — {WAREHOUSE_LABELS[w.provider]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            {connId && (
-              <div className="space-y-1.5">
-                <Label>Table</Label>
-                {tables === "loading" || tables === null ? (
-                  <Skeleton className="h-9 w-full" />
-                ) : tables === "error" ? (
-                  <p className="text-xs text-destructive">Could not load the schema.</p>
-                ) : (
-                  <Select value={tableKey || undefined} onValueChange={setTableKey}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Pick a table" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {tables.map((t) => (
-                        <SelectItem
-                          key={`${t.schema}||${t.name}`}
-                          value={`${t.schema}||${t.name}`}
-                          className="font-mono text-xs"
-                        >
-                          {t.schema}.{t.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-        <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button onClick={() => void handleImport()} disabled={busy || !tableKey}>
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Import snapshot"}
           </Button>
         </DialogFooter>
       </DialogContent>
