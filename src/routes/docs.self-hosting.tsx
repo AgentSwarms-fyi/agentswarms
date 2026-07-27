@@ -98,52 +98,189 @@ function SelfHostingPage() {
         concluding a feature is broken.
       </Callout>
 
-      <H2 id="env">Required environment</H2>
+      <H2 id="env">Environment reference</H2>
+      <P>
+        Every variable the app reads, grouped by what it does. Only the first group is required;
+        everything else changes behaviour you may not need.
+      </P>
+
+      <H3 id="env-required">Required — Supabase and identity</H3>
       <Table
         headers={["Variable", "Purpose"]}
         rows={[
-          [<C key="a">SUPABASE_URL</C>, "Project URL (server side)"],
-          [<C key="b">SUPABASE_PUBLISHABLE_KEY</C>, "Anon key (server side)"],
+          [<C key="a">SUPABASE_URL</C>, "Project URL, server side"],
+          [<C key="b">SUPABASE_PUBLISHABLE_KEY</C>, "Anon key, server side"],
           [
             <C key="c">SUPABASE_SERVICE_ROLE_KEY</C>,
-            "Service role — server only, never exposed to the browser",
+            "Service role. Server only — must never reach a browser.",
           ],
           [<C key="d">VITE_SUPABASE_URL</C>, "Same URL, inlined into the client bundle"],
           [<C key="e">VITE_SUPABASE_PUBLISHABLE_KEY</C>, "Same anon key, client side"],
-          [<C key="f">ADMIN_EMAIL</C>, "Bootstrap superadmin account"],
-          [<C key="g">VITE_ADMIN_EMAIL</C>, "Same address, for client-side admin affordances"],
+          [<C key="f">SUPABASE_PROJECT_ID</C>, "Project ref, used by the CLI for migrations"],
+          [<C key="g">VITE_SUPABASE_PROJECT_ID</C>, "Same, client side"],
+          [<C key="h">ADMIN_EMAIL</C>, "Bootstrap superadmin account"],
+          [<C key="i">VITE_ADMIN_EMAIL</C>, "Same address, for client-side admin affordances"],
           [
-            <C key="h">PROVIDER_CREDS_SECRET</C>,
-            "Encryption key for stored credentials — back this up",
+            <C key="j">PROVIDER_CREDS_SECRET</C>,
+            "Encryption key for every stored credential. Back this up — see the warning below.",
           ],
-          [<C key="i">INTERNAL_RUN_SECRET</C>, "Signs internal service-to-service calls"],
+          [<C key="k">INTERNAL_RUN_SECRET</C>, "Signs internal service-to-service calls"],
         ]}
       />
       <Callout kind="warn" title="PROVIDER_CREDS_SECRET is not recoverable">
-        Every stored credential is encrypted with it. Lose it and every connector, provider key and
-        MCP token must be re-entered. Keep it wherever you keep your other break-glass secrets.
+        Every stored credential is encrypted with it, and it lives in the environment rather than
+        the database — so a database dump alone yields no secrets. Lose it and every connector,
+        provider key and MCP token must be re-entered. Keep it wherever you keep your other
+        break-glass secrets, and back it up separately from the database.
       </Callout>
 
-      <H3 id="optional-env">Useful optional settings</H3>
-      <FieldList
-        items={[
-          {
-            name: "OPENROUTER_API_KEY",
-            body: "Zero-config model fallback so a fresh workspace works before anyone connects their own provider.",
-          },
-          { name: "FIRECRAWL_API_KEY", body: "Workspace-wide web search and page fetching." },
-          {
-            name: "ENFORCE_BUDGET_CAP",
-            body: "Makes budget caps actually block rather than only alert. Set this on any instance with a public embed.",
-          },
-          {
-            name: "DISABLE_INPROCESS_SCHEDULER",
-            body: "For multi-instance deployments — see scaling below.",
-          },
-          {
-            name: "DOCGEN_SERVICE_URL",
-            body: "Only if the Office renderer runs somewhere unusual; it is auto-discovered otherwise.",
-          },
+      <H3 id="env-models">Models and search</H3>
+      <Table
+        headers={["Variable", "Purpose"]}
+        rows={[
+          [
+            <C key="a">OPENROUTER_API_KEY</C>,
+            "Zero-config model fallback so a fresh workspace works before anyone connects their own provider.",
+          ],
+          [<C key="b">OPENROUTER_DEFAULT_MODEL</C>, "Model used for that fallback"],
+          [
+            <C key="c">OPENROUTER_BASE_URL</C>,
+            "Point at a compatible gateway instead of OpenRouter",
+          ],
+          [<C key="d">OPENAI_API_KEY</C>, "Workspace-wide OpenAI key"],
+          [
+            <C key="e">FIRECRAWL_API_KEY</C>,
+            "Workspace-wide web search and page fetching for the web_search / web_browse tools",
+          ],
+        ]}
+      />
+
+      <H3 id="env-email">Email delivery</H3>
+      <P>
+        Needed for invitations, alert notifications and scheduled reports. Use{" "}
+        <strong>either</strong> Resend or SMTP.
+      </P>
+      <Table
+        headers={["Variable", "Purpose"]}
+        rows={[
+          [<C key="a">RESEND_API_KEY</C>, "Resend delivery"],
+          [<C key="b">SMTP_HOST</C>, "SMTP delivery"],
+          [<C key="c">SMTP_PORT</C>, "—"],
+          [<C key="d">SMTP_USER</C>, "—"],
+          [<C key="e">SMTP_PASS</C>, "—"],
+          [<C key="f">SMTP_SECURE</C>, "TLS on/off"],
+          [<C key="g">EMAIL_FROM</C>, "From address on outgoing mail"],
+          [<C key="h">SITE_URL</C>, "Base URL used in links inside emails"],
+          [<C key="i">PUBLIC_APP_URL</C>, "Public base URL of this instance"],
+        ]}
+      />
+
+      <H3 id="env-limits">Run limits and cost</H3>
+      <Table
+        headers={["Variable", "Purpose"]}
+        rows={[
+          [
+            <C key="a">SWARM_RUN_RATE_LIMIT_PER_MIN</C>,
+            "Requests per API key per minute, then 429",
+          ],
+          [<C key="b">SWARM_RUN_MAX_CONCURRENT</C>, "Simultaneous runs per key"],
+          [<C key="c">SWARM_RUN_TIMEOUT_MS</C>, "Wall-clock ceiling for one run"],
+          [
+            <C key="d">ENFORCE_BUDGET_CAP</C>,
+            <>
+              Makes budget caps BLOCK rather than only alert. Accepts <C key="v">1</C>,{" "}
+              <C key="t">true</C>, <C key="y">yes</C>. Set this on any instance with a public embed
+              — see{" "}
+              <DocLink key="b" to="/docs/budgets">
+                Budgets
+              </DocLink>
+              .
+            </>,
+          ],
+        ]}
+      />
+      <Callout kind="info">
+        These limits are counted <strong>per application process</strong>. Behind a load balancer
+        with N instances the effective limit is N times the value.
+      </Callout>
+
+      <H3 id="env-network">Network egress</H3>
+      <Table
+        headers={["Variable", "Purpose"]}
+        rows={[
+          [
+            <C key="a">BLOCK_PRIVATE_NETWORK_FETCH</C>,
+            "Refuse outbound requests to private, loopback and link-local addresses, including cloud metadata endpoints.",
+          ],
+          [
+            <C key="b">ALLOW_PRIVATE_NETWORK_FETCH</C>,
+            "The escape hatch, for when a warehouse or MCP server genuinely lives on a private network.",
+          ],
+        ]}
+      />
+      <Callout kind="warn">
+        Allowing private-network fetches means a URL chosen by a model — from <C>web_browse</C>, a
+        swarm HTTP node, or a prompt-injected instruction — can reach inside your network. If you
+        must enable it, do so on an instance with no public embeds.
+      </Callout>
+
+      <H3 id="env-observability">Observability and audit</H3>
+      <Table
+        headers={["Variable", "Purpose"]}
+        rows={[
+          [<C key="a">METRICS_TOKEN</C>, "Bearer token guarding the metrics endpoint"],
+          [<C key="b">OTEL_EXPORTER_OTLP_ENDPOINT</C>, "OTLP collector endpoint"],
+          [<C key="c">OTEL_EXPORTER_OTLP_TRACES_ENDPOINT</C>, "Traces-specific override"],
+          [<C key="d">OTEL_EXPORTER_OTLP_HEADERS</C>, "Extra headers for the collector"],
+          [<C key="e">OTEL_SERVICE_NAME</C>, "Service name reported in traces"],
+          [
+            <C key="f">AUDIT_ARCHIVE_ON_PURGE</C>,
+            "Archive audit events instead of dropping them at retention",
+          ],
+          [
+            <C key="g">PERSIST_PROMPT_BODIES</C>,
+            "Whether full prompt and response bodies are stored on traces. Rich for debugging, heavier and more sensitive — decide deliberately.",
+          ],
+        ]}
+      />
+
+      <H3 id="env-scheduling">Scheduling</H3>
+      <Table
+        headers={["Variable", "Purpose"]}
+        rows={[
+          [
+            <C key="a">DISABLE_INPROCESS_SCHEDULER</C>,
+            "Turn off the in-process scheduler on the web tier — see scaling below.",
+          ],
+          [<C key="b">BI_CRON_TOKEN</C>, "Token an external cron presents to the BI cron endpoint"],
+          [<C key="c">NOTEBOOK_CRON_TOKEN</C>, "Same, for the notebook reaper"],
+        ]}
+      />
+
+      <H3 id="env-docgen">Document renderer</H3>
+      <Table
+        headers={["Variable", "Purpose"]}
+        rows={[
+          [
+            <C key="a">DOCGEN_SERVICE_URL</C>,
+            "Only when the renderer runs somewhere unusual. Leave empty — the app probes docgen:8099 and localhost:8099 and uses whichever answers.",
+          ],
+          [<C key="b">DOCGEN_TOKEN</C>, "Shared bearer token between the app and the renderer"],
+        ]}
+      />
+
+      <H3 id="env-notebooks">Notebook runtime</H3>
+      <Table
+        headers={["Variable", "Purpose"]}
+        rows={[
+          [<C key="a">NOTEBOOK_RUNTIME_ENABLED</C>, "Turn the server runtime on"],
+          [
+            <C key="b">NOTEBOOK_RUNTIME_SECRET</C>,
+            "Session-token signing key. Omit and the server generates one.",
+          ],
+          [<C key="c">NOTEBOOK_RUNTIME_BACKEND</C>, "docker | k8s | e2b"],
+          [<C key="d">NOTEBOOK_RUNTIME_IMAGE</C>, "Kernel image to launch"],
+          [<C key="e">NOTEBOOK_GATEWAY_URL</C>, "Websocket gateway address"],
         ]}
       />
 
