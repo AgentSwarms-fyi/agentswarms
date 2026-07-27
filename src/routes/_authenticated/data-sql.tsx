@@ -332,6 +332,19 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
     });
   }, [session?.access_token, listWarehousesFn]);
 
+  // Session hydration can lag the first render — arriving straight from the
+  // Catalog's "Query data" link mounts this page (and fires the seeded query
+  // effect) while useAuth() is still restoring the session, so reading
+  // `session?.access_token` at that instant yields "" and the API 401s
+  // ("Sign in to browse warehouses" → "Failed to load — retry" until a manual
+  // retry). getSession() awaits supabase-js' own storage hydration, so this
+  // always resolves the real token.
+  async function authToken(): Promise<string> {
+    if (session?.access_token) return session.access_token;
+    const { data } = await supabase.auth.getSession();
+    return data.session?.access_token ?? "";
+  }
+
   async function loadWarehouseSchema(connId: string) {
     const existing = whTables[connId];
     if (existing && existing !== "error") return;
@@ -341,7 +354,7 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${session?.access_token ?? ""}`,
+          Authorization: `Bearer ${await authToken()}`,
         },
         body: JSON.stringify({ connection_id: connId }),
       });
@@ -363,7 +376,7 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${session?.access_token ?? ""}`,
+        Authorization: `Bearer ${await authToken()}`,
       },
       body: JSON.stringify({ connection_id: connId, sql: sqlText }),
     });
