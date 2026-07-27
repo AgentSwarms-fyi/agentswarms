@@ -2,13 +2,16 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
   C,
   Callout,
+  Code,
   DocLink,
   DocsHeader,
   FieldList,
   H2,
+  H3,
   NextPrev,
   P,
   Steps,
+  Table,
   UL,
 } from "@/components/docs/DocsShell";
 
@@ -76,6 +79,50 @@ function SecretsPage() {
           },
         ]}
       />
+
+      <H3 id="naming">Name rules</H3>
+      <P>
+        Names are validated by the database, so an invalid one fails at save rather than silently
+        never matching:
+      </P>
+      <Table
+        headers={["Rule", "Detail"]}
+        rows={[
+          ["Pattern", <C key="a">^[A-Za-z][A-Za-z0-9_]*$</C>],
+          ["Must start with", "A letter"],
+          ["May contain", "Letters, digits and underscores — no hyphens, spaces or dots"],
+          ["Max length", "64 characters"],
+        ]}
+      />
+      <Table
+        headers={["Valid", "Invalid", "Why"]}
+        rows={[
+          [
+            <C key="a">SNOWFLAKE_ANALYTICS_RO</C>,
+            <C key="b">snowflake-analytics-ro</C>,
+            "Hyphens are not allowed",
+          ],
+          [
+            <C key="c">stripe_live_key</C>,
+            <C key="d">2captcha_key</C>,
+            "Cannot start with a digit",
+          ],
+          [<C key="e">jiraToken</C>, <C key="f">jira token</C>, "No spaces"],
+        ]}
+      />
+
+      <H2 id="referencing">Referencing a secret in a swarm</H2>
+      <P>
+        Beyond connector forms, any templated field on a{" "}
+        <DocLink to="/docs/swarms">swarm node</DocLink> can reference one:
+      </P>
+      <Code lang="HTTP node header">{`Authorization: Bearer {{secret:SUPPORT_API_TOKEN}}`}</Code>
+      <Callout kind="why">
+        <C>{"{{secret:NAME}}"}</C> is deliberately left unresolved by the client-side template
+        engine and substituted on the server at call time. That is what lets a swarm authenticate to
+        a third-party API without the credential ever being sent to the browser or visible on the
+        canvas — so someone who can edit the graph still cannot read the value.
+      </Callout>
 
       <H2 id="where">Where secrets can be used</H2>
       <UL>

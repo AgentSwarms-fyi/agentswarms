@@ -9,6 +9,7 @@ import {
   H3,
   NextPrev,
   P,
+  Steps,
   Table,
   UL,
 } from "@/components/docs/DocsShell";
@@ -47,6 +48,30 @@ function IamPage() {
         row-level security in the database, which is the reason it holds: an agent, an API call and
         the UI all hit the same rules, so there is no path that quietly bypasses them.
       </P>
+
+      <H2 id="tabs">The six tabs</H2>
+      <Table
+        headers={["Tab", "What you do there"]}
+        rows={[
+          [
+            "Users",
+            "Invite, create, ban, delete; grant/revoke superadmin; manage group membership",
+          ],
+          ["Groups", "Create, rename, delete groups and manage members"],
+          ["Access", "Model rules and resource grants"],
+          [
+            "Budgets",
+            <>
+              Per-group spend caps — see{" "}
+              <DocLink key="b" to="/docs/budgets">
+                Budgets
+              </DocLink>
+            </>,
+          ],
+          ["Settings", "Public-signup toggle and the current superadmin list"],
+          ["SSO", "SAML identity provider configuration"],
+        ]}
+      />
 
       <H2 id="roles">Roles</H2>
       <P>
@@ -120,9 +145,11 @@ function IamPage() {
 
       <H2 id="sharing">Resource sharing</H2>
       <P>
-        Grant a user or group <strong>read-only</strong> access to a knowledge base, data table,
-        dashboard or secret owned by someone else. Recipients see a <em>Shared</em> badge; edit and
-        delete controls are hidden and writes are blocked by the database regardless.
+        Grant a user or group <strong>read-only</strong> access to a resource owned by someone else.
+        Four resource types are grantable, enforced by a database constraint — <C>knowledge_base</C>
+        , <C>data_table</C>, <C>secret</C> and <C>bi_dashboard</C>. Recipients see a <em>Shared</em>{" "}
+        badge; edit and delete controls are hidden and writes are blocked by the database
+        regardless.
       </P>
       <P>
         Because grants are enforced in row-level security, agent tools inherit them automatically —
@@ -139,6 +166,52 @@ function IamPage() {
           {
             name: "SSO",
             body: "Connect a SAML identity provider so people sign in with your corporate directory. Can be made the enforced path.",
+          },
+        ]}
+      />
+
+      <H3 id="worked">Worked example — onboarding an analytics team</H3>
+      <Steps
+        items={[
+          {
+            title: "Groups → New group",
+            body: (
+              <>
+                Name it <C>analytics</C>. Groups are how you avoid granting things person by person.
+              </>
+            ),
+          },
+          {
+            title: "Users → Add user → Invite by email",
+            body: "They set their own password, so no credential passes through you. Repeat for the team, then add each to analytics from their row.",
+          },
+          {
+            title: "Access → Model rules → principal: group analytics",
+            body: (
+              <>
+                Add <C>openai</C> + <C>gpt-4o-mini</C> and <C>openai</C> + <C>gpt-4o</C>. The team
+                is now restricted to those two; everyone outside the group is still unrestricted
+                unless a rule applies to them.
+              </>
+            ),
+          },
+          {
+            title: "Access → Resource grants",
+            body: (
+              <>
+                Grant <C>analytics</C> read access to the <C>revenue</C> data table and the{" "}
+                <C>Finance policies</C> knowledge base. Their agents can now query both with no
+                further wiring.
+              </>
+            ),
+          },
+          {
+            title: "Budgets → new cap, scope group analytics",
+            body: "Set a monthly USD ceiling before handing out access, not after the first surprise.",
+          },
+          {
+            title: "Settings → turn OFF public signup",
+            body: "Do this before you share the URL. Invitations and admin-created users keep working.",
           },
         ]}
       />
