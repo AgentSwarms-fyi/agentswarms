@@ -16,6 +16,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { rateLimited, touchEmbedKey, validateEmbedKey } from "@/utils/embed.server";
+import { clientIp, clientUserAgent } from "@/utils/requestMeta.server";
 import { recordGatewayCall } from "@/utils/observability/recordGatewayUsage.server";
 import { resolveOpenAICompatTransport } from "@/utils/providers/credentials.server";
 import type { ProviderId } from "@/utils/providers/types";
@@ -266,6 +267,8 @@ export const Route = createFileRoute("/api/embed/chat")({
           key: body.embedKey,
           parentOrigin: body.parentOrigin,
           previewToken: body.previewToken,
+          ip: clientIp(request),
+          userAgent: clientUserAgent(request),
         });
         if (!v.ok) return json({ error: v.error }, v.status);
         const keyRow = v.row;

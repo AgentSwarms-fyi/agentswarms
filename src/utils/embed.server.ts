@@ -9,6 +9,7 @@
 // deactivated instantly from /dashboard.
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { auditEvent } from "@/utils/audit.server";
 
 export type EmbedKeyRow = {
   id: string;
@@ -59,6 +60,9 @@ export async function validateEmbedKey(opts: {
   key: string | undefined;
   parentOrigin?: string | null;
   previewToken?: string | null;
+  /** Forensic context for denial auditing (see requestMeta.server.ts). */
+  ip?: string | null;
+  userAgent?: string | null;
 }): Promise<EmbedValidation> {
   const key = (opts.key ?? "").trim();
   if (!key.startsWith("emk_") || key.length < 20 || key.length > 80) {
@@ -71,8 +75,31 @@ export async function validateEmbedKey(opts: {
     )
     .eq("key", key)
     .maybeSingle();
+  // An unknown key can't be attributed to an owner, so there is nobody to
+  // audit it against — the rate limiter is the control for key-guessing.
   if (!row) return { ok: false, status: 404, error: "This embed key does not exist." };
+
+  // Denials are the security-relevant events on this surface: without them a
+  // disabled key being hammered, or an unauthorized site trying to use
+  // someone's embed, leaves no trace anywhere in the product.
+  const denied = (reason: string) =>
+    auditEvent({
+      userId: row.user_id,
+      action: "embed.access.denied",
+      resourceType: "embed_key",
+      resourceId: row.id,
+      resourceName: row.name,
+      detail: {
+        reason,
+        parent_origin: opts.parentOrigin ?? null,
+        resource_type: row.resource_type,
+        ip: opts.ip ?? null,
+        user_agent: opts.userAgent ?? null,
+      },
+    });
+
   if (!row.is_active) {
+    denied("key_disabled");
     return { ok: false, status: 403, error: "This embed has been disabled by its owner." };
   }
 
@@ -86,6 +113,7 @@ export async function validateEmbedKey(opts: {
   }
 
   if (!domainAllowed(row.allowed_domains ?? [], opts.parentOrigin)) {
+    denied("domain_not_allowed");
     return {
       ok: false,
       status: 403,

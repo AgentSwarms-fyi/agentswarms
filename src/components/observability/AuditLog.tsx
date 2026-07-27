@@ -70,6 +70,17 @@ const ACTION_META: Record<string, { label: string; className: string }> = {
     label: "catalog crawl",
     className: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
   },
+  // Authorization denials on the internet-facing surfaces (embeds, swarm API
+  // keys). Styled as destructive because these are security signals, not
+  // routine activity.
+  "embed.access.denied": {
+    label: "embed denied",
+    className: "bg-destructive/10 text-destructive",
+  },
+  "swarm.api_key.denied": {
+    label: "API key denied",
+    className: "bg-destructive/10 text-destructive",
+  },
 };
 
 function actionIcon(action: string) {
@@ -96,7 +107,8 @@ function describeDetail(r: AuditRow): string {
   const bits: string[] = [];
   if (typeof d.surface === "string") bits.push(String(d.surface));
   if (typeof d.tokens === "number" && d.tokens > 0) bits.push(`${d.tokens.toLocaleString()} tok`);
-  if (typeof d.cost_usd === "number" && d.cost_usd > 0) bits.push(`$${Number(d.cost_usd).toFixed(4)}`);
+  if (typeof d.cost_usd === "number" && d.cost_usd > 0)
+    bits.push(`$${Number(d.cost_usd).toFixed(4)}`);
   if (typeof d.model === "string") bits.push(String(d.model));
   if (Array.isArray(d.tables) && d.tables.length > 0) bits.push(`tables: ${d.tables.join(", ")}`);
   if (typeof d.steps === "number") bits.push(`${d.steps} steps`);
@@ -295,7 +307,10 @@ export function AuditLog() {
                         {meta.label}
                       </Badge>
                     </TableCell>
-                    <TableCell className="max-w-64 truncate font-mono text-[11px]" title={r.resource_name ?? undefined}>
+                    <TableCell
+                      className="max-w-64 truncate font-mono text-[11px]"
+                      title={r.resource_name ?? undefined}
+                    >
                       {r.resource_name ?? "—"}
                     </TableCell>
                     <TableCell

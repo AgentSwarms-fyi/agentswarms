@@ -19,6 +19,8 @@ import { sha256Hex } from "@/utils/swarmDeploy.functions";
 import { executeSwarmServer } from "@/utils/swarmExecute.server";
 import { resolveInternalOrigin } from "@/utils/internalOrigin.server";
 import { acquireSlot, envInt, rateLimited, releaseSlot } from "@/utils/rateLimit.server";
+import { auditEvent } from "@/utils/audit.server";
+import { clientIp, clientUserAgent } from "@/utils/requestMeta.server";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -46,7 +48,24 @@ export const Route = createFileRoute("/api/swarm/run")({
           .select("id, user_id, swarm_id, is_active, reject_approvals")
           .eq("key_hash", keyHash)
           .maybeSingle();
-        if (!key || !key.is_active) return json({ error: "Invalid or disabled API key" }, 401);
+        if (!key) return json({ error: "Invalid or disabled API key" }, 401);
+        if (!key.is_active) {
+          // A revoked key still in use is a security signal — record it so the
+          // owner can see it in the audit trail instead of only a 401 in logs.
+          auditEvent({
+            userId: key.user_id,
+            action: "swarm.api_key.denied",
+            resourceType: "swarm",
+            resourceId: key.swarm_id,
+            detail: {
+              reason: "key_disabled",
+              key_id: key.id,
+              ip: clientIp(request),
+              user_agent: clientUserAgent(request),
+            },
+          });
+          return json({ error: "Invalid or disabled API key" }, 401);
+        }
 
         // A swarm run is expensive and can hold a worker for minutes, so bound
         // both the request rate and how many may be in flight for this key.

@@ -16,6 +16,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { sanitizePublicPages, sanitizePublicWidgets } from "@/lib/biDashboards";
 import { rateLimited, touchEmbedKey, validateEmbedKey } from "@/utils/embed.server";
+import { clientIp, clientUserAgent } from "@/utils/requestMeta.server";
 import { recordGatewayCall, extractUsage } from "@/utils/observability/recordGatewayUsage.server";
 import {
   getProviderDefaultModel,
@@ -90,6 +91,8 @@ export const Route = createFileRoute("/api/embed")({
           key: body.key,
           parentOrigin: body.parentOrigin,
           previewToken: body.previewToken,
+          ip: clientIp(request),
+          userAgent: clientUserAgent(request),
         });
         if (!v.ok) return json({ error: v.error }, v.status);
         const keyRow = v.row;

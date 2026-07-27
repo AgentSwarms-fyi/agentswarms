@@ -11,6 +11,16 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import {
@@ -71,6 +81,10 @@ function AgentsPage() {
   const [editing, setEditing] = useState<Agent | null>(null);
   const [exportFor, setExportFor] = useState<Agent | null>(null);
   const [shareFor, setShareFor] = useState<Agent | null>(null);
+  // Deleting an agent cascades to its conversations, memory and embed keys, so
+  // it goes through an explicit confirmation rather than a one-click menu item.
+  const [confirmDelete, setConfirmDelete] = useState<Agent | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     loadAgents();
@@ -94,10 +108,22 @@ function AgentsPage() {
     if (data) setAgents(data as Agent[]);
   }
 
-  async function deleteAgent(id: string) {
-    await supabase.from("agents").delete().eq("id", id);
-    toast.success("Agent deleted");
-    loadAgents();
+  async function deleteAgent(agent: Agent) {
+    setDeleting(true);
+    try {
+      // Surface failures instead of reporting a false success: an RLS denial
+      // returns an error rather than throwing, so the old code showed
+      // "Agent deleted" for a delete that never happened.
+      const { error } = await supabase.from("agents").delete().eq("id", agent.id);
+      if (error) throw error;
+      toast.success(`Deleted "${agent.name}"`);
+      setConfirmDelete(null);
+      await loadAgents();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not delete the agent");
+    } finally {
+      setDeleting(false);
+    }
   }
 
   function hasGuardrails(agent: Agent): boolean {
@@ -244,7 +270,7 @@ function AgentsPage() {
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
                           className="text-destructive focus:text-destructive"
-                          onSelect={() => deleteAgent(agent.id)}
+                          onSelect={() => setConfirmDelete(agent)}
                         >
                           <Trash2 className="h-3.5 w-3.5 mr-2" /> Delete
                         </DropdownMenuItem>
@@ -274,6 +300,42 @@ function AgentsPage() {
             }}
           />
         )}
+
+        <AlertDialog
+          open={!!confirmDelete}
+          onOpenChange={(o) => !o && !deleting && setConfirmDelete(null)}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete “{confirmDelete?.name}”?</AlertDialogTitle>
+              <AlertDialogDescription asChild>
+                <div className="space-y-2">
+                  <p>
+                    This permanently deletes the agent and everything attached to it: its chat
+                    history, stored memory, and any embed keys pointing at it.
+                  </p>
+                  <p className="text-destructive">
+                    Sites embedding this agent and API calls that reference it will stop working.
+                    This cannot be undone.
+                  </p>
+                </div>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                disabled={deleting}
+                onClick={(e) => {
+                  e.preventDefault(); // keep the dialog open while the delete runs
+                  if (confirmDelete) void deleteAgent(confirmDelete);
+                }}
+              >
+                {deleting ? "Deleting…" : "Delete agent"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </div>
   );
