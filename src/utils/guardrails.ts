@@ -282,7 +282,7 @@ const PII_DETECTORS: Detector[] = [
   // Dates of birth written explicitly (labelled), to avoid eating every date.
   {
     name: "dob",
-    re: /\b(?:d\.?o\.?b\.?|date of birth|born(?: on)?)\s*[:\-]?\s*\d{1,4}[/.-]\d{1,2}[/.-]\d{1,4}\b/gi,
+    re: /\b(?:d\.?o\.?b\.?|date of birth|born(?: on)?)\s*[:-]?\s*\d{1,4}[/.-]\d{1,2}[/.-]\d{1,4}\b/gi,
     mask: "[REDACTED_DOB]",
   },
 ];
