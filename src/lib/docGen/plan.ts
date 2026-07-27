@@ -24,8 +24,18 @@ function contextBlock(ctx: DocContext): string {
     parts.push("", "KNOWLEDGE BASE EXCERPTS:");
     for (const k of ctx.kb) parts.push(`- (${k.name}) ${k.snippet}`);
   }
+  if (ctx.web?.length) {
+    parts.push(
+      "",
+      "WEB RESEARCH (fetched live for this request — use these facts and figures, cite sources by name/URL where sensible):",
+    );
+    for (const w of ctx.web) {
+      parts.push(`- ${w.title ?? w.url ?? "result"}${w.url ? ` <${w.url}>` : ""}`);
+      if (w.content) parts.push(`  ${w.content.slice(0, 2000)}`);
+    }
+  }
   if (!parts.length) parts.push("(No connected data — rely on the prompt and general knowledge.)");
-  return parts.join("\n").slice(0, 12000);
+  return parts.join("\n").slice(0, 18000);
 }
 
 /** Format the recent chat turns so the LLM can carry them into the document. */
@@ -146,9 +156,14 @@ export async function planXlsx(args: PlanArgs): Promise<XlsxPlan> {
       `{col:Header} = that column's letter, {row} = current data row number, {first}/{last} = first/last data row. ` +
       `Example computedColumn formula "{col:Quantity}{row}*{col:UnitPrice}{row}"; example totals cell ` +
       `"SUM({col:LineTotal}{first}:{col:LineTotal}{last})".\n` +
-      `• LITERAL (only when NO table applies, e.g. a KB-derived summary): ` +
+      `• LITERAL (when NO listed table applies — e.g. figures from WEB RESEARCH, the conversation, or a KB summary): ` +
       `{ "name": string, "headers": string[], "rows": Array<Array<string|number|boolean|null|{ "formula": string }>> } ` +
-      `where formulas use plain A1 refs (row 1 is the header, data starts at row 2).\n` +
+      `where formulas use plain A1 refs (row 1 is the header, data starts at row 2). Literal sheets may still use ` +
+      `formulas for line totals and roll-ups — prefer a formula over a hand-computed number.\n` +
+      `HARD RULE: "sourceSql" may ONLY reference tables listed under DATA TABLES in CONTEXT, by their exact name. ` +
+      `NEVER invent a table name. If the subject (e.g. an external vendor's pricing) is not covered by any listed ` +
+      `table, build LITERAL sheets from WEB RESEARCH / the conversation instead — a working literal workbook beats ` +
+      `a broken query.\n` +
       `SCHEMA: { "sheets": [ <data-bound or literal sheet> ] }\n` +
       `Design a genuinely useful workbook: e.g. a bill of materials = a line-items sheet (sourceSql over the pricing ` +
       `table, computed line totals) plus a summary sheet with monthly/annual roll-ups. Use multiple sheets when it helps.`,

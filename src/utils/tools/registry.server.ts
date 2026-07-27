@@ -1135,6 +1135,14 @@ export type ResolvedTools = {
     weather: boolean;
     sql: boolean;
   };
+  /**
+   * Source-routing guidance built from what is ACTUALLY enabled, appended to
+   * the system prompt by the chat route. Without it, a model facing several
+   * data sources (tables + KB + web) tends to grab whichever tool has the
+   * richest description — typically sql_query with its embedded schema — even
+   * when the question is about external information the tables can't answer.
+   */
+  guidance: string;
 };
 
 // Curated tool ids that swarm nodes / agents can toggle individually. Anything
@@ -1514,5 +1522,56 @@ export async function resolveAgentTools(
     }
   }
 
-  return { tools, handlers, enabled };
+  return { tools, handlers, enabled, guidance: buildRoutingGuidance(enabled, tools) };
+}
+
+/**
+ * WHEN-to-use rules for the enabled sources. Kept short (a few lines) so it
+ * steers routing without crowding out the agent's own system prompt.
+ */
+function buildRoutingGuidance(enabled: ResolvedTools["enabled"], tools: ToolDef[]): string {
+  const has = (name: string) => tools.some((t) => t.function.name === name);
+  const lines: string[] = [];
+  if (enabled.sql) {
+    lines.push(
+      "- sql_query reads ONLY the user's own data tables listed in its description. " +
+        "If the question needs information that is NOT in those tables (external products, " +
+        "vendor pricing, market data, anything from the internet), do NOT write SQL against " +
+        "imagined tables — use web_search instead, or say the data isn't connected.",
+    );
+  }
+  if (enabled.web) {
+    lines.push(
+      "- web_search is for external, current, or public information (news, prices, product specs, " +
+        "companies, docs). Prefer it whenever the answer isn't in the user's own tables/documents." +
+        (enabled.web_browse
+          ? " Follow up with web_browse to read the full text of the best result."
+          : ""),
+    );
+  }
+  if (enabled.kb) {
+    lines.push(
+      "- kb_search is for the user's uploaded documents (policies, reports, manuals). Use it for " +
+        "questions about their own material — not for general or current-events questions.",
+    );
+  }
+  if (has("metric_query")) {
+    lines.push(
+      "- metric_query answers governed business-metric questions from the semantic catalog — prefer " +
+        "it over raw SQL when a listed metric matches.",
+    );
+  }
+  if (has("list_warehouse_tables")) {
+    lines.push(
+      "- warehouse_query is for the connected external databases/warehouses — call " +
+        "list_warehouse_tables first to see real table names; never guess them.",
+    );
+  }
+  if (lines.length === 0) return "";
+  return (
+    "TOOL ROUTING — choose the source that actually holds the answer:\n" +
+    lines.join("\n") +
+    "\n- Combine sources when a task needs it (e.g. web research for figures, then calculator for " +
+    "totals). If no tool fits, answer from general knowledge and say which data source would help."
+  );
 }

@@ -1867,10 +1867,16 @@ export const Route = createFileRoute("/api/chat")({
               );
               if (resolved.tools.length > 0) {
                 const toolEvents: ToolEvent[] = [];
+                // Append the registry's source-routing guidance so the model
+                // picks the right tool when several data sources are attached
+                // (tables vs KB vs web) instead of defaulting to sql_query.
+                const systemWithRouting = [effectiveSystemPrompt, resolved.guidance]
+                  .filter((s): s is string => Boolean(s && s.trim()))
+                  .join("\n\n");
                 const upstreamWithTools = await streamChatWithTools({
                   apiKey: transport.apiKey,
                   model,
-                  systemPrompt: effectiveSystemPrompt,
+                  systemPrompt: systemWithRouting || undefined,
                   userMessages: flatMessages,
                   tools: resolved.tools,
                   handlers: resolved.handlers,

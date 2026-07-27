@@ -46,7 +46,12 @@ fully-editable Office file from a prompt:
 1. Click a format and describe what you want (the prompt box is pre-filled with
    whatever you'd typed).
 2. AgentSwarms **gathers context** — relevant knowledge-base excerpts, your
-   data-table schemas + samples, and the **recent conversation**.
+   data-table schemas + samples, and the **recent conversation**. If the prompt
+   points at the internet (e.g. *"using prices from the web"*, "latest",
+   "market rates"), it also runs **live web research** — a search plus the full
+   text of the top results when Firecrawl is connected — and the planner grounds
+   the document in those findings instead of forcing everything through your
+   tables.
 3. An LLM **plans** the document, then it's **built** into a native file and
    shown as a **preview card** in the chat (first-page thumbnail + a **Download**
    button) instead of auto-downloading:

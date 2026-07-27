@@ -893,7 +893,12 @@ function materializeDataSheet(
   try {
     result = runQueryUnlimited(sourceSql, cap);
   } catch (e) {
-    return noteSheet(name, `Could not run query: ${(e as Error).message}`);
+    return noteSheet(
+      name,
+      `Could not run query: ${(e as Error).message}. The plan referenced a table that isn't in ` +
+        `your data — regenerate, and if the figures should come from the internet, say so in the ` +
+        `prompt (e.g. "using prices from the web").`,
+    );
   }
 
   const headers = [...result.columns, ...computed.map((c) => c.header)];
