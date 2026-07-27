@@ -80,10 +80,58 @@ function EmbeddingPage() {
         ]}
       />
       <Code lang="html">{`<iframe
-  src="https://your-instance.example.com/embed/agent/emb_live_xxxxxxxx"
+  src="https://your-instance.example.com/embed/agent/emk_xxxxxxxxxxxxxxxx"
   style="width:100%;height:600px;border:0"
   title="Support assistant"
 ></iframe>`}</Code>
+      <P>
+        Keys are prefixed <C>emk_</C>. The URL path segment matches the resource type:{" "}
+        <C>/embed/agent/&lt;key&gt;</C>, <C>/embed/swarm/&lt;key&gt;</C> or{" "}
+        <C>/embed/bi/&lt;key&gt;</C>.
+      </P>
+
+      <H3 id="key-fields">Every field on an embed key</H3>
+      <Table
+        headers={["Field", "Default", "Notes"]}
+        rows={[
+          ["Name", "—", "1–80 characters. Your label; not shown to visitors."],
+          [
+            <C key="a">resource_type</C>,
+            "—",
+            <>
+              One of <C key="x">agent</C>, <C key="y">swarm</C>, <C key="z">bi_dashboard</C>. Fixed
+              at creation.
+            </>,
+          ],
+          [
+            <C key="b">allowed_domains</C>,
+            "empty",
+            "Origins permitted to load it. EMPTY MEANS NO DOMAIN RESTRICTION — set this.",
+          ],
+          [
+            <C key="c">allow_ai</C>,
+            "false",
+            "For dashboard embeds: whether viewers may use the Ask-AI follow-up. Off by default because each question is a model call billed to you.",
+          ],
+          [
+            <C key="d">is_active</C>,
+            "true",
+            "Turn off to disable the placement without deleting the key.",
+          ],
+          [
+            <C key="e">transcript_retention_days</C>,
+            "30",
+            "1–3650. How long embed conversations are kept before the scheduled purge.",
+          ],
+          [<C key="f">expires_at</C>, "null", "Optional expiry."],
+          [
+            <C key="g">use_count</C>,
+            "0",
+            "Requests served — read-only, useful for spotting an abandoned placement.",
+          ],
+          [<C key="h">last_used_at</C>, "null", "Read-only."],
+        ]}
+      />
 
       <H2 id="what-visitors-get">What an anonymous visitor can reach</H2>
       <P>This is the part worth being precise about.</P>
@@ -144,8 +192,8 @@ function EmbeddingPage() {
       <H2 id="transcripts">Transcripts and retention</H2>
       <P>
         Embed conversations are recorded so you can see what people asked and how the agent
-        answered. Each key has a <strong>transcript retention</strong> window (30 days by default);
-        a scheduled purge deletes older transcripts.
+        answered. Each key has a <strong>transcript retention</strong> window (30 days by default,
+        1–3650); a scheduled purge deletes older transcripts.
       </P>
       <P>
         Set this deliberately. Visitors may type personal information into a public chat box, and
