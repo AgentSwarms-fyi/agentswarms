@@ -1002,13 +1002,32 @@ function PlaygroundPage() {
           metadata: { doc: { ...docMeta, url } },
         },
       ]);
+      // Awaited, not fire-and-forget: this insert is the ONLY thing that keeps
+      // the document in the conversation after a reload, and a silent failure
+      // looks exactly like the feature not saving anything.
       if (activeConvo && user) {
-        void supabase.from("messages").insert({
-          conversation_id: activeConvo,
-          user_id: user.id,
-          role: "assistant",
-          content: `Generated ${DOC_FORMAT_LABEL[format]}: ${built.filename}`,
-          metadata: { doc: docMeta } as unknown as Json,
+        const { data: savedDoc, error: saveErr } = await supabase
+          .from("messages")
+          .insert({
+            conversation_id: activeConvo,
+            user_id: user.id,
+            role: "assistant",
+            content: `Here's your ${DOC_FORMAT_LABEL[format]} — **${built.filename}**`,
+            metadata: { doc: docMeta } as unknown as Json,
+          })
+          .select("id")
+          .single();
+        if (savedDoc?.id) dbIdMap.current.set(docId, savedDoc.id);
+        if (saveErr) {
+          toast.warning("Document built, but not saved to this conversation", {
+            description: `${saveErr.message}. Download it now — it won't be here after a reload.`,
+            duration: 12000,
+          });
+        }
+      } else {
+        toast.warning("Document built, but there's no conversation to save it to", {
+          description: "Download it now — it won't be here after a reload.",
+          duration: 10000,
         });
       }
     } catch (e) {
@@ -1030,6 +1049,41 @@ function PlaygroundPage() {
       setInput("");
       if (textareaRef.current) textareaRef.current.style.height = "auto";
       setArmedDoc(null);
+      // Record the request as a real turn. It used to go straight into
+      // runDocGen, so the prompt was never shown OR saved — the conversation
+      // jumped from nothing to a document with no sign of what was asked for.
+      const isFirstDocMessage = messages.length === 0;
+      const docPrompt: Message = {
+        id: crypto.randomUUID(),
+        role: "user",
+        content: p,
+        created_at: new Date().toISOString(),
+        metadata: { docRequest: fmt },
+      };
+      setMessages((prev) => [...prev, docPrompt]);
+      if (activeConvo && user) {
+        const { data: insertedPrompt } = await supabase
+          .from("messages")
+          .insert({
+            conversation_id: activeConvo,
+            user_id: user.id,
+            role: "user",
+            content: p,
+            metadata: { docRequest: fmt } as unknown as Json,
+          })
+          .select("id")
+          .single();
+        if (insertedPrompt?.id) dbIdMap.current.set(docPrompt.id, insertedPrompt.id);
+        // Doc-gen never went through the normal reply path, so a conversation
+        // that only ever generated documents stayed titled "New Chat".
+        if (isFirstDocMessage) {
+          await supabase
+            .from("conversations")
+            .update({ title: p.slice(0, 50) })
+            .eq("id", activeConvo);
+          loadConversations();
+        }
+      }
       await runDocGen(fmt, p);
       return;
     }
