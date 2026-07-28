@@ -73,6 +73,79 @@ export function canContinueOnError(
   return (d.onError ?? "fail") === "continue";
 }
 
+/**
+ * How concurrent writes to the same state key are combined.
+ *
+ * "last" reproduces exactly what sequential execution did — the last node in
+ * level order wins — so turning parallelism on changes nothing unless a swarm
+ * opts into something else. That default is the whole reason parallel levels
+ * are safe to enable for existing swarms.
+ */
+export type StateReducer = "last" | "first" | "concat" | "sum";
+
+export const DEFAULT_REDUCER: StateReducer = "last";
+
+function reduceValues(reducer: StateReducer, values: string[]): string {
+  if (values.length === 0) return "";
+  switch (reducer) {
+    case "first":
+      return values[0];
+    case "concat":
+      return values.join("\n\n");
+    case "sum": {
+      const total = values.reduce((acc, v) => {
+        const n = Number(String(v).replace(/[^0-9eE+.-]/g, ""));
+        return acc + (Number.isFinite(n) ? n : 0);
+      }, 0);
+      return String(total);
+    }
+    case "last":
+    default:
+      return values[values.length - 1];
+  }
+}
+
+/** One node's pending writes, held until the whole level has finished. */
+export type StagedWrites = {
+  nodeId: string;
+  /** Ordered so a node writing the same key twice keeps its own last value. */
+  writes: [string, string][];
+  /** The node's own output, or null when it produced none. */
+  output: string | null;
+};
+
+/**
+ * Merge a level's staged writes into state, deterministically.
+ *
+ * `staged` MUST be in level order, not completion order — that is the entire
+ * point. Committing in the order results happened to arrive would make a run's
+ * output depend on which model replied first, and the same swarm would give
+ * different answers on different days.
+ */
+export function commitLevelWrites(
+  ctx: Record<string, string>,
+  staged: StagedWrites[],
+  reducers: Record<string, StateReducer> = {},
+): { ctx: Record<string, string>; lastOutput: string | null } {
+  const byKey = new Map<string, string[]>();
+  for (const s of staged) {
+    for (const [k, v] of s.writes) {
+      const list = byKey.get(k);
+      if (list) list.push(v);
+      else byKey.set(k, [v]);
+    }
+  }
+  for (const [k, values] of byKey) {
+    ctx[k] = reduceValues(reducers[k] ?? DEFAULT_REDUCER, values);
+  }
+  // The level's "last output" is the last node IN LEVEL ORDER that produced
+  // one, so an unconnected downstream node falls back to the same value it
+  // would have under sequential execution.
+  let lastOutput: string | null = null;
+  for (const s of staged) if (s.output !== null) lastOutput = s.output;
+  return { ctx, lastOutput };
+}
+
 /** Adjacency in both directions, built once per run. */
 export type GraphIndex<E extends GraphEdge = GraphEdge> = {
   outgoing: Map<string, E[]>;
