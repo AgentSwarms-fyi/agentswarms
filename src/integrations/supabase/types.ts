@@ -2946,8 +2946,66 @@ export type Database = {
         };
         Relationships: [];
       };
+      notebook_api_keys: {
+        Row: {
+          created_at: string;
+          entrypoint: string;
+          expires_at: string | null;
+          id: string;
+          is_active: boolean;
+          key_hash: string;
+          key_prefix: string;
+          last_used_at: string | null;
+          last_used_ip: string | null;
+          name: string;
+          notebook_id: string;
+          revoked_at: string | null;
+          rotated_from: string | null;
+          updated_at: string;
+          use_count: number;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          entrypoint?: string;
+          expires_at?: string | null;
+          id?: string;
+          is_active?: boolean;
+          key_hash: string;
+          key_prefix: string;
+          last_used_at?: string | null;
+          last_used_ip?: string | null;
+          name: string;
+          notebook_id: string;
+          revoked_at?: string | null;
+          rotated_from?: string | null;
+          updated_at?: string;
+          use_count?: number;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          entrypoint?: string;
+          expires_at?: string | null;
+          id?: string;
+          is_active?: boolean;
+          key_hash?: string;
+          key_prefix?: string;
+          last_used_at?: string | null;
+          last_used_ip?: string | null;
+          name?: string;
+          notebook_id?: string;
+          revoked_at?: string | null;
+          rotated_from?: string | null;
+          updated_at?: string;
+          use_count?: number;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       notebook_runtime_sessions: {
         Row: {
+          api_key_id: string | null;
           backend: string;
           container_ref: string | null;
           cpu_limit: string | null;
@@ -2971,6 +3029,7 @@ export type Database = {
           user_id: string;
         };
         Insert: {
+          api_key_id?: string | null;
           backend?: string;
           container_ref?: string | null;
           cpu_limit?: string | null;
@@ -2994,6 +3053,7 @@ export type Database = {
           user_id: string;
         };
         Update: {
+          api_key_id?: string | null;
           backend?: string;
           container_ref?: string | null;
           cpu_limit?: string | null;
@@ -3040,6 +3100,7 @@ export type Database = {
           updated_at: string;
         };
         Insert: {
+          api_key_id?: string | null;
           backend?: string;
           batch_cpu_limit?: string;
           batch_max_minutes?: number;
@@ -3060,6 +3121,7 @@ export type Database = {
           updated_at?: string;
         };
         Update: {
+          api_key_id?: string | null;
           backend?: string;
           batch_cpu_limit?: string;
           batch_max_minutes?: number;

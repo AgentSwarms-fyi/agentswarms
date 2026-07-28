@@ -15,6 +15,7 @@ import {
   Check,
   ChevronsRight,
   Code2,
+  KeyRound,
   Loader2,
   Pencil,
   Play,
@@ -38,6 +39,7 @@ import { useTheme } from "@/hooks/use-theme";
 import { cn } from "@/lib/utils";
 import { ServerRuntime, type CellRunResult, type ServerStatus } from "@/lib/serverRuntime";
 import { RuntimeRequired } from "@/components/notebooks/RuntimeRequired";
+import { PublishNotebookDialog } from "@/components/notebooks/PublishNotebookDialog";
 import type { PyCell } from "@/lib/pythonNotebookTemplate";
 
 export const Route = createFileRoute("/_authenticated/notebooks/py/$pyNotebookId")({
@@ -88,6 +90,7 @@ function PyNotebookPage() {
   const [cells, setCells] = useState<PyCell[] | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [saveState, setSaveState] = useState<"saved" | "dirty" | "saving">("saved");
+  const [publishOpen, setPublishOpen] = useState(false);
   const [outputs, setOutputs] = useState<Record<string, CellOutput>>({});
   const [editingMd, setEditingMd] = useState<Record<string, boolean>>({});
   const [runningAll, setRunningAll] = useState(false);
@@ -336,7 +339,8 @@ function PyNotebookPage() {
                 </>
               ) : (
                 <>
-                  <span className="h-2 w-2 rounded-full bg-muted-foreground" /> Kernel {serverStatus}
+                  <span className="h-2 w-2 rounded-full bg-muted-foreground" /> Kernel{" "}
+                  {serverStatus}
                 </>
               )}
             </span>
@@ -354,6 +358,15 @@ function PyNotebookPage() {
               <ChevronsRight className="h-3.5 w-3.5" />
             )}
             Run all
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            onClick={() => setPublishOpen(true)}
+          >
+            <KeyRound className="h-3.5 w-3.5" />
+            Publish
           </Button>
           <Button
             size="sm"
@@ -545,6 +558,13 @@ function PyNotebookPage() {
           <Type className="h-3.5 w-3.5" /> Markdown cell
         </Button>
       </div>
+
+      <PublishNotebookDialog
+        open={publishOpen}
+        onOpenChange={setPublishOpen}
+        notebookId={pyNotebookId}
+        token={session?.access_token ?? ""}
+      />
     </div>
   );
 }

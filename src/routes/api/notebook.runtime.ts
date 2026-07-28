@@ -96,7 +96,11 @@ async function handle(request: Request): Promise<Response> {
     }
     const kind = action === "run" ? "batch" : "interactive";
     try {
-      const { session, token: sessionToken, gatewayUrl: gw } = await startSession({
+      const {
+        session,
+        token: sessionToken,
+        gatewayUrl: gw,
+      } = await startSession({
         userId,
         notebookId: body.notebookId ?? null,
         kind,
@@ -132,7 +136,11 @@ async function handle(request: Request): Promise<Response> {
     const resp: Record<string, unknown> = { sessionId: r.id, status: r.status, kind: r.kind };
     if (r.status === "ready") {
       resp.gatewayUrl = gatewayUrl();
-      resp.sessionToken = await signSessionToken({ userId, sessionId: r.id, ttlSeconds: TOKEN_TTL });
+      resp.sessionToken = await signSessionToken({
+        userId,
+        sessionId: r.id,
+        ttlSeconds: TOKEN_TTL,
+      });
     }
     if (r.kind === "batch" && (r.status === "succeeded" || r.status === "error")) {
       resp.result = r.result;

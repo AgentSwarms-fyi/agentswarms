@@ -91,6 +91,7 @@ import { Route as ApiTemplatesProvisionRouteImport } from './routes/api/template
 import { Route as ApiSwarmRunRouteImport } from './routes/api/swarm.run'
 import { Route as ApiSkillsGenerateRouteImport } from './routes/api/skills.generate'
 import { Route as ApiNotebookRuntimeRouteImport } from './routes/api/notebook.runtime'
+import { Route as ApiNotebookRunRouteImport } from './routes/api/notebook.run'
 import { Route as ApiKbIngestUrlRouteImport } from './routes/api/kb/ingest-url'
 import { Route as ApiKbIngestGithubRouteImport } from './routes/api/kb/ingest-github'
 import { Route as ApiKbBuildGraphRouteImport } from './routes/api/kb/build-graph'
@@ -113,6 +114,7 @@ import { Route as ApiPublicHooksRefreshModelRegistryRouteImport } from './routes
 import { Route as ApiNotebookRuntimeSourceRouteImport } from './routes/api/notebook.runtime.source'
 import { Route as ApiNotebookRuntimeResultRouteImport } from './routes/api/notebook.runtime.result'
 import { Route as ApiNotebookRuntimeReapRouteImport } from './routes/api/notebook.runtime.reap'
+import { Route as ApiNotebookRunStatusRouteImport } from './routes/api/notebook.run.status'
 import { Route as AuthenticatedNotebooksSampleSampleSlugRouteImport } from './routes/_authenticated/notebooks.sample.$sampleSlug'
 import { Route as AuthenticatedNotebooksPyPyNotebookIdRouteImport } from './routes/_authenticated/notebooks.py.$pyNotebookId'
 import { Route as AuthenticatedAnalyticsObservabilityRunIdRouteImport } from './routes/_authenticated/analytics_.observability.$runId'
@@ -530,6 +532,11 @@ const ApiNotebookRuntimeRoute = ApiNotebookRuntimeRouteImport.update({
   path: '/api/notebook/runtime',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiNotebookRunRoute = ApiNotebookRunRouteImport.update({
+  id: '/api/notebook/run',
+  path: '/api/notebook/run',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiKbIngestUrlRoute = ApiKbIngestUrlRouteImport.update({
   id: '/api/kb/ingest-url',
   path: '/api/kb/ingest-url',
@@ -646,6 +653,11 @@ const ApiNotebookRuntimeReapRoute = ApiNotebookRuntimeReapRouteImport.update({
   path: '/reap',
   getParentRoute: () => ApiNotebookRuntimeRoute,
 } as any)
+const ApiNotebookRunStatusRoute = ApiNotebookRunStatusRouteImport.update({
+  id: '/status',
+  path: '/status',
+  getParentRoute: () => ApiNotebookRunRoute,
+} as any)
 const AuthenticatedNotebooksSampleSampleSlugRoute =
   AuthenticatedNotebooksSampleSampleSlugRouteImport.update({
     id: '/sample/$sampleSlug',
@@ -755,6 +767,7 @@ export interface FileRoutesByFullPath {
   '/api/kb/build-graph': typeof ApiKbBuildGraphRoute
   '/api/kb/ingest-github': typeof ApiKbIngestGithubRoute
   '/api/kb/ingest-url': typeof ApiKbIngestUrlRoute
+  '/api/notebook/run': typeof ApiNotebookRunRouteWithChildren
   '/api/notebook/runtime': typeof ApiNotebookRuntimeRouteWithChildren
   '/api/skills/generate': typeof ApiSkillsGenerateRoute
   '/api/swarm/run': typeof ApiSwarmRunRoute
@@ -768,6 +781,7 @@ export interface FileRoutesByFullPath {
   '/analytics/observability/$runId': typeof AuthenticatedAnalyticsObservabilityRunIdRoute
   '/notebooks/py/$pyNotebookId': typeof AuthenticatedNotebooksPyPyNotebookIdRoute
   '/notebooks/sample/$sampleSlug': typeof AuthenticatedNotebooksSampleSampleSlugRoute
+  '/api/notebook/run/status': typeof ApiNotebookRunStatusRoute
   '/api/notebook/runtime/reap': typeof ApiNotebookRuntimeReapRoute
   '/api/notebook/runtime/result': typeof ApiNotebookRuntimeResultRoute
   '/api/notebook/runtime/source': typeof ApiNotebookRuntimeSourceRoute
@@ -862,6 +876,7 @@ export interface FileRoutesByTo {
   '/api/kb/build-graph': typeof ApiKbBuildGraphRoute
   '/api/kb/ingest-github': typeof ApiKbIngestGithubRoute
   '/api/kb/ingest-url': typeof ApiKbIngestUrlRoute
+  '/api/notebook/run': typeof ApiNotebookRunRouteWithChildren
   '/api/notebook/runtime': typeof ApiNotebookRuntimeRouteWithChildren
   '/api/skills/generate': typeof ApiSkillsGenerateRoute
   '/api/swarm/run': typeof ApiSwarmRunRoute
@@ -875,6 +890,7 @@ export interface FileRoutesByTo {
   '/analytics/observability/$runId': typeof AuthenticatedAnalyticsObservabilityRunIdRoute
   '/notebooks/py/$pyNotebookId': typeof AuthenticatedNotebooksPyPyNotebookIdRoute
   '/notebooks/sample/$sampleSlug': typeof AuthenticatedNotebooksSampleSampleSlugRoute
+  '/api/notebook/run/status': typeof ApiNotebookRunStatusRoute
   '/api/notebook/runtime/reap': typeof ApiNotebookRuntimeReapRoute
   '/api/notebook/runtime/result': typeof ApiNotebookRuntimeResultRoute
   '/api/notebook/runtime/source': typeof ApiNotebookRuntimeSourceRoute
@@ -972,6 +988,7 @@ export interface FileRoutesById {
   '/api/kb/build-graph': typeof ApiKbBuildGraphRoute
   '/api/kb/ingest-github': typeof ApiKbIngestGithubRoute
   '/api/kb/ingest-url': typeof ApiKbIngestUrlRoute
+  '/api/notebook/run': typeof ApiNotebookRunRouteWithChildren
   '/api/notebook/runtime': typeof ApiNotebookRuntimeRouteWithChildren
   '/api/skills/generate': typeof ApiSkillsGenerateRoute
   '/api/swarm/run': typeof ApiSwarmRunRoute
@@ -985,6 +1002,7 @@ export interface FileRoutesById {
   '/_authenticated/analytics_/observability/$runId': typeof AuthenticatedAnalyticsObservabilityRunIdRoute
   '/_authenticated/notebooks/py/$pyNotebookId': typeof AuthenticatedNotebooksPyPyNotebookIdRoute
   '/_authenticated/notebooks/sample/$sampleSlug': typeof AuthenticatedNotebooksSampleSampleSlugRoute
+  '/api/notebook/run/status': typeof ApiNotebookRunStatusRoute
   '/api/notebook/runtime/reap': typeof ApiNotebookRuntimeReapRoute
   '/api/notebook/runtime/result': typeof ApiNotebookRuntimeResultRoute
   '/api/notebook/runtime/source': typeof ApiNotebookRuntimeSourceRoute
@@ -1082,6 +1100,7 @@ export interface FileRouteTypes {
     | '/api/kb/build-graph'
     | '/api/kb/ingest-github'
     | '/api/kb/ingest-url'
+    | '/api/notebook/run'
     | '/api/notebook/runtime'
     | '/api/skills/generate'
     | '/api/swarm/run'
@@ -1095,6 +1114,7 @@ export interface FileRouteTypes {
     | '/analytics/observability/$runId'
     | '/notebooks/py/$pyNotebookId'
     | '/notebooks/sample/$sampleSlug'
+    | '/api/notebook/run/status'
     | '/api/notebook/runtime/reap'
     | '/api/notebook/runtime/result'
     | '/api/notebook/runtime/source'
@@ -1189,6 +1209,7 @@ export interface FileRouteTypes {
     | '/api/kb/build-graph'
     | '/api/kb/ingest-github'
     | '/api/kb/ingest-url'
+    | '/api/notebook/run'
     | '/api/notebook/runtime'
     | '/api/skills/generate'
     | '/api/swarm/run'
@@ -1202,6 +1223,7 @@ export interface FileRouteTypes {
     | '/analytics/observability/$runId'
     | '/notebooks/py/$pyNotebookId'
     | '/notebooks/sample/$sampleSlug'
+    | '/api/notebook/run/status'
     | '/api/notebook/runtime/reap'
     | '/api/notebook/runtime/result'
     | '/api/notebook/runtime/source'
@@ -1298,6 +1320,7 @@ export interface FileRouteTypes {
     | '/api/kb/build-graph'
     | '/api/kb/ingest-github'
     | '/api/kb/ingest-url'
+    | '/api/notebook/run'
     | '/api/notebook/runtime'
     | '/api/skills/generate'
     | '/api/swarm/run'
@@ -1311,6 +1334,7 @@ export interface FileRouteTypes {
     | '/_authenticated/analytics_/observability/$runId'
     | '/_authenticated/notebooks/py/$pyNotebookId'
     | '/_authenticated/notebooks/sample/$sampleSlug'
+    | '/api/notebook/run/status'
     | '/api/notebook/runtime/reap'
     | '/api/notebook/runtime/result'
     | '/api/notebook/runtime/source'
@@ -1350,6 +1374,7 @@ export interface RootRouteChildren {
   ApiKbBuildGraphRoute: typeof ApiKbBuildGraphRoute
   ApiKbIngestGithubRoute: typeof ApiKbIngestGithubRoute
   ApiKbIngestUrlRoute: typeof ApiKbIngestUrlRoute
+  ApiNotebookRunRoute: typeof ApiNotebookRunRouteWithChildren
   ApiNotebookRuntimeRoute: typeof ApiNotebookRuntimeRouteWithChildren
   ApiSkillsGenerateRoute: typeof ApiSkillsGenerateRoute
   ApiSwarmRunRoute: typeof ApiSwarmRunRoute
@@ -1939,6 +1964,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiNotebookRuntimeRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/notebook/run': {
+      id: '/api/notebook/run'
+      path: '/api/notebook/run'
+      fullPath: '/api/notebook/run'
+      preLoaderRoute: typeof ApiNotebookRunRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/kb/ingest-url': {
       id: '/api/kb/ingest-url'
       path: '/api/kb/ingest-url'
@@ -2092,6 +2124,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/api/notebook/runtime/reap'
       preLoaderRoute: typeof ApiNotebookRuntimeReapRouteImport
       parentRoute: typeof ApiNotebookRuntimeRoute
+    }
+    '/api/notebook/run/status': {
+      id: '/api/notebook/run/status'
+      path: '/status'
+      fullPath: '/api/notebook/run/status'
+      preLoaderRoute: typeof ApiNotebookRunStatusRouteImport
+      parentRoute: typeof ApiNotebookRunRoute
     }
     '/_authenticated/notebooks/sample/$sampleSlug': {
       id: '/_authenticated/notebooks/sample/$sampleSlug'
@@ -2313,6 +2352,18 @@ const ApiHealthRouteWithChildren = ApiHealthRoute._addFileChildren(
   ApiHealthRouteChildren,
 )
 
+interface ApiNotebookRunRouteChildren {
+  ApiNotebookRunStatusRoute: typeof ApiNotebookRunStatusRoute
+}
+
+const ApiNotebookRunRouteChildren: ApiNotebookRunRouteChildren = {
+  ApiNotebookRunStatusRoute: ApiNotebookRunStatusRoute,
+}
+
+const ApiNotebookRunRouteWithChildren = ApiNotebookRunRoute._addFileChildren(
+  ApiNotebookRunRouteChildren,
+)
+
 interface ApiNotebookRuntimeRouteChildren {
   ApiNotebookRuntimeReapRoute: typeof ApiNotebookRuntimeReapRoute
   ApiNotebookRuntimeResultRoute: typeof ApiNotebookRuntimeResultRoute
@@ -2361,6 +2412,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiKbBuildGraphRoute: ApiKbBuildGraphRoute,
   ApiKbIngestGithubRoute: ApiKbIngestGithubRoute,
   ApiKbIngestUrlRoute: ApiKbIngestUrlRoute,
+  ApiNotebookRunRoute: ApiNotebookRunRouteWithChildren,
   ApiNotebookRuntimeRoute: ApiNotebookRuntimeRouteWithChildren,
   ApiSkillsGenerateRoute: ApiSkillsGenerateRoute,
   ApiSwarmRunRoute: ApiSwarmRunRoute,

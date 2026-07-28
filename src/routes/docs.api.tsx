@@ -342,6 +342,17 @@ function verify(rawBody, headers, secret) {
         call.
       </P>
 
+      <H2 id="notebooks">Calling a notebook instead of a swarm</H2>
+      <P>
+        Notebooks in the <DocLink to="/docs/notebooks">Developer workspace</DocLink> can be
+        published the same way: click <strong>Publish</strong> on a notebook to mint an <C>nbk_…</C>{" "}
+        key, then <C>POST /api/notebook/run</C> with <C>{`{"inputs": {…}}`}</C>. The request body
+        reaches the notebook's entrypoint function and its return value comes back as the response;
+        long runs hand back a <C>runId</C> to poll at <C>/api/notebook/run/status</C>. Use it when
+        the logic is Python that already works in a notebook and does not need to become a swarm
+        first.
+      </P>
+
       <NextPrev current="/docs/api" />
     </>
   );

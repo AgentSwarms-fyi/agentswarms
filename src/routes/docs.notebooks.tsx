@@ -236,7 +236,11 @@ function NotebooksDoc() {
         exfiltrate data to an arbitrary host — and a pip install only works for hosts you permit.
       </P>
 
-      <H2 id="helpers">The agentswarms helper</H2>
+      <H3 id="run-agent">Calling your deployed agents and swarms</H3>
+      <P>
+        The helper also reaches the things you have already built, so a notebook can orchestrate
+        them rather than re-implement them:
+      </P>
       <Table
         headers={["Call", "Returns"]}
         rows={[
@@ -272,14 +276,76 @@ print(reply)`}</Code>
         A notebook cell is unattended, so a swarm that reaches a human approval gate fails fast
         rather than hanging until the run timeout.
       </Callout>
-      <P>
-        Notebooks get a helper module that reaches platform capabilities from Python, so a notebook
-        can use the same models and knowledge bases as your agents without you pasting credentials
-        into a cell.
-      </P>
       <Callout kind="info">
         Sample notebooks ship read-only. Fork one to get an editable copy — that way the originals
         stay a working reference no matter what you do to your copy.
+      </Callout>
+
+      <H2 id="publish">Publishing a notebook as an API</H2>
+      <P>
+        A notebook can be called by your own systems. Open it and click <strong>Publish</strong> to
+        mint an API key; anything that can send an HTTP request can then run it.
+      </P>
+      <UL>
+        <li>
+          <strong>Key name</strong> — how you will recognise it later. Mint one per caller so you
+          can revoke a single integration without breaking the others.
+        </li>
+        <li>
+          <strong>Entrypoint function</strong> — the function called with the request body, defaults
+          to <C>entrypoint</C>. Leave it empty to run the notebook top to bottom and return the last
+          expression instead.
+        </li>
+      </UL>
+      <P>
+        Define the entrypoint in any cell. It receives the JSON you post under <C>inputs</C> and its
+        return value becomes the response:
+      </P>
+      <Code lang="python">{`async def entrypoint(inputs):
+    date = inputs.get("date")
+    hits = await agentswarms.kb_search(f"incidents on {date}", top_k=5)
+    summary = await agentswarms.chat(
+        f"Summarise these incidents:\\n{agentswarms.format_context(hits)}"
+    )
+    return {"date": date, "summary": summary}`}</Code>
+      <Code lang="bash">{`curl -X POST https://your-instance/api/notebook/run \\
+  -H "Authorization: Bearer nbk_…" \\
+  -H "Content-Type: application/json" \\
+  -d '{"inputs": {"date": "2026-07-28"}}'`}</Code>
+      <Table
+        headers={["Field", "Type", "Meaning"]}
+        rows={[
+          [<C key="a">inputs</C>, "object", "Passed to the entrypoint. Optional — omit for none."],
+          [
+            <C key="b">async</C>,
+            "boolean",
+            "true returns 202 with a runId immediately instead of waiting",
+          ],
+        ]}
+      />
+      <P>
+        A synchronous call waits up to <strong>110 seconds</strong>. If the run is still going it
+        returns <C>202</C> with a <C>runId</C> rather than holding the connection open — poll it the
+        same way an <C>async</C> run is polled:
+      </P>
+      <Code lang="bash">{`curl -X POST https://your-instance/api/notebook/run/status \\
+  -H "Authorization: Bearer nbk_…" \\
+  -H "Content-Type: application/json" \\
+  -d '{"runId": "…"}'`}</Code>
+      <P>
+        Status is <C>queued</C>, <C>running</C>, <C>succeeded</C> (with <C>result</C>) or{" "}
+        <C>error</C> (with <C>error</C>).
+      </P>
+      <Callout kind="why">
+        The endpoint runs the notebook on the same governed batch kernel a manual run uses — the
+        same sandbox, egress allow-list, IAM model rules, budgets and traces. Publishing changes who
+        can trigger a notebook, not what it is allowed to do.
+      </Callout>
+      <Callout kind="warn" title="The key is shown once">
+        Keys are stored as a SHA-256 hash, so the plaintext cannot be recovered — copy it when the
+        dialog shows it. Lost one? Mint a replacement and revoke the old key. Revoking keeps the row
+        (and its last-used timestamp and run count) as an audit trail rather than deleting it, and
+        every run is attributed to the key that started it.
       </Callout>
 
       <NextPrev current="/docs/notebooks" />
