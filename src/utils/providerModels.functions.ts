@@ -12,7 +12,38 @@ import { resolveOpenAICompatTransport } from "@/utils/providers/credentials.serv
 import { isBiCompatProvider, isTextModelId } from "@/utils/providers/modelChoice";
 import type { ProviderId } from "@/utils/providers/types";
 
-export type ProviderModelInfo = { id: string; name: string | null };
+export type ProviderModelInfo = {
+  id: string;
+  name: string | null;
+  /** Costs nothing to call — see isFreeModel. Absent means "not known to be free". */
+  free?: boolean;
+  /** Context window in tokens, when the provider publishes one. */
+  context?: number;
+};
+
+/**
+ * Whether a listed model is free to call.
+ *
+ * OpenRouter's catalogue moves — models gain and lose free variants, and the
+ * `:free` suffix is a naming convention, not a guarantee. So the price fields
+ * are the authority and the suffix is only a fallback for providers that don't
+ * publish pricing. Read live rather than hard-coded, because a hard-coded list
+ * is wrong within weeks.
+ */
+function isFreeModel(m: RawModel): boolean {
+  const p = m.pricing;
+  if (p && (p.prompt !== undefined || p.completion !== undefined)) {
+    const num = (v: string | number | undefined) => (v === undefined ? NaN : Number(v));
+    const prompt = num(p.prompt);
+    const completion = num(p.completion);
+    // Both must be known and zero — a model free on input but billed on output
+    // is not free, and NaN (unparseable) must not read as 0.
+    if (Number.isFinite(prompt) && Number.isFinite(completion)) {
+      return prompt === 0 && completion === 0;
+    }
+  }
+  return /:free$/i.test(m.id ?? "");
+}
 
 // Image-OUTPUT model detection for /models responses. OpenRouter publishes
 // modality strings like "text+image->text+image"; other providers get an
@@ -22,7 +53,13 @@ const IMAGE_ID_RE =
   /(^|\/|[-.])(gpt-image|imagen|image|dall-e|flux|stable-diffusion|sdxl|photon|recraft|ideogram)([-.\d]|$)/i;
 const NEVER_IMAGE_RE = /embed|whisper|tts|audio|moderation|transcri|rerank/i;
 
-type RawModel = { id?: string; name?: string; architecture?: { modality?: string } };
+type RawModel = {
+  id?: string;
+  name?: string;
+  architecture?: { modality?: string };
+  context_length?: number;
+  pricing?: { prompt?: string | number; completion?: string | number };
+};
 
 /** Fetch a provider's raw /models list with the caller's credentials. */
 async function fetchProviderModels(
@@ -80,9 +117,17 @@ export const listProviderModels = createServerFn({ method: "POST" })
             continue;
           }
           seen.add(m.id);
-          models.push({ id: m.id, name: m.name ?? null });
+          models.push({
+            id: m.id,
+            name: m.name ?? null,
+            free: isFreeModel(m) || undefined,
+            context: m.context_length,
+          });
           if (models.length >= 600) break;
         }
+        // Free models first, then alphabetical. Someone scanning the list for
+        // something that costs nothing should not have to hunt for it.
+        models.sort((a, b) => (a.free === b.free ? a.id.localeCompare(b.id) : a.free ? -1 : 1));
         return { ok: true, models };
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : "Failed to list models" };
@@ -110,9 +155,7 @@ export const listProviderImageModels = createServerFn({ method: "POST" })
           // can't be dispatched through the image-generation branch.
           if (/^openrouter\//i.test(m.id)) continue;
           const modality = m.architecture?.modality;
-          const isImage = modality
-            ? IMAGE_OUT_MODALITY_RE.test(modality)
-            : IMAGE_ID_RE.test(m.id);
+          const isImage = modality ? IMAGE_OUT_MODALITY_RE.test(modality) : IMAGE_ID_RE.test(m.id);
           if (!isImage) continue;
           seen.add(m.id);
           models.push({ id: m.id, name: m.name ?? null });

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { allowedProviders, isModelAllowedByRules, useMyModelRules } from "@/hooks/use-iam";
 import { useOllamaModels } from "@/hooks/use-ollama-models";
+import { useProviderModels } from "@/hooks/use-provider-models";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -933,12 +934,22 @@ export function AgentForm({
   // IAM model governance: hide providers/models the administrator hasn't
   // allowed for this user (the server enforces the same rules on /api/chat).
   const iamAllowedProviders = allowedProviders(myModelRules);
-  const baseModelSuggestions =
+  // Live catalogue first, bundled list only as a fallback. Provider catalogues
+  // move — OpenRouter's free tier especially — so the baked-in suggestions are
+  // stale the moment they ship. `liveModels.models` is null until the first
+  // fetch lands, which is when we keep showing the bundled list rather than
+  // flashing an empty row.
+  const liveModels = useProviderModels(provider);
+  const baseModelSuggestions: { id: string; free?: boolean }[] =
     provider === "ollama" && ollamaLive.models.length > 0
-      ? ollamaLive.models
-      : MODEL_SUGGESTIONS[provider] || [];
+      ? ollamaLive.models.map((id) => ({ id }))
+      : liveModels.models && liveModels.models.length > 0
+        ? // Free ones lead (the server sorts them first); cap the row so a
+          // 300-model catalogue doesn't become a wall of badges.
+          liveModels.models.slice(0, 24).map((m) => ({ id: m.id, free: m.free }))
+        : (MODEL_SUGGESTIONS[provider] || []).map((id) => ({ id }));
   const suggestedModels = baseModelSuggestions.filter((m) =>
-    isModelAllowedByRules(myModelRules, provider, m),
+    isModelAllowedByRules(myModelRules, provider, m.id),
   );
   const availableProviders = PROVIDERS.filter(
     (p) => connectedProviders.has(p.value) || p.value === provider,
@@ -1160,7 +1171,7 @@ export function AgentForm({
             />
             {suggestedModels.length > 0 && (
               <div className="flex flex-wrap gap-1 mt-1">
-                {suggestedModels.map((m) => (
+                {suggestedModels.map(({ id: m, free }) => (
                   <Badge
                     key={m}
                     variant={model === m ? "default" : "outline"}
@@ -1169,6 +1180,11 @@ export function AgentForm({
                     title={isImageModelId(m) ? "Image-generation model" : undefined}
                   >
                     {m}
+                    {free && (
+                      <span className="rounded-sm border border-emerald-500/40 bg-emerald-500/10 px-1 py-0 text-[9px] uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                        Free
+                      </span>
+                    )}
                     {isImageModelId(m) && (
                       <span className="rounded-sm border border-primary/40 bg-primary/10 px-1 py-0 text-[9px] uppercase tracking-wider text-primary">
                         Image
