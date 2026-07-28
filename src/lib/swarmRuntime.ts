@@ -22,6 +22,13 @@ import type { Node, Edge } from "@xyflow/react";
 import { buildUserMessage, invokeAgent, type AgentCard } from "@/lib/a2aClient";
 import { runSandboxed, safeStringify } from "@/lib/sandbox/jsSandbox";
 import { isImageModelId } from "@/lib/providerSupport";
+import {
+  SkipTracker,
+  canContinueOnError,
+  indexEdges,
+  retryPolicyOf,
+  topoLevelIds,
+} from "@/lib/swarmGraph";
 
 // Match data URIs and common http(s) image URLs in arbitrary text. Used to
 // detect when an upstream node's output contains an image so the next node
@@ -374,28 +381,15 @@ export type SwarmRunOptions = {
 // Topologically order nodes into LEVELS — each level contains nodes whose
 // dependencies are all in previous levels. Nodes within the same level can
 // execute in parallel. Cycles (other than explicit `loop` self-edges) raise.
+/**
+ * Dependency levels as node objects. The ordering itself lives in swarmGraph so
+ * both executors share it; this only maps ids back to nodes.
+ */
 export function topoLevels(nodes: Node<SwarmNodeData>[], edges: Edge[]): Node<SwarmNodeData>[][] {
-  const incoming = new Map<string, Set<string>>();
-  nodes.forEach((n) => incoming.set(n.id, new Set()));
-  edges.forEach((e) => {
-    if (e.source === e.target) return; // ignore loop self-edges for ordering
-    incoming.get(e.target)?.add(e.source);
-  });
-  const levels: Node<SwarmNodeData>[][] = [];
-  const remaining = new Map(nodes.map((n) => [n.id, n]));
-  while (remaining.size > 0) {
-    const ready = [...remaining.values()].filter((n) => (incoming.get(n.id)?.size ?? 0) === 0);
-    if (ready.length === 0) {
-      throw new Error("Swarm has a cycle that isn't a loop self-edge");
-    }
-    levels.push(ready);
-    for (const n of ready) {
-      remaining.delete(n.id);
-      // remove this node from others' incoming sets
-      incoming.forEach((set) => set.delete(n.id));
-    }
-  }
-  return levels;
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  return topoLevelIds(nodes, edges).map((level) =>
+    level.map((id) => byId.get(id)!).filter(Boolean),
+  );
 }
 
 // Resolve a variable expression against flow state. Supports a bare name
@@ -1039,41 +1033,16 @@ export async function runSwarm(
     let lastOutput = initialInput;
     nodes.forEach((n) => nodeById.set(n.id, n));
 
-    // Track nodes that should be skipped because a condition routed away
-    const skippedNodes = new Set<string>();
-
-    const outgoingEdges = new Map<string, Edge[]>();
-    edges.forEach((e) => {
-      const arr = outgoingEdges.get(e.source) || [];
-      arr.push(e);
-      outgoingEdges.set(e.source, arr);
-    });
-    const incomingEdges = new Map<string, Edge[]>();
-    edges.forEach((e) => {
-      const arr = incomingEdges.get(e.target) || [];
-      arr.push(e);
-      incomingEdges.set(e.target, arr);
-    });
-
-    const deadEdges = new Set<string>();
-
-    function propagateSkip(deadTargets: string[]) {
-      const queue = [...deadTargets];
-      while (queue.length > 0) {
-        const nid = queue.shift()!;
-        const inc = incomingEdges.get(nid) || [];
-        const allIncomingDead = inc.every(
-          (e: Edge) => skippedNodes.has(e.source) || deadEdges.has(e.id),
-        );
-        if (allIncomingDead) {
-          skippedNodes.add(nid);
-          const out = outgoingEdges.get(nid) || [];
-          for (const e of out) {
-            if (!skippedNodes.has(e.target)) queue.push(e.target);
-          }
-        }
-      }
-    }
+    // Shared with the headless executor (src/lib/swarmGraph.ts) so a swarm
+    // means the same thing on the canvas as it does when deployed.
+    const graphIndex = indexEdges(edges);
+    const outgoingEdges = graphIndex.outgoing;
+    const flow = new SkipTracker(graphIndex);
+    // Nodes skipped because a condition/router routed away from them. This is
+    // the tracker's own set, not a copy — two sets would drift the moment one
+    // of them was updated without the other.
+    const skippedNodes = flow.skipped;
+    const propagateSkip = (deadTargets: string[]) => flow.propagateSkip(deadTargets);
 
     // Process each topological level. Within a level, nodes are independent
     // of each other (all dependencies are in prior levels), so we can
@@ -1108,9 +1077,7 @@ export async function runSwarm(
           node.data.kind === "input" ? initialInput : gatherInputs(node, ctx, lastOutput);
         stepInputByNode.set(node.id, resolvedInput);
         if (tracer) {
-          const incoming = incomingEdges.get(node.id) || [];
-          for (const e of incoming) {
-            if (skippedNodes.has(e.source) || deadEdges.has(e.id)) continue;
+          for (const e of flow.liveIncoming(node.id)) {
             const upstreamVar = `out_${e.source}`;
             const payload = ctx[upstreamVar] ?? "";
             tracer.recordEdge({
@@ -1258,7 +1225,7 @@ export async function runSwarm(
               (decision === "YES" && edgeLabel === "yes") ||
               (decision === "NO" && edgeLabel === "no");
             if (!isLive) {
-              deadEdges.add(e.id);
+              flow.killEdges([e.id]);
               deadTargets.push(e.target);
             }
           }
@@ -1339,7 +1306,7 @@ export async function runSwarm(
             const edgeLabel = typeof e.label === "string" ? e.label.trim() : "";
             const isLive = !!edgeLabel && edgeLabel.toLowerCase() === picked.toLowerCase();
             if (!isLive) {
-              deadEdges.add(e.id);
+              flow.killEdges([e.id]);
               deadTargets.push(e.target);
             }
           }
@@ -1908,8 +1875,7 @@ Evaluate the candidate output above against each metric and return the JSON scor
       // rethrows (onError "fail", the default — aborts the run) or writes a
       // fallback value and continues (onError "continue").
       const runNodeWithPolicy = async (node: Node<SwarmNodeData>) => {
-        const retries = Math.max(0, Math.min(node.data.retryCount ?? 0, 5));
-        const delay = Math.max(0, Math.min(node.data.retryDelayMs ?? 1000, 30_000));
+        const { retries, delayMs: delay } = retryPolicyOf(node.data);
         let lastErr: unknown;
         for (let attempt = 0; attempt <= retries; attempt++) {
           try {
@@ -1933,8 +1899,7 @@ Evaluate the candidate output above against each metric and return the JSON scor
         // edge would still be live and BOTH paths would run — an approval
         // branch and its bypass, for example. There is no safe "continue" past
         // an unmade routing decision, so those nodes always fail the run.
-        const isBranchNode = node.data.kind === "condition" || node.data.kind === "router";
-        if ((node.data.onError ?? "fail") === "continue" && !isBranchNode) {
+        if (canContinueOnError(node.data, { aborted: signal?.aborted })) {
           const msg = lastErr instanceof Error ? lastErr.message : String(lastErr);
           const fallback = node.data.errorFallback ?? "";
           const v = node.data.outputVar || `out_${node.id}`;

@@ -27,6 +27,15 @@ import {
   decideYesNo,
   type SwarmNodeData,
 } from "@/lib/swarmRuntime";
+// Graph semantics live in ONE place, shared with the canvas runtime, so the
+// deployed run can't quietly mean something different from the one you tested.
+import {
+  SkipTracker,
+  canContinueOnError,
+  indexEdges,
+  retryPolicyOf,
+  MAX_SUBSWARM_DEPTH,
+} from "@/lib/swarmGraph";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { createServerSwarmTracer } from "@/utils/observability/serverTracer.server";
 import { runHttpNodeCore, runToolNodeCore, type ToolNodeParams } from "@/utils/swarmNodes.server";
@@ -203,8 +212,7 @@ export async function executeSwarmServer(opts: {
   // provider 429/5xx, a flaky HTTP endpoint — are where retries actually pay
   // off, and every retryable node kind routes through one of these.
   const withNodeRetry = async <T>(d: SwarmNodeData, fn: () => Promise<T>): Promise<T> => {
-    const retries = Math.max(0, Math.min(d.retryCount ?? 0, 5));
-    const delay = Math.max(0, Math.min(d.retryDelayMs ?? 1000, 30_000));
+    const { retries, delayMs: delay } = retryPolicyOf(d);
     let lastErr: unknown;
     for (let attempt = 0; attempt <= retries; attempt++) {
       if (expired()) throw deadlineError();
@@ -254,25 +262,9 @@ export async function executeSwarmServer(opts: {
     let lastOutput = opts.input;
     const levels = topoLevels(nodes, edges);
 
-    const outgoing = new Map<string, Edge[]>();
-    const incoming = new Map<string, Edge[]>();
-    edges.forEach((e) => {
-      (outgoing.get(e.source) ?? outgoing.set(e.source, []).get(e.source)!).push(e);
-      (incoming.get(e.target) ?? incoming.set(e.target, []).get(e.target)!).push(e);
-    });
-    const skipped = new Set<string>();
-    const deadEdges = new Set<string>();
-    const propagateSkip = (targets: string[]) => {
-      const q = [...targets];
-      while (q.length) {
-        const nid = q.shift()!;
-        const inc = incoming.get(nid) ?? [];
-        if (inc.every((e) => skipped.has(e.source) || deadEdges.has(e.id))) {
-          skipped.add(nid);
-          for (const e of outgoing.get(nid) ?? []) if (!skipped.has(e.target)) q.push(e.target);
-        }
-      }
-    };
+    const graph = indexEdges(edges);
+    const { outgoing } = graph;
+    const flow = new SkipTracker(graph);
 
     for (const level of levels) {
       for (const node of level) {
@@ -290,7 +282,7 @@ export async function executeSwarmServer(opts: {
 
         // Skipped by an upstream condition/router — record a skipped step so
         // the timeline shows the branch that was routed away.
-        if (skipped.has(node.id)) {
+        if (flow.isSkipped(node.id)) {
           if (tracer) {
             await tracer.startStep({ nodeId: node.id, nodeLabel: d.label, nodeKind: kind });
             await tracer.finishStep(node.id, { status: "skipped" });
@@ -308,8 +300,7 @@ export async function executeSwarmServer(opts: {
             nodeKind: kind,
             input: { prompt: stepInput },
           });
-          for (const e of incoming.get(node.id) ?? []) {
-            if (skipped.has(e.source) || deadEdges.has(e.id)) continue;
+          for (const e of flow.liveIncoming(node.id)) {
             const payload = ctx[`out_${e.source}`] ?? "";
             await tracer.recordEdge({
               sourceNodeId: e.source,
@@ -558,11 +549,11 @@ export async function executeSwarmServer(opts: {
                 (decision === "YES" && String(e.label).toLowerCase().trim() === "yes") ||
                 (decision === "NO" && String(e.label).toLowerCase().trim() === "no");
               if (!live) {
-                deadEdges.add(e.id);
+                flow.killEdges([e.id]);
                 deadTargets.push(e.target);
               }
             }
-            if (deadTargets.length) propagateSkip(deadTargets);
+            if (deadTargets.length) flow.propagateSkip(deadTargets);
             continue;
           }
           if (kind === "router") {
@@ -605,11 +596,11 @@ export async function executeSwarmServer(opts: {
                 typeof e.label === "string" &&
                 e.label.trim().toLowerCase() === picked.toLowerCase();
               if (!live) {
-                deadEdges.add(e.id);
+                flow.killEdges([e.id]);
                 deadTargets.push(e.target);
               }
             }
-            if (deadTargets.length) propagateSkip(deadTargets);
+            if (deadTargets.length) flow.propagateSkip(deadTargets);
             continue;
           }
           if (kind === "approval") {
@@ -637,7 +628,11 @@ export async function executeSwarmServer(opts: {
             continue;
           }
           if (kind === "subswarm") {
-            if (depth >= 3) throw new Error("Execute Swarm nesting is too deep (max 3 levels).");
+            if (depth >= MAX_SUBSWARM_DEPTH) {
+              throw new Error(
+                `Execute Swarm nesting is too deep (max ${MAX_SUBSWARM_DEPTH} levels).`,
+              );
+            }
             const subId = d.subSwarmId;
             if (!subId) throw new Error("Execute Swarm node has no swarm selected.");
             const { data: sub } = await supabaseAdmin
@@ -688,12 +683,10 @@ export async function executeSwarmServer(opts: {
           // outgoing edge would still be live and BOTH paths would run — an
           // approval branch and its bypass, for example. There is no safe
           // "continue" past an unmade routing decision, so those always fail.
-          const isBranchNode = kind === "condition" || kind === "router";
-          const canContinue =
-            (d.onError ?? "fail") === "continue" &&
-            !isBranchNode &&
-            !ac.signal.aborted &&
-            !expired();
+          const canContinue = canContinueOnError(
+            { kind, onError: d.onError },
+            { aborted: ac.signal.aborted, expired: expired() },
+          );
           if (canContinue) {
             const fallback = d.errorFallback ?? "";
             ctx[outVar] = fallback;
