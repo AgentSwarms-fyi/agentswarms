@@ -37,6 +37,7 @@ import {
   MAX_SUBSWARM_DEPTH,
 } from "@/lib/swarmGraph";
 import { captureCheckpoint, restoreTracker, type SwarmCheckpoint } from "@/lib/swarmCheckpoint";
+import { commitLevelWrites, type StagedWrites, type StateReducer } from "@/lib/swarmGraph";
 import { clearCheckpoint, loadCheckpoint, saveCheckpoint } from "@/utils/swarmCheckpoint.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { createServerSwarmTracer } from "@/utils/observability/serverTracer.server";
@@ -64,6 +65,15 @@ export type ExecuteResult = {
 };
 
 type Ctx = Record<string, string>;
+
+/**
+ * How many nodes of one level may run at once.
+ *
+ * 4 is a compromise: enough that a fan-out of independent agent calls stops
+ * being serial, low enough that a wide level does not trip a provider's rate
+ * limit — which would turn a speed-up into a run failure.
+ */
+const LEVEL_CONCURRENCY = Math.max(1, envInt("SWARM_LEVEL_CONCURRENCY", 4));
 
 const HEADLESS_SAFE_TOOLS = new Set([
   "web_search",
@@ -375,20 +385,33 @@ export async function executeSwarmServer(opts: {
     };
 
     let levelIndex = 0;
+    // Branch decisions taken during a level, applied together afterwards.
+    const pendingSkips: { deadEdgeIds: string[]; deadTargets: string[] }[] = [];
+    // Set when a node in the current level hits an approval gate. Boxed so
+    // TypeScript cannot narrow it to null: it is assigned inside runOneNode,
+    // which control-flow analysis assumes may never be called.
+    const suspension: { at: { nodeId: string; pending: string } | null } = { at: null };
+    // Per-key merge rules, when a swarm declares them. Absent = "last wins",
+    // which is exactly what sequential execution did.
+    const stateReducers =
+      (opts.swarm as { stateReducers?: Record<string, StateReducer> }).stateReducers ?? {};
     for (const level of levels) {
-      for (const node of level) {
+      const runOneNode = async (node: Node<SwarmNodeData>, staged: StagedWrites) => {
         // Fail fast between nodes rather than starting work we can't finish.
         if (expired()) throw deadlineError();
         // Already done in an earlier attempt of this run — its output is in ctx
         // and re-running it would repeat whatever side effect it had.
-        if (completed.has(node.id)) continue;
+        if (completed.has(node.id)) return;
         const d = node.data;
         const kind = d.kind;
         const outVar = d.outputVar || `out_${node.id}`;
         let stepOutput: string | null = null;
+        // Staged, not written. Nodes in a level run concurrently, so mutating
+        // shared state here would make the result depend on which finished
+        // first; the level commits in level order once everyone is done.
         const write = (v: string) => {
-          ctx[outVar] = v;
-          lastOutput = v;
+          staged.writes.push([outVar, v]);
+          staged.output = v;
           stepOutput = v;
         };
 
@@ -399,7 +422,7 @@ export async function executeSwarmServer(opts: {
             await tracer.startStep({ nodeId: node.id, nodeLabel: d.label, nodeKind: kind });
             await tracer.finishStep(node.id, { status: "skipped" });
           }
-          continue;
+          return;
         }
 
         // Open a trace step and record the live incoming edges feeding it.
@@ -427,11 +450,11 @@ export async function executeSwarmServer(opts: {
         try {
           if (kind === "input") {
             write(opts.input);
-            continue;
+            return;
           }
           if (kind === "output") {
             write(gatherInputs(node, ctx, lastOutput));
-            continue;
+            return;
           }
           if (kind === "set_var") {
             const written: Record<string, string> = {};
@@ -439,11 +462,11 @@ export async function executeSwarmServer(opts: {
               const key = (a.key || "").trim();
               if (!key) continue;
               const val = interpolate(a.value ?? "", ctx);
-              ctx[key] = val;
+              staged.writes.push([key, val]);
               written[key] = val;
             }
             write(JSON.stringify(written));
-            continue;
+            return;
           }
           if (kind === "merge") {
             const names = d.inputs ?? [];
@@ -467,7 +490,7 @@ export async function executeSwarmServer(opts: {
                   .filter((v) => v.trim() !== "")
                   .join(d.mergeSeparator ?? "\n\n"),
               );
-            continue;
+            return;
           }
           if (kind === "http") {
             const res = await withNodeRetry(d, async () => {
@@ -492,7 +515,7 @@ export async function executeSwarmServer(opts: {
               if (picked !== undefined) out = picked;
             }
             write(out);
-            continue;
+            return;
           }
           if (kind === "tool") {
             const toolId = d.toolId;
@@ -519,7 +542,7 @@ export async function executeSwarmServer(opts: {
               return r;
             });
             write(res.result);
-            continue;
+            return;
           }
           if (kind === "retrieve") {
             const kbId = d.knowledgeBaseId;
@@ -535,7 +558,7 @@ export async function executeSwarmServer(opts: {
               return r;
             });
             write(res.result);
-            continue;
+            return;
           }
           if (kind === "loop") {
             const max = Math.max(1, Math.min(d.maxIters ?? 3, 6));
@@ -556,7 +579,7 @@ export async function executeSwarmServer(opts: {
               if (hasDoneSignal(result)) break;
             }
             write(result);
-            continue;
+            return;
           }
           if (kind === "evaluate") {
             const inputText = gatherInputs(node, ctx, lastOutput);
@@ -579,7 +602,7 @@ export async function executeSwarmServer(opts: {
               userMessage: `## Candidate Output\n${inputText}${refBlock}\n\nReturn the JSON scorecard.`,
             });
             write(stripFence(result));
-            continue;
+            return;
           }
           if (kind === "extract") {
             const inputText = gatherInputs(node, ctx, lastOutput);
@@ -597,7 +620,7 @@ export async function executeSwarmServer(opts: {
               userMessage: `INPUT:\n${inputText}`,
             });
             write(stripFence(result));
-            continue;
+            return;
           }
           if (kind === "foreach") {
             const srcName = d.foreachInput?.trim() || d.inputs?.[0] || "input";
@@ -633,7 +656,7 @@ export async function executeSwarmServer(opts: {
               }
             }
             write(JSON.stringify(results));
-            continue;
+            return;
           }
           if (kind === "condition") {
             const judgeInput = gatherInputs(node, ctx, lastOutput);
@@ -655,18 +678,21 @@ export async function executeSwarmServer(opts: {
             }
             write(decision);
             const deadTargets: string[] = [];
+            const deadEdgeIds: string[] = [];
             for (const e of outgoing.get(node.id) ?? []) {
               if (!e.label) continue;
               const live =
                 (decision === "YES" && String(e.label).toLowerCase().trim() === "yes") ||
                 (decision === "NO" && String(e.label).toLowerCase().trim() === "no");
               if (!live) {
-                flow.killEdges([e.id]);
+                deadEdgeIds.push(e.id);
                 deadTargets.push(e.target);
               }
             }
-            if (deadTargets.length) flow.propagateSkip(deadTargets);
-            continue;
+            // Staged: two conditions in one level would otherwise race on the
+            // tracker, and propagateSkip's result depends on the state it sees.
+            pendingSkips.push({ deadEdgeIds, deadTargets });
+            return;
           }
           if (kind === "router") {
             const routerInput = gatherInputs(node, ctx, lastOutput);
@@ -703,17 +729,20 @@ export async function executeSwarmServer(opts: {
             }
             write(picked);
             const deadTargets: string[] = [];
+            const deadEdgeIds: string[] = [];
             for (const e of outEdges) {
               const live =
                 typeof e.label === "string" &&
                 e.label.trim().toLowerCase() === picked.toLowerCase();
               if (!live) {
-                flow.killEdges([e.id]);
+                deadEdgeIds.push(e.id);
                 deadTargets.push(e.target);
               }
             }
-            if (deadTargets.length) flow.propagateSkip(deadTargets);
-            continue;
+            // Staged: two conditions in one level would otherwise race on the
+            // tracker, and propagateSkip's result depends on the state it sees.
+            pendingSkips.push({ deadEdgeIds, deadTargets });
+            return;
           }
           if (kind === "approval") {
             if (opts.rejectApprovals) {
@@ -734,7 +763,7 @@ export async function executeSwarmServer(opts: {
             if (resumed?.suspendedNodeId === node.id && decision) {
               if (decision.approved) {
                 write(pending);
-                continue;
+                return;
               }
               throw new Error(
                 `Rejected at human-approval step "${d.label}"` +
@@ -750,8 +779,11 @@ export async function executeSwarmServer(opts: {
               node,
               content: pending,
             });
-            await persist(node.id);
-            return await finish("suspended", pending, null);
+            // Recorded, not returned: this function now runs one node of a
+            // level, so returning here would only end the node. The level
+            // runner parks the whole run once the level settles.
+            suspension.at = { nodeId: node.id, pending };
+            return;
           }
           if (kind === "agent") {
             const out = await chat({
@@ -762,7 +794,7 @@ export async function executeSwarmServer(opts: {
               userMessage: gatherInputs(node, ctx, lastOutput),
             });
             write(out);
-            continue;
+            return;
           }
           if (kind === "subswarm") {
             if (depth >= MAX_SUBSWARM_DEPTH) {
@@ -794,7 +826,7 @@ export async function executeSwarmServer(opts: {
             if (subResult.status === "error")
               throw new Error(`Sub-swarm failed: ${subResult.error}`);
             write(subResult.output);
-            continue;
+            return;
           }
           if (kind === "function") {
             throw new Error(
@@ -826,8 +858,8 @@ export async function executeSwarmServer(opts: {
           );
           if (canContinue) {
             const fallback = d.errorFallback ?? "";
-            ctx[outVar] = fallback;
-            lastOutput = fallback;
+            staged.writes.push([outVar, fallback]);
+            staged.output = fallback;
             stepOutput = fallback;
           } else {
             throw stepErr;
@@ -847,11 +879,74 @@ export async function executeSwarmServer(opts: {
           // Checkpoint AFTER the node, in `finally`, so a node that failed but
           // was continued past (onError: continue) is still recorded as done —
           // otherwise a resume would re-run it and could fail differently.
-          if (!stepError || ctx[outVar] !== undefined) completed.add(node.id);
-          await persist();
+          // A node parked at an approval is NOT complete: the resume has to
+          // re-enter it to find the decision. Marking it done here would skip
+          // it and carry on as if it had been approved.
+          const parkedHere = suspension.at?.nodeId === node.id;
+          if (!parkedHere && (!stepError || staged.writes.length > 0)) completed.add(node.id);
         }
+      };
+
+      // Run the level. Nodes in a level depend only on EARLIER levels, so they
+      // are independent of each other and safe to overlap — that is what the
+      // topological ordering buys. Bounded, because firing a whole level of
+      // agent calls at one provider is the reliable way to get rate-limited.
+      const stagedByNode: StagedWrites[] = level.map((n) => ({
+        nodeId: n.id,
+        writes: [],
+        output: null,
+      }));
+      const failures: { index: number; error: unknown }[] = [];
+      let next = 0;
+      const worker = async () => {
+        for (;;) {
+          const i = next++;
+          if (i >= level.length) return;
+          try {
+            await runOneNode(level[i], stagedByNode[i]);
+          } catch (e) {
+            // Collected, not thrown: throwing here would leave the other
+            // in-flight nodes unobserved. The level rethrows in order below.
+            failures.push({ index: i, error: e });
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(LEVEL_CONCURRENCY, level.length) }, worker));
+
+      // Commit in LEVEL ORDER, never completion order, so the run's result does
+      // not depend on which model happened to reply first.
+      const merged = commitLevelWrites(ctx, stagedByNode, stateReducers);
+      if (merged.lastOutput !== null) lastOutput = merged.lastOutput;
+
+      // Apply the branch decisions this level took, also in level order, so a
+      // level containing two conditions kills the same edges every time.
+      for (const pending of pendingSkips) {
+        flow.killEdges(pending.deadEdgeIds);
+        if (pending.deadTargets.length) flow.propagateSkip(pending.deadTargets);
       }
+      pendingSkips.length = 0;
+
+      // One failure fails the run — and deterministically the FIRST in level
+      // order, so the same broken swarm reports the same error every time.
+      if (failures.length > 0) {
+        failures.sort((a, b) => a.index - b.index);
+        throw failures[0].error;
+      }
+
       levelIndex++;
+      // Park AFTER committing: the other nodes in this level did real work, and
+      // their results belong in the checkpoint the approver's decision resumes
+      // from. Resumption replays the levels and skips whatever is in the
+      // completed set — and the parked node is deliberately NOT in it, so the
+      // resume re-enters that node and finds the decision waiting.
+      const parked = suspension.at;
+      if (parked) {
+        await persist(parked.nodeId);
+        return await finish("suspended", parked.pending, null);
+      }
+      // Checkpoint per level rather than per node: with a level committed
+      // atomically, mid-level is not a state the run can resume from anyway.
+      await persist();
     }
 
     return await finish("success", lastOutput, null);
