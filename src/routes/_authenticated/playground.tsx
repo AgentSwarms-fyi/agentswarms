@@ -539,12 +539,18 @@ function PlaygroundPage() {
           (lastUserMsg!.metadata!.attachments as unknown[]).length > 0;
         const q = lastUserMsg?.content ?? "";
         if (q && !hasAttachments) {
-          const bi = await generateChatWidget(q, { scope: dataScopeRef.current });
-          if (bi.narrative?.trim() || bi.widget) {
+          const bi = await generateChatWidget(q, {
+            scope: dataScopeRef.current,
+            // Same model as the conversation. Without this the analyst ran on
+            // /api/bi's fallback, so Visual BI could fail on a model the user
+            // never chose while the chat around it worked fine.
+            model: docGenModelChoice(),
+          });
+          if (bi.narrative?.trim() || bi.widgets.length > 0) {
             const content = bi.narrative?.trim() || "Here's what your data shows.";
             // The analyst answers from the user's data, so it carries no KB
-            // citations — only the optional chart widget.
-            const meta = bi.widget ? { widgets: [bi.widget] } : {};
+            // citations — only the chart widgets.
+            const meta = bi.widgets.length > 0 ? { widgets: bi.widgets } : {};
             setMessages((prev) => [
               ...prev,
               {

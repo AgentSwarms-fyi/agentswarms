@@ -111,8 +111,12 @@ function PlaygroundDoc() {
           [
             "Visual BI",
             <>
-              Generate a chart from your connected tables alongside the text answer. Seeded from the
-              agent's <C key="b">tools.biVisuals</C> setting and toggleable per session.
+              Generate charts from your connected tables alongside the text answer. Seeded from the
+              agent's <C key="b">tools.biVisuals</C> setting and toggleable per session. Ask for
+              more than one — &ldquo;show me 3 charts of sales&rdquo;, &ldquo;a couple of
+              visuals&rdquo;, &ldquo;charts for revenue, cost and headcount&rdquo; — and the
+              question is split into one analytical question per visual (up to 4). A plain request
+              still produces one chart and costs exactly what it did before.
             </>,
           ],
           ["PPT / Word / Excel", "Generate a real, editable Office file from a prompt. See below."],
