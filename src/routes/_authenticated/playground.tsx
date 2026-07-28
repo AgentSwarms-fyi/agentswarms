@@ -2531,7 +2531,16 @@ async function buildPptxDoc(
 ): Promise<BuiltDoc> {
   // The BI analyst that fills charts with real figures is a second LLM path —
   // it needs the same model, or planning succeeds and every chart still fails.
-  await materializePptxWithBI(plan, { model });
+  const fill = await materializePptxWithBI(plan, { model });
+  // A deck where half the queries failed looked identical to one where they all
+  // worked — the slides just quietly lost their charts.
+  if (fill.visuals > 0 && fill.filled < fill.visuals) {
+    toast.warning(`${fill.filled} of ${fill.visuals} visuals could be filled with your data`, {
+      description:
+        "The rest could not be answered from the connected tables — those slides fall back to text or a table.",
+      duration: 9000,
+    });
+  }
   attachDiagramSvgs(plan);
   if (mode === "deep") {
     try {

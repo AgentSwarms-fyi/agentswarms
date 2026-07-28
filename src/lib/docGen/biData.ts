@@ -86,20 +86,47 @@ async function analyze(question: string, ctx: BiCtx): Promise<QueryResult | null
     // Planning is an optimisation; SQL generation works from schema + question.
     plan = { intent: question, tables: [], metrics: [], breakdowns: [] };
   }
-  try {
-    const sql = await generateSql({
-      question,
-      plan,
-      datasets: ctx.datasets,
-      semantics: ctx.semantics,
-      metrics: ctx.metrics,
-      model: ctx.model,
-    });
-    const res = runQuery(sql);
-    return res.row_count > 0 ? res : null;
-  } catch {
-    return null;
+  // Two attempts. Nearly every empty visual in a deck traces back to SQL that
+  // failed to execute — a column that doesn't exist, a quoting slip — and the
+  // engine's error is usually enough for the model to fix it. Without this the
+  // slide is simply blank and nothing anywhere says why.
+  let lastSql = "";
+  let lastErr = "";
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const sql = await generateSql({
+        question,
+        plan,
+        datasets: ctx.datasets,
+        semantics: ctx.semantics,
+        metrics: ctx.metrics,
+        model: ctx.model,
+        ...(attempt > 0 && lastSql ? { repair: { sql: lastSql, error: lastErr } } : {}),
+      });
+      lastSql = firstStatement(sql);
+      const res = runQuery(lastSql);
+      if (res.row_count > 0) return res;
+      // Ran, but returned nothing. A repair pass can still help (over-narrow
+      // filter, wrong join), so let the second attempt see that.
+      lastErr = "The statement ran but returned 0 rows.";
+    } catch (e) {
+      lastErr = (e as Error).message || "SQL execution failed";
+    }
   }
+  return null;
+}
+
+/**
+ * The first statement of a possibly multi-statement string.
+ *
+ * Asked for two visuals at once the model answers with "SELECT …; SELECT …;",
+ * which the engine rejects outright — so one over-broad question used to cost
+ * the slide its chart entirely.
+ */
+function firstStatement(sql: string): string {
+  const trimmed = (sql || "").trim().replace(/;\s*$/, "");
+  const idx = trimmed.indexOf(";");
+  return (idx === -1 ? trimmed : trimmed.slice(0, idx)).trim();
 }
 
 /**
@@ -240,13 +267,17 @@ async function runPool(jobs: Array<() => Promise<void>>, limit: number): Promise
  * when the model supplied those instead. No-ops (and returns) when there's
  * nothing to compute or no connected data.
  */
+/** How many visuals were asked for, and how many ended up carrying real data. */
+export type BiFillReport = { visuals: number; filled: number };
+
 export async function materializePptxWithBI(
   plan: PptxPlan,
   opts: { model?: string } = {},
-): Promise<void> {
+): Promise<BiFillReport> {
   const slides = plan.slides ?? [];
   const needs = slides.some((s) => s.chart || s.kpiQuery || s.kpis?.some((k) => k.sql));
-  if (!needs) return;
+  const report: BiFillReport = { visuals: 0, filled: 0 };
+  if (!needs) return report;
 
   let datasets: DatasetMeta[] = [];
   try {
@@ -254,7 +285,7 @@ export async function materializePptxWithBI(
   } catch {
     datasets = [];
   }
-  if (!datasets.length) return; // no data connected — leave charts to be dropped
+  if (!datasets.length) return report; // no data connected — leave charts to be dropped
 
   const [semantics, metrics] = await Promise.all([
     loadSemantics(datasets.map((d) => d.id)),
@@ -277,6 +308,7 @@ export async function materializePptxWithBI(
       const ci = chartIdx++;
       const rawSql = !chart.query ? chart.dataSql?.trim() : undefined;
       const question = chart.query?.trim() || (rawSql ? "" : deriveChartQuestion(slide));
+      report.visuals++;
       jobs.push(async () => {
         let res: ResultLike | null = null;
         if (rawSql) {
@@ -291,6 +323,7 @@ export async function materializePptxWithBI(
         }
         const data = res ? chartDataFromResult(res) : null;
         if (data) {
+          report.filled++;
           chart.categories = data.categories;
           chart.series = data.series;
           // Pick the visual type from the real data shape (with variety across
@@ -353,4 +386,5 @@ export async function materializePptxWithBI(
   // Modest concurrency — enough to be quick, low enough to avoid provider
   // rate-limits that would fail individual chart queries.
   await runPool(jobs, 3);
+  return report;
 }

@@ -418,6 +418,12 @@ export async function generateSql(args: {
   /** e.g. "Snowflake" — switches the prompt from AlaSQL to warehouse SQL. */
   dialect?: string;
   model?: string;
+  /**
+   * A previous attempt and the engine error it produced. Given these, the model
+   * fixes that statement rather than generating from scratch — the second try
+   * is otherwise likely to reproduce the same mistake.
+   */
+  repair?: { sql: string; error: string };
 }): Promise<string> {
   const schema = describeSchema(args.datasets, args.semantics, args.metrics);
   const engineLine = args.dialect
@@ -432,8 +438,18 @@ export async function generateSql(args: {
       "Output a SINGLE SELECT statement only — no INSERT/UPDATE/DELETE/DDL. " +
       "Use only tables and columns from the provided schema. " +
       "Prefer aggregates (SUM/AVG/COUNT) for analytical questions. " +
-      "Always add ORDER BY for rankings, and LIMIT 50 if the result might be large.",
-    userPrompt: `${schema}\n\nPLAN: ${JSON.stringify(args.plan)}\nQUESTION: ${args.question}\n\nReturn JSON: { "sql": "SELECT ..." }`,
+      "Always add ORDER BY for rankings, and LIMIT 50 if the result might be large." +
+      (args.repair
+        ? " The previous statement FAILED. Return a corrected single statement that runs. " +
+          "Check every table and column name against the schema — a name that is not listed " +
+          "does not exist. Do not return more than one statement."
+        : ""),
+    userPrompt:
+      `${schema}\n\nPLAN: ${JSON.stringify(args.plan)}\nQUESTION: ${args.question}\n` +
+      (args.repair
+        ? `\nFAILED SQL: ${args.repair.sql}\nENGINE ERROR: ${args.repair.error}\n`
+        : "") +
+      `\nReturn JSON: { "sql": "SELECT ..." }`,
   });
   return out.sql;
 }
