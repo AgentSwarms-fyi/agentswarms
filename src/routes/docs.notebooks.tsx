@@ -348,6 +348,45 @@ print(reply)`}</Code>
         every run is attributed to the key that started it.
       </Callout>
 
+      <H2 id="versioning">Version control (Git)</H2>
+      <P>
+        Click <strong>Version</strong> in a notebook to commit it to your GitHub or GitLab
+        repository. It is written as a plain Python file in the widely used percent format — the
+        same <C>{`# %%`}</C> cell markers Jupytext, VS Code and PyCharm understand:
+      </P>
+      <Code lang="python">{`# %% [markdown]
+# ## Load yesterday's incidents
+
+# %%
+hits = await agentswarms.kb_search("incidents", top_k=5)`}</Code>
+      <UL>
+        <li>
+          <strong>Commit</strong> writes the notebook plus a small <C>.json</C> manifest recording
+          how it is published — the entrypoint and the key prefixes, never a key itself.
+        </li>
+        <li>
+          <strong>History</strong> lists every commit with a link to it, and the header says{" "}
+          <em>Uncommitted changes</em> or <em>Up to date</em> so you can tell at a glance whether
+          the repo matches what is running.
+        </li>
+        <li>
+          <strong>Restore</strong> reads the file back at that commit and replaces the notebook's
+          cells. Anything not committed is lost, so it asks first.
+        </li>
+      </UL>
+      <Callout kind="why">
+        A JSON blob of cells is technically versionable and practically useless — a one-word edit
+        rewrites the whole line and no reviewer can read the diff. Committing real Python means a
+        pull request on a published notebook looks like a pull request on any other code, which is
+        the only reason to put it in git in the first place.
+      </Callout>
+      <Callout kind="info">
+        The repository is the same per-user connection <DocLink to="/docs/bi">BI</DocLink> uses for
+        dashboards and semantic models — connect it from either place. Published notebooks are also
+        included in the bulk <strong>Export now</strong> sync there. The token is stored encrypted
+        and never read back.
+      </Callout>
+
       <NextPrev current="/docs/notebooks" />
     </>
   );

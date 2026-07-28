@@ -1,11 +1,13 @@
-// Git export: serialize BI dashboards + semantic models to sanitized JSON and
-// commit them to a GitHub or GitLab repo in a single commit. Definitions only —
-// widget data snapshots (`rows`) are stripped so no warehouse DATA is written to
-// git; the access token is passed in already-decrypted and is never logged.
+// Git export: serialize BI dashboards, semantic models and published notebooks
+// and commit them to a GitHub or GitLab repo in a single commit. Definitions
+// only — widget data snapshots (`rows`) are stripped so no warehouse DATA is
+// written to git; the access token is passed in already-decrypted and is never
+// logged.
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database } from "@/integrations/supabase/types";
 import { isBlockedAlways } from "@/utils/ssrfGuard.server";
+import { notebookFilePath, notebookToScript, type NotebookCell } from "@/utils/git/notebookSource";
 
 export type GitProvider = "github" | "gitlab";
 
@@ -17,7 +19,33 @@ export type GitExportConfig = {
   host?: string | null;
 };
 
-type ExportFile = { path: string; content: string };
+export type ExportFile = { path: string; content: string };
+
+export type CommitResult = { commitUrl: string; sha: string; files: number };
+
+/** GitLab API base, SSRF-checked because a self-hosted host is user-supplied. */
+function gitlabBase(cfg: GitExportConfig): string {
+  const base = (cfg.host?.trim() || "https://gitlab.com").replace(/\/+$/, "");
+  try {
+    if (isBlockedAlways(new URL(base).hostname)) {
+      throw new Error("GitLab: refusing to connect to a blocked host");
+    }
+  } catch {
+    throw new Error("GitLab: invalid host URL");
+  }
+  return base;
+}
+
+function gitlabProjectId(cfg: GitExportConfig): string {
+  return encodeURIComponent(cfg.repo.replace(/^\/+|\/+$/g, ""));
+}
+
+/** Decode base64 (as GitHub returns file contents) into a UTF-8 string. */
+function decodeBase64Utf8(b64: string): string {
+  const binary = atob(b64.replace(/\s+/g, ""));
+  const bytes = Uint8Array.from(binary, (ch) => ch.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
 
 /** Slug for a filename component. */
 function slug(name: string): string {
@@ -70,6 +98,102 @@ function sanitizeModel(row: Record<string, unknown>): Record<string, unknown> {
   return { kind: "semantic_model", ...rest, exported_at: new Date().toISOString() };
 }
 
+/**
+ * Files for one notebook: the source as a percent-format Python script, plus a
+ * sidecar manifest describing how it is published.
+ *
+ * The manifest carries key *prefixes* only — never a hash, never a plaintext
+ * key. It exists so a reviewer can see that this file is a live endpoint and
+ * which function answers it, which is the thing you actually want in review.
+ */
+export function notebookExportFiles(
+  basePath: string,
+  nb: { id: string; title: string; description: string | null; cells: unknown },
+  keys: { name: string; key_prefix: string; entrypoint: string; revoked_at: string | null }[],
+): ExportFile[] {
+  const cells = Array.isArray(nb.cells) ? (nb.cells as NotebookCell[]) : [];
+  const scriptPath = notebookFilePath(basePath, nb.title, nb.id);
+  const script = notebookToScript(cells, {
+    id: nb.id,
+    title: nb.title,
+    description: nb.description,
+  });
+
+  const live = keys.filter((k) => !k.revoked_at);
+  const manifest = {
+    kind: "notebook",
+    id: nb.id,
+    title: nb.title,
+    description: nb.description,
+    source: scriptPath.split("/").pop(),
+    cells: cells.length,
+    published: live.length > 0,
+    // Sorted so the file is byte-stable between exports that changed nothing.
+    api_keys: live
+      .map((k) => ({
+        name: k.name,
+        key_prefix: k.key_prefix,
+        entrypoint: k.entrypoint || null,
+      }))
+      .sort((a, b) => a.key_prefix.localeCompare(b.key_prefix)),
+  };
+
+  return [
+    { path: scriptPath, content: script },
+    { path: scriptPath.replace(/\.py$/, ".json"), content: JSON.stringify(manifest, null, 2) },
+  ];
+}
+
+/**
+ * Published notebooks — those with at least one live API key. An unpublished
+ * notebook is a scratchpad; a published one is a running endpoint, and that is
+ * what belongs in the repo alongside the rest of your code.
+ */
+export async function gatherNotebookFiles(
+  sb: SupabaseClient<Database>,
+  userId: string,
+  basePath: string,
+  notebookId?: string,
+): Promise<ExportFile[]> {
+  const base = basePath.replace(/^\/+|\/+$/g, "") || "agentswarms";
+
+  let q = sb
+    .from("user_python_notebooks")
+    .select("id, title, description, cells")
+    .eq("user_id", userId);
+  if (notebookId) q = q.eq("id", notebookId);
+  const { data: notebooks, error } = await q;
+  if (error) throw new Error(error.message);
+  if (!notebooks?.length) return [];
+
+  const { data: keys, error: kErr } = await sb
+    .from("notebook_api_keys")
+    .select("notebook_id, name, key_prefix, entrypoint, revoked_at")
+    .eq("user_id", userId)
+    .in(
+      "notebook_id",
+      notebooks.map((n) => n.id),
+    );
+  if (kErr) throw new Error(kErr.message);
+
+  const byNotebook = new Map<string, NonNullable<typeof keys>>();
+  for (const k of keys ?? []) {
+    const list = byNotebook.get(k.notebook_id) ?? [];
+    list.push(k);
+    byNotebook.set(k.notebook_id, list);
+  }
+
+  const files: ExportFile[] = [];
+  for (const nb of notebooks) {
+    const nbKeys = byNotebook.get(nb.id) ?? [];
+    // An explicit single-notebook commit exports it whether or not it is
+    // published; a bulk sync only picks up the published ones.
+    if (!notebookId && !nbKeys.some((k) => !k.revoked_at)) continue;
+    files.push(...notebookExportFiles(base, nb, nbKeys));
+  }
+  return files;
+}
+
 /** Collect the sanitized files to write (owned dashboards + semantic models). */
 export async function gatherExportFiles(
   sb: SupabaseClient<Database>,
@@ -105,6 +229,8 @@ export async function gatherExportFiles(
     });
   }
 
+  files.push(...(await gatherNotebookFiles(sb, userId, base)));
+
   return files;
 }
 
@@ -132,7 +258,8 @@ async function commitToGitHub(
   cfg: GitExportConfig,
   token: string,
   files: ExportFile[],
-): Promise<{ commitUrl: string; files: number }> {
+  message: string,
+): Promise<CommitResult> {
   const api = "https://api.github.com";
   const repo = cfg.repo.replace(/^\/+|\/+$/g, "");
   const branch = cfg.branch;
@@ -172,11 +299,7 @@ async function commitToGitHub(
 
   const newCommitRes = await ghFetch(`${api}/repos/${repo}/git/commits`, token, {
     method: "POST",
-    body: JSON.stringify({
-      message: `chore(agentswarms): export ${files.length} BI artifact(s)`,
-      tree: newTree.sha,
-      parents: [baseSha],
-    }),
+    body: JSON.stringify({ message, tree: newTree.sha, parents: [baseSha] }),
   });
   if (!newCommitRes.ok) throw new Error(await ghError(newCommitRes));
   const newCommit = (await newCommitRes.json()) as { sha: string; html_url?: string };
@@ -190,6 +313,7 @@ async function commitToGitHub(
 
   return {
     commitUrl: newCommit.html_url ?? `https://github.com/${repo}/commit/${newCommit.sha}`,
+    sha: newCommit.sha,
     files: files.length,
   };
 }
@@ -199,17 +323,10 @@ async function commitToGitLab(
   cfg: GitExportConfig,
   token: string,
   files: ExportFile[],
-): Promise<{ commitUrl: string; files: number }> {
-  const base = (cfg.host?.trim() || "https://gitlab.com").replace(/\/+$/, "");
-  // SSRF: self-hosted host is user-supplied.
-  try {
-    if (isBlockedAlways(new URL(base).hostname)) {
-      throw new Error("GitLab: refusing to connect to a blocked host");
-    }
-  } catch {
-    throw new Error("GitLab: invalid host URL");
-  }
-  const projectId = encodeURIComponent(cfg.repo.replace(/^\/+|\/+$/g, ""));
+  message: string,
+): Promise<CommitResult> {
+  const base = gitlabBase(cfg);
+  const projectId = gitlabProjectId(cfg);
   const headers = { "PRIVATE-TOKEN": token, "Content-Type": "application/json" };
 
   // Determine create vs update per file (GitLab has no upsert action).
@@ -229,11 +346,7 @@ async function commitToGitLab(
   const res = await fetch(`${base}/api/v4/projects/${projectId}/repository/commits`, {
     method: "POST",
     headers,
-    body: JSON.stringify({
-      branch: cfg.branch,
-      commit_message: `chore(agentswarms): export ${files.length} BI artifact(s)`,
-      actions,
-    }),
+    body: JSON.stringify({ branch: cfg.branch, commit_message: message, actions }),
   });
   if (!res.ok) {
     const j = (await res.json().catch(() => ({}))) as { message?: unknown };
@@ -244,8 +357,58 @@ async function commitToGitLab(
   const commit = (await res.json()) as { web_url?: string; id: string };
   return {
     commitUrl: commit.web_url ?? `${base}/${cfg.repo}/-/commit/${commit.id}`,
+    sha: commit.id,
     files: files.length,
   };
+}
+
+/** Commit a set of files in one commit, whichever provider is configured. */
+export async function commitFiles(
+  cfg: GitExportConfig,
+  token: string,
+  files: ExportFile[],
+  message: string,
+): Promise<CommitResult> {
+  return cfg.provider === "github"
+    ? commitToGitHub(cfg, token, files, message)
+    : commitToGitLab(cfg, token, files, message);
+}
+
+/**
+ * Read one file as it was at a given ref — how a restore gets the old content
+ * back. Git stays the source of truth: nothing about a past version is kept
+ * here beyond the sha needed to ask for it.
+ */
+export async function readFileAtRef(
+  cfg: GitExportConfig,
+  token: string,
+  path: string,
+  ref: string,
+): Promise<string> {
+  if (cfg.provider === "github") {
+    const repo = cfg.repo.replace(/^\/+|\/+$/g, "");
+    const res = await ghFetch(
+      `https://api.github.com/repos/${repo}/contents/${path
+        .split("/")
+        .map(encodeURIComponent)
+        .join("/")}?ref=${encodeURIComponent(ref)}`,
+      token,
+    );
+    if (!res.ok) throw new Error(await ghError(res));
+    const j = (await res.json()) as { content?: string; encoding?: string };
+    if (!j.content) throw new Error("GitHub returned no file content");
+    return decodeBase64Utf8(j.content);
+  }
+
+  const base = gitlabBase(cfg);
+  const res = await fetch(
+    `${base}/api/v4/projects/${gitlabProjectId(cfg)}/repository/files/${encodeURIComponent(
+      path,
+    )}/raw?ref=${encodeURIComponent(ref)}`,
+    { headers: { "PRIVATE-TOKEN": token } },
+  );
+  if (!res.ok) throw new Error(`GitLab ${res.status}: ${res.statusText}`);
+  return res.text();
 }
 
 export async function runGitExport(
@@ -256,8 +419,8 @@ export async function runGitExport(
 ): Promise<{ commitUrl: string; files: number }> {
   const files = await gatherExportFiles(sb, userId, cfg.base_path);
   if (files.length === 0)
-    throw new Error("Nothing to export yet — create a dashboard or model first");
-  return cfg.provider === "github"
-    ? commitToGitHub(cfg, token, files)
-    : commitToGitLab(cfg, token, files);
+    throw new Error(
+      "Nothing to export yet — create a dashboard, model or published notebook first",
+    );
+  return commitFiles(cfg, token, files, `chore(agentswarms): export ${files.length} artifact(s)`);
 }

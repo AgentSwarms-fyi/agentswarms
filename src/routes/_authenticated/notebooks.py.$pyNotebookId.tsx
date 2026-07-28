@@ -15,6 +15,7 @@ import {
   Check,
   ChevronsRight,
   Code2,
+  GitBranch,
   KeyRound,
   Loader2,
   Pencil,
@@ -40,6 +41,7 @@ import { cn } from "@/lib/utils";
 import { ServerRuntime, type CellRunResult, type ServerStatus } from "@/lib/serverRuntime";
 import { RuntimeRequired } from "@/components/notebooks/RuntimeRequired";
 import { PublishNotebookDialog } from "@/components/notebooks/PublishNotebookDialog";
+import { NotebookGitDialog } from "@/components/notebooks/NotebookGitDialog";
 import type { PyCell } from "@/lib/pythonNotebookTemplate";
 
 export const Route = createFileRoute("/_authenticated/notebooks/py/$pyNotebookId")({
@@ -91,6 +93,7 @@ function PyNotebookPage() {
   const [notFound, setNotFound] = useState(false);
   const [saveState, setSaveState] = useState<"saved" | "dirty" | "saving">("saved");
   const [publishOpen, setPublishOpen] = useState(false);
+  const [gitOpen, setGitOpen] = useState(false);
   const [outputs, setOutputs] = useState<Record<string, CellOutput>>({});
   const [editingMd, setEditingMd] = useState<Record<string, boolean>>({});
   const [runningAll, setRunningAll] = useState(false);
@@ -368,6 +371,10 @@ function PyNotebookPage() {
             <KeyRound className="h-3.5 w-3.5" />
             Publish
           </Button>
+          <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setGitOpen(true)}>
+            <GitBranch className="h-3.5 w-3.5" />
+            Version
+          </Button>
           <Button
             size="sm"
             variant="ghost"
@@ -564,6 +571,15 @@ function PyNotebookPage() {
         onOpenChange={setPublishOpen}
         notebookId={pyNotebookId}
         token={session?.access_token ?? ""}
+      />
+      <NotebookGitDialog
+        open={gitOpen}
+        onOpenChange={setGitOpen}
+        notebookId={pyNotebookId}
+        token={session?.access_token ?? ""}
+        // A restore rewrites the stored cells; the editor is holding the old
+        // ones, and autosave would push them straight back over the restore.
+        onRestored={() => window.location.reload()}
       />
     </div>
   );

@@ -3003,6 +3003,51 @@ export type Database = {
         };
         Relationships: [];
       };
+      notebook_git_versions: {
+        Row: {
+          branch: string;
+          commit_sha: string;
+          commit_url: string | null;
+          content_hash: string;
+          created_at: string;
+          file_path: string;
+          id: string;
+          message: string;
+          notebook_id: string;
+          provider: string;
+          repo: string;
+          user_id: string;
+        };
+        Insert: {
+          branch: string;
+          commit_sha: string;
+          commit_url?: string | null;
+          content_hash: string;
+          created_at?: string;
+          file_path: string;
+          id?: string;
+          message: string;
+          notebook_id: string;
+          provider: string;
+          repo: string;
+          user_id: string;
+        };
+        Update: {
+          branch?: string;
+          commit_sha?: string;
+          commit_url?: string | null;
+          content_hash?: string;
+          created_at?: string;
+          file_path?: string;
+          id?: string;
+          message?: string;
+          notebook_id?: string;
+          provider?: string;
+          repo?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       notebook_runtime_sessions: {
         Row: {
           api_key_id: string | null;
