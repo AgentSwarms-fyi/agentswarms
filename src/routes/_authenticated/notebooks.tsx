@@ -1,7 +1,8 @@
 // /notebooks — the Developer workspace: user-authored Python notebooks that run
-// entirely in the browser (Pyodide), plus read-only framework samples you can
-// run and fork. Each new notebook starts from a template with notes on calling
-// models through the user's connected providers.
+// on sandboxed SERVER kernels (the in-browser Pyodide runtime was removed — it
+// could never import real LangChain/LlamaIndex), plus read-only framework
+// samples you can run and fork. Each new notebook starts from a template with
+// notes on calling models through the user's connected providers.
 import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -212,8 +213,8 @@ function PythonLabCatalog({
               <h1 className="text-2xl font-semibold tracking-tight">Developer workspace</h1>
               <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
                 Python notebooks that run on sandboxed server kernels — real CPython with pip
-                install and the actual frameworks. Start from the framework samples below, or
-                create your own with governed access to your models and knowledge bases.
+                install and the actual frameworks. Start from the framework samples below, or create
+                your own with governed access to your models and knowledge bases.
               </p>
             </div>
           </div>
