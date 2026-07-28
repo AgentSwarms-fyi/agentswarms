@@ -2,9 +2,11 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
   C,
   Callout,
+  Code,
   DocLink,
   DocsHeader,
   H2,
+  H3,
   NextPrev,
   Note,
   P,
@@ -171,26 +173,34 @@ function NotebooksDoc() {
         <DocLink to="/agents">Agent Builder</DocLink>.
       </P>
 
-      <H2 id="runtimes">The two runtimes</H2>
-      <Table
-        headers={["", "In-browser (default)", "Server runtime"]}
-        rows={[
-          ["Where code runs", "Your browser, via Pyodide", "A real Python kernel in a container"],
-          ["Install packages", "Limited to pure-Python wheels", "Anything pip can install"],
-          ["Libraries", "Restricted", "LangChain, LlamaIndex, LangGraph, pandas — the real ones"],
-          ["Internet", "Browser-limited", "Through a default-deny egress proxy"],
-          [
-            "Setup",
-            "None",
-            <>
-              Enable it and run the notebooks profile — see{" "}
-              <DocLink key="s" to="/docs/self-hosting">
-                Install &amp; deploy
-              </DocLink>
-            </>,
-          ],
-        ]}
-      />
+      <H2 id="runtimes">There is one runtime, and it is off by default</H2>
+      <P>
+        Notebook cells execute on real container kernels — full CPython, working <C>pip install</C>,
+        and the actual agentic frameworks. There is <strong>no in-browser fallback</strong>: until
+        an administrator enables the server runtime, opening a notebook shows a "runtime required"
+        panel with the command to run rather than a half-working editor.
+      </P>
+      <Code lang="bash">{`docker compose --profile notebooks up -d --build`}</Code>
+      <P>
+        Then turn it on under <strong>Admin → Developer runtime</strong>. Enabling it mints the
+        signing secret automatically.
+      </P>
+
+      <H3 id="libraries">Installing libraries</H3>
+      <P>
+        The kernel image ships <C>build-essential</C> and sets <C>PIP_USER=1</C> against a writable
+        per-session <C>~/.local</C>, so packages with C extensions compile and install fine:
+      </P>
+      <Code lang="python">{`!pip install polars duckdb scikit-learn`}</Code>
+      <Callout kind="warn" title="Installs only reach hosts on the egress allow-list">
+        Kernels have no direct internet — their only route out is a default-deny proxy. PyPI is
+        always permitted, so ordinary installs work. Anything that fetches from somewhere else —{" "}
+        <C>pip install git+https://github.com/…</C>, a model download from Hugging Face, a private
+        index — fails until an administrator adds that host under{" "}
+        <strong>Admin → Developer runtime → Egress allow-list</strong>. Saving there now writes the
+        list and restarts the proxy, and the UI tells you if either step didn't happen.
+      </Callout>
+
       <Table
         headers={["Env var", "Values", "Purpose"]}
         rows={[
@@ -227,6 +237,41 @@ function NotebooksDoc() {
       </P>
 
       <H2 id="helpers">The agentswarms helper</H2>
+      <Table
+        headers={["Call", "Returns"]}
+        rows={[
+          [<C key="a">await agentswarms.chat(prompt, model=…)</C>, "A raw model completion"],
+          [<C key="b">await agentswarms.kb_search(query)</C>, "Knowledge base hits"],
+          [<C key="c">await agentswarms.list_knowledge_bases()</C>, "Collections you can read"],
+          [
+            <C key="d">await agentswarms.run_agent(agent_id, prompt)</C>,
+            "A saved agent's reply — its real prompt, tools, knowledge, memory and guardrails",
+          ],
+          [
+            <C key="e">await agentswarms.run_swarm(swarm_id, input)</C>,
+            "A saved swarm's final output",
+          ],
+          [<C key="f">await agentswarms.list_agents()</C>, "Your agents and swarms, with ids"],
+        ]}
+      />
+      <Code lang="python">{`import agentswarms
+
+catalog = await agentswarms.list_agents()
+agent_id = catalog["agents"][0]["id"]
+
+reply = await agentswarms.run_agent(agent_id, "Summarise ticket 48213")
+print(reply)`}</Code>
+      <Callout kind="why">
+        <C>run_agent</C> is not <C>chat</C> with extra steps. It runs the agent exactly as
+        configured in the Agent Builder, so a notebook gets the same behaviour as the playground and
+        the embed instead of a Python re-implementation that drifts from it. Provider keys never
+        enter the sandbox — the call is brokered by the platform and stays governed by IAM model
+        rules, budgets and traces.
+      </Callout>
+      <Callout kind="warn" title="Approval nodes are rejected, not awaited">
+        A notebook cell is unattended, so a swarm that reaches a human approval gate fails fast
+        rather than hanging until the run timeout.
+      </Callout>
       <P>
         Notebooks get a helper module that reaches platform capabilities from Python, so a notebook
         can use the same models and knowledge bases as your agents without you pasting credentials

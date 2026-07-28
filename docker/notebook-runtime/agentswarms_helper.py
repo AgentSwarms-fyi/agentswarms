@@ -14,7 +14,15 @@ import httpx
 _ORIGIN = os.environ.get("AGENTSWARMS_ORIGIN", "").rstrip("/")
 _TOKEN = os.environ.get("AGENTSWARMS_TOKEN", "")
 
-__all__ = ["chat", "kb_search", "list_knowledge_bases", "format_context"]
+__all__ = [
+    "chat",
+    "kb_search",
+    "list_knowledge_bases",
+    "format_context",
+    "run_agent",
+    "run_swarm",
+    "list_agents",
+]
 
 
 async def _post(path, payload):
@@ -70,6 +78,44 @@ async def list_knowledge_bases():
     """List the knowledge bases your account can read."""
     data = await _post("/api/python-kb", {"action": "list"})
     return data.get("knowledge_bases", [])
+
+
+async def run_agent(agent_id, prompt, *, history=None):
+    """Run one of your saved agents and return its reply text.
+
+    Unlike chat(), this uses the agent exactly as configured in the Agent
+    Builder — its system prompt, tools, knowledge bases, memory and guardrails —
+    so a notebook gets the same behaviour as the rest of the platform instead of
+    a re-implementation that drifts.
+
+        reply = await agentswarms.run_agent(agent_id, "Summarise ticket 48213")
+    """
+    payload = {"action": "run_agent", "agent_id": agent_id, "prompt": prompt}
+    if history:
+        payload["history"] = history
+    data = await _post("/api/python-agent", payload)
+    return data.get("output", "")
+
+
+async def run_swarm(swarm_id, input="", *, inputs=None):
+    """Run one of your saved swarms end to end and return its final output.
+
+    `inputs` supplies typed start-form values by field name. Approval nodes are
+    REJECTED rather than waited on: a notebook cell is unattended, so a human
+    gate would simply hang until the run times out.
+
+        out = await agentswarms.run_swarm(swarm_id, "Weekly summary")
+    """
+    payload = {"action": "run_swarm", "swarm_id": swarm_id, "input": input}
+    if inputs:
+        payload["inputs"] = inputs
+    data = await _post("/api/python-agent", payload)
+    return data.get("output", "")
+
+
+async def list_agents():
+    """Your saved agents and swarms as {"agents": [...], "swarms": [...]}."""
+    return await _post("/api/python-agent", {"action": "list"})
 
 
 def format_context(hits):

@@ -50,6 +50,7 @@ import { Route as DocsAgentsRouteImport } from './routes/docs.agents'
 import { Route as DocsAccountRouteImport } from './routes/docs.account'
 import { Route as ApiPythonKbRouteImport } from './routes/api/python-kb'
 import { Route as ApiPythonChatRouteImport } from './routes/api/python-chat'
+import { Route as ApiPythonAgentRouteImport } from './routes/api/python-agent'
 import { Route as ApiMetricsRouteImport } from './routes/api/metrics'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiEmbedRouteImport } from './routes/api/embed'
@@ -318,6 +319,11 @@ const ApiPythonKbRoute = ApiPythonKbRouteImport.update({
 const ApiPythonChatRoute = ApiPythonChatRouteImport.update({
   id: '/api/python-chat',
   path: '/api/python-chat',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPythonAgentRoute = ApiPythonAgentRouteImport.update({
+  id: '/api/python-agent',
+  path: '/api/python-agent',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiMetricsRoute = ApiMetricsRouteImport.update({
@@ -700,6 +706,7 @@ export interface FileRoutesByFullPath {
   '/api/embed': typeof ApiEmbedRouteWithChildren
   '/api/health': typeof ApiHealthRouteWithChildren
   '/api/metrics': typeof ApiMetricsRoute
+  '/api/python-agent': typeof ApiPythonAgentRoute
   '/api/python-chat': typeof ApiPythonChatRoute
   '/api/python-kb': typeof ApiPythonKbRoute
   '/docs/account': typeof DocsAccountRoute
@@ -806,6 +813,7 @@ export interface FileRoutesByTo {
   '/api/embed': typeof ApiEmbedRouteWithChildren
   '/api/health': typeof ApiHealthRouteWithChildren
   '/api/metrics': typeof ApiMetricsRoute
+  '/api/python-agent': typeof ApiPythonAgentRoute
   '/api/python-chat': typeof ApiPythonChatRoute
   '/api/python-kb': typeof ApiPythonKbRoute
   '/docs/account': typeof DocsAccountRoute
@@ -915,6 +923,7 @@ export interface FileRoutesById {
   '/api/embed': typeof ApiEmbedRouteWithChildren
   '/api/health': typeof ApiHealthRouteWithChildren
   '/api/metrics': typeof ApiMetricsRoute
+  '/api/python-agent': typeof ApiPythonAgentRoute
   '/api/python-chat': typeof ApiPythonChatRoute
   '/api/python-kb': typeof ApiPythonKbRoute
   '/docs/account': typeof DocsAccountRoute
@@ -1024,6 +1033,7 @@ export interface FileRouteTypes {
     | '/api/embed'
     | '/api/health'
     | '/api/metrics'
+    | '/api/python-agent'
     | '/api/python-chat'
     | '/api/python-kb'
     | '/docs/account'
@@ -1130,6 +1140,7 @@ export interface FileRouteTypes {
     | '/api/embed'
     | '/api/health'
     | '/api/metrics'
+    | '/api/python-agent'
     | '/api/python-chat'
     | '/api/python-kb'
     | '/docs/account'
@@ -1238,6 +1249,7 @@ export interface FileRouteTypes {
     | '/api/embed'
     | '/api/health'
     | '/api/metrics'
+    | '/api/python-agent'
     | '/api/python-chat'
     | '/api/python-kb'
     | '/docs/account'
@@ -1324,6 +1336,7 @@ export interface RootRouteChildren {
   ApiEmbedRoute: typeof ApiEmbedRouteWithChildren
   ApiHealthRoute: typeof ApiHealthRouteWithChildren
   ApiMetricsRoute: typeof ApiMetricsRoute
+  ApiPythonAgentRoute: typeof ApiPythonAgentRoute
   ApiPythonChatRoute: typeof ApiPythonChatRoute
   ApiPythonKbRoute: typeof ApiPythonKbRoute
   EmailUnsubscribeRoute: typeof EmailUnsubscribeRoute
@@ -1637,6 +1650,13 @@ declare module '@tanstack/react-router' {
       path: '/api/python-chat'
       fullPath: '/api/python-chat'
       preLoaderRoute: typeof ApiPythonChatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/python-agent': {
+      id: '/api/python-agent'
+      path: '/api/python-agent'
+      fullPath: '/api/python-agent'
+      preLoaderRoute: typeof ApiPythonAgentRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/metrics': {
@@ -2327,6 +2347,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiEmbedRoute: ApiEmbedRouteWithChildren,
   ApiHealthRoute: ApiHealthRouteWithChildren,
   ApiMetricsRoute: ApiMetricsRoute,
+  ApiPythonAgentRoute: ApiPythonAgentRoute,
   ApiPythonChatRoute: ApiPythonChatRoute,
   ApiPythonKbRoute: ApiPythonKbRoute,
   EmailUnsubscribeRoute: EmailUnsubscribeRoute,
