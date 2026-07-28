@@ -38,6 +38,41 @@ Anthropic, Gemini, Bedrock, Azure, OCI, Qwen, Grok, Groq, Ollama, vLLM…).
 Optionally set one instance-wide OpenRouter key so every user on your
 instance can start with zero setup.
 
+## A look at it
+
+**Swarm canvas** — design a multi-agent workflow as a graph and run it end to
+end. Each node is a step (agent, router, condition, loop, approval, tool call);
+the inspector sets its provider, model, prompt, tools and knowledge. The same
+graph runs from the canvas, from the API and on a schedule.
+
+![The swarm canvas: a nine-node "Earnings Call Analyst Desk" workflow, with the node palette on the left and the selected agent node's configuration on the right](docs/screenshots/swarm-canvas.png)
+
+**BI Workspace** — multi-page dashboards over your connected tables and
+warehouses, with KPIs, cross-filtering, scheduled refresh, PDF export and
+publish-and-share links.
+
+![A published "Formula 1 Analytics" dashboard showing KPI cards and bar and doughnut charts across multiple pages](docs/screenshots/bi-dashboard.png)
+
+**Agent Chat, with Visual BI** — ask a question in plain language and get a
+chart computed from your own data beside the answer. The SQL that produced it is
+shown as the source, so the number is checkable rather than asserted.
+
+![Agent Chat answering "give me profit region wise" with a bar chart and the generated SQL listed as the source](docs/screenshots/agent-chat-visual-bi.png)
+
+**Agent Chat, generating documents** — turn the conversation and your data into
+a real, editable PowerPoint, Word document or Excel workbook. The Excel can pull
+every row with live formulas rather than a pasted snapshot.
+
+![Agent Chat showing a generated Word document and PowerPoint deck, each with a preview thumbnail and a download button](docs/screenshots/agent-chat-document-generation.png)
+
+**Developer workspace** — Python notebooks on sandboxed server kernels with real
+`langchain`, `langgraph` and `llama_index` installed. Model and knowledge-base
+calls are brokered by the platform, so no provider key ever exists inside the
+sandbox. Notebooks can call your deployed agents, and can themselves be
+published as callable APIs.
+
+![The Developer workspace showing the read-only "LangChain fundamentals" sample notebook with runnable Python cells](docs/screenshots/developer-workspace-notebook.png)
+
 ## This repo vs. agentswarms.fyi
 
 Same UI, two different missions:

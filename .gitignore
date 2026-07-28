@@ -26,3 +26,7 @@ CLAUDE.md
 
 # real connector credentials for scripts/verify-connectors.ts (never commit)
 connectors.json
+
+# Local Claude Code settings, launch config and worktrees — machine-specific,
+# not part of the project.
+.claude/
