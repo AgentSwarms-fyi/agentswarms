@@ -108,10 +108,13 @@ $env:NODE_OPTIONS="--max-old-space-size=6144"; npx vite build --sourcemap false
 ## 2. Clone and install
 
 ```bash
-git clone <your-fork-or-repo-url> agentswarms
+git clone https://github.com/AgentSwarms-fyi/agentswarms.git
 cd agentswarms
 npm install     # or: bun install
 ```
+
+If you plan to contribute, fork it on GitHub first and clone your fork instead
+— the rest of this guide is identical either way.
 
 ## 3. Set up Supabase (the database, auth, and storage layer)
 

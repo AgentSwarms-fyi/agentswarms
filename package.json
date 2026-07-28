@@ -2,10 +2,10 @@
   "name": "agentswarms",
   "version": "0.1.0",
   "description": "The hands-on playground for learning Agentic AI — build agents, run multi-agent swarms, and inspect traces in your browser.",
-  "license": "MIT",
+  "license": "Elastic-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/<your-org>/agentswarms.git"
+    "url": "git+https://github.com/AgentSwarms-fyi/agentswarms.git"
   },
   "private": true,
   "sideEffects": false,
