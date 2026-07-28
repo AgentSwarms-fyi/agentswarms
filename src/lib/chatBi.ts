@@ -65,6 +65,26 @@ async function splitQuestion(question: string, model?: string): Promise<string[]
 }
 
 /**
+ * Whether a finished turn can actually be drawn.
+ *
+ * Asked for two visuals in one turn, the analyst answers with two SQL
+ * statements, an ARRAY of chart specs and nested row arrays. The narrative is
+ * still right — it summarises both — but the widget builder expects one spec
+ * and flat rows, so it produced a single empty frame. The split path is meant
+ * to prevent this; this check makes the failure mode "narrative only" rather
+ * than "an empty chart" whenever a phrasing still gets through.
+ */
+function isRenderableTurn(turn: { chart?: unknown; result?: { rows?: unknown } }): boolean {
+  const chart = turn.chart;
+  if (!chart || Array.isArray(chart) || typeof chart !== "object") return false;
+  if ((chart as { type?: string }).type === "table") return false;
+  const rows = turn.result?.rows;
+  if (!Array.isArray(rows) || rows.length === 0) return false;
+  // Nested arrays mean multiple result sets came back from one turn.
+  return !Array.isArray(rows[0]);
+}
+
+/**
  * Run the user's question through the BI analyst over their own datasets and
  * return a data-grounded narrative + charts. Never throws — a failed BI attempt
  * must not break the chat turn. `scope` controls the widget row snapshot.
@@ -107,7 +127,7 @@ export async function generateChatWidget(
       if (text) narratives.push(text);
       // A table-only "chart" adds little next to the text answer — skip the
       // visual but still keep the narrative so the answer is data-grounded.
-      if (turn.chart && turn.chart.type !== "table") {
+      if (isRenderableTurn(turn)) {
         // widgetFromBiTurn can still decline (e.g. a spec it can't render).
         const w = widgetFromBiTurn(turn, { kind: "local" }, cap);
         if (w) widgets.push(w);

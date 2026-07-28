@@ -57,10 +57,23 @@ export function wantsMultipleVisuals(question: string): boolean {
   );
   if (quantified.test(question)) return true;
   // Bare plural: "charts", "graphs" — but not the singular "chart".
-  return new RegExp(
-    `\\b(?:charts|graphs|visuals|visualisations|visualizations|plots|figures)\\b`,
-    "i",
-  ).test(question);
+  if (
+    new RegExp(
+      `\\b(?:charts|graphs|visuals|visualisations|visualizations|plots|figures)\\b`,
+      "i",
+    ).test(question)
+  ) {
+    return true;
+  }
+  // "one chart on X and another for Y" — singular throughout, but plainly two
+  // visuals. Missing this was worse than not splitting at all: the analyst
+  // tried to answer both in one turn and emitted two SQL statements and an
+  // ARRAY of chart specs, which renders as a single empty frame.
+  // Requires BOTH a visual noun and an "and one more" marker, so "a chart of
+  // revenue and cost" (one chart, two series) still does not qualify.
+  const additional =
+    /\b(?:and\s+another|another\s+(?:one|for|on|showing)|a\s+second|second\s+(?:one|chart|graph|visual|plot)|as\s+well\s+as|plus\s+(?:a|an|one)\b|separately|also\s+(?:show|give|plot|chart))\b/i;
+  return new RegExp(`\\b${VISUAL_NOUN}\\b`, "i").test(question) && additional.test(question);
 }
 
 /** Clamp and de-duplicate the sub-questions a split produced. */
