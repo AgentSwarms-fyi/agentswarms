@@ -21,9 +21,17 @@ export const BUILTIN_PROVIDER = "openai_builtin";
  */
 export const DEFAULT_EMBED_PROVIDER = "openrouter";
 
-/** Default embedding model per provider, used when the caller names none. */
+/**
+ * Default embedding model per provider, used when the caller names none.
+ *
+ * OpenRouter routes to text-embedding-3-small rather than one of the nemotron
+ * embedding models on purpose: it is the same vector space the built-in OpenAI
+ * key produces, so moving a collection to OpenRouter to escape an exhausted
+ * OpenAI quota does not invalidate chunks that are already embedded. A model
+ * with a different space (or width) is selectable, but means a re-embed.
+ */
 export const PROVIDER_EMBED_MODEL: Record<string, string> = {
-  openrouter: "nemotron-3-embed-1b-20260716",
+  openrouter: "openai/text-embedding-3-small",
   openai: "text-embedding-3-small",
   [BUILTIN_PROVIDER]: "text-embedding-3-small",
   gemini: "gemini-embedding-001",

@@ -157,7 +157,17 @@ const EMBED_PROVIDERS: { id: string; label: string; models: string[] }[] = [
   {
     id: "openrouter",
     label: "OpenRouter",
-    models: ["nemotron-3-embed-1b-20260716", "llama-nemotron-rerank-vl-1b-v2"],
+    // OpenRouter model ids are namespaced by publisher. text-embedding-3-small
+    // is listed first deliberately: it is the same 1536-d space the built-in
+    // key produces, so switching to OpenRouter to escape an OpenAI quota does
+    // NOT invalidate chunks that are already embedded. The nemotron models are
+    // a different space (and width) — selecting one means re-embedding.
+    models: [
+      "openai/text-embedding-3-small",
+      "openai/text-embedding-3-large",
+      "nvidia/nemotron-3-embed-1b",
+      "nvidia/llama-nemotron-embed-vl-1b-v2",
+    ],
   },
   // Notionally alphabetical below; OpenRouter sits high because it is the
   // default when connected (see DEFAULT_EMBED_PROVIDER).

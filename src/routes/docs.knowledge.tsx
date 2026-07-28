@@ -123,6 +123,15 @@ question ──▶ embed ──▶ nearest chunks ──▶ pasted into the prom
         a model returns a different width the embed fails with a message saying so rather than
         writing unusable vectors.
       </Callout>
+      <P>
+        This is why the OpenRouter default is <C>openai/text-embedding-3-small</C> rather than one
+        of the NVIDIA nemotron embedding models: it is the <em>same</em> 1536-d space the built-in
+        key produces, so moving a collection onto OpenRouter to get off an exhausted OpenAI quota
+        costs nothing and leaves existing chunks searchable. <C>nvidia/nemotron-3-embed-1b</C> and{" "}
+        <C>nvidia/llama-nemotron-embed-vl-1b-v2</C> (which can embed images as well as text) are
+        selectable, but they are a different space — switching to one means re-embedding the
+        collection.
+      </P>
 
       {/* ── RETRIEVAL ── */}
       <H2 id="retrieval">Retrieval settings — the real numbers</H2>
