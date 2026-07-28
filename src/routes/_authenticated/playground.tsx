@@ -80,6 +80,7 @@ import {
 import { materializePptxWithBI } from "@/lib/docGen/biData";
 import { pptxThumbUri, docxThumbUri, xlsxThumbUri } from "@/lib/docGen/docThumb";
 import { planDocument } from "@/lib/docGen/plan";
+import { encodeModelChoice, isBiCompatProvider } from "@/utils/providers/modelChoice";
 import { gatherDocContext } from "@/utils/docGen.functions";
 import { toast } from "sonner";
 import {
@@ -930,6 +931,25 @@ function PlaygroundPage() {
     }
   }
 
+  /**
+   * The model doc generation should plan with: the one this conversation is
+   * already using.
+   *
+   * Without this it sent nothing, and /api/bi fell back to the integration's
+   * default model — so a chat running happily on a free model could still fail
+   * document generation with "AI credits exhausted", because the fallback was a
+   * paid model the account had no credit for. Only BI-compatible providers can
+   * execute there; for anything else we send nothing and let the endpoint pick,
+   * which is the old behaviour.
+   */
+  function docGenModelChoice(): string | undefined {
+    const agent = agents.find((a) => a.id === selectedAgent);
+    const provider = overrideModel?.provider || agent?.llm_provider || "";
+    const model = overrideModel?.model || agent?.llm_model || "";
+    if (!provider || !model || !isBiCompatProvider(provider)) return undefined;
+    return encodeModelChoice(provider, model);
+  }
+
   // Generate a document from a typed description (the chat box, in "armed" mode)
   // — gather connected KB/data context, plan it, and build a real editable file.
   async function runDocGen(format: DocFormat, prompt: string) {
@@ -939,6 +959,7 @@ function PlaygroundPage() {
       toast.error("Please sign in again");
       return;
     }
+    const docModel = docGenModelChoice();
     try {
       setDocPhase("gathering");
       const ctx = await gatherDocContextFn({
@@ -950,6 +971,7 @@ function PlaygroundPage() {
         prompt,
         context: ctx.context,
         scope: dataScope,
+        model: docModel,
         // Deep is not just a different renderer — it commissions a bigger,
         // more varied deck. Without this the plan was identical to Fast's.
         mode: docMode,
@@ -965,7 +987,8 @@ function PlaygroundPage() {
           .replace(/[^\w.-]+/g, "-")
           .replace(/^-+|-+$/g, "") || "document";
       let built: BuiltDoc;
-      if (format === "pptx") built = await buildPptxDoc(plan as PptxPlan, fileBase, token, docMode);
+      if (format === "pptx")
+        built = await buildPptxDoc(plan as PptxPlan, fileBase, token, docMode, docModel);
       else if (format === "docx")
         built = await buildDocxDoc(plan as DocxPlan, fileBase, token, docMode);
       else {
@@ -2485,8 +2508,11 @@ async function buildPptxDoc(
   fileBase: string,
   token: string,
   mode: DocGenMode,
+  model?: string,
 ): Promise<BuiltDoc> {
-  await materializePptxWithBI(plan);
+  // The BI analyst that fills charts with real figures is a second LLM path —
+  // it needs the same model, or planning succeeds and every chart still fails.
+  await materializePptxWithBI(plan, { model });
   attachDiagramSvgs(plan);
   if (mode === "deep") {
     try {

@@ -211,8 +211,26 @@ export const Route = createFileRoute("/api/bi")({
             status: "error",
             errorMessage: `Gateway ${r.status}: ${errText.slice(0, 200)}`,
           });
-          if (r.status === 429) return json({ error: "Rate limited. Please retry shortly." }, 429);
-          if (r.status === 402) return json({ error: "AI credits exhausted." }, 402);
+          // Name the model. This surface can run on a different model from the
+          // one the caller thinks they picked (explicit choice → integration
+          // default → instance default), and a bare "credits exhausted" sends
+          // people to check the wrong account.
+          if (r.status === 429) {
+            return json(
+              { error: `Rate limited on ${gatewayModelLabel}. Please retry shortly.` },
+              429,
+            );
+          }
+          if (r.status === 402) {
+            return json(
+              {
+                error:
+                  `No credits for ${gatewayModelLabel} on ${provider}. ` +
+                  "Add credit, or pick a model your account can use.",
+              },
+              402,
+            );
+          }
           return json({ error: `Gateway error ${r.status}: ${errText.slice(0, 200)}` }, r.status);
         }
 
