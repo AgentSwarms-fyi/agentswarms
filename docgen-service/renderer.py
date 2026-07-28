@@ -387,7 +387,8 @@ class Deck:
             self._kpis(slide, s["kpis"][:5], s.get("bullets"), bottom)
             return
         has_chart = _chart_has_data(s.get("chart"))
-        has_visual = has_chart or bool(s.get("table"))
+        has_table = _table_has_data(s.get("table"))
+        has_visual = has_chart or has_table
         has_text = bool(s.get("bullets") or s.get("paragraph"))
         if not has_visual and not has_text:
             # A "chart" slide whose query returned nothing, or one the verify
@@ -658,6 +659,21 @@ def _chart_has_data(chart) -> bool:
     cats = chart.get("categories") or []
     series = chart.get("series") or []
     return len(cats) > 0 and any(len(s.get("values") or []) > 0 for s in series)
+
+
+def _table_has_data(table) -> bool:
+    """A table counts as a visual only if it has columns AND at least one row.
+
+    When a chart's query returns nothing the client substitutes a fallback
+    table, and that substitute can itself come back empty. Treating it as a
+    visual regardless is what put an empty grid next to the bullets instead of
+    reflowing the slide or showing the empty state.
+    """
+    if not isinstance(table, dict):
+        return False
+    cols = table.get("columns") or []
+    rows = table.get("rows") or []
+    return len(cols) > 0 and len(rows) > 0
 
 
 def _diagram_text(diagram) -> list[str]:

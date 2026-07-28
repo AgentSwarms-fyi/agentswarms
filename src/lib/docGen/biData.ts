@@ -205,6 +205,11 @@ function resultToTable(res: ResultLike): DocTable {
 }
 
 /** Last-resort content so a slide is never blank: a peek at the primary table. */
+/** A table is only worth putting on a slide if it has columns AND rows. */
+function tableHasData(t: DocTable | null | undefined): boolean {
+  return !!t && (t.columns?.length ?? 0) > 0 && (t.rows?.length ?? 0) > 0;
+}
+
 function fallbackTable(ctx: BiCtx): DocTable | null {
   const ds = ctx.datasets[0];
   if (!ds) return null;
@@ -300,10 +305,16 @@ export async function materializePptxWithBI(
         chart.categories = undefined;
         chart.series = undefined;
         if (!slide.table) {
-          if (res && res.rows.length) slide.table = resultToTable(res);
+          // Both checks matter. A result can have rows but NO columns (the
+          // analyst occasionally returns positional arrays rather than keyed
+          // objects), which produced a table of empty rows — and the renderer
+          // counted that as a visual, so the slide shipped an empty grid where
+          // a chart should have been.
+          const t = res && res.rows.length ? resultToTable(res) : null;
+          if (tableHasData(t)) slide.table = t!;
           else {
             const fb = fallbackTable(ctx);
-            if (fb) slide.table = fb;
+            if (tableHasData(fb)) slide.table = fb!;
           }
         }
       });

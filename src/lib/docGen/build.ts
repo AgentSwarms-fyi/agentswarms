@@ -757,6 +757,15 @@ export async function buildDocx(plan: DocxPlan, filename: string): Promise<Built
 
   let seenH1 = false; // start each major (level-1) section on a fresh page
   for (const b of plan.blocks ?? []) {
+    // One malformed block must not cost the whole document. A planner can emit
+    // a "bullets" block with no items or a "table" block with no table, and
+    // every field below is then read off undefined — which threw and lost a
+    // report that was otherwise complete.
+    if (!b || typeof b !== "object") continue;
+    if (b.type === "heading" && !String(b.text ?? "").trim()) continue;
+    if (b.type === "paragraph" && !String(b.text ?? "").trim()) continue;
+    if (b.type === "bullets" && !Array.isArray(b.items)) continue;
+    if (b.type === "table" && !Array.isArray(b.table?.columns)) continue;
     if (b.type === "heading") {
       const isH1 = b.level === 1;
       children.push(

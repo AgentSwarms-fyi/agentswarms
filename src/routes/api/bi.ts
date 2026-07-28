@@ -295,28 +295,49 @@ export const Route = createFileRoute("/api/bi")({
         });
 
         // The gateway with response_format: json_object should return clean
-        // JSON, but be defensive: strip fences just in case some providers
-        // ignore the flag.
-        const cleaned = text
-          .trim()
-          .replace(/^```(?:json)?/i, "")
-          .replace(/```$/, "")
-          .trim();
-        try {
-          const parsed = JSON.parse(cleaned);
-          return json({ result: parsed });
-        } catch {
-          // Last-ditch: extract the first {...} block.
-          const m = cleaned.match(/\{[\s\S]*\}/);
-          if (m) {
-            try {
-              return json({ result: JSON.parse(m[0]) });
-            } catch {
-              /* fall through */
-            }
-          }
-          return json({ error: "Model returned non-JSON", raw: cleaned.slice(0, 400) }, 502);
+        // JSON, but be defensive: models that ignore the flag wrap it in a
+        // fence, prefix it with prose, or both.
+        const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
+        const cleaned = (fenced ? fenced[1] : text).trim();
+        const candidates = [cleaned];
+        // Object or array — a plan is an object, but some stages legitimately
+        // return an array, and the old regex only ever looked for {...}.
+        for (const re of [/\{[\s\S]*\}/, /\[[\s\S]*\]/]) {
+          const m = cleaned.match(re);
+          if (m) candidates.push(m[0]);
         }
+        for (const c of candidates) {
+          try {
+            return json({ result: JSON.parse(c) });
+          } catch {
+            /* try the next shape */
+          }
+        }
+        // Record WHY, with both ends of the payload: a truncated response looks
+        // completely different from a prose preamble, and the trace previously
+        // said "success" with no hint that parsing had failed afterwards.
+        void recordGatewayCall({
+          userId: user.id,
+          surface,
+          model: gatewayModelLabel,
+          promptText: body.userPrompt,
+          latencyMs: Date.now() - startedAt,
+          status: "error",
+          errorMessage:
+            `Unparseable JSON (${text.length} chars, ${usage?.tokensOut ?? "?"} tokens out). ` +
+            `HEAD: ${text.slice(0, 160)} … TAIL: ${text.slice(-160)}`,
+        });
+        return json(
+          {
+            error:
+              `${gatewayModelLabel} did not return valid JSON. ` +
+              (completionCap > 0 && (usage?.tokensOut ?? 0) >= completionCap - 8
+                ? "It hit the output limit mid-document — try Browser (Fast) mode or a model with a larger output budget."
+                : "This usually means the model ignored the JSON-only instruction; a different model normally fixes it."),
+            raw: cleaned.slice(0, 400),
+          },
+          502,
+        );
       },
     },
   },
