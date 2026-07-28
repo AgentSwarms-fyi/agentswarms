@@ -182,8 +182,13 @@ export async function llmJson<T>(opts: {
   const choice = parseModelChoice(opts.model);
   // Hard deadline: without it a stalled provider leaves every AI spinner
   // (analyst, insights, ontology, generate) hanging forever.
+  //
+  // Must outlast the server's own deadline, which scales with maxTokens — at a
+  // flat 120s the client gave up first on any large plan, so the server's much
+  // more specific timeout message never reached the user.
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 120_000);
+  const clientTimeoutMs = Math.min(270_000, 90_000 + Math.min(opts.maxTokens ?? 0, 16000) * 8);
+  const timer = setTimeout(() => ctrl.abort(), clientTimeoutMs);
   let resp: Response;
   try {
     resp = await fetch("/api/bi", {
@@ -205,7 +210,7 @@ export async function llmJson<T>(opts: {
   } catch (e) {
     if ((e as Error).name === "AbortError") {
       throw new Error(
-        "The AI call timed out after 120s — the selected model/provider isn't responding. Check the model picker and your Integrations.",
+        `The AI call timed out after ${Math.round(clientTimeoutMs / 1000)}s — the selected model/provider isn't responding. Check the model picker and your Integrations.`,
       );
     }
     throw e;

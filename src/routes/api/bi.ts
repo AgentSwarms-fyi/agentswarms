@@ -155,8 +155,19 @@ export const Route = createFileRoute("/api/bi")({
 
         // Deadline on the upstream call — a hung provider must surface as a
         // clear error, not an infinite client spinner.
+        //
+        // Scaled by the completion budget, because a flat deadline is wrong at
+        // both ends: a Deep deck plan asks for ~16k tokens of JSON, which no
+        // model emits in 100s, so it always timed out; a small insight call
+        // should not be allowed to hang for four minutes. ~8ms/token is a
+        // pessimistic-but-real rate for a slow free-tier router.
+        const completionCap = Math.min(
+          typeof body.maxTokens === "number" && body.maxTokens > 0 ? body.maxTokens : 0,
+          16000,
+        );
+        const upstreamMs = Math.min(240_000, 60_000 + completionCap * 8);
         const upstreamCtrl = new AbortController();
-        const upstreamTimer = setTimeout(() => upstreamCtrl.abort(), 100_000);
+        const upstreamTimer = setTimeout(() => upstreamCtrl.abort(), upstreamMs);
 
         let r: Response;
         try {
@@ -183,15 +194,30 @@ export const Route = createFileRoute("/api/bi")({
               temperature: typeof body.temperature === "number" ? body.temperature : 0.1,
               // Larger structured outputs (e.g. a 20-slide deck plan) need a
               // higher completion cap or they truncate into invalid JSON.
-              ...(typeof body.maxTokens === "number" && body.maxTokens > 0
-                ? { max_tokens: Math.min(body.maxTokens, 16000) }
-                : {}),
+              ...(completionCap > 0 ? { max_tokens: completionCap } : {}),
             }),
           });
         } catch (e) {
           if ((e as Error).name === "AbortError") {
+            // Record it. This path used to return without a trace, so a timed-out
+            // Deep deck left no evidence anywhere — the run simply vanished.
+            void recordGatewayCall({
+              userId: user.id,
+              surface,
+              model: gatewayModelLabel,
+              promptText: body.userPrompt,
+              latencyMs: Date.now() - startedAt,
+              status: "error",
+              errorMessage: `Timed out after ${Math.round(upstreamMs / 1000)}s (max_tokens ${completionCap})`,
+            });
             return json(
-              { error: `The model provider (${gatewayModelLabel}) did not respond within 100s.` },
+              {
+                error:
+                  `${gatewayModelLabel} did not finish within ${Math.round(upstreamMs / 1000)}s. ` +
+                  (completionCap >= 12000
+                    ? "This is a large document plan — a faster model usually finishes it, or use Browser (Fast) mode."
+                    : "Try again, or pick a different model."),
+              },
               504,
             );
           }

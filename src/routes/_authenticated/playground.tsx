@@ -1054,7 +1054,20 @@ function PlaygroundPage() {
         });
       }
     } catch (e) {
-      toast.error((e as Error).message || "Generation failed");
+      const reason = (e as Error).message || "Generation failed";
+      toast.error(reason, { duration: 10000 });
+      // Also leave it in the conversation. A toast disappears, and a failed
+      // generation that only toasted read as "it showed planning, then nothing
+      // happened" — the prompt was still sitting there with no reply next to it.
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: `I couldn't build that ${DOC_FORMAT_LABEL[format]}.\n\n**${reason}**`,
+          created_at: new Date().toISOString(),
+        },
+      ]);
     } finally {
       setDocPhase("idle");
     }
