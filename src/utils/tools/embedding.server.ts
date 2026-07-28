@@ -224,7 +224,11 @@ export async function embedTexts(
       // which would crash the vector(1536) insert or corrupt the index.
       if (!Array.isArray(d.embedding) || d.embedding.length !== EMBED_DIMS) {
         throw new Error(
-          `embedding dimension mismatch for ${useModel}: expected ${EMBED_DIMS}, got ${d.embedding?.length ?? "n/a"}`,
+          `"${useModel}" returned ${d.embedding?.length ?? "no"}-dimensional vectors, but the ` +
+            `store is fixed at ${EMBED_DIMS}. Either the model ignores the "dimensions" ` +
+            `parameter or it has no ${EMBED_DIMS}-d output — pick a model that does ` +
+            `(the OpenAI text-embedding-3-* models truncate to any size), or the ` +
+            `kb_chunks.embedding column has to be migrated to this model's width.`,
         );
       }
       out.push(d.embedding);
@@ -271,6 +275,14 @@ export async function embedAndStoreDocuments(opts: {
   /** OpenAI-compatible /embeddings endpoint + custom-model flag (BYOK). */
   endpoint?: string;
   allowCustomModel?: boolean;
+  /**
+   * Provider id to record on each document alongside the model.
+   *
+   * Retrieval reads this back to embed the query the same way. Without it, a
+   * document embedded by one provider could be searched with another's vectors
+   * — which does not error, it just returns confidently wrong matches.
+   */
+  stampProvider?: string;
 }): Promise<{ documentsProcessed: number; chunksInserted: number }> {
   const { sb, docs, openaiKey } = opts;
   if (docs.length === 0) return { documentsProcessed: 0, chunksInserted: 0 };
@@ -369,6 +381,32 @@ export async function embedAndStoreDocuments(opts: {
       }
     ).upsert(slice, { onConflict: "document_id,chunk_index" });
     if (error) throw new Error(error.message);
+  }
+
+  // Stamp what was actually used, per document. Retrieval reads this to embed
+  // the query in the same space; previously it was only written by the upload
+  // UI, so anything embedded by another path (auto-embed, back-fill, re-sync)
+  // left retrieval guessing.
+  if (opts.stampProvider) {
+    const modelByDoc = new Map<string, string>();
+    for (const r of rows)
+      if (!modelByDoc.has(r.document_id)) modelByDoc.set(r.document_id, r._model);
+    for (const d of docs) {
+      const model = modelByDoc.get(d.id);
+      if (!model) continue;
+      const meta = { ...(d.metadata ?? {}) } as Record<string, unknown>;
+      if (meta.embedding_provider === opts.stampProvider && meta.embedding_model === model)
+        continue;
+      meta.embedding_provider = opts.stampProvider;
+      meta.embedding_model = model;
+      const { error } = await sb
+        .from("knowledge_documents")
+        .update({ metadata: meta as never })
+        .eq("id", d.id);
+      // Non-fatal: the chunks are already stored, and a missing stamp degrades
+      // retrieval rather than losing data.
+      if (error) console.warn("[embedding] could not stamp embed config:", error.message);
+    }
   }
 
   return { documentsProcessed: docs.length, chunksInserted: rows.length };

@@ -159,12 +159,24 @@ const EMBED_PROVIDERS: { id: string; label: string; models: string[] }[] = [
     label: "OpenRouter",
     models: ["nemotron-3-embed-1b-20260716", "llama-nemotron-rerank-vl-1b-v2"],
   },
+  // Notionally alphabetical below; OpenRouter sits high because it is the
+  // default when connected (see DEFAULT_EMBED_PROVIDER).
   { id: "gemini", label: "Google Gemini", models: ["gemini-embedding-001"] },
   { id: "ollama", label: "Ollama", models: ["nomic-embed-text", "mxbai-embed-large"] },
   { id: "vllm", label: "vLLM", models: [] },
   { id: "nvidia", label: "NVIDIA NIM", models: ["nvidia/nv-embed-v1"] },
   { id: "qwen", label: "Qwen", models: ["text-embedding-v3"] },
 ];
+
+/**
+ * Preferred embedding provider when the user has it connected.
+ *
+ * OpenRouter rather than the operator's OpenAI key: it is the provider an
+ * instance most likely already has credentials for, and it keeps embedding off
+ * the OpenAI quota that chat, doc generation and retrieval otherwise share —
+ * a quota that, once exhausted, takes knowledge-base search down with it.
+ */
+const DEFAULT_EMBED_PROVIDER = "openrouter";
 
 const CHUNKING_STRATEGIES = [
   { value: "fixed", label: "Fixed Size" },
@@ -215,6 +227,8 @@ function KnowledgePage() {
   const [vectorStore, setVectorStore] = useState("local");
   const [embeddingModel, setEmbeddingModel] = useState("text-embedding-3-small");
   const [embedProvider, setEmbedProvider] = useState("openai_builtin");
+  // Set once the user picks a provider, so the auto-default stops interfering.
+  const [embedProviderTouched, setEmbedProviderTouched] = useState(false);
   const [builtinConfigured, setBuiltinConfigured] = useState<boolean | null>(null);
   const [customEmbedModel, setCustomEmbedModel] = useState("");
   const [chunkStrategy, setChunkStrategy] = useState("recursive");
@@ -245,19 +259,27 @@ function KnowledgePage() {
     (p) => p.id === "openai_builtin" || connectedProviders.has(p.id),
   );
 
-  // Prefer a provider that can actually embed: if the operator key is
-  // missing, fall over to the first connected embedding-capable integration.
+  // Default to OpenRouter when it is connected: it is the provider most
+  // instances already have a key for, so embedding works without a second
+  // account, and it does not share the operator OpenAI key's quota. Falls back
+  // to the built-in key, then to any other connected embedding-capable
+  // integration. Only ever moves off an untouched default — once the user picks
+  // a provider themselves, `embedProviderTouched` stops this from overriding it.
   useEffect(() => {
-    if (builtinConfigured !== false || embedProvider !== "openai_builtin") return;
-    const alt = EMBED_PROVIDERS.find(
-      (p) => p.id !== "openai_builtin" && connectedProviders.has(p.id),
-    );
-    if (alt) {
-      setEmbedProvider(alt.id);
-      if (alt.models[0]) setEmbeddingModel(alt.models[0]);
+    if (embedProviderTouched || embedProvider !== "openai_builtin") return;
+    const preferred =
+      EMBED_PROVIDERS.find(
+        (p) => p.id === DEFAULT_EMBED_PROVIDER && connectedProviders.has(p.id),
+      ) ??
+      (builtinConfigured === false
+        ? EMBED_PROVIDERS.find((p) => p.id !== "openai_builtin" && connectedProviders.has(p.id))
+        : undefined);
+    if (preferred) {
+      setEmbedProvider(preferred.id);
+      if (preferred.models[0]) setEmbeddingModel(preferred.models[0]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [builtinConfigured, connectedProviders]);
+  }, [builtinConfigured, connectedProviders, embedProviderTouched]);
   const embedModelSuggestions = EMBED_PROVIDERS.find((p) => p.id === embedProvider)?.models ?? [];
   const effectiveEmbedModel = customEmbedModel.trim() || embeddingModel;
   const currentEmbeddingDef = ALL_EMBEDDING_MODELS.find((m) => m.value === embeddingModel);
@@ -674,6 +696,7 @@ function KnowledgePage() {
                         value={embedProvider}
                         onValueChange={(v) => {
                           setEmbedProvider(v);
+                          setEmbedProviderTouched(true);
                           setCustomEmbedModel("");
                           const first = EMBED_PROVIDERS.find((p) => p.id === v)?.models[0];
                           if (first) setEmbeddingModel(first);

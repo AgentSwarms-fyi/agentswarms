@@ -120,7 +120,11 @@ export function PublishNotebookDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      {/* DialogContent is a grid, and grid items default to min-width:auto — so
+          the long curl line stretched the dialog instead of scrolling inside
+          it. [&>*]:min-w-0 lets each section shrink; max-h keeps a dialog with
+          a fresh key, the form and a key list from running off a short screen. */}
+      <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto [&>*]:min-w-0">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <KeyRound className="h-4 w-4 text-primary" /> Publish as an API
@@ -180,7 +184,7 @@ export function PublishNotebookDialog({
             mono={false}
             text={`curl -X POST ${origin}/api/notebook/run -H "Authorization: Bearer nbk_…" -H "Content-Type: application/json" -d '{"inputs":{"date":"2026-07-28"}}'`}
           />
-          <p className="text-[10px] text-muted-foreground">
+          <p className="break-words text-[10px] text-muted-foreground">
             Add <code>&quot;async&quot;: true</code> to return immediately with a <code>runId</code>
             , then poll <code>/api/notebook/run/status</code>.
           </p>

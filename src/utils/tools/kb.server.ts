@@ -166,17 +166,22 @@ export async function retrieveCitationsServer(opts: {
       .map((r) => r.metadata as { embedding_provider?: string; embedding_model?: string } | null)
       .find((m) => m?.embedding_model);
     if (meta?.embedding_model) embedModel = meta.embedding_model;
-    if (meta?.embedding_provider && meta.embedding_provider !== "openai_builtin" && opts.userId) {
-      const { resolveOpenAICompatTransport } = await import("@/utils/providers/credentials.server");
-      const t = await resolveOpenAICompatTransport({
-        userId: opts.userId,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        provider: meta.embedding_provider as any,
+
+    if (opts.userId) {
+      const { resolveEmbedTarget } = await import("./embedTarget.server");
+      // A stamped provider is passed through verbatim so the query lands in the
+      // same vector space the chunks were written in. Unstamped documents get
+      // the instance default — they predate stamping, so this is a guess, and
+      // the right repair is a re-embed (which then stamps them).
+      const target = await resolveEmbedTarget(opts.userId, {
+        provider: meta?.embedding_provider,
+        model: meta?.embedding_model,
       });
-      if (t && (t.apiKey || meta.embedding_provider === "ollama")) {
-        embedKey = t.apiKey ?? "";
-        embedEndpoint = t.endpointUrl.replace(/\/chat\/completions\/?$/, "/embeddings");
-        allowCustomModel = true;
+      if (target) {
+        embedKey = target.apiKey;
+        embedEndpoint = target.endpoint;
+        embedModel = target.model || embedModel;
+        allowCustomModel = target.allowCustomModel;
       }
     }
   } catch {

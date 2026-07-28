@@ -153,7 +153,7 @@ export function NotebookGitDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto [&>*]:min-w-0">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <GitBranch className="h-4 w-4 text-primary" /> Version control (Git)

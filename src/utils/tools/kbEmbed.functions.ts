@@ -5,27 +5,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { embedAndStoreDocuments, type EmbedDocInput } from "./embedding.server";
-import { resolveOpenAICompatTransport } from "@/utils/providers/credentials.server";
-import type { ProviderId } from "@/utils/providers/types";
-
-/** Resolve where embeddings run: the operator's OpenAI key (built-in) or the
- * caller's own integration (OpenAI-compatible /embeddings endpoint). */
-async function resolveEmbedTarget(
-  userId: string,
-  provider?: string,
-): Promise<{ apiKey: string; endpoint?: string; allowCustomModel: boolean } | null> {
-  if (!provider || provider === "openai_builtin") {
-    const key = process.env.OPENAI_API_KEY;
-    return key ? { apiKey: key, allowCustomModel: false } : null;
-  }
-  const t = await resolveOpenAICompatTransport({ userId, provider: provider as ProviderId });
-  if (!t || (!t.apiKey && provider !== "ollama")) return null;
-  return {
-    apiKey: t.apiKey ?? "",
-    endpoint: t.endpointUrl.replace(/\/chat\/completions\/?$/, "/embeddings"),
-    allowCustomModel: true,
-  };
-}
+import { resolveEmbedTarget } from "./embedTarget.server";
 
 export const embedKbDocuments = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -40,7 +20,10 @@ export const embedKbDocuments = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
-    const target = await resolveEmbedTarget(userId, data.provider);
+    const target = await resolveEmbedTarget(userId, {
+      provider: data.provider,
+      model: data.model,
+    });
     if (!target) {
       return {
         documentsProcessed: 0,
@@ -64,7 +47,10 @@ export const embedKbDocuments = createServerFn({ method: "POST" })
       openaiKey: target.apiKey,
       endpoint: target.endpoint,
       allowCustomModel: target.allowCustomModel,
-      defaults: data.model ? { model: data.model } : undefined,
+      // The resolved target already carries the provider's default model, so a
+      // caller that names neither still embeds with something coherent.
+      defaults: { model: target.model },
+      stampProvider: target.provider,
       userId,
     });
     return { ...result, skipped: false as const };
@@ -84,7 +70,10 @@ export const backfillKbEmbeddings = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
-    const target = await resolveEmbedTarget(userId, data.provider);
+    const target = await resolveEmbedTarget(userId, {
+      provider: data.provider,
+      model: data.model,
+    });
     if (!target) {
       return {
         documentsProcessed: 0,
@@ -121,7 +110,10 @@ export const backfillKbEmbeddings = createServerFn({ method: "POST" })
       openaiKey: target.apiKey,
       endpoint: target.endpoint,
       allowCustomModel: target.allowCustomModel,
-      defaults: data.model ? { model: data.model } : undefined,
+      // The resolved target already carries the provider's default model, so a
+      // caller that names neither still embeds with something coherent.
+      defaults: { model: target.model },
+      stampProvider: target.provider,
       userId,
     });
     return { ...result, skipped: false as const };

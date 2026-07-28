@@ -100,6 +100,30 @@ question ──▶ embed ──▶ nearest chunks ──▶ pasted into the prom
         and reranking matter.
       </Callout>
 
+      <H3 id="embedding-provider">Which model does the embedding</H3>
+      <P>
+        Set this per collection under <strong>RAG settings → Embedding</strong>. When you have{" "}
+        <strong>OpenRouter</strong> connected it is the default, so embedding does not compete for
+        the OpenAI quota that chat, document generation and retrieval already share — when that
+        quota runs out, knowledge-base search goes down with it. The built-in operator OpenAI key is
+        the fallback, and any other connected provider with an OpenAI-compatible <C>/embeddings</C>{" "}
+        endpoint can be selected instead.
+      </P>
+      <Callout kind="warn" title="Changing the model means re-embedding">
+        Vectors from two different models are not comparable — searching model A's chunks with model
+        B's query vector does not error, it quietly returns wrong matches. So the provider and model
+        are recorded on each document when it is embedded, and the question is always embedded with
+        whatever that document used. Switching a collection to a new model therefore only affects
+        documents embedded from then on: use <strong>Back-fill embeddings</strong> to move the
+        existing ones across.
+      </Callout>
+      <Callout kind="info">
+        The vector store is fixed at <strong>1536 dimensions</strong>. A model must be able to emit
+        that width — the OpenAI <C>text-embedding-3-*</C> models truncate to any size on request. If
+        a model returns a different width the embed fails with a message saying so rather than
+        writing unusable vectors.
+      </Callout>
+
       {/* ── RETRIEVAL ── */}
       <H2 id="retrieval">Retrieval settings — the real numbers</H2>
       <Table
