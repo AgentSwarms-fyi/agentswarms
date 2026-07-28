@@ -80,15 +80,24 @@ async function fetchProviderModels(
   const url = transport.endpointUrl.replace(/\/chat\/completions\/?$/, "/models");
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 12_000);
-  const r = await fetch(url, {
-    headers: {
-      ...(transport.apiKey ? { Authorization: `Bearer ${transport.apiKey}` } : {}),
-      ...(transport.extraHeaders ?? {}),
-    },
-    signal: ctrl.signal,
-  }).finally(() => clearTimeout(timer));
+  // The timer stays armed until the BODY is read: fetch() resolves on headers,
+  // so clearing it there leaves the read itself unbounded against a slow host.
+  let r: Response;
+  let payload: string;
+  try {
+    r = await fetch(url, {
+      headers: {
+        ...(transport.apiKey ? { Authorization: `Bearer ${transport.apiKey}` } : {}),
+        ...(transport.extraHeaders ?? {}),
+      },
+      signal: ctrl.signal,
+    });
+    payload = await r.text();
+  } finally {
+    clearTimeout(timer);
+  }
   if (!r.ok) return { ok: false, error: `The models endpoint returned ${r.status}` };
-  const body = (await r.json()) as { data?: RawModel[] };
+  const body = JSON.parse(payload || "{}") as { data?: RawModel[] };
   return { ok: true, raw: body.data ?? [] };
 }
 

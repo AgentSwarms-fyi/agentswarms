@@ -170,6 +170,8 @@ export const Route = createFileRoute("/api/bi")({
         const upstreamTimer = setTimeout(() => upstreamCtrl.abort(), upstreamMs);
 
         let r: Response;
+        // Read inside the same try as the fetch: see the note on clearTimeout below.
+        let payload = "";
         try {
           r = await fetch(transport.endpointUrl, {
             method: "POST",
@@ -197,6 +199,11 @@ export const Route = createFileRoute("/api/bi")({
               ...(completionCap > 0 ? { max_tokens: completionCap } : {}),
             }),
           });
+          // Read the body here, still under the abort signal. fetch() resolves
+          // as soon as the response HEADERS arrive, and a gateway sends those
+          // immediately while the model is still generating — so the entire
+          // wait happens during this read, not during fetch().
+          payload = await r.text();
         } catch (e) {
           if ((e as Error).name === "AbortError") {
             // Record it. This path used to return without a trace, so a timed-out
@@ -223,11 +230,15 @@ export const Route = createFileRoute("/api/bi")({
           }
           throw e;
         } finally {
+          // Cleared only now — after the body. Clearing it when fetch() resolved
+          // disarmed the deadline at the exact moment the long wait began, so
+          // the request then hung with no timeout at all and the client's own
+          // (less informative) abort was what eventually fired.
           clearTimeout(upstreamTimer);
         }
 
         if (!r.ok) {
-          const errText = await r.text().catch(() => "");
+          const errText = payload;
           void recordGatewayCall({
             userId: user.id,
             surface,
@@ -260,9 +271,13 @@ export const Route = createFileRoute("/api/bi")({
           return json({ error: `Gateway error ${r.status}: ${errText.slice(0, 200)}` }, r.status);
         }
 
-        const data = (await r.json()) as {
-          choices?: Array<{ message?: { content?: string } }>;
-        };
+        // Already read above, under the deadline — parse rather than re-read.
+        let data: { choices?: Array<{ message?: { content?: string } }> };
+        try {
+          data = JSON.parse(payload || "{}");
+        } catch {
+          return json({ error: `${gatewayModelLabel} returned a malformed response body.` }, 502);
+        }
         const text = data.choices?.[0]?.message?.content ?? "{}";
         const usage = extractUsage(data);
 
