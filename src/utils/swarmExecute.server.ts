@@ -36,6 +36,8 @@ import {
   retryPolicyOf,
   MAX_SUBSWARM_DEPTH,
 } from "@/lib/swarmGraph";
+import { captureCheckpoint, restoreTracker, type SwarmCheckpoint } from "@/lib/swarmCheckpoint";
+import { clearCheckpoint, loadCheckpoint, saveCheckpoint } from "@/utils/swarmCheckpoint.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { createServerSwarmTracer } from "@/utils/observability/serverTracer.server";
 import { runHttpNodeCore, runToolNodeCore, type ToolNodeParams } from "@/utils/swarmNodes.server";
@@ -186,6 +188,12 @@ export async function executeSwarmServer(opts: {
    * inherit the parent's deadline so nesting can't multiply the budget.
    */
   deadlineAt?: number;
+  /**
+   * Resume an interrupted run instead of starting a fresh one. The caller
+   * supplies the existing run id (so the timeline continues rather than
+   * forking) and the state it had reached.
+   */
+  resume?: { runId: string; checkpoint: SwarmCheckpoint };
 }): Promise<ExecuteResult> {
   const nodes = (Array.isArray(opts.swarm.nodes) ? opts.swarm.nodes : []) as Node<SwarmNodeData>[];
   const edges = (Array.isArray(opts.swarm.edges) ? opts.swarm.edges : []) as Edge[];
@@ -254,22 +262,61 @@ export async function executeSwarmServer(opts: {
     if (tracer) {
       await tracer.finish({ status, finalOutput: output || null, errorMessage: error });
     }
+    // A terminal run keeps no checkpoint. Leaving one behind would let a
+    // finished run be "resumed", re-running everything after the last node —
+    // and the run row plus its steps remain as the durable record either way.
+    if (runId && depth === 0) await clearCheckpoint(runId);
     return { status, output, error, runId };
   };
 
   try {
-    const ctx: Ctx = { input: opts.input, ...(opts.initialState ?? {}) };
-    let lastOutput = opts.input;
+    // A resumed run starts from where it stopped, not from the top.
+    const resumed = opts.resume?.checkpoint ?? null;
+    const ctx: Ctx = resumed
+      ? { ...resumed.ctx }
+      : { input: opts.input, ...(opts.initialState ?? {}) };
+    let lastOutput = resumed ? resumed.lastOutput : opts.input;
+    // Nodes already executed, so a resume never re-runs one. Re-running an
+    // agent call or an HTTP POST is not free and not idempotent.
+    const completed = new Set<string>(resumed?.completedNodeIds ?? []);
     const levels = topoLevels(nodes, edges);
 
     const graph = indexEdges(edges);
     const { outgoing } = graph;
-    const flow = new SkipTracker(graph);
+    // Routing decisions survive the interruption too. Without them a resumed
+    // run would treat every branch as live and execute paths the condition had
+    // already ruled out.
+    const flow = resumed ? restoreTracker(graph, resumed) : new SkipTracker(graph);
 
+    // Only a top-level run checkpoints. A nested Execute-Swarm run is part of
+    // its parent's node and is resumed by re-running that node, not on its own.
+    const durable = depth === 0 && Boolean(runId);
+    const persist = async (suspendedNodeId?: string | null) => {
+      if (!durable || !runId) return;
+      await saveCheckpoint({
+        runId,
+        userId: opts.userId,
+        source: opts.source,
+        depth,
+        checkpoint: captureCheckpoint({
+          ctx,
+          lastOutput,
+          completed,
+          flow,
+          levelIndex,
+          suspendedNodeId,
+        }),
+      });
+    };
+
+    let levelIndex = 0;
     for (const level of levels) {
       for (const node of level) {
         // Fail fast between nodes rather than starting work we can't finish.
         if (expired()) throw deadlineError();
+        // Already done in an earlier attempt of this run — its output is in ctx
+        // and re-running it would repeat whatever side effect it had.
+        if (completed.has(node.id)) continue;
         const d = node.data;
         const kind = d.kind;
         const outVar = d.outputVar || `out_${node.id}`;
@@ -707,8 +754,14 @@ export async function executeSwarmServer(opts: {
               latencyMs: Date.now() - stepStartedAt,
             });
           }
+          // Checkpoint AFTER the node, in `finally`, so a node that failed but
+          // was continued past (onError: continue) is still recorded as done —
+          // otherwise a resume would re-run it and could fail differently.
+          if (!stepError || ctx[outVar] !== undefined) completed.add(node.id);
+          await persist();
         }
       }
+      levelIndex++;
     }
 
     return await finish("success", lastOutput, null);
@@ -727,4 +780,54 @@ export async function executeSwarmServer(opts: {
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Continue an interrupted run from its checkpoint.
+ *
+ * The graph comes from the run's own snapshot rather than the swarm's current
+ * definition: a swarm edited since the run started would otherwise resume into
+ * a different graph, with a checkpoint describing nodes that may no longer
+ * exist. The run finishes as the graph it began as.
+ *
+ * Returns null when there is nothing to resume — no such run, not the caller's,
+ * already finished, or no checkpoint (a run that predates checkpointing, or one
+ * whose checkpoint writes failed).
+ */
+export async function resumeSwarmRun(args: {
+  runId: string;
+  userId: string;
+  origin: string;
+  /** Overrides the parked node's output, e.g. an approver's decision. */
+  rejectApprovals?: boolean;
+}): Promise<ExecuteResult | null> {
+  const { data: run } = await supabaseAdmin
+    .from("swarm_runs")
+    .select("id, user_id, swarm_id, swarm_name, swarm_snapshot, input_prompt, status")
+    .eq("id", args.runId)
+    .eq("user_id", args.userId)
+    .maybeSingle();
+  if (!run) return null;
+  if (run.status === "success" || run.status === "error") return null;
+
+  const checkpoint = await loadCheckpoint(args.runId, args.userId);
+  if (!checkpoint) return null;
+
+  const snapshot = (run.swarm_snapshot ?? {}) as { nodes?: unknown; edges?: unknown };
+  if (!Array.isArray(snapshot.nodes) || snapshot.nodes.length === 0) return null;
+
+  return executeSwarmServer({
+    swarm: {
+      id: run.swarm_id ?? "",
+      name: run.swarm_name ?? "Swarm",
+      nodes: snapshot.nodes,
+      edges: Array.isArray(snapshot.edges) ? snapshot.edges : [],
+    },
+    userId: args.userId,
+    origin: args.origin,
+    input: run.input_prompt ?? "",
+    rejectApprovals: args.rejectApprovals ?? false,
+    source: "api",
+    resume: { runId: args.runId, checkpoint },
+  });
 }

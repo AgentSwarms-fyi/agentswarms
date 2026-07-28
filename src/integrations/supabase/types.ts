@@ -2630,6 +2630,57 @@ export type Database = {
           },
         ];
       };
+      swarm_run_checkpoints: {
+        Row: {
+          completed_node_ids: string[];
+          created_at: string;
+          ctx: Json;
+          dead_edge_ids: string[];
+          depth: number;
+          last_output: string;
+          level_index: number;
+          run_id: string;
+          skipped_node_ids: string[];
+          source: string;
+          suspended_at: string | null;
+          suspended_node_id: string | null;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          completed_node_ids?: string[];
+          created_at?: string;
+          ctx?: Json;
+          dead_edge_ids?: string[];
+          depth?: number;
+          last_output?: string;
+          level_index?: number;
+          run_id: string;
+          skipped_node_ids?: string[];
+          source?: string;
+          suspended_at?: string | null;
+          suspended_node_id?: string | null;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          completed_node_ids?: string[];
+          created_at?: string;
+          ctx?: Json;
+          dead_edge_ids?: string[];
+          depth?: number;
+          last_output?: string;
+          level_index?: number;
+          run_id?: string;
+          skipped_node_ids?: string[];
+          source?: string;
+          suspended_at?: string | null;
+          suspended_node_id?: string | null;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       swarm_runs: {
         Row: {
           cancel_requested: boolean;
