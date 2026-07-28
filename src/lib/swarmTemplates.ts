@@ -91,6 +91,145 @@ const SAMPLE_KB_ID = "c0ffee00-0000-4000-8000-000000000001";
 const KB_RERANKER = { provider: "openrouter", model: "llama-nemotron-rerank-vl-1b-v2" } as const;
 
 export const SWARM_TEMPLATES: SwarmTemplate[] = [
+  // ── DURABILITY CHECK — the smallest graph that exercises suspend/resume ──
+  // Deliberately tiny, and deliberately not as rich as the featured four: it
+  // exists so that a failure points at exactly one thing. Every other template
+  // mixes retrieval, judging and routing, so when one breaks you cannot tell
+  // which part did it.
+  //
+  //   input → summarise → APPROVAL → approved? → output
+  //
+  // What it proves, in order:
+  //   1. the run reaches the approval node and PARKS (status "suspended")
+  //   2. its checkpoint survives, routing decisions included
+  //   3. approving from the bell menu resumes it FROM THAT NODE
+  //   4. the summarise agent does not run twice (the trace shows one entry)
+  //   5. rejecting fails the run with the reason instead of continuing
+  {
+    id: "approval-durability-check",
+    title: "Approval durability check",
+    tagline: "input → agent → human approval → branch — the suspend/resume test",
+    description:
+      'A minimal swarm for verifying that runs survive being parked at a human approval. Run it from the API or a schedule with "Reject approvals" OFF and it stops at the approval step reporting status "suspended" rather than finishing. Approve it from the bell menu and it resumes from that step — the agent above it does not run a second time. Reject it and the run fails with your reason. Small on purpose: if something breaks, there is only one place it can be.',
+    category: "Operations",
+    exampleInput:
+      "Refund request #4821: customer reports the item arrived damaged and wants a full refund of $240.",
+    nodes: [
+      {
+        id: "in",
+        type: "input",
+        position: { x: 40, y: 200 },
+        data: { kind: "input", label: "Request", outputVar: "input", avatar: "📥" },
+      },
+      {
+        id: "summarise",
+        type: "agent",
+        position: { x: 360, y: 200 },
+        data: {
+          kind: "agent",
+          label: "Summarise for the approver",
+          avatar: "🧾",
+          systemPrompt:
+            "Summarise the request in at most three short lines a human can approve or reject at a glance: what is being asked, the amount or impact, and the single biggest risk of saying yes. No preamble.",
+          inputs: ["input"],
+          outputVar: "summary",
+          // A cheap model on purpose: this swarm tests the suspend/resume
+          // mechanics, not the quality of the summary.
+          provider: "openrouter",
+          model: "openrouter/free",
+        },
+      },
+      {
+        id: "approval",
+        type: "approval",
+        position: { x: 720, y: 200 },
+        data: {
+          kind: "approval",
+          label: "Human approval",
+          avatar: "🛡️",
+          approvalTitle: "Approve this request",
+          approvalRisk: "medium",
+          inputs: ["summary"],
+          outputVar: "approved_summary",
+        },
+      },
+      {
+        id: "check",
+        type: "condition",
+        position: { x: 1060, y: 200 },
+        data: {
+          kind: "condition",
+          label: "Approved?",
+          avatar: "❓",
+          // Only reached when a human approved — a rejection fails the run
+          // outright. The branch exists so the graph has a routing decision to
+          // checkpoint, which is what proves dead edges survive a resume.
+          condition: "Did the approver let this proceed?",
+          inputs: ["approved_summary"],
+          outputVar: "decision",
+        },
+      },
+      {
+        id: "out",
+        type: "output",
+        position: { x: 1400, y: 200 },
+        data: {
+          kind: "output",
+          label: "Result",
+          avatar: "✅",
+          inputs: ["approved_summary"],
+          outputVar: "final",
+        },
+      },
+    ],
+    edges: [
+      { id: "e1", source: "in", target: "summarise" },
+      { id: "e2", source: "summarise", target: "approval" },
+      { id: "e3", source: "approval", target: "check" },
+      { id: "e4", source: "check", target: "out", label: "yes" },
+    ],
+    tour: [
+      {
+        nodeId: "in",
+        title: "Step 1 — Input",
+        what: "The request enters here and is captured into the `input` variable.",
+        why: "Every swarm needs one entry point so downstream nodes have a known variable to read.",
+        watchFor: "The status dot turning green.",
+      },
+      {
+        nodeId: "summarise",
+        title: "Step 2 — Summarise",
+        what: "A cheap model reduces the request to three lines an approver can judge at a glance.",
+        why: "The approver sees this text in the bell menu, so it has to stand alone — they will not have the original request in front of them.",
+        watchFor:
+          "Note the time this node takes. After you approve and the run resumes, it should NOT run again — that is the whole point of the checkpoint.",
+      },
+      {
+        nodeId: "approval",
+        title: "Step 3 — Human approval (the interesting one)",
+        what: 'Run headlessly with "Reject approvals" off, the run stops here, writes a checkpoint and reports status "suspended". It is neither finished nor failed.',
+        why: "Before checkpointing existed there was nothing to park: an unattended run could only auto-approve or fail. Now the run survives the process that started it and waits for a real decision.",
+        watchFor:
+          'A new item in the bell menu, and the run showing "suspended" in Recent runs rather than success or error.',
+      },
+      {
+        nodeId: "check",
+        title: "Step 4 — Approved?",
+        what: "A branch that only runs once a human let the request through; rejection fails the run before this point.",
+        why: "It exists so the graph contains a routing decision. Those decisions are checkpointed too — without them a resumed run would treat every branch as live and take paths the condition had ruled out.",
+        watchFor: "The rejected branch greying out and staying grey after the resume.",
+      },
+      {
+        nodeId: "out",
+        title: "Step 5 — Result",
+        what: "The approved summary is returned as the run's final output.",
+        why: "Reaching this node at all is the proof: the run finished on the other side of a human decision and a process boundary.",
+        watchFor:
+          'The run flipping from "suspended" to "success" with one trace covering both halves — not two separate runs.',
+      },
+    ],
+  },
+
   // ==================================================================
   // FEATURED — four comprehensive, fully-runnable sample swarms.
   // Together they exercise every canvas node type plus models, the
@@ -370,7 +509,8 @@ export const SWARM_TEMPLATES: SwarmTemplate[] = [
         watchFor: "The node turns amber and waits — open the Approvals inbox to act.",
         realWorldRef: {
           org: "Intercom Fin",
-          label: "Fin escalates a meaningful share of issues to humans — the same HITL pattern in production.",
+          label:
+            "Fin escalates a meaningful share of issues to humans — the same HITL pattern in production.",
           url: "https://www.intercom.com/blog/announcing-fin/",
         },
       },
@@ -595,7 +735,8 @@ export const SWARM_TEMPLATES: SwarmTemplate[] = [
         watchFor: "The SQL it ran and the concrete figures it returned.",
         realWorldRef: {
           org: "Pinterest",
-          label: "Pinterest's internal Text-to-SQL assistant lets analysts query the warehouse in plain English.",
+          label:
+            "Pinterest's internal Text-to-SQL assistant lets analysts query the warehouse in plain English.",
           url: "https://medium.com/pinterest-engineering/how-we-built-text-to-sql-at-pinterest-30bad30dabff",
         },
       },
@@ -788,7 +929,8 @@ export const SWARM_TEMPLATES: SwarmTemplate[] = [
         watchFor: "The iteration counter advancing 1→2→3; results collected into an array.",
         realWorldRef: {
           org: "Stanford STORM",
-          label: "STORM researches a topic by asking and answering many sub-questions, then synthesizing — the same shape.",
+          label:
+            "STORM researches a topic by asking and answering many sub-questions, then synthesizing — the same shape.",
           url: "https://storm.genie.stanford.edu/",
         },
       },
@@ -972,8 +1114,7 @@ export const SWARM_TEMPLATES: SwarmTemplate[] = [
           avatar: "❓",
           provider: "openrouter",
           model: FLASH,
-          conditionPrompt:
-            "Read the risk JSON. Is this HIGH risk (band is HIGH, or score >= 70)?",
+          conditionPrompt: "Read the risk JSON. Is this HIGH risk (band is HIGH, or score >= 70)?",
           inputs: ["risk"],
         },
       },
@@ -1014,7 +1155,12 @@ export const SWARM_TEMPLATES: SwarmTemplate[] = [
         id: "out",
         type: "output",
         position: { x: 1740, y: 300 },
-        data: { kind: "output", label: "Incident record", avatar: "✅", inputs: ["incident_report"] },
+        data: {
+          kind: "output",
+          label: "Incident record",
+          avatar: "✅",
+          inputs: ["incident_report"],
+        },
       },
     ],
     edges: [
@@ -1043,14 +1189,16 @@ export const SWARM_TEMPLATES: SwarmTemplate[] = [
         title: "Step 2 — Extract (LLM)",
         what: "An LLM pulls the source IP, signature, and severity out of the messy, vendor-specific alert text.",
         why: "Extraction copes with unstructured alert formats that rigid parsers can't — but an LLM's output is best-effort, not guaranteed.",
-        watchFor: "A best-effort JSON object — which the next node validates before anyone trusts it.",
+        watchFor:
+          "A best-effort JSON object — which the next node validates before anyone trusts it.",
       },
       {
         nodeId: "normalize",
         title: "Step 3 — Function (validate the extraction)",
         what: "Deterministic JavaScript takes the LLM's fields — or falls back to parsing the raw alert, or a regex — and emits clean, guaranteed-valid JSON.",
         why: "Never trust an LLM's structured output blindly. A tiny validation function makes every downstream node (SQL, the HTTP URL, the scorer) safe from a malformed or prose-wrapped extract.",
-        watchFor: "A tidy `{ src_ip, signature, severity }` object the rest of the swarm relies on.",
+        watchFor:
+          "A tidy `{ src_ip, signature, severity }` object the rest of the swarm relies on.",
       },
       {
         nodeId: "history",
@@ -1088,7 +1236,8 @@ export const SWARM_TEMPLATES: SwarmTemplate[] = [
         watchFor: "The node waits amber; approve or reject from the Approvals inbox.",
         realWorldRef: {
           org: "SOAR (Tines / Torq)",
-          label: "Modern SOC automation auto-enriches and scores alerts, then gates containment on human approval.",
+          label:
+            "Modern SOC automation auto-enriches and scores alerts, then gates containment on human approval.",
           url: "https://www.tines.com/",
         },
       },

@@ -291,7 +291,12 @@ export const Route = createFileRoute("/api/swarm/run")({
                   error: result.error,
                   swarmId: swarm.id,
                 };
-                await finishIdempotency(result.status === "error" ? "failed" : "completed", body);
+                // A suspended run is NOT complete: leaving the idempotency
+                // record open lets the same request be retried after the
+                // approval lands, rather than replaying a half-run result.
+                if (result.status !== "suspended") {
+                  await finishIdempotency(result.status === "error" ? "failed" : "completed", body);
+                }
                 await deliverRunCallback({
                   url: callbackUrl,
                   secret: key.webhook_secret,

@@ -53,7 +53,11 @@ function dataToolCtx(userId: string): AgentToolContext {
 }
 
 export type ExecuteResult = {
-  status: "success" | "error";
+  /**
+   * "suspended" = parked at a human-approval node with a checkpoint. The run is
+   * neither done nor failed; resumeSwarmRun continues it once a decision lands.
+   */
+  status: "success" | "error" | "suspended";
   output: string;
   error: string | null;
   runId: string | null;
@@ -171,6 +175,49 @@ function stripFence(s: string): string {
   return (m ? m[1] : s).trim();
 }
 
+/**
+ * Raise the approval request a parked run is waiting on.
+ *
+ * Deliberately the same row shape the canvas runtime writes, so one inbox shows
+ * approvals from runs started anywhere — a run parked by a schedule at 3am and
+ * one parked from the canvas look identical to the person deciding.
+ *
+ * Best-effort: if the row can't be written the run still parks, and its
+ * checkpoint still allows a manual resume. Losing the notification is
+ * recoverable; losing the run is not.
+ */
+async function createApprovalRequest(args: {
+  userId: string;
+  runId: string | null;
+  node: Node<SwarmNodeData>;
+  content: string;
+}): Promise<void> {
+  const d = args.node.data as SwarmNodeData & {
+    avatar?: string;
+    approvalTitle?: string;
+    approvalRisk?: string;
+    approverUserIds?: string[];
+    approverGroupIds?: string[];
+  };
+  try {
+    await supabaseAdmin.from("approvals").insert({
+      user_id: args.userId,
+      agent_name: d.label || "Approval gate",
+      agent_avatar: d.avatar || "🛡️",
+      action_type: "swarm_step",
+      action_title: d.approvalTitle || `Approve step: ${d.label ?? "step"}`,
+      description: args.content.slice(0, 1000),
+      risk_level: d.approvalRisk || "medium",
+      payload: { last_output: args.content.slice(0, 4000) },
+      approver_user_ids: Array.isArray(d.approverUserIds) ? d.approverUserIds : [],
+      approver_group_ids: Array.isArray(d.approverGroupIds) ? d.approverGroupIds : [],
+      swarm_run_id: args.runId,
+    } as never);
+  } catch (e) {
+    console.warn("[swarmExecute] could not create approval request:", (e as Error).message);
+  }
+}
+
 // ── main executor ────────────────────────────────────────────────────────────
 export async function executeSwarmServer(opts: {
   swarm: { id: string; name: string; nodes: unknown; edges: unknown };
@@ -193,7 +240,12 @@ export async function executeSwarmServer(opts: {
    * supplies the existing run id (so the timeline continues rather than
    * forking) and the state it had reached.
    */
-  resume?: { runId: string; checkpoint: SwarmCheckpoint };
+  resume?: {
+    runId: string;
+    checkpoint: SwarmCheckpoint;
+    /** The human's answer to the approval this run parked at. */
+    decision?: { approved: boolean; note?: string };
+  };
 }): Promise<ExecuteResult> {
   const nodes = (Array.isArray(opts.swarm.nodes) ? opts.swarm.nodes : []) as Node<SwarmNodeData>[];
   const edges = (Array.isArray(opts.swarm.edges) ? opts.swarm.edges : []) as Edge[];
@@ -258,14 +310,27 @@ export async function executeSwarmServer(opts: {
       : null;
   const runId: string | null = tracer?.runId ?? null;
 
-  const finish = async (status: "success" | "error", output: string, error: string | null) => {
+  const finish = async (
+    status: "success" | "error" | "suspended",
+    output: string,
+    error: string | null,
+  ) => {
     if (tracer) {
-      await tracer.finish({ status, finalOutput: output || null, errorMessage: error });
+      // A suspended run is deliberately left open: its timeline continues when
+      // the approval is decided, so it must not be closed off as finished.
+      if (status === "suspended") {
+        await supabaseAdmin
+          .from("swarm_runs")
+          .update({ status: "suspended", updated_at: new Date().toISOString() })
+          .eq("id", runId!);
+      } else {
+        await tracer.finish({ status, finalOutput: output || null, errorMessage: error });
+      }
     }
-    // A terminal run keeps no checkpoint. Leaving one behind would let a
-    // finished run be "resumed", re-running everything after the last node —
-    // and the run row plus its steps remain as the durable record either way.
-    if (runId && depth === 0) await clearCheckpoint(runId);
+    // A TERMINAL run keeps no checkpoint — leaving one behind would let a
+    // finished run be "resumed", re-running everything after the last node. A
+    // suspended run keeps its checkpoint; that is the whole point of it.
+    if (runId && depth === 0 && status !== "suspended") await clearCheckpoint(runId);
     return { status, output, error, runId };
   };
 
@@ -652,16 +717,41 @@ export async function executeSwarmServer(opts: {
           }
           if (kind === "approval") {
             if (opts.rejectApprovals) {
+              // Fail closed stays the default for unattended callers: an API
+              // key or schedule with nobody watching must not park a run
+              // forever waiting for a human who will never look.
               throw new Error(
                 `Stopped at human-approval step "${d.label}": this run has nobody to approve it. ` +
-                  `That is the safe default. To let this swarm decide approvals on its own, turn ` +
-                  `off "Reject approvals" on the API key or schedule — it will then auto-approve ` +
-                  `every approval step.`,
+                  `That is the safe default. To let this swarm wait for a real decision, turn ` +
+                  `off "Reject approvals" on the API key or schedule — the run will then park ` +
+                  `here and resume when someone approves it.`,
               );
             }
-            // auto-approve: pass the content through unchanged.
-            write(gatherInputs(node, ctx, lastOutput));
-            continue;
+            const pending = gatherInputs(node, ctx, lastOutput);
+
+            // Resuming INTO the node we parked at: the decision is in hand.
+            const decision = opts.resume?.decision;
+            if (resumed?.suspendedNodeId === node.id && decision) {
+              if (decision.approved) {
+                write(pending);
+                continue;
+              }
+              throw new Error(
+                `Rejected at human-approval step "${d.label}"` +
+                  (decision.note ? `: ${decision.note}` : "."),
+              );
+            }
+
+            // First time here: park the run. The checkpoint is what makes this
+            // possible — without it there would be nothing to come back to.
+            await createApprovalRequest({
+              userId: opts.userId,
+              runId,
+              node,
+              content: pending,
+            });
+            await persist(node.id);
+            return await finish("suspended", pending, null);
           }
           if (kind === "agent") {
             const out = await chat({
@@ -798,8 +888,9 @@ export async function resumeSwarmRun(args: {
   runId: string;
   userId: string;
   origin: string;
-  /** Overrides the parked node's output, e.g. an approver's decision. */
   rejectApprovals?: boolean;
+  /** The approver's answer, when resuming a run parked at an approval node. */
+  decision?: { approved: boolean; note?: string };
 }): Promise<ExecuteResult | null> {
   const { data: run } = await supabaseAdmin
     .from("swarm_runs")
@@ -828,6 +919,6 @@ export async function resumeSwarmRun(args: {
     input: run.input_prompt ?? "",
     rejectApprovals: args.rejectApprovals ?? false,
     source: "api",
-    resume: { runId: args.runId, checkpoint },
+    resume: { runId: args.runId, checkpoint, decision: args.decision },
   });
 }

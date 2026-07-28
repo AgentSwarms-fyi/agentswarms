@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { useServerFn } from "@tanstack/react-start";
+import { resumeApprovedSwarmRun } from "@/utils/swarmResume.functions";
 import {
   Bell,
   CheckCircle2,
@@ -39,6 +41,8 @@ type Approval = {
   created_at: string;
   approver_user_ids: string[] | null;
   approver_group_ids: string[] | null;
+  /** Set when this approval parked a swarm run that has to be resumed. */
+  swarm_run_id: string | null;
 };
 
 const ACTION_ICON: Record<string, any> = {
@@ -67,6 +71,7 @@ function timeAgo(iso: string) {
 export function ApprovalInbox() {
   const { user } = useAuth();
   const [approvals, setApprovals] = useState<Approval[]>([]);
+  const resumeRunFn = useServerFn(resumeApprovedSwarmRun);
   const [open, setOpen] = useState(false);
   const [pulse, setPulse] = useState(false);
   const seenIdsRef = useRef<Set<string>>(new Set());
@@ -176,6 +181,33 @@ export function ApprovalInbox() {
       toast.error(`Rejected: ${item?.action_title}`, {
         description: `${item?.agent_name} has been halted.`,
       });
+    }
+
+    // A headless run (API key / schedule) parks at its approval node with a
+    // checkpoint and cannot continue itself — recording the decision is only
+    // half the job. Runs started from the canvas ignore this: they are still
+    // waiting in the tab that started them.
+    if (item?.swarm_run_id) {
+      try {
+        const { data: sess } = await supabase.auth.getSession();
+        const token = sess.session?.access_token;
+        if (token) {
+          const res = await resumeRunFn({
+            data: { access_token: token, approval_id: id },
+          });
+          if (!res.ok) {
+            toast.warning("Decision saved, but the run could not be resumed", {
+              description: res.error,
+              duration: 9000,
+            });
+          }
+        }
+      } catch (e) {
+        toast.warning("Decision saved, but the run could not be resumed", {
+          description: (e as Error).message,
+          duration: 9000,
+        });
+      }
     }
   };
 

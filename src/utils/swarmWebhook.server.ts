@@ -13,7 +13,13 @@ import { assertPublicUrl, safeFetch } from "@/utils/ssrfGuard.server";
 
 export type SwarmRunCallback = {
   runId: string | null;
-  status: "success" | "error";
+  /**
+   * "suspended" = the run parked at a human-approval step. It is not finished;
+   * a second callback follows when someone decides and the run completes.
+   * Receivers that only branch on success/error should treat it as "still
+   * running" rather than as a terminal outcome.
+   */
+  status: "success" | "error" | "suspended";
   output: string;
   error: string | null;
   swarmId: string;
