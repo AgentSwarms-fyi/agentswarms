@@ -4,6 +4,7 @@
 // the UI instead of environment variables.
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import type { EgressApplyResult } from "./notebookRuntime/egressApply.server";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { requireSuperadmin } from "@/utils/iam.server";
@@ -150,7 +151,7 @@ export const nbRuntimeUpdateSettings = createServerFn({ method: "POST" })
       })
       .parse(input),
   )
-  .handler(async ({ data }): Promise<NbRuntimeError | { ok: true }> => {
+  .handler(async ({ data }): Promise<NbRuntimeError | { ok: true; egress?: EgressApplyResult }> => {
     const guard = await requireSuperadmin(data.access_token);
     if (!guard.ok) return guard;
     const { access_token: _t, ...fields } = data;
@@ -160,7 +161,10 @@ export const nbRuntimeUpdateSettings = createServerFn({ method: "POST" })
       try {
         await ensureRuntimeSecret();
       } catch (e) {
-        return { ok: false, error: e instanceof Error ? e.message : "Could not create signing secret" };
+        return {
+          ok: false,
+          error: e instanceof Error ? e.message : "Could not create signing secret",
+        };
       }
     }
     const patch = { ...fields, updated_at: new Date().toISOString() };
@@ -169,7 +173,16 @@ export const nbRuntimeUpdateSettings = createServerFn({ method: "POST" })
       .update(patch)
       .eq("id", true);
     if (error) return { ok: false, error: error.message };
-    return { ok: true };
+
+    // The allow-list is only meaningful once it reaches the proxy. Report what
+    // actually happened rather than implying success — this field used to be
+    // stored and never applied, so silence here is exactly the old bug.
+    let egress: EgressApplyResult | undefined;
+    if (fields.egress_allowlist) {
+      const { applyEgressAllowlist } = await import("./notebookRuntime/egressApply.server");
+      egress = await applyEgressAllowlist(fields.egress_allowlist);
+    }
+    return { ok: true, egress };
   });
 
 export type PreflightCheck = { name: string; status: "pass" | "fail" | "warn"; detail: string };
@@ -199,7 +212,10 @@ export const nbRuntimePreflight = createServerFn({ method: "POST" })
       .eq("id", true)
       .maybeSingle();
     const backend = data.backend ?? row?.backend ?? "docker";
-    const image = process.env.NOTEBOOK_RUNTIME_IMAGE || row?.default_image || "agentswarms/notebook-runtime:latest";
+    const image =
+      process.env.NOTEBOOK_RUNTIME_IMAGE ||
+      row?.default_image ||
+      "agentswarms/notebook-runtime:latest";
     const checks: PreflightCheck[] = [];
 
     checks.push(
@@ -226,7 +242,11 @@ export const nbRuntimePreflight = createServerFn({ method: "POST" })
         let base = "";
         try {
           base = await dockerBase();
-          checks.push({ name: "Docker socket-proxy", status: "pass", detail: `reachable at ${base}` });
+          checks.push({
+            name: "Docker socket-proxy",
+            status: "pass",
+            detail: `reachable at ${base}`,
+          });
         } catch (e) {
           checks.push({
             name: "Docker socket-proxy",
@@ -245,7 +265,11 @@ export const nbRuntimePreflight = createServerFn({ method: "POST" })
                 : `${image} not found — build it: docker compose --profile notebooks up -d --build`,
             });
           } catch {
-            checks.push({ name: "Kernel image", status: "warn", detail: `could not check ${image}` });
+            checks.push({
+              name: "Kernel image",
+              status: "warn",
+              detail: `could not check ${image}`,
+            });
           }
           const net =
             process.env.NOTEBOOK_NETWORK ||
@@ -262,7 +286,11 @@ export const nbRuntimePreflight = createServerFn({ method: "POST" })
                 : `${net} not found`,
             });
           } catch {
-            checks.push({ name: "Kernel network", status: "warn", detail: `could not check ${net}` });
+            checks.push({
+              name: "Kernel network",
+              status: "warn",
+              detail: `could not check ${net}`,
+            });
           }
         }
       }
@@ -291,7 +319,11 @@ export const nbRuntimePreflight = createServerFn({ method: "POST" })
             "No ServiceAccount token. The Kubernetes backend does NOT install or connect to a cluster by URL — it requires the AgentSwarms app itself to run as a pod inside your cluster, with the RBAC from deploy/k8s/notebooks/ applied.",
         });
       } else {
-        checks.push({ name: "In-cluster credentials", status: "pass", detail: "ServiceAccount token present" });
+        checks.push({
+          name: "In-cluster credentials",
+          status: "pass",
+          detail: "ServiceAccount token present",
+        });
         const ns = process.env.NOTEBOOK_K8S_NAMESPACE || "agentswarms-notebooks";
         const host = process.env.KUBERNETES_SERVICE_HOST || "kubernetes.default.svc";
         const port = process.env.KUBERNETES_SERVICE_PORT || "443";
@@ -360,7 +392,10 @@ export const nbRuntimeRemoveGrant = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<NbRuntimeError | { ok: true }> => {
     const guard = await requireSuperadmin(data.access_token);
     if (!guard.ok) return guard;
-    const { error } = await supabaseAdmin.from("notebook_runtime_grants").delete().eq("id", data.id);
+    const { error } = await supabaseAdmin
+      .from("notebook_runtime_grants")
+      .delete()
+      .eq("id", data.id);
     if (error) return { ok: false, error: error.message };
     return { ok: true };
   });

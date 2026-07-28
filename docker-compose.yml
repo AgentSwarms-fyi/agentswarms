@@ -28,6 +28,11 @@ services:
     env_file: .env
     ports:
       - "8080:8080"
+    # The egress allow-list edited in Admin -> Developer runtime is written
+    # here; the squid service mounts the same directory read-only. Without this
+    # the setting saves but never reaches the proxy.
+    volumes:
+      - ./deploy/notebooks/egress:/etc/agentswarms/egress
     # nb-internal lets notebook kernels call back for governed model/KB access.
     networks: [default, nb-internal]
     restart: unless-stopped
@@ -95,6 +100,10 @@ services:
   notebook-egress:
     image: ubuntu/squid:latest # pin a digest in production
     profiles: [notebooks]
+    # Fixed name so the app can locate and restart it when an administrator
+    # saves a new egress allow-list (squid re-reads ACL files only on start,
+    # and the docker socket proxy deliberately denies `exec`).
+    container_name: agentswarms-notebook-egress
     volumes:
       - ./deploy/notebooks/egress/squid.conf:/etc/squid/squid.conf:ro
       - ./deploy/notebooks/egress/allowed_domains:/etc/squid/allowed_domains:ro

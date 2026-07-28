@@ -109,7 +109,20 @@ export function RuntimeTab({ token }: { token: string }) {
     try {
       const res = await updateFn({ data: { access_token: token, ...form, egress_allowlist } });
       if (!res.ok) return toast.error(res.error);
-      toast.success("Runtime settings saved");
+
+      // Saving the list and APPLYING it to the proxy are different things, and
+      // the old behaviour silently did only the first. Say which happened.
+      const eg = res.egress;
+      if (!eg) {
+        toast.success("Runtime settings saved");
+      } else if (eg.applied) {
+        toast.success(`Runtime settings saved — egress applied (${eg.hosts} hosts)`);
+      } else {
+        toast.warning(
+          eg.pendingRestart ? "Saved — egress pending proxy restart" : "Saved — egress NOT applied",
+          { description: eg.reason, duration: 12000 },
+        );
+      }
       load();
     } finally {
       setSaving(false);
@@ -237,18 +250,60 @@ export function RuntimeTab({ token }: { token: string }) {
       <div className="space-y-3 rounded-lg border border-border/60 p-3">
         <p className="text-sm font-medium">Limits</p>
         <div className="grid gap-3 sm:grid-cols-3">
-          <NumberField label="Max sessions / user" value={form.max_sessions_per_user} onChange={(n) => set("max_sessions_per_user", n)} />
-          <NumberField label="Max sessions (total)" value={form.max_sessions_total} onChange={(n) => set("max_sessions_total", n)} />
-          <NumberField label="Cell timeout (s)" value={form.cell_timeout_seconds} onChange={(n) => set("cell_timeout_seconds", n)} />
-          <NumberField label="Idle TTL (min)" value={form.idle_ttl_minutes} onChange={(n) => set("idle_ttl_minutes", n)} />
-          <NumberField label="Session max (min)" value={form.session_max_minutes} onChange={(n) => set("session_max_minutes", n)} />
+          <NumberField
+            label="Max sessions / user"
+            value={form.max_sessions_per_user}
+            onChange={(n) => set("max_sessions_per_user", n)}
+          />
+          <NumberField
+            label="Max sessions (total)"
+            value={form.max_sessions_total}
+            onChange={(n) => set("max_sessions_total", n)}
+          />
+          <NumberField
+            label="Cell timeout (s)"
+            value={form.cell_timeout_seconds}
+            onChange={(n) => set("cell_timeout_seconds", n)}
+          />
+          <NumberField
+            label="Idle TTL (min)"
+            value={form.idle_ttl_minutes}
+            onChange={(n) => set("idle_ttl_minutes", n)}
+          />
+          <NumberField
+            label="Session max (min)"
+            value={form.session_max_minutes}
+            onChange={(n) => set("session_max_minutes", n)}
+          />
           <div />
-          <NumberField label="Interactive CPU" value={Number(form.cpu_limit)} onChange={(n) => set("cpu_limit", String(n))} hint="cores" />
-          <NumberField label="Interactive memory (MB)" value={form.mem_limit_mb} onChange={(n) => set("mem_limit_mb", n)} />
+          <NumberField
+            label="Interactive CPU"
+            value={Number(form.cpu_limit)}
+            onChange={(n) => set("cpu_limit", String(n))}
+            hint="cores"
+          />
+          <NumberField
+            label="Interactive memory (MB)"
+            value={form.mem_limit_mb}
+            onChange={(n) => set("mem_limit_mb", n)}
+          />
           <div />
-          <NumberField label="Batch CPU" value={Number(form.batch_cpu_limit)} onChange={(n) => set("batch_cpu_limit", String(n))} hint="cores" />
-          <NumberField label="Batch memory (MB)" value={form.batch_mem_limit_mb} onChange={(n) => set("batch_mem_limit_mb", n)} />
-          <NumberField label="Batch max (min)" value={form.batch_max_minutes} onChange={(n) => set("batch_max_minutes", n)} />
+          <NumberField
+            label="Batch CPU"
+            value={Number(form.batch_cpu_limit)}
+            onChange={(n) => set("batch_cpu_limit", String(n))}
+            hint="cores"
+          />
+          <NumberField
+            label="Batch memory (MB)"
+            value={form.batch_mem_limit_mb}
+            onChange={(n) => set("batch_mem_limit_mb", n)}
+          />
+          <NumberField
+            label="Batch max (min)"
+            value={form.batch_max_minutes}
+            onChange={(n) => set("batch_max_minutes", n)}
+          />
         </div>
       </div>
 
@@ -369,7 +424,12 @@ export function RuntimeTab({ token }: { token: string }) {
               </SelectContent>
             </Select>
           </div>
-          <Button size="sm" onClick={addGrant} disabled={busyGrant || !grantId} className="h-8 gap-1">
+          <Button
+            size="sm"
+            onClick={addGrant}
+            disabled={busyGrant || !grantId}
+            className="h-8 gap-1"
+          >
             <Plus className="h-3.5 w-3.5" /> Grant
           </Button>
         </div>
