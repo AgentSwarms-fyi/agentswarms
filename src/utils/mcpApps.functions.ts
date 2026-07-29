@@ -514,6 +514,27 @@ export const mcpAppRegisterInternal = createServerFn({ method: "POST" })
       return { ok: false, error: "Deploy the server successfully before registering it." };
     }
 
+    const { resolveInternalOrigin } = await import("@/utils/internalOrigin.server");
+    const endpoint = `${resolveInternalOrigin()}/api/mcp/s/${app.slug}`;
+
+    // Preflight the endpoint through the SAME guard the agent tool will use at
+    // call time. resolveInternalOrigin() falls back to loopback, which
+    // `mcp_call_tool` refuses when an operator sets BLOCK_PRIVATE_NETWORK_FETCH
+    // — so without this the registration would appear to succeed and every
+    // agent call would fail later with an SSRF message that names neither this
+    // feature nor its fix. Checked BEFORE any key is reissued, so a refusal
+    // leaves an already-registered server working.
+    const { assertPublicUrl } = await import("@/utils/ssrfGuard.server");
+    const reachable = await assertPublicUrl(endpoint);
+    if (!reachable.ok) {
+      return {
+        ok: false,
+        error:
+          `Agents could not reach this server at ${endpoint} — ${reachable.error}. ` +
+          `Set PUBLIC_APP_URL to an address this instance can call itself on, then try again.`,
+      };
+    }
+
     // Reissue rather than reuse: we cannot read back a hashed key, so a
     // re-registration mints a fresh one and retires the old.
     await supabaseAdmin
@@ -534,9 +555,7 @@ export const mcpAppRegisterInternal = createServerFn({ method: "POST" })
     });
     if (keyErr) return { ok: false, error: keyErr.message };
 
-    const { resolveInternalOrigin } = await import("@/utils/internalOrigin.server");
     const { encryptMcpAuthToken } = await import("@/lib/mcp/auth.server");
-    const endpoint = `${resolveInternalOrigin()}/api/mcp/s/${app.slug}`;
     const enc = await encryptMcpAuthToken(plaintext);
 
     const payload = {

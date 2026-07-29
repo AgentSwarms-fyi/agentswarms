@@ -233,7 +233,16 @@ function McpPage() {
         items={[
           {
             title: "Your agents (internal)",
-            body: "Toggle it on under Access and the server is registered in your connected-servers list. Agents and swarms here can call it through the same mcp_call_tool path as any other server. Nothing is exposed to the internet.",
+            body: (
+              <>
+                Toggle it on under Access and the server is registered in your connected-servers
+                list. Agents and swarms here can call it through the same <C>mcp_call_tool</C> path
+                as any other server. Nothing is exposed to the internet. If your instance sets{" "}
+                <C>BLOCK_PRIVATE_NETWORK_FETCH</C>, registration refuses until <C>PUBLIC_APP_URL</C>{" "}
+                names an address the app can call itself on — the alternative would be a
+                registration that looks fine and fails on every agent call.
+              </>
+            ),
           },
           {
             title: "Anyone with a key (public)",
