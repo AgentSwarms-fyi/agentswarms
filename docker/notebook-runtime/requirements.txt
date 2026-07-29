@@ -3,7 +3,11 @@
 # also `pip install` more at runtime (installs go to a writable --user dir).
 jupyter_kernel_gateway==3.0.1
 ipykernel==6.29.5
-httpx==0.27.2
+# NOT pinned to 0.27.x any more. That pin silently capped fastmcp at 2.1.2 —
+# every 2.11+ release needs httpx>=0.28 — and 2.1.2 rejects the `@mcp.tool`
+# decorator form every current FastMCP example uses. Kept below 1.0 so a future
+# major cannot arrive unannounced.
+httpx>=0.28,<1
 
 # Agentic frameworks — the whole point of the server runtime.
 langchain
@@ -11,6 +15,13 @@ langchain-openai
 langchain-community
 langgraph
 llama-index
+
+# MCP Builder. Both are shipped deliberately: `fastmcp` is the standalone 2.x
+# package most examples use, `mcp` is the official SDK (whose
+# mcp.server.fastmcp.FastMCP is a different class with the same name). The
+# runner duck-types across them so user code can import either.
+fastmcp
+mcp
 
 # Common companions.
 pydantic

@@ -12,8 +12,8 @@
 // limits, activeDeadlineSeconds, optional gVisor RuntimeClass. Egress is closed
 // by a NetworkPolicy + the HTTP(S)_PROXY env injected by the caller.
 import { readFileSync } from "node:fs";
-import type { KernelSpec, KernelStatus, NotebookOrchestrator } from "./orchestrator";
-import { kernelServing, sandboxName } from "./orchestrator";
+import type { KernelKind, KernelSpec, KernelStatus, NotebookOrchestrator } from "./orchestrator";
+import { sandboxName, sandboxServing } from "./orchestrator";
 
 const SA_DIR = "/var/run/secrets/kubernetes.io/serviceaccount";
 
@@ -27,12 +27,17 @@ function readMaybe(path: string): string | null {
 
 function saToken(): string {
   const t = readMaybe(`${SA_DIR}/token`);
-  if (!t) throw new Error("Kubernetes ServiceAccount token not found (is the app running in-cluster?)");
+  if (!t)
+    throw new Error("Kubernetes ServiceAccount token not found (is the app running in-cluster?)");
   return t;
 }
 
 function namespace(): string {
-  return process.env.NOTEBOOK_K8S_NAMESPACE || readMaybe(`${SA_DIR}/namespace`) || "agentswarms-notebooks";
+  return (
+    process.env.NOTEBOOK_K8S_NAMESPACE ||
+    readMaybe(`${SA_DIR}/namespace`) ||
+    "agentswarms-notebooks"
+  );
 }
 
 function apiBase(): string {
@@ -83,9 +88,11 @@ function podSpec(spec: KernelSpec) {
   const runtimeClass = process.env.NOTEBOOK_K8S_RUNTIME_CLASS; // e.g. "gvisor"
   return {
     ...(runtimeClass ? { runtimeClassName: runtimeClass } : {}),
-    restartPolicy: "Never",
+    // A service is meant to keep listening: let the kubelet restart it if the
+    // user's process dies, and never impose a wall-clock deadline on it.
+    restartPolicy: spec.restartOnFailure ? "OnFailure" : "Never",
     automountServiceAccountToken: false, // kernels must not get an API token
-    activeDeadlineSeconds: spec.timeoutSeconds,
+    ...(spec.timeoutSeconds > 0 ? { activeDeadlineSeconds: spec.timeoutSeconds } : {}),
     securityContext: {
       runAsNonRoot: true,
       runAsUser: 1000,
@@ -131,7 +138,8 @@ export class K8sOrchestrator implements NotebookOrchestrator {
         method: "POST",
         body: JSON.stringify(job),
       });
-      if (!res.ok && res.status !== 409) throw new Error(`k8s job create (${res.status}): ${await res.text()}`);
+      if (!res.ok && res.status !== 409)
+        throw new Error(`k8s job create (${res.status}): ${await res.text()}`);
       return { ref: `job/${name}` };
     }
     const pod = {
@@ -144,11 +152,12 @@ export class K8sOrchestrator implements NotebookOrchestrator {
       method: "POST",
       body: JSON.stringify(pod),
     });
-    if (!res.ok && res.status !== 409) throw new Error(`k8s pod create (${res.status}): ${await res.text()}`);
+    if (!res.ok && res.status !== 409)
+      throw new Error(`k8s pod create (${res.status}): ${await res.text()}`);
     return { ref: `pod/${name}` };
   }
 
-  async status(ref: string): Promise<KernelStatus> {
+  async status(ref: string, sandboxKind: KernelKind = "interactive"): Promise<KernelStatus> {
     const ns = namespace();
     const [kind, name] = ref.split("/");
     if (kind === "job") {
@@ -164,15 +173,19 @@ export class K8sOrchestrator implements NotebookOrchestrator {
     if (res.status === 404) return { state: "gone" };
     if (!res.ok) return { state: "error", message: `k8s get pod ${res.status}` };
     const pod = (await res.json()) as {
-      status?: { phase?: string; podIP?: string; containerStatuses?: { state?: Record<string, unknown> }[] };
+      status?: {
+        phase?: string;
+        podIP?: string;
+        containerStatuses?: { state?: Record<string, unknown> }[];
+      };
     };
     const phase = pod.status?.phase;
     if (phase === "Succeeded") return { state: "succeeded" };
     if (phase === "Failed") return { state: "error" };
     if (phase === "Running" && pod.status?.podIP) {
       const endpoint = `http://${pod.status.podIP}:8888`;
-      // Pod Running != kernel serving; wait for JKG to answer.
-      if (!(await kernelServing(endpoint))) return { state: "starting" };
+      // Pod Running != process serving; wait for it to answer on its own path.
+      if (!(await sandboxServing(endpoint, sandboxKind))) return { state: "starting" };
       return { state: "running", endpoint };
     }
     return { state: "starting" };

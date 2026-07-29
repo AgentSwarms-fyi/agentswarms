@@ -14,6 +14,11 @@
 # needed: the app defaults to the service names below and generates its own
 # signing secret. See docs/DEVELOPER_WORKSPACE_RUNTIME.md.
 #
+# MCP Builder (Build → MCP Builder) runs on this same runtime — no extra service,
+# but it does need this profile up. Optional capacity knobs, if the defaults of 3
+# per user / 20 per instance don't suit: MCP_MAX_SERVERS_PER_USER,
+# MCP_MAX_SERVERS_TOTAL.
+#
 # Compose reads .env automatically: the VITE_* values are passed as build args
 # (inlined into the client bundle), everything else is runtime environment.
 services:

@@ -26,6 +26,7 @@ import {
   Code2,
   Server,
   LifeBuoy,
+  Wrench,
   type LucideIcon,
 } from "lucide-react";
 
@@ -62,6 +63,9 @@ const buildItems: NavItem[] = [
   { title: "Agent Builder", url: "/agents", icon: Bot },
   { title: "Agent Chat", url: "/playground", icon: MessageSquare },
   { title: "Agent Swarms", url: "/swarms", icon: Network },
+  // Authoring MCP servers, as opposed to connecting to someone else's — that
+  // stays under Integrations as "MCP Servers".
+  { title: "MCP Builder", url: "/mcp-builder", icon: Wrench },
 ];
 
 const experimentItems: NavItem[] = [

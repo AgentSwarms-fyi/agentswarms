@@ -68,6 +68,7 @@ import { Route as AuthenticatedPromptCompareRouteImport } from './routes/_authen
 import { Route as AuthenticatedPlaygroundRouteImport } from './routes/_authenticated/playground'
 import { Route as AuthenticatedNotebooksRouteImport } from './routes/_authenticated/notebooks'
 import { Route as AuthenticatedModelRegistryRouteImport } from './routes/_authenticated/model-registry'
+import { Route as AuthenticatedMcpBuilderRouteImport } from './routes/_authenticated/mcp-builder'
 import { Route as AuthenticatedMcpRouteImport } from './routes/_authenticated/mcp'
 import { Route as AuthenticatedKnowledgeRouteImport } from './routes/_authenticated/knowledge'
 import { Route as AuthenticatedIntegrationsRouteImport } from './routes/_authenticated/integrations'
@@ -106,6 +107,7 @@ import { Route as ApiBiDirectQueryRouteImport } from './routes/api/bi.direct-que
 import { Route as ApiBiCronRouteImport } from './routes/api/bi.cron'
 import { Route as ApiAuthSsoConfigRouteImport } from './routes/api/auth/sso-config'
 import { Route as ApiAuditExportRouteImport } from './routes/api/audit.export'
+import { Route as AuthenticatedMcpBuilderAppIdRouteImport } from './routes/_authenticated/mcp-builder_.$appId'
 import { Route as AuthenticatedBiDashboardIdRouteImport } from './routes/_authenticated/bi_.$dashboardId'
 import { Route as AuthenticatedAnalyticsObservabilityRouteImport } from './routes/_authenticated/analytics_.observability'
 import { Route as AuthenticatedAdminRuntimeRouteImport } from './routes/_authenticated/admin.runtime'
@@ -115,6 +117,7 @@ import { Route as ApiNotebookRuntimeSourceRouteImport } from './routes/api/noteb
 import { Route as ApiNotebookRuntimeResultRouteImport } from './routes/api/notebook.runtime.result'
 import { Route as ApiNotebookRuntimeReapRouteImport } from './routes/api/notebook.runtime.reap'
 import { Route as ApiNotebookRunStatusRouteImport } from './routes/api/notebook.run.status'
+import { Route as ApiMcpSSlugRouteImport } from './routes/api/mcp.s.$slug'
 import { Route as AuthenticatedNotebooksSampleSampleSlugRouteImport } from './routes/_authenticated/notebooks.sample.$sampleSlug'
 import { Route as AuthenticatedNotebooksPyPyNotebookIdRouteImport } from './routes/_authenticated/notebooks.py.$pyNotebookId'
 import { Route as AuthenticatedAnalyticsObservabilityRunIdRouteImport } from './routes/_authenticated/analytics_.observability.$runId'
@@ -415,6 +418,11 @@ const AuthenticatedModelRegistryRoute =
     path: '/model-registry',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
+const AuthenticatedMcpBuilderRoute = AuthenticatedMcpBuilderRouteImport.update({
+  id: '/mcp-builder',
+  path: '/mcp-builder',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 const AuthenticatedMcpRoute = AuthenticatedMcpRouteImport.update({
   id: '/mcp',
   path: '/mcp',
@@ -607,6 +615,12 @@ const ApiAuditExportRoute = ApiAuditExportRouteImport.update({
   path: '/api/audit/export',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedMcpBuilderAppIdRoute =
+  AuthenticatedMcpBuilderAppIdRouteImport.update({
+    id: '/mcp-builder_/$appId',
+    path: '/mcp-builder/$appId',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 const AuthenticatedBiDashboardIdRoute =
   AuthenticatedBiDashboardIdRouteImport.update({
     id: '/bi_/$dashboardId',
@@ -658,6 +672,11 @@ const ApiNotebookRunStatusRoute = ApiNotebookRunStatusRouteImport.update({
   path: '/status',
   getParentRoute: () => ApiNotebookRunRoute,
 } as any)
+const ApiMcpSSlugRoute = ApiMcpSSlugRouteImport.update({
+  id: '/api/mcp/s/$slug',
+  path: '/api/mcp/s/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedNotebooksSampleSampleSlugRoute =
   AuthenticatedNotebooksSampleSampleSlugRouteImport.update({
     id: '/sample/$sampleSlug',
@@ -701,6 +720,7 @@ export interface FileRoutesByFullPath {
   '/integrations': typeof AuthenticatedIntegrationsRoute
   '/knowledge': typeof AuthenticatedKnowledgeRoute
   '/mcp': typeof AuthenticatedMcpRoute
+  '/mcp-builder': typeof AuthenticatedMcpBuilderRoute
   '/model-registry': typeof AuthenticatedModelRegistryRoute
   '/notebooks': typeof AuthenticatedNotebooksRouteWithChildren
   '/playground': typeof AuthenticatedPlaygroundRoute
@@ -753,6 +773,7 @@ export interface FileRoutesByFullPath {
   '/admin/runtime': typeof AuthenticatedAdminRuntimeRoute
   '/analytics/observability': typeof AuthenticatedAnalyticsObservabilityRouteWithChildren
   '/bi/$dashboardId': typeof AuthenticatedBiDashboardIdRoute
+  '/mcp-builder/$appId': typeof AuthenticatedMcpBuilderAppIdRoute
   '/api/audit/export': typeof ApiAuditExportRoute
   '/api/auth/sso-config': typeof ApiAuthSsoConfigRoute
   '/api/bi/cron': typeof ApiBiCronRoute
@@ -781,6 +802,7 @@ export interface FileRoutesByFullPath {
   '/analytics/observability/$runId': typeof AuthenticatedAnalyticsObservabilityRunIdRoute
   '/notebooks/py/$pyNotebookId': typeof AuthenticatedNotebooksPyPyNotebookIdRoute
   '/notebooks/sample/$sampleSlug': typeof AuthenticatedNotebooksSampleSampleSlugRoute
+  '/api/mcp/s/$slug': typeof ApiMcpSSlugRoute
   '/api/notebook/run/status': typeof ApiNotebookRunStatusRoute
   '/api/notebook/runtime/reap': typeof ApiNotebookRuntimeReapRoute
   '/api/notebook/runtime/result': typeof ApiNotebookRuntimeResultRoute
@@ -810,6 +832,7 @@ export interface FileRoutesByTo {
   '/integrations': typeof AuthenticatedIntegrationsRoute
   '/knowledge': typeof AuthenticatedKnowledgeRoute
   '/mcp': typeof AuthenticatedMcpRoute
+  '/mcp-builder': typeof AuthenticatedMcpBuilderRoute
   '/model-registry': typeof AuthenticatedModelRegistryRoute
   '/notebooks': typeof AuthenticatedNotebooksRouteWithChildren
   '/playground': typeof AuthenticatedPlaygroundRoute
@@ -862,6 +885,7 @@ export interface FileRoutesByTo {
   '/admin/runtime': typeof AuthenticatedAdminRuntimeRoute
   '/analytics/observability': typeof AuthenticatedAnalyticsObservabilityRouteWithChildren
   '/bi/$dashboardId': typeof AuthenticatedBiDashboardIdRoute
+  '/mcp-builder/$appId': typeof AuthenticatedMcpBuilderAppIdRoute
   '/api/audit/export': typeof ApiAuditExportRoute
   '/api/auth/sso-config': typeof ApiAuthSsoConfigRoute
   '/api/bi/cron': typeof ApiBiCronRoute
@@ -890,6 +914,7 @@ export interface FileRoutesByTo {
   '/analytics/observability/$runId': typeof AuthenticatedAnalyticsObservabilityRunIdRoute
   '/notebooks/py/$pyNotebookId': typeof AuthenticatedNotebooksPyPyNotebookIdRoute
   '/notebooks/sample/$sampleSlug': typeof AuthenticatedNotebooksSampleSampleSlugRoute
+  '/api/mcp/s/$slug': typeof ApiMcpSSlugRoute
   '/api/notebook/run/status': typeof ApiNotebookRunStatusRoute
   '/api/notebook/runtime/reap': typeof ApiNotebookRuntimeReapRoute
   '/api/notebook/runtime/result': typeof ApiNotebookRuntimeResultRoute
@@ -922,6 +947,7 @@ export interface FileRoutesById {
   '/_authenticated/integrations': typeof AuthenticatedIntegrationsRoute
   '/_authenticated/knowledge': typeof AuthenticatedKnowledgeRoute
   '/_authenticated/mcp': typeof AuthenticatedMcpRoute
+  '/_authenticated/mcp-builder': typeof AuthenticatedMcpBuilderRoute
   '/_authenticated/model-registry': typeof AuthenticatedModelRegistryRoute
   '/_authenticated/notebooks': typeof AuthenticatedNotebooksRouteWithChildren
   '/_authenticated/playground': typeof AuthenticatedPlaygroundRoute
@@ -974,6 +1000,7 @@ export interface FileRoutesById {
   '/_authenticated/admin/runtime': typeof AuthenticatedAdminRuntimeRoute
   '/_authenticated/analytics_/observability': typeof AuthenticatedAnalyticsObservabilityRouteWithChildren
   '/_authenticated/bi_/$dashboardId': typeof AuthenticatedBiDashboardIdRoute
+  '/_authenticated/mcp-builder_/$appId': typeof AuthenticatedMcpBuilderAppIdRoute
   '/api/audit/export': typeof ApiAuditExportRoute
   '/api/auth/sso-config': typeof ApiAuthSsoConfigRoute
   '/api/bi/cron': typeof ApiBiCronRoute
@@ -1002,6 +1029,7 @@ export interface FileRoutesById {
   '/_authenticated/analytics_/observability/$runId': typeof AuthenticatedAnalyticsObservabilityRunIdRoute
   '/_authenticated/notebooks/py/$pyNotebookId': typeof AuthenticatedNotebooksPyPyNotebookIdRoute
   '/_authenticated/notebooks/sample/$sampleSlug': typeof AuthenticatedNotebooksSampleSampleSlugRoute
+  '/api/mcp/s/$slug': typeof ApiMcpSSlugRoute
   '/api/notebook/run/status': typeof ApiNotebookRunStatusRoute
   '/api/notebook/runtime/reap': typeof ApiNotebookRuntimeReapRoute
   '/api/notebook/runtime/result': typeof ApiNotebookRuntimeResultRoute
@@ -1034,6 +1062,7 @@ export interface FileRouteTypes {
     | '/integrations'
     | '/knowledge'
     | '/mcp'
+    | '/mcp-builder'
     | '/model-registry'
     | '/notebooks'
     | '/playground'
@@ -1086,6 +1115,7 @@ export interface FileRouteTypes {
     | '/admin/runtime'
     | '/analytics/observability'
     | '/bi/$dashboardId'
+    | '/mcp-builder/$appId'
     | '/api/audit/export'
     | '/api/auth/sso-config'
     | '/api/bi/cron'
@@ -1114,6 +1144,7 @@ export interface FileRouteTypes {
     | '/analytics/observability/$runId'
     | '/notebooks/py/$pyNotebookId'
     | '/notebooks/sample/$sampleSlug'
+    | '/api/mcp/s/$slug'
     | '/api/notebook/run/status'
     | '/api/notebook/runtime/reap'
     | '/api/notebook/runtime/result'
@@ -1143,6 +1174,7 @@ export interface FileRouteTypes {
     | '/integrations'
     | '/knowledge'
     | '/mcp'
+    | '/mcp-builder'
     | '/model-registry'
     | '/notebooks'
     | '/playground'
@@ -1195,6 +1227,7 @@ export interface FileRouteTypes {
     | '/admin/runtime'
     | '/analytics/observability'
     | '/bi/$dashboardId'
+    | '/mcp-builder/$appId'
     | '/api/audit/export'
     | '/api/auth/sso-config'
     | '/api/bi/cron'
@@ -1223,6 +1256,7 @@ export interface FileRouteTypes {
     | '/analytics/observability/$runId'
     | '/notebooks/py/$pyNotebookId'
     | '/notebooks/sample/$sampleSlug'
+    | '/api/mcp/s/$slug'
     | '/api/notebook/run/status'
     | '/api/notebook/runtime/reap'
     | '/api/notebook/runtime/result'
@@ -1254,6 +1288,7 @@ export interface FileRouteTypes {
     | '/_authenticated/integrations'
     | '/_authenticated/knowledge'
     | '/_authenticated/mcp'
+    | '/_authenticated/mcp-builder'
     | '/_authenticated/model-registry'
     | '/_authenticated/notebooks'
     | '/_authenticated/playground'
@@ -1306,6 +1341,7 @@ export interface FileRouteTypes {
     | '/_authenticated/admin/runtime'
     | '/_authenticated/analytics_/observability'
     | '/_authenticated/bi_/$dashboardId'
+    | '/_authenticated/mcp-builder_/$appId'
     | '/api/audit/export'
     | '/api/auth/sso-config'
     | '/api/bi/cron'
@@ -1334,6 +1370,7 @@ export interface FileRouteTypes {
     | '/_authenticated/analytics_/observability/$runId'
     | '/_authenticated/notebooks/py/$pyNotebookId'
     | '/_authenticated/notebooks/sample/$sampleSlug'
+    | '/api/mcp/s/$slug'
     | '/api/notebook/run/status'
     | '/api/notebook/runtime/reap'
     | '/api/notebook/runtime/result'
@@ -1385,6 +1422,7 @@ export interface RootRouteChildren {
   EmbedBiKeyRoute: typeof EmbedBiKeyRoute
   EmbedSwarmKeyRoute: typeof EmbedSwarmKeyRoute
   ShareBiSlugRoute: typeof ShareBiSlugRoute
+  ApiMcpSSlugRoute: typeof ApiMcpSSlugRoute
   ApiPublicHooksRefreshModelRegistryRoute: typeof ApiPublicHooksRefreshModelRegistryRoute
 }
 
@@ -1803,6 +1841,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedModelRegistryRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/mcp-builder': {
+      id: '/_authenticated/mcp-builder'
+      path: '/mcp-builder'
+      fullPath: '/mcp-builder'
+      preLoaderRoute: typeof AuthenticatedMcpBuilderRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/mcp': {
       id: '/_authenticated/mcp'
       path: '/mcp'
@@ -2069,6 +2114,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuditExportRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/mcp-builder_/$appId': {
+      id: '/_authenticated/mcp-builder_/$appId'
+      path: '/mcp-builder/$appId'
+      fullPath: '/mcp-builder/$appId'
+      preLoaderRoute: typeof AuthenticatedMcpBuilderAppIdRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/bi_/$dashboardId': {
       id: '/_authenticated/bi_/$dashboardId'
       path: '/bi/$dashboardId'
@@ -2131,6 +2183,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/api/notebook/run/status'
       preLoaderRoute: typeof ApiNotebookRunStatusRouteImport
       parentRoute: typeof ApiNotebookRunRoute
+    }
+    '/api/mcp/s/$slug': {
+      id: '/api/mcp/s/$slug'
+      path: '/api/mcp/s/$slug'
+      fullPath: '/api/mcp/s/$slug'
+      preLoaderRoute: typeof ApiMcpSSlugRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/_authenticated/notebooks/sample/$sampleSlug': {
       id: '/_authenticated/notebooks/sample/$sampleSlug'
@@ -2203,6 +2262,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedIntegrationsRoute: typeof AuthenticatedIntegrationsRoute
   AuthenticatedKnowledgeRoute: typeof AuthenticatedKnowledgeRoute
   AuthenticatedMcpRoute: typeof AuthenticatedMcpRoute
+  AuthenticatedMcpBuilderRoute: typeof AuthenticatedMcpBuilderRoute
   AuthenticatedModelRegistryRoute: typeof AuthenticatedModelRegistryRoute
   AuthenticatedNotebooksRoute: typeof AuthenticatedNotebooksRouteWithChildren
   AuthenticatedPlaygroundRoute: typeof AuthenticatedPlaygroundRoute
@@ -2217,6 +2277,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedAdminRuntimeRoute: typeof AuthenticatedAdminRuntimeRoute
   AuthenticatedAnalyticsObservabilityRoute: typeof AuthenticatedAnalyticsObservabilityRouteWithChildren
   AuthenticatedBiDashboardIdRoute: typeof AuthenticatedBiDashboardIdRoute
+  AuthenticatedMcpBuilderAppIdRoute: typeof AuthenticatedMcpBuilderAppIdRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
@@ -2233,6 +2294,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedIntegrationsRoute: AuthenticatedIntegrationsRoute,
   AuthenticatedKnowledgeRoute: AuthenticatedKnowledgeRoute,
   AuthenticatedMcpRoute: AuthenticatedMcpRoute,
+  AuthenticatedMcpBuilderRoute: AuthenticatedMcpBuilderRoute,
   AuthenticatedModelRegistryRoute: AuthenticatedModelRegistryRoute,
   AuthenticatedNotebooksRoute: AuthenticatedNotebooksRouteWithChildren,
   AuthenticatedPlaygroundRoute: AuthenticatedPlaygroundRoute,
@@ -2248,6 +2310,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedAnalyticsObservabilityRoute:
     AuthenticatedAnalyticsObservabilityRouteWithChildren,
   AuthenticatedBiDashboardIdRoute: AuthenticatedBiDashboardIdRoute,
+  AuthenticatedMcpBuilderAppIdRoute: AuthenticatedMcpBuilderAppIdRoute,
 }
 
 const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
@@ -2423,6 +2486,7 @@ const rootRouteChildren: RootRouteChildren = {
   EmbedBiKeyRoute: EmbedBiKeyRoute,
   EmbedSwarmKeyRoute: EmbedSwarmKeyRoute,
   ShareBiSlugRoute: ShareBiSlugRoute,
+  ApiMcpSSlugRoute: ApiMcpSSlugRoute,
   ApiPublicHooksRefreshModelRegistryRoute:
     ApiPublicHooksRefreshModelRegistryRoute,
 }

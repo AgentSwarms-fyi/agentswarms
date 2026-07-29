@@ -1,7 +1,8 @@
 # Server-side notebook kernel image for the AgentSwarms Developer workspace.
 #
 # Runs Jupyter Kernel Gateway (websocket mode) with one IPython kernel per
-# container for interactive sessions, or a headless batch runner for jobs.
+# container for interactive sessions, a headless batch runner for jobs, or a
+# user-authored FastMCP server for MCP Builder (NB_MODE=mcp).
 # Ships the real agentic frameworks and an `agentswarms` helper that brokers
 # model/KB calls back to the platform (no provider keys ever live in here).
 #
@@ -24,6 +25,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY agentswarms_helper.py /opt/agentswarms/agentswarms.py
 COPY batch_runner.py /opt/agentswarms/batch_runner.py
+COPY mcp_runner.py /opt/agentswarms/mcp_runner.py
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 

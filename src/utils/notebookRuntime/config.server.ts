@@ -49,10 +49,14 @@ export async function getRuntimeSettings(): Promise<RuntimeSettings> {
     "docker") as RuntimeBackend;
 
   return {
-    enabled: (envEnabled ?? data?.server_runtime_enabled ?? false) && (await runtimeSecretConfigured()),
+    enabled:
+      (envEnabled ?? data?.server_runtime_enabled ?? false) && (await runtimeSecretConfigured()),
     requireGrant: data?.require_grant ?? false,
     backend,
-    image: process.env.NOTEBOOK_RUNTIME_IMAGE || data?.default_image || "agentswarms/notebook-runtime:latest",
+    image:
+      process.env.NOTEBOOK_RUNTIME_IMAGE ||
+      data?.default_image ||
+      "agentswarms/notebook-runtime:latest",
     maxSessionsPerUser: data?.max_sessions_per_user ?? 3,
     maxSessionsTotal: data?.max_sessions_total ?? 50,
     idleTtlMinutes: data?.idle_ttl_minutes ?? 30,
@@ -82,28 +86,82 @@ export async function canUseRuntime(userId: string): Promise<boolean> {
   const settings = await getRuntimeSettings();
   if (!settings.enabled) return false;
   if (!settings.requireGrant) return true;
-  const { data, error } = await (supabaseAdmin as unknown as {
-    rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: boolean | null; error: unknown }>;
-  }).rpc("can_use_notebook_runtime", { uid: userId });
+  const { data, error } = await (
+    supabaseAdmin as unknown as {
+      rpc: (
+        fn: string,
+        args: Record<string, unknown>,
+      ) => Promise<{ data: boolean | null; error: unknown }>;
+    }
+  ).rpc("can_use_notebook_runtime", { uid: userId });
   if (error) return false;
   return data === true;
 }
 
-/** Count a user's live sessions (for the per-user concurrency cap). */
+const LIVE_STATUSES = ["queued", "starting", "ready", "running", "stopping"];
+
+/**
+ * Count a user's live NOTEBOOK sessions (for the per-user concurrency cap).
+ *
+ * Published MCP servers are excluded on purpose: they are meant to sit there
+ * for days, so counting them here would let one published server permanently
+ * consume a notebook slot and lock the user out of the workspace.
+ */
 export async function countLiveSessions(userId: string): Promise<number> {
   const { count } = await supabaseAdmin
     .from("notebook_runtime_sessions")
     .select("id", { count: "exact", head: true })
     .eq("user_id", userId)
-    .in("status", ["queued", "starting", "ready", "running", "stopping"]);
+    .neq("kind", "service")
+    .in("status", LIVE_STATUSES);
   return count ?? 0;
 }
 
-/** Count all live sessions (for the instance-wide cap). */
+/** Count all live notebook sessions (for the instance-wide cap). */
 export async function countLiveSessionsTotal(): Promise<number> {
   const { count } = await supabaseAdmin
     .from("notebook_runtime_sessions")
     .select("id", { count: "exact", head: true })
-    .in("status", ["queued", "starting", "ready", "running", "stopping"]);
+    .neq("kind", "service")
+    .in("status", LIVE_STATUSES);
+  return count ?? 0;
+}
+
+/**
+ * Caps for running MCP servers, which have their own budget.
+ *
+ * Env rather than columns on notebook_runtime_settings: these are a capacity
+ * guard an operator sets once per deployment, not something worth another
+ * settings migration and admin form.
+ */
+export function mcpServiceCaps(): { perUser: number; total: number } {
+  const int = (name: string, fallback: number) => {
+    const n = Number.parseInt(process.env[name] ?? "", 10);
+    return Number.isFinite(n) && n > 0 ? n : fallback;
+  };
+  return {
+    perUser: int("MCP_MAX_SERVERS_PER_USER", 3),
+    total: int("MCP_MAX_SERVERS_TOTAL", 20),
+  };
+}
+
+/** Count a user's running MCP servers. */
+export async function countLiveServices(userId: string): Promise<number> {
+  const { count } = await supabaseAdmin
+    .from("notebook_runtime_sessions")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .eq("kind", "service")
+    .in("status", LIVE_STATUSES);
+  return count ?? 0;
+}
+
+/** Count all running MCP servers on the instance. */
+export async function countLiveServicesTotal(): Promise<number> {
+  const { count } = await supabaseAdmin
+    .from("notebook_runtime_sessions")
+    .select("id", { count: "exact", head: true })
+    .eq("kind", "service")
+    .in("status", LIVE_STATUSES);
   return count ?? 0;
 }

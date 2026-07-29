@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -204,7 +204,12 @@ function McpPage() {
           <div>
             <h1 className="text-3xl font-bold tracking-tight">MCP Integrations</h1>
             <p className="text-muted-foreground mt-1">
-              Model Context Protocol servers expose tools and resources to your agents.
+              Model Context Protocol servers expose tools and resources to your agents. To write
+              your own instead of connecting to someone else's, use{" "}
+              <Link to="/mcp-builder" className="text-primary hover:underline">
+                MCP Builder
+              </Link>{" "}
+              — servers you register there appear in this list automatically.
             </p>
             <div className="flex gap-2 mt-3">
               <Badge variant="outline" className="text-emerald-400 border-emerald-500/30">

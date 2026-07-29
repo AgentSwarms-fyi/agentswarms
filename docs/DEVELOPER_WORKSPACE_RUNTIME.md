@@ -117,6 +117,26 @@ Key property: **provider API keys and the service-role key never enter the sandb
 - Ships the `agentswarms` Python helper (`chat`, `kb_search`, `list_knowledge_bases`, `format_context`, plus the framework adapters `chat_model`, `llama_llm`, `kb_retriever`) pointed at the **in-cluster app URL** and authenticating with the injected session token. `chat_model()` returns a real LangChain `BaseChatModel` and supports **tool-calling** via `bind_tools([...])`, so LangGraph's `create_react_agent` / `ToolNode` work — the model's `tool_calls` are brokered through `/api/python-chat` and stay governed. Because the helper is baked into the image (`COPY agentswarms_helper.py → agentswarms.py`), **rebuild `agentswarms/notebook-runtime:latest` whenever the helper changes** for running deployments to pick it up.
 - Non-root user baked in; no build tools that require root at runtime.
 
+**Three modes, selected by `NB_MODE`** (see `docker/notebook-runtime/entrypoint.sh`):
+
+| `NB_MODE` | Session `kind` | Process | Used by |
+|---|---|---|---|
+| `interactive` (default) | `interactive` | Jupyter Kernel Gateway, one kernel | Notebook cells over the websocket gateway |
+| `batch` | `batch` | `batch_runner.py`, runs and exits | Scheduled jobs, notebooks published as an API |
+| `mcp` | `service` | `mcp_runner.py`, serves `:8888/mcp` | **MCP Builder** — a user-authored FastMCP server |
+
+The `service` kind is the only long-lived one. It differs from an interactive kernel in exactly two
+places — the readiness probe (its own `/mcp` path rather than Jupyter's `/api`, and any status
+below 500 counts, because a conformant MCP endpoint answers a bare GET with 405/406) and a bounded
+`on-failure` restart policy when the app is marked *keep warm*. Every hardening flag in §5 is
+identical; if a future change needs a third difference, that is a signal to re-examine it rather
+than widen the sandbox.
+
+`mcp_runner.py` also fetches its bundle — source, extra requirements and resolved secret
+environment — from `/api/notebook/runtime/source` using the session token, rather than receiving
+any of it as container environment. A response body is not visible to `docker inspect` or in a pod
+spec, so bound secrets exist only in the sandbox process's memory (§5.5).
+
 ### 4.2 Orchestrator (pluggable)
 Interface (`NotebookOrchestrator`): `create(session) → {ref, url}`, `stop(ref)`, `status(ref)`, `list()`.
 - **`DockerOrchestrator`** (dev / single host): talks to the Docker Engine API. The web app does **not** get raw `docker.sock`; instead a minimal **socket-proxy** (e.g. `tecnativa/docker-socket-proxy`) exposes only `POST /containers/create|start|stop|remove` — least privilege.

@@ -26,6 +26,7 @@ import {
   Image as ImageIcon,
   Columns,
   Code2,
+  Wrench,
 } from "lucide-react";
 import { SWARM_TEMPLATES } from "@/lib/swarmTemplates";
 import { cn } from "@/lib/utils";
@@ -83,6 +84,14 @@ const FEATURES = [
     icon: NotebookPen,
     badge: "New",
     color: "text-amber-600 bg-amber-50 dark:text-amber-300 dark:bg-amber-500/15",
+  },
+  {
+    title: "MCP Builder",
+    desc: "Write MCP servers in Python (FastMCP) and expose them as APIs.",
+    to: "/mcp-builder" as const,
+    icon: Wrench,
+    badge: "New",
+    color: "text-cyan-600 bg-cyan-50 dark:text-cyan-300 dark:bg-cyan-500/15",
   },
   {
     title: "Playground",

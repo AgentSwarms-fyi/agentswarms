@@ -8,12 +8,8 @@
 // to an egress-restricted network, with HTTP(S)_PROXY pointed at the filtering
 // egress proxy.
 import { existsSync } from "node:fs";
-import type {
-  KernelSpec,
-  KernelStatus,
-  NotebookOrchestrator,
-} from "./orchestrator";
-import { kernelServing, sandboxName } from "./orchestrator";
+import type { KernelKind, KernelSpec, KernelStatus, NotebookOrchestrator } from "./orchestrator";
+import { sandboxName, sandboxServing } from "./orchestrator";
 
 // The socket-proxy is reachable by different names depending on how the app is
 // deployed, so probe rather than assume:
@@ -150,7 +146,13 @@ export class DockerOrchestrator implements NotebookOrchestrator {
         ...(appInContainer()
           ? {}
           : { PortBindings: { "8888/tcp": [{ HostIp: "127.0.0.1", HostPort: "" }] } }),
-        RestartPolicy: { Name: "no" },
+        // Long-lived services opt into a BOUNDED restart so a transient crash
+        // doesn't silently take a published MCP server offline. Deliberately
+        // not "unless-stopped": code that fails on boot would restart-loop
+        // forever, burning a CPU slice and hiding the error.
+        RestartPolicy: spec.restartOnFailure
+          ? { Name: "on-failure", MaximumRetryCount: 3 }
+          : { Name: "no" },
         AutoRemove: false, // we remove explicitly so batch logs survive until read
       },
     };
@@ -185,7 +187,7 @@ export class DockerOrchestrator implements NotebookOrchestrator {
     return (await res.json()) as InspectResult;
   }
 
-  async status(ref: string): Promise<KernelStatus> {
+  async status(ref: string, kind: KernelKind = "interactive"): Promise<KernelStatus> {
     const info = await this.inspect(ref);
     if (!info) return { state: "gone" };
     const s = info.State;
@@ -204,13 +206,21 @@ export class DockerOrchestrator implements NotebookOrchestrator {
       // both deployment shapes.
       const hostPort = info.NetworkSettings?.Ports?.["8888/tcp"]?.[0]?.HostPort;
       const probeUrl = appInContainer() || !hostPort ? endpoint : `http://127.0.0.1:${hostPort}`;
-      // Container up != kernel serving. Stay "starting" until JKG answers, so
-      // the browser never connects to a socket that isn't listening yet.
-      if (!(await kernelServing(probeUrl))) return { state: "starting" };
-      return { state: "running", endpoint };
+      // Container up != kernel serving. Stay "starting" until the process
+      // answers, so nothing connects to a socket that isn't listening yet.
+      if (!(await sandboxServing(probeUrl, kind))) return { state: "starting" };
+      // Kernels are consumed by the GATEWAY (a container), which reaches them by
+      // container IP. A service is consumed by THIS process, which in local dev
+      // is on the host and cannot route to that IP — so hand back the URL the
+      // caller can actually open. probeUrl is precisely "reachable from here".
+      return { state: "running", endpoint: kind === "service" ? probeUrl : endpoint };
     }
     if (s.Status === "exited" && s.ExitCode === 0) return { state: "succeeded", exitCode: 0 };
-    return { state: s.Status === "created" ? "starting" : "error", exitCode: s.ExitCode, message: s.Error };
+    return {
+      state: s.Status === "created" ? "starting" : "error",
+      exitCode: s.ExitCode,
+      message: s.Error,
+    };
   }
 
   async stop(ref: string): Promise<void> {
@@ -224,7 +234,9 @@ export class DockerOrchestrator implements NotebookOrchestrator {
   }
 
   async logs(ref: string): Promise<string> {
-    const res = await dockerFetch(`/containers/${encodeURIComponent(ref)}/logs?stdout=true&stderr=true&tail=2000`);
+    const res = await dockerFetch(
+      `/containers/${encodeURIComponent(ref)}/logs?stdout=true&stderr=true&tail=2000`,
+    );
     if (!res.ok) return "";
     // Docker multiplexes logs with an 8-byte header per frame; strip it best-effort.
     const buf = new Uint8Array(await res.arrayBuffer());

@@ -58,7 +58,10 @@ function buildKernelEnv(opts: {
 }): Record<string, string> {
   const appUrl = internalAppUrl();
   const env: Record<string, string> = {
-    NB_MODE: opts.kind,
+    // The image's entrypoint names the MCP mode "mcp"; the session kind is
+    // "service" because that is what it is to the orchestrator. Map here rather
+    // than renaming either side.
+    NB_MODE: opts.kind === "service" ? "mcp" : opts.kind,
     NB_SESSION_ID: opts.sessionId,
     // The in-container `agentswarms` helper calls back here for model/KB access.
     AGENTSWARMS_ORIGIN: appUrl,
@@ -101,17 +104,24 @@ export async function getSession(userId: string, sessionId: string): Promise<Ses
 export async function startSession(opts: {
   userId: string;
   notebookId?: string | null;
+  mcpAppId?: string | null;
   kind: KernelKind;
   entrypoint?: string | null;
   inputs?: unknown;
+  /** Services only: restart the sandbox if the user's process dies. */
+  restartOnFailure?: boolean;
 }): Promise<{ session: SessionRow; token: string; gatewayUrl: string }> {
   const settings = await getRuntimeSettings();
   const batch = opts.kind === "batch";
+  const service = opts.kind === "service";
   const cpu = batch ? settings.batchCpuLimit : settings.cpuLimit;
   const mem = batch ? settings.batchMemLimitMb : settings.memLimitMb;
   const maxMin = batch ? settings.batchMaxMinutes : settings.sessionMaxMinutes;
   const nowIso = new Date().toISOString();
-  const expiresAt = new Date(Date.now() + maxMin * 60_000).toISOString();
+  // A published MCP server is supposed to stay up: a hard expiry would take it
+  // offline on a timer for no reason. Idleness (or an explicit stop) ends it
+  // instead — see reapSessions().
+  const expiresAt = service ? null : new Date(Date.now() + maxMin * 60_000).toISOString();
 
   // `notebook_id` is a uuid FK to a saved notebook. Interactive kernels driven
   // over the websocket (e.g. running a bundled sample, which has a slug id like
@@ -126,6 +136,7 @@ export async function startSession(opts: {
     .insert({
       user_id: opts.userId,
       notebook_id: notebookId,
+      mcp_app_id: opts.mcpAppId ?? null,
       kind: opts.kind,
       status: batch ? "running" : "starting",
       backend: settings.backend,
@@ -172,8 +183,10 @@ export async function startSession(opts: {
       image: settings.image,
       cpuLimit: cpu,
       memLimitMb: mem,
-      timeoutSeconds: maxMin * 60,
+      // 0 = no wall-clock ceiling, which is what a long-lived service needs.
+      timeoutSeconds: service ? 0 : maxMin * 60,
       env,
+      restartOnFailure: service ? Boolean(opts.restartOnFailure) : false,
     });
     await supabaseAdmin
       .from("notebook_runtime_sessions")
@@ -196,7 +209,7 @@ export async function refreshSession(row: SessionRow): Promise<SessionRow> {
 
   const settings = await getRuntimeSettings();
   const orch = await getOrchestrator(settings);
-  const st = await orch.status(row.container_ref);
+  const st = await orch.status(row.container_ref, row.kind as KernelKind);
 
   const patch: Database["public"]["Tables"]["notebook_runtime_sessions"]["Update"] = {
     last_active_at: new Date().toISOString(),
@@ -208,7 +221,11 @@ export async function refreshSession(row: SessionRow): Promise<SessionRow> {
   } else if (st.state === "starting") {
     patch.status = "starting";
   } else if (st.state === "succeeded") {
-    patch.status = "succeeded";
+    // A batch job finishing is success. A *service* process exiting means the
+    // server is no longer listening, whatever its exit code — record it as
+    // stopped so the next request cold-starts a fresh one instead of routing
+    // to a dead container.
+    patch.status = row.kind === "service" ? "stopped" : "succeeded";
     patch.stopped_at = new Date().toISOString();
     patch.logs = await orch.logs(row.container_ref).catch(() => "");
   } else if (st.state === "gone") {
@@ -254,12 +271,20 @@ export async function reconcileUserSessions(userId: string): Promise<void> {
   }
 }
 
-/** A user's live sessions, annotated with the notebook they belong to. */
+/**
+ * A user's live NOTEBOOK sessions, annotated with the notebook they belong to.
+ *
+ * Services are excluded: this feeds the workspace's "Running kernels" panel,
+ * whose Stop button would otherwise take a published MCP server offline from a
+ * place that gives no hint that is what it does. MCP servers are managed from
+ * their own page.
+ */
 export async function listUserSessions(userId: string) {
   const { data } = await supabaseAdmin
     .from("notebook_runtime_sessions")
     .select("id, kind, status, notebook_id, image, started_at, created_at, expires_at")
     .eq("user_id", userId)
+    .neq("kind", "service")
     .in("status", [...LIVE])
     .order("created_at", { ascending: false });
   const rows = data ?? [];
@@ -285,7 +310,7 @@ export async function touchSession(sessionId: string): Promise<void> {
     .eq("id", sessionId);
 }
 
-/** Reap idle interactive kernels and anything past its hard expiry. */
+/** Reap idle interactive kernels, idle MCP servers, and anything past its hard expiry. */
 export async function reapSessions(): Promise<number> {
   const settings = await getRuntimeSettings();
   const nowIso = new Date().toISOString();
@@ -307,10 +332,51 @@ export async function reapSessions(): Promise<number> {
 
   const byId = new Map<string, SessionRow>();
   for (const r of [...(idle ?? []), ...(expired ?? [])]) byId.set(r.id, r);
+  for (const r of await idleServiceSessions()) byId.set(r.id, r);
   let reaped = 0;
   for (const row of byId.values()) {
     await stopSession(row).catch(() => {});
+    // Keep the app's own status honest. Without this a scaled-to-zero MCP
+    // server still reads "Running" in MCP Builder long after its container is
+    // gone, which is exactly the sort of quiet lie that wastes an afternoon.
+    if (row.kind === "service" && row.mcp_app_id) {
+      await supabaseAdmin.from("mcp_apps").update({ status: "stopped" }).eq("id", row.mcp_app_id);
+    }
     reaped++;
   }
   return reaped;
+}
+
+/**
+ * MCP servers that have gone quiet for longer than their own idle TTL.
+ *
+ * Scale-to-zero is per app, not per instance: each one carries its own
+ * idle_ttl_minutes, and `keep_warm` opts out entirely. That is why this cannot
+ * reuse the single cutoff the notebook query above uses.
+ */
+async function idleServiceSessions(): Promise<SessionRow[]> {
+  const { data } = await supabaseAdmin
+    .from("notebook_runtime_sessions")
+    .select("*")
+    .eq("kind", "service")
+    .in("status", [...LIVE]);
+  const rows = (data ?? []).filter((r) => r.mcp_app_id);
+  if (rows.length === 0) return [];
+
+  const { data: apps } = await supabaseAdmin
+    .from("mcp_apps")
+    .select("id, keep_warm, idle_ttl_minutes")
+    .in("id", Array.from(new Set(rows.map((r) => r.mcp_app_id as string))));
+  const byApp = new Map((apps ?? []).map((a) => [a.id, a]));
+
+  const now = Date.now();
+  return rows.filter((r) => {
+    const app = byApp.get(r.mcp_app_id as string);
+    // No app row means the app was deleted out from under a running container:
+    // reap it, otherwise it would linger with nothing able to address it.
+    if (!app) return true;
+    if (app.keep_warm) return false;
+    const ttlMs = Math.max(1, app.idle_ttl_minutes) * 60_000;
+    return now - new Date(r.last_active_at).getTime() > ttlMs;
+  });
 }

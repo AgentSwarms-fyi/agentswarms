@@ -1904,6 +1904,210 @@ export type Database = {
           },
         ];
       };
+      mcp_app_keys: {
+        Row: {
+          app_id: string;
+          created_at: string;
+          expires_at: string | null;
+          id: string;
+          ip_allowlist: string[];
+          is_active: boolean;
+          is_internal: boolean;
+          key_hash: string;
+          key_prefix: string;
+          last_used_at: string | null;
+          last_used_ip: string | null;
+          name: string;
+          revoked_at: string | null;
+          tool_allowlist: string[];
+          updated_at: string;
+          use_count: number;
+          user_id: string;
+        };
+        Insert: {
+          app_id: string;
+          created_at?: string;
+          expires_at?: string | null;
+          id?: string;
+          ip_allowlist?: string[];
+          is_active?: boolean;
+          is_internal?: boolean;
+          key_hash: string;
+          key_prefix: string;
+          last_used_at?: string | null;
+          last_used_ip?: string | null;
+          name: string;
+          revoked_at?: string | null;
+          tool_allowlist?: string[];
+          updated_at?: string;
+          use_count?: number;
+          user_id: string;
+        };
+        Update: {
+          app_id?: string;
+          created_at?: string;
+          expires_at?: string | null;
+          id?: string;
+          ip_allowlist?: string[];
+          is_active?: boolean;
+          is_internal?: boolean;
+          key_hash?: string;
+          key_prefix?: string;
+          last_used_at?: string | null;
+          last_used_ip?: string | null;
+          name?: string;
+          revoked_at?: string | null;
+          tool_allowlist?: string[];
+          updated_at?: string;
+          use_count?: number;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      mcp_app_sessions: {
+        Row: {
+          app_id: string;
+          created_at: string;
+          id: string;
+          key_id: string | null;
+          last_seen_at: string;
+          runtime_session_id: string | null;
+          upstream_session_id: string | null;
+        };
+        Insert: {
+          app_id: string;
+          created_at?: string;
+          id?: string;
+          key_id?: string | null;
+          last_seen_at?: string;
+          runtime_session_id?: string | null;
+          upstream_session_id?: string | null;
+        };
+        Update: {
+          app_id?: string;
+          created_at?: string;
+          id?: string;
+          key_id?: string | null;
+          last_seen_at?: string;
+          runtime_session_id?: string | null;
+          upstream_session_id?: string | null;
+        };
+        Relationships: [];
+      };
+      mcp_app_versions: {
+        Row: {
+          app_id: string;
+          created_at: string;
+          id: string;
+          note: string | null;
+          requirements: string;
+          source_code: string;
+          tools: Json;
+          user_id: string;
+          version: number;
+        };
+        Insert: {
+          app_id: string;
+          created_at?: string;
+          id?: string;
+          note?: string | null;
+          requirements?: string;
+          source_code?: string;
+          tools?: Json;
+          user_id: string;
+          version: number;
+        };
+        Update: {
+          app_id?: string;
+          created_at?: string;
+          id?: string;
+          note?: string | null;
+          requirements?: string;
+          source_code?: string;
+          tools?: Json;
+          user_id?: string;
+          version?: number;
+        };
+        Relationships: [];
+      };
+      mcp_apps: {
+        Row: {
+          allowed_origins: string[];
+          created_at: string;
+          deploy_error: string | null;
+          description: string;
+          id: string;
+          idle_ttl_minutes: number;
+          is_public: boolean;
+          keep_warm: boolean;
+          last_deployed_at: string | null;
+          name: string;
+          registered_server_id: string | null;
+          requested_egress_hosts: string[];
+          requirements: string;
+          secret_refs: string[];
+          slug: string;
+          source_code: string;
+          status: string;
+          tools: Json;
+          tools_approved_at: string | null;
+          tools_changed_at: string | null;
+          tools_hash: string | null;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          allowed_origins?: string[];
+          created_at?: string;
+          deploy_error?: string | null;
+          description?: string;
+          id?: string;
+          idle_ttl_minutes?: number;
+          is_public?: boolean;
+          keep_warm?: boolean;
+          last_deployed_at?: string | null;
+          name: string;
+          registered_server_id?: string | null;
+          requested_egress_hosts?: string[];
+          requirements?: string;
+          secret_refs?: string[];
+          slug: string;
+          source_code?: string;
+          status?: string;
+          tools?: Json;
+          tools_approved_at?: string | null;
+          tools_changed_at?: string | null;
+          tools_hash?: string | null;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          allowed_origins?: string[];
+          created_at?: string;
+          deploy_error?: string | null;
+          description?: string;
+          id?: string;
+          idle_ttl_minutes?: number;
+          is_public?: boolean;
+          keep_warm?: boolean;
+          last_deployed_at?: string | null;
+          name?: string;
+          registered_server_id?: string | null;
+          requested_egress_hosts?: string[];
+          requirements?: string;
+          secret_refs?: string[];
+          slug?: string;
+          source_code?: string;
+          status?: string;
+          tools?: Json;
+          tools_approved_at?: string | null;
+          tools_changed_at?: string | null;
+          tools_hash?: string | null;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       mcp_servers: {
         Row: {
           auth_token: string | null;
@@ -3116,6 +3320,7 @@ export type Database = {
           kind: string;
           last_active_at: string;
           logs: string | null;
+          mcp_app_id: string | null;
           mem_limit_mb: number | null;
           notebook_id: string | null;
           result: Json | null;
@@ -3140,6 +3345,7 @@ export type Database = {
           kind?: string;
           last_active_at?: string;
           logs?: string | null;
+          mcp_app_id?: string | null;
           mem_limit_mb?: number | null;
           notebook_id?: string | null;
           result?: Json | null;
@@ -3164,6 +3370,7 @@ export type Database = {
           kind?: string;
           last_active_at?: string;
           logs?: string | null;
+          mcp_app_id?: string | null;
           mem_limit_mb?: number | null;
           notebook_id?: string | null;
           result?: Json | null;
