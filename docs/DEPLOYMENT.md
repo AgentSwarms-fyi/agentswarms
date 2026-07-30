@@ -108,7 +108,9 @@ One VM on OCI, AWS, GCP, Azure, Hetzner, a Droplet — anything that runs Docker
 This is the recommended production setup for most teams: simple, cheap, and it
 comfortably serves a lot of users.
 
-1. **Provision** a small VM (2 vCPU / 4 GB is plenty to start) and install
+1. **Provision** a small VM (2 vCPU / 4 GB is plenty to start — see
+   [System requirements & sizing](./SYSTEM_REQUIREMENTS.md) for scaling
+   scenarios and per-cloud/per-region cost tables) and install
    Docker Engine + the Compose plugin.
 2. **Clone, configure, migrate** (shared prerequisites above). Set
    `SITE_URL="https://your-domain.com"` and the matching Supabase Auth Site
