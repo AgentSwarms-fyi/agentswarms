@@ -649,7 +649,7 @@ function sanitizeTraceValue(value: unknown): unknown {
 
 async function recordTrace(opts: {
   trace: TraceContext;
-  status: "success" | "error";
+  status: "success" | "error" | "cancelled";
   errorMessage?: string;
   assistantText: string;
   skipResponsePayload?: boolean;
@@ -1751,6 +1751,7 @@ export const Route = createFileRoute("/api/chat")({
                     messages: [...sysMessages, { role: "user", content: userParts }],
                     modalities: ["image", "text"],
                   }),
+                  signal: request.signal,
                 });
 
                 if (!upstream.ok) {
@@ -1981,6 +1982,10 @@ export const Route = createFileRoute("/api/chat")({
                   onToolEvent: (e) => toolEvents.push(e),
                   userId: userId ?? null,
                   parentTraceId: trace?.traceId ?? null,
+                  // Client abort must stop the loop server-side too — without
+                  // this, Stop closed the browser connection while tool rounds
+                  // kept running (and billing) to the last iteration.
+                  signal: request.signal,
                 });
                 if (!upstreamWithTools.ok) {
                   const t = await upstreamWithTools.text().catch(() => "");
@@ -2072,6 +2077,18 @@ export const Route = createFileRoute("/api/chat")({
               },
             });
           } catch (err) {
+            // A client abort is the user hitting Stop, not a provider fault:
+            // nobody is listening for this response, so record the turn as
+            // cancelled rather than as a scary provider error in Traces.
+            if (err instanceof Error && err.name === "AbortError") {
+              await recordTrace({
+                trace,
+                status: "cancelled",
+                errorMessage: "Cancelled by the user",
+                assistantText: "",
+              }).catch(() => {});
+              return new Response(null, { status: 499 });
+            }
             const message = err instanceof Error ? err.message : "Provider error";
             console.error(`Provider ${provider} error:`, err);
             await recordTrace({
