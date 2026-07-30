@@ -11,7 +11,15 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { sanitizePublicPages, sanitizePublicWidgets } from "@/lib/biDashboards";
+import {
+  applyColumnMask,
+  applyRowFilters,
+  intersectColumnMasks,
+  mergeGrantRowFilters,
+  sanitizePublicPages,
+  sanitizePublicWidgets,
+  type WidgetResultRow,
+} from "@/lib/biDashboards";
 import { isModelAllowed } from "@/utils/iam.server";
 import { parseModelChoice } from "@/utils/providers/modelChoice";
 import type { Json } from "@/integrations/supabase/types";
@@ -303,3 +311,87 @@ export const biSetReaderModel = createServerFn({ method: "POST" })
       return { ok: false, error: e instanceof Error ? e.message : "Failed" };
     }
   });
+
+/**
+ * Widget results for a RESTRICTED grantee, masked and filtered server-side.
+ *
+ * Grantees whose every applicable grant carries a row filter or a column mask
+ * cannot read bi_widget_results directly (the RLS policy admits only
+ * unrestricted grants) — RLS can gate rows but cannot drop columns, so a
+ * direct read would defeat the mask. This is their read path: the row filter
+ * and the intersection of masks are applied here, with the service role,
+ * before anything leaves the server. Owners and unrestricted grantees never
+ * need it, but calling it anyway returns their data unrestricted — so a
+ * mistimed client call degrades to correct behaviour, not an error.
+ */
+export const biGetSharedWidgetResults = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z.object({ access_token: z.string().min(1), dashboard_id: z.string().uuid() }).parse(input),
+  )
+  .handler(
+    async ({
+      data,
+    }): Promise<
+      | { ok: true; results: WidgetResultRow[]; masked_columns: string[] }
+      | { ok: false; error: string }
+    > => {
+      try {
+        const userId = await requireUserId(data.access_token);
+
+        const { data: dash, error: dashErr } = await supabaseAdmin
+          .from("bi_dashboards")
+          .select("id, user_id")
+          .eq("id", data.dashboard_id)
+          .maybeSingle();
+        if (dashErr || !dash) return { ok: false, error: "Dashboard not found" };
+
+        let rowFilters: ReturnType<typeof mergeGrantRowFilters> = null;
+        let mask: string[] = [];
+        if (dash.user_id !== userId) {
+          // Grants that apply to this caller: their own, plus their groups'.
+          const { data: memberships } = await supabaseAdmin
+            .from("iam_group_members")
+            .select("group_id")
+            .eq("user_id", userId);
+          const groupIds = (memberships ?? []).map((m) => m.group_id);
+          const { data: grants, error: gErr } = await supabaseAdmin
+            .from("iam_resource_grants")
+            .select("principal_type, principal_id, row_filter, column_mask")
+            .eq("resource_type", "bi_dashboard")
+            .eq("resource_id", data.dashboard_id);
+          if (gErr) return { ok: false, error: gErr.message };
+          const applicable = (grants ?? []).filter(
+            (g) =>
+              (g.principal_type === "user" && g.principal_id === userId) ||
+              (g.principal_type === "group" && groupIds.includes(g.principal_id)),
+          );
+          if (applicable.length === 0) {
+            return { ok: false, error: "This dashboard is not shared with you" };
+          }
+          rowFilters = mergeGrantRowFilters(applicable);
+          mask = intersectColumnMasks(applicable.map((g) => g.column_mask));
+        }
+
+        const { data: stored, error } = await supabaseAdmin
+          .from("bi_widget_results")
+          .select("widget_id, columns, rows, truncated, refreshed_at")
+          .eq("dashboard_id", data.dashboard_id);
+        if (error) return { ok: false, error: error.message };
+
+        const results = ((stored ?? []) as WidgetResultRow[]).map((r) => {
+          const columns = Array.isArray(r.columns) ? (r.columns as string[]) : [];
+          let rows = Array.isArray(r.rows) ? (r.rows as Record<string, unknown>[]) : [];
+          rows = applyRowFilters(rows, rowFilters);
+          const masked = applyColumnMask(columns, rows, mask);
+          return {
+            ...r,
+            columns: masked.columns as unknown as Json,
+            rows: masked.rows as unknown as Json,
+          };
+        });
+        return { ok: true, results, masked_columns: mask };
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : "Failed" };
+      }
+    },
+  );

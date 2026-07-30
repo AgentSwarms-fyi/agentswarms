@@ -15,6 +15,7 @@ import {
   Database as DatabaseIcon,
   BookOpen,
   FolderTree,
+  EyeOff,
   Filter,
   KeyRound,
   Plus,
@@ -1100,6 +1101,7 @@ function AccessTab({
   // Optional row-level filter (BI dashboards only).
   const [shareFilterColumn, setShareFilterColumn] = useState("");
   const [shareFilterValues, setShareFilterValues] = useState("");
+  const [shareMaskColumns, setShareMaskColumns] = useState("");
   const shareIsDashboard = shareResourceType === "bi_dashboard";
   const shareTypeOptions: { value: ShareResourceType; label: string }[] = [
     { value: "knowledge_base", label: "📚 Knowledge base" },
@@ -1357,6 +1359,12 @@ function AccessTab({
                   shareIsDashboard && shareFilterColumn.trim() && filterValues.length > 0
                     ? { column: shareFilterColumn.trim(), values: filterValues }
                     : undefined;
+                const column_mask = shareIsDashboard
+                  ? shareMaskColumns
+                      .split(",")
+                      .map((v) => v.trim())
+                      .filter(Boolean)
+                  : [];
                 const res = await createGrant({
                   data: {
                     access_token: token,
@@ -1365,6 +1373,7 @@ function AccessTab({
                     principal_type: sharePrincipalType,
                     principal_id: sharePrincipalId,
                     row_filter,
+                    column_mask,
                   },
                 });
                 if (!res.ok) return toast.error(res.error);
@@ -1373,6 +1382,7 @@ function AccessTab({
                 setSharePrincipalId("");
                 setShareFilterColumn("");
                 setShareFilterValues("");
+                setShareMaskColumns("");
                 reload();
               }}
             >
@@ -1400,6 +1410,20 @@ function AccessTab({
               <span className="text-[11px] text-muted-foreground">
                 The grantee only sees dashboard rows where the column matches one of these values.
                 Re-sharing with the same principal updates the filter.
+              </span>
+              <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <EyeOff className="h-3.5 w-3.5" /> Hidden columns (optional)
+              </span>
+              <Input
+                className="h-8 w-72 text-xs"
+                value={shareMaskColumns}
+                onChange={(e) => setShareMaskColumns(e.target.value)}
+                placeholder="Columns to hide, comma-separated — e.g. salary, email"
+              />
+              <span className="text-[11px] text-muted-foreground">
+                Masked columns are removed server-side before results reach the grantee. A grant
+                with a filter or mask disables the grantee's direct data reads entirely — they are
+                served the restricted view instead.
               </span>
             </div>
           )}
@@ -1461,6 +1485,16 @@ function AccessTab({
                             {g.row_filter.values.length > 3
                               ? `${g.row_filter.values.slice(0, 3).join(", ")} +${g.row_filter.values.length - 3}`
                               : g.row_filter.values.join(", ")}
+                          </Badge>
+                        )}
+                        {g.column_mask.length > 0 && (
+                          <Badge
+                            variant="outline"
+                            className="gap-1 text-[10px] font-normal"
+                            title={`Hidden columns: ${g.column_mask.join(", ")}`}
+                          >
+                            <EyeOff className="h-2.5 w-2.5" />
+                            {g.column_mask.length} hidden
                           </Badge>
                         )}
                       </div>

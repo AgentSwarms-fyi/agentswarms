@@ -1475,6 +1475,7 @@ export type Database = {
       iam_resource_grants: {
         Row: {
           created_at: string;
+          column_mask: string[];
           created_by: string | null;
           id: string;
           principal_id: string;
@@ -1485,6 +1486,7 @@ export type Database = {
         };
         Insert: {
           created_at?: string;
+          column_mask?: string[];
           created_by?: string | null;
           id?: string;
           principal_id: string;
@@ -1495,6 +1497,7 @@ export type Database = {
         };
         Update: {
           created_at?: string;
+          column_mask?: string[];
           created_by?: string | null;
           id?: string;
           principal_id?: string;

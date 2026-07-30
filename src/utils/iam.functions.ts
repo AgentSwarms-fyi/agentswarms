@@ -56,6 +56,8 @@ export type IamGrantRow = {
   principal_id: string;
   /** BI dashboards only: restrict the grantee to rows matching column ∈ values. */
   row_filter: { column: string; values: string[] } | null;
+  /** BI dashboards only: columns hidden from the grantee. */
+  column_mask: string[];
 };
 
 export type IamResourceOption = {
@@ -650,7 +652,9 @@ export const iamListGrants = createServerFn({ method: "POST" })
 
     const { data: grants, error } = await supabaseAdmin
       .from("iam_resource_grants")
-      .select("id, resource_type, resource_id, principal_type, principal_id, row_filter")
+      .select(
+        "id, resource_type, resource_id, principal_type, principal_id, row_filter, column_mask",
+      )
       .order("created_at", { ascending: false });
     if (error) return { ok: false, error: error.message };
 
@@ -743,6 +747,7 @@ export const iamListGrants = createServerFn({ method: "POST" })
             rf && typeof rf.column === "string" && Array.isArray(rf.values)
               ? { column: rf.column, values: rf.values.map(String) }
               : null,
+          column_mask: Array.isArray(g.column_mask) ? g.column_mask.map(String) : [],
         };
       }),
     };
@@ -770,6 +775,7 @@ export const iamCreateGrant = createServerFn({ method: "POST" })
             values: z.array(z.string().trim().min(1)).min(1).max(100),
           })
           .nullish(),
+        column_mask: z.array(z.string().trim().min(1).max(128)).max(100).optional(),
       })
       .parse(input),
   )
@@ -778,6 +784,9 @@ export const iamCreateGrant = createServerFn({ method: "POST" })
     if (!guard.ok) return guard;
     if (data.row_filter && data.resource_type !== "bi_dashboard") {
       return { ok: false, error: "Row filters only apply to BI dashboard grants" };
+    }
+    if (data.column_mask?.length && data.resource_type !== "bi_dashboard") {
+      return { ok: false, error: "Column masks only apply to BI dashboard grants" };
     }
     // Merge on conflict so re-granting updates the row filter in place.
     const { error } = await supabaseAdmin.from("iam_resource_grants").upsert(
@@ -788,6 +797,7 @@ export const iamCreateGrant = createServerFn({ method: "POST" })
         principal_id: data.principal_id,
         created_by: guard.userId,
         row_filter: data.row_filter ?? null,
+        column_mask: data.column_mask ?? [],
       },
       { onConflict: "resource_type,resource_id,principal_type,principal_id" },
     );

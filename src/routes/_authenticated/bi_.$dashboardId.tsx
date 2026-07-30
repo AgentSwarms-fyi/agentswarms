@@ -69,6 +69,8 @@ import { BiThemeDialog } from "@/components/bi/BiThemeDialog";
 import { GenerateDashboardDialog } from "@/components/bi/GenerateDashboardDialog";
 import type { BiDataContext } from "@/components/bi/biDataContext";
 import { useAuth } from "@/hooks/use-auth";
+import { supabase } from "@/integrations/supabase/client";
+import { biGetSharedWidgetResults } from "@/utils/bi.functions";
 import type { Json } from "@/integrations/supabase/types";
 import {
   generateWidgetInsight,
@@ -96,6 +98,8 @@ import {
   parseWidgets,
   makeEmptyPage,
   pushDown,
+  maskWidgets,
+  mergeWidgetResults,
   saveDashboardVersion,
   syncWidgetResults,
   snapshotRows,
@@ -409,8 +413,38 @@ function BiProjectPage() {
   // ── Load dashboard (also re-run after a version restore) ────────────
   const loadDashboard = useCallback(() => {
     getDashboard(dashboardId)
-      .then((r) => {
+      .then(async (r) => {
         if (!r) return setRow("missing");
+        // Grantee path: a viewer whose grant carries a row filter or column
+        // mask cannot read bi_widget_results directly (RLS admits only
+        // unrestricted grants), so their data comes through the server
+        // function that filters and masks it first. maskWidgets also runs over
+        // the document itself, so legacy rows still embedded there can never
+        // show a masked column.
+        const { data: sessionData } = await supabase.auth.getSession();
+        const me = sessionData.session?.user.id;
+        const accessToken = sessionData.session?.access_token;
+        if (me && accessToken && r.user_id !== me) {
+          try {
+            const shared = await biGetSharedWidgetResults({
+              data: { access_token: accessToken, dashboard_id: dashboardId },
+            });
+            if (shared.ok) {
+              const mask = shared.masked_columns;
+              r.widgets = maskWidgets(mergeWidgetResults(r.widgets, shared.results), mask) as Json;
+              r.pages = (
+                Array.isArray(r.pages)
+                  ? (r.pages as Record<string, unknown>[]).map((p) => ({
+                      ...p,
+                      widgets: maskWidgets(mergeWidgetResults(p.widgets, shared.results), mask),
+                    }))
+                  : r.pages
+              ) as Json;
+            }
+          } catch {
+            /* fall back to whatever RLS surfaced */
+          }
+        }
         setRow(r);
         versionRef.current = r.version ?? 0;
         conflictRef.current = false;

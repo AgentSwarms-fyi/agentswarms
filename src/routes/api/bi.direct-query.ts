@@ -30,6 +30,7 @@ import {
   type DirectRowFilter,
 } from "@/lib/biDirectQuery";
 import { aggregationPlan } from "@/lib/biAggregate";
+import { applyColumnMask, intersectColumnMasks } from "@/lib/biDashboards";
 import type { ChartSpec } from "@/lib/biAgent";
 import type { SqlDialect } from "@/lib/semanticLayer";
 import { rateLimited, envInt } from "@/utils/rateLimit.server";
@@ -120,8 +121,11 @@ export const Route = createFileRoute("/api/bi/direct-query")({
           return json(429, { error: "Too many live queries right now — try again shortly" });
         }
 
-        // A grantee's row-level-security filter must be enforced on live data too.
+        // A grantee's restrictions must be enforced on live data too: row
+        // filters narrow what comes back, and the column-mask intersection is
+        // applied to the result below, before the response leaves the server.
         const rowFilters: DirectRowFilter[] = [];
+        let maskedColumns: string[] = [];
         if (!isOwner) {
           const { data: gm } = await supabaseAdmin
             .from("iam_group_members")
@@ -130,19 +134,21 @@ export const Route = createFileRoute("/api/bi/direct-query")({
           const groupIds = new Set((gm ?? []).map((g) => g.group_id));
           const { data: grants } = await supabaseAdmin
             .from("iam_resource_grants")
-            .select("principal_type, principal_id, row_filter")
+            .select("principal_type, principal_id, row_filter, column_mask")
             .eq("resource_type", "bi_dashboard")
             .eq("resource_id", body.dashboard_id);
-          for (const g of grants ?? []) {
-            const mine =
+          const mine = (grants ?? []).filter(
+            (g) =>
               (g.principal_type === "user" && g.principal_id === userId) ||
-              (g.principal_type === "group" && groupIds.has(g.principal_id));
-            if (!mine) continue;
+              (g.principal_type === "group" && groupIds.has(g.principal_id)),
+          );
+          for (const g of mine) {
             const rf = g.row_filter as { column?: unknown; values?: unknown } | null;
             if (rf && typeof rf.column === "string" && Array.isArray(rf.values)) {
               rowFilters.push({ column: rf.column, values: rf.values.map(String) });
             }
           }
+          maskedColumns = intersectColumnMasks(mine.map((g) => g.column_mask));
         }
 
         try {
@@ -186,6 +192,21 @@ export const Route = createFileRoute("/api/bi/direct-query")({
               duration_ms: result.duration_ms,
             },
           });
+          // Column masks apply to live results exactly as to snapshots: drop
+          // the columns server-side so a restricted grantee's browser never
+          // receives them.
+          if (maskedColumns.length > 0) {
+            const masked = applyColumnMask(
+              result.columns.map((c) => c.name),
+              result.rows,
+              maskedColumns,
+            );
+            return json(200, {
+              columns: result.columns.filter((c) => masked.columns.includes(c.name)),
+              rows: masked.rows,
+              row_count: result.row_count,
+            });
+          }
           return json(200, {
             columns: result.columns,
             rows: result.rows,

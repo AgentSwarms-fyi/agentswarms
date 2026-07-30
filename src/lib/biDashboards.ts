@@ -377,6 +377,69 @@ export function mergeGrantRowFilters(grants: { row_filter: Json | null }[]): BiR
 }
 
 /**
+ * The columns a viewer may NOT see, given every grant that applies to them.
+ *
+ * Union-of-access semantics, like the rest of IAM: a column is hidden only
+ * when EVERY applicable grant hides it — one unrestricted grant (directly or
+ * via any group) makes the whole dashboard visible, so masks on other grants
+ * change nothing. Matching is case-insensitive because SQL result columns
+ * arrive in whatever case the dialect produced.
+ */
+export function intersectColumnMasks(masks: unknown[]): string[] {
+  let acc: Set<string> | null = null;
+  for (const m of masks) {
+    const mask = Array.isArray(m)
+      ? m.map((x) => String(x).trim().toLowerCase()).filter(Boolean)
+      : [];
+    if (mask.length === 0) return [];
+    const set = new Set<string>(mask);
+    if (acc === null) {
+      acc = set;
+    } else {
+      const next = new Set<string>();
+      for (const c of acc) if (set.has(c)) next.add(c);
+      acc = next;
+    }
+    if (acc.size === 0) return [];
+  }
+  return acc ? [...acc] : [];
+}
+
+/** Drop masked columns from a result — both the column list and every row. */
+export function applyColumnMask(
+  columns: string[],
+  rows: Record<string, unknown>[],
+  mask: string[],
+): { columns: string[]; rows: Record<string, unknown>[] } {
+  if (mask.length === 0) return { columns, rows };
+  const hidden = new Set(mask.map((c) => c.toLowerCase()));
+  const keptColumns = columns.filter((c) => !hidden.has(c.toLowerCase()));
+  const keptRows = rows.map((r) => {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(r)) {
+      if (!hidden.has(k.toLowerCase())) out[k] = v;
+    }
+    return out;
+  });
+  return { columns: keptColumns, rows: keptRows };
+}
+
+/** applyColumnMask across a widgets array (pure; non-chart widgets untouched). */
+export function maskWidgets(widgets: unknown, mask: string[]): unknown {
+  if (!Array.isArray(widgets) || mask.length === 0) return widgets;
+  return widgets.map((w) => {
+    if (!w || typeof w !== "object" || (w as BiWidget).kind !== "chart") return w;
+    const widget = w as BiWidget;
+    const masked = applyColumnMask(
+      widget.columns ?? [],
+      Array.isArray(widget.rows) ? widget.rows : [],
+      mask,
+    );
+    return { ...widget, columns: masked.columns, rows: masked.rows };
+  });
+}
+
+/**
  * Apply mandatory grant row filters to a snapshot. A row passes when it
  * satisfies ANY grant's filter (union of scopes). A filter only constrains
  * rows that actually carry its column — widgets that never select the
