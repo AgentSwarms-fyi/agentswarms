@@ -29,6 +29,7 @@ export const ONTOLOGY_CATEGORIES = [
   "reference",
   "metric",
   "document",
+  "concept",
 ] as const;
 export type OntologyCategory = (typeof ONTOLOGY_CATEGORIES)[number];
 
@@ -42,7 +43,7 @@ export type OntologyEntity = {
   table: string;
   /** Human source label: "Local", warehouse connection name, "Prepared", "Knowledge". */
   source: string;
-  sourceKind: "local" | "prepared" | "warehouse" | "knowledge";
+  sourceKind: "local" | "prepared" | "warehouse" | "knowledge" | "concept";
   category: OntologyCategory;
   domain: string;
   description: string;
@@ -50,16 +51,27 @@ export type OntologyEntity = {
   columnCount: number;
   keyColumns: string[];
   fields: OntologyField[];
+  /** Concepts only: the knowledge-graph entity type ("person", "org", …). */
+  conceptType?: string;
 };
 
-export type OntologyRelationKind = "join" | "lineage" | "semantic";
+export type OntologyRelationKind = "join" | "lineage" | "semantic" | "knowledge";
 export type OntologyCardinality = "1:1" | "1:N" | "N:1" | "N:M";
 
 export type OntologyRelation = {
+  /** SUBJECT of the triple (an entity id). */
   from: string;
+  /** OBJECT of the triple (an entity id). */
   to: string;
-  /** Short verb phrase, e.g. "places", "belongs to", "derived from". */
+  /** Short human verb phrase, e.g. "places", "belongs to", "derived from". */
   label: string;
+  /**
+   * PREDICATE — the machine-readable snake_case relation type completing the
+   * subject–predicate–object triple (e.g. "references", "derived_from",
+   * "instance_of"). Every builder path sets it; specs stored before it
+   * existed fall back to `label` in the renderer.
+   */
+  predicate?: string;
   kind: OntologyRelationKind;
   /** Field-level anchors: column names — or a document name on a KB side. */
   keys?: { from: string; to: string };
@@ -68,6 +80,23 @@ export type OntologyRelation = {
   /** Why the AI believes this relation holds (quoted signal). */
   evidence?: string;
 };
+
+/** Normalize any phrase into a snake_case predicate (≤32 chars). */
+export function toPredicate(s: string): string {
+  const p = s
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 32)
+    .replace(/_+$/, "");
+  return /^[a-z]/.test(p) ? p : "";
+}
+
+/** "derived_from" → "derived from" — human label from a predicate. */
+export function predicateLabel(p: string): string {
+  return p.replace(/_/g, " ");
+}
 
 export type OntologySpec = {
   builtAt: string;
@@ -93,6 +122,16 @@ export type OntologySourceInputs = {
     docs?: string[];
     /** Content excerpts per document — AI signal for content-level links. */
     docExcerpts?: { name: string; excerpt: string }[];
+    /**
+     * The KB's knowledge graph (built under Knowledge → Graph), when one
+     * exists: its top entities become first-class CONCEPT nodes and its
+     * subject–predicate–object triples become typed edges — the ontology's
+     * concept layer, not just a document box per KB.
+     */
+    graph?: {
+      entities: { name: string; type: string; description?: string; mentions: number }[];
+      triples: { subject: string; predicate: string; object: string }[];
+    };
   }[];
   prepFlows: { name: string; outputTable: string | null; sources: string[] }[];
   /** Sample rows by local table name — AI signal for value-level links. */
@@ -105,10 +144,13 @@ const MAX_ONTOLOGY_ENTITIES = 80;
 const MAX_FIELDS_PER_ENTITY = 24;
 const MAX_RELATIONS = 160;
 const MAX_AI_EXTRA_RELATIONS = 40;
+const MAX_CONCEPTS_PER_KB = 12;
+const MAX_KB_TRIPLES_PER_KB = 30;
 
 // ── 1. Gather ────────────────────────────────────────────────────────────
 
 const localId = (table: string) => `local:${table}`;
+const conceptId = (kbId: string, name: string) => `concept:${kbId}:${name.toLowerCase()}`;
 
 function keyColumnsOf(fields: OntologyField[], primaryKey?: string | null): string[] {
   const keys = fields.filter((f) => /(^id$|_id$)/i.test(f.name)).map((f) => f.name);
@@ -183,10 +225,33 @@ export function gatherEntities(inputs: OntologySourceInputs): OntologyEntity[] {
         .slice(0, MAX_FIELDS_PER_ENTITY)
         .map((n) => ({ name: n, type: "document" })),
     });
+
+    // The KB's knowledge graph contributes CONCEPT nodes — the real subject
+    // matter of the documents (people, systems, products…), not just the
+    // container. Top entities by mention count keep the map legible.
+    for (const g of (kb.graph?.entities ?? []).slice(0, MAX_CONCEPTS_PER_KB)) {
+      entities.push({
+        id: conceptId(kb.id, g.name),
+        name: g.name,
+        table: g.name,
+        source: kb.name,
+        sourceKind: "concept",
+        category: "concept",
+        domain: "Knowledge",
+        description: g.description ?? "",
+        rowCount: g.mentions,
+        columnCount: 0,
+        keyColumns: [],
+        fields: [],
+        conceptType: g.type,
+      });
+    }
   }
 
   for (const e of entities) {
-    if (e.sourceKind !== "knowledge") e.category = heuristicCategory(e);
+    if (e.sourceKind !== "knowledge" && e.sourceKind !== "concept") {
+      e.category = heuristicCategory(e);
+    }
   }
   return entities;
 }
@@ -221,8 +286,11 @@ function tableBase(table: string): string {
     .replace(/(?<![su])s$/, "");
 }
 
-function relKey(r: { from: string; to: string; kind: string }): string {
-  return `${r.from}|${r.to}|${r.kind}`;
+function relKey(r: { from: string; to: string; kind: string; predicate?: string }): string {
+  // Predicate participates so two DIFFERENT triples between the same pair
+  // ("works_at" and "founded") both survive; join/lineage predicates are
+  // deterministic per pair, so their dedupe behaviour is unchanged.
+  return `${r.from}|${r.to}|${r.kind}|${r.predicate ?? ""}`;
 }
 
 export function detectRelations(
@@ -261,7 +329,8 @@ export function detectRelations(
       push({
         from: from.id,
         to: to.id,
-        label: "joins",
+        label: "joins with",
+        predicate: "joins_with",
         kind: "join",
         keys: m ? { from: m[2].replace(/[`"]/g, ""), to: m[4].replace(/[`"]/g, "") } : undefined,
         confidence: "high",
@@ -286,6 +355,7 @@ export function detectRelations(
           from: e.id,
           to: t.id,
           label: "references",
+          predicate: "references",
           kind: "join",
           keys: { from: f.name, to: toKey },
           cardinality: "N:1",
@@ -307,9 +377,50 @@ export function detectRelations(
         from: out.id,
         to: s.id,
         label: "derived from",
+        predicate: "derived_from",
         kind: "lineage",
         confidence: "high",
       });
+    }
+  }
+
+  // Knowledge-graph triples: subject —predicate→ object between the included
+  // concepts, plus every concept anchored to its knowledge base. These are
+  // REAL extracted triples (built under Knowledge → Graph), not inferences.
+  for (const kb of inputs.knowledgeBases) {
+    if (!kb.graph) continue;
+    const kbNodeId = `kb:${kb.id}`;
+    const included = new Set(
+      (kb.graph.entities ?? []).slice(0, MAX_CONCEPTS_PER_KB).map((g) => g.name.toLowerCase()),
+    );
+    for (const g of (kb.graph.entities ?? []).slice(0, MAX_CONCEPTS_PER_KB)) {
+      if (!byId.has(kbNodeId)) break;
+      push({
+        from: conceptId(kb.id, g.name),
+        to: kbNodeId,
+        label: "defined in",
+        predicate: "defined_in",
+        kind: "knowledge",
+        confidence: "high",
+      });
+    }
+    let triples = 0;
+    for (const t of kb.graph.triples ?? []) {
+      if (triples >= MAX_KB_TRIPLES_PER_KB) break;
+      if (!included.has(t.subject.toLowerCase()) || !included.has(t.object.toLowerCase())) {
+        continue;
+      }
+      const pred = toPredicate(t.predicate) || "related_to";
+      push({
+        from: conceptId(kb.id, t.subject),
+        to: conceptId(kb.id, t.object),
+        label: predicateLabel(pred),
+        predicate: pred,
+        kind: "knowledge",
+        confidence: "high",
+        evidence: "extracted triple from the knowledge graph",
+      });
+      triples++;
     }
   }
 
@@ -329,6 +440,7 @@ type AiRelation = {
   from?: string;
   to?: string;
   label?: string;
+  predicate?: string;
   cardinality?: string;
   keys?: { from?: string; to?: string };
   evidence?: string;
@@ -379,6 +491,10 @@ function describeForPrompt(
   aiCtx?: OntologyAiContext,
 ): string {
   const entityLines = entities.map((e) => {
+    if (e.sourceKind === "concept") {
+      const desc = e.description ? ` -- ${e.description.slice(0, 90)}` : "";
+      return `- ${e.id} | CONCEPT "${e.name}" (${e.conceptType ?? "entity"}) from KB "${e.source}"${desc}`;
+    }
     const cols = e.fields
       .slice(0, 24)
       .map((f) => `${f.name}:${f.type}${f.semantic ? `/${f.semantic}` : ""}`)
@@ -417,7 +533,8 @@ function describeForPrompt(
   }
 
   const relLines = relations.map(
-    (r) => `- ${r.from} -> ${r.to} (${r.kind}${r.keys ? `, ${r.keys.from}=${r.keys.to}` : ""})`,
+    (r) =>
+      `- ${r.from} -[${r.predicate ?? r.kind}]-> ${r.to} (${r.kind}${r.keys ? `, ${r.keys.from}=${r.keys.to}` : ""})`,
   );
   return [
     "ENTITIES:",
@@ -472,9 +589,14 @@ export function applyEnrichment(
   }
   const entities = baseEntities.map((e) => {
     const p = patchById.get(e.id);
-    const category = ONTOLOGY_CATEGORIES.includes(p?.category as OntologyCategory)
-      ? (p!.category as OntologyCategory)
-      : e.category;
+    // Concept nodes come from the knowledge graph and STAY concepts — the AI
+    // may rename/describe them but not turn a person into a "transaction".
+    const category =
+      e.sourceKind === "concept"
+        ? e.category
+        : ONTOLOGY_CATEGORIES.includes(p?.category as OntologyCategory)
+          ? (p!.category as OntologyCategory)
+          : e.category;
     return {
       ...e,
       name: (p?.businessName ?? "").trim().slice(0, 40) || e.name,
@@ -499,9 +621,12 @@ export function applyEnrichment(
     const card = CARDINALITIES.has(ai.cardinality ?? "")
       ? (ai.cardinality as OntologyCardinality)
       : undefined;
+    const label = (ai.label ?? "").trim().slice(0, 40) || r.label;
     return {
       ...r,
-      label: (ai.label ?? "").trim().slice(0, 40) || r.label,
+      label,
+      // Keep the triple typed even when the AI omits the predicate field.
+      predicate: toPredicate(ai.predicate ?? "") || r.predicate || toPredicate(label),
       cardinality: (reversed ? flipCardinality(card) : card) ?? r.cardinality,
       evidence: (ai.evidence ?? "").trim().slice(0, 160) || undefined,
     };
@@ -518,10 +643,12 @@ export function applyEnrichment(
         covered.has(relKey({ from: ai.to, to: ai.from, kind: k })),
     );
     if (dupe) continue;
+    const label = (ai.label ?? "").trim().slice(0, 40) || "relates to";
     const rel: OntologyRelation = {
       from: ai.from,
       to: ai.to,
-      label: (ai.label ?? "").trim().slice(0, 40) || "relates to",
+      label,
+      predicate: toPredicate(ai.predicate ?? "") || toPredicate(label) || "related_to",
       kind: "semantic",
       keys: validKeys(byId, ai.from, ai.to, ai.keys),
       cardinality: CARDINALITIES.has(ai.cardinality ?? "")
@@ -551,12 +678,18 @@ export async function enrichOntology(args: {
   const out = await llmJson<AiOntologyOut>({
     model: args.model,
     systemPrompt:
-      "You are a data architect building a business ontology of an organisation's data estate. " +
-      "Classify entities, name their business domains and find every real relationship. Output JSON only. " +
+      "You are an ontology engineer building a knowledge graph of an organisation's data estate. " +
+      "Every relation is a TRIPLE: subject (from), predicate, object (to). Output JSON only. " +
       "Rules: use ONLY the entity ids given; every entity gets a category from " +
       `[${ONTOLOGY_CATEGORIES.join(", ")}], a short business domain ("Sales", "Customers", ` +
       '"Operations"…), a business name and a description of at most 18 words. ' +
-      "Label EVERY detected relation with a verb phrase of at most 4 words plus a cardinality. " +
+      'Every relation MUST carry a snake_case "predicate" (the typed relation: references, ' +
+      "belongs_to, describes, mentions, instance_of, works_at, located_in, part_of, produces…) " +
+      'AND a human "label" verb phrase of at most 4 words, plus a cardinality where meaningful. ' +
+      "Entities marked CONCEPT come from knowledge-graph extraction over the documents — link " +
+      "them to the tables whose rows they describe or appear in (predicates like describes, " +
+      "instance_of, mentioned_in, about) and to other concepts when the excerpts support it. " +
+      "Never change a CONCEPT's category. " +
       "Study the SAMPLE ROWS and DOCUMENT EXCERPTS carefully — they are real data. Add NEW " +
       "relations between listed entities whenever the schema, sample values or document content " +
       "supports them (a document that explains, defines or references a table's subject matter " +
@@ -570,8 +703,8 @@ export async function enrichOntology(args: {
       `${describeForPrompt(args.entities, args.relations, args.aiCtx)}\n\n` +
       'Return JSON: { "summary": "2-3 sentence executive overview of this data estate", ' +
       '"entities": [{ "id", "businessName", "category", "domain", "description" }], ' +
-      '"relations": [{ "from", "to", "label", "cardinality": "1:1|1:N|N:1|N:M", ' +
-      '"keys": { "from", "to" }?, "evidence" }] } — relations must include a labelled entry ' +
+      '"relations": [{ "from", "to", "predicate", "label", "cardinality": "1:1|1:N|N:1|N:M", ' +
+      '"keys": { "from", "to" }?, "evidence" }] } — relations must include a typed entry ' +
       "for every detected relation, plus every new one the data supports.",
   });
   return applyEnrichment(args.entities, args.relations, out);

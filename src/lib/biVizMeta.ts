@@ -109,8 +109,9 @@ export const VIZ_REQUIREMENTS: Record<string, VizReq> = {
     how: "List the raw rows behind the question.",
   },
   ontology: {
-    requires: "No fields — auto-detects entities and relationships across the sources you pick.",
-    how: "Map your whole data estate and how it relates.",
+    requires:
+      "No fields — the AI derives typed subject–predicate–object relations across the datasets, warehouses and knowledge bases you pick (KB knowledge graphs contribute concept nodes and their triples).",
+    how: "Knowledge graph of your data estate — click nodes and edges to inspect each triple.",
   },
   text: {
     requires: "No data — just a title and Markdown content.",

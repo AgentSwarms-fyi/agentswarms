@@ -56,6 +56,7 @@ const CATEGORY_META: Record<OntologyCategory, { color: string; label: string; gl
   reference: { color: "#76b7b2", label: "Reference", glyph: "R" },
   metric: { color: "#59a14f", label: "Metrics", glyph: "Σ" },
   document: { color: "#b07aa1", label: "Documents", glyph: "D" },
+  concept: { color: "#0ea5e9", label: "Concepts", glyph: "◆" },
 };
 
 const EDGE_META: Record<OntologyRelation["kind"], { color: string; dash?: string; label: string }> =
@@ -63,7 +64,13 @@ const EDGE_META: Record<OntologyRelation["kind"], { color: string; dash?: string
     join: { color: "#4e79a7", label: "Join key" },
     lineage: { color: "#9c755f", dash: "2 3", label: "Prep lineage" },
     semantic: { color: "#d97706", dash: "6 4", label: "AI-inferred" },
+    knowledge: { color: "#0ea5e9", dash: "1 3", label: "Knowledge triple" },
   };
+
+/** SUBJECT —predicate→ OBJECT wording for a relation (SPO triple). */
+function predicateOf(rel: OntologyRelation): string {
+  return rel.predicate || rel.label.toLowerCase().replace(/\s+/g, "_");
+}
 
 /** Field-chip tint by semantic tag (falls back to the raw type). */
 const FIELD_TAG_COLORS: Record<string, string> = {
@@ -96,6 +103,10 @@ type LayoutEdge = {
 };
 
 function nodeDims(e: OntologyEntity, expanded: boolean): { w: number; h: number } {
+  // Concepts render as compact knowledge-graph pills, not table cards.
+  if (e.sourceKind === "concept") {
+    return { w: Math.max(84, Math.min(150, e.name.length * 6.6 + 34)), h: 32 };
+  }
   const rows = Math.min(e.fields.length, MAX_ROWS);
   if (!expanded || rows === 0) return { w: CARD_W, h: CARD_H };
   return { w: XCARD_W, h: XHEADER_H + 8 + rows * ROW_H + 8 };
@@ -294,6 +305,9 @@ export function OntologyGraph({
   const [active, setActive] = useState<string | null>(null);
   const [pinned, setPinned] = useState<string | null>(null);
   const [activeEdge, setActiveEdge] = useState<number | null>(null);
+  // Edges are click-to-pin like nodes, so the SPO triple panel stays open
+  // for inspection (hover alone is useless on touch and for reading).
+  const [pinnedEdge, setPinnedEdge] = useState<number | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const dragRef = useRef<{
     x: number;
@@ -345,9 +359,15 @@ export function OntologyGraph({
 
   const focusId = pinned ?? active;
   const hood = focusId ? layout.neighbors.get(focusId) : null;
-  const dimNode = (id: string) => (hood ? !hood.has(id) : false);
-  const dimEdge = (r: OntologyRelation) =>
-    hood ? !(focusId === r.from || focusId === r.to) : false;
+  const pinnedRel = pinnedEdge !== null ? layout.edges[pinnedEdge]?.rel : null;
+  const dimNode = (id: string) =>
+    pinnedRel ? !(pinnedRel.from === id || pinnedRel.to === id) : hood ? !hood.has(id) : false;
+  const dimEdge = (r: OntologyRelation, i: number) =>
+    pinnedEdge !== null
+      ? i !== pinnedEdge
+      : hood
+        ? !(focusId === r.from || focusId === r.to)
+        : false;
 
   const zoomBy = (f: number) =>
     setView((v) => {
@@ -463,7 +483,10 @@ export function OntologyGraph({
             onPointerUp={() => {
               const d = dragRef.current;
               dragRef.current = null;
-              if (d && !d.moved) setPinned(null); // background click unpins
+              if (d && !d.moved) {
+                setPinned(null); // background click unpins
+                setPinnedEdge(null);
+              }
             }}
           >
             <defs>
@@ -514,24 +537,33 @@ export function OntologyGraph({
                 </g>
               ))}
 
-              {/* Edges */}
+              {/* Edges — each one is a subject —predicate→ object triple;
+                  click to pin it and read the full SPO detail panel. */}
               {layout.edges.map((e, i) => {
-                const m = EDGE_META[e.rel.kind];
-                const dim = dimEdge(e.rel);
-                const parts = [e.rel.label];
+                const m = EDGE_META[e.rel.kind] ?? EDGE_META.semantic;
+                const dim = dimEdge(e.rel, i);
+                const parts = [predicateOf(e.rel)];
                 if (e.rel.keys) parts.push(e.rel.keys.from);
                 if (e.rel.cardinality) parts.push(e.rel.cardinality);
                 const labelText = truncate(parts.join(" · "), 34);
                 const lw = labelText.length * 4.6 + 10;
-                const isActive = activeEdge === i;
+                const isActive = activeEdge === i || pinnedEdge === i;
                 return (
                   <g
                     key={i}
+                    className="cursor-pointer"
                     opacity={dim ? 0.12 : e.rel.confidence === "high" || isActive ? 1 : 0.8}
                     onPointerEnter={() => setActiveEdge(i)}
                     onPointerLeave={() => setActiveEdge((cur) => (cur === i ? null : cur))}
+                    onPointerUp={(ev) => {
+                      if (dragRef.current?.moved) return;
+                      ev.stopPropagation();
+                      dragRef.current = null;
+                      setPinned(null);
+                      setPinnedEdge((cur) => (cur === i ? null : i));
+                    }}
                   >
-                    {/* Wide invisible stroke so the thin edge is hoverable */}
+                    {/* Wide invisible stroke so the thin edge is hover/clickable */}
                     <path d={e.path} fill="none" stroke="transparent" strokeWidth={14} />
                     <path
                       d={e.path}
@@ -550,14 +582,15 @@ export function OntologyGraph({
                           height={15}
                           rx={7.5}
                           fill="var(--card)"
-                          stroke="var(--border)"
-                          strokeWidth={0.8}
+                          stroke={pinnedEdge === i ? m.color : "var(--border)"}
+                          strokeWidth={pinnedEdge === i ? 1.2 : 0.8}
                         />
                         <text
                           textAnchor="middle"
                           y={3.5}
                           fontSize={8.5}
                           fill="var(--muted-foreground)"
+                          style={{ fontFamily: "ui-monospace, monospace" }}
                         >
                           {labelText}
                         </text>
@@ -577,6 +610,58 @@ export function OntologyGraph({
                 const left = n.x! - n.w / 2;
                 const top = n.y! - n.h / 2;
                 const isKb = e.sourceKind === "knowledge";
+                // Concepts (knowledge-graph entities) render as compact pills —
+                // visually a knowledge graph layer over the table cards.
+                if (e.sourceKind === "concept") {
+                  return (
+                    <g
+                      key={n.id}
+                      transform={`translate(${left} ${top})`}
+                      opacity={dimNode(n.id) ? 0.18 : 1}
+                      className="cursor-pointer"
+                      onPointerEnter={() => setActive(n.id)}
+                      onPointerLeave={() => setActive(null)}
+                      onPointerUp={(ev) => {
+                        if (dragRef.current?.moved) return;
+                        ev.stopPropagation();
+                        dragRef.current = null;
+                        setPinnedEdge(null);
+                        setPinned((p) => (p === n.id ? null : n.id));
+                      }}
+                    >
+                      <rect
+                        width={n.w}
+                        height={n.h}
+                        rx={n.h / 2}
+                        fill="var(--card)"
+                        stroke={isFocus ? cat.color : "var(--border)"}
+                        strokeWidth={isFocus ? 1.8 : 1}
+                        style={{ filter: "drop-shadow(0 1px 2px rgb(0 0 0 / 0.12))" }}
+                      />
+                      <circle cx={15} cy={n.h / 2} r={4.5} fill={cat.color} fillOpacity={0.9} />
+                      <text
+                        x={25}
+                        y={n.h / 2 + 3.5}
+                        fontSize={10}
+                        fontWeight={600}
+                        fill="var(--foreground)"
+                      >
+                        {truncate(e.name, 18)}
+                      </text>
+                      {e.conceptType && (
+                        <text
+                          x={25}
+                          y={n.h - 4}
+                          fontSize={6.5}
+                          fill={cat.color}
+                          style={{ letterSpacing: "0.06em", textTransform: "uppercase" }}
+                        >
+                          {truncate(e.conceptType, 20)}
+                        </text>
+                      )}
+                    </g>
+                  );
+                }
                 return (
                   <g
                     key={n.id}
@@ -589,6 +674,7 @@ export function OntologyGraph({
                       if (dragRef.current?.moved) return;
                       ev.stopPropagation();
                       dragRef.current = null;
+                      setPinnedEdge(null);
                       setPinned((p) => (p === n.id ? null : n.id));
                     }}
                   >
@@ -825,63 +911,123 @@ export function OntologyGraph({
           )}
         </div>
 
-        {/* Detail panel for the hovered / pinned entity */}
-        {focused && (
-          <div className="pointer-events-none absolute bottom-2 left-2 z-10 w-64 rounded-lg border border-border bg-popover/95 p-2.5 shadow-lg backdrop-blur">
-            <div className="flex items-center gap-1.5">
-              <span
-                className="inline-block h-2 w-2 shrink-0 rounded-full"
-                style={{
-                  background: (CATEGORY_META[focused.entity.category] ?? CATEGORY_META.master)
-                    .color,
-                }}
-              />
-              <span className="truncate text-xs font-semibold text-popover-foreground">
-                {focused.entity.name}
-              </span>
-              <span className="ml-auto shrink-0 text-[9px] uppercase tracking-wider text-muted-foreground">
-                {(CATEGORY_META[focused.entity.category] ?? CATEGORY_META.master).label}
-              </span>
-            </div>
-            <p className="mt-0.5 font-mono text-[9px] text-muted-foreground">
-              {focused.entity.table} · {focused.entity.source} · {focused.entity.domain}
-            </p>
-            {focused.entity.description && (
-              <p className="mt-1 text-[10px] leading-snug text-popover-foreground/90">
-                {focused.entity.description}
-              </p>
-            )}
-            {focused.entity.keyColumns.length > 0 && (
-              <p className="mt-1 text-[9px] text-muted-foreground">
-                Keys: <span className="font-mono">{focused.entity.keyColumns.join(", ")}</span>
-              </p>
-            )}
-            {!expanded.has(focused.id) && focused.entity.fields.length > 0 && (
-              <p className="mt-1 text-[9px] italic text-muted-foreground/80">
-                Use the ⊞ on the card to drill into{" "}
-                {focused.entity.sourceKind === "knowledge" ? "its documents" : "its fields"}.
-              </p>
-            )}
-          </div>
-        )}
-
-        {/* Detail panel for a hovered relationship (evidence included) */}
-        {!focused &&
-          activeEdge !== null &&
-          layout.edges[activeEdge] &&
+        {/* Detail panel for the hovered / pinned entity — includes its triples */}
+        {focused &&
+          pinnedEdge === null &&
           (() => {
-            const rel = layout.edges[activeEdge].rel;
             const nameOf = (id: string) => layout.nodes.find((n) => n.id === id)?.entity.name ?? id;
-            const m = EDGE_META[rel.kind];
+            const triples = layout.edges
+              .filter((e) => e.rel.from === focused.id || e.rel.to === focused.id)
+              .slice(0, 5);
+            const total = layout.edges.filter(
+              (e) => e.rel.from === focused.id || e.rel.to === focused.id,
+            ).length;
+            const ent = focused.entity;
             return (
               <div className="pointer-events-none absolute bottom-2 left-2 z-10 w-64 rounded-lg border border-border bg-popover/95 p-2.5 shadow-lg backdrop-blur">
-                <p className="text-[11px] font-semibold leading-snug text-popover-foreground">
-                  {nameOf(rel.from)} <span style={{ color: m.color }}>—{rel.label}→</span>{" "}
-                  {nameOf(rel.to)}
+                <div className="flex items-center gap-1.5">
+                  <span
+                    className="inline-block h-2 w-2 shrink-0 rounded-full"
+                    style={{
+                      background: (CATEGORY_META[ent.category] ?? CATEGORY_META.master).color,
+                    }}
+                  />
+                  <span className="truncate text-xs font-semibold text-popover-foreground">
+                    {ent.name}
+                  </span>
+                  <span className="ml-auto shrink-0 text-[9px] uppercase tracking-wider text-muted-foreground">
+                    {ent.sourceKind === "concept" && ent.conceptType
+                      ? ent.conceptType
+                      : (CATEGORY_META[ent.category] ?? CATEGORY_META.master).label}
+                  </span>
+                </div>
+                <p className="mt-0.5 font-mono text-[9px] text-muted-foreground">
+                  {ent.sourceKind === "concept"
+                    ? `Knowledge graph · ${ent.source}${ent.rowCount ? ` · ${ent.rowCount} mention${ent.rowCount === 1 ? "" : "s"}` : ""}`
+                    : `${ent.table} · ${ent.source} · ${ent.domain}`}
                 </p>
-                <p className="mt-0.5 text-[9px] uppercase tracking-wider text-muted-foreground">
-                  {m.label}
-                  {rel.cardinality ? ` · ${rel.cardinality}` : ""} · {rel.confidence} confidence
+                {ent.description && (
+                  <p className="mt-1 text-[10px] leading-snug text-popover-foreground/90">
+                    {ent.description}
+                  </p>
+                )}
+                {ent.keyColumns.length > 0 && (
+                  <p className="mt-1 text-[9px] text-muted-foreground">
+                    Keys: <span className="font-mono">{ent.keyColumns.join(", ")}</span>
+                  </p>
+                )}
+                {triples.length > 0 && (
+                  <div className="mt-1.5 border-t border-border/60 pt-1">
+                    <p className="text-[8px] uppercase tracking-wider text-muted-foreground">
+                      Triples
+                    </p>
+                    {triples.map((e, i) => {
+                      const out = e.rel.from === focused.id;
+                      const other = nameOf(out ? e.rel.to : e.rel.from);
+                      return (
+                        <p key={i} className="truncate text-[9.5px] text-popover-foreground/90">
+                          <span className="text-muted-foreground">{out ? "→" : "←"}</span>{" "}
+                          <span
+                            className="font-mono"
+                            style={{ color: (EDGE_META[e.rel.kind] ?? EDGE_META.semantic).color }}
+                          >
+                            {predicateOf(e.rel)}
+                          </span>{" "}
+                          {other}
+                        </p>
+                      );
+                    })}
+                    {total > triples.length && (
+                      <p className="text-[8.5px] text-muted-foreground">
+                        +{total - triples.length} more — click edges to inspect
+                      </p>
+                    )}
+                  </div>
+                )}
+                {!expanded.has(focused.id) && ent.fields.length > 0 && (
+                  <p className="mt-1 text-[9px] italic text-muted-foreground/80">
+                    Use the ⊞ on the card to drill into{" "}
+                    {ent.sourceKind === "knowledge" ? "its documents" : "its fields"}.
+                  </p>
+                )}
+              </div>
+            );
+          })()}
+
+        {/* SPO detail panel for the clicked (pinned) or hovered relationship */}
+        {(pinnedEdge !== null || !focused) &&
+          (() => {
+            const idx = pinnedEdge ?? activeEdge;
+            if (idx === null || !layout.edges[idx]) return null;
+            const rel = layout.edges[idx].rel;
+            const nameOf = (id: string) => layout.nodes.find((n) => n.id === id)?.entity.name ?? id;
+            const m = EDGE_META[rel.kind] ?? EDGE_META.semantic;
+            return (
+              <div className="pointer-events-none absolute bottom-2 left-2 z-10 w-72 rounded-lg border border-border bg-popover/95 p-2.5 shadow-lg backdrop-blur">
+                {/* The triple, spelled out — subject, predicate, object */}
+                <div className="grid grid-cols-[52px_1fr] gap-x-2 gap-y-0.5 text-[10px]">
+                  <span className="text-[8px] uppercase tracking-wider text-muted-foreground leading-4">
+                    Subject
+                  </span>
+                  <span className="truncate font-semibold text-popover-foreground">
+                    {nameOf(rel.from)}
+                  </span>
+                  <span className="text-[8px] uppercase tracking-wider text-muted-foreground leading-4">
+                    Predicate
+                  </span>
+                  <span className="truncate font-mono" style={{ color: m.color }}>
+                    {predicateOf(rel)}
+                  </span>
+                  <span className="text-[8px] uppercase tracking-wider text-muted-foreground leading-4">
+                    Object
+                  </span>
+                  <span className="truncate font-semibold text-popover-foreground">
+                    {nameOf(rel.to)}
+                  </span>
+                </div>
+                <p className="mt-1 text-[9px] uppercase tracking-wider text-muted-foreground">
+                  {m.label} · “{rel.label}”{rel.cardinality ? ` · ${rel.cardinality}` : ""} ·{" "}
+                  {rel.confidence} confidence
                 </p>
                 {rel.keys && (
                   <p className="mt-1 font-mono text-[9px] text-muted-foreground">
@@ -891,6 +1037,11 @@ export function OntologyGraph({
                 {rel.evidence && (
                   <p className="mt-1 text-[10px] italic leading-snug text-popover-foreground/90">
                     “{rel.evidence}”
+                  </p>
+                )}
+                {pinnedEdge !== null && (
+                  <p className="mt-1 text-[8.5px] text-muted-foreground/80">
+                    Pinned — click the background to release.
                   </p>
                 )}
               </div>

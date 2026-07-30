@@ -205,7 +205,12 @@ function BiPage() {
             "valueField",
             "Term frequency; weight by valueField when you have one",
           ],
-          [<C key="c">ontology</C>, "spec", "—", "Entity/relationship graph"],
+          [
+            <C key="c">ontology</C>,
+            "spec",
+            "—",
+            "AI-built knowledge graph: subject–predicate–object triples across datasets, warehouses and KB knowledge graphs; nodes and edges are clickable",
+          ],
         ]}
       />
       <Callout kind="why">

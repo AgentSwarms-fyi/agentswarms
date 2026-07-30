@@ -651,21 +651,42 @@ export function BiBuilderPane({
       }
 
       // …and content excerpts from the selected knowledge bases' documents.
-      let knowledgeBases: (OntoKb & { docExcerpts?: { name: string; excerpt: string }[] })[] = [];
+      type OntoKbInput = OntoKb & {
+        docExcerpts?: { name: string; excerpt: string }[];
+        graph?: {
+          entities: { name: string; type: string; description?: string; mentions: number }[];
+          triples: { subject: string; predicate: string; object: string }[];
+        };
+      };
+      let knowledgeBases: OntoKbInput[] = [];
       if (ontoKbSel === "all" || ontoKbSel.size > 0) {
         try {
           const list = await ensureOntoKbList();
           knowledgeBases = list.filter((k) => selHas(ontoKbSel, k.id));
           if (knowledgeBases.length > 0) {
-            const { data } = await supabase
-              .from("knowledge_documents")
-              .select("name, knowledge_base_id, content")
-              .in(
-                "knowledge_base_id",
-                knowledgeBases.map((k) => k.id),
-              )
-              .not("content", "is", null)
-              .limit(60);
+            const kbIds = knowledgeBases.map((k) => k.id);
+            const [{ data }, { data: gEnts }, { data: gRels }] = await Promise.all([
+              supabase
+                .from("knowledge_documents")
+                .select("name, knowledge_base_id, content")
+                .in("knowledge_base_id", kbIds)
+                .not("content", "is", null)
+                .limit(60),
+              // The KB's knowledge graph (Knowledge → Graph), when built:
+              // its entities become concept nodes, its subject–predicate–
+              // object triples become typed edges in the ontology.
+              supabase
+                .from("kb_graph_entities")
+                .select("id, name, type, description, mention_count, knowledge_base_id")
+                .in("knowledge_base_id", kbIds)
+                .order("mention_count", { ascending: false })
+                .limit(200),
+              supabase
+                .from("kb_graph_relations")
+                .select("source_entity_id, target_entity_id, predicate, knowledge_base_id")
+                .in("knowledge_base_id", kbIds)
+                .limit(600),
+            ]);
             const byKb = new Map<string, { name: string; excerpt: string }[]>();
             for (const doc of data ?? []) {
               const excerpt = (doc.content ?? "").trim().slice(0, 600);
@@ -674,9 +695,31 @@ export function BiBuilderPane({
               if (arr.length < 6) arr.push({ name: doc.name, excerpt });
               byKb.set(doc.knowledge_base_id, arr);
             }
+            const entName = new Map<string, string>();
+            const graphByKb = new Map<string, NonNullable<OntoKbInput["graph"]>>();
+            for (const ge of gEnts ?? []) {
+              entName.set(ge.id, ge.name);
+              const g = graphByKb.get(ge.knowledge_base_id) ?? { entities: [], triples: [] };
+              g.entities.push({
+                name: ge.name,
+                type: ge.type,
+                description: ge.description ?? undefined,
+                mentions: ge.mention_count ?? 0,
+              });
+              graphByKb.set(ge.knowledge_base_id, g);
+            }
+            for (const gr of gRels ?? []) {
+              const subject = entName.get(gr.source_entity_id);
+              const object = entName.get(gr.target_entity_id);
+              if (!subject || !object || !gr.predicate) continue;
+              graphByKb
+                .get(gr.knowledge_base_id)
+                ?.triples.push({ subject, predicate: gr.predicate, object });
+            }
             knowledgeBases = knowledgeBases.map((k) => ({
               ...k,
               docExcerpts: byKb.get(k.id) ?? [],
+              graph: graphByKb.get(k.id),
             }));
           }
         } catch {
