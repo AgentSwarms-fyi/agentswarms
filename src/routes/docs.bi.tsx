@@ -357,9 +357,26 @@ function BiPage() {
           isn't stale.
         </li>
         <li>
+          <strong>Incremental refresh</strong> — bind a date column and a window (7–365 days) in the
+          builder, and each refresh re-queries only the window while keeping older rows from the
+          last snapshot. Whole time buckets are recomputed, which is what keeps averages and
+          distinct counts correct. The assumption you sign up for: history outside the window no
+          longer changes — pick full re-query if old rows get edited.
+        </li>
+        <li>
           <strong>Scheduled reports</strong> — email a digest of the dashboard on a schedule.
         </li>
       </UL>
+      <Callout kind="why" title="Aggregate in SQL — complete totals on any table size">
+        A chart widget stores a capped snapshot (500 rows). On a large table, summing a capped
+        snapshot in the browser is a <em>partial</em> total — the number looks confident and is
+        quietly wrong. New widgets therefore aggregate in the database by default (a validated{" "}
+        <C>GROUP BY</C> compiled from the chart), so the warehouse returns complete grouped rows
+        instead of raw ones. Existing widgets are not switched automatically — turning it on can
+        change the number they display, which is the owner's call — they show a{" "}
+        <strong>Partial</strong> badge when their snapshot hit the cap, with an "Aggregate in SQL"
+        toggle in the widget menu.
+      </Callout>
       <P>
         On a self-hosted deployment these need the scheduler running — see{" "}
         <DocLink to="/docs/self-hosting">Install &amp; deploy</DocLink>.
@@ -384,6 +401,18 @@ function BiPage() {
         sanitised so their underlying queries aren't exposed, but the data on the page is visible to
         anyone holding the URL. Publish deliberately.
       </Callout>
+
+      <H3 id="restricted-shares">Row filters and hidden columns on shares</H3>
+      <P>
+        A dashboard grant (Admin → IAM → Access) can carry a <strong>row filter</strong> (the
+        grantee only sees rows where a column matches allowed values) and{" "}
+        <strong>hidden columns</strong> (columns removed entirely). Both are enforced{" "}
+        <em>server-side</em>: a grantee whose grant carries any restriction never reads stored
+        widget data directly — the server applies the filter and drops masked columns before
+        anything leaves it, on snapshots and on live direct queries alike. Semantics follow the rest
+        of IAM: one unrestricted grant (directly or via any group) makes the whole dashboard
+        visible, and a column is hidden only when <em>every</em> applicable grant hides it.
+      </P>
 
       <H2 id="lifecycle">Versioning and promotion</H2>
       <UL>

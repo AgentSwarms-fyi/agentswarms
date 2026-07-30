@@ -153,6 +153,16 @@ WHERE  o.status = 'settled'
   AND  o.is_refund = false
 GROUP BY 1, 2`}</Code>
 
+      <H3 id="joins">Joins — spanning a star schema</H3>
+      <P>
+        A model can declare up to eight <C>LEFT</C>/<C>INNER</C> joins from its source table, so
+        dimensions and metrics can reference related tables (<C>customers.segment</C> on an{" "}
+        <C>orders</C> fact) without pre-joining in a view or prep flow — the metric definition stays
+        the whole story. Table names and aliases are validated as strict identifiers; the <C>ON</C>{" "}
+        condition is authored by the model owner, the same trust as a dimension's SQL. Once a join
+        exists, qualify column names in your fragments.
+      </P>
+
       <H2 id="consumers">Who uses it</H2>
       <Table
         headers={["Consumer", "How"]}

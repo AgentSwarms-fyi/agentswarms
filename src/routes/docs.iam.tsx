@@ -155,6 +155,14 @@ function IamPage() {
         Because grants are enforced in row-level security, agent tools inherit them automatically —
         a shared table becomes queryable by that user's agents with no extra wiring.
       </P>
+      <P>
+        BI dashboard grants can additionally carry a <strong>row filter</strong> (the grantee only
+        sees rows where a column matches allowed values) and <strong>hidden columns</strong>{" "}
+        (removed from every result). Both are enforced server-side: a restricted grantee's data is
+        filtered and masked before it leaves the server, on stored snapshots and live queries alike.
+        Union semantics apply — one unrestricted grant makes the dashboard fully visible, and a
+        column is hidden only when every applicable grant hides it.
+      </P>
 
       <H2 id="signup">Signup policy and SSO</H2>
       <FieldList
