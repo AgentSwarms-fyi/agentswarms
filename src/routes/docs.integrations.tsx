@@ -85,9 +85,14 @@ function IntegrationsDoc() {
       <H2 id="gateway">LLM Gateway</H2>
       <P>
         The <em>LLM Gateway</em> tab points the platform at your own OpenAI-compatible gateway
-        (LiteLLM and similar): base URL, key, and a toggle to route traffic through it. This is the
-        enterprise pattern — one gateway, one bill, one place to enforce policy — practiced on a
-        learning platform.
+        (LiteLLM and similar): base URL, key, and two routing modes. <strong>Per-agent</strong>:
+        agents that enable &ldquo;Route through gateway&rdquo; in their tool settings use it, and
+        everything else talks to providers directly. <strong>Route all</strong>: every LLM call on
+        the account — chat, swarms, BI answers, embeds, skill generation, notebooks, model listings,
+        embeddings — goes through the gateway, which is the one-gateway-one-bill enterprise pattern
+        for real. Enabling either mode runs a live validation against the gateway first (auth
+        failures block activation; a gateway that doesn&apos;t expose <code>/models</code> is
+        tolerated).
       </P>
 
       <H2 id="n8n">n8n workflows</H2>
@@ -166,6 +171,18 @@ function IntegrationsDoc() {
         <li>
           <strong>Test connection</strong> stores its result and error on the connection, so you can
           see when something started failing rather than discovering it through a broken dashboard.
+        </li>
+        <li>
+          <strong>Scheduled health checks</strong> re-run the same live tests every 6 hours (set{" "}
+          <code>INTEGRATION_HEALTH_HOURS</code> to change, <code>0</code> to disable). A key revoked
+          upstream shows as a &ldquo;failing health checks&rdquo; badge, sends an in-app
+          notification, and lands in the audit trail — before an agent run trips over it. Health
+          results never auto-disable a connection.
+        </li>
+        <li>
+          Connecting, changing, or deleting any credential is recorded in the{" "}
+          <DocLink to="/docs/observability">audit trail</DocLink> — names, URLs and whether a secret
+          was rotated; never the secret itself.
         </li>
         <li>
           <strong>Disconnect</strong> asks for confirmation and tells you what depends on the

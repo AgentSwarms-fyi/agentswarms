@@ -79,6 +79,52 @@ async function loadLegacyConfig(userId: string, provider: ProviderId) {
 // URL + key so all traffic goes through LiteLLM/Portkey/Helicone/etc.
 export type GatewayOverride = { baseUrl: string; apiKey: string; provider?: string };
 
+/**
+ * Resolve the user's active LLM Gateway integration into a usable override.
+ *
+ * Two routing modes, matching the Integrations UI:
+ *  - per-agent opt-in (`tools.routeThroughGateway`): callers that know the
+ *    agent pass the resulting override explicitly (the chat route does this);
+ *  - `config.route_all === true`: EVERY LLM surface routes through the
+ *    gateway. `resolveOpenAICompatTransport` consults this itself, so BI,
+ *    embeds, skill generation, notebooks, model listings and embeddings are
+ *    covered without each call site knowing about gateways.
+ *
+ * With `requireRouteAll`, returns null unless route_all is set. Lookup
+ * failures return null (routing, not egress enforcement — a DB blip must not
+ * take every provider down), but are logged.
+ */
+export async function resolveUserGatewayOverride(
+  userId: string,
+  opts: { requireRouteAll?: boolean } = {},
+): Promise<GatewayOverride | null> {
+  try {
+    const { data: gw } = await supabaseAdmin
+      .from("integrations")
+      .select("config, is_active")
+      .eq("user_id", userId)
+      .eq("type", "llm_gateway")
+      .eq("is_active", true)
+      .maybeSingle();
+    if (!gw?.is_active || !gw.config) return null;
+    const cfg = (await resolveIntegrationConfig(
+      userId,
+      "llm_gateway",
+      gw.config as Record<string, unknown>,
+    )) as { base_url?: string; api_key?: string; provider?: string; route_all?: unknown };
+    if (opts.requireRouteAll && cfg.route_all !== true) return null;
+    if (!cfg.base_url || !cfg.api_key) return null;
+    return {
+      baseUrl: cfg.base_url.replace(/\/+$/, ""),
+      apiKey: cfg.api_key,
+      provider: cfg.provider,
+    };
+  } catch (e) {
+    console.warn("[gateway] override lookup failed:", (e as Error).message);
+    return null;
+  }
+}
+
 // Server-wide default: when a user hasn't connected their own OpenRouter key,
 // fall back to a single operator-configured OPENROUTER_API_KEY so the app
 // works zero-config out of the box (mirrors what `lovable_ai` used to do,
@@ -125,8 +171,14 @@ export async function resolveOpenAICompatTransport(args: {
   provider: ProviderId;
   gateway?: GatewayOverride;
 }): Promise<OpenAICompatTransport | null> {
-  const { userId, provider, gateway } = args;
+  const { userId, provider } = args;
   if (!OPENAI_COMPAT_PROVIDERS.has(provider)) return null;
+
+  // Gateway resolution: an explicit override from the caller (per-agent
+  // opt-in) wins; otherwise honor the user's "route all LLM traffic" gateway
+  // setting here, at the one chokepoint every OpenAI-compat surface shares.
+  const gateway =
+    args.gateway ?? (await resolveUserGatewayOverride(userId, { requireRouteAll: true }));
 
   // Gateway override short-circuits per-provider creds — every gateway we
   // support (LiteLLM/Portkey/Helicone) speaks OpenAI Chat Completions.

@@ -983,6 +983,9 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
     await import("@/utils/swarmWebhook.server")
       .then((m) => m.purgeIdempotencyRecords())
       .catch((e) => console.warn("[idempotency-purge] failed:", (e as Error).message));
+    await import("@/utils/integrations/health.server")
+      .then((m) => m.checkIntegrationHealth(force))
+      .catch((e) => console.warn("[integration-health] failed:", (e as Error).message));
     await import("@/utils/observability/retention.server")
       .then((m) => m.purgeTraces(force))
       .catch((e) => console.warn("[trace-retention] failed:", (e as Error).message));

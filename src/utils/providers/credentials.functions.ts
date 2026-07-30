@@ -19,7 +19,14 @@ import type {
   VertexCreds,
 } from "./types";
 
-const providerEnum = z.enum(["bedrock", "vertex", "anthropic", "azure_openai", "oci_genai", "qwen"]);
+const providerEnum = z.enum([
+  "bedrock",
+  "vertex",
+  "anthropic",
+  "azure_openai",
+  "oci_genai",
+  "qwen",
+]);
 
 const SaveSchema = z.object({
   provider: providerEnum,
@@ -94,10 +101,16 @@ export const saveProviderCredential = createServerFn({ method: "POST" })
       }
       case "vertex": {
         if (!data.vertex) throw new Error("Vertex fields required");
-        try { JSON.parse(data.vertex.serviceAccountJson); }
-        catch { throw new Error("Service account JSON is not valid JSON"); }
+        try {
+          JSON.parse(data.vertex.serviceAccountJson);
+        } catch {
+          throw new Error("Service account JSON is not valid JSON");
+        }
         credsPayload = { serviceAccountJson: data.vertex.serviceAccountJson } satisfies VertexCreds;
-        configPayload = { projectId: data.vertex.projectId, location: data.vertex.location } satisfies VertexConfig;
+        configPayload = {
+          projectId: data.vertex.projectId,
+          location: data.vertex.location,
+        } satisfies VertexConfig;
         break;
       }
       case "anthropic": {
@@ -146,22 +159,31 @@ export const saveProviderCredential = createServerFn({ method: "POST" })
 
     const enc = await encryptJson(credsPayload);
 
-    const { error } = await (supabaseAdmin.from("provider_credentials") as any)
-      .upsert(
-        {
-          user_id: userId,
-          provider: data.provider,
-          label: data.label || "",
-          default_model: data.defaultModel || null,
-          credentials: enc as unknown as Record<string, unknown>,
-          config: configPayload,
-          last_test_status: null,
-          last_test_error: null,
-          last_tested_at: null,
-        },
-        { onConflict: "user_id,provider" },
-      );
+    const { error } = await (supabaseAdmin.from("provider_credentials") as any).upsert(
+      {
+        user_id: userId,
+        provider: data.provider,
+        label: data.label || "",
+        default_model: data.defaultModel || null,
+        credentials: enc as unknown as Record<string, unknown>,
+        config: configPayload,
+        last_test_status: null,
+        last_test_error: null,
+        last_tested_at: null,
+      },
+      { onConflict: "user_id,provider" },
+    );
     if (error) throw new Error(error.message);
+    // Service-role write — the client-write DB trigger skips it, so this path
+    // must self-audit. Names and non-secret config only, never key material.
+    const { auditEvent } = await import("@/utils/audit.server");
+    auditEvent({
+      userId,
+      action: "provider_credential.save",
+      resourceType: "provider_credential",
+      resourceName: data.provider,
+      detail: { provider: data.provider, label: data.label || "", ...configPayload },
+    });
     return { ok: true };
   });
 
@@ -173,7 +195,9 @@ export const listProviderCredentials = createServerFn({ method: "POST" })
     const { userId } = context;
     const { data, error } = await supabaseAdmin
       .from("provider_credentials")
-      .select("id, provider, label, default_model, config, last_test_status, last_test_error, last_tested_at, created_at, updated_at")
+      .select(
+        "id, provider, label, default_model, config, last_test_status, last_test_error, last_tested_at, created_at, updated_at",
+      )
       .eq("user_id", userId);
     if (error) throw new Error(error.message);
     return { credentials: data ?? [] };
@@ -192,6 +216,14 @@ export const deleteProviderCredential = createServerFn({ method: "POST" })
       .eq("user_id", userId)
       .eq("provider", data.provider);
     if (error) throw new Error(error.message);
+    const { auditEvent } = await import("@/utils/audit.server");
+    auditEvent({
+      userId,
+      action: "provider_credential.delete",
+      resourceType: "provider_credential",
+      resourceName: data.provider,
+      detail: { provider: data.provider },
+    });
     return { ok: true };
   });
 
@@ -218,7 +250,10 @@ export const testProviderCredential = createServerFn({ method: "POST" })
     try {
       switch (data.provider) {
         case "bedrock":
-          if (!(decrypted as BedrockCreds).accessKeyId || !(decrypted as BedrockCreds).secretAccessKey)
+          if (
+            !(decrypted as BedrockCreds).accessKeyId ||
+            !(decrypted as BedrockCreds).secretAccessKey
+          )
             throw new Error("Missing access key id / secret");
           if (!(config as BedrockConfig).region) throw new Error("Missing region");
           break;
@@ -244,7 +279,10 @@ export const testProviderCredential = createServerFn({ method: "POST" })
           if (!c.privateKeyPem?.includes("PRIVATE KEY")) throw new Error("Missing PEM private key");
           const cfg = config as OCIConfig;
           if (!cfg.region) throw new Error("Missing region");
-          if (!cfg.compartmentId?.startsWith("ocid1.compartment.") && !cfg.compartmentId?.startsWith("ocid1.tenancy."))
+          if (
+            !cfg.compartmentId?.startsWith("ocid1.compartment.") &&
+            !cfg.compartmentId?.startsWith("ocid1.tenancy.")
+          )
             throw new Error("Invalid compartmentId");
           break;
         }

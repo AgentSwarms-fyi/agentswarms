@@ -30,8 +30,9 @@ export function integrationSecretFields(type: string): string[] {
 /**
  * Encrypt literal secret values in a config for storage. For each secret field:
  * a non-empty literal is moved to `<field>_enc` (plaintext dropped); a
- * {{secret:NAME}} reference is kept in place; an empty/absent value is left
- * untouched so callers can implement "blank = keep existing".
+ * {{secret:NAME}} reference is kept in place; an empty string is REMOVED (it
+ * only ever means "keep the existing secret" — persisting it would leave a
+ * vestigial plaintext field sitting next to the ciphertext at rest).
  */
 export async function encryptIntegrationConfig(
   type: string,
@@ -43,6 +44,8 @@ export async function encryptIntegrationConfig(
     delete out[`${f}_enc`]; // clear any stale ciphertext
     if (typeof v === "string" && v.length > 0 && !containsSecretRef(v)) {
       out[`${f}_enc`] = await encryptJson(v);
+      delete out[f];
+    } else if (typeof v === "string" && v.length === 0) {
       delete out[f];
     }
   }

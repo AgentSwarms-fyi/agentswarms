@@ -1353,13 +1353,21 @@ export const Route = createFileRoute("/api/chat")({
                   .eq("type", "llm_gateway")
                   .eq("is_active", true)
                   .maybeSingle();
-                if (agentRouteThroughGateway && gw?.is_active && gw.config) {
+                if (gw?.is_active && gw.config) {
                   const cfg = (await resolveIntegrationConfig(
                     userId,
                     "llm_gateway",
                     gw.config as Record<string, unknown>,
-                  )) as { base_url?: string; api_key?: string; provider?: string };
-                  if (cfg.base_url && cfg.api_key) {
+                  )) as {
+                    base_url?: string;
+                    api_key?: string;
+                    provider?: string;
+                    route_all?: unknown;
+                  };
+                  // Route when the agent opted in OR the gateway is set to
+                  // route ALL traffic (the switch on the Integrations page).
+                  const shouldRoute = agentRouteThroughGateway || cfg.route_all === true;
+                  if (shouldRoute && cfg.base_url && cfg.api_key) {
                     gatewayOverride = {
                       baseUrl: cfg.base_url.replace(/\/+$/, ""),
                       apiKey: cfg.api_key,

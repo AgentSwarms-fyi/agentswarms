@@ -260,6 +260,14 @@ one pass runs at a time (extra callers get `{"skipped": true}`).
     -H "Authorization: Bearer $BI_CRON_TOKEN"
   ```
 
+The scheduled pass also **re-validates Integration Hub credentials** (LLM
+provider keys, the LLM gateway, n8n, Firecrawl) every 6 hours with the same
+cheap live tests used at save time, so a key revoked upstream surfaces as a
+"failing health checks" badge, an in-app notification and an audit event
+instead of a failed agent run. Tune with `INTEGRATION_HEALTH_HOURS` (default
+`6`; set `0` to disable). Checks are bounded (max 10 per pass, short
+timeouts) and never auto-disable a connection.
+
 ### Health checks
 - `GET /api/health` → `200` **liveness** — the process is up and serving. No
   database work, so it stays green even if Postgres is unreachable. Use it for

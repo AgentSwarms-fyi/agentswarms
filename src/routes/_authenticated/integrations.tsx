@@ -44,6 +44,7 @@ import {
   testIntegrationKey,
   testN8nInstance,
   testFirecrawlKey,
+  testLlmGateway,
   saveIntegration,
 } from "@/utils/integrations.functions";
 import { saveProviderCredential } from "@/utils/providers/credentials.functions";
@@ -561,6 +562,10 @@ function IntegrationsPage() {
   const [gatewayKey, setGatewayKey] = useState("");
   const [gatewayProvider, setGatewayProvider] = useState("litellm");
   const [gatewayRoute, setGatewayRoute] = useState(false);
+  const [gatewayRouteAll, setGatewayRouteAll] = useState(false);
+  const [gatewayHasKey, setGatewayHasKey] = useState(false);
+  const [gatewayTesting, setGatewayTesting] = useState(false);
+  const [gatewayStatus, setGatewayStatus] = useState<{ ok: boolean; detail: string } | null>(null);
   const [n8nUrl, setN8nUrl] = useState("");
   const [n8nToken, setN8nToken] = useState("");
   const [n8nAuthType, setN8nAuthType] = useState("header");
@@ -621,9 +626,13 @@ function IntegrationsPage() {
     if (gw) {
       const c = gw.config as Record<string, any>;
       setGatewayUrl(c?.base_url || "");
-      setGatewayKey(c?.api_key || "");
+      // The key is write-only: encrypted rows never ship it back, and legacy
+      // plaintext rows are no longer pre-filled into the form either.
+      setGatewayKey("");
+      setGatewayHasKey(Boolean(c?.api_key_enc || c?.api_key));
       setGatewayProvider(c?.provider || "litellm");
       setGatewayRoute(gw.is_active);
+      setGatewayRouteAll(c?.route_all === true);
     }
     const n8n = merged.find((i) => i.type === "n8n");
     if (n8n) {
@@ -794,6 +803,36 @@ function IntegrationsPage() {
       toast.error("Your session expired. Please sign in again.");
       return;
     }
+    if (!gatewayUrl.trim()) {
+      toast.error("Gateway base URL is required");
+      return;
+    }
+    setGatewayTesting(true);
+    setGatewayStatus(null);
+
+    // Activating a gateway (especially route-all) can redirect every LLM call
+    // on this account, so ENABLING requires a passing live test — the same
+    // honesty bar as every other connector. A disabled gateway saves untested
+    // (parked config). Blank key = server tests against the saved key.
+    let activate = gatewayRoute;
+    let testResult: { ok: boolean; detail: string } | null = null;
+    if (gatewayRoute) {
+      try {
+        testResult = await testLlmGateway({
+          data: {
+            access_token: session.access_token,
+            base_url: gatewayUrl,
+            api_key: gatewayKey,
+            provider: gatewayProvider,
+          },
+        });
+      } catch (e) {
+        testResult = { ok: false, detail: e instanceof Error ? e.message : "Test request failed" };
+      }
+      setGatewayStatus(testResult);
+      if (!testResult.ok) activate = false;
+    }
+
     const existing = integrations.find((i) => i.type === "llm_gateway");
     // api_key is encrypted server-side; leaving the key field blank on an
     // existing gateway keeps the previously-saved key.
@@ -804,15 +843,30 @@ function IntegrationsPage() {
         type: "llm_gateway",
         provider: gatewayProvider,
         name: "LLM Gateway",
-        config: { base_url: gatewayUrl, api_key: gatewayKey, provider: gatewayProvider },
-        is_active: gatewayRoute,
+        config: {
+          base_url: gatewayUrl,
+          api_key: gatewayKey,
+          provider: gatewayProvider,
+          route_all: gatewayRouteAll,
+        },
+        is_active: activate,
       },
     });
+    setGatewayTesting(false);
     if (!res.ok) {
       toast.error(`Could not save gateway: ${res.error}`);
       return;
     }
-    toast.success("Gateway saved");
+    if (gatewayRoute && testResult && !testResult.ok) {
+      setGatewayRoute(false);
+      toast.error(`Gateway saved but left disabled — validation failed: ${testResult.detail}`);
+    } else if (activate) {
+      toast.success(`Gateway connected — ${testResult?.detail ?? "saved"}`);
+    } else {
+      toast.success("Gateway saved (disabled)");
+    }
+    if (gatewayKey.trim()) setGatewayHasKey(true);
+    setGatewayKey("");
     loadIntegrations();
   }
 
@@ -925,6 +979,15 @@ function IntegrationsPage() {
   const isProviderActive = (id: string) =>
     integrations.some((i) => i.provider === id && i.is_active);
   const isProviderSaved = (id: string) => integrations.some((i) => i.provider === id);
+  // Scheduled health checks stamp health_status/health_detail into config
+  // (see utils/integrations/health.server.ts). Non-null = last check FAILED.
+  const healthErrorFor = (match: (i: Integration) => boolean): string | null => {
+    const i = integrations.find((x) => match(x) && x.is_active);
+    if (!i || i.config?.health_status !== "error") return null;
+    return String(i.config?.health_detail || "The last scheduled credential check failed.");
+  };
+  const providerHealthError = (id: string) =>
+    healthErrorFor((i) => i.provider === id && i.type === "llm_provider");
 
   return (
     <div className="flex">
@@ -993,9 +1056,19 @@ function IntegrationsPage() {
                     </div>
                     <p className="text-xs text-muted-foreground">{provider.description}</p>
                     {isProviderActive(provider.id) ? (
-                      <Badge variant="outline" className="w-fit text-primary border-primary/30">
-                        <Check className="h-3 w-3 mr-1" /> Connected
-                      </Badge>
+                      providerHealthError(provider.id) ? (
+                        <Badge
+                          variant="outline"
+                          className="w-fit text-warning border-warning/40"
+                          title={providerHealthError(provider.id) ?? undefined}
+                        >
+                          <X className="h-3 w-3 mr-1" /> Connected — key failing health checks
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="w-fit text-primary border-primary/30">
+                          <Check className="h-3 w-3 mr-1" /> Connected
+                        </Badge>
+                      )
                     ) : isProviderSaved(provider.id) ? (
                       <Badge variant="outline" className="w-fit text-warning border-warning/40">
                         <X className="h-3 w-3 mr-1" /> Saved — last test failed
@@ -1033,8 +1106,11 @@ function IntegrationsPage() {
               <CardHeader>
                 <CardTitle>LLM Gateway</CardTitle>
                 <CardDescription>
-                  Route all LLM traffic through a centralized gateway for logging, caching, and rate
-                  limiting.
+                  Route LLM traffic through a centralized gateway (LiteLLM, Portkey, Helicone, or
+                  any OpenAI-compatible proxy) for logging, caching, and rate limiting. Two modes:
+                  agents can opt in individually (agent editor → &ldquo;Route through
+                  gateway&rdquo;), or flip the switch below to route <em>every</em> LLM call from
+                  every surface.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -1065,7 +1141,9 @@ function IntegrationsPage() {
                   <Label>Gateway API Key</Label>
                   <Input
                     type="password"
-                    placeholder="gw-key-..."
+                    placeholder={
+                      gatewayHasKey ? "(a key is saved — leave blank to keep it)" : "gw-key-..."
+                    }
                     value={gatewayKey}
                     onChange={(e) => setGatewayKey(e.target.value)}
                   />
@@ -1075,14 +1153,66 @@ function IntegrationsPage() {
                 </div>
                 <div className="flex items-center justify-between">
                   <div>
-                    <Label>Route all LLM traffic through Gateway</Label>
+                    <Label>Enable gateway</Label>
                     <p className="text-xs text-muted-foreground">
-                      All agent requests will be proxied through this gateway
+                      Agents with &ldquo;Route through gateway&rdquo; in their tool settings will
+                      use it. Enabling runs a live validation first.
                     </p>
                   </div>
                   <Switch checked={gatewayRoute} onCheckedChange={setGatewayRoute} />
                 </div>
-                <Button onClick={saveGateway}>Save Gateway</Button>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label>Route ALL LLM traffic</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Every LLM call on this account — chat, swarms, BI answers, embeds, skill
+                      generation, notebooks, model listings and embeddings — goes through the
+                      gateway. Your gateway must be able to route every model you use.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={gatewayRouteAll}
+                    onCheckedChange={setGatewayRouteAll}
+                    disabled={!gatewayRoute}
+                  />
+                </div>
+                {gatewayStatus && (
+                  <div
+                    className={`rounded-md border p-2.5 ${gatewayStatus.ok ? "border-primary/30 bg-primary/5" : "border-destructive/40 bg-destructive/10"}`}
+                  >
+                    <p
+                      className={`text-xs font-semibold flex items-center gap-1.5 ${gatewayStatus.ok ? "text-primary" : "text-destructive"}`}
+                    >
+                      {gatewayStatus.ok ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
+                      {gatewayStatus.ok ? "Gateway validated" : "Validation failed"}
+                    </p>
+                    <p
+                      className={`text-xs mt-0.5 ${gatewayStatus.ok ? "text-muted-foreground" : "text-destructive/90 font-mono break-words"}`}
+                    >
+                      {gatewayStatus.detail}
+                    </p>
+                  </div>
+                )}
+                {!gatewayStatus && healthErrorFor((i) => i.type === "llm_gateway") && (
+                  <Badge
+                    variant="outline"
+                    className="w-fit text-warning border-warning/40"
+                    title={healthErrorFor((i) => i.type === "llm_gateway") ?? undefined}
+                  >
+                    <X className="h-3 w-3 mr-1" /> Gateway failing health checks
+                  </Badge>
+                )}
+                <Button onClick={saveGateway} disabled={gatewayTesting}>
+                  {gatewayTesting ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" /> Validating…
+                    </>
+                  ) : gatewayRoute ? (
+                    "Validate & Save"
+                  ) : (
+                    "Save (disabled)"
+                  )}
+                </Button>
               </CardContent>
             </Card>
           </TabsContent>
@@ -1151,11 +1281,20 @@ function IntegrationsPage() {
                   </div>
                 )}
                 {integrations.find((i) => i.type === "firecrawl" && i.is_active) &&
-                  !firecrawlStatus && (
+                  !firecrawlStatus &&
+                  (healthErrorFor((i) => i.type === "firecrawl") ? (
+                    <Badge
+                      variant="outline"
+                      className="w-fit text-warning border-warning/40"
+                      title={healthErrorFor((i) => i.type === "firecrawl") ?? undefined}
+                    >
+                      <X className="h-3 w-3 mr-1" /> Connected — key failing health checks
+                    </Badge>
+                  ) : (
                     <Badge variant="outline" className="w-fit text-primary border-primary/30">
                       <Check className="h-3 w-3 mr-1" /> Currently connected
                     </Badge>
-                  )}
+                  ))}
                 <Button onClick={saveFirecrawl} disabled={firecrawlTesting}>
                   {firecrawlTesting ? (
                     <>
@@ -1236,11 +1375,21 @@ function IntegrationsPage() {
                     </p>
                   </div>
                 )}
-                {integrations.find((i) => i.type === "n8n" && i.is_active) && !n8nStatus && (
-                  <Badge variant="outline" className="w-fit text-primary border-primary/30">
-                    <Check className="h-3 w-3 mr-1" /> Currently connected
-                  </Badge>
-                )}
+                {integrations.find((i) => i.type === "n8n" && i.is_active) &&
+                  !n8nStatus &&
+                  (healthErrorFor((i) => i.type === "n8n") ? (
+                    <Badge
+                      variant="outline"
+                      className="w-fit text-warning border-warning/40"
+                      title={healthErrorFor((i) => i.type === "n8n") ?? undefined}
+                    >
+                      <X className="h-3 w-3 mr-1" /> Connected — instance failing health checks
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="w-fit text-primary border-primary/30">
+                      <Check className="h-3 w-3 mr-1" /> Currently connected
+                    </Badge>
+                  ))}
                 <Button onClick={saveN8n} disabled={n8nTesting || !n8nUrl}>
                   {n8nTesting ? (
                     <>
