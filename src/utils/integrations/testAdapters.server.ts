@@ -446,6 +446,82 @@ export async function testFirecrawlCore(apiKey: string): Promise<TestResult> {
   }
 }
 
+// ── Notification channels (Slack / Teams / Discord / generic webhook) ──────
+
+export const NOTIFICATION_PROVIDERS = ["slack", "teams", "discord", "webhook"] as const;
+export type NotificationProvider = (typeof NOTIFICATION_PROVIDERS)[number];
+
+export type NotificationMessage = { title: string; body: string; link?: string };
+
+/**
+ * Post one message to a notification channel. One payload builder per
+ * provider, shared by the save-time test, the alert mirror (notify.server.ts)
+ * and the send_notification agent tool — so a test pass means real sends work.
+ * The webhook URL is a capability URL (possession = permission to post), so it
+ * is stored encrypted and the fetch is SSRF-guarded.
+ */
+export async function postNotification(
+  provider: string,
+  webhookUrl: string,
+  msg: NotificationMessage,
+): Promise<TestResult> {
+  const url = clean(webhookUrl);
+  if (!url) return { ok: false, detail: "Webhook URL is required" };
+  if (!/^https?:\/\//i.test(url)) {
+    return { ok: false, detail: "URL must start with http:// or https://" };
+  }
+  const title = msg.title.slice(0, 200);
+  const body = msg.body.slice(0, 2000);
+  let payload: Record<string, unknown>;
+  switch (provider) {
+    case "slack":
+      payload = { text: `*${title}*\n${body}${msg.link ? `\n${msg.link}` : ""}` };
+      break;
+    case "teams":
+      payload = { text: `**${title}**<br>${body}${msg.link ? `<br>${msg.link}` : ""}` };
+      break;
+    case "discord":
+      payload = { content: `**${title}**\n${body}${msg.link ? `\n${msg.link}` : ""}` };
+      break;
+    case "webhook":
+      payload = {
+        event: "agentswarms.notification",
+        title,
+        body,
+        link: msg.link ?? null,
+        timestamp: new Date().toISOString(),
+      };
+      break;
+    default:
+      return { ok: false, detail: `Unknown notification provider: ${provider}` };
+  }
+  try {
+    const r = await guardedFetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (r.ok) return { ok: true, detail: `Delivered to ${provider} (HTTP ${r.status})` };
+    return fmtFail(provider, r, await extractUpstreamError(r));
+  } catch (e) {
+    return {
+      ok: false,
+      detail: `Could not reach the ${provider} webhook: ${(e as Error).message}`,
+    };
+  }
+}
+
+/** Save-time validation: posts a visible test message to the channel. */
+export async function testNotificationCore(
+  provider: string,
+  webhookUrl: string,
+): Promise<TestResult> {
+  return postNotification(provider, webhookUrl, {
+    title: "AgentSwarms connected",
+    body: "This channel will receive agent notifications and system alerts.",
+  });
+}
+
 /**
  * Live-test an LLM gateway (LiteLLM / Portkey / Helicone / custom) via the
  * OpenAI-compat GET /models probe, with the same base URL + bearer key the

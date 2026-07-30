@@ -125,6 +125,67 @@ export async function resolveUserGatewayOverride(
   }
 }
 
+// ── Org-shared credentials (IAM grants) ────────────────────────────────────
+// A superadmin can grant another user's LLM credential to a user or group
+// (resource_type 'integration' for the integrations table, 'provider_credential'
+// for the encrypted signed-request store). Grantees can USE the credential —
+// these fallbacks run strictly AFTER the caller's own key misses — but can
+// never read it: RLS on both tables is untouched, and decryption (including
+// {{secret:NAME}} refs) happens against the OWNER, server-side only.
+
+async function grantedIdsFor(
+  userId: string,
+  type: "integration" | "provider_credential",
+): Promise<Set<string>> {
+  try {
+    const { resolveGrantedResourceIds } = await import("@/utils/iam.server");
+    return await resolveGrantedResourceIds(supabaseAdmin, userId, type);
+  } catch (e) {
+    console.warn("[shared-creds] grant lookup failed:", (e as Error).message);
+    return new Set();
+  }
+}
+
+/** A credential from the integrations table granted to this user via IAM. */
+async function loadGrantedLegacyConfig(userId: string, provider: ProviderId) {
+  const ids = await grantedIdsFor(userId, "integration");
+  if (ids.size === 0) return null;
+  const { data } = await supabaseAdmin
+    .from("integrations")
+    .select("config, is_active, updated_at, user_id")
+    .in("id", [...ids])
+    .eq("type", "llm_provider")
+    .eq("provider", provider)
+    .eq("is_active", true)
+    .order("updated_at", { ascending: false });
+  const row = data?.[0];
+  if (!row) return null;
+  // Decrypt with the OWNER's identity — their ciphertext, their secret refs.
+  return {
+    ...row,
+    config: await resolveIntegrationConfig(
+      row.user_id,
+      "llm_provider",
+      (row.config ?? {}) as Record<string, unknown>,
+    ),
+  };
+}
+
+/** Own encrypted credential first, then one granted via IAM. */
+export async function loadCredentialRowShared(userId: string, provider: ProviderId) {
+  const own = await loadCredentialRow(userId, provider).catch(() => null);
+  if (own) return own;
+  const ids = await grantedIdsFor(userId, "provider_credential");
+  if (ids.size === 0) return null;
+  const { data } = await supabaseAdmin
+    .from("provider_credentials")
+    .select("credentials, config, default_model")
+    .in("id", [...ids])
+    .eq("provider", provider)
+    .limit(1);
+  return data?.[0] ?? null;
+}
+
 // Server-wide default: when a user hasn't connected their own OpenRouter key,
 // fall back to a single operator-configured OPENROUTER_API_KEY so the app
 // works zero-config out of the box (mirrors what `lovable_ai` used to do,
@@ -189,7 +250,11 @@ export async function resolveOpenAICompatTransport(args: {
     };
   }
 
-  const row = await loadLegacyConfig(userId, provider);
+  let row = await loadLegacyConfig(userId, provider);
+  // Own key first; an IAM-granted credential second; env fallback last.
+  if (!row || !row.is_active) {
+    row = await loadGrantedLegacyConfig(userId, provider);
+  }
   if (!row || !row.is_active) {
     // No user-saved OpenRouter key — fall back to the operator's shared
     // OPENROUTER_API_KEY (if configured) so OpenRouter can act as the
@@ -319,7 +384,11 @@ async function streamLegacyProvider(args: {
 }): Promise<Response> {
   const { userId, provider, modelId, systemPrompt, messages, temperature, maxTokens, gateway } =
     args;
-  const row = await loadLegacyConfig(userId, provider);
+  let row = await loadLegacyConfig(userId, provider);
+  // Own key first; an IAM-granted credential second; env fallback last.
+  if (!row || !row.is_active) {
+    row = await loadGrantedLegacyConfig(userId, provider);
+  }
   if (!row || !row.is_active) {
     if (provider === "openrouter") {
       const envKey = getEnvOpenRouterKey();
@@ -625,9 +694,10 @@ export async function getProviderDefaultModel(
   userId: string,
   provider: ProviderId,
 ): Promise<string | null> {
-  const cred = await loadCredentialRow(userId, provider).catch(() => null);
+  const cred = await loadCredentialRowShared(userId, provider).catch(() => null);
   if (cred?.default_model) return cred.default_model;
-  const legacy = await loadLegacyConfig(userId, provider).catch(() => null);
+  let legacy = await loadLegacyConfig(userId, provider).catch(() => null);
+  if (!legacy?.is_active) legacy = await loadGrantedLegacyConfig(userId, provider);
   const cfg = (legacy?.config ?? {}) as Record<string, unknown>;
   if (typeof cfg.default_model === "string" && cfg.default_model) return cfg.default_model;
   if (typeof cfg.model === "string" && cfg.model) return cfg.model;
@@ -682,7 +752,8 @@ export async function streamWithProvider(args: {
     });
   }
 
-  const row = await loadCredentialRow(userId, provider);
+  // Own encrypted credential first, then one shared with this user via IAM.
+  const row = await loadCredentialRowShared(userId, provider);
   if (!row)
     throw new Error(`No ${provider} credentials configured. Add them in Provider Integrations.`);
   const decrypted = await decryptJson<Record<string, unknown>>(

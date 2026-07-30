@@ -95,6 +95,28 @@ function IntegrationsDoc() {
         tolerated).
       </P>
 
+      <H2 id="shared">Shared credentials (teams)</H2>
+      <P>
+        A superadmin can grant one user&apos;s LLM credential to other users or groups under{" "}
+        <DocLink to="/admin/iam">Admin → IAM</DocLink> (resource types &ldquo;LLM key&rdquo; and
+        &ldquo;LLM credential&rdquo;) — the enterprise pattern of one provisioned Bedrock/OpenAI
+        credential for a whole team. Resolution is own-key-first: a grantee&apos;s own connection
+        always wins, then a granted credential, then the operator&apos;s env default. Grantees can{" "}
+        <em>use</em> a shared credential — it resolves server-side at call time and shows as
+        &ldquo;Shared with you&rdquo; on the Integrations page — but can never read it, and every
+        call still runs under the caller&apos;s own model rules, budgets and traces.
+      </P>
+
+      <H2 id="notifications">Notification channels</H2>
+      <P>
+        The <em>Notifications</em> tab connects Slack, Microsoft Teams, Discord, or any custom
+        webhook. Connected channels receive system alerts (failing credential health checks,
+        scheduled-refresh errors, BI data alerts) alongside the in-app notification bell, and power
+        the <code>send_notification</code> agent tool (enable it per agent under Agent Builder →
+        Tools → Automation). Saving posts a visible test message first; webhook URLs are capability
+        URLs, so they are encrypted at rest and never shown again.
+      </P>
+
       <H2 id="n8n">n8n workflows</H2>
       <P>
         The <em>n8n Workflows</em> tab connects an n8n instance by webhook URL and token, letting
@@ -149,6 +171,13 @@ function IntegrationsDoc() {
             </DocLink>,
           ],
           [
+            "Notifications",
+            "Slack, Microsoft Teams, Discord, custom webhooks — system alerts + the send_notification agent tool",
+            <DocLink key="f" to="/docs/agents">
+              Agent Builder → Tools
+            </DocLink>,
+          ],
+          [
             "MCP servers",
             "Any Streamable HTTP MCP endpoint",
             <DocLink key="e" to="/docs/mcp">
@@ -157,6 +186,14 @@ function IntegrationsDoc() {
           ],
         ]}
       />
+
+      <Note>
+        SaaS tools (Google Drive, Jira, GitHub, CRMs…) connect through{" "}
+        <DocLink to="/docs/mcp">MCP servers</DocLink> or n8n workflows — that is the deliberate
+        strategy, not a gap in the catalog. Native per-provider OAuth connectors would require every
+        operator to register their own OAuth apps with each vendor, so they are not shipped in the
+        self-hosted build.
+      </Note>
 
       <H2 id="credentials">Credential handling</H2>
       <UL>

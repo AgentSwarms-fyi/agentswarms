@@ -112,7 +112,12 @@ export function isModelAllowed(rules: ModelRule[], provider: string, model: stri
 export async function resolveGrantedResourceIds(
   sb: SupabaseClient<Database>,
   userId: string,
-  resourceType: "data_table" | "knowledge_base" | "semantic_model",
+  resourceType:
+    | "data_table"
+    | "knowledge_base"
+    | "semantic_model"
+    | "integration"
+    | "provider_credential",
 ): Promise<Set<string>> {
   const [{ data: memberships }, { data: grants }] = await Promise.all([
     sb.from("iam_group_members").select("group_id").eq("user_id", userId),

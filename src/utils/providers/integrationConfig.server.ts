@@ -19,6 +19,9 @@ const SECRET_FIELDS: Record<string, string[]> = {
   llm_gateway: ["api_key"],
   n8n: ["webhook_token"],
   firecrawl: ["api_key"],
+  // The webhook URL IS the secret for notification channels — possession of a
+  // Slack/Teams/Discord incoming-webhook URL is permission to post to it.
+  notification: ["webhook_url"],
 };
 
 type EncBlob = { ciphertext?: string; iv?: string };

@@ -122,18 +122,12 @@ async function recordResult(row: CandidateRow, result: TestResult): Promise<void
       resourceName: label,
       detail: { type: row.type, provider: row.provider, detail: result.detail.slice(0, 300) },
     });
-    await supabaseAdmin
-      .from("notifications")
-      .insert({
-        user_id: row.user_id,
-        kind: "alert",
-        title: `Integration "${label}" is failing health checks`,
-        body: result.detail.slice(0, 300),
-        link: "/integrations",
-      })
-      .then(({ error }) => {
-        if (error) console.warn("[integration-health] notify failed:", error.message);
-      });
+    const { notifyUser } = await import("@/utils/notify.server");
+    await notifyUser(row.user_id, {
+      title: `Integration "${label}" is failing health checks`,
+      body: result.detail.slice(0, 300),
+      link: "/integrations",
+    });
   } else if (status === "ok" && prev === "error") {
     auditEvent({
       userId: row.user_id,
@@ -225,4 +219,61 @@ export async function checkIntegrationHealth(
   }
   if (checked > 0) console.log(`[integration-health] checked ${checked} integration(s)`);
   return checked;
+}
+
+// ── One-time re-encryption sweep for legacy plaintext secrets ──────────────
+// Rows saved before at-rest encryption keep working via the read-both
+// fallback, but their plaintext key ships to the browser on every
+// integrations SELECT until re-saved. This retires that exposure without
+// waiting for a manual re-save: any secret field found as a non-empty
+// plaintext literal (not a {{secret:NAME}} reference) is encrypted in place.
+// Runs at most once a day per process, bounded, and NEVER touches rows that
+// are already ciphertext-only (dropping their `_enc` would destroy the key).
+
+let lastSweep = 0;
+const SWEEP_INTERVAL_MS = 24 * 3_600_000;
+const SWEEP_TYPES = ["llm_provider", "llm_gateway", "n8n", "firecrawl", "notification"];
+
+export async function sweepPlaintextSecrets(force = false): Promise<number> {
+  const now = Date.now();
+  if (!force && now - lastSweep < SWEEP_INTERVAL_MS) return 0;
+  lastSweep = now;
+  try {
+    const { encryptIntegrationConfig, preserveBlankSecrets, integrationSecretFields } =
+      await import("@/utils/providers/integrationConfig.server");
+    const { containsSecretRef } = await import("@/utils/secrets.server");
+    const { data: rows, error } = await supabaseAdmin
+      .from("integrations")
+      .select("id, type, config")
+      .in("type", SWEEP_TYPES)
+      .limit(500);
+    if (error || !rows) return 0;
+    let swept = 0;
+    for (const r of rows) {
+      const cfg =
+        r.config && typeof r.config === "object" && !Array.isArray(r.config)
+          ? (r.config as Record<string, unknown>)
+          : {};
+      const needs = integrationSecretFields(r.type).some((f) => {
+        const v = cfg[f];
+        return typeof v === "string" && v.length > 0 && !containsSecretRef(v);
+      });
+      if (!needs) continue;
+      let next = await encryptIntegrationConfig(r.type, cfg);
+      // Belt-and-braces: restore ciphertext for any secret field that had no
+      // plaintext value, so the sweep can never lose a stored key.
+      next = preserveBlankSecrets(r.type, next, cfg);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error: upErr } = await (supabaseAdmin.from("integrations") as any)
+        .update({ config: next })
+        .eq("id", r.id);
+      if (!upErr) swept++;
+    }
+    if (swept > 0)
+      console.log(`[integration-sweep] re-encrypted ${swept} legacy plaintext secret(s)`);
+    return swept;
+  } catch (e) {
+    console.warn("[integration-sweep] failed:", (e as Error).message);
+    return 0;
+  }
 }

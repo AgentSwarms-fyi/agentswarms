@@ -831,6 +831,82 @@ export const n8nListWorkflowsTool: ToolDef = {
   },
 };
 
+// ============================================================================
+// send_notification — post to the user's connected notification channels
+// ============================================================================
+export const sendNotificationTool: ToolDef = {
+  type: "function",
+  function: {
+    name: "send_notification",
+    description:
+      "Send a message to one of the user's connected notification channels (Slack, Microsoft Teams, " +
+      "Discord, or a custom webhook — configured under Integrations → Notifications). " +
+      "Use when the user asks to notify, alert, ping, or post an update to their team.",
+    parameters: {
+      type: "object",
+      properties: {
+        message: { type: "string", description: "The message body to send." },
+        title: { type: "string", description: "Optional short title/headline." },
+        channel: {
+          type: "string",
+          enum: ["slack", "teams", "discord", "webhook"],
+          description: "Which connected channel to use. Omit to use the first connected one.",
+        },
+      },
+      required: ["message"],
+    },
+  },
+};
+
+export async function runSendNotification(
+  ctx: AgentToolContext,
+  args: { message: string; title?: string; channel?: string },
+): Promise<string> {
+  const message = (args.message || "").trim();
+  if (!message) return JSON.stringify({ error: "message is required" });
+  // Explicit user scoping on top of RLS: on headless runs ctx.sb can be a
+  // service-role client, and a notification must only ever leave through the
+  // OWNER's channels.
+  let q = ctx.sb
+    .from("integrations")
+    .select("provider, config, is_active")
+    .eq("type", "notification")
+    .eq("is_active", true);
+  if (ctx.userId) q = q.eq("user_id", ctx.userId);
+  const { data: channels } = await q;
+  const list = channels ?? [];
+  if (list.length === 0) {
+    return JSON.stringify({
+      error:
+        "No notification channel connected. Tell the user to add one under Integrations → Notifications.",
+    });
+  }
+  const pick = args.channel ? list.find((c) => c.provider === args.channel) : list[0];
+  if (!pick) {
+    return JSON.stringify({
+      error: `Channel '${args.channel}' is not connected. Connected: ${list.map((c) => c.provider).join(", ")}`,
+    });
+  }
+  try {
+    const cfg = (await resolveIntegrationConfig(
+      ctx.userId,
+      "notification",
+      (pick.config ?? {}) as Record<string, unknown>,
+    )) as { webhook_url?: string };
+    if (!cfg.webhook_url) return JSON.stringify({ error: "The channel has no webhook URL saved." });
+    const { postNotification } = await import("@/utils/integrations/testAdapters.server");
+    const res = await postNotification(pick.provider ?? "webhook", cfg.webhook_url, {
+      title: (args.title || "Agent notification").slice(0, 200),
+      body: message.slice(0, 2000),
+    });
+    return JSON.stringify(
+      res.ok ? { sent: true, channel: pick.provider, detail: res.detail } : { error: res.detail },
+    );
+  } catch (e) {
+    return JSON.stringify({ error: (e as Error).message });
+  }
+}
+
 async function loadN8nIntegration(ctx: AgentToolContext) {
   const { data } = await ctx.sb
     .from("integrations")
@@ -1134,6 +1210,7 @@ export type ResolvedTools = {
     datetime: boolean;
     weather: boolean;
     sql: boolean;
+    notify: boolean;
   };
   /**
    * Source-routing guidance built from what is ACTUALLY enabled, appended to
@@ -1155,6 +1232,7 @@ export const TOOLABLE_IDS = [
   "web_browse",
   "n8n_run_workflow",
   "mcp_call_tool",
+  "send_notification",
   "calculator",
   "datetime",
   "weather",
@@ -1203,6 +1281,7 @@ export async function resolveAgentTools(
     datetime: false,
     weather: false,
     sql: false,
+    notify: false,
   };
 
   const allow = overrides?.enabledTools;
@@ -1345,6 +1424,25 @@ export async function resolveAgentTools(
       handlers.set("list_n8n_workflows", (c, a) => runListN8nWorkflows(c, a, allowList));
       handlers.set("n8n_run_workflow", (c, a) => runN8nWorkflow(c, a, allowList));
       enabled.n8n = true;
+    }
+  }
+
+  // Notifications — only if the user has at least one connected channel, so
+  // the model never advertises a send it cannot deliver.
+  if (allows("send_notification")) {
+    let nq = ctx.sb
+      .from("integrations")
+      .select("id")
+      .eq("type", "notification")
+      .eq("is_active", true);
+    if (ctx.userId) nq = nq.eq("user_id", ctx.userId);
+    const { data: channels } = await nq.limit(1);
+    if (channels && channels.length > 0) {
+      tools.push(sendNotificationTool);
+      handlers.set("send_notification", (c, a) =>
+        runSendNotification(c, a as { message: string; title?: string; channel?: string }),
+      );
+      enabled.notify = true;
     }
   }
 

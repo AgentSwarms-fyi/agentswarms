@@ -48,7 +48,9 @@ export type IamGrantRow = {
     | "secret"
     | "bi_dashboard"
     | "semantic_model"
-    | "catalog_source";
+    | "catalog_source"
+    | "integration"
+    | "provider_credential";
   resource_id: string;
   resource_name: string | null; // null = resource was deleted
   resource_owner_id: string | null;
@@ -67,7 +69,9 @@ export type IamResourceOption = {
     | "secret"
     | "bi_dashboard"
     | "semantic_model"
-    | "catalog_source";
+    | "catalog_source"
+    | "integration"
+    | "provider_credential";
   id: string;
   name: string;
   owner_user_id: string | null;
@@ -591,6 +595,8 @@ export const iamListGrantableResources = createServerFn({ method: "POST" })
       { data: dashboards },
       { data: models },
       { data: catalogSources },
+      { data: llmIntegrations },
+      { data: providerCreds },
     ] = await Promise.all([
       supabaseAdmin.from("knowledge_bases").select("id, name, user_id").order("name"),
       supabaseAdmin
@@ -602,6 +608,16 @@ export const iamListGrantableResources = createServerFn({ method: "POST" })
       supabaseAdmin.from("bi_dashboards").select("id, name, user_id").order("name"),
       supabaseAdmin.from("semantic_models").select("id, name, label, user_id").order("name"),
       supabaseAdmin.from("catalog_sources").select("id, name, user_id").order("name"),
+      // Shareable LLM credentials. Only the two provider stores — sharing a
+      // gateway/n8n/firecrawl connection is not supported (their semantics are
+      // account-wide, not per-call).
+      supabaseAdmin
+        .from("integrations")
+        .select("id, name, provider, user_id")
+        .eq("type", "llm_provider")
+        .eq("is_active", true)
+        .order("provider"),
+      supabaseAdmin.from("provider_credentials").select("id, provider, label, user_id"),
     ]);
     const resources: IamResourceOption[] = [
       ...(kbs ?? []).map((k) => ({
@@ -640,6 +656,18 @@ export const iamListGrantableResources = createServerFn({ method: "POST" })
         name: c.name,
         owner_user_id: c.user_id,
       })),
+      ...(llmIntegrations ?? []).map((i) => ({
+        resource_type: "integration" as const,
+        id: i.id,
+        name: `${i.provider || i.name} key`,
+        owner_user_id: i.user_id,
+      })),
+      ...(providerCreds ?? []).map((c) => ({
+        resource_type: "provider_credential" as const,
+        id: c.id,
+        name: `${c.provider}${c.label ? ` (${c.label})` : ""} credential`,
+        owner_user_id: c.user_id,
+      })),
     ];
     return { ok: true, resources };
   });
@@ -676,6 +704,12 @@ export const iamListGrants = createServerFn({ method: "POST" })
     const catalogIds = (grants ?? [])
       .filter((g) => g.resource_type === "catalog_source")
       .map((g) => g.resource_id);
+    const integrationIds = (grants ?? [])
+      .filter((g) => g.resource_type === "integration")
+      .map((g) => g.resource_id);
+    const credIds = (grants ?? [])
+      .filter((g) => g.resource_type === "provider_credential")
+      .map((g) => g.resource_id);
 
     const [
       { data: kbs },
@@ -684,6 +718,8 @@ export const iamListGrants = createServerFn({ method: "POST" })
       { data: dashboards },
       { data: models },
       { data: catalogs },
+      { data: integrationRows },
+      { data: credRows },
     ] = await Promise.all([
       kbIds.length
         ? supabaseAdmin.from("knowledge_bases").select("id, name, user_id").in("id", kbIds)
@@ -708,6 +744,22 @@ export const iamListGrants = createServerFn({ method: "POST" })
       catalogIds.length
         ? supabaseAdmin.from("catalog_sources").select("id, name, user_id").in("id", catalogIds)
         : Promise.resolve({ data: [] as { id: string; name: string; user_id: string }[] }),
+      integrationIds.length
+        ? supabaseAdmin
+            .from("integrations")
+            .select("id, name, provider, user_id")
+            .in("id", integrationIds)
+        : Promise.resolve({
+            data: [] as { id: string; name: string; provider: string | null; user_id: string }[],
+          }),
+      credIds.length
+        ? supabaseAdmin
+            .from("provider_credentials")
+            .select("id, provider, label, user_id")
+            .in("id", credIds)
+        : Promise.resolve({
+            data: [] as { id: string; provider: string; label: string | null; user_id: string }[],
+          }),
     ]);
 
     const kbById = new Map((kbs ?? []).map((k) => [k.id, k]));
@@ -717,6 +769,18 @@ export const iamListGrants = createServerFn({ method: "POST" })
     const dashboardById = new Map((dashboards ?? []).map((d) => [d.id, d]));
     const modelById = new Map(
       (models ?? []).map((m) => [m.id, { name: m.label || m.name, user_id: m.user_id }]),
+    );
+    const integrationById = new Map(
+      (integrationRows ?? []).map((i) => [
+        i.id,
+        { name: `${i.provider || i.name} key`, user_id: i.user_id },
+      ]),
+    );
+    const credById = new Map(
+      (credRows ?? []).map((c) => [
+        c.id,
+        { name: `${c.provider}${c.label ? ` (${c.label})` : ""} credential`, user_id: c.user_id },
+      ]),
     );
 
     return {
@@ -733,7 +797,11 @@ export const iamListGrants = createServerFn({ method: "POST" })
                   ? modelById.get(g.resource_id)
                   : g.resource_type === "catalog_source"
                     ? catalogById.get(g.resource_id)
-                    : tableById.get(g.resource_id);
+                    : g.resource_type === "integration"
+                      ? integrationById.get(g.resource_id)
+                      : g.resource_type === "provider_credential"
+                        ? credById.get(g.resource_id)
+                        : tableById.get(g.resource_id);
         const rf = g.row_filter as { column?: unknown; values?: unknown } | null;
         return {
           id: g.id,
@@ -765,6 +833,8 @@ export const iamCreateGrant = createServerFn({ method: "POST" })
           "bi_dashboard",
           "semantic_model",
           "catalog_source",
+          "integration",
+          "provider_credential",
         ]),
         resource_id: z.string().uuid(),
         principal_type: z.enum(["user", "group"]),

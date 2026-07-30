@@ -82,6 +82,24 @@ async function validateAccessToken(accessToken: unknown): Promise<AuthResult> {
   return { ok: true, userId: data.claims.sub };
 }
 
+/**
+ * Per-user rate limit shared by every connection-test endpoint. The tests
+ * fetch user-supplied URLs from inside the server's network (SSRF-guarded,
+ * but still an oracle), so an authed user must not get an unthrottled probe
+ * loop. In-process sliding window — per instance, like every other limit in
+ * the OSS build. Returns a TestResult to surface, or null to proceed.
+ */
+export async function integrationTestGate(userId: string): Promise<TestResult | null> {
+  const { rateLimited, envInt } = await import("./rateLimit.server");
+  if (rateLimited(`integration-test:${userId}`, envInt("INTEGRATION_TEST_PER_MINUTE", 10))) {
+    return {
+      ok: false,
+      detail: "Too many connection tests in the last minute — wait a moment and try again.",
+    };
+  }
+  return null;
+}
+
 type ValidatedInput =
   | { __validationError: true; detail: string }
   | {
@@ -121,6 +139,8 @@ export const testIntegrationKey = createServerFn({ method: "POST" })
     }
     const auth = await validateAccessToken(data.access_token);
     if (!auth.ok) return { ok: false, detail: auth.detail };
+    const limited = await integrationTestGate(auth.userId);
+    if (limited) return limited;
     // Server-side log so we can see exactly which provider was tested and
     // what came back. Visible in dev-server.log + worker logs.
     console.log(
@@ -153,6 +173,8 @@ export const testN8nInstance = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<TestResult & { workflowCount?: number }> => {
     const auth = await validateAccessToken(data.access_token);
     if (!auth.ok) return { ok: false, detail: auth.detail };
+    const limited = await integrationTestGate(auth.userId);
+    if (limited) return limited;
     const { testN8nCore } = await import("./integrations/testAdapters.server");
     return testN8nCore({
       instance_url: data.instance_url,
@@ -168,6 +190,8 @@ export const testFirecrawlKey = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<TestResult> => {
     const auth = await validateAccessToken(data.access_token);
     if (!auth.ok) return { ok: false, detail: auth.detail };
+    const limited = await integrationTestGate(auth.userId);
+    if (limited) return limited;
     const { testFirecrawlCore } = await import("./integrations/testAdapters.server");
     return testFirecrawlCore(data.api_key);
   });
@@ -181,6 +205,8 @@ export const testLlmGateway = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<TestResult> => {
     const auth = await validateAccessToken(data.access_token);
     if (!auth.ok) return { ok: false, detail: auth.detail };
+    const limited = await integrationTestGate(auth.userId);
+    if (limited) return limited;
     let apiKey = data.api_key.trim();
     if (!apiKey) {
       // Fall back to the stored (encrypted) key so users can re-validate
@@ -210,6 +236,116 @@ export const testLlmGateway = createServerFn({ method: "POST" })
       provider: data.provider,
     });
   });
+
+// Live-test a notification channel by posting a visible test message to the
+// webhook — the same payload builder real sends use.
+const NotificationTestSchema = z.object({
+  access_token: z.string().min(1).max(10000),
+  provider: z.enum(["slack", "teams", "discord", "webhook"]),
+  webhook_url: z.string().max(1000).default(""),
+});
+
+export const testNotificationChannel = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) => NotificationTestSchema.parse(input))
+  .handler(async ({ data }): Promise<TestResult> => {
+    const auth = await validateAccessToken(data.access_token);
+    if (!auth.ok) return { ok: false, detail: auth.detail };
+    const limited = await integrationTestGate(auth.userId);
+    if (limited) return limited;
+    let url = data.webhook_url.trim();
+    if (!url) {
+      // Blank = re-validate the saved (encrypted) webhook URL.
+      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+      const { resolveIntegrationConfig } = await import("./providers/integrationConfig.server");
+      const { data: row } = await supabaseAdmin
+        .from("integrations")
+        .select("config")
+        .eq("user_id", auth.userId)
+        .eq("type", "notification")
+        .eq("provider", data.provider)
+        .maybeSingle();
+      if (row?.config) {
+        const cfg = (await resolveIntegrationConfig(
+          auth.userId,
+          "notification",
+          row.config as Record<string, unknown>,
+        )) as { webhook_url?: string };
+        url = (cfg.webhook_url ?? "").trim();
+      }
+      if (!url) return { ok: false, detail: "No webhook URL entered or saved yet." };
+    }
+    const { testNotificationCore } = await import("./integrations/testAdapters.server");
+    return testNotificationCore(data.provider, url);
+  });
+
+// LLM credentials shared WITH the signed-in user via IAM grants. Names and
+// owner emails only — the grantee can use a shared key (resolution happens
+// server-side at call time) but can never read it.
+export const listSharedProviders = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z.object({ access_token: z.string().min(1).max(10000) }).parse(input),
+  )
+  .handler(
+    async ({
+      data,
+    }): Promise<
+      { ok: true; shared: { provider: string; owner_email: string | null }[] } | { ok: false }
+    > => {
+      const auth = await validateAccessToken(data.access_token);
+      if (!auth.ok) return { ok: false };
+      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+      const { resolveGrantedResourceIds } = await import("./iam.server");
+      const [integIds, credIds] = await Promise.all([
+        resolveGrantedResourceIds(supabaseAdmin, auth.userId, "integration"),
+        resolveGrantedResourceIds(supabaseAdmin, auth.userId, "provider_credential"),
+      ]);
+      const shared: { provider: string; owner: string }[] = [];
+      if (integIds.size > 0) {
+        const { data: rows } = await supabaseAdmin
+          .from("integrations")
+          .select("provider, user_id")
+          .in("id", [...integIds])
+          .eq("type", "llm_provider")
+          .eq("is_active", true);
+        for (const r of rows ?? [])
+          if (r.provider && r.user_id !== auth.userId)
+            shared.push({ provider: r.provider, owner: r.user_id });
+      }
+      if (credIds.size > 0) {
+        const { data: rows } = await supabaseAdmin
+          .from("provider_credentials")
+          .select("provider, user_id")
+          .in("id", [...credIds]);
+        for (const r of rows ?? [])
+          if (r.user_id !== auth.userId)
+            // The UI uses "vertex_ai" where the API uses "vertex".
+            shared.push({
+              provider: r.provider === "vertex" ? "vertex_ai" : r.provider,
+              owner: r.user_id,
+            });
+      }
+      // Resolve owner emails (few distinct owners; bounded lookups).
+      const owners = [...new Set(shared.map((s) => s.owner))].slice(0, 20);
+      const emailById = new Map<string, string | null>();
+      await Promise.all(
+        owners.map(async (id) => {
+          try {
+            const { data: u } = await supabaseAdmin.auth.admin.getUserById(id);
+            emailById.set(id, u.user?.email ?? null);
+          } catch {
+            emailById.set(id, null);
+          }
+        }),
+      );
+      return {
+        ok: true,
+        shared: shared.map((s) => ({
+          provider: s.provider,
+          owner_email: emailById.get(s.owner) ?? null,
+        })),
+      };
+    },
+  );
 
 // Save an integration row with any secret config field (api_key /
 // webhook_token) encrypted at rest. The browser used to write integrations
@@ -384,9 +520,17 @@ export const saveIntegration = createServerFn({ method: "POST" })
     return saveIntegrationForUser(auth.userId, data);
   });
 
-// Fire-and-forget post-turn notification to an agent's n8n webhook. Called
-// from server-side handlers after an assistant reply so workflows can log,
-// route, or react to the conversation.
+// Post-turn notification to an agent's n8n webhook. Called from server-side
+// handlers after an assistant reply so workflows can log, route, or react to
+// the conversation.
+//
+// Delivery semantics: the payload carries prompt + response, so the receiver
+// should be able to VERIFY it actually came from this server — when the
+// operator sets WEBHOOK_SIGNING_SECRET, every delivery is HMAC-signed
+// (X-AgentSwarms-Signature: v1=hex(hmac_sha256(secret, "<ts>.<body>")),
+// X-AgentSwarms-Timestamp: <ms epoch>). One retry on network error / 5xx with
+// a short backoff; 4xx never retries (the receiver rejected it). The whole
+// call stays inside the request lifetime, so the budget is deliberately tight.
 export async function notifyN8nWebhook(opts: {
   webhookUrl: string;
   authHeader?: string | null;
@@ -395,18 +539,29 @@ export async function notifyN8nWebhook(opts: {
 }): Promise<{ ok: boolean; status?: number; detail?: string }> {
   const url = (opts.webhookUrl || "").trim();
   if (!url) return { ok: false, detail: "No webhook URL" };
-  try {
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (opts.authHeader) headers["Authorization"] = opts.authHeader;
-    // SSRF-guarded (the webhook URL is user-authored) with its own short budget.
-    const { guardedFetch } = await import("./integrations/testAdapters.server");
-    const r = await guardedFetch(
-      url,
-      { method: "POST", headers, body: JSON.stringify(opts.payload) },
-      opts.timeoutMs ?? 5000,
-    );
-    return { ok: r.ok, status: r.status };
-  } catch (e) {
-    return { ok: false, detail: (e as Error).message };
+  const body = JSON.stringify(opts.payload);
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (opts.authHeader) headers["Authorization"] = opts.authHeader;
+  const secret = (process.env.WEBHOOK_SIGNING_SECRET ?? "").trim();
+  if (secret) {
+    const { createHmac } = await import("node:crypto");
+    const ts = Date.now().toString();
+    headers["X-AgentSwarms-Timestamp"] = ts;
+    headers["X-AgentSwarms-Signature"] =
+      "v1=" + createHmac("sha256", secret).update(`${ts}.${body}`).digest("hex");
   }
+  // SSRF-guarded (the webhook URL is user-authored) with its own short budget.
+  const { guardedFetch } = await import("./integrations/testAdapters.server");
+  let lastDetail = "";
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 500));
+    try {
+      const r = await guardedFetch(url, { method: "POST", headers, body }, opts.timeoutMs ?? 5000);
+      if (r.ok || r.status < 500) return { ok: r.ok, status: r.status };
+      lastDetail = `HTTP ${r.status}`;
+    } catch (e) {
+      lastDetail = (e as Error).message;
+    }
+  }
+  return { ok: false, detail: lastDetail };
 }

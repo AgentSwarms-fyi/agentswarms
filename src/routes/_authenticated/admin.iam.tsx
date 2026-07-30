@@ -1093,7 +1093,9 @@ function AccessTab({
     | "secret"
     | "bi_dashboard"
     | "semantic_model"
-    | "catalog_source";
+    | "catalog_source"
+    | "integration"
+    | "provider_credential";
   const [shareResourceType, setShareResourceType] = useState<ShareResourceType>("knowledge_base");
   const [shareResourceId, setShareResourceId] = useState("");
   const [sharePrincipalType, setSharePrincipalType] = useState<"group" | "user">("group");
@@ -1110,6 +1112,8 @@ function AccessTab({
     { value: "bi_dashboard", label: "📊 BI dashboard" },
     { value: "semantic_model", label: "🧮 Semantic model" },
     { value: "catalog_source", label: "🗂 Data catalog source" },
+    { value: "integration", label: "🤖 LLM key (Integrations page)" },
+    { value: "provider_credential", label: "☁️ LLM credential (Bedrock/Vertex/Azure/OCI…)" },
   ];
   const shareableOfType = resources.filter((r) => r.resource_type === shareResourceType);
 

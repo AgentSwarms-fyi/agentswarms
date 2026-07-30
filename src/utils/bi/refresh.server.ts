@@ -494,7 +494,10 @@ const OP_LABEL: Record<string, string> = {
 };
 
 async function notify(userId: string, title: string, body: string, link: string, kind = "alert") {
-  await supabaseAdmin.from("notifications").insert({ user_id: userId, kind, title, body, link });
+  // In-app row + best-effort mirror to the user's connected notification
+  // channels (Slack/Teams/Discord/webhook) — see notify.server.ts.
+  const { notifyUser } = await import("@/utils/notify.server");
+  await notifyUser(userId, { title, body, link, kind });
 }
 
 /** Owner's email address for alert/report delivery (null = none/unknown). */
@@ -984,7 +987,11 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
       .then((m) => m.purgeIdempotencyRecords())
       .catch((e) => console.warn("[idempotency-purge] failed:", (e as Error).message));
     await import("@/utils/integrations/health.server")
-      .then((m) => m.checkIntegrationHealth(force))
+      .then(async (m) => {
+        await m.checkIntegrationHealth(force);
+        // Independent of health checks: retire legacy plaintext secrets.
+        await m.sweepPlaintextSecrets();
+      })
       .catch((e) => console.warn("[integration-health] failed:", (e as Error).message));
     await import("@/utils/observability/retention.server")
       .then((m) => m.purgeTraces(force))

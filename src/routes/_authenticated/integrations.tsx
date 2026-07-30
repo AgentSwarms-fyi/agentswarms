@@ -39,12 +39,16 @@ import {
   Boxes,
   Sparkles,
   HardDrive,
+  Bell,
+  Users,
 } from "lucide-react";
 import {
   testIntegrationKey,
   testN8nInstance,
   testFirecrawlKey,
   testLlmGateway,
+  testNotificationChannel,
+  listSharedProviders,
   saveIntegration,
 } from "@/utils/integrations.functions";
 import { saveProviderCredential } from "@/utils/providers/credentials.functions";
@@ -580,9 +584,30 @@ function IntegrationsPage() {
   const [firecrawlStatus, setFirecrawlStatus] = useState<{ ok: boolean; detail: string } | null>(
     null,
   );
+  // Notification channels: per-kind URL drafts + test state.
+  const [notifUrls, setNotifUrls] = useState<Record<string, string>>({});
+  const [notifTesting, setNotifTesting] = useState<string | null>(null);
+  const [notifStatus, setNotifStatus] = useState<
+    Record<string, { ok: boolean; detail: string } | undefined>
+  >({});
+  // LLM credentials shared with this user via IAM grants (usable, not readable).
+  const [sharedProviders, setSharedProviders] = useState<
+    { provider: string; owner_email: string | null }[]
+  >([]);
 
   useEffect(() => {
     loadIntegrations();
+    void (async () => {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) return;
+      try {
+        const res = await listSharedProviders({ data: { access_token: token } });
+        if (res.ok) setSharedProviders(res.shared);
+      } catch {
+        /* non-critical */
+      }
+    })();
   }, []);
 
   async function loadIntegrations() {
@@ -759,7 +784,7 @@ function IntegrationsPage() {
     }
 
     const existing = integrations.find((i) => i.provider === providerId);
-    await saveIntegration({
+    const saveRes = await saveIntegration({
       data: {
         access_token: session.access_token,
         id: existing && !existing.id.startsWith("enc-") ? existing.id : undefined,
@@ -770,6 +795,12 @@ function IntegrationsPage() {
         is_active: true,
       },
     });
+    // A passing live test is worthless if the row didn't persist — surface
+    // save failures instead of showing a "Connected" toast over nothing.
+    if (!saveRes.ok) {
+      toast.error(`Could not save: ${saveRes.error}`);
+      return { ok: false, detail: saveRes.error };
+    }
     toast.success(`Connected — ${testResult.detail}`);
     loadIntegrations();
     return { ok: true, detail: testResult.detail };
@@ -900,7 +931,7 @@ function IntegrationsPage() {
     const existing = integrations.find((i) => i.type === "n8n");
     // webhook_token is encrypted server-side; a blank token on an existing n8n
     // integration keeps the previously-saved token.
-    await saveIntegration({
+    const n8nSave = await saveIntegration({
       data: {
         access_token: session.access_token,
         id: existing?.id,
@@ -919,7 +950,9 @@ function IntegrationsPage() {
         is_active: testResult.ok,
       },
     });
-    if (testResult.ok) {
+    if (!n8nSave.ok) {
+      toast.error(`Could not save n8n: ${n8nSave.error}`);
+    } else if (testResult.ok) {
       toast.success(`n8n connected — ${testResult.detail}`);
     } else {
       toast.error(`Could not connect to n8n: ${testResult.detail}`);
@@ -954,7 +987,7 @@ function IntegrationsPage() {
     }
     // api_key is encrypted server-side; a blank key on an existing row keeps
     // the previously-saved key.
-    await saveIntegration({
+    const fcSave = await saveIntegration({
       data: {
         access_token: session.access_token,
         id: existing?.id,
@@ -972,9 +1005,75 @@ function IntegrationsPage() {
     });
     setFirecrawlKey("");
     setFirecrawlTesting(false);
+    if (!fcSave.ok) {
+      toast.error(`Could not save Firecrawl: ${fcSave.error}`);
+      return;
+    }
     toast.success("Firecrawl connected — web_search and web_browse are ready.");
     loadIntegrations();
   }
+
+  async function saveNotifChannel(kind: "slack" | "teams" | "discord" | "webhook", label: string) {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) {
+      toast.error("Please sign in again.");
+      return;
+    }
+    const url = (notifUrls[kind] || "").trim();
+    const existing = integrations.find((i) => i.type === "notification" && i.provider === kind);
+    if (!url && !existing) {
+      toast.error("Paste the webhook URL first.");
+      return;
+    }
+    setNotifTesting(kind);
+    setNotifStatus((s) => ({ ...s, [kind]: undefined }));
+    // Always live-test before (re)activating — the test posts a visible
+    // message with the exact payload real sends use. Blank URL re-tests the
+    // saved (encrypted) one.
+    let result: { ok: boolean; detail: string };
+    try {
+      result = await testNotificationChannel({
+        data: { access_token: token, provider: kind, webhook_url: url },
+      });
+    } catch (e) {
+      result = { ok: false, detail: e instanceof Error ? e.message : "Test failed" };
+    }
+    setNotifStatus((s) => ({ ...s, [kind]: result }));
+    const res = await saveIntegration({
+      data: {
+        access_token: token,
+        id: existing?.id,
+        type: "notification",
+        provider: kind,
+        name: label,
+        config: { webhook_url: url },
+        is_active: result.ok,
+      },
+    });
+    setNotifTesting(null);
+    if (!res.ok) {
+      toast.error(`Could not save: ${res.error}`);
+      return;
+    }
+    if (result.ok) {
+      toast.success(`${label} connected — check the channel for the test message.`);
+      setNotifUrls((u) => ({ ...u, [kind]: "" }));
+    } else {
+      toast.error(`${label}: ${result.detail}`);
+    }
+    loadIntegrations();
+  }
+
+  async function disconnectNotifChannel(kind: string) {
+    const existing = integrations.find((i) => i.type === "notification" && i.provider === kind);
+    if (!existing) return;
+    await supabase.from("integrations").update({ is_active: false }).eq("id", existing.id);
+    toast.success("Channel disconnected");
+    loadIntegrations();
+  }
+
+  const sharedFor = (id: string) => sharedProviders.find((s) => s.provider === id) ?? null;
 
   const isProviderActive = (id: string) =>
     integrations.some((i) => i.provider === id && i.is_active);
@@ -1005,6 +1104,7 @@ function IntegrationsPage() {
             <TabsTrigger value="warehouses">Data Sources</TabsTrigger>
             <TabsTrigger value="gateway">LLM Gateway</TabsTrigger>
             <TabsTrigger value="websearch">Web Search</TabsTrigger>
+            <TabsTrigger value="notifications">Notifications</TabsTrigger>
             <TabsTrigger value="n8n">n8n Workflows</TabsTrigger>
           </TabsList>
 
@@ -1072,6 +1172,17 @@ function IntegrationsPage() {
                     ) : isProviderSaved(provider.id) ? (
                       <Badge variant="outline" className="w-fit text-warning border-warning/40">
                         <X className="h-3 w-3 mr-1" /> Saved — last test failed
+                      </Badge>
+                    ) : sharedFor(provider.id) ? (
+                      <Badge
+                        variant="outline"
+                        className="w-fit text-primary border-primary/30"
+                        title="An admin granted you use of this credential. Your agents can use it now; connecting your own key overrides it."
+                      >
+                        <Users className="h-3 w-3 mr-1" /> Shared with you
+                        {sharedFor(provider.id)?.owner_email
+                          ? ` by ${sharedFor(provider.id)!.owner_email}`
+                          : ""}
                       </Badge>
                     ) : null}
                   </CardHeader>
@@ -1306,6 +1417,147 @@ function IntegrationsPage() {
                 </Button>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="notifications" className="space-y-4">
+            <div className="rounded-md border border-border/60 bg-muted/40 p-3 text-sm text-muted-foreground max-w-2xl">
+              Connected channels receive <strong>system alerts</strong> (failing credentials,
+              scheduled-refresh errors, BI data alerts) and power the <code>send_notification</code>{" "}
+              agent tool (enable it per agent in the Agent Builder). Webhook URLs are stored
+              encrypted — treat them like passwords.
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {(
+                [
+                  {
+                    kind: "slack" as const,
+                    label: "Slack",
+                    hint: "Incoming webhook from api.slack.com/messaging/webhooks",
+                    placeholder: "https://hooks.slack.com/services/T…/B…/…",
+                  },
+                  {
+                    kind: "teams" as const,
+                    label: "Microsoft Teams",
+                    hint: "Channel → Connectors → Incoming Webhook",
+                    placeholder: "https://outlook.office.com/webhook/…",
+                  },
+                  {
+                    kind: "discord" as const,
+                    label: "Discord",
+                    hint: "Channel settings → Integrations → Webhooks",
+                    placeholder: "https://discord.com/api/webhooks/…",
+                  },
+                  {
+                    kind: "webhook" as const,
+                    label: "Custom webhook",
+                    hint: "Any HTTPS endpoint accepting a JSON POST",
+                    placeholder: "https://example.com/hooks/agentswarms",
+                  },
+                ] as const
+              ).map((ch) => {
+                const connected = integrations.find(
+                  (i) => i.type === "notification" && i.provider === ch.kind && i.is_active,
+                );
+                const status = notifStatus[ch.kind];
+                const health = healthErrorFor(
+                  (i) => i.type === "notification" && i.provider === ch.kind,
+                );
+                return (
+                  <Card key={ch.kind} className="border-border/50">
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center gap-2">
+                        <div className="h-8 w-8 rounded-md bg-muted flex items-center justify-center shrink-0">
+                          <Bell className="h-4 w-4 text-primary" />
+                        </div>
+                        <CardTitle className="text-base">{ch.label}</CardTitle>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{ch.hint}</p>
+                      {connected && !status && (
+                        <Badge
+                          variant="outline"
+                          className={
+                            health
+                              ? "w-fit text-warning border-warning/40"
+                              : "w-fit text-primary border-primary/30"
+                          }
+                          title={health ?? undefined}
+                        >
+                          {health ? (
+                            <>
+                              <X className="h-3 w-3 mr-1" /> Connected — delivery failing
+                            </>
+                          ) : (
+                            <>
+                              <Check className="h-3 w-3 mr-1" /> Connected
+                            </>
+                          )}
+                        </Badge>
+                      )}
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div className="space-y-2">
+                        <Label>Webhook URL</Label>
+                        <Input
+                          type="password"
+                          placeholder={
+                            connected ? "(saved — leave blank to keep it)" : ch.placeholder
+                          }
+                          value={notifUrls[ch.kind] || ""}
+                          onChange={(e) =>
+                            setNotifUrls((u) => ({ ...u, [ch.kind]: e.target.value }))
+                          }
+                        />
+                        <p className="text-[11px] text-muted-foreground">
+                          Stored encrypted, never shown again.
+                        </p>
+                      </div>
+                      {status && (
+                        <div
+                          className={`rounded-md border p-2.5 ${status.ok ? "border-primary/30 bg-primary/5" : "border-destructive/40 bg-destructive/10"}`}
+                        >
+                          <p
+                            className={`text-xs font-semibold flex items-center gap-1.5 ${status.ok ? "text-primary" : "text-destructive"}`}
+                          >
+                            {status.ok ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
+                            {status.ok ? "Test message delivered" : "Delivery failed"}
+                          </p>
+                          <p
+                            className={`text-xs mt-0.5 ${status.ok ? "text-muted-foreground" : "text-destructive/90 font-mono break-words"}`}
+                          >
+                            {status.detail}
+                          </p>
+                        </div>
+                      )}
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          onClick={() => saveNotifChannel(ch.kind, ch.label)}
+                          disabled={notifTesting !== null}
+                        >
+                          {notifTesting === ch.kind ? (
+                            <>
+                              <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" /> Testing…
+                            </>
+                          ) : (
+                            "Send test & Save"
+                          )}
+                        </Button>
+                        {connected && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-destructive"
+                            onClick={() => disconnectNotifChannel(ch.kind)}
+                          >
+                            <X className="h-3 w-3 mr-1" /> Disconnect
+                          </Button>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
           </TabsContent>
 
           <TabsContent value="n8n" className="space-y-4">

@@ -168,6 +168,14 @@ const BUILT_IN_TOOLS: BuiltInTool[] = [
     category: "automation",
     requiresConfig: true,
   },
+  {
+    id: "send_notification",
+    name: "Send Notification",
+    description:
+      "Post a message to your connected Slack / Teams / Discord / webhook channels. Connect a channel under Integrations → Notifications first.",
+    icon: Send,
+    category: "automation",
+  },
 ];
 
 const TOOL_CATEGORIES = [

@@ -266,7 +266,20 @@ cheap live tests used at save time, so a key revoked upstream surfaces as a
 "failing health checks" badge, an in-app notification and an audit event
 instead of a failed agent run. Tune with `INTEGRATION_HEALTH_HOURS` (default
 `6`; set `0` to disable). Checks are bounded (max 10 per pass, short
-timeouts) and never auto-disable a connection.
+timeouts) and never auto-disable a connection. Alerts also mirror to any
+notification channels (Slack/Teams/Discord/webhook) the user connected on the
+Integrations page. The same pass runs a daily sweep that re-encrypts any
+legacy plaintext integration secrets in place.
+
+Two related knobs:
+
+- `INTEGRATION_TEST_PER_MINUTE` (default `10`) — per-user rate limit on the
+  Integrations page "test connection" endpoints (they fetch user-supplied
+  URLs from inside your network; SSRF-guarded, but not a free probe loop).
+- `WEBHOOK_SIGNING_SECRET` — when set, outbound n8n post-turn webhooks are
+  HMAC-signed: `X-AgentSwarms-Signature: v1=hex(hmac_sha256(secret,
+  "<timestamp>.<raw body>"))` plus `X-AgentSwarms-Timestamp` (ms epoch), so
+  receivers can verify authenticity and reject replays.
 
 ### Health checks
 - `GET /api/health` → `200` **liveness** — the process is up and serving. No

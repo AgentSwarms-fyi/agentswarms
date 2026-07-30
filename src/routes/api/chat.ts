@@ -1307,6 +1307,7 @@ export const Route = createFileRoute("/api/chat")({
             if (t.sql_query) out.push("sql_query");
             if (t.n8n || t.n8n_run_workflow) out.push("n8n_run_workflow");
             if (t.mcp || t.mcp_call_tool) out.push("mcp_call_tool");
+            if (t.send_notification || t.notifications) out.push("send_notification");
             return out.length > 0 ? out : undefined;
           }
 
