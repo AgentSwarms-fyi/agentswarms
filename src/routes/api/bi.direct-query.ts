@@ -29,6 +29,9 @@ import {
   type DirectFilter,
   type DirectRowFilter,
 } from "@/lib/biDirectQuery";
+import { aggregationPlan } from "@/lib/biAggregate";
+import type { ChartSpec } from "@/lib/biAgent";
+import type { SqlDialect } from "@/lib/semanticLayer";
 import { rateLimited, envInt } from "@/utils/rateLimit.server";
 import { auditEvent } from "@/utils/audit.server";
 
@@ -56,6 +59,8 @@ type WidgetLike = {
   query_mode?: string;
   columns?: unknown;
   source?: { kind?: string; connection_id?: string };
+  chart?: unknown;
+  agg_pushdown?: boolean;
 };
 
 export const Route = createFileRoute("/api/bi/direct-query")({
@@ -147,12 +152,21 @@ export const Route = createFileRoute("/api/bi/direct-query")({
             { connectionId: widget.source.connection_id },
             ownerId,
           );
+          // Aggregate live too when the widget opted in: the filters above land
+          // in the WHERE, so they still narrow the rows BEFORE they are grouped.
+          const aggPlan = widget.agg_pushdown
+            ? aggregationPlan(widget.chart as ChartSpec | undefined, {
+                preserve: (body.filters ?? []).map((f) => f.column),
+              })
+            : null;
           const effectiveSql = buildDirectQuerySql({
             baseSql: widget.sql,
             columns: Array.isArray(widget.columns) ? (widget.columns as string[]) : [],
             filters: body.filters ?? [],
             rowFilters,
             rowCap: DIRECT_QUERY_MAX_ROWS,
+            agg: aggPlan ?? undefined,
+            dialect: conn.config.provider as SqlDialect,
           });
           const result = await executeWarehouseQuery(
             conn.config,

@@ -78,6 +78,7 @@ import {
 import type { BiColumnFormat, SavedMetric } from "@/lib/biAgent";
 import { COND_COLORS } from "@/lib/biChartMath";
 import { snapshotRows, widgetFromBiTurn, type BiWidget } from "@/lib/biDashboards";
+import { isAggregatableChart } from "@/lib/biAggregate";
 import { buildOntology, type OntologyBuildStage, type OntologySpec } from "@/lib/biOntology";
 import { listPrepFlows, parsePrepConfig, prepTables } from "@/lib/dataPrep";
 import type { QueryResult } from "@/lib/sqlEngine";
@@ -947,6 +948,12 @@ export function BiBuilderPane({
       columns: preview.columns,
       rows: snapshotRows(preview.rows),
       narrative: initial?.narrative,
+      // New widgets aggregate in SQL by default so their totals are complete
+      // regardless of table size. An EXISTING widget keeps whatever it had:
+      // turning this on can change the number it shows (that number was a
+      // partial sum), and that is the owner's call to make, not a side effect
+      // of opening the editor.
+      agg_pushdown: initial ? initial.agg_pushdown : isAggregatableChart(chartSpec),
       refreshed_at: new Date().toISOString(),
     });
     toast.success(initial ? "Widget updated" : "Widget added to the dashboard");

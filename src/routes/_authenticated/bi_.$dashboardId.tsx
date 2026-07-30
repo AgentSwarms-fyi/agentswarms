@@ -16,6 +16,7 @@ import {
   Loader2,
   MoreVertical,
   SearchCode,
+  Sigma,
   Pencil,
   Plus,
   CalendarClock,
@@ -96,6 +97,7 @@ import {
   makeEmptyPage,
   pushDown,
   saveDashboardVersion,
+  syncWidgetResults,
   snapshotRows,
   touchDashboardView,
   updateDashboard,
@@ -112,6 +114,7 @@ import {
   type BiWidgetSource,
   type BiWidgetTheme,
 } from "@/lib/biDashboards";
+import { isAggregatableChart } from "@/lib/biAggregate";
 import { exportDashboardPdf } from "@/lib/biPdf";
 import { downloadCsv, downloadXlsx } from "@/lib/exportData";
 import { listPrepFlows } from "@/lib/dataPrep";
@@ -572,6 +575,14 @@ function BiProjectPage() {
       setSaveState("saving");
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(() => {
+        // Data first, then the definition: updateDashboard strips rows from
+        // the document, so the results store is where a reload will find them.
+        // Sync failures don't block the save — the fallback is stale data, and
+        // the next refresh repairs it.
+        void syncWidgetResults(
+          dashboardId,
+          nextPages.flatMap((p) => p.widgets),
+        ).catch(() => {});
         commitPatch({
           pages: nextPages as unknown as Json,
           widgets: (nextPages[0]?.widgets ?? []) as unknown as Json,
@@ -584,7 +595,7 @@ function BiProjectPage() {
           .catch(onSaveError);
       }, 700);
     },
-    [readOnly, commitPatch, onSaveError, maybeAutoSnapshot],
+    [readOnly, commitPatch, onSaveError, maybeAutoSnapshot, dashboardId],
   );
 
   const persist = useCallback(
@@ -718,6 +729,27 @@ function BiProjectPage() {
   // Toggle a warehouse widget between Import (snapshot) and Direct query (live).
   // Use the ORIGINAL stored widget (widgetById may have swapped in live rows),
   // so switching mode never overwrites the saved snapshot.
+  // Move a widget's aggregation between SQL and the browser.
+  //
+  // Turning it ON clears `truncated` and the stale snapshot rows: the old rows
+  // are a capped raw extract whose client-side totals are exactly the partial
+  // sums we are fixing, so leaving them on screen until the next refresh would
+  // keep showing the wrong number under a badge that now says it is fine.
+  function toggleAggPushdown(w: BiWidget) {
+    const orig = widgets.find((x) => x.id === w.id) ?? w;
+    const on = !orig.agg_pushdown;
+    replaceWidget({
+      ...orig,
+      agg_pushdown: on,
+      ...(on ? { rows: [], truncated: false } : {}),
+    });
+    toast.success(
+      on
+        ? "Aggregating in SQL — refresh the widget to load complete totals."
+        : "Aggregating in the browser — refresh to reload the row snapshot.",
+    );
+  }
+
   function setWidgetQueryMode(w: BiWidget, mode: "import" | "direct") {
     const orig = widgets.find((x) => x.id === w.id) ?? w;
     replaceWidget({ ...orig, query_mode: mode });
@@ -1352,6 +1384,14 @@ function BiProjectPage() {
                                   {w.query_mode === "direct"
                                     ? "Use in-memory engine (snapshot)"
                                     : "Use direct query (live)"}
+                                </DropdownMenuItem>
+                              )}
+                              {isAggregatableChart(w.chart) && (
+                                <DropdownMenuItem onClick={() => toggleAggPushdown(w)}>
+                                  <Sigma className="mr-2 h-3.5 w-3.5" />
+                                  {w.agg_pushdown
+                                    ? "Aggregate in the browser (snapshot)"
+                                    : "Aggregate in SQL (complete totals)"}
                                 </DropdownMenuItem>
                               )}
                               {w.kind === "chart" && (

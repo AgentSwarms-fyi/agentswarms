@@ -7,7 +7,12 @@
 // helpers run under the caller's JWT, so a query only ever returns rows the
 // caller may actually see.
 import { supabase } from "@/integrations/supabase/client";
-import type { BiDashboardRow } from "@/lib/biDashboards";
+import {
+  fetchWidgetResults,
+  mergePagesResults,
+  mergeWidgetResults,
+  type BiDashboardRow,
+} from "@/lib/biDashboards";
 
 export type BiWorkspace = {
   id: string;
@@ -202,10 +207,25 @@ export async function promoteDashboard(args: {
   note?: string;
 }): Promise<"created" | "updated"> {
   const { userId, source, targetWorkspaceId, note } = args;
+  // Hydrate the source's row snapshots before copying: the results store is
+  // keyed by the SOURCE dashboard id, so the promoted copy cannot reach them.
+  // Embedding the data in the target document once makes the copy render
+  // immediately; its own first save/refresh then moves it to the store.
+  let widgets = source.widgets;
+  let pages = source.pages;
+  try {
+    const results = await fetchWidgetResults(source.id);
+    if (results.length > 0) {
+      widgets = mergeWidgetResults(widgets, results) as typeof widgets;
+      pages = mergePagesResults(pages, results) as typeof pages;
+    }
+  } catch {
+    /* copy whatever the document carries */
+  }
   const content = {
-    widgets: source.widgets,
+    widgets,
     layout: source.layout,
-    pages: source.pages,
+    pages,
     filters: source.filters,
     theme: source.theme,
     ai_model: source.ai_model,

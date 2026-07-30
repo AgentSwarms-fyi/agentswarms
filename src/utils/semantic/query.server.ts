@@ -12,6 +12,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import {
   compileSemanticQuery,
   type SemanticDimension,
+  type SemanticJoin,
   type SemanticMetric,
   type SemanticModel,
   type SemanticQuery,
@@ -38,6 +39,7 @@ export function rowToModel(row: SemanticModelRow): SemanticModel {
     label: row.label ?? undefined,
     description: row.description ?? undefined,
     source,
+    joins: Array.isArray(row.joins) ? (row.joins as unknown as SemanticJoin[]) : [],
     dimensions: Array.isArray(row.dimensions)
       ? (row.dimensions as unknown as SemanticDimension[])
       : [],
@@ -65,7 +67,9 @@ function applyScope<Q extends { eq: (c: string, v: string) => Q; or: (f: string)
 }
 
 export async function listSemanticModels(sb: Sb, scope?: ModelScope): Promise<SemanticModel[]> {
-  const { data, error } = await applyScope(sb.from("semantic_models").select("*"), scope).order("name");
+  const { data, error } = await applyScope(sb.from("semantic_models").select("*"), scope).order(
+    "name",
+  );
   if (error) throw new Error(error.message);
   return (data ?? []).map(rowToModel);
 }

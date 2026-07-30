@@ -12,7 +12,7 @@ import { AddMetricToDashboardDialog } from "@/components/bi/AddMetricToDashboard
 import { useAuth } from "@/hooks/use-auth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -32,7 +32,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type { MetricAgg, SemanticDimension, SemanticMetric } from "@/lib/semanticLayer";
+import type {
+  MetricAgg,
+  SemanticDimension,
+  SemanticJoin,
+  SemanticMetric,
+} from "@/lib/semanticLayer";
 import {
   semanticDeleteModel,
   semanticListLocalSources,
@@ -55,7 +60,12 @@ export const Route = createFileRoute("/_authenticated/semantics")({
   component: SemanticsPage,
 });
 
-type LocalSource = { id: string; name: string; is_sample: boolean; columns: { name: string; type: string }[] };
+type LocalSource = {
+  id: string;
+  name: string;
+  is_sample: boolean;
+  columns: { name: string; type: string }[];
+};
 
 type Draft = {
   id?: string;
@@ -66,6 +76,7 @@ type Draft = {
   description: string;
   source_table: string;
   table_id: string | null;
+  joins: SemanticJoin[];
   dimensions: SemanticDimension[];
   metrics: SemanticMetric[];
 };
@@ -88,6 +99,7 @@ function emptyDraft(): Draft {
     description: "",
     source_table: "",
     table_id: null,
+    joins: [],
     dimensions: [],
     metrics: [],
   };
@@ -154,6 +166,7 @@ function SemanticsPage() {
       description: (m.description as string) ?? "",
       source_table: (m.source_table as string) ?? "",
       table_id: (m.table_id as string) ?? null,
+      joins: Array.isArray(m.joins) ? (m.joins as SemanticJoin[]) : [],
       dimensions: Array.isArray(m.dimensions) ? (m.dimensions as SemanticDimension[]) : [],
       metrics: Array.isArray(m.metrics) ? (m.metrics as SemanticMetric[]) : [],
     });
@@ -175,7 +188,8 @@ function SemanticsPage() {
 
   const save = async () => {
     if (!draft) return;
-    if (isShared) return toast.error("This model is shared read-only — only its owner can edit it.");
+    if (isShared)
+      return toast.error("This model is shared read-only — only its owner can edit it.");
     if (!draft.name.trim()) return toast.error("Model needs a name");
     if (!draft.source_table) return toast.error("Pick a source dataset");
     setSaving(true);
@@ -191,6 +205,7 @@ function SemanticsPage() {
             source_kind: "data_table",
             table_id: draft.table_id,
             source_table: draft.source_table,
+            joins: draft.joins,
             dimensions: draft.dimensions,
             metrics: draft.metrics,
           },
@@ -253,7 +268,13 @@ function SemanticsPage() {
         label?: string;
         description?: string;
         dimensions?: Array<{ name?: string; label?: string; sql?: string; type?: string }>;
-        metrics?: Array<{ name?: string; label?: string; agg?: string; sql?: string; format?: string }>;
+        metrics?: Array<{
+          name?: string;
+          label?: string;
+          agg?: string;
+          sql?: string;
+          format?: string;
+        }>;
       };
       const res = await llmJson<Gen>({
         systemPrompt:
@@ -270,7 +291,15 @@ function SemanticsPage() {
         temperature: 0.2,
       });
 
-      const validAgg = new Set<MetricAgg>(["sum", "avg", "count", "count_distinct", "min", "max", "custom"]);
+      const validAgg = new Set<MetricAgg>([
+        "sum",
+        "avg",
+        "count",
+        "count_distinct",
+        "min",
+        "max",
+        "custom",
+      ]);
       const seen = new Set<string>();
       const dims: SemanticDimension[] = [];
       for (const d of (res.dimensions ?? []).slice(0, 20)) {
@@ -304,7 +333,8 @@ function SemanticsPage() {
             : undefined) as SemanticMetric["format"],
         });
       }
-      if (dims.length === 0 && mets.length === 0) throw new Error("The AI didn't return any fields");
+      if (dims.length === 0 && mets.length === 0)
+        throw new Error("The AI didn't return any fields");
 
       patch({
         name: draft.name || slug(selectedSource.name),
@@ -313,7 +343,9 @@ function SemanticsPage() {
         dimensions: dims,
         metrics: mets,
       });
-      toast.success(`Generated ${dims.length} dimensions and ${mets.length} metrics — review and save.`);
+      toast.success(
+        `Generated ${dims.length} dimensions and ${mets.length} metrics — review and save.`,
+      );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "AI generation failed");
     } finally {
@@ -496,7 +528,11 @@ function SemanticsPage() {
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xs text-muted-foreground">AI model</span>
-                    <BiModelSelect value={biModel} onChange={setBiModel} className="max-w-md flex-1" />
+                    <BiModelSelect
+                      value={biModel}
+                      onChange={setBiModel}
+                      className="max-w-md flex-1"
+                    />
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <Button
@@ -527,6 +563,97 @@ function SemanticsPage() {
               </CardContent>
             </Card>
 
+            {/* Joins — relate the source table to others so dimensions and
+                metrics can span a star schema without pre-joining. */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm">Joins</CardTitle>
+                <p className="text-xs text-muted-foreground">
+                  Relate other tables to <code>{draft.source_table || "the source"}</code> so
+                  dimensions and metrics can reference their columns. Qualify column names in your
+                  SQL (e.g. <code>customers.segment</code>) once a join exists.
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {draft.joins.map((j, i) => (
+                  <div key={i} className="grid gap-2 sm:grid-cols-[110px_1fr_130px_1.6fr_36px]">
+                    <Select
+                      value={j.type ?? "left"}
+                      onValueChange={(v) =>
+                        patch({
+                          joins: draft.joins.map((x, k) =>
+                            k === i ? { ...x, type: v as SemanticJoin["type"] } : x,
+                          ),
+                        })
+                      }
+                    >
+                      <SelectTrigger className="h-8">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="left">LEFT</SelectItem>
+                        <SelectItem value="inner">INNER</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      value={j.table}
+                      placeholder="customers"
+                      className="h-8 font-mono"
+                      onChange={(e) =>
+                        patch({
+                          joins: draft.joins.map((x, k) =>
+                            k === i ? { ...x, table: e.target.value } : x,
+                          ),
+                        })
+                      }
+                    />
+                    <Input
+                      value={j.alias ?? ""}
+                      placeholder="alias (opt.)"
+                      className="h-8 font-mono"
+                      onChange={(e) =>
+                        patch({
+                          joins: draft.joins.map((x, k) =>
+                            k === i ? { ...x, alias: e.target.value || undefined } : x,
+                          ),
+                        })
+                      }
+                    />
+                    <Input
+                      value={j.on}
+                      placeholder="orders.customer_id = customers.id"
+                      className="h-8 font-mono"
+                      onChange={(e) =>
+                        patch({
+                          joins: draft.joins.map((x, k) =>
+                            k === i ? { ...x, on: e.target.value } : x,
+                          ),
+                        })
+                      }
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => patch({ joins: draft.joins.filter((_, k) => k !== i) })}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                ))}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={isShared || draft.joins.length >= 8}
+                  onClick={() =>
+                    patch({ joins: [...draft.joins, { table: "", on: "", type: "left" }] })
+                  }
+                >
+                  <Plus className="mr-1 h-3.5 w-3.5" /> Add join
+                </Button>
+              </CardContent>
+            </Card>
+
             {/* Dimensions */}
             <FieldSection
               title="Dimensions"
@@ -535,7 +662,9 @@ function SemanticsPage() {
               disabled={isShared}
               onAddFromColumn={addDimFromColumn}
               onAddBlank={() =>
-                patch({ dimensions: [...draft.dimensions, { name: "", sql: "", type: "categorical" }] })
+                patch({
+                  dimensions: [...draft.dimensions, { name: "", sql: "", type: "categorical" }],
+                })
               }
             >
               {draft.dimensions.map((d, i) => (
@@ -545,7 +674,11 @@ function SemanticsPage() {
                     placeholder="region"
                     className="h-8 font-mono"
                     onChange={(e) =>
-                      patch({ dimensions: draft.dimensions.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)) })
+                      patch({
+                        dimensions: draft.dimensions.map((x, j) =>
+                          j === i ? { ...x, name: e.target.value } : x,
+                        ),
+                      })
                     }
                   />
                   <Input
@@ -553,24 +686,42 @@ function SemanticsPage() {
                     placeholder="`Region`"
                     className="h-8 font-mono"
                     onChange={(e) =>
-                      patch({ dimensions: draft.dimensions.map((x, j) => (j === i ? { ...x, sql: e.target.value } : x)) })
+                      patch({
+                        dimensions: draft.dimensions.map((x, j) =>
+                          j === i ? { ...x, sql: e.target.value } : x,
+                        ),
+                      })
                     }
                   />
                   <Select
                     value={d.type ?? "categorical"}
                     onValueChange={(v) =>
-                      patch({ dimensions: draft.dimensions.map((x, j) => (j === i ? { ...x, type: v as SemanticDimension["type"] } : x)) })
+                      patch({
+                        dimensions: draft.dimensions.map((x, j) =>
+                          j === i ? { ...x, type: v as SemanticDimension["type"] } : x,
+                        ),
+                      })
                     }
                   >
-                    <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="h-8">
+                      <SelectValue />
+                    </SelectTrigger>
                     <SelectContent>
                       {["categorical", "time", "number", "boolean"].map((t) => (
-                        <SelectItem key={t} value={t}>{t}</SelectItem>
+                        <SelectItem key={t} value={t}>
+                          {t}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                  <Button variant="ghost" size="icon" className="h-8 w-8"
-                    onClick={() => patch({ dimensions: draft.dimensions.filter((_, j) => j !== i) })}>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() =>
+                      patch({ dimensions: draft.dimensions.filter((_, j) => j !== i) })
+                    }
+                  >
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>
                 </div>
@@ -595,18 +746,32 @@ function SemanticsPage() {
                     placeholder="revenue"
                     className="h-8 font-mono"
                     onChange={(e) =>
-                      patch({ metrics: draft.metrics.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)) })
+                      patch({
+                        metrics: draft.metrics.map((x, j) =>
+                          j === i ? { ...x, name: e.target.value } : x,
+                        ),
+                      })
                     }
                   />
                   <Select
                     value={m.agg}
                     onValueChange={(v) =>
-                      patch({ metrics: draft.metrics.map((x, j) => (j === i ? { ...x, agg: v as MetricAgg } : x)) })
+                      patch({
+                        metrics: draft.metrics.map((x, j) =>
+                          j === i ? { ...x, agg: v as MetricAgg } : x,
+                        ),
+                      })
                     }
                   >
-                    <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="h-8">
+                      <SelectValue />
+                    </SelectTrigger>
                     <SelectContent>
-                      {AGGS.map((a) => (<SelectItem key={a} value={a}>{a}</SelectItem>))}
+                      {AGGS.map((a) => (
+                        <SelectItem key={a} value={a}>
+                          {a}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                   <Input
@@ -614,11 +779,19 @@ function SemanticsPage() {
                     placeholder={m.agg === "count" ? "(optional)" : "`Amount`"}
                     className="h-8 font-mono"
                     onChange={(e) =>
-                      patch({ metrics: draft.metrics.map((x, j) => (j === i ? { ...x, sql: e.target.value } : x)) })
+                      patch({
+                        metrics: draft.metrics.map((x, j) =>
+                          j === i ? { ...x, sql: e.target.value } : x,
+                        ),
+                      })
                     }
                   />
-                  <Button variant="ghost" size="icon" className="h-8 w-8"
-                    onClick={() => patch({ metrics: draft.metrics.filter((_, j) => j !== i) })}>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() => patch({ metrics: draft.metrics.filter((_, j) => j !== i) })}
+                  >
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>
                 </div>
@@ -643,7 +816,9 @@ function SemanticsPage() {
                     options={draft.metrics.map((m) => m.name).filter(Boolean)}
                     picked={pickedMetrics}
                     onToggle={(n) =>
-                      setPickedMetrics((p) => (p.includes(n) ? p.filter((x) => x !== n) : [...p, n]))
+                      setPickedMetrics((p) =>
+                        p.includes(n) ? p.filter((x) => x !== n) : [...p, n],
+                      )
                     }
                   />
                   <Picker
@@ -657,13 +832,17 @@ function SemanticsPage() {
                 </div>
                 {result && (
                   <div className="space-y-2">
-                    <pre className="overflow-x-auto rounded bg-muted p-2 font-mono text-[11px]">{result.sql}</pre>
+                    <pre className="overflow-x-auto rounded bg-muted p-2 font-mono text-[11px]">
+                      {result.sql}
+                    </pre>
                     <div className="max-h-72 overflow-auto rounded border">
                       <Table>
                         <TableHeader>
                           <TableRow>
                             {result.columns.map((c) => (
-                              <TableHead key={c} className="font-mono text-xs">{c}</TableHead>
+                              <TableHead key={c} className="font-mono text-xs">
+                                {c}
+                              </TableHead>
                             ))}
                           </TableRow>
                         </TableHeader>
@@ -671,7 +850,9 @@ function SemanticsPage() {
                           {result.rows.map((r, i) => (
                             <TableRow key={i}>
                               {result.columns.map((c) => (
-                                <TableCell key={c} className="font-mono text-xs">{String(r[c] ?? "")}</TableCell>
+                                <TableCell key={c} className="font-mono text-xs">
+                                  {String(r[c] ?? "")}
+                                </TableCell>
                               ))}
                             </TableRow>
                           ))}
@@ -679,7 +860,9 @@ function SemanticsPage() {
                       </Table>
                     </div>
                     <div className="flex items-center justify-between">
-                      <p className="text-[11px] text-muted-foreground">{result.rows.length} row(s)</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {result.rows.length} row(s)
+                      </p>
                       <Button size="sm" variant="outline" onClick={() => setAddOpen(true)}>
                         <LayoutDashboard className="mr-1 h-4 w-4" /> Add to dashboard
                       </Button>
@@ -747,7 +930,11 @@ function FieldSection({
                     <SelectValue placeholder="+ from column" />
                   </SelectTrigger>
                   <SelectContent>
-                    {cols.map((c) => (<SelectItem key={c} value={c}>{c}</SelectItem>))}
+                    {cols.map((c) => (
+                      <SelectItem key={c} value={c}>
+                        {c}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               )}

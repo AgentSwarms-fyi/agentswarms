@@ -9,6 +9,7 @@ import { z } from "zod";
 import type { Database } from "@/integrations/supabase/types";
 import {
   isValidFieldName,
+  MAX_JOINS,
   type SemanticDimension,
   type SemanticMetric,
   type SemanticQuery,
@@ -50,6 +51,24 @@ const metricSchema = z.object({
   currency: z.string().optional(),
 });
 
+// Structural parts are validated STRICTLY here as well as at compile time —
+// table refs and aliases become the query's shape. The ON condition is an
+// owner-trusted fragment (the same trust class as dimension SQL), so it only
+// gets shape limits, and the compiler wraps it in parentheses.
+const joinSchema = z.object({
+  table: z
+    .string()
+    .min(1)
+    .max(200)
+    .regex(/^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$/, "Unsafe join table reference"),
+  alias: z
+    .string()
+    .regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, "Alias must be letters/digits/underscore")
+    .optional(),
+  type: z.enum(["left", "inner"]).optional(),
+  on: z.string().min(1).max(500),
+});
+
 const modelSchema = z.object({
   id: z.string().uuid().optional(),
   name: z.string().min(1).max(64),
@@ -59,6 +78,7 @@ const modelSchema = z.object({
   table_id: z.string().uuid().nullable().optional(),
   connection_id: z.string().uuid().nullable().optional(),
   source_table: z.string().min(1),
+  joins: z.array(joinSchema).max(MAX_JOINS).optional(),
   dimensions: z.array(dimensionSchema),
   metrics: z.array(metricSchema),
 });
@@ -67,7 +87,9 @@ function validateNames(dims: SemanticDimension[], metrics: SemanticMetric[]) {
   const seen = new Set<string>();
   for (const f of [...dims, ...metrics]) {
     if (!isValidFieldName(f.name)) {
-      throw new Error(`Invalid field name "${f.name}" — use letters, digits, underscore; no spaces.`);
+      throw new Error(
+        `Invalid field name "${f.name}" — use letters, digits, underscore; no spaces.`,
+      );
     }
     if (seen.has(f.name)) throw new Error(`Duplicate field name "${f.name}"`);
     seen.add(f.name);
@@ -78,10 +100,7 @@ export const semanticListModels = createServerFn({ method: "GET" })
   .inputValidator((d: { accessToken: string }) => d)
   .handler(async ({ data }) => {
     const { sb } = await requireUser(data.accessToken);
-    const { data: rows, error } = await sb
-      .from("semantic_models")
-      .select("*")
-      .order("name");
+    const { data: rows, error } = await sb.from("semantic_models").select("*").order("name");
     if (error) throw new Error(error.message);
     return rows ?? [];
   });
@@ -107,6 +126,7 @@ export const semanticUpsertModel = createServerFn({ method: "POST" })
       table_id: m.table_id ?? null,
       connection_id: m.connection_id ?? null,
       source_table: m.source_table,
+      joins: (m.joins ?? []) as never,
       dimensions: m.dimensions as never,
       metrics: m.metrics as never,
     };

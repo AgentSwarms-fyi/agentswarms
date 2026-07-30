@@ -113,7 +113,12 @@ export const biGetPublicDashboard = createServerFn({ method: "POST" })
           .rpc("bi_touch_view", { _dashboard_id: row.id })
           .then(() => {})
           .then(undefined, () => {});
-        const { id: _id, published: _published, ...rest } = row;
+        // Row snapshots live in bi_widget_results; anonymous viewers have no
+        // session for its RLS, so hydrate with the service role BEFORE the
+        // sanitiser strips everything a public payload must not carry.
+        const { hydrateDashboardAdmin } = await import("@/utils/bi/results.server");
+        const hydrated = await hydrateDashboardAdmin(row.id, row);
+        const { id: _id, published: _published, ...rest } = hydrated;
         // Anyone with the slug can read this, so strip the query behind each
         // widget (raw SQL, warehouse connection ids) — see sanitizePublicWidgets.
         const dashboard = {

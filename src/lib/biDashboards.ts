@@ -8,6 +8,7 @@ import type { CSSProperties } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
 import type { BiTurn, ChartSpec } from "@/lib/biAgent";
+import { isAggregatableChart } from "@/lib/biAggregate";
 import type { SemanticFilter } from "@/lib/semanticLayer";
 
 export const GRID_COLS = 12;
@@ -54,6 +55,19 @@ export type BiWidget = {
    * Public embeds/shares always render the snapshot regardless.
    */
   query_mode?: "import" | "direct";
+  /**
+   * Aggregate in SQL (GROUP BY on the category fields) instead of fetching raw
+   * rows and summing the capped snapshot in the browser.
+   *
+   * Opt-in per widget, and deliberately NOT retro-enabled: switching it on can
+   * change the number an existing widget displays, because that number was a
+   * partial sum of however many rows fitted under the cap. New widgets default
+   * to on; existing ones surface `truncated` instead so the owner can see the
+   * problem and choose. See src/lib/biAggregate.ts.
+   */
+  agg_pushdown?: boolean;
+  /** Last refresh filled the snapshot to the row cap — totals may be partial. */
+  truncated?: boolean;
   narrative?: string;
   /** Per-widget appearance (accent colour + card surface). */
   theme?: BiWidgetTheme;
@@ -630,6 +644,9 @@ export function widgetFromBiTurn(
     columns: turn.result.columns,
     rows: snapshotRows(turn.result.rows, rowCap),
     narrative: turn.narrative,
+    // Same default as builder-created widgets: aggregate in SQL when the chart
+    // type supports it, so an AI-added widget starts with complete totals.
+    agg_pushdown: isAggregatableChart(turn.chart ?? undefined),
     refreshed_at: new Date().toISOString(),
   };
 }
@@ -715,7 +732,148 @@ export async function getDashboard(id: string): Promise<BiDashboardRow | null> {
     .eq("id", id)
     .maybeSingle();
   if (error) throw new Error(error.message);
+  if (data) {
+    // Hydrate row snapshots from the results store. Failure is non-fatal: the
+    // document's own (possibly older or empty) rows still render, which beats
+    // failing the whole load over the data sidecar.
+    try {
+      const results = await fetchWidgetResults(id);
+      if (results.length > 0) {
+        data.widgets = mergeWidgetResults(data.widgets, results) as Json;
+        data.pages = mergePagesResults(data.pages, results) as Json;
+      }
+    } catch {
+      /* fall back to document rows */
+    }
+  }
   return (data as BiDashboardRow | null) ?? null;
+}
+
+// ── Widget results: data split out of the dashboard document ───────────────
+// The document stores the DEFINITION (sql, chart, layout, columns, metadata);
+// row snapshots live in bi_widget_results, one row per (dashboard, widget).
+// Readers merge them back in; writers strip them out. Everything falls back to
+// rows still embedded in the document, so dashboards written before the split
+// (and sample seeds, and promoted copies) keep rendering with no backfill.
+
+export type WidgetResultRow = {
+  widget_id: string;
+  columns: Json;
+  rows: Json;
+  truncated: boolean;
+  refreshed_at: string;
+};
+
+/**
+ * Remove row snapshots from a widgets array (pure).
+ *
+ * Keeps `columns` — the filter UI, drill-through and the aggregation-pushdown
+ * validator all read them — and keeps `refreshed_at`/`truncated` so staleness
+ * comparisons work without the data present. Ontology widgets carry their map
+ * in the chart spec and have empty rows anyway.
+ */
+export function stripWidgetData(widgets: unknown): unknown {
+  if (!Array.isArray(widgets)) return widgets;
+  return widgets.map((w) => {
+    if (!w || typeof w !== "object" || (w as BiWidget).kind !== "chart") return w;
+    const { rows: _rows, ...rest } = w as Record<string, unknown>;
+    return { ...rest, rows: [] };
+  });
+}
+
+/** stripWidgetData across the `pages` mirror (each page embeds its own widgets). */
+export function stripPagesData(pages: unknown): unknown {
+  if (!Array.isArray(pages)) return pages;
+  return (pages as Record<string, unknown>[]).map((p) =>
+    p && typeof p === "object" ? { ...p, widgets: stripWidgetData(p.widgets) } : p,
+  );
+}
+
+/**
+ * Merge stored results into a widgets array (pure).
+ *
+ * A result wins when the widget has no rows of its own, or when the result is
+ * at least as fresh as the widget's — so a builder preview the user just ran
+ * (newer refreshed_at, rows in memory) is never overwritten by an older stored
+ * snapshot, while a scheduled refresh that ran after the document was saved
+ * shows up without a reload.
+ */
+export function mergeWidgetResults(widgets: unknown, results: WidgetResultRow[]): unknown {
+  if (!Array.isArray(widgets) || results.length === 0) return widgets;
+  const byId = new Map(results.map((r) => [r.widget_id, r]));
+  return widgets.map((w) => {
+    if (!w || typeof w !== "object" || (w as BiWidget).kind !== "chart") return w;
+    const widget = w as Record<string, unknown>;
+    const r = byId.get(String(widget.id));
+    if (!r || !Array.isArray(r.rows)) return w;
+    const widgetRows = Array.isArray(widget.rows) ? (widget.rows as unknown[]) : [];
+    const widgetAt = typeof widget.refreshed_at === "string" ? widget.refreshed_at : "";
+    if (widgetRows.length > 0 && widgetAt > r.refreshed_at) return w;
+    return {
+      ...widget,
+      columns: Array.isArray(r.columns) ? r.columns : widget.columns,
+      rows: r.rows,
+      truncated: r.truncated,
+      refreshed_at: r.refreshed_at,
+    };
+  });
+}
+
+/** mergeWidgetResults across the `pages` mirror. */
+export function mergePagesResults(pages: unknown, results: WidgetResultRow[]): unknown {
+  if (!Array.isArray(pages) || results.length === 0) return pages;
+  return (pages as Record<string, unknown>[]).map((p) =>
+    p && typeof p === "object" ? { ...p, widgets: mergeWidgetResults(p.widgets, results) } : p,
+  );
+}
+
+/** Load a dashboard's stored widget results (owner or grantee, via RLS). */
+export async function fetchWidgetResults(dashboardId: string): Promise<WidgetResultRow[]> {
+  const { data, error } = await supabase
+    .from("bi_widget_results")
+    .select("widget_id, columns, rows, truncated, refreshed_at")
+    .eq("dashboard_id", dashboardId);
+  if (error) throw new Error(error.message);
+  return (data ?? []) as WidgetResultRow[];
+}
+
+// Last refreshed_at synced per widget, so autosaves (which fire on every
+// debounced edit) only upload row snapshots that actually changed.
+const syncedResultAt = new Map<string, string>();
+
+/**
+ * Persist the in-memory row snapshots of chart widgets (owner only — RLS
+ * refuses anyone else). Best-effort by design: a failed sync leaves the stored
+ * result stale, which the next refresh or save repairs; it must never block or
+ * fail the document save it accompanies.
+ */
+export async function syncWidgetResults(dashboardId: string, widgets: BiWidget[]): Promise<void> {
+  const dirty = widgets.filter(
+    (w) =>
+      w.kind === "chart" &&
+      Array.isArray(w.rows) &&
+      w.rows.length > 0 &&
+      syncedResultAt.get(`${dashboardId}:${w.id}`) !== (w.refreshed_at ?? ""),
+  );
+  if (dirty.length === 0) return;
+  // getSession reads the local token — no network round trip per autosave.
+  const { data: sessionData } = await supabase.auth.getSession();
+  const userId = sessionData.session?.user.id;
+  if (!userId) return;
+  const { error } = await supabase.from("bi_widget_results").upsert(
+    dirty.map((w) => ({
+      dashboard_id: dashboardId,
+      widget_id: w.id,
+      user_id: userId,
+      columns: (w.columns ?? []) as unknown as Json,
+      rows: (w.rows ?? []) as unknown as Json,
+      truncated: Boolean(w.truncated),
+      refreshed_at: w.refreshed_at ?? new Date().toISOString(),
+    })),
+    { onConflict: "dashboard_id,widget_id" },
+  );
+  if (error) throw new Error(error.message);
+  for (const w of dirty) syncedResultAt.set(`${dashboardId}:${w.id}`, w.refreshed_at ?? "");
 }
 
 export async function createDashboard(args: {
@@ -762,6 +920,14 @@ export async function updateDashboard(
   }>,
   opts?: { expectedVersion?: number },
 ): Promise<number | null> {
+  // Row snapshots never enter the document, whoever calls this. Data lives in
+  // bi_widget_results (see syncWidgetResults); the document stores definitions
+  // plus small metadata. Stripping here, at the single write chokepoint, means
+  // no future caller can quietly reintroduce document bloat.
+  if (patch.widgets !== undefined)
+    patch = { ...patch, widgets: stripWidgetData(patch.widgets) as Json };
+  if (patch.pages !== undefined) patch = { ...patch, pages: stripPagesData(patch.pages) as Json };
+
   // Optimistic concurrency: only the editor's content saves pass an
   // expectedVersion. The update is guarded on the version it loaded and bumps
   // it atomically; zero rows back means someone else saved first — reject
@@ -799,6 +965,9 @@ export async function appendWidgetToDashboard(
   if (!row) throw new Error("Dashboard not found");
   const widgets = [...parseWidgets(row.widgets), widget];
   const layout = addWidgetToLayout(parseLayout(row.layout, parseWidgets(row.widgets)), widget);
+  // Store the data FIRST: updateDashboard strips rows from the document, so
+  // without this the new widget would render empty until its first refresh.
+  await syncWidgetResults(dashboardId, [widget]).catch(() => {});
   await updateDashboard(dashboardId, {
     widgets: widgets as unknown as Json,
     layout: layout as unknown as Json,
@@ -885,9 +1054,13 @@ export async function saveDashboardVersion(
     user_id: row.user_id,
     label: label?.trim() || null,
     name: row.name,
-    widgets: row.widgets,
+    // Versions store the DEFINITION, not the data. Data is not versioned — it
+    // is whatever the source says now — so keeping row snapshots here only
+    // multiplied storage by the retention window. On restore, widgets hydrate
+    // from the current bi_widget_results like any other load.
+    widgets: stripWidgetData(row.widgets) as Json,
     layout: row.layout,
-    pages: row.pages,
+    pages: stripPagesData(row.pages) as Json,
     filters: row.filters,
     theme: row.theme,
   });

@@ -15,6 +15,9 @@
 //     if the widget result doesn't expose a row-filter column we cannot enforce
 //     the restriction, so we return a no-rows query rather than leak everything.
 
+import { renderAggregateClauses, type AggPlan } from "@/lib/biAggregate";
+import type { SqlDialect } from "@/lib/semanticLayer";
+
 export const DIRECT_QUERY_MAX_ROWS = 100_000;
 export const DIRECT_QUERY_DEFAULT_ROWS = 50_000;
 
@@ -45,6 +48,12 @@ function stripTrailing(sql: string): string {
  * Build the effective direct-query SQL. Filter/row-filter columns not present
  * in `columns` are skipped (global) or fail closed (row-level). Returns the
  * wrapped, filtered, LIMITed SQL.
+ *
+ * With `agg`, the query also groups — and the ORDER MATTERS: filters land in
+ * the WHERE, which the database evaluates BEFORE the GROUP BY, so a filtered
+ * chart aggregates only the rows that passed the filter. Building it the other
+ * way round (aggregate, then filter the totals) would quietly answer a
+ * different question.
  */
 export function buildDirectQuerySql(args: {
   baseSql: string;
@@ -54,6 +63,10 @@ export function buildDirectQuerySql(args: {
   /** Row-level security filters (ANDed, fail-closed). */
   rowFilters?: DirectRowFilter[];
   rowCap?: number;
+  /** Aggregation pushdown plan; omitted or unbuildable → raw rows as before. */
+  agg?: AggPlan;
+  /** Identifier-quoting dialect for the aggregate clauses. */
+  dialect?: SqlDialect;
 }): string {
   const colSet = new Set(args.columns.map((c) => c.toLowerCase()));
   const base = stripTrailing(args.baseSql);
@@ -90,5 +103,16 @@ export function buildDirectQuerySql(args: {
     1,
     Math.min(Math.trunc(args.rowCap ?? DIRECT_QUERY_DEFAULT_ROWS), DIRECT_QUERY_MAX_ROWS),
   );
+
+  // Aggregation is best-effort by design: renderAggregateClauses returns null
+  // for any field it cannot verify against `columns`, and we then emit exactly
+  // the query we always did. A chart that loses pushdown renders as before —
+  // it never renders wrong.
+  const clauses = args.agg
+    ? renderAggregateClauses(args.agg, args.columns, args.dialect ?? "postgres")
+    : null;
+  if (clauses) {
+    return `SELECT ${clauses.select} FROM (${base}) AS _dq${where} GROUP BY ${clauses.groupBy} LIMIT ${cap}`;
+  }
   return `SELECT * FROM (${base}) AS _dq${where} LIMIT ${cap}`;
 }

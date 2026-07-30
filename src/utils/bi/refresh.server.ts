@@ -17,7 +17,12 @@ import { createRequire } from "node:module";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Json } from "@/integrations/supabase/types";
-import type { SemanticQuery } from "@/lib/semanticLayer";
+import type { SemanticQuery, SqlDialect } from "@/lib/semanticLayer";
+import type { ChartSpec } from "@/lib/biAgent";
+import { aggregationPlan } from "@/lib/biAggregate";
+import { buildDirectQuerySql } from "@/lib/biDirectQuery";
+import { parseFilters, stripWidgetData } from "@/lib/biDashboards";
+import { upsertWidgetResultsAdmin } from "@/utils/bi/results.server";
 import { sendMail } from "@/lib/email/mailer.server";
 import { loadWarehouseConnection } from "@/utils/warehouse/connections.server";
 import { executeWarehouseQuery } from "@/utils/warehouse/drivers.server";
@@ -66,6 +71,11 @@ type WidgetJson = {
   columns?: string[];
   rows?: Record<string, unknown>[];
   refreshed_at?: string;
+  chart?: unknown;
+  /** Aggregate in SQL rather than summing a capped snapshot in the browser. */
+  agg_pushdown?: boolean;
+  /** Set when a raw snapshot hit the row cap, so the UI can say so. */
+  truncated?: boolean;
   [k: string]: unknown;
 };
 
@@ -120,6 +130,31 @@ export async function runLocalSqlForUser(
   return { columns, rows };
 }
 
+/**
+ * Rewrite a widget's SQL to aggregate in the database, when it opted in.
+ *
+ * Returns the ORIGINAL SQL whenever pushdown is off, the chart type needs raw
+ * rows, or any field fails validation — so this can never make a widget worse
+ * than it was. The widget's own stored `columns` (the result columns of the
+ * last successful run) are what the plan is validated against; if they are
+ * stale or absent the plan is refused and the raw path runs, which then
+ * repopulates them for next time.
+ */
+function pushDownAggregation(w: WidgetJson, preserve: string[], dialect: SqlDialect): string {
+  const sql = w.sql!;
+  if (!w.agg_pushdown) return sql;
+  const chart = w.chart as ChartSpec | undefined;
+  const plan = aggregationPlan(chart, { preserve });
+  if (!plan) return sql;
+  return buildDirectQuerySql({
+    baseSql: sql,
+    columns: w.columns ?? [],
+    agg: plan,
+    dialect,
+    rowCap: WIDGET_ROW_CAP,
+  });
+}
+
 // ── Dashboard refresh ────────────────────────────────────────────────────
 
 export async function refreshDashboardServer(dashboardId: string): Promise<{
@@ -136,11 +171,17 @@ export async function refreshDashboardServer(dashboardId: string): Promise<{
   // BEFORE UPDATE trigger maintains this column, so it changes on every save.
   const { data: dash, error } = await supabaseAdmin
     .from("bi_dashboards")
-    .select("id, user_id, name, widgets, updated_at")
+    .select("id, user_id, name, widgets, filters, updated_at")
     .eq("id", dashboardId)
     .single();
   if (error || !dash) throw new Error(error?.message ?? "Dashboard not found");
   const readUpdatedAt = dash.updated_at;
+
+  // Columns aggregation must not collapse away: every dashboard filter narrows
+  // widgets client-side by column name, and filterWidgetRows SKIPS a column it
+  // cannot find — so grouping one away would silently stop that filter from
+  // applying rather than raise anything.
+  const preserve = parseFilters(dash.filters).map((f) => f.column);
 
   const widgets = (Array.isArray(dash.widgets) ? dash.widgets : []) as WidgetJson[];
   // Shallow copies keep the pre-refresh row arrays (the loop below REASSIGNS
@@ -182,26 +223,44 @@ export async function refreshDashboardServer(dashboardId: string): Promise<{
           { connectionId: w.source.connection_id },
           dash.user_id,
         );
-        const res = await executeWarehouseQuery(conn.config, w.sql!, WIDGET_ROW_CAP);
+        const sql = pushDownAggregation(w, preserve, conn.config.provider as SqlDialect);
+        const res = await executeWarehouseQuery(conn.config, sql, WIDGET_ROW_CAP);
         result = { columns: res.columns.map((c) => c.name), rows: res.rows };
       } else {
-        result = await runLocalSqlForUser(dash.user_id, w.sql!);
+        result = await runLocalSqlForUser(dash.user_id, pushDownAggregation(w, preserve, "alasql"));
       }
       w.columns = result.columns;
       w.rows = result.rows.slice(0, WIDGET_ROW_CAP);
+      // Whether the source had MORE rows than we kept. Only meaningful without
+      // pushdown: an aggregated result is complete by construction, but a
+      // truncated raw result makes every client-side total a partial sum.
+      w.truncated = !w.agg_pushdown && result.rows.length >= WIDGET_ROW_CAP;
       w.refreshed_at = new Date().toISOString();
     } catch (e) {
       failures.push(`"${w.title ?? w.id}": ${(e as Error).message}`);
     }
   }
 
+  // Data lands in the results store FIRST and unconditionally — per-widget
+  // rows, so a concurrent edit cannot be clobbered by them, and hydration
+  // shows the fresh numbers even when the document write below loses its race.
+  try {
+    await upsertWidgetResultsAdmin(dashboardId, dash.user_id, widgets);
+  } catch (e) {
+    failures.push(`storing results: ${(e as Error).message}`);
+  }
+
   // Conditional write: only land if nobody saved the dashboard while we were
   // querying. If they did, drop this refresh rather than clobber their edit —
   // the next tick picks it up against the new baseline. Losing one refresh
-  // cycle is recoverable; losing a user's edits is not.
+  // cycle is recoverable; losing a user's edits is not. Only definition
+  // metadata (columns, refreshed_at, truncated) is written — the row snapshots
+  // live in bi_widget_results, which keeps this document write small and the
+  // conflict window narrow.
+  const docWidgets = stripWidgetData(widgets);
   const { data: written, error: upErr } = await supabaseAdmin
     .from("bi_dashboards")
-    .update({ widgets: widgets as never, updated_at: new Date().toISOString() })
+    .update({ widgets: docWidgets as never, updated_at: new Date().toISOString() })
     .eq("id", dashboardId)
     .eq("updated_at", readUpdatedAt)
     .select("id");

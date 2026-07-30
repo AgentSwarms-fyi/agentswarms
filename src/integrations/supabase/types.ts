@@ -517,6 +517,36 @@ export type Database = {
         };
         Relationships: [];
       };
+      bi_widget_results: {
+        Row: {
+          columns: Json;
+          dashboard_id: string;
+          refreshed_at: string;
+          rows: Json;
+          truncated: boolean;
+          user_id: string;
+          widget_id: string;
+        };
+        Insert: {
+          columns?: Json;
+          dashboard_id: string;
+          refreshed_at?: string;
+          rows?: Json;
+          truncated?: boolean;
+          user_id: string;
+          widget_id: string;
+        };
+        Update: {
+          columns?: Json;
+          dashboard_id?: string;
+          refreshed_at?: string;
+          rows?: Json;
+          truncated?: boolean;
+          user_id?: string;
+          widget_id?: string;
+        };
+        Relationships: [];
+      };
       bi_workspaces: {
         Row: {
           id: string;
@@ -3452,6 +3482,7 @@ export type Database = {
           created_at: string;
           description: string | null;
           dimensions: Json;
+          joins: Json;
           id: string;
           label: string | null;
           metrics: Json;
@@ -3467,6 +3498,7 @@ export type Database = {
           created_at?: string;
           description?: string | null;
           dimensions?: Json;
+          joins?: Json;
           id?: string;
           label?: string | null;
           metrics?: Json;
@@ -3482,6 +3514,7 @@ export type Database = {
           created_at?: string;
           description?: string | null;
           dimensions?: Json;
+          joins?: Json;
           id?: string;
           label?: string | null;
           metrics?: Json;

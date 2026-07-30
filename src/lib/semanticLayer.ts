@@ -44,12 +44,37 @@ export type SemanticSource =
   | { kind: "data_table"; table: string }
   | { kind: "warehouse"; connectionId: string; table: string };
 
+/**
+ * A join from the model's source table to a related table, so dimensions and
+ * metrics can reference columns across a star schema instead of forcing the
+ * owner to pre-join in a view or prep flow.
+ *
+ * `on` is a trusted SQL fragment authored by the MODEL OWNER — exactly the
+ * same trust class as a dimension's `sql` — e.g. "orders.customer_id =
+ * customers.id". The table reference and alias, by contrast, are validated to
+ * strict identifier shapes, because they are also used to build the query's
+ * structure.
+ */
+export type SemanticJoin = {
+  /** Table to join (bare or dotted identifier, validated). */
+  table: string;
+  /** Optional alias, ^[a-zA-Z_][a-zA-Z0-9_]*$ — how fragments refer to it. */
+  alias?: string;
+  /** Join type; LEFT keeps unmatched source rows (the safe default). */
+  type?: "left" | "inner";
+  /** Trusted boolean SQL fragment: the ON condition. */
+  on: string;
+};
+
+export const MAX_JOINS = 8;
+
 export type SemanticModel = {
   id?: string;
   name: string;
   label?: string;
   description?: string;
   source: SemanticSource;
+  joins?: SemanticJoin[];
   dimensions: SemanticDimension[];
   metrics: SemanticMetric[];
 };
@@ -176,6 +201,32 @@ function compileFilter(f: SemanticFilter, exprByField: Map<string, string>): str
 }
 
 /**
+ * Render a model's JOIN clauses, validating everything structural.
+ *
+ * Throws (rather than skipping) on a bad join: silently dropping one would
+ * change which rows every metric aggregates over — the same "quietly wrong
+ * number" failure this layer exists to prevent.
+ */
+function compileJoins(joins: SemanticJoin[] | undefined): string {
+  if (!joins || joins.length === 0) return "";
+  if (joins.length > MAX_JOINS) throw new Error(`At most ${MAX_JOINS} joins per model`);
+  let out = "";
+  for (const j of joins) {
+    const table = assertTableRef(j.table);
+    if (j.alias !== undefined && !IDENT_RE.test(j.alias)) {
+      throw new Error(`Invalid join alias ${JSON.stringify(j.alias)}`);
+    }
+    // Whitelist, not string interpolation: `type` becomes SQL structure.
+    const kw = j.type === "inner" ? "INNER JOIN" : "LEFT JOIN";
+    const on = (j.on ?? "").trim();
+    if (!on) throw new Error(`Join on "${j.table}" is missing its ON condition`);
+    if (on.length > 500) throw new Error(`Join ON condition too long (max 500 chars)`);
+    out += ` ${kw} ${table}${j.alias ? ` AS ${j.alias}` : ""} ON (${on})`;
+  }
+  return out;
+}
+
+/**
  * Compile a structured semantic query against one model into a single read-only
  * SELECT. Throws on any unknown field name or unsafe input.
  */
@@ -236,7 +287,7 @@ export function compileSemanticQuery(
   }
 
   const from = assertTableRef(model.source.table);
-  let sql = `SELECT ${selectParts.join(", ")} FROM ${from}`;
+  let sql = `SELECT ${selectParts.join(", ")} FROM ${from}${compileJoins(model.joins)}`;
   if (whereParts.length) sql += ` WHERE ${whereParts.join(" AND ")}`;
   // Group by dimension expressions when aggregating.
   if (metrics.length && dims.length) {
@@ -267,9 +318,13 @@ export function formatSemanticCatalog(models: SemanticModel[]): string {
       const mets = m.metrics
         .map((x) => `${x.name}${x.label ? ` (${x.label})` : ""}${x.format ? ` [${x.format}]` : ""}`)
         .join(", ");
+      const joins = (m.joins ?? [])
+        .map((j) => `${j.table}${j.alias ? ` AS ${j.alias}` : ""}`)
+        .join(", ");
       return [
         `MODEL ${m.name}${m.label ? ` — ${m.label}` : ""}`,
         m.description ? `  ${m.description}` : "",
+        joins ? `  joined tables: ${joins}` : "",
         `  dimensions: ${dims || "(none)"}`,
         `  metrics: ${mets || "(none)"}`,
       ]

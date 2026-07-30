@@ -258,6 +258,20 @@ export function BiWidgetCard({
         >
           {widget.title}
         </span>
+        {/* A snapshot that filled to the row cap means the chart is summing a
+            SUBSET and showing it as the total. Silent wrongness is worse than a
+            visible caveat, so say it where the number is read. */}
+        {widget.truncated && !widget.agg_pushdown && (
+          <span
+            className="shrink-0 cursor-help rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400"
+            title={
+              "This widget's data hit the snapshot row cap, so totals are computed from part of the " +
+              "table, not all of it. Edit the widget and turn on “Aggregate in SQL” to make them complete."
+            }
+          >
+            Partial
+          </span>
+        )}
         <div className="opacity-0 transition-opacity has-[[data-state=open]]:opacity-100 group-focus-within/widget:opacity-100 group-hover/widget:opacity-100">
           {actions}
         </div>

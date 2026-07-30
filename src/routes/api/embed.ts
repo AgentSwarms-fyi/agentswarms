@@ -162,13 +162,17 @@ export const Route = createFileRoute("/api/embed")({
             .rpc("bi_touch_view", { _dashboard_id: dash.id })
             .then(() => {})
             .then(undefined, () => {});
+          // Hydrate row snapshots from the results store (anonymous viewers
+          // have no session for its RLS), then sanitise as before.
+          const { hydrateDashboardAdmin } = await import("@/utils/bi/results.server");
+          const hydratedDash = await hydrateDashboardAdmin(dash.id, dash);
           return json({
             type: "bi_dashboard",
-            name: dash.name,
-            description: dash.description,
-            widgets: sanitizePublicWidgets(dash.widgets),
-            layout: dash.layout,
-            pages: sanitizePublicPages(dash.pages),
+            name: hydratedDash.name,
+            description: hydratedDash.description,
+            widgets: sanitizePublicWidgets(hydratedDash.widgets),
+            layout: hydratedDash.layout,
+            pages: sanitizePublicPages(hydratedDash.pages),
             filters: dash.filters,
             theme: dash.theme,
             updated_at: dash.updated_at,
