@@ -169,13 +169,34 @@ function TracesPage() {
         childrenOf.set(pid, list);
       }
     }
-    const out: (Trace & { isChild?: boolean })[] = [];
+    const out: (Trace & {
+      isChild?: boolean;
+      rollup?: { tokens_in: number; tokens_out: number; cost_usd: number; rounds: number };
+    })[] = [];
     for (const t of traces) {
       const pid = (t as Trace & { parent_trace_id?: string | null }).parent_trace_id;
       if (pid && loadedIds.has(pid)) continue; // rendered under its parent
       if (!matches(t)) continue;
-      out.push(t);
       const kids = (childrenOf.get(t.id) ?? []).slice().reverse(); // oldest round first
+      if (kids.length > 0) {
+        // Parent rows show the WHOLE TURN: their own usage plus every tool
+        // round's. Billing-wise the split is deliberate (replayed finals keep
+        // the parent's columns at zero so children carry the cost exactly
+        // once); without this display roll-up an agent turn looked like it
+        // cost nothing.
+        out.push({
+          ...t,
+          rollup: {
+            tokens_in: t.tokens_in + kids.reduce((s, k) => s + (k.tokens_in || 0), 0),
+            tokens_out: t.tokens_out + kids.reduce((s, k) => s + (k.tokens_out || 0), 0),
+            cost_usd:
+              Number(t.cost_usd || 0) + kids.reduce((s, k) => s + Number(k.cost_usd || 0), 0),
+            rounds: kids.length,
+          },
+        });
+      } else {
+        out.push(t);
+      }
       for (const k of kids) out.push({ ...k, isChild: true });
     }
     return out;
@@ -340,10 +361,21 @@ function TracesPage() {
                 <TableCell className="text-right text-xs font-mono tabular-nums">
                   {t.latency_ms}ms
                 </TableCell>
-                <TableCell className="text-right text-xs font-mono tabular-nums">
-                  <span className="text-muted-foreground">{t.tokens_in}</span>
+                <TableCell
+                  className="text-right text-xs font-mono tabular-nums"
+                  title={
+                    (t as { rollup?: { rounds: number } }).rollup
+                      ? `Whole turn incl. ${(t as { rollup: { rounds: number } }).rollup.rounds} tool round(s)`
+                      : undefined
+                  }
+                >
+                  <span className="text-muted-foreground">
+                    {(t as { rollup?: { tokens_in: number } }).rollup?.tokens_in ?? t.tokens_in}
+                  </span>
                   <span className="text-muted-foreground/50 mx-0.5">/</span>
-                  <span>{t.tokens_out}</span>
+                  <span>
+                    {(t as { rollup?: { tokens_out: number } }).rollup?.tokens_out ?? t.tokens_out}
+                  </span>
                 </TableCell>
                 <TableCell className="text-center">
                   <span
@@ -359,7 +391,10 @@ function TracesPage() {
                   </span>
                 </TableCell>
                 <TableCell className="text-right text-xs font-mono tabular-nums">
-                  ${Number(t.cost_usd).toFixed(4)}
+                  $
+                  {Number(
+                    (t as { rollup?: { cost_usd: number } }).rollup?.cost_usd ?? t.cost_usd,
+                  ).toFixed(4)}
                 </TableCell>
               </TableRow>
             ))}

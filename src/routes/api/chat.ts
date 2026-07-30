@@ -668,6 +668,13 @@ async function recordTrace(opts: {
    * usage plus this row's chars/4 estimate of a call that never happened).
    */
   replayedFinal?: boolean;
+  /**
+   * Aggregate usage across the turn's tool rounds (from the loop's
+   * x-agentswarms-loop-usage-* headers). Never added to this row's BILLING
+   * columns — the child traces already carry it — but stored in the payload
+   * as turn_* so the trace inspector can show what the whole turn consumed.
+   */
+  loopUsage?: { tokensIn: number; tokensOut: number };
 }) {
   const { trace, status, errorMessage, assistantText, skipResponsePayload } = opts;
   const userId = trace.userId;
@@ -704,6 +711,16 @@ async function recordTrace(opts: {
   const safePayload = sanitizeTraceValue(rawPayload) as Record<string, unknown>;
   if (tokensEstimated) safePayload.tokens_estimated = true;
   if (opts.replayedFinal) safePayload.replayed_final = true;
+  // Whole-turn totals (this row + the tool-round children), for display.
+  const loopIn = opts.loopUsage?.tokensIn ?? 0;
+  const loopOut = opts.loopUsage?.tokensOut ?? 0;
+  if (loopIn > 0 || loopOut > 0) {
+    safePayload.turn_tokens_in = tokensIn + loopIn;
+    safePayload.turn_tokens_out = tokensOut + loopOut;
+    safePayload.turn_cost_usd = Number(
+      (costUsd + estimateCost(trace.model, loopIn, loopOut)).toFixed(6),
+    );
+  }
   if (Array.isArray(safePayload.messages)) {
     safePayload.messages = (
       safePayload.messages as Array<{ role?: string; content?: unknown }>
@@ -801,7 +818,7 @@ async function recordTrace(opts: {
 function withTraceTap(
   upstream: ReadableStream<Uint8Array> | null,
   trace: TraceContext,
-  opts?: { replayedFinal?: boolean },
+  opts?: { replayedFinal?: boolean; loopUsage?: { tokensIn: number; tokensOut: number } },
 ): ReadableStream<Uint8Array> | null {
   if (!upstream) {
     void recordTrace({ trace, status: "error", errorMessage: "Empty upstream", assistantText: "" });
@@ -875,16 +892,27 @@ function withTraceTap(
         // Emit a final cost event so observability tracers (which don't know
         // the per-model price table or the resolved agent model) can record
         // accurate per-node cost without a second DB lookup.
+        //
+        // This event reports the WHOLE TURN: the tool rounds' aggregate usage
+        // (loopUsage, from the loop's headers) plus the final call — or, when
+        // the final was replayed from the last tool round, the loop aggregate
+        // alone (which already includes that round). Without the loop part,
+        // agent turns showed latency but zero tokens/cost in the chat UI: the
+        // parent's billing columns are deliberately zero for replayed finals
+        // (children carry the cost), and this event used to mirror that.
         try {
           const isImg = isImageModel(trace.model) || imageCount > 0;
-          const tIn = opts?.replayedFinal ? 0 : (upstreamTokensIn ?? trace.promptTokensApprox);
-          const tOut =
+          const loopIn = opts?.loopUsage?.tokensIn ?? 0;
+          const loopOut = opts?.loopUsage?.tokensOut ?? 0;
+          const finalIn = opts?.replayedFinal ? 0 : (upstreamTokensIn ?? trace.promptTokensApprox);
+          const finalOut =
             isImg || opts?.replayedFinal ? 0 : (upstreamTokensOut ?? approxTokens(assistantText));
-          const cUsd = opts?.replayedFinal
-            ? 0
-            : isImg
-              ? estimateImageCost(trace.model, Math.max(1, imageCount))
-              : estimateCost(trace.model, tIn, tOut);
+          const tIn = loopIn + finalIn;
+          const tOut = loopOut + finalOut;
+          const cUsd = isImg
+            ? estimateImageCost(trace.model, Math.max(1, imageCount)) +
+              estimateCost(trace.model, loopIn, loopOut)
+            : estimateCost(trace.model, tIn, tOut);
           controller.enqueue(
             new TextEncoder().encode(
               `event: cost\ndata: ${JSON.stringify({ model: trace.model, costUsd: cUsd, tokensIn: tIn, tokensOut: tOut })}\n\n`,
@@ -906,6 +934,7 @@ function withTraceTap(
           upstreamTokensOut: upstreamTokensOut ?? undefined,
           imageCount,
           replayedFinal: opts?.replayedFinal,
+          loopUsage: opts?.loopUsage,
         });
         // Fire post-turn n8n notification (also inside request lifetime).
         if (trace.n8nNotify?.webhookUrl) {
@@ -2038,8 +2067,19 @@ export const Route = createFileRoute("/api/chat")({
                 if (trace.requestPayload && toolEvents.length > 0) {
                   trace.requestPayload.toolEvents = toolEvents;
                 }
+                // The loop reports the turn's aggregate tool-round usage in
+                // headers; thread it through so the cost event and the trace
+                // payload show whole-turn numbers instead of zeros.
+                const loopIn =
+                  Number(upstreamWithTools.headers.get("x-agentswarms-loop-usage-in") ?? 0) || 0;
+                const loopOut =
+                  Number(upstreamWithTools.headers.get("x-agentswarms-loop-usage-out") ?? 0) || 0;
                 const tapped = withTraceTap(upstreamWithTools.body, trace, {
                   replayedFinal: upstreamWithTools.headers.get("x-agentswarms-replayed") === "1",
+                  loopUsage:
+                    loopIn > 0 || loopOut > 0
+                      ? { tokensIn: loopIn, tokensOut: loopOut }
+                      : undefined,
                 });
                 const withCits = withCitationsPreamble(tapped, citations);
                 const withTools = withToolEventsPreamble(withCits, toolEvents);

@@ -128,7 +128,10 @@ async function fetchWithRetry(
  * model actually decided on. The client only reads choices[0].delta.content
  * and [DONE], which is exactly what this emits.
  */
-function replayAsSse(content: string): Response {
+function replayAsSse(
+  content: string,
+  loopUsage?: { tokensIn: number; tokensOut: number },
+): Response {
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -141,16 +144,33 @@ function replayAsSse(content: string): Response {
       controller.close();
     },
   });
-  return new Response(stream, {
-    status: 200,
-    headers: {
-      "Content-Type": "text/event-stream",
-      // Tells the caller no separate provider call produced this stream, so
-      // the parent trace must record zero usage — the last tool round's child
-      // trace already carries the real tokens and cost for this answer.
-      "x-agentswarms-replayed": "1",
-    },
-  });
+  const headers: Record<string, string> = {
+    "Content-Type": "text/event-stream",
+    // Tells the caller no separate provider call produced this stream, so
+    // the parent trace must record zero usage in its BILLING columns — the
+    // tool rounds' child traces already carry the real tokens and cost.
+    "x-agentswarms-replayed": "1",
+  };
+  // …but zero billing columns must not mean a blank UI: the turn's aggregate
+  // usage travels in headers so the chat cost event and the parent trace
+  // payload can still show what the whole turn actually consumed.
+  if (loopUsage) {
+    headers["x-agentswarms-loop-usage-in"] = String(loopUsage.tokensIn);
+    headers["x-agentswarms-loop-usage-out"] = String(loopUsage.tokensOut);
+  }
+  return new Response(stream, { status: 200, headers });
+}
+
+/** Re-wrap a (streaming) Response with the loop's aggregate usage headers. */
+function withLoopUsageHeaders(
+  resp: Response,
+  loopUsage: { tokensIn: number; tokensOut: number },
+): Response {
+  if (loopUsage.tokensIn === 0 && loopUsage.tokensOut === 0) return resp;
+  const headers = new Headers(resp.headers);
+  headers.set("x-agentswarms-loop-usage-in", String(loopUsage.tokensIn));
+  headers.set("x-agentswarms-loop-usage-out", String(loopUsage.tokensOut));
+  return new Response(resp.body, { status: resp.status, statusText: resp.statusText, headers });
 }
 
 // One non-streaming chat completion call against any OpenAI-compatible
@@ -284,6 +304,11 @@ export async function streamChatWithTools(opts: {
     });
   }
 
+  // Aggregate usage across every tool round, so the caller can report what
+  // the WHOLE turn consumed even though billing lives on the per-round child
+  // traces (the parent's own columns stay zero for replayed finals).
+  const loopUsage = { tokensIn: 0, tokensOut: 0 };
+
   // Tool-calling loop (non-streaming).
   for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
     if (opts.signal?.aborted) throw new DOMException("Aborted", "AbortError");
@@ -307,6 +332,8 @@ export async function streamChatWithTools(opts: {
       choices?: { message?: GatewayMessage; finish_reason?: string }[];
       usage?: { prompt_tokens?: number; completion_tokens?: number };
     };
+    loopUsage.tokensIn += Number(j.usage?.prompt_tokens ?? 0) || 0;
+    loopUsage.tokensOut += Number(j.usage?.completion_tokens ?? 0) || 0;
     if (opts.userId) {
       try {
         const { recordGatewayCall } =
@@ -340,17 +367,20 @@ export async function streamChatWithTools(opts: {
       // fallback call survives only for providers that return an empty
       // message here.
       const finalText = typeof msg.content === "string" ? msg.content : "";
-      if (finalText.trim()) return replayAsSse(finalText);
-      return callGateway({
-        apiKey: opts.apiKey,
-        model: opts.model,
-        messages: transcript,
-        temperature: opts.temperature,
-        maxTokens: opts.maxTokens,
-        stream: true,
-        signal: opts.signal,
-        ...transport,
-      });
+      if (finalText.trim()) return replayAsSse(finalText, loopUsage);
+      return withLoopUsageHeaders(
+        await callGateway({
+          apiKey: opts.apiKey,
+          model: opts.model,
+          messages: transcript,
+          temperature: opts.temperature,
+          maxTokens: opts.maxTokens,
+          stream: true,
+          signal: opts.signal,
+          ...transport,
+        }),
+        loopUsage,
+      );
     }
 
     // Append the assistant turn (with tool_calls) so the model can see
@@ -416,14 +446,17 @@ export async function streamChatWithTools(opts: {
   // SO: without the note the model has no idea why its tools vanished, and
   // tends to promise follow-up work it can no longer do.
   transcript.push({ role: "system", content: BUDGET_EXHAUSTED_NOTE });
-  return callGateway({
-    apiKey: opts.apiKey,
-    model: opts.model,
-    messages: transcript,
-    temperature: opts.temperature,
-    maxTokens: opts.maxTokens,
-    stream: true,
-    signal: opts.signal,
-    ...transport,
-  });
+  return withLoopUsageHeaders(
+    await callGateway({
+      apiKey: opts.apiKey,
+      model: opts.model,
+      messages: transcript,
+      temperature: opts.temperature,
+      maxTokens: opts.maxTokens,
+      stream: true,
+      signal: opts.signal,
+      ...transport,
+    }),
+    loopUsage,
+  );
 }
