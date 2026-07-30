@@ -42,7 +42,11 @@ export function GlobalCreateMenu() {
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
-          <Link to="/swarms" search={{ view: "canvas", new: 1 }} className="flex items-center gap-2 cursor-pointer">
+          <Link
+            to="/swarms"
+            search={{ view: "canvas", new: 1 }}
+            className="flex items-center gap-2 cursor-pointer"
+          >
             <Network className="h-4 w-4 text-primary" />
             <div className="flex flex-col">
               <span className="text-sm font-medium">New Swarm</span>
@@ -51,7 +55,11 @@ export function GlobalCreateMenu() {
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
-          <Link to="/knowledge" search={{ new: 1 }} className="flex items-center gap-2 cursor-pointer">
+          <Link
+            to="/knowledge"
+            search={{ new: 1 }}
+            className="flex items-center gap-2 cursor-pointer"
+          >
             <BookOpen className="h-4 w-4 text-primary" />
             <div className="flex flex-col">
               <span className="text-sm font-medium">New Knowledge Base</span>
