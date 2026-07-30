@@ -21,8 +21,14 @@ import type { SemanticQuery, SqlDialect } from "@/lib/semanticLayer";
 import type { ChartSpec } from "@/lib/biAgent";
 import { aggregationPlan } from "@/lib/biAggregate";
 import { buildDirectQuerySql } from "@/lib/biDirectQuery";
-import { parseFilters, stripWidgetData } from "@/lib/biDashboards";
-import { upsertWidgetResultsAdmin } from "@/utils/bi/results.server";
+import {
+  incrementalCutoffIso,
+  mergeIncrementalRows,
+  mergeWidgetResults,
+  parseFilters,
+  stripWidgetData,
+} from "@/lib/biDashboards";
+import { fetchWidgetResultsAdmin, upsertWidgetResultsAdmin } from "@/utils/bi/results.server";
 import { sendMail } from "@/lib/email/mailer.server";
 import { loadWarehouseConnection } from "@/utils/warehouse/connections.server";
 import { executeWarehouseQuery } from "@/utils/warehouse/drivers.server";
@@ -74,6 +80,8 @@ type WidgetJson = {
   chart?: unknown;
   /** Aggregate in SQL rather than summing a capped snapshot in the browser. */
   agg_pushdown?: boolean;
+  /** Re-query only the trailing window of `column`; keep older rows. */
+  incremental?: { column?: string; days?: number };
   /** Set when a raw snapshot hit the row cap, so the UI can say so. */
   truncated?: boolean;
   [k: string]: unknown;
@@ -140,19 +148,69 @@ export async function runLocalSqlForUser(
  * stale or absent the plan is refused and the raw path runs, which then
  * repopulates them for next time.
  */
-function pushDownAggregation(w: WidgetJson, preserve: string[], dialect: SqlDialect): string {
+function widgetQuerySql(
+  w: WidgetJson,
+  preserve: string[],
+  dialect: SqlDialect,
+  /** Incremental window: only rows at or after this ISO date. */
+  incremental?: { column: string; fromIso: string },
+): string {
   const sql = w.sql!;
-  if (!w.agg_pushdown) return sql;
   const chart = w.chart as ChartSpec | undefined;
-  const plan = aggregationPlan(chart, { preserve });
-  if (!plan) return sql;
+  const plan = w.agg_pushdown ? aggregationPlan(chart, { preserve }) : null;
+  if (!plan && !incremental) return sql;
   return buildDirectQuerySql({
     baseSql: sql,
     columns: w.columns ?? [],
-    agg: plan,
+    // The window rides the same validated daterange path as dashboard filters,
+    // so with pushdown it lands BEFORE the GROUP BY (whole buckets recomputed)
+    // and without it after — where the column is the bucket itself.
+    filters: incremental
+      ? [{ column: incremental.column, kind: "daterange", from: incremental.fromIso }]
+      : undefined,
+    agg: plan ?? undefined,
     dialect,
     rowCap: WIDGET_ROW_CAP,
   });
+}
+
+/** The incremental window for a widget, or undefined for a full refresh. */
+function incrementalWindow(w: WidgetJson): { column: string; fromIso: string } | undefined {
+  return (
+    incrementalCutoffIso(w.incremental, Array.isArray(w.rows) ? w.rows : [], w.columns ?? []) ??
+    undefined
+  );
+}
+
+/**
+ * Land a query result on the widget — merged with the prior snapshot when the
+ * run was incremental, replacing it when it was full.
+ */
+function applyResult(
+  w: WidgetJson,
+  result: { columns: string[]; rows: Record<string, unknown>[] },
+  inc?: { column: string; fromIso: string },
+): void {
+  const prior = Array.isArray(w.rows) ? w.rows : [];
+  // Schema drift (the query now returns different columns than the snapshot
+  // we would merge into) makes a merge produce mixed-shape rows — treat it as
+  // a full refresh instead. Next tick both sides agree again.
+  const drifted = inc && JSON.stringify(result.columns) !== JSON.stringify(w.columns ?? []);
+  if (inc && !drifted) {
+    const merged = mergeIncrementalRows(prior, result.rows, inc.column, inc.fromIso);
+    w.rows = merged.slice(0, WIDGET_ROW_CAP);
+    // Partial either when the merge overflowed the cap (rows dropped) or when
+    // a raw (non-pushdown) window itself came back capped.
+    w.truncated =
+      merged.length > WIDGET_ROW_CAP || (!w.agg_pushdown && result.rows.length >= WIDGET_ROW_CAP);
+  } else {
+    w.rows = result.rows.slice(0, WIDGET_ROW_CAP);
+    // Only meaningful without pushdown: an aggregated result is complete by
+    // construction, but a truncated raw result makes client totals partial.
+    w.truncated = !w.agg_pushdown && result.rows.length >= WIDGET_ROW_CAP;
+  }
+  w.columns = result.columns;
+  w.refreshed_at = new Date().toISOString();
 }
 
 // ── Dashboard refresh ────────────────────────────────────────────────────
@@ -183,7 +241,18 @@ export async function refreshDashboardServer(dashboardId: string): Promise<{
   // applying rather than raise anything.
   const preserve = parseFilters(dash.filters).map((f) => f.column);
 
-  const widgets = (Array.isArray(dash.widgets) ? dash.widgets : []) as WidgetJson[];
+  const docWidgetsRaw = (Array.isArray(dash.widgets) ? dash.widgets : []) as WidgetJson[];
+  // Hydrate the prior snapshots from the results store: the document's own
+  // rows are stripped after the split, so without this (a) the "what changed"
+  // diff below would compare everything against empty, firing alerts on every
+  // tick, and (b) incremental refresh would have no prior rows to keep.
+  let widgets = docWidgetsRaw;
+  try {
+    const stored = await fetchWidgetResultsAdmin(dashboardId);
+    if (stored.length > 0) widgets = mergeWidgetResults(docWidgetsRaw, stored) as WidgetJson[];
+  } catch {
+    /* full refresh against whatever the document carries */
+  }
   // Shallow copies keep the pre-refresh row arrays (the loop below REASSIGNS
   // w.rows, never mutates it), so we can diff snapshots afterwards.
   const before = widgets.map((w) => ({ ...w }));
@@ -194,6 +263,10 @@ export async function refreshDashboardServer(dashboardId: string): Promise<{
     if (!w.sql && w.source?.kind !== "semantic") continue;
     try {
       let result: { columns: string[]; rows: Record<string, unknown>[] };
+      // Incremental only applies to SQL-backed widgets: a semantic widget
+      // re-runs its governed metric query in full, so a metric-definition
+      // change is always reflected immediately.
+      const inc = w.source?.kind === "semantic" ? undefined : incrementalWindow(w);
       if (w.source?.kind === "semantic") {
         // Re-run the GOVERNED metric query so the widget reflects the CURRENT
         // metric definition (not a frozen SQL snapshot). Dynamic import breaks a
@@ -223,19 +296,13 @@ export async function refreshDashboardServer(dashboardId: string): Promise<{
           { connectionId: w.source.connection_id },
           dash.user_id,
         );
-        const sql = pushDownAggregation(w, preserve, conn.config.provider as SqlDialect);
+        const sql = widgetQuerySql(w, preserve, conn.config.provider as SqlDialect, inc);
         const res = await executeWarehouseQuery(conn.config, sql, WIDGET_ROW_CAP);
         result = { columns: res.columns.map((c) => c.name), rows: res.rows };
       } else {
-        result = await runLocalSqlForUser(dash.user_id, pushDownAggregation(w, preserve, "alasql"));
+        result = await runLocalSqlForUser(dash.user_id, widgetQuerySql(w, preserve, "alasql", inc));
       }
-      w.columns = result.columns;
-      w.rows = result.rows.slice(0, WIDGET_ROW_CAP);
-      // Whether the source had MORE rows than we kept. Only meaningful without
-      // pushdown: an aggregated result is complete by construction, but a
-      // truncated raw result makes every client-side total a partial sum.
-      w.truncated = !w.agg_pushdown && result.rows.length >= WIDGET_ROW_CAP;
-      w.refreshed_at = new Date().toISOString();
+      applyResult(w, result, inc);
     } catch (e) {
       failures.push(`"${w.title ?? w.id}": ${(e as Error).message}`);
     }

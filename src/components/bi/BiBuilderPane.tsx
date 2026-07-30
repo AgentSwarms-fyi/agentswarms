@@ -274,6 +274,9 @@ export function BiBuilderPane({
   const [preview, setPreview] = useState<QueryResult | null>(null);
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
+  // Incremental refresh: "" = full refresh; otherwise the window in days.
+  const [incDays, setIncDays] = useState("");
+  const [incColumn, setIncColumn] = useState("");
 
   // ── Ontology state (chartType === "ontology") ───────────────────────
   // Per-group selections: local tables and knowledge bases default to all,
@@ -393,6 +396,8 @@ export function BiBuilderPane({
       setTargetField("targetField" in c ? (c.targetField ?? "") : "");
       setMaxInput(c.type === "gauge" && c.max !== undefined ? String(c.max) : "");
       setSeriesField("seriesField" in c ? (c.seriesField ?? "") : "");
+      setIncDays(initial.incremental ? String(initial.incremental.days) : "");
+      setIncColumn(initial.incremental?.column ?? "");
       setStacked(c.type === "bar" ? Boolean(c.stacked) : false);
       setTimeField(c.type === "barrace" ? c.timeField : "");
       setNumFormat(c.format ?? "auto");
@@ -915,6 +920,22 @@ export function BiBuilderPane({
     matRules,
   ]);
 
+  // Columns whose sampled values parse as dates — the only valid incremental
+  // keys. Sampled from the preview so the offer matches this query's shape.
+  const dateColumns = useMemo(() => {
+    if (!preview || preview.rows.length === 0) return [] as string[];
+    const sample = preview.rows.slice(0, 25);
+    return preview.columns.filter((c) => {
+      const vals = sample.map((r) => r[c]).filter((v) => v !== null && v !== undefined);
+      if (vals.length === 0) return false;
+      return vals.every((v) => {
+        if (typeof v === "number") return false; // plain numbers are not dates
+        const t = Date.parse(String(v));
+        return Number.isFinite(t);
+      });
+    });
+  }, [preview]);
+
   const canSubmit =
     chartType === "ontology"
       ? Boolean(title.trim() && chartSpec)
@@ -954,6 +975,10 @@ export function BiBuilderPane({
       // partial sum), and that is the owner's call to make, not a side effect
       // of opening the editor.
       agg_pushdown: initial ? initial.agg_pushdown : isAggregatableChart(chartSpec),
+      incremental:
+        incColumn && Number(incDays) >= 1
+          ? { column: incColumn, days: Number(incDays) }
+          : undefined,
       refreshed_at: new Date().toISOString(),
     });
     toast.success(initial ? "Widget updated" : "Widget added to the dashboard");
@@ -2414,6 +2439,55 @@ export function BiBuilderPane({
                         className="h-8 text-xs"
                       />
                     </div>
+
+                    {dateColumns.length > 0 && (
+                      <div className="space-y-1.5">
+                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                          Scheduled refresh
+                        </Label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <Select
+                            value={incDays || "full"}
+                            onValueChange={(v) => {
+                              setIncDays(v === "full" ? "" : v);
+                              if (v !== "full" && !incColumn) setIncColumn(dateColumns[0]);
+                            }}
+                          >
+                            <SelectTrigger className="h-8 text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="full">Full re-query</SelectItem>
+                              <SelectItem value="7">Last 7 days only</SelectItem>
+                              <SelectItem value="30">Last 30 days only</SelectItem>
+                              <SelectItem value="90">Last 90 days only</SelectItem>
+                              <SelectItem value="365">Last 365 days only</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <Select
+                            value={incColumn || dateColumns[0]}
+                            onValueChange={setIncColumn}
+                            disabled={!incDays}
+                          >
+                            <SelectTrigger className="h-8 text-xs">
+                              <SelectValue placeholder="Date column" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {dateColumns.map((c) => (
+                                <SelectItem key={c} value={c}>
+                                  {c}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <p className="text-[10px] leading-relaxed text-muted-foreground">
+                          Incremental: each scheduled refresh re-queries only the window and keeps
+                          older rows from the last snapshot. Assumes history outside the window no
+                          longer changes — pick Full re-query if old rows get edited.
+                        </p>
+                      </div>
+                    )}
                   </>
                 )}
               </>

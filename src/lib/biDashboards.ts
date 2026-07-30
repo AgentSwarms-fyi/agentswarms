@@ -66,6 +66,17 @@ export type BiWidget = {
    * problem and choose. See src/lib/biAggregate.ts.
    */
   agg_pushdown?: boolean;
+  /**
+   * Incremental refresh: re-query only rows whose `column` value falls inside
+   * the last `days`, and keep the prior snapshot's rows outside that window.
+   *
+   * Whole time buckets are recomputed rather than partial aggregates merged,
+   * which is what keeps every aggregate type correct (avg and count_distinct
+   * cannot be merged from partials). The assumption the owner signs up for is
+   * the standard one: history outside the window is immutable. A late-arriving
+   * edit to an old row will not be seen until a full refresh.
+   */
+  incremental?: { column: string; days: number };
   /** Last refresh filled the snapshot to the row cap — totals may be partial. */
   truncated?: boolean;
   narrative?: string;
@@ -825,6 +836,65 @@ export function mergePagesResults(pages: unknown, results: WidgetResultRow[]): u
   return (pages as Record<string, unknown>[]).map((p) =>
     p && typeof p === "object" ? { ...p, widgets: mergeWidgetResults(p.widgets, results) } : p,
   );
+}
+
+// ── Incremental refresh (pure) ──────────────────────────────────────────────
+
+export const INCREMENTAL_MAX_DAYS = 3650;
+
+/**
+ * Decide whether a widget can refresh incrementally, and against what cutoff.
+ *
+ * Returns the ISO date (YYYY-MM-DD) marking the window start, or null for
+ * "do a full refresh" — which is the answer whenever anything is off: no
+ * config, no prior snapshot to keep rows from, the column missing from the
+ * last result, or prior values that don't parse as dates (a date comparison
+ * against a non-date column would silently filter wrongly; full refresh is
+ * always correct).
+ */
+export function incrementalCutoffIso(
+  cfg: { column?: string; days?: number } | undefined,
+  priorRows: Record<string, unknown>[],
+  priorColumns: string[],
+  now: number = Date.now(),
+): { column: string; fromIso: string } | null {
+  if (!cfg || typeof cfg.column !== "string" || !cfg.column.trim()) return null;
+  const days = Number(cfg.days);
+  if (!Number.isInteger(days) || days < 1 || days > INCREMENTAL_MAX_DAYS) return null;
+  if (priorRows.length === 0) return null;
+  // Resolve to the RESULT's own spelling and return that: the SQL filter, the
+  // row lookup during the merge, and this check must all agree on one name, or
+  // a case difference would pass validation here and then read `undefined`
+  // from every row downstream.
+  const column = priorColumns.find((c) => c.toLowerCase() === cfg.column!.trim().toLowerCase());
+  if (!column) return null;
+  // The column must actually hold dates. Sample rather than scan: any single
+  // parseable value proves the shape; all-unparseable means it isn't a date.
+  const sample = priorRows.slice(0, 25);
+  if (!sample.some((r) => Number.isFinite(Date.parse(String(r[column] ?? ""))))) return null;
+  return { column, fromIso: new Date(now - days * 86_400_000).toISOString().slice(0, 10) };
+}
+
+/**
+ * Merge an incremental result: prior rows strictly BEFORE the cutoff, then the
+ * freshly queried rows (which the SQL already restricted to >= cutoff).
+ *
+ * Prior rows whose date does not parse are kept: the SQL comparison excluded
+ * such rows from the fresh set (NULL/garbage never satisfies >=), so keeping
+ * them cannot duplicate — but dropping them would silently lose data.
+ */
+export function mergeIncrementalRows(
+  priorRows: Record<string, unknown>[],
+  freshRows: Record<string, unknown>[],
+  column: string,
+  cutoffIso: string,
+): Record<string, unknown>[] {
+  const cutoff = Date.parse(cutoffIso);
+  const kept = priorRows.filter((r) => {
+    const t = Date.parse(String(r[column] ?? ""));
+    return !Number.isFinite(t) || t < cutoff;
+  });
+  return [...kept, ...freshRows];
 }
 
 /** Load a dashboard's stored widget results (owner or grantee, via RLS). */
