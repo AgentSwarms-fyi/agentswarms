@@ -87,7 +87,7 @@ function TracesPage() {
       const { data, error } = await supabase
         .from("execution_traces")
         .select(
-          "id, agent_name, llm_provider, llm_model, latency_ms, tokens_in, tokens_out, cost_usd, status, prompt, error_message, created_at",
+          "id, agent_name, llm_provider, llm_model, latency_ms, tokens_in, tokens_out, cost_usd, status, prompt, error_message, created_at, parent_trace_id",
         )
         .gte("created_at", since)
         .order("created_at", { ascending: false })
@@ -148,14 +148,37 @@ function TracesPage() {
 
   const filtered = useMemo(() => {
     const s = search.toLowerCase();
-    return traces.filter((t) => {
+    const matches = (t: Trace) => {
       if (notebooksOnly && !isNotebookTrace(t.agent_name)) return false;
       if (modelFilter !== "all" && t.llm_model !== modelFilter) return false;
       if (agentFilter !== "all" && t.agent_name !== agentFilter) return false;
       if (s && !`${t.agent_name} ${t.llm_model} ${t.prompt ?? ""}`.toLowerCase().includes(s))
         return false;
       return true;
-    });
+    };
+    // Child traces (tool rounds inside a chat turn) render indented under
+    // their parent rather than interleaved with unrelated turns. A child
+    // whose parent isn't in the loaded window falls back to a normal row.
+    const loadedIds = new Set(traces.map((t) => t.id));
+    const childrenOf = new Map<string, Trace[]>();
+    for (const t of traces) {
+      const pid = (t as Trace & { parent_trace_id?: string | null }).parent_trace_id;
+      if (pid && loadedIds.has(pid)) {
+        const list = childrenOf.get(pid) ?? [];
+        list.push(t);
+        childrenOf.set(pid, list);
+      }
+    }
+    const out: (Trace & { isChild?: boolean })[] = [];
+    for (const t of traces) {
+      const pid = (t as Trace & { parent_trace_id?: string | null }).parent_trace_id;
+      if (pid && loadedIds.has(pid)) continue; // rendered under its parent
+      if (!matches(t)) continue;
+      out.push(t);
+      const kids = (childrenOf.get(t.id) ?? []).slice().reverse(); // oldest round first
+      for (const k of kids) out.push({ ...k, isChild: true });
+    }
+    return out;
   }, [traces, search, modelFilter, agentFilter, notebooksOnly]);
 
   const paged = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
@@ -300,7 +323,17 @@ function TracesPage() {
                 <TableCell className="text-xs text-muted-foreground font-mono tabular-nums">
                   {format(new Date(t.created_at), "MMM dd HH:mm:ss")}
                 </TableCell>
-                <TableCell className="text-sm font-medium">{t.agent_name}</TableCell>
+                <TableCell
+                  className={
+                    (t as Trace & { isChild?: boolean }).isChild
+                      ? "pl-8 text-xs text-muted-foreground"
+                      : "text-sm font-medium"
+                  }
+                >
+                  {(t as Trace & { isChild?: boolean }).isChild
+                    ? `↳ ${t.agent_name}`
+                    : t.agent_name}
+                </TableCell>
                 <TableCell className="text-xs font-mono text-muted-foreground">
                   {t.llm_model}
                 </TableCell>
@@ -317,10 +350,12 @@ function TracesPage() {
                     className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
                       t.status === "success"
                         ? "bg-success/10 text-success"
-                        : "bg-destructive/10 text-destructive"
+                        : t.status === "cancelled"
+                          ? "bg-muted text-muted-foreground"
+                          : "bg-destructive/10 text-destructive"
                     }`}
                   >
-                    {t.status === "success" ? "ok" : "error"}
+                    {t.status === "success" ? "ok" : t.status === "cancelled" ? "stopped" : "error"}
                   </span>
                 </TableCell>
                 <TableCell className="text-right text-xs font-mono tabular-nums">
@@ -374,7 +409,7 @@ function TracesPage() {
               <SheetHeader className="border-b border-border p-4 shrink-0">
                 <SheetTitle className="flex items-center gap-2">
                   <span
-                    className={`inline-block h-2 w-2 rounded-full ${selected.status === "success" ? "bg-emerald-500" : "bg-red-500"}`}
+                    className={`inline-block h-2 w-2 rounded-full ${selected.status === "success" ? "bg-emerald-500" : selected.status === "cancelled" ? "bg-muted-foreground" : "bg-red-500"}`}
                   />
                   Trace Details
                   <Badge variant="outline" className="ml-2 text-[10px] font-mono">

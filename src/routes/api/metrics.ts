@@ -19,7 +19,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
-const STATUSES = ["success", "error", "running"] as const;
+const STATUSES = ["success", "error", "running", "cancelled"] as const;
 const CACHE_TTL_MS = 15_000;
 let cache: { at: number; body: string } | null = null;
 
@@ -134,6 +134,32 @@ async function buildMetrics(): Promise<string> {
       }
     } catch {
       /* pre-migration lease table, or no pass yet — omit the series */
+    }
+
+    // MCP Builder: an internet-facing surface running user code deserves its
+    // own series. use_count is monotonically increasing per key, so the SUM
+    // behaves like a counter — Prometheus rate() over it gives call rate even
+    // though rows can be added (new keys) but are never decremented.
+    try {
+      const [{ data: keys }, { count: liveServers }] = await Promise.all([
+        supabaseAdmin.from("mcp_app_keys").select("use_count"),
+        supabaseAdmin
+          .from("notebook_runtime_sessions")
+          .select("id", { count: "exact", head: true })
+          .eq("kind", "service")
+          .in("status", ["queued", "starting", "ready", "running", "stopping"]),
+      ]);
+      const totalCalls = (keys ?? []).reduce((s, k) => s + Number(k.use_count ?? 0), 0);
+      push(
+        "Total authenticated MCP endpoint calls across all keys (counter-like; use rate()).",
+        "agentswarms_mcp_calls_total",
+        [line("agentswarms_mcp_calls_total", totalCalls)],
+      );
+      push("MCP Builder servers with a live sandbox right now.", "agentswarms_mcp_servers_live", [
+        line("agentswarms_mcp_servers_live", liveServers ?? 0),
+      ]);
+    } catch {
+      /* pre-migration mcp tables — omit the series */
     }
   } catch (e) {
     dbUp = 0;

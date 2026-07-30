@@ -190,7 +190,10 @@ function DashboardPage() {
     }
     const now = Date.now();
     const last24 = traces.filter((r) => now - new Date(r.created_at).getTime() < 86_400_000);
-    const ok = traces.filter((r) => r.status === "success").length;
+    // A user pressing Stop is not a failure: cancelled turns leave the
+    // success-rate denominator entirely rather than dragging it down.
+    const decided = traces.filter((r) => r.status !== "cancelled");
+    const ok = decided.filter((r) => r.status === "success").length;
     const cost = traces.reduce((s, r) => s + (r.cost_usd || 0), 0);
     const tokens = traces.reduce((s, r) => s + (r.tokens_in || 0) + (r.tokens_out || 0), 0);
     const avgLat = Math.round(traces.reduce((s, r) => s + (r.latency_ms || 0), 0) / traces.length);
@@ -207,7 +210,7 @@ function DashboardPage() {
       .slice(0, 4);
     return {
       runs24h: last24.length,
-      successRate: Math.round((ok / traces.length) * 100),
+      successRate: decided.length ? Math.round((ok / decided.length) * 100) : 100,
       avgLatency: avgLat,
       totalCost: cost,
       totalTokens: tokens,
@@ -649,6 +652,8 @@ function DashboardPage() {
                 <div key={r.id} className="flex items-center gap-3 py-2.5 text-sm">
                   {r.status === "success" ? (
                     <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
+                  ) : r.status === "cancelled" ? (
+                    <CheckCircle2 className="h-4 w-4 shrink-0 text-muted-foreground/50" />
                   ) : (
                     <AlertCircle className="h-4 w-4 shrink-0 text-rose-500" />
                   )}

@@ -143,7 +143,13 @@ function replayAsSse(content: string): Response {
   });
   return new Response(stream, {
     status: 200,
-    headers: { "Content-Type": "text/event-stream" },
+    headers: {
+      "Content-Type": "text/event-stream",
+      // Tells the caller no separate provider call produced this stream, so
+      // the parent trace must record zero usage — the last tool round's child
+      // trace already carries the real tokens and cost for this answer.
+      "x-agentswarms-replayed": "1",
+    },
   });
 }
 

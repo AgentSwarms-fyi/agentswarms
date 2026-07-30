@@ -118,6 +118,7 @@ function spanStatus(status: string, message: string | null): { code: number; mes
 interface LlmRow {
   id: string;
   created_at: string;
+  parent_trace_id: string | null;
   llm_provider: string;
   llm_model: string;
   tokens_in: number;
@@ -170,9 +171,14 @@ interface StepRow {
 function llmSpan(t: LlmRow): Span {
   const endMs = new Date(t.created_at).getTime();
   const startMs = endMs - (t.latency_ms || 0); // created_at ≈ end; back out latency for start
+  // A child call (a tool round inside a chat turn) joins its PARENT's trace:
+  // same trace id, parented under the parent's span — so a chat turn renders
+  // as one distributed waterfall instead of scattered single-span traces.
+  const rootId = t.parent_trace_id ?? t.id;
   return {
-    traceId: traceIdOf(t.id),
+    traceId: traceIdOf(rootId),
     spanId: spanIdOf(t.id),
+    ...(t.parent_trace_id ? { parentSpanId: spanIdOf(t.parent_trace_id) } : {}),
     name: `chat ${t.llm_model}`,
     kind: 3, // CLIENT — calls out to a model provider
     startTimeUnixNano: nanos(startMs),
@@ -342,7 +348,7 @@ async function exportLlmCalls(cutoffIso: string): Promise<void> {
   const { data, error } = await supabaseAdmin
     .from("execution_traces")
     .select(
-      "id,created_at,llm_provider,llm_model,tokens_in,tokens_out,cost_usd,latency_ms,status,error_message,agent_name,agent_id,user_id",
+      "id,created_at,llm_provider,llm_model,tokens_in,tokens_out,cost_usd,latency_ms,status,error_message,agent_name,agent_id,user_id,parent_trace_id",
     )
     .lte("created_at", cutoffIso)
     .or(keyset("created_at", c))

@@ -1287,6 +1287,7 @@ export type Database = {
           error_message: string | null;
           id: string;
           latency_ms: number;
+          parent_trace_id: string | null;
           llm_model: string;
           llm_provider: string;
           prompt: string | null;
@@ -1308,6 +1309,7 @@ export type Database = {
           error_message?: string | null;
           id?: string;
           latency_ms?: number;
+          parent_trace_id?: string | null;
           llm_model: string;
           llm_provider?: string;
           prompt?: string | null;
@@ -1329,6 +1331,7 @@ export type Database = {
           error_message?: string | null;
           id?: string;
           latency_ms?: number;
+          parent_trace_id?: string | null;
           llm_model?: string;
           llm_provider?: string;
           prompt?: string | null;

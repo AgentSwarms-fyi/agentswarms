@@ -23,6 +23,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { auditEvent } from "@/utils/audit.server";
 import { requestOriginAllowed } from "@/utils/embedOrigin";
 import { acquireSlot, envInt, rateLimited, releaseSlot } from "@/utils/rateLimit.server";
 import { hashMcpApiKey, looksLikeMcpApiKey } from "@/utils/mcpApps/keys";
@@ -140,9 +141,11 @@ async function authenticate(
   // The key must belong to THIS app: otherwise a key for your own server would
   // open every other server on the instance.
   if (!key || key.app_id !== app.id || !key.is_active || key.revoked_at) {
+    denied(app, request, "invalid_key");
     return { ok: false, response: json({ error: "Invalid or disabled API key" }, 401) };
   }
   if (key.expires_at && new Date(key.expires_at).getTime() < Date.now()) {
+    denied(app, request, "expired_key");
     return { ok: false, response: json({ error: "API key has expired" }, 401) };
   }
   // Not exposed publicly: only the managed internal key (used by this
@@ -154,11 +157,13 @@ async function authenticate(
 
   const ips = key.ip_allowlist ?? [];
   if (ips.length > 0 && !ips.includes(clientIp(request))) {
+    denied(app, request, "ip_not_allowed", { key_id: key.id });
     return { ok: false, response: json({ error: "Source address not permitted" }, 403) };
   }
 
   const origin = requestOriginAllowed(request, app.allowed_origins ?? []);
   if (!origin.ok) {
+    denied(app, request, "origin_not_allowed", { origin: origin.origin, key_id: key.id });
     return {
       ok: false,
       response: json(
@@ -172,6 +177,38 @@ async function authenticate(
   }
 
   return { ok: true, value: { app, key: key as KeyRow } };
+}
+
+/**
+ * Audit a refused request against the OWNER's trail — this is their server
+ * being probed, and last week's denials are how a leaked or brute-forced key
+ * gets noticed. Unknown slugs are deliberately not audited (nothing to
+ * attribute them to, and scanners would just fill the log).
+ */
+function denied(
+  app: { id: string; user_id: string; name: string },
+  request: Request,
+  reason: string,
+  detail: Record<string, unknown> = {},
+): void {
+  auditEvent({
+    userId: app.user_id,
+    action: "mcp_app.call_denied",
+    resourceType: "mcp_app",
+    resourceId: app.id,
+    resourceName: app.name,
+    detail: { reason, ip: clientIp(request) || null, ...detail },
+  });
+}
+
+/**
+ * One structured line per call, for operators shipping container logs. This is
+ * the request log for an internet-facing endpoint running user code — kept as
+ * a log line rather than a table because call volume is rate-limit bound, not
+ * business data.
+ */
+function logCall(fields: Record<string, unknown>): void {
+  console.log(`[mcp-endpoint] ${JSON.stringify(fields)}`);
 }
 
 /** Best-effort usage stamp; must never fail a call. */
@@ -468,7 +505,18 @@ export const Route = createFileRoute("/api/mcp/s/$slug")({
           headers: corsFor(request, app?.allowed_origins ?? []),
         });
       },
-      POST: ({ request }) => handlePost(request),
+      POST: async ({ request }) => {
+        const t0 = Date.now();
+        const res = await handlePost(request);
+        logCall({
+          method: "POST",
+          slug: slugOf(request),
+          status: res.status,
+          duration_ms: Date.now() - t0,
+          ip: clientIp(request) || null,
+        });
+        return res;
+      },
       DELETE: ({ request }) => handleDelete(request),
       // The spec explicitly allows a server with no server→client stream to
       // answer 405 here, and clients fall back to POST-only. Supporting it

@@ -106,6 +106,10 @@ export async function recordGatewayCall(args: RecordGatewayCallArgs): Promise<vo
     const insertRow = {
       user_id: args.userId,
       agent_id: args.agentId ?? null,
+      // Real column, not just jsonb: the /traces UI nests child rounds under
+      // their parent turn and the OTel exporter joins them into one
+      // distributed trace, both by indexed lookup.
+      parent_trace_id: args.parentTraceId ?? null,
       agent_name: args.surface,
       llm_provider: args.provider ?? "openrouter",
       llm_model: args.model,
