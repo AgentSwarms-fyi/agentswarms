@@ -96,6 +96,9 @@ export async function recordGatewayCall(args: RecordGatewayCallArgs): Promise<vo
       surface: args.surface,
       kind,
     };
+    // Same measured-vs-estimated marker as the chat path: absent explicit
+    // token counts mean the chars/4 fallback produced these numbers.
+    if (args.tokensIn == null || args.tokensOut == null) requestPayload.tokens_estimated = true;
     if (args.parentTraceId) requestPayload.parent_trace_id = args.parentTraceId;
     if (typeof args.imageCount === "number") requestPayload.image_count = args.imageCount;
     if (args.requestPreview !== undefined) requestPayload.preview = args.requestPreview;

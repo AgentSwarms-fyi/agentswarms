@@ -310,6 +310,14 @@ BI refreshes, alerts, scheduled reports, swarm schedules and catalog crawls have
 all stopped firing). Behind a load balancer each instance reports its own process
 view; scrape every instance and aggregate in your monitoring system.
 
+The endpoint also exposes latency percentiles
+(`agentswarms_llm_latency_ms{quantile="0.5|0.95|0.99"}`, last 24h of successful
+calls) and MCP Builder series (`agentswarms_mcp_calls_total` — counter-like, use
+`rate()`; `agentswarms_mcp_servers_live`). A ready-made alert pack covering
+process/DB down, scheduler stall, error-rate, p95 latency and MCP call surges
+ships at [`deploy/prometheus/alerts.yml`](../deploy/prometheus/alerts.yml) —
+load it via `rule_files` and tune the thresholds to your fleet.
+
 ### Distributed tracing (OpenTelemetry / OTLP)
 Where `/api/metrics` gives aggregate numbers, OTLP export gives per-run
 **traces**. Set `OTEL_EXPORTER_OTLP_ENDPOINT` to any OTLP/HTTP collector and a

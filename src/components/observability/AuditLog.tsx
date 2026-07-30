@@ -42,7 +42,12 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/use-auth";
-import { auditListEvents, auditSetRetention, type AuditRow } from "@/utils/audit.functions";
+import {
+  auditChainVerify,
+  auditListEvents,
+  auditSetRetention,
+  type AuditRow,
+} from "@/utils/audit.functions";
 
 const ACTION_META: Record<string, { label: string; className: string }> = {
   "model.call": { label: "model call", className: "bg-primary/10 text-primary" },
@@ -124,12 +129,14 @@ export function AuditLog() {
   const token = session?.access_token ?? "";
   const listFn = useServerFn(auditListEvents);
   const retentionFn = useServerFn(auditSetRetention);
+  const verifyFn = useServerFn(auditChainVerify);
 
   const [rows, setRows] = useState<AuditRow[] | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [retention, setRetention] = useState(14);
   const [retentionInput, setRetentionInput] = useState("14");
   const [savingRetention, setSavingRetention] = useState(false);
+  const [verifying, setVerifying] = useState(false);
   const [action, setAction] = useState("all");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
@@ -253,6 +260,32 @@ export function AuditLog() {
               onClick={() => void saveRetention()}
             >
               {savingRetention ? <Loader2 className="h-3 w-3 animate-spin" /> : "Set"}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 px-2 text-[11px]"
+              disabled={verifying}
+              title="Recompute the audit hash chain — detects any event edited or deleted in place"
+              onClick={async () => {
+                if (!token) return;
+                setVerifying(true);
+                try {
+                  const res = await verifyFn({ data: { access_token: token } });
+                  if (!res.ok) toast.error(res.error);
+                  else if (res.firstBrokenSeq === null)
+                    toast.success(`Chain intact — ${res.checked} events verified`);
+                  else
+                    toast.error(
+                      `Chain BROKEN at sequence ${res.firstBrokenSeq} — an event was altered or removed`,
+                      { duration: Infinity },
+                    );
+                } finally {
+                  setVerifying(false);
+                }
+              }}
+            >
+              {verifying ? <Loader2 className="h-3 w-3 animate-spin" /> : "Verify integrity"}
             </Button>
           </span>
         )}

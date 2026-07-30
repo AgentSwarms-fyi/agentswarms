@@ -1,0 +1,69 @@
+# Operator alert rules over the /api/metrics gauges.
+#
+# Load into Prometheus (rule_files) or paste into a Grafana alert. These cover
+# the platform itself — data alerts on dashboards are a separate, in-product
+# feature. Thresholds are starting points; tune to your fleet.
+#
+# The scrape job needs the METRICS_TOKEN bearer:
+#
+#   scrape_configs:
+#     - job_name: agentswarms
+#       metrics_path: /api/metrics
+#       authorization: { credentials: <METRICS_TOKEN> }
+#       static_configs: [{ targets: ["your-host:8080"] }]
+
+groups:
+  - name: agentswarms
+    rules:
+      - alert: AgentSwarmsDown
+        expr: up{job="agentswarms"} == 0 or agentswarms_up == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "AgentSwarms is not serving"
+
+      - alert: AgentSwarmsDatabaseUnreachable
+        expr: agentswarms_db_up == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "AgentSwarms cannot reach its database"
+          description: "Scrapes succeed but DB probes fail — check Supabase status/credentials."
+
+      - alert: AgentSwarmsSchedulerStalled
+        expr: agentswarms_scheduler_last_pass_age_seconds > 300
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Background scheduler has not run for 5+ minutes"
+          description: >
+            BI refreshes, alerts, swarm schedules and kernel reaping are driven by
+            this pass. With DISABLE_INPROCESS_SCHEDULER=1, check the external cron
+            hitting /api/bi/cron; otherwise check the app instances.
+
+      - alert: AgentSwarmsHighErrorRate
+        expr: >
+          agentswarms_execution_traces_24h{status="error"}
+            / clamp_min(agentswarms_execution_traces_24h{status="success"}
+                        + agentswarms_execution_traces_24h{status="error"}, 1)
+          > 0.20
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "More than 20% of LLM calls failed over the last 24h window"
+          description: "Usually a provider outage, an exhausted key, or an IAM/model misconfig."
+
+      - alert: AgentSwarmsSlowLLMTail
+        expr: agentswarms_llm_latency_ms{quantile="0.95"} > 60000
+        for: 30m
+        labels: { severity: info }
+        annotations:
+          summary: "p95 LLM latency above 60s"
+
+      - alert: AgentSwarmsMcpCallSurge
+        expr: rate(agentswarms_mcp_calls_total[15m]) > 5
+        for: 15m
+        labels: { severity: info }
+        annotations:
+          summary: "Sustained high call rate on published MCP servers"
+          description: "Check mcp_app.call_denied audit events for probing if unexpected."

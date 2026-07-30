@@ -136,6 +136,39 @@ async function buildMetrics(): Promise<string> {
       /* pre-migration lease table, or no pass yet — omit the series */
     }
 
+    // Latency percentiles over the last 24h of successful LLM calls. Averages
+    // hide exactly the tail users complain about; these are computed over the
+    // newest 5000 rows, which bounds the query on busy instances (a sampled
+    // p95 beats an unbounded scan).
+    try {
+      const { data: lat } = await supabaseAdmin
+        .from("execution_traces")
+        .select("latency_ms")
+        .eq("status", "success")
+        .gte("created_at", since24h)
+        .order("created_at", { ascending: false })
+        .limit(5000);
+      const values = (lat ?? [])
+        .map((r) => Number(r.latency_ms))
+        .filter((n) => Number.isFinite(n) && n >= 0)
+        .sort((a, b) => a - b);
+      if (values.length > 0) {
+        const pick = (q: number) =>
+          values[Math.min(values.length - 1, Math.floor(q * values.length))];
+        push(
+          "LLM call latency percentiles over the last 24h (ms, successful calls, newest 5000).",
+          "agentswarms_llm_latency_ms",
+          [
+            line("agentswarms_llm_latency_ms", pick(0.5), { quantile: "0.5" }),
+            line("agentswarms_llm_latency_ms", pick(0.95), { quantile: "0.95" }),
+            line("agentswarms_llm_latency_ms", pick(0.99), { quantile: "0.99" }),
+          ],
+        );
+      }
+    } catch {
+      /* omit the series rather than fail the scrape */
+    }
+
     // MCP Builder: an internet-facing surface running user code deserves its
     // own series. use_count is monotonically increasing per key, so the SUM
     // behaves like a counter — Prometheus rate() over it gives call rate even

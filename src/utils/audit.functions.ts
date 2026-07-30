@@ -286,3 +286,39 @@ export const adminSpendBreakdown = createServerFn({ method: "POST" })
       }
     },
   );
+
+/**
+ * Walk the audit hash chain and recompute every link (superadmin only — the
+ * DB function enforces it too). NULL first_broken_seq = every link from the
+ * oldest remaining row holds; a number = the first sequence where the chain
+ * no longer matches its content, i.e. a row was edited or deleted in place.
+ */
+export const auditChainVerify = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .handler(
+    async ({
+      data,
+    }): Promise<
+      { ok: true; checked: number; firstBrokenSeq: number | null } | { ok: false; error: string }
+    > => {
+      const guard = await requireSuperadmin(data.access_token);
+      if (!guard.ok) return { ok: false, error: "Superadmin only" };
+      const { sb } = await requireUser(data.access_token);
+      // Run under the CALLER's JWT so the function's own is_superadmin(auth.uid())
+      // check is exercised — defense in depth, not service-role bypass.
+      const { data: rows, error } = await (
+        sb as unknown as {
+          rpc: (
+            fn: string,
+          ) => Promise<{
+            data: { checked: number; first_broken_seq: number | null }[] | null;
+            error: { message: string } | null;
+          }>;
+        }
+      ).rpc("audit_chain_verify");
+      if (error) return { ok: false, error: error.message };
+      const row = rows?.[0];
+      if (!row) return { ok: false, error: "No result from verification" };
+      return { ok: true, checked: Number(row.checked), firstBrokenSeq: row.first_broken_seq };
+    },
+  );

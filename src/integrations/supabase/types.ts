@@ -322,6 +322,8 @@ export type Database = {
       audit_events: {
         Row: {
           action: string;
+          chain_hash: string | null;
+          chain_seq: number | null;
           created_at: string;
           detail: Json;
           id: string;
@@ -332,6 +334,8 @@ export type Database = {
         };
         Insert: {
           action: string;
+          chain_hash?: string | null;
+          chain_seq?: number | null;
           created_at?: string;
           detail?: Json;
           id?: string;
@@ -342,6 +346,8 @@ export type Database = {
         };
         Update: {
           action?: string;
+          chain_hash?: string | null;
+          chain_seq?: number | null;
           created_at?: string;
           detail?: Json;
           id?: string;

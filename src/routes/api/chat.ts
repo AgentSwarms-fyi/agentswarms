@@ -684,6 +684,11 @@ async function recordTrace(opts: {
   const tokensIn = opts.replayedFinal ? 0 : (opts.upstreamTokensIn ?? trace.promptTokensApprox);
   const tokensOut =
     isImg || opts.replayedFinal ? 0 : (opts.upstreamTokensOut ?? approxTokens(assistantText));
+  // Whether the numbers above are measured (provider-reported usage) or the
+  // chars/4 fallback. Recorded so spend precision is knowable after the fact
+  // instead of every row looking equally authoritative.
+  const tokensEstimated =
+    !opts.replayedFinal && (opts.upstreamTokensIn == null || opts.upstreamTokensOut == null);
   const latencyMs = Date.now() - trace.startedAt;
   const costUsd = opts.replayedFinal
     ? 0
@@ -697,6 +702,8 @@ async function recordTrace(opts: {
   // something to render.
   const rawPayload = trace.requestPayload ?? {};
   const safePayload = sanitizeTraceValue(rawPayload) as Record<string, unknown>;
+  if (tokensEstimated) safePayload.tokens_estimated = true;
+  if (opts.replayedFinal) safePayload.replayed_final = true;
   if (Array.isArray(safePayload.messages)) {
     safePayload.messages = (
       safePayload.messages as Array<{ role?: string; content?: unknown }>
@@ -748,8 +755,20 @@ async function recordTrace(opts: {
     if (error) {
       console.error("[trace] insert failed:", error.message, error.details);
     } else {
+      // One structured line per completed turn — the greppable/shippable
+      // correlation point between user reports, logs and the trace row.
       console.log(
-        `[trace] recorded ${trace.agentName} ${trace.model} ${tokensOut}t ${latencyMs}ms id=${trace.traceId}`,
+        `[chat-turn] ${JSON.stringify({
+          trace_id: trace.traceId,
+          agent: trace.agentName,
+          model: trace.model,
+          status,
+          latency_ms: latencyMs,
+          tokens_in: tokensIn,
+          tokens_out: tokensOut,
+          cost_usd: costUsd,
+          estimated: tokensEstimated || undefined,
+        })}`,
       );
       // Audit: chats against a SAVED agent get an explicit agent.chat event
       // (the underlying model call already shows up via execution_traces).
