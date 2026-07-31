@@ -1,11 +1,20 @@
 // sql_query agent tool — server-side handler.
 //
-// IMPORTANT: This runs in the Cloudflare Workers runtime which forbids
-// `new Function()` / `eval`. AlaSQL internally uses `new Function()` to
-// JIT-compile queries, so it throws "Code generation from strings disallowed
-// for this context". We therefore parse the query with `node-sql-parser`
-// (pure JS, AST-based) and execute it ourselves against the in-memory rows
-// loaded from Supabase.
+// HISTORY / SLATED FOR REPLACEMENT: this hand-written interpreter exists only
+// because the app used to target the Cloudflare Workers runtime, which forbids
+// `new Function()` / `eval` — and AlaSQL JIT-compiles queries that way, so it
+// threw "Code generation from strings disallowed for this context". The query
+// is therefore parsed with `node-sql-parser` (pure JS, AST-based) and executed
+// here against rows loaded from Supabase.
+//
+// Workers is no longer a supported deploy target, so that constraint is gone.
+// This engine should be replaced by the same one the rest of the server uses,
+// which would delete ~500 lines and give the agent CTEs, subqueries, window
+// functions and real JOINs it does not have today. Do NOT do that without a
+// differential test harness first: the tenant-scoping and shared-dataset
+// masking in `loadUserTables` / `restrictSharedTable` below must survive
+// unchanged, and the SQL semantics differences are exactly the kind that pass
+// review and fail in production.
 //
 // Supported query shapes (covers virtually everything the LLM produces for
 // analytics questions):

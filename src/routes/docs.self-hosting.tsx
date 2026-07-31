@@ -319,8 +319,8 @@ function SelfHostingPage() {
             body: "Build and run the server directly. Terminate TLS at your proxy.",
           },
           {
-            name: "Cloudflare Workers",
-            body: "Supported for the app tier. Note that Workers cannot host the optional Python services, so document generation stays in-browser and the notebook runtime is unavailable.",
+            name: "Autoscaled VMs behind a load balancer",
+            body: "The app tier is stateless, so run as many identical containers as you need. Set DISABLE_INPROCESS_SCHEDULER=1 and drive background work from one external cron.",
           },
           {
             name: "Kubernetes",

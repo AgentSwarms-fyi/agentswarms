@@ -26,11 +26,9 @@ ENV VITE_SUPABASE_PROJECT_ID=$VITE_SUPABASE_PROJECT_ID \
     VITE_SUPABASE_URL=$VITE_SUPABASE_URL \
     VITE_SUPABASE_PUBLISHABLE_KEY=$VITE_SUPABASE_PUBLISHABLE_KEY \
     VITE_ADMIN_EMAIL=$VITE_ADMIN_EMAIL \
-    DEPLOY_TARGET=node \
     NODE_ENV=production
 
-# Produces a plain Node SSR build (the Cloudflare plugin is skipped when
-# DEPLOY_TARGET=node — see vite.config.ts).
+# Produces a Node SSR build — the only build target (see vite.config.ts).
 RUN npm run build
 
 EXPOSE 8080

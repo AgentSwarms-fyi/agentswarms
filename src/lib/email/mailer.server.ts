@@ -1,7 +1,7 @@
 // Transport-agnostic outbound mailer for the self-hosted build.
 //
 // Picks the first configured transport, in this order:
-//   1. RESEND_API_KEY  — Resend's HTTPS API (works on Node AND Cloudflare Workers)
+//   1. RESEND_API_KEY  — Resend's HTTPS API
 //   2. SMTP_HOST       — SMTP via nodemailer (Node/Docker deployments only;
 //                        `npm install nodemailer` if it isn't already present)
 //   3. none            — no-op: the send is logged and skipped. The app must

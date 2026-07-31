@@ -14,7 +14,7 @@
 | BI & SQL     | Custom SVG chart renderers · in-browser SQL via [AlaSQL](https://github.com/AlaSQL/alasql)      |
 | Documents    | Client-side [pptxgenjs](https://gitbrent.github.io/PptxGenJS/) · [docx](https://docx.js.org) · [write-excel-file](https://gitlab.com/catamphetamine/write-excel-file) |
 | Notebooks    | In-browser Python via [Pyodide](https://pyodide.org) (+ optional server runtime)               |
-| Deployment   | Docker (Node) — primary · Cloudflare Workers — secondary · installable PWA                       |
+| Deployment   | Docker (Node) · Kubernetes · installable PWA                                                     |
 
 
 ## Project structure

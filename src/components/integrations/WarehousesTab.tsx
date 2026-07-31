@@ -232,7 +232,7 @@ const PROVIDER_META: Record<
       { key: "username", label: "SQL username" },
       { key: "password", label: "SQL password", type: "password" },
     ],
-    note: "Requires a Node deployment (Docker/bare Node) — Synapse speaks TDS, which isn't available on Cloudflare Workers.",
+    note: "Speaks TDS via the `tedious` driver, which is loaded on demand.",
   },
   trino: {
     description:

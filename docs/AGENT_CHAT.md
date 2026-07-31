@@ -102,7 +102,7 @@ the current session only.
 ### Optional server-side renderer
 
 By default all three formats are built **in the browser**, which works on every
-deploy (including Cloudflare Workers). On a Node/Docker deploy you can also run
+deploy. You can also run
 the optional **[doc-gen service](../docgen-service/README.md)** (`--docgen`),
 which renders server-side with the native Office toolchains — **python-pptx**
 (editable charts + a LibreOffice render-verify loop), **python-docx** (cover +

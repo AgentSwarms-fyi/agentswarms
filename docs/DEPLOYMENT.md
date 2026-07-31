@@ -4,8 +4,7 @@
 
 This guide takes you from a clone to a running instance, with a path for every
 setup — **trying it on your own laptop**, a **single cloud VM**, an
-**autoscaled fleet behind a load balancer**, **serverless** (Cloudflare), or
-**Kubernetes**.
+**autoscaled fleet behind a load balancer**, or **Kubernetes**.
 
 ## How the pieces fit (read this first)
 
@@ -31,8 +30,7 @@ background scheduler — and it's a two-line setup covered below.
 | Try it on your own machine | **Local desktop (Docker Desktop)** | [A](#a-local-desktop) |
 | Run it for a team on one server | **Single cloud VM** — the recommended default | [B](#b-single-cloud-vm-recommended) |
 | Handle spiky/high load with autoscaling | **Autoscaled VMs + load balancer** | [C](#c-autoscaled-vms-behind-a-load-balancer) |
-| Zero servers to manage | **Cloudflare Workers** | [D](#d-cloudflare-workers-serverless) |
-| Run on an existing K8s cluster / scale Python notebooks | **Kubernetes** | [E](#e-kubernetes) |
+| Run on an existing K8s cluster / scale Python notebooks | **Kubernetes** | [D](#d-kubernetes) |
 
 All options share the same two prerequisites.
 
@@ -61,7 +59,7 @@ All options share the same two prerequisites.
    | --- | --- |
    | `PROVIDER_CREDS_SECRET` | **Required** if anyone uses warehouses, Secrets, or Data Catalog — the AES-256 key encrypting stored credentials. Set once (`openssl rand -hex 32`); rotating it invalidates saved creds. |
    | `SITE_URL` | Your public URL — used in email links and as the default origin for scheduled work. |
-   | `RESEND_API_KEY` **or** `SMTP_*` + `EMAIL_FROM` | Outbound app email (welcome, budget alerts, scheduled report digests). Without it, sends are skipped and logged. On Cloudflare use Resend — SMTP can't run there. |
+   | `RESEND_API_KEY` **or** `SMTP_*` + `EMAIL_FROM` | Outbound app email (welcome, budget alerts, scheduled report digests). Without it, sends are skipped and logged. |
    | `BI_CRON_TOKEN` | Lets an external scheduler drive background jobs — see [Scheduling](#scheduling--background-jobs). |
    | `OPENROUTER_API_KEY` | Optional but recommended — makes the app usable with zero per-user key setup. |
    | `OPENAI_API_KEY` | Optional — real vector embeddings for Knowledge Base search (otherwise keyword search). |
@@ -196,28 +194,7 @@ Developer-workspace runtime on an autoscaled fleet, either (a) use the
 **single dedicated runtime host**, or (c) leave notebooks off the autoscaled
 tier. The core web/agent/BI/RAG platform scales regardless.
 
-## D. Cloudflare Workers (serverless)
-
-The repo keeps a Workers config (`wrangler.jsonc`); the default `npm run build`
-(without `DEPLOY_TARGET=node`) produces a Workers build.
-
-```bash
-npm run build
-```
-```bash
-npx wrangler deploy
-```
-
-Before deploying, set each non-`VITE_` variable from `.env.example` as a Worker
-secret (`npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY`, etc.). Notes:
-
-- Use **`RESEND_API_KEY`** for email — the SMTP mailer needs raw TCP and can't
-  run on Workers.
-- There's no long-running process, so the scheduler **must** be external: add a
-  **Cloudflare Cron Trigger** (a scheduled Worker) or any cron that POSTs
-  `/api/bi/cron` with `BI_CRON_TOKEN` every minute.
-
-## E. Kubernetes
+## D. Kubernetes
 
 Run the app as a normal `Deployment` + `Service` + `Ingress` (health/readiness
 probe on `/api/health`), backed by your Supabase project, with the same env as

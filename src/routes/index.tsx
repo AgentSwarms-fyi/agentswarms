@@ -134,7 +134,7 @@ export const Route = createFileRoute("/")({
           "@type": "SoftwareApplication",
           name: "AgentSwarms",
           applicationCategory: "DeveloperApplication",
-          operatingSystem: "Self-hosted (Docker, Node.js, Cloudflare Workers)",
+          operatingSystem: "Self-hosted (Docker, Node.js, Kubernetes)",
           description:
             "Source-available, self-hosted agentic AI platform: visual agent builder, multi-agent swarm canvas, RAG, tools, MCP, budgets, and execution traces. Bring your own Supabase project and model provider keys.",
           license: "https://www.elastic.co/licensing/elastic-license",
@@ -532,7 +532,7 @@ function LandingPage() {
                 transition={{ duration: 0.55, delay: 0.3 }}
               >
                 Source-available (Elastic License 2.0) · Bring your own keys · Docker, bare Node, or
-                Cloudflare Workers
+                Kubernetes
               </motion.p>
             </div>
 

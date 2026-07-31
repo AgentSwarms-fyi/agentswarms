@@ -49,12 +49,8 @@ The connectors split by how they reach the source:
 
 | Transport | Providers | Runs on |
 | --- | --- | --- |
-| HTTP / REST API | Snowflake, Databricks, BigQuery, Amazon Redshift (Data API), Amazon Athena, Trino/Starburst/Presto, **Oracle (ORDS)** | **Any** deployment, including Cloudflare Workers |
-| Native TCP driver | PostgreSQL, MySQL/MariaDB, Azure Synapse (TDS) | **Node / Docker** deployments only |
-
-If you deploy to Cloudflare Workers and need PostgreSQL, MySQL or Synapse,
-run the Node/Docker build (or reach those databases through a REST-capable
-gateway such as Trino).
+| HTTP / REST API | Snowflake, Databricks, BigQuery, Amazon Redshift (Data API), Amazon Athena, Trino/Starburst/Presto, **Oracle (ORDS)** | **Any** deployment |
+| Native TCP driver | PostgreSQL, MySQL/MariaDB, Azure Synapse (TDS) | **Any** deployment |
 
 ## Providers
 

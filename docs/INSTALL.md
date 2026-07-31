@@ -236,9 +236,9 @@ is documented inline in the file. In short:
 
 **Outbound transactional email (optional).** Welcome emails, budget alerts,
 and the contact form send through whichever transport you configure:
-`RESEND_API_KEY` ([resend.com](https://resend.com) — works on Node **and**
-Cloudflare Workers), or `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`
-(any SMTP provider; Node/Docker deployments only). Set `EMAIL_FROM` and
+`RESEND_API_KEY` ([resend.com](https://resend.com)), or
+`SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`
+(any SMTP provider). Set `EMAIL_FROM` and
 `SITE_URL` alongside either. **With neither configured, sends are skipped
 and logged** (see the `email_send_log` table) — the app works fine without
 email, so it's safe to skip this entirely for local dev. Auth emails
@@ -347,6 +347,17 @@ suspect the latter; it's safe to re-run, already-applied migrations are
 skipped).
 
 ## Troubleshooting first-run errors
+
+**`npm run build` fails on Windows with `'NODE_OPTIONS' is not recognized as an
+internal or external command`.** The build script sets a memory limit using the
+POSIX `VAR=value command` form, which `cmd.exe` doesn't understand. Run it from
+Git Bash or WSL, or set the variable first in your shell:
+
+```bash
+set NODE_OPTIONS=--max-old-space-size=6144 && npx vite build --sourcemap false
+```
+
+Docker builds are unaffected — the image builds on Linux.
 
 **"Invalid API key" when signing up or logging in.** The publishable and
 secret keys are swapped (or one was truncated when copying) in `.env`.

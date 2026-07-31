@@ -1,7 +1,11 @@
 // Explicit Vite config for the open-source build.
 // Replaces @lovable.dev/vite-tanstack-config with the same plugin stack:
-//   tailwindcss + tsconfig paths + TanStack Start + React, and the
-//   Cloudflare Workers plugin on `vite build` (skip with DEPLOY_TARGET=node).
+//   tailwindcss + tsconfig paths + TanStack Start + React.
+//
+// Node is the only build target. A Cloudflare Workers build used to be the
+// default, but workerd forbids `new Function()`, which the local SQL engine
+// needs — so Data & BI features silently failed there. Supporting one runtime
+// honestly beats advertising two and delivering one and a half.
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig, loadEnv, type PluginOption, type UserConfig } from "vite";
@@ -37,38 +41,6 @@ export default defineConfig(async ({ command, mode }) => {
     tailwindcss(),
     tsConfigPaths({ projects: ["./tsconfig.json"] }),
   ];
-
-  // Cloudflare Workers build (the default deploy target, via wrangler.jsonc).
-  // Set DEPLOY_TARGET=node to produce a plain Node SSR build instead
-  // (used by the Docker image).
-  if (command === "build" && process.env.DEPLOY_TARGET !== "node") {
-    try {
-      const { cloudflare } = await import("@cloudflare/vite-plugin");
-      plugins.push(cloudflare({ viteEnvironment: { name: "ssr" } }));
-      // Stub Node builtins the worker bundler can't resolve to an empty module.
-      // These come from (a) pptxgenjs's unused image-by-URL path (client-lazy)
-      // and (b) nodemailer, which uses raw TCP/TLS and therefore CANNOT run in
-      // workerd at all — email delivery runs only on the Node/Docker build
-      // (DEPLOY_TARGET=node), which skips this branch and keeps real builtins.
-      // So emptying them in the worker build is safe: none of these code paths
-      // execute there, and our own code uses `fetch`/WebCrypto, not these.
-      const STUB = new Set(["https", "http", "express", "image-size", "os"]);
-      plugins.push({
-        name: "agentswarms-stub-worker-node-deps",
-        enforce: "pre",
-        resolveId(id: string) {
-          return STUB.has(id) ? `\0agentswarms-empty:${id}` : null;
-        },
-        load(id: string) {
-          return id.startsWith("\0agentswarms-empty:")
-            ? "export default {}; export const __esModule = true;"
-            : null;
-        },
-      });
-    } catch {
-      // @cloudflare/vite-plugin not installed — fall through to the Node build.
-    }
-  }
 
   plugins.push(tanstackStart());
   plugins.push(viteReact());

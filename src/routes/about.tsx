@@ -119,7 +119,7 @@ const features = [
   "Ten database & warehouse connectors: PostgreSQL, MySQL, Oracle, Snowflake, BigQuery, Databricks, Redshift, Synapse, Trino/Starburst, Athena",
   "Human-in-the-loop approvals, per-user budgets with alerts, and a full trace for every model call",
   "IAM with groups & model rules, SAML SSO, and a write-only encrypted secrets vault",
-  "One Docker command on any Node host (or Cloudflare Workers), Supabase as the backend, any model provider",
+  "One Docker command on any Node host, Supabase as the backend, any model provider",
 ];
 
 export default function AboutPage() {
