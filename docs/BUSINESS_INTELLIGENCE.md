@@ -122,12 +122,29 @@ and reports. An editable dashboard is called a **BI project**:
   names, colliding columns auto-aliased), rename columns and set their types
   — Text, Integer, Decimal, Date, Boolean, **Location**, Category, Currency,
   Percentage, Identifier — with un-convertible values nulled and counted.
-  The result preview updates live at the bottom. **Run &amp; save**
-  materialises the result as a local dataset (joinable again, chartable,
-  visible to the AI analyst and SQL agents, semantic types recorded in the
-  semantic layer) and the flow itself is saved for re-editing and re-running.
-  External warehouse tables can be pulled in as capped snapshots to join
-  against local data.
+  The result preview updates live at the bottom, on a 1,000-row sample; click
+  the **eye** on any step to preview the data *as of that step* (the fastest
+  way to find which transform dropped the rows you expected), and **undo/redo**
+  (Ctrl+Z / Ctrl+Shift+Z) covers every edit to the pipeline. **Run &amp; save**
+  executes the flow **on the server against the full source data** — the same
+  code path the scheduled refresh uses, so both always agree — and materialises
+  the result as a local dataset (joinable again, chartable, visible to the AI
+  analyst and SQL agents, semantic types recorded in the semantic layer); the
+  flow itself is saved for re-editing, re-running and **duplicating**. If a
+  source or the output hits its configured ceiling
+  (`PREP_SOURCE_ROWS_CAP` / `PREP_OUTPUT_ROWS_CAP` — see
+  [deployment](./DEPLOYMENT.md)) the run says so explicitly, naming the
+  truncated table and the true row count: a prepared dataset is never silently
+  sampled. Re-running writes to the same dataset, so every model, widget and
+  flow pointing at it keeps working. External warehouse tables can be pulled in
+  as capped snapshots to join against local data.
+- **Safe dataset deletion** — deleting a dataset (from the prep palette or
+  Data &amp; SQL) first resolves everything that depends on it — prep flows that
+  read it, the flow that *produces* it, semantic models, dashboards whose SQL
+  references it, saved metrics — and lists them. Deleting something with
+  dependents requires typing its name; a dataset nothing uses deletes in one
+  click. Prepared datasets are labelled with the flow that rebuilds them, so
+  it's obvious when edits will be overwritten on the next refresh.
 - **Publish & share** — publishing exposes a read-only page at
   `/share/bi/<unguessable-slug>` for anyone with the link; group sharing
   (owner-controlled, or superadmin via Admin → IAM) makes the dashboard

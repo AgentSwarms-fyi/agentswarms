@@ -32,13 +32,7 @@ import { fetchWidgetResultsAdmin, upsertWidgetResultsAdmin } from "@/utils/bi/re
 import { sendMail } from "@/lib/email/mailer.server";
 import { loadWarehouseConnection } from "@/utils/warehouse/connections.server";
 import { executeWarehouseQuery } from "@/utils/warehouse/drivers.server";
-import {
-  buildPrepSql,
-  castRows,
-  parsePrepConfig,
-  validatePrepConfig,
-  PREP_SAVE_ROW_CAP,
-} from "@/lib/dataPrepCore";
+import { parsePrepConfig } from "@/lib/dataPrepCore";
 
 const WIDGET_ROW_CAP = 500;
 const LOCAL_ROWS_PER_TABLE_CAP = 20_000;
@@ -761,132 +755,47 @@ export async function processDueSchedules(force = false): Promise<number> {
 // steps) against the owner's stored datasets and overwrites the materialised
 // output dataset. Shares the scheduler tick / cron path with dashboards.
 
-let prepFnsRegistered = false;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function registerPrepFns(alasql: any): void {
-  if (prepFnsRegistered) return;
-  const fn = alasql.fn as Record<string, (...a: unknown[]) => unknown>;
-  const toDate = (v: unknown): Date | null => {
-    if (v == null) return null;
-    const d = v instanceof Date ? v : new Date(v as string);
-    return Number.isNaN(d.getTime()) ? null : d;
-  };
-  const pad = (n: number) => String(n).padStart(2, "0");
-  fn.SPLIT_PART = (s, d, n) => {
-    if (s == null) return null;
-    const parts = String(s).split(String(d ?? ""));
-    const i = Number(n);
-    return i >= 1 && i <= parts.length ? parts[i - 1] : null;
-  };
-  fn.split_part = fn.SPLIT_PART;
-  const year = (v: unknown) => {
-    const d = toDate(v);
-    return d ? d.getFullYear() : null;
-  };
-  const month = (v: unknown) => {
-    const d = toDate(v);
-    return d ? d.getMonth() + 1 : null;
-  };
-  const day = (v: unknown) => {
-    const d = toDate(v);
-    return d ? d.getDate() : null;
-  };
-  fn.YEAR = year;
-  fn.year = year;
-  fn.MONTH = month;
-  fn.month = month;
-  fn.DAY = day;
-  fn.day = day;
-  fn.DATE_TRUNC = (u, v) => {
-    const d = toDate(v);
-    if (!d || typeof u !== "string") return null;
-    const y = d.getFullYear();
-    const m = d.getMonth();
-    switch (u.toLowerCase()) {
-      case "year":
-        return `${y}-01-01`;
-      case "quarter":
-        return `${y}-${pad(Math.floor(m / 3) * 3 + 1)}-01`;
-      case "month":
-        return `${y}-${pad(m + 1)}-01`;
-      case "day":
-        return `${y}-${pad(m + 1)}-${pad(d.getDate())}`;
-      default:
-        return null;
-    }
-  };
-  fn.date_trunc = fn.DATE_TRUNC;
-  const date = (v: unknown) => {
-    const d = toDate(v);
-    return d ? `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` : null;
-  };
-  fn.DATE = date;
-  fn.date = date;
-  prepFnsRegistered = true;
-}
-
+/**
+ * Re-run a saved prep flow and overwrite its output dataset.
+ *
+ * Delegates to the SHARED engine in prep.server.ts — the same code the
+ * interactive "Run & save" uses — so a scheduled refresh can never produce a
+ * different result than the button did.
+ */
 export async function refreshPrepFlowServer(
   flowId: string,
 ): Promise<{ userId: string; name: string; rowCount: number }> {
   const { data: flow, error } = await supabaseAdmin
     .from("user_prep_flows")
-    .select("id, user_id, name, config, output_table_id")
+    .select("id, user_id, name, config, output_table_id, output_table_name")
     .eq("id", flowId)
     .single();
   if (error || !flow) throw new Error(error?.message ?? "Prep flow not found");
   if (!flow.output_table_id) throw new Error("Flow has never been run — nothing to refresh");
 
+  const { executePrepFlow, materialisePrepOutput } = await import("@/utils/bi/prep.server");
   const cfg = parsePrepConfig(flow.config);
-  const valid = validatePrepConfig(cfg);
-  if (!valid.ok) throw new Error(valid.error);
-  const sql = buildPrepSql(cfg);
+  const result = await executePrepFlow(flow.user_id, cfg);
 
-  const { data: tables } = await supabaseAdmin
+  // Keep writing to the SAME dataset row so every model/widget pointing at it
+  // survives the refresh; materialise resolves by (user_id, name).
+  const { data: outTable } = await supabaseAdmin
     .from("user_data_tables")
-    .select("id, name, user_id, is_sample")
-    .or(`user_id.eq.${flow.user_id},is_sample.eq.true`);
+    .select("name")
+    .eq("id", flow.output_table_id)
+    .maybeSingle();
+  const tableName = outTable?.name ?? flow.output_table_name;
+  if (!tableName) throw new Error("The flow's output dataset no longer exists");
 
-  const alasql = loadAlasql();
-  registerPrepFns(alasql);
-  const db = new alasql.Database();
-  for (const t of tables ?? []) {
-    const rows: Record<string, unknown>[] = [];
-    const PAGE = 1000;
-    for (let start = 0; start < LOCAL_ROWS_PER_TABLE_CAP; start += PAGE) {
-      const { data: chunk, error: rowErr } = await supabaseAdmin
-        .from("user_data_rows")
-        .select("row")
-        .eq("table_id", t.id)
-        .range(start, start + PAGE - 1);
-      if (rowErr || !chunk || chunk.length === 0) break;
-      rows.push(...chunk.map((c) => c.row as Record<string, unknown>));
-      if (chunk.length < PAGE) break;
-    }
-    db.exec(`CREATE TABLE \`${t.name}\``);
-    db.tables[t.name].data = rows;
-  }
+  const saved = await materialisePrepOutput({
+    userId: flow.user_id,
+    tableName,
+    flowName: flow.name,
+    columns: result.columns,
+    rows: result.rows,
+  });
 
-  const out = db.exec(sql) as Record<string, unknown>[];
-  const raw = (Array.isArray(out) ? out : []).slice(0, PREP_SAVE_ROW_CAP);
-  const cast = castRows(raw, cfg);
-
-  // Overwrite the materialised output dataset in place.
-  await supabaseAdmin.from("user_data_rows").delete().eq("table_id", flow.output_table_id);
-  const BATCH = 500;
-  for (let i = 0; i < cast.rows.length; i += BATCH) {
-    const slice = cast.rows.slice(i, i + BATCH).map((row) => ({
-      table_id: flow.output_table_id!,
-      row: row as unknown as Json,
-    }));
-    const { error: insErr } = await supabaseAdmin.from("user_data_rows").insert(slice);
-    if (insErr) throw new Error(insErr.message);
-  }
-  await supabaseAdmin
-    .from("user_data_tables")
-    .update({ columns: cast.columns as unknown as Json })
-    .eq("id", flow.output_table_id);
-
-  return { userId: flow.user_id, name: flow.name, rowCount: cast.rows.length };
+  return { userId: flow.user_id, name: flow.name, rowCount: saved.rowCount };
 }
 
 let lastPrepProcessed = 0;

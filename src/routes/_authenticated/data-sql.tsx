@@ -1,7 +1,7 @@
 // Main IDE route for /data-sql.
 // 3-pane layout: Database Explorer · SQL Editor (light) + Results · Agent Chat
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -16,6 +16,8 @@ import {
 } from "@/components/ui/table";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useAuth } from "@/hooks/use-auth";
+import { DeleteDatasetDialog } from "@/components/bi/DeleteDatasetDialog";
+import { datasetDependents, type DatasetDependents } from "@/utils/dataPrep.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import {
@@ -318,6 +320,8 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
   // External data warehouses (connected under /integrations → Data Warehouses).
   // dataSource: "local" (in-browser AlaSQL) or a warehouse connection id.
   const listWarehousesFn = useServerFn(listWarehouseConnections);
+  const dependentsFn = useServerFn(datasetDependents);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [warehouses, setWarehouses] = useState<WarehouseConnectionSummary[]>([]);
   const [whTables, setWhTables] = useState<Record<string, WarehouseTable[] | "loading" | "error">>(
     {},
@@ -588,15 +592,20 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
     void downloadXlsx(result.columns, result.rows, "query-result", { sheet: "Query result" });
   }
 
-  async function handleDeleteTable(d: DatasetMeta) {
-    if (!confirm(`Delete table ${d.name}? This can't be undone.`)) return;
-    try {
-      await deleteDataset(d.id, d.name);
-      await refreshTables();
-      toast.success(`Deleted ${d.name}`);
-    } catch (e) {
-      toast.error((e as Error).message);
-    }
+  /** Impact list for the delete dialog (server-resolved under the user's JWT). */
+  const loadDependents = useCallback(
+    async (tableId: string): Promise<DatasetDependents> => {
+      const token = session?.access_token;
+      if (!token) throw new Error("Not signed in");
+      return (await dependentsFn({ data: { accessToken: token, tableId } })) as DatasetDependents;
+    },
+    [session?.access_token, dependentsFn],
+  );
+
+  async function confirmDeleteDataset(target: { id: string; name: string }) {
+    await deleteDataset(target.id, target.name);
+    await refreshTables();
+    toast.success(`Deleted ${target.name}`);
   }
 
   // Chat — sends to /api/chat with sql_query enabled.
@@ -952,6 +961,19 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
                             sample
                           </Badge>
                         )}
+                        {/* Lineage: a materialised prep output says so, and
+                            names the flow that produces it — otherwise the
+                            table looks hand-uploaded and gets edited/deleted
+                            as if nothing rebuilds it. */}
+                        {d.source_filename?.startsWith("prep:") && (
+                          <Badge
+                            variant="outline"
+                            className="text-[8px] h-4 px-1 border-violet-300 text-violet-600 dark:border-violet-500/30 dark:text-violet-400"
+                            title={`Rebuilt by the "${d.source_filename.slice(5)}" data-prep flow — edits here are overwritten on refresh`}
+                          >
+                            prep: {d.source_filename.slice(5)}
+                          </Badge>
+                        )}
                         {!d.is_sample && d.user_id !== user?.id && (
                           <Badge
                             variant="outline"
@@ -971,7 +993,7 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
                     </button>
                     {!d.is_sample && d.user_id === user?.id && (
                       <button
-                        onClick={() => handleDeleteTable(d)}
+                        onClick={() => setDeleteTarget({ id: d.id, name: d.name })}
                         className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-red-600 dark:text-muted-foreground dark:hover:text-red-400"
                         title="Delete"
                       >
@@ -1648,6 +1670,13 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <DeleteDatasetDialog
+        target={deleteTarget}
+        onOpenChange={(o) => !o && setDeleteTarget(null)}
+        loadDependents={loadDependents}
+        onConfirm={confirmDeleteDataset}
+      />
     </div>
   );
 }

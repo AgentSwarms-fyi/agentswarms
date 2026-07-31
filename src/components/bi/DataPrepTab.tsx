@@ -28,6 +28,8 @@ import {
   Combine,
   Copy,
   Database,
+  Eye,
+  EyeOff,
   Filter as FilterIcon,
   FolderOpen,
   GripVertical,
@@ -37,12 +39,14 @@ import {
   Plus,
   RefreshCw,
   Repeat,
+  Redo2,
   Rows3,
   Scissors,
   Server,
   Sigma,
   Table2,
   Trash2,
+  Undo2,
   Wand2,
   X,
 } from "lucide-react";
@@ -105,7 +109,6 @@ import {
   PREP_TYPE_META,
   prepTables,
   removeTableFromFlow,
-  runAndSavePrep,
   savePrepFlow,
   syncColumns,
   validatePrepConfig,
@@ -124,6 +127,7 @@ import {
   type PrepTableInfo,
 } from "@/lib/dataPrep";
 import {
+  deleteDataset,
   hydrateFromSupabase,
   runQueryUnlimited,
   safeTableName,
@@ -132,6 +136,13 @@ import {
 } from "@/lib/sqlEngine";
 import { fetchWarehouseSchema, runWarehouseQuery } from "@/lib/warehouseClient";
 import { listWarehouseConnections } from "@/utils/warehouse.functions";
+import {
+  datasetDependents,
+  prepRunAndSave,
+  type DatasetDependents,
+  type PrepRunOutcome,
+} from "@/utils/dataPrep.functions";
+import { DeleteDatasetDialog } from "@/components/bi/DeleteDatasetDialog";
 import {
   WAREHOUSE_LABELS,
   type WarehouseConnectionSummary,
@@ -187,7 +198,71 @@ export function DataPrepTab() {
   const [flowId, setFlowId] = useState<string | null>(null);
   const [flowName, setFlowName] = useState("");
   const [outputName, setOutputName] = useState("");
-  const [cfg, setCfg] = useState<PrepFlowConfig>(emptyPrepConfig());
+  const [cfg, setCfgRaw] = useState<PrepFlowConfig>(emptyPrepConfig());
+  /**
+   * Undo/redo over the flow config.
+   *
+   * A prep pipeline is edited by trial and error — deleting the wrong step or
+   * mis-dragging a join is routine, and without history the only recovery was
+   * rebuilding by hand. `past`/`future` hold snapshots; `setCfg` pushes onto
+   * `past`, and `resetHistory` is used when LOADING a flow so an undo can
+   * never jump between two different flows.
+   */
+  const [past, setPast] = useState<PrepFlowConfig[]>([]);
+  const [future, setFuture] = useState<PrepFlowConfig[]>([]);
+  const HISTORY_LIMIT = 50;
+
+  const setCfg: SetCfg = useCallback((update) => {
+    setCfgRaw((prev) => {
+      const next =
+        typeof update === "function"
+          ? (update as (p: PrepFlowConfig) => PrepFlowConfig)(prev)
+          : update;
+      if (next === prev) return prev;
+      setPast((p) => [...p, prev].slice(-HISTORY_LIMIT));
+      setFuture([]);
+      return next;
+    });
+  }, []);
+
+  /** Load a config WITHOUT making it undoable (switching flows, reset). */
+  const resetHistory = useCallback((next: PrepFlowConfig) => {
+    setCfgRaw(next);
+    setPast([]);
+    setFuture([]);
+  }, []);
+
+  const undo = useCallback(() => {
+    setPast((p) => {
+      if (p.length === 0) return p;
+      const prev = p[p.length - 1];
+      setCfgRaw((cur) => {
+        setFuture((f) => [cur, ...f].slice(0, HISTORY_LIMIT));
+        return prev;
+      });
+      return p.slice(0, -1);
+    });
+  }, []);
+
+  const redo = useCallback(() => {
+    setFuture((f) => {
+      if (f.length === 0) return f;
+      const next = f[0];
+      setCfgRaw((cur) => {
+        setPast((p) => [...p, cur].slice(-HISTORY_LIMIT));
+        return next;
+      });
+      return f.slice(1);
+    });
+  }, []);
+
+  /**
+   * Which step's output the preview shows. null = the final result. Clicking a
+   * step inspects the data AS OF that step — the core debugging interaction in
+   * Tableau Prep / Power Query, and the only way to tell WHICH step dropped
+   * the rows you expected.
+   */
+  const [previewStep, setPreviewStep] = useState<number | null>(null);
   const [preview, setPreview] = useState<PreviewState>({ kind: "empty" });
   const [runBusy, setRunBusy] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
@@ -199,12 +274,15 @@ export function DataPrepTab() {
   // alongside local datasets. Schemas load lazily per connection; clicking a
   // table imports a snapshot as a local dataset and drops it on the canvas.
   const listWarehousesFn = useServerFn(listWarehouseConnections);
+  const runPrepFn = useServerFn(prepRunAndSave);
+  const dependentsFn = useServerFn(datasetDependents);
   const [whConns, setWhConns] = useState<WarehouseConnectionSummary[] | null>(null);
   const [whSchemas, setWhSchemas] = useState<
     Record<string, WarehouseTable[] | "loading" | "error">
   >({});
   const [openConns, setOpenConns] = useState<Record<string, boolean>>({});
   const [importingKey, setImportingKey] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
 
   const tableInfos: PrepTableInfo[] = useMemo(
     () => (datasets ?? []).map((d) => ({ name: d.name, columns: d.columns })),
@@ -300,14 +378,18 @@ export function DataPrepTab() {
       return;
     }
     const t = setTimeout(() => {
-      const valid = validatePrepConfig(cfg);
+      // Previewing "as of step N" truncates the pipeline there; the final
+      // preview (previewStep === null) runs every step.
+      const effective: PrepFlowConfig =
+        previewStep === null ? cfg : { ...cfg, steps: cfg.steps.slice(0, previewStep + 1) };
+      const valid = validatePrepConfig(effective);
       if (!valid.ok) {
         setPreview({ kind: "invalid", error: valid.error });
         return;
       }
       try {
-        const res = runQueryUnlimited(buildPrepSql(cfg), PREVIEW_SAMPLE);
-        const cast = castRows(res.rows, cfg);
+        const res = runQueryUnlimited(buildPrepSql(effective), PREVIEW_SAMPLE);
+        const cast = castRows(res.rows, effective);
         setPreview({
           kind: "ok",
           columns: cast.columns.map((c) => c.name),
@@ -315,21 +397,43 @@ export function DataPrepTab() {
           total: res.total,
           sampled: res.capped,
           failures: cast.failures,
-          profile: profilePrepColumns(cast.rows, effectiveOutputColumns(cfg)),
+          profile: profilePrepColumns(cast.rows, effectiveOutputColumns(effective)),
         });
       } catch (e) {
         setPreview({ kind: "error", error: (e as Error).message });
       }
     }, 450);
     return () => clearTimeout(t);
-  }, [cfg]);
+  }, [cfg, previewStep]);
+
+  // A step index can go stale when steps are removed/reordered.
+  useEffect(() => {
+    if (previewStep !== null && previewStep >= cfg.steps.length) setPreviewStep(null);
+  }, [cfg.steps.length, previewStep]);
+
+  // Undo/redo shortcuts — the editor is a canvas, so these are expected.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "z") return;
+      const el = e.target as HTMLElement | null;
+      // Never steal undo from a field the user is typing in.
+      const tag = el?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || el?.isContentEditable) return;
+      e.preventDefault();
+      if (e.shiftKey) redo();
+      else undo();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [undo, redo]);
 
   // ── Flow actions ────────────────────────────────────────────────────
   function resetFlow() {
     setFlowId(null);
     setFlowName("");
     setOutputName("");
-    setCfg(emptyPrepConfig());
+    resetHistory(emptyPrepConfig());
+    setPreviewStep(null);
     setShapeTab("columns");
   }
 
@@ -351,7 +455,25 @@ export function DataPrepTab() {
     setFlowId(f.id);
     setFlowName(f.name);
     setOutputName(f.output_table_name ?? "");
-    setCfg(next);
+    // Loading a different flow starts a fresh history — undo must never jump
+    // between two unrelated pipelines.
+    resetHistory(next);
+    setPreviewStep(null);
+  }
+
+  /** Fork the open flow into a new, unsaved one — the usual "try a variant" move. */
+  function duplicateFlow() {
+    if (!cfg.base) return toast.error("Nothing to duplicate yet");
+    const base = flowName.trim() || "flow";
+    const existing = new Set(flows.map((f) => f.name));
+    let name = `${base} copy`;
+    for (let i = 2; existing.has(name); i++) name = `${base} copy ${i}`;
+    setFlowId(null);
+    setFlowName(name);
+    setOutputName("");
+    resetHistory(cfg);
+    setPreviewStep(null);
+    toast.success(`Duplicated as "${name}" — Run & save to materialise it.`);
   }
 
   async function handleDeleteFlow() {
@@ -368,7 +490,7 @@ export function DataPrepTab() {
   }
 
   async function handleRunAndSave() {
-    if (!user?.id) return;
+    if (!user?.id || !token) return;
     const valid = validatePrepConfig(cfg);
     if (!valid.ok) return toast.error(valid.error);
     if (!flowName.trim()) return toast.error("Name the flow first");
@@ -376,29 +498,50 @@ export function DataPrepTab() {
     setRunBusy(true);
     try {
       const id = await savePrepFlow({ id: flowId, userId: user.id, name: flowName.trim(), cfg });
-      const result = await runAndSavePrep({
-        userId: user.id,
-        flowName: flowName.trim(),
-        outputName: out,
-        cfg,
-      });
+      // Executes on the SERVER against the full stored data (the browser
+      // engine only ever held a preview-sized slice), on the same code path
+      // the scheduled refresh uses.
+      const result = (await runPrepFn({
+        data: {
+          accessToken: token,
+          flowId: id,
+          flowName: flowName.trim(),
+          outputName: out,
+          config: cfg as unknown as Record<string, unknown>,
+        },
+      })) as PrepRunOutcome | { ok: false; error: string };
+      if (!result.ok) throw new Error(result.error);
+
       await savePrepFlow({
         id,
         userId: user.id,
         name: flowName.trim(),
         cfg,
-        outputTableId: result.dataset.id,
-        outputTableName: result.dataset.name,
+        outputTableId: result.tableId,
+        outputTableName: result.tableName,
         markRun: true,
       });
       setFlowId(id);
-      setOutputName(result.dataset.name);
+      setOutputName(result.tableName);
       setFlows(await listPrepFlows());
       await reloadDatasets();
-      toast.success(
-        `Saved "${result.dataset.name}" with ${result.rowCount.toLocaleString()} rows` +
-          (result.capped ? ` (capped at ${PREP_SAVE_ROW_CAP.toLocaleString()})` : ""),
-      );
+      toast.success(`Saved "${result.tableName}" with ${result.rowCount.toLocaleString()} rows`);
+      // Truncation is reported LOUDLY — a silently sampled output is the
+      // failure mode this whole path exists to remove.
+      if (result.outputCapped) {
+        toast.warning(
+          `The flow produced ${result.producedRows.toLocaleString()} rows; only the first ` +
+            `${result.rowCount.toLocaleString()} were saved. Aggregate or filter earlier, or raise PREP_OUTPUT_ROWS_CAP.`,
+          { duration: 12000 },
+        );
+      }
+      if (result.truncatedSources.length > 0) {
+        toast.warning(
+          `Source table(s) read only partially: ${result.truncatedSources.join(", ")}. ` +
+            `Results are based on a truncated input.`,
+          { duration: 12000 },
+        );
+      }
       const failed = Object.entries(result.failures).filter(([, n]) => n > 0);
       if (failed.length > 0) {
         toast.warning(
@@ -412,6 +555,29 @@ export function DataPrepTab() {
     } finally {
       setRunBusy(false);
     }
+  }
+
+  /** Impact list for the delete dialog (server-resolved under the user's JWT). */
+  const loadDependents = useCallback(
+    async (tableId: string): Promise<DatasetDependents> => {
+      if (!token) throw new Error("Not signed in");
+      return (await dependentsFn({
+        data: { accessToken: token, tableId },
+      })) as DatasetDependents;
+    },
+    [token, dependentsFn],
+  );
+
+  async function confirmDeleteDataset(target: { id: string; name: string }) {
+    await deleteDataset(target.id, target.name);
+    // A deleted table must leave the canvas too, or the flow silently
+    // references something that no longer exists.
+    setCfg((prev) =>
+      prepTables(prev).includes(target.name) ? removeTableFromFlow(prev, target.name) : prev,
+    );
+    await reloadDatasets();
+    setFlows(await listPrepFlows());
+    toast.success(`Deleted "${target.name}"`);
   }
 
   // ── Canvas dnd ──────────────────────────────────────────────────────
@@ -539,7 +705,7 @@ export function DataPrepTab() {
                     draggable={!used}
                     onDragStart={(e) => e.dataTransfer.setData(DRAG_MIME, d.name)}
                     onClick={() => !used && addTable({ name: d.name, columns: d.columns })}
-                    className={`flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs transition ${
+                    className={`group flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs transition ${
                       used
                         ? "cursor-not-allowed border-border/40 opacity-40"
                         : "cursor-grab border-border/60 hover:border-primary/50 hover:bg-muted/50"
@@ -563,6 +729,23 @@ export function DataPrepTab() {
                       <Badge variant="outline" className="shrink-0 px-1 text-[9px]">
                         sample
                       </Badge>
+                    )}
+                    {/* Sample datasets are shared and read-only, so they have
+                        no delete. Everything else routes through the
+                        impact-aware dialog — never a bare delete. */}
+                    {!d.is_sample && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-5 w-5 shrink-0 text-muted-foreground opacity-0 transition group-hover:opacity-100 hover:text-destructive"
+                        title={`Delete dataset "${d.name}"`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeleteTarget({ id: d.id, name: d.name });
+                        }}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
                     )}
                   </div>
                 );
@@ -734,12 +917,42 @@ export function DataPrepTab() {
               )}
               <Button
                 size="sm"
+                variant="ghost"
+                className="h-8 w-8 p-0"
+                title="Undo (Ctrl+Z)"
+                onClick={undo}
+                disabled={past.length === 0}
+              >
+                <Undo2 className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 w-8 p-0"
+                title="Redo (Ctrl+Shift+Z)"
+                onClick={redo}
+                disabled={future.length === 0}
+              >
+                <Redo2 className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                size="sm"
                 variant="outline"
                 className="h-8 gap-1 text-xs"
                 onClick={resetFlow}
                 title="Start a new flow"
               >
                 <Plus className="h-3.5 w-3.5" /> New
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 gap-1 text-xs"
+                onClick={duplicateFlow}
+                disabled={!cfg.base}
+                title="Fork this flow into a new one"
+              >
+                <Copy className="h-3.5 w-3.5" /> Duplicate
               </Button>
               {flowId && (
                 <Button
@@ -958,6 +1171,8 @@ export function DataPrepTab() {
                     onRemove={removeStep}
                     onMove={moveStep}
                     detectPivotValues={detectPivotValues}
+                    previewStep={previewStep}
+                    onPreviewStep={setPreviewStep}
                   />
                 </TabsContent>
               </Tabs>
@@ -984,6 +1199,26 @@ export function DataPrepTab() {
               />
             </CardHeader>
             <CardContent className="space-y-2 pt-0">
+              {/* A step-scoped preview must never be mistaken for the output
+                  that "Run & save" would materialise. */}
+              {previewStep !== null && (
+                <div className="flex items-center gap-2 rounded border border-primary/40 bg-primary/5 px-2 py-1.5">
+                  <Eye className="h-3.5 w-3.5 shrink-0 text-primary" />
+                  <p className="min-w-0 flex-1 text-[11px] text-primary">
+                    Previewing the data <strong>as of step {previewStep + 1}</strong>
+                    {cfg.steps[previewStep] ? ` (${prepStepLabel(cfg.steps[previewStep])})` : ""} —
+                    not the final result.
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 shrink-0 px-2 text-[10px]"
+                    onClick={() => setPreviewStep(null)}
+                  >
+                    Show final
+                  </Button>
+                </div>
+              )}
               {(preview.kind === "invalid" || preview.kind === "error") && (
                 <p
                   className={`rounded border px-2 py-1.5 text-[11px] ${
@@ -1083,6 +1318,13 @@ export function DataPrepTab() {
             .then(setFlows)
             .catch(() => {})
         }
+      />
+
+      <DeleteDatasetDialog
+        target={deleteTarget}
+        onOpenChange={(o) => !o && setDeleteTarget(null)}
+        loadDependents={loadDependents}
+        onConfirm={confirmDeleteDataset}
       />
     </div>
   );
@@ -1302,6 +1544,8 @@ function StepsEditor({
   onRemove,
   onMove,
   detectPivotValues,
+  previewStep,
+  onPreviewStep,
 }: {
   cfg: PrepFlowConfig;
   datasets: DatasetMeta[];
@@ -1310,13 +1554,15 @@ function StepsEditor({
   onRemove: (index: number) => void;
   onMove: (index: number, dir: -1 | 1) => void;
   detectPivotValues: (index: number, column: string) => string[];
+  previewStep: number | null;
+  onPreviewStep: (index: number | null) => void;
 }) {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <p className="text-xs text-muted-foreground">
           Transforms run top to bottom. Reorder with the arrows — each step works on the result of
-          the one above.
+          the one above. Click the eye on a step to preview the data as of that point.
         </p>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -1362,6 +1608,8 @@ function StepsEditor({
               onRemove={() => onRemove(i)}
               onMove={(dir) => onMove(i, dir)}
               detectPivotValues={detectPivotValues}
+              previewing={previewStep === i}
+              onTogglePreview={() => onPreviewStep(previewStep === i ? null : i)}
             />
           ))}
         </div>
@@ -1380,6 +1628,8 @@ function StepCard({
   onRemove,
   onMove,
   detectPivotValues,
+  previewing,
+  onTogglePreview,
 }: {
   step: PrepStep;
   index: number;
@@ -1390,17 +1640,32 @@ function StepCard({
   onRemove: () => void;
   onMove: (dir: -1 | 1) => void;
   detectPivotValues: (index: number, column: string) => string[];
+  previewing: boolean;
+  onTogglePreview: () => void;
 }) {
   const Icon = STEP_ICON[step.kind];
   const names = inputCols.map((c) => c.name);
   return (
-    <div className="rounded-md border border-border/60">
+    <div
+      className={`rounded-md border transition ${
+        previewing ? "border-primary ring-1 ring-primary/30" : "border-border/60"
+      }`}
+    >
       <div className="flex items-center gap-2 border-b border-border/40 bg-muted/30 px-2.5 py-1.5">
         <span className="flex h-5 w-5 items-center justify-center rounded bg-primary/10 text-[10px] font-semibold text-primary">
           {index + 1}
         </span>
         <Icon className="h-3.5 w-3.5 text-primary" />
         <span className="min-w-0 flex-1 truncate text-xs font-medium">{prepStepLabel(step)}</span>
+        <Button
+          size="sm"
+          variant="ghost"
+          className={`h-6 w-6 p-0 ${previewing ? "text-primary" : ""}`}
+          title={previewing ? "Show the final result" : "Preview the data as of this step"}
+          onClick={onTogglePreview}
+        >
+          {previewing ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+        </Button>
         <Button
           size="sm"
           variant="ghost"

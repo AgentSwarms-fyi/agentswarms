@@ -336,6 +336,22 @@ export function prepTables(cfg: PrepFlowConfig): string[] {
   return cfg.base ? [cfg.base, ...cfg.joins.map((j) => j.table)] : [];
 }
 
+/**
+ * Sanitize a name into a safe SQL identifier. Mirrors sqlEngine.safeTableName
+ * EXACTLY — duplicated here because this module is pure (no AlaSQL import), so
+ * the server can use it without pulling the browser engine into SSR.
+ */
+export function safePrepTableName(raw: string): string {
+  const cleaned = raw
+    .toLowerCase()
+    .replace(/[^a-z0-9_]/g, "_")
+    .replace(/^_+/, "")
+    .replace(/_+/g, "_")
+    .replace(/_$/, "");
+  if (!cleaned || !/^[a-z]/.test(cleaned)) return `t_${cleaned || "table"}`;
+  return cleaned.slice(0, 48);
+}
+
 /** Best-guess join key between two column sets (shared names, prefer *_id). */
 export function detectPrepJoinKey(
   left: ColumnDef[],

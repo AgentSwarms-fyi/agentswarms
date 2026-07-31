@@ -273,6 +273,20 @@ notification channels (Slack/Teams/Discord/webhook) the user connected on the
 Integrations page. The same pass runs a daily sweep that re-encrypts any
 legacy plaintext integration secrets in place.
 
+**Data-prep execution** runs on the server (the same code path the interactive
+"Run & save" button uses), so prepared datasets reflect the *full* source data
+rather than whatever fitted in a browser tab. Two ceilings bound it, both read
+per run:
+
+- `PREP_SOURCE_ROWS_CAP` (default `500000`) — rows loaded per source table.
+- `PREP_OUTPUT_ROWS_CAP` (default `250000`) — rows materialised to the output
+  dataset.
+
+Hitting either is reported in the UI (which source was truncated, how many rows
+the flow actually produced) — a prepared dataset is never silently sampled.
+Raise them for larger flows, mindful that rows are held in memory during the
+run and inserted in batches of 500.
+
 Two related knobs:
 
 - `INTEGRATION_TEST_PER_MINUTE` (default `10`) — per-user rate limit on the
