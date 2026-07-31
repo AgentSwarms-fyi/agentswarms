@@ -147,7 +147,11 @@ export async function runSemanticQuery(opts: {
   }
 
   // Local datasets (AlaSQL over the OWNER's user_data_tables + samples).
-  const compiled = compileSemanticQuery(model, opts.query, { dialect: "alasql" });
+  // Compile for whichever engine runLocalSqlForUser will use. Hard-coding
+  // "alasql" emitted backtick identifiers and YEAR()/MONTH() over text
+  // columns, both of which DuckDB rejects outright.
+  const { localEngineName } = await import("@/utils/data/localEngine.server");
+  const compiled = compileSemanticQuery(model, opts.query, { dialect: await localEngineName() });
   const res = await runLocalSqlForUser(ownerId, compiled.sql);
   return { model: model.name, columns: compiled.columns, rows: res.rows, sql: compiled.sql };
 }

@@ -35,6 +35,7 @@ import { executeWarehouseQuery } from "@/utils/warehouse/drivers.server";
 import { parsePrepConfig } from "@/lib/dataPrepCore";
 import { assertLocalReadOnlySql } from "@/lib/sqlSafety";
 import { STAGING_PREFIX } from "@/lib/datasetParse";
+import { localEngineName } from "@/utils/data/localEngine.server";
 
 const WIDGET_ROW_CAP = 500;
 const LOCAL_ROWS_PER_TABLE_CAP = 20_000;
@@ -372,7 +373,16 @@ export async function refreshDashboardServer(dashboardId: string): Promise<{
         });
         result = { columns: res.columns.map((c) => c.name), rows: res.rows };
       } else {
-        result = await runLocalSqlForUser(dash.user_id, widgetQuerySql(w, preserve, "alasql", inc));
+        // The dialect MUST match the engine that will run it. Pushdown and
+        // incremental refresh wrap the widget's SQL with quoted identifiers,
+        // and AlaSQL's backticks are a parser error in DuckDB — so hard-coding
+        // "alasql" here silently broke every pushdown/incremental widget the
+        // moment LOCAL_ENGINE=duckdb was set.
+        const localDialect = await localEngineName();
+        result = await runLocalSqlForUser(
+          dash.user_id,
+          widgetQuerySql(w, preserve, localDialect, inc),
+        );
       }
       applyResult(w, result, inc);
     } catch (e) {
