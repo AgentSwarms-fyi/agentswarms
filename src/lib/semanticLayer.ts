@@ -185,6 +185,62 @@ function escapeString(v: string, dialect: SqlDialect): string {
   return s;
 }
 
+/**
+ * Rewrite quoted identifiers in an AUTHORED SQL fragment to the target
+ * dialect's quoting.
+ *
+ * A semantic model stores `sql` fragments written by the model author or by
+ * "Generate with AI" — `` `Order Date` `` for a local dataset, `"Order Date"`
+ * for a warehouse. Those fragments are inserted verbatim into the compiled
+ * query, so a model authored against AlaSQL produced backticks that DuckDB
+ * rejects outright ("Parser Error: syntax error at or near ..."), and the
+ * dialect option could not help because the dialect never reached them.
+ *
+ * Normalising here means the STORED form no longer decides which engines a
+ * model works on — which is what a semantic layer is supposed to guarantee —
+ * and existing saved models start working without a migration.
+ *
+ * Quoting inside string literals is left alone: `WHERE note = 'a `b` c'`
+ * contains no identifier.
+ */
+export function normaliseIdentQuotes(sql: string, dialect: SqlDialect): string {
+  const target = BACKTICK_DIALECTS.has(dialect) ? "`" : '"';
+  const out: string[] = [];
+  let i = 0;
+  while (i < sql.length) {
+    const ch = sql[i];
+    if (ch === "'") {
+      // Copy the literal verbatim, honouring '' as an escaped quote.
+      const start = i++;
+      while (i < sql.length) {
+        if (sql[i] === "'" && sql[i + 1] === "'") i += 2;
+        else if (sql[i] === "'") {
+          i++;
+          break;
+        } else i++;
+      }
+      out.push(sql.slice(start, i));
+      continue;
+    }
+    if (ch === "`" || ch === '"') {
+      const close = sql.indexOf(ch, i + 1);
+      if (close === -1) {
+        // Unbalanced quote — leave the rest untouched rather than guess.
+        out.push(sql.slice(i));
+        break;
+      }
+      const inner = sql.slice(i + 1, close);
+      // An embedded target quote is doubled so the result stays parseable.
+      out.push(target + inner.split(target).join(target + target) + target);
+      i = close + 1;
+      continue;
+    }
+    out.push(ch);
+    i++;
+  }
+  return out.join("");
+}
+
 /** Escape a scalar into a SQL literal. Only strings/finite numbers/booleans. */
 function literal(v: string | number | boolean, dialect: SqlDialect): string {
   if (typeof v === "number") {
@@ -380,7 +436,7 @@ function compileFilter(
  * change which rows every metric aggregates over — the same "quietly wrong
  * number" failure this layer exists to prevent.
  */
-function compileJoins(joins: SemanticJoin[] | undefined): string {
+function compileJoins(joins: SemanticJoin[] | undefined, dialect: SqlDialect): string {
   if (!joins || joins.length === 0) return "";
   if (joins.length > MAX_JOINS) throw new Error(`At most ${MAX_JOINS} joins per model`);
   let out = "";
@@ -391,7 +447,7 @@ function compileJoins(joins: SemanticJoin[] | undefined): string {
     }
     // Whitelist, not string interpolation: `type` becomes SQL structure.
     const kw = j.type === "inner" ? "INNER JOIN" : "LEFT JOIN";
-    const on = (j.on ?? "").trim();
+    const on = normaliseIdentQuotes((j.on ?? "").trim(), dialect);
     if (!on) throw new Error(`Join on "${j.table}" is missing its ON condition`);
     if (on.length > 500) throw new Error(`Join ON condition too long (max 500 chars)`);
     out += ` ${kw} ${table}${j.alias ? ` AS ${j.alias}` : ""} ON (${on})`;
@@ -409,15 +465,23 @@ export function compileSemanticQuery(
   opts?: { dialect?: SqlDialect },
 ): CompiledQuery {
   const dialect: SqlDialect = opts?.dialect ?? "postgres";
+
+  // Authored fragments are re-quoted for the target dialect ONCE, here, so
+  // every consumer below (dimExpr, aggExpr, derived formulas, filters, order,
+  // joins) inherits it. A model authored against a local dataset stores
+  // `` `Order Date` ``, which DuckDB rejects outright; normalising at the point
+  // of use in eight places would have been eight chances to miss one.
+  const q0 = (sql: string) => normaliseIdentQuotes(sql, dialect);
+
   const dimByName = new Map<string, SemanticDimension>();
   for (const d of model.dimensions) {
     if (!isValidFieldName(d.name)) throw new Error(`Invalid dimension name "${d.name}"`);
-    dimByName.set(d.name, d);
+    dimByName.set(d.name, { ...d, sql: q0(d.sql) });
   }
   const metricByName = new Map<string, SemanticMetric>();
   for (const m of model.metrics) {
     if (!isValidFieldName(m.name)) throw new Error(`Invalid metric name "${m.name}"`);
-    metricByName.set(m.name, m);
+    metricByName.set(m.name, m.sql ? { ...m, sql: q0(m.sql) } : m);
   }
 
   const dims = q.dimensions ?? [];
@@ -474,7 +538,7 @@ export function compileSemanticQuery(
   }
 
   const from = assertTableRef(model.source.table);
-  let sql = `SELECT ${selectParts.join(", ")} FROM ${from}${compileJoins(model.joins)}`;
+  let sql = `SELECT ${selectParts.join(", ")} FROM ${from}${compileJoins(model.joins, dialect)}`;
   if (whereParts.length) sql += ` WHERE ${whereParts.join(" AND ")}`;
   // Group by dimension expressions (grain-wrapped) when aggregating.
   if (metrics.length && dims.length) {

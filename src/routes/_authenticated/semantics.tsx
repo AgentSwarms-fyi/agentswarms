@@ -420,8 +420,11 @@ function SemanticsPage() {
     if (!biModel) return toast.error("Pick an AI model — connect a provider under Integrations");
     setGenerating(true);
     try {
-      // Local (AlaSQL) columns are referenced in backticks; warehouse columns
-      // use their bare names in the connection's native dialect.
+      // Local columns are shown quoted so a name with a space survives; the
+      // quoting style here does NOT lock the model to an engine, because
+      // compileSemanticQuery re-quotes authored fragments for whichever
+      // dialect it targets (see normaliseIdentQuotes). Warehouse columns keep
+      // their bare names in the connection's native dialect.
       const isLocal = draft.source_kind === "data_table";
       const cols = sourceColumns
         .map((c) => `- ${isLocal ? `\`${c.name}\`` : c.name} (${c.type})`)
