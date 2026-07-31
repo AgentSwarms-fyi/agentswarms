@@ -85,6 +85,55 @@ Two aliases to avoid — `total` and `value` are reserved words in AlaSQL and
 fail to parse, which is a real (if minor) product divergence rather than a
 corpus problem.
 
+## NL-to-SQL evaluation
+
+"AI-powered BI" is a measurable claim. This measures it.
+
+```bash
+npm run eval:nl2sql
+```
+
+It asks the BI analyst a fixed set of plain-English questions, runs the SQL it
+generates against the bundled sample data, and compares the RESULT to a
+reference query's result. Output is an execution-accuracy percentage with a
+per-category breakdown, so a regression can be located rather than just felt.
+
+**It costs money and never runs in CI.** It calls a real model through your own
+`/api/bi` endpoint, so it needs a running app and a token:
+
+| Variable | Meaning |
+| --- | --- |
+| `EVAL_BASE_URL` | The running app (default `http://localhost:8080`) |
+| `EVAL_ACCESS_TOKEN` | A Supabase access token for a signed-in user |
+| `EVAL_MODEL` | Optional `provider::model` choice |
+| `EVAL_ONLY` | Run one question id, or one category |
+
+### How it grades
+
+**Execution accuracy, not SQL text.** Many statements answer a question
+correctly, so string comparison would score paraphrases as failures and push
+the prompt toward imitating one author's style instead of being right. Column
+aliases and column order are ignored; values are not. Row order matters only
+for questions marked `ordered` — a ranking returned in the wrong order is the
+wrong answer.
+
+Failures are separated into *wrong answer*, *engine error* and *refused*,
+because those need different fixes.
+
+### Adding questions
+
+Add to `evals/nl2sql/questions.ts` with a reference query and a note saying
+what the question would catch if it broke. Writing the reference is the
+discipline that keeps this honest: a question you cannot answer unambiguously
+in SQL does not belong in a score.
+
+Avoid aliasing to `total` or `value` in reference queries — both are reserved
+words in AlaSQL, the default engine.
+
+`tests/unit/nl2sqlEval.test.ts` checks the harness itself on every push (that
+every reference query still runs, and that the grader accepts and rejects the
+right things) without spending a model call.
+
 ## Integration tests
 
 Tests that need a real Supabase project live under `tests/integration/` and are

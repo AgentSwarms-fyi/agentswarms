@@ -506,13 +506,33 @@ export async function generateSql(args: {
 }): Promise<string> {
   await ensureGovernedCatalog();
   const schema = describeSchema(args.datasets, args.semantics, args.metrics);
+  const { systemPrompt, userPrompt } = buildSqlPrompt({ ...args, schema });
+  const out = await llmJson<{ sql: string }>({ model: args.model, systemPrompt, userPrompt });
+  return out.sql;
+}
+
+/**
+ * The SQL-generation prompt, as data.
+ *
+ * Split out so the NL-to-SQL evaluation harness scores the prompt this app
+ * actually sends. An eval that re-creates the prompt measures a copy, and the
+ * copy is exactly where a regression hides — the same reasoning that put the
+ * real execution path behind the differential harness.
+ */
+export function buildSqlPrompt(args: {
+  question: string;
+  plan: BiPlan;
+  /** Pre-rendered schema description — see describeSchema. */
+  schema: string;
+  dialect?: string;
+  repair?: { sql: string; error: string };
+}): { systemPrompt: string; userPrompt: string } {
   const engineLine = args.dialect
     ? `You are a SQL generation agent for ${args.dialect}. Use standard ANSI SQL for that warehouse; ` +
       "reference tables by their full schema-qualified names exactly as given, and quote unusual identifiers with double quotes. "
     : "You are a SQL generation agent for an in-browser AlaSQL engine. " +
       "Wrap identifiers with spaces or special chars in backticks. ";
-  const out = await llmJson<{ sql: string }>({
-    model: args.model,
+  return {
     systemPrompt:
       engineLine +
       "Output a SINGLE SELECT statement only — no INSERT/UPDATE/DELETE/DDL. " +
@@ -525,13 +545,12 @@ export async function generateSql(args: {
           "does not exist. Do not return more than one statement."
         : ""),
     userPrompt:
-      `${schema}\n\nPLAN: ${JSON.stringify(args.plan)}\nQUESTION: ${args.question}\n` +
+      `${args.schema}\n\nPLAN: ${JSON.stringify(args.plan)}\nQUESTION: ${args.question}\n` +
       (args.repair
         ? `\nFAILED SQL: ${args.repair.sql}\nENGINE ERROR: ${args.repair.error}\n`
         : "") +
       `\nReturn JSON: { "sql": "SELECT ..." }`,
-  });
-  return out.sql;
+  };
 }
 
 export async function suggestChart(args: {

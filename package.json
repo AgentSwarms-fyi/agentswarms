@@ -1,7 +1,7 @@
 {
   "name": "agentswarms",
   "version": "0.1.0",
-  "description": "The hands-on playground for learning Agentic AI — build agents, run multi-agent swarms, and inspect traces in your browser.",
+  "description": "The hands-on playground for learning Agentic AI \u2014 build agents, run multi-agent swarms, and inspect traces in your browser.",
   "license": "Elastic-2.0",
   "repository": {
     "type": "git",
@@ -19,7 +19,8 @@
     "format": "prettier --write .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:differential": "tsx tests/differential/report.ts"
+    "test:differential": "tsx tests/differential/report.ts",
+    "eval:nl2sql": "tsx evals/nl2sql/run.ts"
   },
   "dependencies": {
     "@codemirror/lang-javascript": "^6.2.5",
