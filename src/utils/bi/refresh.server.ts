@@ -42,6 +42,9 @@ const LOCAL_ROWS_PER_TABLE_CAP = 20_000;
 const MIN_PROCESS_INTERVAL_MS = 30_000;
 const SCHEDULES_PER_RUN = 10;
 
+/** Only a well-formed UUID may enter a PostgREST `.or()` filter string. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // AlaSQL ships a UMD build whose global-object dance breaks inside Vite's
 // SSR module runner ("Cannot set properties of undefined"). Loading it
 // lazily through Node's own CJS loader sidesteps the runner entirely, and
@@ -99,19 +102,30 @@ type LocalTable = {
 };
 
 /**
- * The datasets this user's SQL may read: their own, plus public samples.
+ * The datasets this user's SQL may read: their own, public samples, and any
+ * dataset shared with them by an IAM grant.
  *
- * Note this deliberately does NOT include datasets shared via an IAM grant.
- * Those carry row filters and column masks that would have to be re-applied
- * here (see restrictSharedTable in utils/tools/sql.server.ts); until that is
- * wired up, not loading them is the fail-closed choice.
+ * Shared datasets used to be excluded here. That was fail-closed but wrong in
+ * practice: a widget built on a shared dataset worked in the browser (which
+ * reads through the shared_dataset_rows RPC) and then failed on every
+ * scheduled refresh with "table not found". They are now loaded with the
+ * grant's row filter and column mask re-applied in TypeScript — mandatory,
+ * because this reads with the SERVICE ROLE and RLS is therefore off.
  */
 async function loadLocalTables(userId: string): Promise<LocalTable[]> {
+  const { grantedDatasetIds, restrictSharedDataset } =
+    await import("@/utils/data/sharedDatasets.server");
+  const granted = await grantedDatasetIds(supabaseAdmin, userId);
+  const grantedIds = [...granted].filter((id) => UUID_RE.test(id));
+
+  const orParts = [`user_id.eq.${userId}`, "is_sample.eq.true"];
+  if (grantedIds.length) orParts.push(`id.in.(${grantedIds.join(",")})`);
+
   const { data: tables, error } = await supabaseAdmin
     .from("user_data_tables")
     .select("id, name, columns, user_id, is_sample, data_loaded_at, parquet_synced_at")
     .not("name", "like", `${STAGING_PREFIX}%`)
-    .or(`user_id.eq.${userId},is_sample.eq.true`);
+    .or(orParts.join(","));
   if (error) throw new Error(error.message);
 
   const { localParquetPath } = await import("@/utils/data/parquet.server");
@@ -120,13 +134,18 @@ async function loadLocalTables(userId: string): Promise<LocalTable[]> {
     // A current columnar mirror replaces the whole paging loop below with a
     // single file read. Absent or stale, we fall through to the slow path —
     // the mirror is a cache and is never the source of truth.
-    const parquetPath =
-      (await localParquetPath({
-        tableId: t.id,
-        userId: t.user_id ?? userId,
-        parquet_synced_at: t.parquet_synced_at,
-        data_loaded_at: t.data_loaded_at,
-      })) ?? undefined;
+    const isShared = !t.is_sample && t.user_id !== userId;
+    // A mirror is the FULL table with no filter or mask applied, so it must
+    // never back a shared dataset. Those go down the row path, where
+    // restrictSharedDataset can act on the values.
+    const parquetPath = isShared
+      ? undefined
+      : ((await localParquetPath({
+          tableId: t.id,
+          userId: t.user_id ?? userId,
+          parquet_synced_at: t.parquet_synced_at,
+          data_loaded_at: t.data_loaded_at,
+        })) ?? undefined);
     if (parquetPath) {
       out.push({
         name: t.name,
@@ -148,12 +167,14 @@ async function loadLocalTables(userId: string): Promise<LocalTable[]> {
       rows.push(...chunk.map((c) => c.row as Record<string, unknown>));
       if (chunk.length < PAGE) break;
     }
-    out.push({
-      name: t.name,
-      columns: Array.isArray(t.columns) ? (t.columns as LocalTable["columns"]) : [],
-      rows,
-      parquetPath,
-    });
+    let columns = Array.isArray(t.columns) ? (t.columns as LocalTable["columns"]) : [];
+    let visibleRows = rows;
+    if (isShared) {
+      const restricted = await restrictSharedDataset(supabaseAdmin, t.id, userId, columns, rows);
+      columns = restricted.columns as LocalTable["columns"];
+      visibleRows = restricted.rows;
+    }
+    out.push({ name: t.name, columns, rows: visibleRows, parquetPath });
   }
   return out;
 }

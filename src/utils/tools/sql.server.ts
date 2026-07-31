@@ -15,6 +15,7 @@
 // longer a deploy target, so the interpreter — and the three-engine split it
 // created — is gone.
 
+import { restrictSharedDataset } from "@/utils/data/sharedDatasets.server";
 import type { ToolDef, AgentToolContext } from "./registry.server";
 
 const ROW_CAP = 50;
@@ -117,77 +118,13 @@ async function loadUserTables(
     // database can't enforce it for us — the restriction has to be applied
     // here or an agent would read past a mask the owner set.
     if (!t.is_sample && t.user_id !== viewerId) {
-      const restricted = await restrictSharedTable(ctx, t.id, viewerId, columns, rows);
+      const restricted = await restrictSharedDataset(ctx.sb, t.id, viewerId, columns, rows);
       columns = restricted.columns;
       rows = restricted.rows;
     }
     out.push({ name: t.name, columns, rows });
   }
   return out;
-}
-
-/**
- * Apply a shared dataset's grants (row filter + column mask) to loaded rows.
- *
- * Mirrors shared_dataset_rows() in SQL and the BI share model: masks
- * INTERSECT across the caller's grants (a column is hidden only when every
- * route hides it) and row filters UNION (any allowing grant admits the row).
- * On any lookup failure it returns NOTHING — failing closed is the only safe
- * direction for an access check.
- */
-async function restrictSharedTable(
-  ctx: AgentToolContext,
-  tableId: string,
-  viewerId: string,
-  columns: ColumnDef[],
-  rows: Row[],
-): Promise<{ columns: ColumnDef[]; rows: Row[] }> {
-  try {
-    const { intersectColumnMasks } = await import("@/lib/biDashboards");
-    const [{ data: memberships }, { data: grants }] = await Promise.all([
-      ctx.sb.from("iam_group_members").select("group_id").eq("user_id", viewerId),
-      ctx.sb
-        .from("iam_resource_grants")
-        .select("principal_type, principal_id, row_filter, column_mask")
-        .eq("resource_type", "data_table")
-        .eq("resource_id", tableId),
-    ]);
-    const groups = new Set((memberships ?? []).map((m) => m.group_id));
-    const mine = (grants ?? []).filter(
-      (g) =>
-        (g.principal_type === "user" && g.principal_id === viewerId) ||
-        (g.principal_type === "group" && groups.has(g.principal_id)),
-    );
-    if (mine.length === 0) return { columns: [], rows: [] };
-
-    const mask = intersectColumnMasks(mine.map((g) => g.column_mask));
-    const maskSet = new Set(mask.map((m) => m.toLowerCase()));
-
-    // Row filters: one unfiltered grant admits everything.
-    const anyUnfiltered = mine.some((g) => {
-      const rf = g.row_filter as { column?: unknown; values?: unknown } | null;
-      return !rf || typeof rf.column !== "string" || !Array.isArray(rf.values);
-    });
-    let keptRows = rows;
-    if (!anyUnfiltered) {
-      const filters = mine.map((g) => {
-        const rf = g.row_filter as { column: string; values: unknown[] };
-        return { column: rf.column, values: new Set(rf.values.map((v) => String(v))) };
-      });
-      keptRows = rows.filter((r) => filters.some((f) => f.values.has(String(r[f.column] ?? ""))));
-    }
-    if (maskSet.size === 0) return { columns, rows: keptRows };
-    return {
-      columns: columns.filter((c) => !maskSet.has(c.name.toLowerCase())),
-      rows: keptRows.map((r) => {
-        const out: Row = {};
-        for (const [k, v] of Object.entries(r)) if (!maskSet.has(k.toLowerCase())) out[k] = v;
-        return out;
-      }),
-    };
-  } catch {
-    return { columns: [], rows: [] };
-  }
 }
 
 export async function runListDataTables(

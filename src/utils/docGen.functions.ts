@@ -200,7 +200,7 @@ export const gatherDocContext = createServerFn({ method: "POST" })
         const tables: DocContextTable[] = [];
         const { data: candidates } = await sb
           .from("user_data_tables")
-          .select("id, name, columns, is_sample, updated_at")
+          .select("id, name, columns, is_sample, user_id, updated_at")
           .order("updated_at", { ascending: false })
           .limit(TABLE_CANDIDATES);
 
@@ -253,17 +253,29 @@ export const gatherDocContext = createServerFn({ method: "POST" })
 
         for (const t of ranked) {
           const cols = columnsOf(t);
-          const { data: rows } = await sb
-            .from("user_data_rows")
-            .select("row")
-            .eq("table_id", t.id)
-            .limit(SAMPLE_ROWS);
+          // A dataset SHARED with this caller has no readable rows in
+          // user_data_rows — RLS serves them only through shared_dataset_rows(),
+          // which applies the grant's row filter and column mask. Selecting
+          // directly returned an empty sample and the deck was built as if the
+          // table had no data, with nothing saying why.
+          const isShared = !t.is_sample && t.user_id !== userId;
+          const rows = isShared
+            ? await sb
+                .rpc("shared_dataset_rows", { _table_id: t.id })
+                .limit(SAMPLE_ROWS)
+                .then(({ data }) => (data ?? []).map((row) => ({ row })))
+            : await sb
+                .from("user_data_rows")
+                .select("row")
+                .eq("table_id", t.id)
+                .limit(SAMPLE_ROWS)
+                .then(({ data }) => data ?? []);
           tables.push({
             name: t.name,
             columns: cols,
             // Pre-serialize on the server (see DocContextTable.sample) so the
             // server-fn response can't trip seroval on hostile row keys.
-            sample: JSON.stringify((rows ?? []).map((r) => r.row).slice(0, 8)),
+            sample: JSON.stringify(rows.map((r) => r.row).slice(0, 8)),
           });
         }
 
