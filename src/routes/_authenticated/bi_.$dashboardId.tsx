@@ -316,7 +316,12 @@ function BiProjectPage() {
   const [filterState, setFilterState] = useState<BiFilterState>({});
   // Live results for Direct-query widgets, keyed by widget id.
   const [directRows, setDirectRows] = useState<
-    Map<string, { columns: string[]; rows: Record<string, unknown>[] } | "loading" | "error">
+    Map<
+      string,
+      | { columns: string[]; rows: Record<string, unknown>[]; truncated: boolean }
+      | "loading"
+      | "error"
+    >
   >(new Map());
   // Drill-through target — non-null opens the explore dialog.
   const [exploreWidget, setExploreWidget] = useState<BiWidget | null>(null);
@@ -998,7 +1003,11 @@ function BiProjectPage() {
           });
           if (!cancelled) {
             setDirectRows((prev) =>
-              new Map(prev).set(id, { columns: res.columns, rows: res.rows }),
+              new Map(prev).set(id, {
+                columns: res.columns,
+                rows: res.rows,
+                truncated: res.capped,
+              }),
             );
           }
         } catch {
@@ -1072,7 +1081,12 @@ function BiProjectPage() {
       if (w.query_mode === "direct" && w.source?.kind === "warehouse" && w.sql) {
         const live = directRows.get(w.id);
         if (live && live !== "loading" && live !== "error") {
-          return [w.id, { ...w, columns: live.columns, rows: live.rows }] as const;
+          // Carry truncation through so a live result that hit the row ceiling
+          // gets the same "Partial" badge a capped snapshot does.
+          return [
+            w.id,
+            { ...w, columns: live.columns, rows: live.rows, truncated: live.truncated },
+          ] as const;
         }
         return [w.id, w] as const;
       }

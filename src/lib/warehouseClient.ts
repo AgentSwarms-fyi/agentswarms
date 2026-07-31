@@ -29,6 +29,7 @@ export async function runBiDirectQuery(
     columns?: ({ name: string } | string)[];
     rows?: Record<string, unknown>[];
     row_count?: number;
+    truncated?: boolean;
     message?: string;
     error?: string;
   };
@@ -38,7 +39,7 @@ export async function runBiDirectQuery(
     rows: j.rows ?? [],
     row_count: j.row_count ?? 0,
     total_matched: j.row_count ?? 0,
-    capped: false,
+    capped: Boolean(j.truncated),
     duration_ms: 0,
   };
 }

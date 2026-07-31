@@ -23,6 +23,7 @@ import type { Database } from "@/integrations/supabase/types";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { loadWarehouseConnection } from "@/utils/warehouse/connections.server";
 import { executeWarehouseQuery } from "@/utils/warehouse/drivers.server";
+import { warehouseAbsMaxRows } from "@/utils/warehouse/governor.server";
 import {
   buildDirectQuerySql,
   DIRECT_QUERY_MAX_ROWS,
@@ -165,23 +166,27 @@ export const Route = createFileRoute("/api/bi/direct-query")({
                 preserve: (body.filters ?? []).map((f) => f.column),
               })
             : null;
+          // The driver clamps to the deployment's ceiling, so that — not the
+          // module constant — is the real limit.
+          const effectiveRowCap = Math.min(DIRECT_QUERY_MAX_ROWS, warehouseAbsMaxRows());
           const effectiveSql = buildDirectQuerySql({
             baseSql: widget.sql,
             columns: Array.isArray(widget.columns) ? (widget.columns as string[]) : [],
             filters: body.filters ?? [],
             rowFilters,
-            rowCap: DIRECT_QUERY_MAX_ROWS,
+            // Ask for no more than the driver will hand back. Requesting
+            // 100k while the governor clamps to a few thousand made the
+            // warehouse compute rows we then discarded, and made the LIMIT in
+            // the generated SQL a claim we could not honour.
+            rowCap: effectiveRowCap,
             agg: aggPlan ?? undefined,
             dialect: conn.config.provider as SqlDialect,
           });
           // Billed to the dashboard OWNER: a dashboard shared with fifty
           // people must not be able to spend fifty tenants' query slots.
-          const result = await executeWarehouseQuery(
-            conn.config,
-            effectiveSql,
-            DIRECT_QUERY_MAX_ROWS,
-            { userId: ownerId },
-          );
+          const result = await executeWarehouseQuery(conn.config, effectiveSql, effectiveRowCap, {
+            userId: ownerId,
+          });
           auditEvent({
             userId,
             action: "bi.direct_query",
@@ -208,12 +213,17 @@ export const Route = createFileRoute("/api/bi/direct-query")({
               columns: result.columns.filter((c) => masked.columns.includes(c.name)),
               rows: masked.rows,
               row_count: result.row_count,
+              truncated: result.truncated,
             });
           }
           return json(200, {
             columns: result.columns,
             rows: result.rows,
             row_count: result.row_count,
+            // A live widget that hit the ceiling is showing a SUBSET. Dropping
+            // this flag made that invisible, which is the same silent
+            // wrongness the snapshot path grew a "Partial" badge to avoid.
+            truncated: result.truncated,
           });
         } catch (e) {
           return json(400, {
