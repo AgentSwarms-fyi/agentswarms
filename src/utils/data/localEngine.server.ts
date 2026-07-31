@@ -19,6 +19,7 @@
 import { createRequire } from "node:module";
 
 import { registerPrepFns } from "@/lib/alasqlPrepFns";
+import { explainEngineFailure } from "@/lib/engineErrors";
 import { assertLocalReadOnlySql } from "@/lib/sqlSafety";
 import type { ColumnDef } from "@/lib/datasetParse";
 
@@ -60,18 +61,32 @@ export async function runLocalSelect(
   const safeSql = assertLocalReadOnlySql(sql);
   const { duckdbEnabled } = await import("@/utils/data/duckdb.server");
 
+  // Engine diagnostics are translated HERE, at the one entry point, so every
+  // surface that runs local SQL — the workbench, BI widgets, prep flows, the
+  // semantic runner, the agents' sql_query tool — reports a failure the same
+  // way. Doing it per caller would mean each one gets it right separately, and
+  // the raw text ("Scalar Function with name `__postfix does not exist!")
+  // reaching a user is what this is for.
   if (duckdbEnabled()) {
     const { runLocalSqlDuckDB } = await import("@/utils/data/duckdb.server");
-    const res = await runLocalSqlDuckDB(safeSql, tables, { rowCap: opts.rowCap });
-    return { columns: res.columns, rows: res.rows, engine: "duckdb" };
+    try {
+      const res = await runLocalSqlDuckDB(safeSql, tables, { rowCap: opts.rowCap });
+      return { columns: res.columns, rows: res.rows, engine: "duckdb" };
+    } catch (e) {
+      throw explainEngineFailure(e, "duckdb");
+    }
   }
 
-  const rows = runAlasql(safeSql, tables, opts.rowCap);
-  return {
-    columns: rows.length > 0 ? Object.keys(rows[0]) : [],
-    rows,
-    engine: "alasql",
-  };
+  try {
+    const rows = runAlasql(safeSql, tables, opts.rowCap);
+    return {
+      columns: rows.length > 0 ? Object.keys(rows[0]) : [],
+      rows,
+      engine: "alasql",
+    };
+  } catch (e) {
+    throw explainEngineFailure(e, "alasql");
+  }
 }
 
 /**
