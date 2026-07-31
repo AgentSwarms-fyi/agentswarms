@@ -264,6 +264,23 @@ the flow actually produced) — a prepared dataset is never silently sampled.
 Raise them for larger flows, mindful that rows are held in memory during the
 run and inserted in batches of 500.
 
+**Local SQL engine (experimental).** Queries over datasets stored in this app
+run on AlaSQL by default. Set `LOCAL_ENGINE=duckdb` to use DuckDB instead — a
+vectorised columnar engine with real SQL: CTEs, subqueries, window functions
+and proper JOINs, none of which AlaSQL or the agent-tool interpreter support.
+
+- `LOCAL_ENGINE` (default unset = AlaSQL) — set to `duckdb` to opt in.
+- `LOCAL_ENGINE_MEMORY_MB` (default `512`) — per-query memory ceiling.
+- `LOCAL_ENGINE_THREADS` (default `2`).
+- `LOCAL_ENGINE_TIMEOUT_MS` (default `30000`) — the query is interrupted past this.
+
+Behaviour differences from the default engine are recorded and tested in
+`tests/differential/duckdb.test.ts`; all of them are cases where DuckDB follows
+standard SQL. The one most likely to be noticed: **DuckDB sorts NULLs last**
+(as PostgreSQL does), while AlaSQL places them mid-sequence, so a chart ordered
+by a column containing NULLs will order differently. See
+[TESTING.md](./TESTING.md).
+
 **Warehouse queries** are bounded per process. Every dashboard tile, prep
 pushdown, semantic query and agent tool call goes through one driver layer, so
 these are the knobs that decide what your warehouse is asked to do:

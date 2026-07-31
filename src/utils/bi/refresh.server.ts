@@ -34,6 +34,7 @@ import { loadWarehouseConnection } from "@/utils/warehouse/connections.server";
 import { executeWarehouseQuery } from "@/utils/warehouse/drivers.server";
 import { parsePrepConfig } from "@/lib/dataPrepCore";
 import { assertLocalReadOnlySql } from "@/lib/sqlSafety";
+import { STAGING_PREFIX } from "@/lib/datasetParse";
 
 const WIDGET_ROW_CAP = 500;
 const LOCAL_ROWS_PER_TABLE_CAP = 20_000;
@@ -88,21 +89,29 @@ type WidgetJson = {
 // The read-only guard lives in lib/sqlSafety so the browser engine, this
 // server path and the differential harness all enforce the identical rule.
 
-/** Run a widget's SQL against the owner's stored datasets, server-side. */
-export async function runLocalSqlForUser(
-  userId: string,
-  sql: string,
-): Promise<{ columns: string[]; rows: Record<string, unknown>[] }> {
-  const safeSql = assertLocalReadOnlySql(sql);
+type LocalTable = {
+  name: string;
+  columns: { name: string; type: "number" | "string" | "date" }[];
+  rows: Record<string, unknown>[];
+};
+
+/**
+ * The datasets this user's SQL may read: their own, plus public samples.
+ *
+ * Note this deliberately does NOT include datasets shared via an IAM grant.
+ * Those carry row filters and column masks that would have to be re-applied
+ * here (see restrictSharedTable in utils/tools/sql.server.ts); until that is
+ * wired up, not loading them is the fail-closed choice.
+ */
+async function loadLocalTables(userId: string): Promise<LocalTable[]> {
   const { data: tables, error } = await supabaseAdmin
     .from("user_data_tables")
-    .select("id, name, user_id, is_sample")
+    .select("id, name, columns, user_id, is_sample")
+    .not("name", "like", `${STAGING_PREFIX}%`)
     .or(`user_id.eq.${userId},is_sample.eq.true`);
   if (error) throw new Error(error.message);
 
-  // Fresh database per call — never share state across users/runs.
-  const alasql = loadAlasql();
-  const db = new alasql.Database();
+  const out: LocalTable[] = [];
   for (const t of tables ?? []) {
     const rows: Record<string, unknown>[] = [];
     const PAGE = 1000;
@@ -116,8 +125,57 @@ export async function runLocalSqlForUser(
       rows.push(...chunk.map((c) => c.row as Record<string, unknown>));
       if (chunk.length < PAGE) break;
     }
+    out.push({
+      name: t.name,
+      columns: Array.isArray(t.columns) ? (t.columns as LocalTable["columns"]) : [],
+      rows,
+    });
+  }
+  return out;
+}
+
+/**
+ * Run a widget's SQL against the owner's stored datasets, server-side.
+ *
+ * Two engines: AlaSQL (default) and DuckDB (LOCAL_ENGINE=duckdb). The flag
+ * exists so DuckDB can be exercised on real traffic before it becomes the
+ * default — tests/differential records exactly how the two differ, and the
+ * only differences are cases where DuckDB follows standard SQL. If DuckDB
+ * fails for an environmental reason (a missing native binary on an unusual
+ * platform), fall back rather than failing a scheduled refresh outright.
+ */
+export async function runLocalSqlForUser(
+  userId: string,
+  sql: string,
+): Promise<{ columns: string[]; rows: Record<string, unknown>[] }> {
+  const safeSql = assertLocalReadOnlySql(sql);
+  const tables = await loadLocalTables(userId);
+
+  const { duckdbEnabled } = await import("@/utils/data/duckdb.server");
+  if (duckdbEnabled()) {
+    try {
+      const { runLocalSqlDuckDB } = await import("@/utils/data/duckdb.server");
+      const res = await runLocalSqlDuckDB(safeSql, tables, { rowCap: WIDGET_ROW_CAP });
+      return { columns: res.columns, rows: res.rows };
+    } catch (e) {
+      const message = (e as Error).message;
+      // A SQL error is the user's query being wrong and must surface as
+      // itself; only an engine-level failure justifies falling back, and it
+      // is logged loudly because it means the flag is not actually working.
+      if (/cannot find module|native|binding|\.node\b/i.test(message)) {
+        console.warn(`[local-engine] DuckDB unavailable, using AlaSQL: ${message}`);
+      } else {
+        throw e;
+      }
+    }
+  }
+
+  // Fresh database per call — never share state across users/runs.
+  const alasql = loadAlasql();
+  const db = new alasql.Database();
+  for (const t of tables) {
     db.exec(`CREATE TABLE \`${t.name}\``);
-    db.tables[t.name].data = rows;
+    db.tables[t.name].data = t.rows;
   }
 
   const out = db.exec(safeSql) as Record<string, unknown>[];

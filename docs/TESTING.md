@@ -47,6 +47,21 @@ To see the differences rather than a pass/fail:
 npm run test:differential
 ```
 
+### DuckDB, the candidate engine
+
+`tests/differential/duckdb.test.ts` measures DuckDB against both incumbents.
+It runs **every** corpus query and matches on all but five, each recorded in
+`DUCKDB_DIFFERENCES` with a reason. All five are cases where DuckDB follows
+PostgreSQL/standard SQL and the existing engines do not — NULL ordering
+(DuckDB is NULLS LAST), `SUM` over an all-NULL group (NULL, not 0), and
+summing a numeric column that holds strings.
+
+Anything **not** in that list must match. A new divergence fails the test, so
+promoting DuckDB to the default is a decision made against a written list of
+what changes rather than a hope that nothing does.
+
+Enable it with `LOCAL_ENGINE=duckdb` (see [DEPLOYMENT.md](./DEPLOYMENT.md)).
+
 ### Known divergences
 
 `EXPECTED_DIVERGENCE` in `differential.test.ts` records the differences that

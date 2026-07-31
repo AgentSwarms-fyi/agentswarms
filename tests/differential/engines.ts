@@ -66,12 +66,38 @@ export const alasqlEngine: Engine = {
 
 export const ENGINES: Engine[] = [handRolledEngine, alasqlEngine];
 
-/** Run one statement on every engine, each against its own copy of the data. */
+/** Run one statement on every synchronous engine, each on its own data copy. */
 export function runAll(sql: string): Record<string, EngineResult> {
   const out: Record<string, EngineResult> = {};
   for (const engine of ENGINES) out[engine.id] = engine.run(sql, freshTables());
   return out;
 }
+
+// ── DuckDB (candidate) ───────────────────────────────────────────────────
+//
+// Async, so it sits outside the synchronous ENGINES list rather than
+// contorting that interface. It is compared against the incumbents in
+// duckdb.test.ts.
+
+export type AsyncEngine = {
+  id: string;
+  label: string;
+  run: (sql: string, tables: LoadedTable[]) => Promise<EngineResult>;
+};
+
+export const duckdbEngine: AsyncEngine = {
+  id: "duckdb",
+  label: "DuckDB (candidate local engine)",
+  run: async (sql, tables) => {
+    try {
+      const { runLocalSqlDuckDB } = await import("@/utils/data/duckdb.server");
+      const res = await runLocalSqlDuckDB(sql, tables);
+      return { ok: true, rows: res.rows };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  },
+};
 
 // ── Normalisation ────────────────────────────────────────────────────────
 //
@@ -87,7 +113,10 @@ export function canonValue(v: unknown): string {
   if (typeof v === "boolean") return v ? "true" : "false";
   if (typeof v === "string") {
     const trimmed = v.trim();
-    if (trimmed === "") return "∅";
+    // The empty string is NOT null. This codebase distinguishes them
+    // deliberately (quality checks assert it), so collapsing them here would
+    // hide exactly the class of difference the harness is for.
+    if (trimmed === "") return "‹empty›";
     // A numeric string and the number it denotes mean the same thing to a
     // reader of a chart; treat them as equal so type-affinity differences
     // don't masquerade as wrong answers.
@@ -102,9 +131,14 @@ export function canonValue(v: unknown): string {
 }
 
 export function canonRow(row: Row): string {
-  const keys = Object.keys(row).sort();
-  return keys
-    .filter((k) => canonValue(row[k]) !== "∅" || true)
+  // Keys with a NULL value are dropped so "absent key" and "explicit null"
+  // compare equal — AlaSQL omits a NULL aggregate entirely while DuckDB
+  // returns null for it, and that is a representation difference, not a
+  // different answer. A NULL-vs-value difference still shows, because the
+  // engine returning a value keeps its key.
+  return Object.keys(row)
+    .sort()
+    .filter((k) => canonValue(row[k]) !== "∅")
     .map((k) => `${k.toLowerCase()}=${canonValue(row[k])}`)
     .join("|");
 }
