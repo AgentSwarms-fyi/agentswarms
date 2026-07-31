@@ -3932,6 +3932,21 @@ export type Database = {
         Returns: undefined;
       };
       cleanup_old_observability_data: { Args: never; Returns: undefined };
+      concurrency_acquire: {
+        Args: { _bucket: string; _max: number; _lease_seconds?: number };
+        /** The lease id, or null when the bucket is at its cap. */
+        Returns: string | null;
+      };
+      concurrency_release: {
+        Args: { _id: string };
+        Returns: undefined;
+      };
+      rate_limit_sweep: { Args: never; Returns: undefined };
+      rate_limit_take: {
+        Args: { _bucket: string; _max: number; _window_seconds?: number };
+        /** True when the caller is allowed and the hit was recorded. */
+        Returns: boolean;
+      };
       has_resource_access: {
         Args: { rtype: string; rid: string; uid: string };
         Returns: boolean;

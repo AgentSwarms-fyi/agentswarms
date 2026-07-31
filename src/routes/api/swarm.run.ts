@@ -29,7 +29,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { sha256Hex } from "@/utils/swarmDeploy.functions";
 import { executeSwarmServer } from "@/utils/swarmExecute.server";
 import { resolveInternalOrigin } from "@/utils/internalOrigin.server";
-import { acquireSlot, envInt, rateLimited, releaseSlot } from "@/utils/rateLimit.server";
+import { acquireSlotGlobal, envInt, rateLimitedGlobal } from "@/utils/rateLimit.server";
 import { auditEvent } from "@/utils/audit.server";
 import { clientIp, clientUserAgent } from "@/utils/requestMeta.server";
 import { budgetMessage, getBudgetDecision } from "@/utils/budgetGuard.server";
@@ -95,12 +95,21 @@ export const Route = createFileRoute("/api/swarm/run")({
 
         // A swarm run is expensive and can hold a worker for minutes, so bound
         // both the request rate and how many may be in flight for this key.
-        // Both counters are per-process — see rateLimit.server.ts.
+        // Counted in Postgres, NOT per-process: these are the ceilings an
+        // operator configures and reads back in the docs, and a per-instance
+        // count silently multiplied them by the number of instances.
         const bucket = `swarm-run:${key.id}`;
-        if (rateLimited(bucket, envInt("SWARM_RUN_RATE_LIMIT_PER_MIN", 30))) {
+        if (await rateLimitedGlobal(bucket, envInt("SWARM_RUN_RATE_LIMIT_PER_MIN", 30))) {
           return json({ error: "Rate limit exceeded — slow down and retry." }, 429);
         }
-        if (!acquireSlot(bucket, envInt("SWARM_RUN_MAX_CONCURRENT", 5))) {
+        // The lease outlives the run's own timeout so a slot is never reclaimed
+        // from a run that is still going.
+        const slot = await acquireSlotGlobal(
+          bucket,
+          envInt("SWARM_RUN_MAX_CONCURRENT", 5),
+          envInt("SWARM_RUN_TIMEOUT_MS", 600_000) / 1000 + 300,
+        );
+        if (!slot) {
           return json(
             { error: "Too many concurrent runs for this key — retry when one finishes." },
             429,
@@ -114,7 +123,7 @@ export const Route = createFileRoute("/api/swarm/run")({
           id: key.id,
         });
         if (budget.over) {
-          releaseSlot(bucket);
+          await slot.release();
           return json({ error: budgetMessage(budget) }, 402);
         }
 
@@ -317,7 +326,7 @@ export const Route = createFileRoute("/api/swarm/run")({
                   payload: body,
                 });
               } finally {
-                releaseSlot(bucket);
+                await slot.release();
               }
             })();
             asyncStarted = true; // outer finally must not double-release
@@ -337,7 +346,7 @@ export const Route = createFileRoute("/api/swarm/run")({
         } finally {
           // Give the concurrency slot back — except in async mode, where the
           // detached task owns it until the run actually finishes.
-          if (!asyncStarted) releaseSlot(bucket);
+          if (!asyncStarted) await slot.release();
         }
       },
     },
