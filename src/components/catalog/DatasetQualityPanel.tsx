@@ -195,7 +195,10 @@ export function DatasetQualityPanel({
           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             Quality checks
           </p>
-          <Badge variant="outline" className={cn("h-4 px-1.5 text-[9px]", statusTone(rollup.status))}>
+          <Badge
+            variant="outline"
+            className={cn("h-4 px-1.5 text-[9px]", statusTone(rollup.status))}
+          >
             {rollup.status === "unknown" ? "not run" : rollup.status}
           </Badge>
           {rollup.ranAt && (
@@ -356,7 +359,10 @@ export function DatasetQualityPanel({
                       {v.row_count.toLocaleString()} rows · {v.column_count} cols
                     </span>
                   </p>
-                  <p className="text-muted-foreground" title={new Date(v.created_at).toLocaleString()}>
+                  <p
+                    className="text-muted-foreground"
+                    title={new Date(v.created_at).toLocaleString()}
+                  >
                     {describeFreshness(v.created_at)?.relative}
                     {v.note ? ` · ${v.note}` : ""}
                   </p>

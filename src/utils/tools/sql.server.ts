@@ -38,8 +38,8 @@ import type { ToolDef, AgentToolContext } from "./registry.server";
 const ROW_CAP = 50;
 
 type ColumnDef = { name: string; type: "number" | "string" | "date" };
-type Row = Record<string, unknown>;
-type LoadedTable = { name: string; columns: ColumnDef[]; rows: Row[] };
+export type Row = Record<string, unknown>;
+export type LoadedTable = { name: string; columns: ColumnDef[]; rows: Row[] };
 
 export const sqlQueryTool: ToolDef = {
   type: "function",
@@ -241,8 +241,18 @@ function getColumnValue(row: Row, colRef: AstNode, tableAliases: Record<string, 
   // node-sql-parser sometimes wraps column in { expr: { value } } for quoted idents
   const colName = typeof col === "string" ? col : (col?.expr?.value ?? col?.value ?? "");
   if (colRef.table) {
+    // Rows are prefixed with the ALIAS used in FROM/JOIN (`prefixRow`), so the
+    // alias key must be tried FIRST. Resolving `o` to `orders` and looking up
+    // only "orders.id" always missed, fell through to the unqualified "id" —
+    // which the join's object merge had already overwritten with the RIGHT
+    // table's value. `SELECT o.id ... JOIN customers c` silently returned
+    // c.id for every row whenever both tables had a column of that name.
     const realTable = tableAliases[colRef.table] || colRef.table;
-    return row[`${realTable}.${colName}`] ?? row[colName];
+    const aliased = row[`${colRef.table}.${colName}`];
+    if (aliased !== undefined) return aliased;
+    const qualified = row[`${realTable}.${colName}`];
+    if (qualified !== undefined) return qualified;
+    return row[colName];
   }
   return row[colName];
 }
@@ -278,20 +288,26 @@ function evalExpr(expr: AstNode, row: Row, tableAliases: Record<string, string>)
         );
       const l = evalExpr(expr.left, row, tableAliases);
       const r = evalExpr(expr.right, row, tableAliases);
+      // SQL three-valued logic: a comparison involving NULL is UNKNOWN, and
+      // UNKNOWN does not pass a WHERE clause. `!=` is the case that bites —
+      // returning `!looseEq(null, 'EMEA')` = true admitted every NULL row into
+      // "region != 'EMEA'", so filters silently included rows the user had
+      // excluded. IS NULL / IS NOT NULL are handled separately and still work.
+      const nullOperand = l === null || l === undefined || r === null || r === undefined;
       switch (op) {
         case "=":
-          return looseEq(l, r);
+          return nullOperand ? false : looseEq(l, r);
         case "!=":
         case "<>":
-          return !looseEq(l, r);
+          return nullOperand ? false : !looseEq(l, r);
         case "<":
-          return numCompare(l, r) < 0;
+          return nullOperand ? false : numCompare(l, r) < 0;
         case "<=":
-          return numCompare(l, r) <= 0;
+          return nullOperand ? false : numCompare(l, r) <= 0;
         case ">":
-          return numCompare(l, r) > 0;
+          return nullOperand ? false : numCompare(l, r) > 0;
         case ">=":
-          return numCompare(l, r) >= 0;
+          return nullOperand ? false : numCompare(l, r) >= 0;
         case "+":
           return Number(l) + Number(r);
         case "-":
@@ -625,12 +641,23 @@ function executeSelect(ast: AstNode, tablesByName: Map<string, LoadedTable>): Ro
     let count = Number.MAX_SAFE_INTEGER;
     const v = ast.limit.value;
     if (Array.isArray(v) && v.length > 0) {
-      if (v.length === 1) count = Number(v[0].value);
-      else {
+      if (v.length === 1) {
+        count = Number(v[0].value);
+      } else if (String(ast.limit.seperator ?? "").toLowerCase() === "offset") {
+        // Standard `LIMIT n OFFSET m` — the parser emits [count, offset].
+        // Reading it as [offset, count] silently paged wrongly: `LIMIT 3
+        // OFFSET 2` returned 2 rows starting at the 4th instead of 3 starting
+        // at the 3rd, so paging through results skipped and short-changed rows.
+        count = Number(v[0].value);
+        offset = Number(v[1].value);
+      } else {
+        // MySQL's `LIMIT offset, count`.
         offset = Number(v[0].value);
         count = Number(v[1].value);
       }
     }
+    if (!Number.isFinite(offset) || offset < 0) offset = 0;
+    if (!Number.isFinite(count) || count < 0) count = 0;
     resultRows = resultRows.slice(offset, offset + count);
   }
 
@@ -654,6 +681,45 @@ function unprefixRow(row: Row): Row {
   return out;
 }
 
+export type LocalSelectResult = { ok: true; rows: Row[] } | { ok: false; error: string };
+
+/**
+ * Parse and execute a SELECT against in-memory tables.
+ *
+ * No I/O, no tenant logic — deliberately extracted so the differential test
+ * harness can compare this engine against a candidate replacement while
+ * exercising EXACTLY the code path production uses. A harness that re-created
+ * the parse/execute steps itself would be testing a copy, and the copy is
+ * precisely where the divergence would hide.
+ *
+ * Callers that reach real user data must still go through `runSqlQuery`, which
+ * applies tenant scoping and shared-dataset masking before any row is loaded.
+ */
+export function runSelectOnTables(sql: string, tables: LoadedTable[]): LocalSelectResult {
+  const parser = new Parser();
+  let ast: AstNode;
+  try {
+    // PostgreSQL dialect: treats "Region" / "Order ID" as identifiers (what
+    // LLMs naturally write). MySQL dialect treats double-quoted tokens as
+    // string literals, so `SELECT "Region" FROM t` returned the literal
+    // "Region" for every row — silently breaking SQL agents.
+    // PostgreSQL parser also accepts backtick-quoted identifiers and single-
+    // quoted string literals, so it's a strict superset for our use case.
+    const parsed = parser.astify(sql, { database: "PostgreSQL" });
+    ast = Array.isArray(parsed) ? parsed[0] : parsed;
+  } catch (e) {
+    return { ok: false, error: `SQL parse error: ${(e as Error).message}` };
+  }
+  if (!ast || ast.type !== "select") {
+    return { ok: false, error: "Only SELECT statements are allowed." };
+  }
+  try {
+    return { ok: true, rows: executeSelect(ast, new Map(tables.map((t) => [t.name, t]))) };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
 export async function runSqlQuery(
   ctx: AgentToolContext,
   args: { sql: string },
@@ -672,44 +738,23 @@ export async function runSqlQuery(
     });
   }
 
-  const parser = new Parser();
-  let ast: AstNode;
-  try {
-    // PostgreSQL dialect: treats "Region" / "Order ID" as identifiers (what
-    // LLMs naturally write). MySQL dialect treats double-quoted tokens as
-    // string literals, so `SELECT "Region" FROM t` returned the literal
-    // "Region" for every row — silently breaking SQL agents.
-    // PostgreSQL parser also accepts backtick-quoted identifiers and single-
-    // quoted string literals, so it's a strict superset for our use case.
-    const parsed = parser.astify(sql, { database: "PostgreSQL" });
-    ast = Array.isArray(parsed) ? parsed[0] : parsed;
-  } catch (e) {
-    return JSON.stringify({ error: `SQL parse error: ${(e as Error).message}`, sql });
-  }
-  if (!ast || ast.type !== "select") {
-    return JSON.stringify({ error: "Only SELECT statements are allowed.", sql });
-  }
+  const outcome = runSelectOnTables(sql, tables);
+  if (!outcome.ok) return JSON.stringify({ error: outcome.error, sql });
 
-  const tablesByName = new Map(tables.map((t) => [t.name, t]));
-
-  try {
-    const result = executeSelect(ast, tablesByName);
-    const total = result.length;
-    const capped = total > ROW_CAP;
-    const limited = capped ? result.slice(0, ROW_CAP) : result;
-    const columns = limited.length > 0 ? Object.keys(limited[0]) : [];
-    return JSON.stringify({
-      sql,
-      columns,
-      rows: limited,
-      row_count: limited.length,
-      total_matched: total,
-      capped,
-      note: capped ? `Result truncated to first ${ROW_CAP} of ${total} rows.` : undefined,
-    });
-  } catch (e) {
-    return JSON.stringify({ error: (e as Error).message, sql });
-  }
+  const result = outcome.rows;
+  const total = result.length;
+  const capped = total > ROW_CAP;
+  const limited = capped ? result.slice(0, ROW_CAP) : result;
+  const columns = limited.length > 0 ? Object.keys(limited[0]) : [];
+  return JSON.stringify({
+    sql,
+    columns,
+    rows: limited,
+    row_count: limited.length,
+    total_matched: total,
+    capped,
+    note: capped ? `Result truncated to first ${ROW_CAP} of ${total} rows.` : undefined,
+  });
 }
 
 // Convenience: short schema summary string for callers that want to inline the

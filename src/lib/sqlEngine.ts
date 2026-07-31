@@ -24,6 +24,7 @@ import {
   STAGING_PREFIX,
   type ColumnDef,
 } from "@/lib/datasetParse";
+import { isLocalReadOnlySql } from "@/lib/sqlSafety";
 
 export const PLAYGROUND_ROW_CAP = 50;
 
@@ -440,22 +441,8 @@ export async function deleteDataset(tableId: string, tableName: string): Promise
 }
 
 // Reject anything that isn't a SELECT or CTE (WITH ... SELECT). No DDL/DML.
-function isReadOnly(sql: string): boolean {
-  const trimmed = sql
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/--.*$/gm, "")
-    .trim();
-  if (!trimmed) return false;
-  const head = trimmed.toUpperCase();
-  if (!(head.startsWith("SELECT") || head.startsWith("WITH"))) return false;
-  // Crude denylist for stacked statements.
-  const denylist =
-    /\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|ATTACH|DETACH|PRAGMA|TRUNCATE|REPLACE)\b/i;
-  return !denylist.test(trimmed);
-}
-
 export function runQuery(sql: string): QueryResult {
-  if (!isReadOnly(sql)) {
+  if (!isLocalReadOnlySql(sql)) {
     throw new Error(
       "Only read-only SELECT (or WITH … SELECT) queries are allowed in the playground.",
     );
@@ -485,7 +472,7 @@ export function runQueryUnlimited(
   sql: string,
   maxRows: number,
 ): { columns: string[]; rows: Record<string, unknown>[]; total: number; capped: boolean } {
-  if (!isReadOnly(sql)) {
+  if (!isLocalReadOnlySql(sql)) {
     throw new Error("Only read-only SELECT (or WITH … SELECT) queries are allowed.");
   }
   const result = getEngine()(sql) as Record<string, unknown>[];

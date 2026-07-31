@@ -1,7 +1,7 @@
 {
   "name": "agentswarms",
   "version": "0.1.0",
-  "description": "The hands-on playground for learning Agentic AI — build agents, run multi-agent swarms, and inspect traces in your browser.",
+  "description": "The hands-on playground for learning Agentic AI \u2014 build agents, run multi-agent swarms, and inspect traces in your browser.",
   "license": "Elastic-2.0",
   "repository": {
     "type": "git",
@@ -16,7 +16,10 @@
     "build:dev": "NODE_OPTIONS=--max-old-space-size=6144 vite build --mode development --sourcemap false",
     "preview": "vite preview",
     "lint": "eslint .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:differential": "tsx tests/differential/report.ts"
   },
   "dependencies": {
     "@codemirror/lang-javascript": "^6.2.5",
@@ -135,7 +138,8 @@
     "prettier": "^3.7.3",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.56.1",
-    "vite": "^7.3.1"
+    "vite": "^7.3.1",
+    "vitest": "^3.2.7"
   },
   "overrides": {
     "entities": "4.5.0"

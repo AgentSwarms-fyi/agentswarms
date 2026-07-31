@@ -98,7 +98,9 @@ export const listDatasetVersionsFn = createServerFn({ method: "POST" })
   .handler(
     async ({
       data,
-    }): Promise<{ ok: true; versions: DatasetVersionRow[]; cap: number } | { ok: false; error: string }> => {
+    }): Promise<
+      { ok: true; versions: DatasetVersionRow[]; cap: number } | { ok: false; error: string }
+    > => {
       try {
         const { userId } = await requireUser(data.accessToken);
         const { listDatasetVersions, versionRowCap } = await import("@/utils/bi/versions.server");
@@ -129,7 +131,10 @@ export const restoreDatasetVersionFn = createServerFn({ method: "POST" })
   .handler(
     async ({
       data,
-    }): Promise<{ ok: true; tableId: string; tableName: string; rowCount: number } | { ok: false; error: string }> => {
+    }): Promise<
+      | { ok: true; tableId: string; tableName: string; rowCount: number }
+      | { ok: false; error: string }
+    > => {
       try {
         const { userId } = await requireUser(data.accessToken);
         const { restoreDatasetVersion } = await import("@/utils/bi/versions.server");
@@ -163,7 +168,9 @@ export const snapshotDatasetFn = createServerFn({ method: "POST" })
   .handler(
     async ({
       data,
-    }): Promise<{ ok: true; versionId: string | null; rowsOmitted: boolean } | { ok: false; error: string }> => {
+    }): Promise<
+      { ok: true; versionId: string | null; rowsOmitted: boolean } | { ok: false; error: string }
+    > => {
       try {
         const { userId } = await requireUser(data.accessToken);
         const { snapshotDataset } = await import("@/utils/bi/versions.server");
@@ -173,7 +180,11 @@ export const snapshotDatasetFn = createServerFn({ method: "POST" })
           reason: data.reason,
           note: data.note,
         });
-        return { ok: true, versionId: res?.versionId ?? null, rowsOmitted: res?.rowsOmitted ?? false };
+        return {
+          ok: true,
+          versionId: res?.versionId ?? null,
+          rowsOmitted: res?.rowsOmitted ?? false,
+        };
       } catch (e) {
         return { ok: false, error: (e as Error).message };
       }

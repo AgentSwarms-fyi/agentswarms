@@ -33,6 +33,7 @@ import { sendMail } from "@/lib/email/mailer.server";
 import { loadWarehouseConnection } from "@/utils/warehouse/connections.server";
 import { executeWarehouseQuery } from "@/utils/warehouse/drivers.server";
 import { parsePrepConfig } from "@/lib/dataPrepCore";
+import { assertLocalReadOnlySql } from "@/lib/sqlSafety";
 
 const WIDGET_ROW_CAP = 500;
 const LOCAL_ROWS_PER_TABLE_CAP = 20_000;
@@ -84,23 +85,15 @@ type WidgetJson = {
 
 // ── Local SQL (server-side AlaSQL) ───────────────────────────────────────
 
-function assertReadOnly(sql: string): string {
-  const cleaned = sql
-    .replace(/--[^\n]*/g, " ")
-    .replace(/\/\*[\s\S]*?\*\//g, " ")
-    .trim()
-    .replace(/;+\s*$/, "");
-  if (cleaned.includes(";")) throw new Error("Only a single statement is allowed");
-  if (!/^(select|with)\b/i.test(cleaned)) throw new Error("Only SELECT queries are allowed");
-  return cleaned;
-}
+// The read-only guard lives in lib/sqlSafety so the browser engine, this
+// server path and the differential harness all enforce the identical rule.
 
 /** Run a widget's SQL against the owner's stored datasets, server-side. */
 export async function runLocalSqlForUser(
   userId: string,
   sql: string,
 ): Promise<{ columns: string[]; rows: Record<string, unknown>[] }> {
-  const safeSql = assertReadOnly(sql);
+  const safeSql = assertLocalReadOnlySql(sql);
   const { data: tables, error } = await supabaseAdmin
     .from("user_data_tables")
     .select("id, name, user_id, is_sample")

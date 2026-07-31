@@ -78,7 +78,9 @@ export const QUALITY_TEST_LABELS: Record<QualityTestKind, string> = {
 };
 
 /** One-line human summary of what a test asserts. */
-export function describeQualityTest(t: Pick<QualityTest, "kind" | "column_name" | "config">): string {
+export function describeQualityTest(
+  t: Pick<QualityTest, "kind" | "column_name" | "config">,
+): string {
   const col = t.column_name ?? "";
   switch (t.kind) {
     case "not_null":
@@ -183,7 +185,9 @@ export type QualityContext = {
 };
 
 function withCapNote(detail: string, ctx: QualityContext): string {
-  return ctx.capped ? `${detail} (checked the first ${ctx.rows.length.toLocaleString()} rows)` : detail;
+  return ctx.capped
+    ? `${detail} (checked the first ${ctx.rows.length.toLocaleString()} rows)`
+    : detail;
 }
 
 function fmtAge(ms: number): string {
@@ -372,11 +376,7 @@ export function evaluateQualityTest(
       }
     }
     const bounds =
-      min != null && max != null
-        ? `${min}–${max}`
-        : min != null
-          ? `≥ ${min}`
-          : `≤ ${max}`;
+      min != null && max != null ? `${min}–${max}` : min != null ? `≥ ${min}` : `≤ ${max}`;
     return {
       ...base,
       failingRows: bad,

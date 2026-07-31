@@ -132,7 +132,10 @@ class RowSink {
 }
 
 /** A byte counter that refuses to exceed the upload cap. */
-function guardedStream(body: ReadableStream<Uint8Array>, maxBytes: number): ReadableStream<Uint8Array> {
+function guardedStream(
+  body: ReadableStream<Uint8Array>,
+  maxBytes: number,
+): ReadableStream<Uint8Array> {
   let seen = 0;
   return body.pipeThrough(
     new TransformStream<Uint8Array, Uint8Array>({
@@ -276,7 +279,9 @@ async function readJsonArray(
   for (const item of arr) {
     const obj = objectFromJson(item);
     if (!obj) {
-      throw new IngestError("Every element must be a JSON object — arrays of values have no columns.");
+      throw new IngestError(
+        "Every element must be a JSON object — arrays of values have no columns.",
+      );
     }
     await sink.push(obj);
   }

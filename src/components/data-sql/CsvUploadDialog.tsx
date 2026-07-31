@@ -221,8 +221,8 @@ export function CsvUploadDialog({
             <Upload className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
             <p className="text-sm font-medium">Drop a file here, or click to browse</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              CSV, TSV, JSON, NDJSON or Excel (.xlsx). Parsing happens on the server, so large
-              files are fine.
+              CSV, TSV, JSON, NDJSON or Excel (.xlsx). Parsing happens on the server, so large files
+              are fine.
             </p>
           </div>
         ) : (

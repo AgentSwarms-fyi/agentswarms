@@ -151,7 +151,11 @@ export async function runQualityTestsForTable(args: {
   const needsRows = anyTestNeedsRows(tests);
   const loaded = needsRows
     ? await loadRows(args.tableId, cap)
-    : { rows: [] as Record<string, unknown>[], total: await countRows(args.tableId), capped: false };
+    : {
+        rows: [] as Record<string, unknown>[],
+        total: await countRows(args.tableId),
+        capped: false,
+      };
 
   const ctx = {
     rows: loaded.rows,
@@ -180,7 +184,9 @@ export async function runQualityTestsForTable(args: {
   );
   if (insErr) throw new Error(insErr.message);
 
-  const latest = new Map(results.map(({ test, outcome }) => [test.id, { status: outcome.status, ran_at: ranAt }]));
+  const latest = new Map(
+    results.map(({ test, outcome }) => [test.id, { status: outcome.status, ran_at: ranAt }]),
+  );
   const rollup = rollupQuality(tests, latest);
 
   if (!args.quiet && rollup.status !== beforeRollup.status) {

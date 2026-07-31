@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# No secrets are used anywhere in this workflow. Integration tests that reach a
+# real Supabase project are excluded from the default run on purpose (see
+# vitest.config.ts) — CI must be runnable by a fork, and must never be able to
+# write to someone's database.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit -p tsconfig.json
+
+      - name: Test
+        run: npm run test
+
+      # The build needs the VITE_* values baked in, but only as public
+      # client config. Placeholders are enough to prove the bundle compiles.
+      - name: Build
+        run: npm run build
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+          VITE_SUPABASE_URL: https://placeholder.supabase.co
+          VITE_SUPABASE_PUBLISHABLE_KEY: placeholder-anon-key
+          VITE_SUPABASE_PROJECT_ID: placeholder
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results/
+          if-no-files-found: ignore
+
+  # Lint runs separately and does NOT gate merges yet.
+  #
+  # `npm run lint` currently reports ~3,400 pre-existing prettier/prettier
+  # violations across the codebase — formatting debt from before the linter was
+  # wired up, not new problems. Making it a required check today would mean a
+  # permanently red build, which teaches everyone to ignore CI. Making it
+  # green by deleting the step would be worse.
+  #
+  # So it runs, it is visible, and it is honest about being advisory. Clear the
+  # backlog with `npm run format` (a mechanical, review-as-formatting-only
+  # change) and then move this into the `verify` job as a blocking step.
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
