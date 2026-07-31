@@ -158,6 +158,27 @@ and reports. An editable dashboard is called a **BI project**:
   append — are refused with an explanation and keep rebuilding fully. Edits to
   rows *older* than the watermark aren't revisited; use **Run &amp; save** for a
   full rebuild.
+- **Quality checks** — assert what has to be true of a dataset, in the
+  vocabulary analysts already use: `not_null`, `unique`, `accepted_values`,
+  numeric `range`, a minimum row count, and a **freshness SLA** ("alert me if
+  this hasn't loaded in 24h"). Add them per dataset in **Data → Catalog**;
+  each check is either an *error* (fails the dataset) or a *warn* (reported
+  without failing). They run when you press **Run**, immediately after every
+  prep refresh rewrites the dataset, and on a scheduled sweep — the sweep is
+  what makes a freshness SLA work at all, since a table that *stopped*
+  refreshing produces no event of its own. Alerts fire when the verdict
+  **changes** (including recovery), not on every failing run, so an hourly
+  check on a broken table doesn't deliver 24 identical messages a day.
+  Results are written by the server and are read-only to you: a red check
+  cannot be edited green. Checks that cannot run — a missing column,
+  unparseable dates — report *error* rather than quietly passing.
+- **Version history** — every overwrite of a dataset (file re-upload, **Run &amp;
+  save**, scheduled refresh, incremental refresh) snapshots the outgoing
+  contents first, and any of the last few versions can be restored from the
+  catalog. Restoring is itself snapshotted, so restoring the wrong version is
+  also undoable. Above `DATASET_VERSION_ROW_CAP` rows a version records
+  metadata only and says so rather than pretending to be restorable — see
+  [deployment](./DEPLOYMENT.md).
 - **Safe dataset deletion** — deleting a dataset (from the prep palette or
   Data &amp; SQL) first resolves everything that depends on it — prep flows that
   read it, the flow that *produces* it, semantic models, dashboards whose SQL

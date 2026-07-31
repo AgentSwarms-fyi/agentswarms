@@ -65,6 +65,7 @@ export function CsvUploadDialog({
         sourceFilename: file?.name ?? null,
         rows: parsed.rows,
         columns: parsed.columns,
+        versionReason: "upload",
       });
       toast.success(`Created table ${safeTableName(tableName)} with ${parsed.rows.length} rows`);
       onUploaded();

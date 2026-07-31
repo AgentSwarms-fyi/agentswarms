@@ -377,12 +377,43 @@ export async function hydrateFromSupabase(): Promise<DatasetMeta[]> {
 // Always inserts as a PRIVATE user-owned table (is_sample = false). Public
 // sample datasets are seeded separately via the upsert_sample_dataset RPC
 // (see src/lib/sampleData.ts) and are read-only from the client.
+/**
+ * Ask the server to record the dataset's current contents as a restorable
+ * version. Never throws — the caller is mid-save and a missing version is a
+ * smaller problem than a failed upload.
+ */
+async function snapshotBeforeOverwrite(
+  tableId: string,
+  reason: "upload" | "prep_run" | "overwrite",
+  sourceFilename: string | null,
+): Promise<void> {
+  try {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session?.access_token) return;
+    const { snapshotDatasetFn } = await import("@/utils/dataQuality.functions");
+    await snapshotDatasetFn({
+      data: {
+        accessToken: session.access_token,
+        tableId,
+        reason,
+        note: sourceFilename ? `Replaced by ${sourceFilename}` : undefined,
+      },
+    });
+  } catch (e) {
+    console.warn("[versions] pre-overwrite snapshot failed:", (e as Error).message);
+  }
+}
+
 export async function saveDataset(args: {
   userId: string;
   tableName: string;
   sourceFilename: string | null;
   rows: Record<string, unknown>[];
   columns: ColumnDef[];
+  /** What is doing the overwrite, recorded on the version. */
+  versionReason?: "upload" | "prep_run" | "overwrite";
 }): Promise<DatasetMeta> {
   const safeName = safeTableName(args.tableName);
 
@@ -397,12 +428,20 @@ export async function saveDataset(args: {
   let tableId: string;
   if (existing) {
     tableId = existing.id;
+    // Overwriting an existing dataset destroys its previous contents, so ask
+    // the server to snapshot them first — a re-upload of the wrong file is
+    // otherwise unrecoverable. Best-effort by design: a versioning problem
+    // must not block the save the user asked for.
+    await snapshotBeforeOverwrite(tableId, args.versionReason ?? "overwrite", args.sourceFilename);
     await supabase.from("user_data_rows").delete().eq("table_id", tableId);
     await supabase
       .from("user_data_tables")
       .update({
         source_filename: args.sourceFilename,
         columns: args.columns as any,
+        // Explicit: `updated_at` is trigger-stamped on any metadata edit, so
+        // freshness checks need a timestamp that only moves when rows do.
+        data_loaded_at: new Date().toISOString(),
       })
       .eq("id", tableId);
   } else {

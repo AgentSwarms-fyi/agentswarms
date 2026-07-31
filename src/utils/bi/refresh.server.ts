@@ -791,6 +791,7 @@ export async function refreshPrepFlowServer(
     return null;
   });
   if (incremental) {
+    await checkQualityAfterRefresh(flow.user_id, flow.output_table_id);
     return { userId: flow.user_id, name: flow.name, rowCount: incremental.rowsReplaced };
   }
 
@@ -812,9 +813,28 @@ export async function refreshPrepFlowServer(
     flowName: flow.name,
     columns: result.columns,
     rows: result.rows,
+    reason: "prep_refresh",
   });
 
+  await checkQualityAfterRefresh(flow.user_id, saved.tableId);
   return { userId: flow.user_id, name: flow.name, rowCount: saved.rowCount };
+}
+
+/**
+ * Re-run the dataset's quality tests immediately after a refresh rewrote it.
+ *
+ * This is the point where a bad upstream change becomes visible, so waiting
+ * for the next hourly sweep would mean serving known-suspect data to
+ * dashboards in the meantime. Never throws: the refresh itself succeeded, and
+ * failing it here would trigger a pointless full rebuild on the next pass.
+ */
+async function checkQualityAfterRefresh(userId: string, tableId: string): Promise<void> {
+  try {
+    const { runQualityTestsForTable } = await import("@/utils/bi/quality.server");
+    await runQualityTestsForTable({ userId, tableId });
+  } catch (e) {
+    console.warn("[data-quality] post-refresh check failed:", (e as Error).message);
+  }
 }
 
 let lastPrepProcessed = 0;
@@ -865,6 +885,8 @@ export type CronPassResult = {
   ran: boolean;
   processed: number;
   prep_flows: number;
+  /** Datasets whose quality tests were re-evaluated this pass. */
+  quality_checks: number;
   catalog_crawls: number;
   swarm_schedules: number;
   kernels_reaped: number;
@@ -887,6 +909,7 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
     ran: false,
     processed: 0,
     prep_flows: 0,
+    quality_checks: 0,
     catalog_crawls: 0,
     swarm_schedules: 0,
     kernels_reaped: 0,
@@ -897,6 +920,14 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
   try {
     const processed = await processDueSchedules(force);
     const prep_flows = await processDuePrepFlows(force);
+    // Freshness SLAs only mean something if they fire when nothing happens —
+    // a table that stopped refreshing raises no event of its own.
+    const quality_checks = await import("@/utils/bi/quality.server")
+      .then((m) => m.processDueQualityChecks(force))
+      .catch((e) => {
+        console.warn("[data-quality] sweep failed:", (e as Error).message);
+        return 0;
+      });
     // Lazy imports keep these module graphs out of server boot and avoid cycles.
     const catalog_crawls = await import("@/utils/catalog/schedule.server")
       .then((m) => m.processDueCatalogCrawls(force))
@@ -943,7 +974,15 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
     } catch (e) {
       console.warn("[cron] notebook kernel reap failed:", (e as Error).message);
     }
-    return { ran: true, processed, prep_flows, catalog_crawls, swarm_schedules, kernels_reaped };
+    return {
+      ran: true,
+      processed,
+      prep_flows,
+      quality_checks,
+      catalog_crawls,
+      swarm_schedules,
+      kernels_reaped,
+    };
   } finally {
     await releaseCronLease("scheduler");
   }

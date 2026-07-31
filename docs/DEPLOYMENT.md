@@ -287,6 +287,26 @@ the flow actually produced) — a prepared dataset is never silently sampled.
 Raise them for larger flows, mindful that rows are held in memory during the
 run and inserted in batches of 500.
 
+**Data quality checks** run after each prep refresh and on a scheduled sweep in
+the same cron pass:
+
+- `DATA_QUALITY_INTERVAL_MINUTES` (default `60`) — how often a dataset with
+  enabled checks is re-evaluated. This is the resolution of a freshness SLA:
+  a 24h SLA checked hourly alerts within an hour of going stale.
+- `DATA_QUALITY_ROW_CAP` (default `200000`) — rows read per check. A capped
+  read is reported in the check's detail rather than presented as complete.
+  Suites made only of row-count and load-time freshness checks skip the row
+  read entirely, so they stay cheap on very large tables.
+- `DATA_QUALITY_KEEP_RESULTS` (default `500`) — results retained per dataset.
+
+**Dataset version history** snapshots a dataset before anything overwrites it:
+
+- `DATASET_VERSION_ROW_CAP` (default `20000`) — the largest dataset whose rows
+  are actually copied. Above this a version records metadata only and is
+  explicitly marked non-restorable; raise it if you want larger datasets
+  recoverable, mindful that each snapshot stores a full copy.
+- `DATASET_VERSION_KEEP` (default `5`) — versions retained per dataset.
+
 Two related knobs:
 
 - `INTEGRATION_TEST_PER_MINUTE` (default `10`) — per-user rate limit on the

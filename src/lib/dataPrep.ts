@@ -50,6 +50,7 @@ export async function runAndSavePrep(args: {
     sourceFilename: `prep:${args.flowName}`,
     rows: cast.rows,
     columns: cast.columns,
+    versionReason: "prep_run",
   });
 
   const columnMeta: Record<string, { semantic_type?: string }> = {};

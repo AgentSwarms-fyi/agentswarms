@@ -1353,6 +1353,117 @@ export type Database = {
         };
         Relationships: [];
       };
+      data_quality_tests: {
+        Row: {
+          column_name: string | null;
+          config: Json;
+          created_at: string;
+          enabled: boolean;
+          id: string;
+          kind: string;
+          severity: string;
+          table_id: string;
+          user_id: string;
+        };
+        Insert: {
+          column_name?: string | null;
+          config?: Json;
+          created_at?: string;
+          enabled?: boolean;
+          id?: string;
+          kind: string;
+          severity?: string;
+          table_id: string;
+          user_id: string;
+        };
+        Update: {
+          column_name?: string | null;
+          config?: Json;
+          created_at?: string;
+          enabled?: boolean;
+          id?: string;
+          kind?: string;
+          severity?: string;
+          table_id?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      data_quality_results: {
+        Row: {
+          detail: string | null;
+          failing_rows: number;
+          id: string;
+          ran_at: string;
+          status: string;
+          table_id: string;
+          test_id: string;
+          total_rows: number;
+          user_id: string;
+        };
+        Insert: {
+          detail?: string | null;
+          failing_rows?: number;
+          id?: string;
+          ran_at?: string;
+          status: string;
+          table_id: string;
+          test_id: string;
+          total_rows?: number;
+          user_id: string;
+        };
+        Update: {
+          detail?: string | null;
+          failing_rows?: number;
+          id?: string;
+          ran_at?: string;
+          status?: string;
+          table_id?: string;
+          test_id?: string;
+          total_rows?: number;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      user_data_table_versions: {
+        Row: {
+          columns: Json;
+          created_at: string;
+          id: string;
+          note: string | null;
+          reason: string;
+          row_count: number;
+          rows: Json | null;
+          rows_omitted: boolean;
+          table_id: string;
+          user_id: string;
+        };
+        Insert: {
+          columns?: Json;
+          created_at?: string;
+          id?: string;
+          note?: string | null;
+          reason?: string;
+          row_count?: number;
+          rows?: Json | null;
+          rows_omitted?: boolean;
+          table_id: string;
+          user_id: string;
+        };
+        Update: {
+          columns?: Json;
+          created_at?: string;
+          id?: string;
+          note?: string | null;
+          reason?: string;
+          row_count?: number;
+          rows?: Json | null;
+          rows_omitted?: boolean;
+          table_id?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       data_warehouse_connections: {
         Row: {
           created_at: string;
@@ -3130,6 +3241,7 @@ export type Database = {
         Row: {
           columns: Json;
           created_at: string;
+          data_loaded_at: string | null;
           id: string;
           is_sample: boolean;
           name: string;
@@ -3140,6 +3252,7 @@ export type Database = {
         Insert: {
           columns?: Json;
           created_at?: string;
+          data_loaded_at?: string | null;
           id?: string;
           is_sample?: boolean;
           name: string;
@@ -3150,6 +3263,7 @@ export type Database = {
         Update: {
           columns?: Json;
           created_at?: string;
+          data_loaded_at?: string | null;
           id?: string;
           is_sample?: boolean;
           name?: string;

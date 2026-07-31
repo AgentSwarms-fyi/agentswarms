@@ -106,7 +106,10 @@ import {
   catalogSetSchedule,
 } from "@/utils/catalog.functions";
 import { AddSourceWizard } from "@/components/catalog/AddSourceWizard";
+import { DatasetQualityPanel, QualityChip } from "@/components/catalog/DatasetQualityPanel";
 import { GlossaryDialog } from "@/components/catalog/GlossaryDialog";
+import { loadLatestQualityResults, listQualityTests, rollupByTable } from "@/lib/dataQuality";
+import type { QualityRollup } from "@/lib/dataQualityCore";
 
 const LOCAL_SOURCE_ID = "local";
 
@@ -132,6 +135,7 @@ export function CatalogView({
   const [sources, setSources] = useState<CatalogSource[]>([]);
   const [assets, setAssets] = useState<CatalogAsset[]>([]);
   const [localAssets, setLocalAssets] = useState<UnifiedAsset[]>([]);
+  const [quality, setQuality] = useState<Map<string, QualityRollup>>(new Map());
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [sourceFilter, setSourceFilter] = useState<string>("all");
@@ -213,6 +217,26 @@ export function CatalogView({
       setLoading(false);
     })();
   }, [reload]);
+
+  // Latest quality verdict per local dataset, so the list can badge assets
+  // without opening each one. Failures here are non-fatal: an unbadged asset
+  // is a smaller problem than a catalog that won't load.
+  useEffect(() => {
+    (async () => {
+      try {
+        const [tests, results] = await Promise.all([
+          listQualityTests(),
+          loadLatestQualityResults(),
+        ]);
+        setQuality(rollupByTable(tests, results));
+      } catch {
+        setQuality(new Map());
+      }
+    })();
+  }, []);
+
+  const qualityFor = (a: UnifiedAsset): QualityRollup | undefined =>
+    a.local ? quality.get(a.id.replace(/^local:/, "")) : undefined;
 
   const sourceById = useMemo(() => new Map(sources.map((s) => [s.id, s])), [sources]);
 
@@ -654,6 +678,7 @@ export function CatalogView({
                             <ShieldAlert className="h-2.5 w-2.5" /> PII
                           </Badge>
                         )}
+                        {qualityFor(a) && <QualityChip rollup={qualityFor(a)!} />}
                       </div>
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">{sourceName(a)}</TableCell>
@@ -1019,6 +1044,17 @@ function AssetSheet({
                   </div>
                 )}
               </div>
+            )}
+
+            {/* Quality checks and version history apply to datasets stored in
+                this app; a warehouse table is governed where it lives. */}
+            {asset.local && (
+              <DatasetQualityPanel
+                tableId={asset.id.replace(/^local:/, "")}
+                tableName={asset.name}
+                columns={asset.columns}
+                readOnly={asset.tags.includes("sample")}
+              />
             )}
 
             <div>

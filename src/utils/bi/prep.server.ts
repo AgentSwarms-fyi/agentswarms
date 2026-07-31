@@ -367,6 +367,8 @@ export async function materialisePrepOutput(args: {
   flowName: string;
   columns: { name: string; type: string }[];
   rows: Record<string, unknown>[];
+  /** Recorded on the pre-overwrite version snapshot. */
+  reason?: "prep_run" | "prep_refresh";
 }): Promise<{ tableId: string; name: string; rowCount: number }> {
   const { data: existing } = await supabaseAdmin
     .from("user_data_tables")
@@ -378,12 +380,23 @@ export async function materialisePrepOutput(args: {
   let tableId: string;
   if (existing) {
     tableId = existing.id;
+    // A scheduled rebuild replaces the whole dataset unattended. Keep the
+    // outgoing contents first so a flow that quietly started producing
+    // garbage is recoverable rather than merely regrettable.
+    const { snapshotDatasetQuiet } = await import("@/utils/bi/versions.server");
+    await snapshotDatasetQuiet({
+      userId: args.userId,
+      tableId,
+      reason: args.reason ?? "prep_run",
+      note: `Rebuilt by the "${args.flowName}" flow`,
+    });
     await supabaseAdmin.from("user_data_rows").delete().eq("table_id", tableId);
     const { error } = await supabaseAdmin
       .from("user_data_tables")
       .update({
         source_filename: `prep:${args.flowName}`,
         columns: args.columns as unknown as Json,
+        data_loaded_at: new Date().toISOString(),
       })
       .eq("id", tableId);
     if (error) throw new Error(error.message);
@@ -451,6 +464,16 @@ export async function refreshPrepIncremental(args: {
   const windowed = withIncrementalWindow(args.cfg, since);
   const result = await executePrepFlow(args.userId, windowed);
 
+  // Snapshot before the partial replace, for the same reason as a full
+  // rebuild: the rows about to be deleted are the ones with no other copy.
+  const { snapshotDatasetQuiet } = await import("@/utils/bi/versions.server");
+  await snapshotDatasetQuiet({
+    userId: args.userId,
+    tableId: args.tableId,
+    reason: "prep_refresh",
+    note: `Incremental refresh replacing ${column} >= ${since}`,
+  });
+
   // Replace exactly the reprocessed range.
   const { error: delErr } = await supabaseAdmin
     .from("user_data_rows")
@@ -471,7 +494,10 @@ export async function refreshPrepIncremental(args: {
   // The output schema can still drift (a renamed column); keep it current.
   await supabaseAdmin
     .from("user_data_tables")
-    .update({ columns: result.columns as unknown as Json })
+    .update({
+      columns: result.columns as unknown as Json,
+      data_loaded_at: new Date().toISOString(),
+    })
     .eq("id", args.tableId);
 
   return { rowsReplaced: result.rows.length, since, engine: result.engine };
