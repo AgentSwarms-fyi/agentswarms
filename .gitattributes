@@ -1,0 +1,36 @@
+# Line endings.
+#
+# Without this file, a clone on Windows (core.autocrlf=true, the Git for Windows
+# default) checks every text file out with CRLF, while Prettier is configured
+# for LF. The result was `npm run lint` reporting ~49,000 `Delete ␍` errors on a
+# clean checkout — enough to make the lint gate useless and to hide real
+# findings behind noise.
+#
+# `text=auto eol=lf` normalises to LF in the repository AND on checkout, on
+# every platform, so the working tree matches what Prettier and CI expect.
+# Windows editors handle LF fine; this is the standard arrangement for a
+# cross-platform repo.
+* text=auto eol=lf
+
+# Files that must keep CRLF to run on Windows.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Never touch binaries — an eol conversion corrupts them.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.zip binary
+*.gz binary
+*.xlsx binary
+*.pptx binary
+*.docx binary
