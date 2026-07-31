@@ -1093,6 +1093,10 @@ export async function deleteDashboard(id: string): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
+/** Re-reads and re-applies on a version conflict; bounded so a hot dashboard
+ *  cannot spin forever. */
+const APPEND_MAX_ATTEMPTS = 4;
+
 /** Append a widget to a dashboard (used by "Add to dashboard" on /data-sql). */
 /**
  * Place a widget on page 1 and return the three fields a dashboard write must
@@ -1118,27 +1122,45 @@ export async function appendWidgetToDashboard(
   dashboardId: string,
   widget: BiWidget,
 ): Promise<void> {
-  const row = await getDashboard(dashboardId);
-  if (!row) throw new Error("Dashboard not found");
+  // Read-modify-write over the whole dashboard document, so it is guarded by
+  // the row version and RETRIED on conflict. Unguarded, adding a widget while
+  // the dashboard was open in the builder overwrote whatever that session had
+  // saved. Failing outright instead would be no better: "someone had it open"
+  // is ordinary, and the caller has nothing useful to do with the error — so
+  // re-read the current document and re-apply the append to it.
+  for (let attempt = 1; ; attempt++) {
+    const row = await getDashboard(dashboardId);
+    if (!row) throw new Error("Dashboard not found");
 
-  // `pages` is the source of truth; top-level widgets/layout only MIRROR page 1
-  // (see BiDashboardRow). Writing the mirror alone made the widget invisible on
-  // any dashboard that had ever been saved with pages — parsePages returns the
-  // stored pages and ignores the top level entirely — and the builder's next
-  // save rebuilt the mirror from pages, silently discarding it for good.
-  const mirrorWidgets = parseWidgets(row.widgets);
-  const pages = parsePages(row.pages, mirrorWidgets, parseLayout(row.layout, mirrorWidgets));
+    // `pages` is the source of truth; top-level widgets/layout only MIRROR
+    // page 1 (see BiDashboardRow). Writing the mirror alone made the widget
+    // invisible on any dashboard that had ever been saved with pages —
+    // parsePages returns the stored pages and ignores the top level entirely —
+    // and the builder's next save rebuilt the mirror from pages, silently
+    // discarding it for good.
+    const mirrorWidgets = parseWidgets(row.widgets);
+    const pages = parsePages(row.pages, mirrorWidgets, parseLayout(row.layout, mirrorWidgets));
+    const { widgets, layout, pages: nextPages } = appendWidgetToPages(pages, widget);
 
-  const { widgets, layout, pages: nextPages } = appendWidgetToPages(pages, widget);
-
-  // Store the data FIRST: updateDashboard strips rows from the document, so
-  // without this the new widget would render empty until its first refresh.
-  await syncWidgetResults(dashboardId, [widget]).catch(() => {});
-  await updateDashboard(dashboardId, {
-    widgets: widgets as unknown as Json,
-    layout: layout as unknown as Json,
-    pages: nextPages as unknown as Json,
-  });
+    // Store the data FIRST: updateDashboard strips rows from the document, so
+    // without this the new widget would render empty until its first refresh.
+    await syncWidgetResults(dashboardId, [widget]).catch(() => {});
+    try {
+      await updateDashboard(
+        dashboardId,
+        {
+          widgets: widgets as unknown as Json,
+          layout: layout as unknown as Json,
+          pages: nextPages as unknown as Json,
+        },
+        { expectedVersion: row.version },
+      );
+      return;
+    } catch (e) {
+      if (e instanceof DashboardConflictError && attempt < APPEND_MAX_ATTEMPTS) continue;
+      throw e;
+    }
+  }
 }
 
 export function publicDashboardUrl(slug: string): string {
