@@ -15,13 +15,17 @@ npm run test:watch
 
 ## What is covered
 
-| Area                   | File                                      | Why it matters                                    |
-| ---------------------- | ----------------------------------------- | ------------------------------------------------- |
-| Read-only SQL guard    | `tests/unit/sqlSafety.test.ts`            | A security boundary — everything past it executes |
-| SELECT interpreter     | `tests/unit/sqlInterpreter.test.ts`       | The engine behind the `sql_query` agent tool      |
-| Cross-engine agreement | `tests/differential/differential.test.ts` | The app has more than one local SQL engine        |
-| Data quality checks    | `tests/unit/dataQualityCore.test.ts`      | Decides whether a dataset is trustworthy          |
-| Upload parsing         | `tests/unit/datasetParse.test.ts`         | Decides the shape of every uploaded dataset       |
+| Area                   | File                                        | Why it matters                                        |
+| ---------------------- | ------------------------------------------- | ----------------------------------------------------- |
+| Read-only SQL guard    | `tests/unit/sqlSafety.test.ts`              | A security boundary — everything past it executes     |
+| Local SQL semantics    | `tests/unit/localEngine.test.ts`            | What any engine must get right (NULLs, paging, joins) |
+| Cross-engine agreement | `tests/differential/duckdb.test.ts`         | AlaSQL and DuckDB must answer the same question alike |
+| Dialect routing        | `tests/differential/dialectRouting.test.ts` | Compiled SQL must run on the engine that receives it  |
+| DuckDB type boundary   | `tests/unit/duckdbEngine.test.ts`           | BigInt, DECIMAL, identifier quoting, isolation        |
+| Parquet mirror         | `tests/unit/parquetMirror.test.ts`          | The cache must answer identically to the rows         |
+| Data quality checks    | `tests/unit/dataQualityCore.test.ts`        | Decides whether a dataset is trustworthy              |
+| Upload parsing         | `tests/unit/datasetParse.test.ts`           | Decides the shape of every uploaded dataset           |
+| NL→SQL eval harness    | `tests/unit/nl2sqlEval.test.ts`             | Keeps the eval itself honest, without a model call    |
 
 ## The differential harness
 
@@ -53,12 +57,10 @@ npm run test:differential
 
 ### DuckDB, the candidate engine
 
-`tests/differential/duckdb.test.ts` measures DuckDB against both incumbents.
-It runs **every** corpus query and matches on all but five, each recorded in
-`DUCKDB_DIFFERENCES` with a reason. All five are cases where DuckDB follows
-PostgreSQL/standard SQL and the existing engines do not — NULL ordering
-(DuckDB is NULLS LAST), `SUM` over an all-NULL group (NULL, not 0), and
-summing a numeric column that holds strings.
+`tests/differential/duckdb.test.ts` measures DuckDB against AlaSQL. It runs
+**every** corpus query and matches on all but four, each recorded in
+`DUCKDB_DIFFERENCES` with a reason — NULL ordering (DuckDB is NULLS LAST, as
+PostgreSQL is) and summing a numeric column that holds strings.
 
 Anything **not** in that list must match. A new divergence fails the test, so
 promoting DuckDB to the default is a decision made against a written list of
@@ -66,13 +68,10 @@ what changes rather than a hope that nothing does.
 
 Enable it with `LOCAL_ENGINE=duckdb` (see [DEPLOYMENT.md](./DEPLOYMENT.md)).
 
-### Known divergences
-
-`EXPECTED_DIVERGENCE` in `differential.test.ts` records the differences that
-exist today, each with a reason. Entries there are asserted to **still**
-differ — if you fix one, the test fails and you must update the record. That is
-deliberate: an undocumented behaviour change in a query engine is exactly what
-this suite exists to prevent.
+Entries in `DUCKDB_DIFFERENCES` are asserted to **still** differ — if you fix
+one, the test fails and you must update the record. That is deliberate: an
+undocumented behaviour change in a query engine is exactly what this suite
+exists to prevent.
 
 ### Adding to the corpus
 
@@ -110,26 +109,42 @@ per-category breakdown, so a regression can be located rather than just felt.
 
 ### Baseline
 
-| Date       | Model                                       | Question set     | Execution accuracy |
-| ---------- | ------------------------------------------- | ---------------- | ------------------ |
-| 2026-07-31 | `anthropic/claude-haiku-4.5` via OpenRouter | 23 questions, v1 | **78.3% (18/23)**  |
+| Date       | Model                                       | Question set     | Execution accuracy        |
+| ---------- | ------------------------------------------- | ---------------- | ------------------------- |
+| 2026-07-31 | `anthropic/claude-haiku-4.5` via OpenRouter | 23 questions, v1 | 78.3% (18/23), 1 run      |
+| 2026-07-31 | same, after the result-shape prompt fix     | 23 questions, v1 | **82.6% (19/23), 3 runs** |
 
-Per category: aggregate 4/4, grouping 4/4, date 3/3, ratio 2/2, lookup 2/2,
-ranking 2/4, filter 1/3, ambiguity 0/1.
+Current: aggregate 4/4, grouping 4/4, date 3/3, ratio 2/2, lookup 2/2,
+ranking 2/4, filter 1/3, ambiguity 1/1.
 
-The five failures, and what they say:
+**Run it more than once.** Model sampling makes a single pass noisy — during
+this baseline a category went 4/4 → 3/4 → 4/4 with no code change at all, which
+looked exactly like a regression. `EVAL_REPEATS=3` scores a question as passing
+only if it passed _every_ attempt, so flakiness shows up as a failure rather
+than as luck. The 82.6% above is the strict three-run figure and is the number
+to compare against.
+
+The first run showed roughly half the misses were "right analysis, wrong result
+shape" — extra columns nobody asked for, or a superlative answered with a full
+ranking. Three lines were added to the SQL prompt in response (project only
+what was asked, `LIMIT 1` for superlatives, match literals exactly), which is
+what took the score up. That loop — measure, read the failure mode, change the
+prompt, re-measure — is the entire reason this exists.
+
+The four remaining failures:
 
 - **filter (2)** — genuinely wrong SQL. One counted 2,098 rows where the answer
   is 4,219; the other filtered two string values and matched nothing. Literal
-  values that must be read exactly out of the schema are the weak spot.
-- **ranking (2)** — one returned an empty result; one returned the right five
-  rows with five columns where the reference has three.
-- **ambiguity (1)** — right ordering, but extra columns and no `LIMIT 1`.
+  values read out of the schema are the weak spot, and the prompt fix did not
+  move them.
+- **ranking (2)** — one returns an empty result; one returns the right rows and
+  values with the columns in a different order, which the grader counts as
+  wrong. That second one is arguably over-strict, and it is left alone
+  deliberately: tuning the grader because a case you want to pass is failing is
+  how an eval stops meaning anything.
 
-So roughly half the misses are "right analysis, wrong result shape". That is a
-prompt problem, not a reasoning problem, and it is the first thing to attack.
-A bigger model would likely score higher; Haiku was chosen to keep the run
-cheap enough to repeat often.
+Haiku was chosen to keep a run cheap enough to repeat often; a larger model
+would very likely score higher.
 
 ### How it grades
 

@@ -538,7 +538,16 @@ export function buildSqlPrompt(args: {
       "Output a SINGLE SELECT statement only — no INSERT/UPDATE/DELETE/DDL. " +
       "Use only tables and columns from the provided schema. " +
       "Prefer aggregates (SUM/AVG/COUNT) for analytical questions. " +
-      "Always add ORDER BY for rankings, and LIMIT 50 if the result might be large." +
+      "Always add ORDER BY for rankings, and LIMIT 50 if the result might be large. " +
+      // These three lines exist because the NL-to-SQL eval measured what was
+      // actually going wrong: roughly half the failures were the right
+      // analysis returned in the wrong SHAPE — extra columns nobody asked for,
+      // or a superlative answered with a full ranking.
+      "SELECT only the columns needed to answer the question — no extra context " +
+      "columns, and no id columns unless the question asks for them. " +
+      "If the question asks for a single best/worst/largest/top item, return exactly " +
+      "one row with LIMIT 1. " +
+      "Match string literals EXACTLY as they appear in the schema, including case." +
       (args.repair
         ? " The previous statement FAILED. Return a corrected single statement that runs. " +
           "Check every table and column name against the schema — a name that is not listed " +

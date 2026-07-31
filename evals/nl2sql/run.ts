@@ -136,13 +136,38 @@ async function main() {
   }
 
   const set = ONLY ? QUESTIONS.filter((q) => q.id === ONLY || q.category === ONLY) : QUESTIONS;
+
+  // Model sampling makes a single pass noisy: the same question can pass on one
+  // run and error on the next with no code change at all. That was observed —
+  // a category went 4/4 to 3/4 and back to 4/4 with nothing altered. Averaging
+  // repeats is the difference between a measurement and an anecdote.
+  const repeats = Math.max(1, Number(process.env.EVAL_REPEATS ?? 1) || 1);
   console.log(
-    `\nNL→SQL evaluation · ${set.length} questions · ${BASE}${MODEL ? ` · ${MODEL}` : ""}\n`,
+    `\nNL→SQL evaluation · ${set.length} questions${repeats > 1 ? ` x${repeats}` : ""} · ${BASE}${MODEL ? ` · ${MODEL}` : ""}\n`,
   );
 
   const results: { q: EvalQuestion; verdict: Verdict }[] = [];
+  const passesPerQuestion = new Map<string, number>();
   for (const q of set) {
-    const verdict = await runOne(q);
+    let verdict: Verdict = { outcome: "error", error: "not run" };
+    let passes = 0;
+    for (let i = 0; i < repeats; i++) {
+      const v = await runOne(q);
+      if (v.outcome === "pass") passes++;
+      // Keep a failing verdict to report; a pass is only shown if every
+      // attempt passed, so flakiness is visible rather than averaged away.
+      if (i === 0 || (verdict.outcome === "pass" && v.outcome !== "pass")) verdict = v;
+    }
+    passesPerQuestion.set(q.id, passes);
+    if (repeats > 1 && passes > 0 && passes < repeats) {
+      verdict = {
+        outcome: "wrong",
+        expected: `${repeats} passes`,
+        actual: `${passes} passes (flaky)`,
+      };
+    } else if (passes === repeats) {
+      verdict = { outcome: "pass" };
+    }
     results.push({ q, verdict });
     const mark =
       verdict.outcome === "pass"
