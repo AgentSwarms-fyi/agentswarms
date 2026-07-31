@@ -9,7 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
 import type { BiTurn, ChartSpec } from "@/lib/biAgent";
 import { isAggregatableChart } from "@/lib/biAggregate";
-import type { SemanticFilter } from "@/lib/semanticLayer";
+import type { SemanticFilter, TimeGrain } from "@/lib/semanticLayer";
 
 export const GRID_COLS = 12;
 export const WIDGET_ROW_CAP = 500;
@@ -25,6 +25,8 @@ export type BiWidgetSource =
       metrics: string[];
       dimensions?: string[];
       filters?: SemanticFilter[];
+      /** Per-time-dimension rollup (e.g. { order_date: "month" }). */
+      grains?: Record<string, TimeGrain>;
     };
 
 /** Content of an image widget: an uploaded data-URI OR an external URL. */
@@ -734,6 +736,7 @@ export function widgetFromSemantic(args: {
   metrics: string[];
   dimensions: string[];
   filters?: SemanticFilter[];
+  grains?: Record<string, TimeGrain>;
   chartType: SemanticChartType;
   columns: string[];
   rows: Record<string, unknown>[];
@@ -773,6 +776,7 @@ export function widgetFromSemantic(args: {
       metrics: args.metrics,
       dimensions: args.dimensions,
       filters: args.filters,
+      grains: args.grains,
     },
     sql: args.sql,
     chart,

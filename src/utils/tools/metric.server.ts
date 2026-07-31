@@ -3,11 +3,13 @@
 // semantic catalog; the compiler turns that into consistent SQL (so "revenue"
 // always means the same thing). Owner-scoped exactly like sql_query.
 import type { ToolDef, AgentToolContext } from "./registry.server";
+import { listSemanticModels, runSemanticQuery } from "@/utils/semantic/query.server";
 import {
-  listSemanticModels,
-  runSemanticQuery,
-} from "@/utils/semantic/query.server";
-import { formatSemanticCatalog, type SemanticFilter } from "@/lib/semanticLayer";
+  formatSemanticCatalog,
+  TIME_GRAINS,
+  type SemanticFilter,
+  type TimeGrain,
+} from "@/lib/semanticLayer";
 
 const RESULT_ROW_CAP = 50;
 
@@ -36,7 +38,8 @@ export const metricQueryTool: ToolDef = {
         },
         filters: {
           type: "array",
-          description: "Optional filters. Each: {field, op, value}. op ∈ =,!=,>,>=,<,<=,in,not_in,contains.",
+          description:
+            "Optional filters. Each: {field, op, value}. op ∈ =,!=,>,>=,<,<=,in,not_in,contains.",
           items: {
             type: "object",
             properties: {
@@ -46,6 +49,12 @@ export const metricQueryTool: ToolDef = {
             },
             required: ["field", "op", "value"],
           },
+        },
+        grains: {
+          type: "object",
+          description:
+            'Optional time rollup per TIME dimension, e.g. {"order_date":"month"}. Values: day|week|month|quarter|year.',
+          additionalProperties: { type: "string" },
         },
         limit: { type: "number", description: "Max rows (default 1000)." },
       },
@@ -79,8 +88,21 @@ type MetricArgs = {
   metrics?: unknown;
   dimensions?: unknown;
   filters?: unknown;
+  grains?: unknown;
   limit?: number;
 };
+
+/** Keep only well-formed {dimension: grain} entries from model-authored args. */
+function sanitizeGrains(v: unknown): Record<string, TimeGrain> | undefined {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return undefined;
+  const out: Record<string, TimeGrain> = {};
+  for (const [k, g] of Object.entries(v as Record<string, unknown>)) {
+    if (typeof g === "string" && (TIME_GRAINS as readonly string[]).includes(g)) {
+      out[k] = g as TimeGrain;
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
 
 function asStringArray(v: unknown): string[] {
   if (Array.isArray(v)) return v.filter((x): x is string => typeof x === "string");
@@ -104,13 +126,19 @@ export async function runMetricQuery(ctx: AgentToolContext, args: MetricArgs): P
       userId: ctx.userId,
       scopeUserId: ctx.scopeUserId ?? undefined,
       grantedModelIds: await grantedModelIdsFor(ctx),
-      query: { model, metrics, dimensions, filters, limit: args.limit },
+      query: {
+        model,
+        metrics,
+        dimensions,
+        filters,
+        grains: sanitizeGrains(args.grains),
+        limit: args.limit,
+      },
       maxRows: RESULT_ROW_CAP,
     });
     const rows = res.rows.slice(0, RESULT_ROW_CAP);
     return (
-      `model: ${res.model}\nsql: ${res.sql}\n` +
-      `${rows.length} row(s):\n${JSON.stringify(rows)}`
+      `model: ${res.model}\nsql: ${res.sql}\n` + `${rows.length} row(s):\n${JSON.stringify(rows)}`
     );
   } catch (e) {
     return `metric_query failed: ${e instanceof Error ? e.message : String(e)}`;

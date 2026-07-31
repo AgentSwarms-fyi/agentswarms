@@ -73,6 +73,7 @@ type WidgetJson = {
     metrics?: string[];
     dimensions?: string[];
     filters?: unknown[];
+    grains?: Record<string, import("@/lib/semanticLayer").TimeGrain>;
   };
   columns?: string[];
   rows?: Record<string, unknown>[];
@@ -286,6 +287,7 @@ export async function refreshDashboardServer(dashboardId: string): Promise<{
             metrics: w.source.metrics ?? [],
             dimensions: w.source.dimensions ?? [],
             filters: (w.source.filters ?? []) as SemanticQuery["filters"],
+            grains: w.source.grains,
           },
           maxRows: WIDGET_ROW_CAP,
         });

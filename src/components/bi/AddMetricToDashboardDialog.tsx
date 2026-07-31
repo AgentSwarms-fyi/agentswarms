@@ -33,7 +33,7 @@ import {
   type BiDashboardRow,
   type SemanticChartType,
 } from "@/lib/biDashboards";
-import type { SemanticFilter } from "@/lib/semanticLayer";
+import type { SemanticFilter, TimeGrain } from "@/lib/semanticLayer";
 
 const NEW_PROJECT = "__new__";
 const CHART_TYPES: SemanticChartType[] = ["bar", "line", "area", "pie", "kpi", "table"];
@@ -43,6 +43,7 @@ export type SemanticWidgetPayload = {
   metrics: string[];
   dimensions: string[];
   filters?: SemanticFilter[];
+  grains?: Record<string, TimeGrain>;
   columns: string[];
   rows: Record<string, unknown>[];
   sql: string;
@@ -98,6 +99,7 @@ export function AddMetricToDashboardDialog({
         metrics: payload.metrics,
         dimensions: payload.dimensions,
         filters: payload.filters,
+        grains: payload.grains,
         chartType,
         columns: payload.columns,
         rows: payload.rows,
@@ -144,12 +146,19 @@ export function AddMetricToDashboardDialog({
           <div className="space-y-3">
             <div className="space-y-1.5">
               <Label>Title</Label>
-              <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Revenue by region" />
+              <Input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Revenue by region"
+              />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Chart</Label>
-                <Select value={chartType} onValueChange={(v) => setChartType(v as SemanticChartType)}>
+                <Select
+                  value={chartType}
+                  onValueChange={(v) => setChartType(v as SemanticChartType)}
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>

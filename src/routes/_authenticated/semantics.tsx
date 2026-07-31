@@ -32,6 +32,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { TIME_GRAINS, type TimeGrain } from "@/lib/semanticLayer";
 import type {
   MetricAgg,
   SemanticDimension,
@@ -45,6 +46,7 @@ import {
   semanticRunQuery,
   semanticUpsertModel,
 } from "@/utils/semantic.functions";
+import { listWarehouseConnections } from "@/utils/warehouse.functions";
 
 export const Route = createFileRoute("/_authenticated/semantics")({
   head: () => ({
@@ -74,12 +76,17 @@ type Draft = {
   name: string;
   label: string;
   description: string;
+  source_kind: "data_table" | "warehouse";
   source_table: string;
   table_id: string | null;
+  connection_id: string | null;
   joins: SemanticJoin[];
   dimensions: SemanticDimension[];
   metrics: SemanticMetric[];
 };
+
+type WhConn = { id: string; name: string; provider: string };
+type WhTable = { schema: string; name: string; columns: { name: string; type: string }[] };
 
 const AGGS: MetricAgg[] = ["sum", "avg", "count", "count_distinct", "min", "max", "custom"];
 
@@ -97,8 +104,10 @@ function emptyDraft(): Draft {
     name: "",
     label: "",
     description: "",
+    source_kind: "data_table",
     source_table: "",
     table_id: null,
+    connection_id: null,
     joins: [],
     dimensions: [],
     metrics: [],
@@ -118,6 +127,8 @@ function SemanticsPage() {
   const [loading, setLoading] = useState(true);
   const [models, setModels] = useState<Array<Record<string, unknown>>>([]);
   const [sources, setSources] = useState<LocalSource[]>([]);
+  const [whConns, setWhConns] = useState<WhConn[]>([]);
+  const [whTables, setWhTables] = useState<Record<string, WhTable[] | "loading" | "error">>({});
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -126,6 +137,7 @@ function SemanticsPage() {
   // Run panel
   const [pickedMetrics, setPickedMetrics] = useState<string[]>([]);
   const [pickedDims, setPickedDims] = useState<string[]>([]);
+  const [pickedGrains, setPickedGrains] = useState<Record<string, TimeGrain | "">>({});
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<{
     columns: string[];
@@ -133,6 +145,7 @@ function SemanticsPage() {
     sql: string;
     metrics: string[];
     dimensions: string[];
+    grains?: Record<string, TimeGrain>;
   } | null>(null);
   const [addOpen, setAddOpen] = useState(false);
 
@@ -146,6 +159,16 @@ function SemanticsPage() {
       ]);
       setModels(ms as Array<Record<string, unknown>>);
       setSources(ss as LocalSource[]);
+      // Warehouse connections are optional — the local path must never break
+      // because a connector call failed.
+      try {
+        const conns = (await listWarehouseConnections({ data: { access_token: token } })) as
+          | { ok: true; connections: WhConn[] }
+          | { ok: false };
+        setWhConns(conns.ok ? conns.connections : []);
+      } catch {
+        setWhConns([]);
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to load semantic models");
     } finally {
@@ -153,32 +176,74 @@ function SemanticsPage() {
     }
   }, [token, listFn, sourcesFn]);
 
+  /** Fetch a warehouse connection's tables once (schema browser for authoring). */
+  const ensureWhTables = useCallback(
+    (connId: string) => {
+      setWhTables((cur) => {
+        if (cur[connId]) return cur;
+        void (async () => {
+          try {
+            const r = await fetch("/api/warehouse/schema", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+              body: JSON.stringify({ connection_id: connId }),
+            });
+            const j = (await r.json()) as { tables?: WhTable[]; message?: string };
+            if (!r.ok || !Array.isArray(j.tables)) throw new Error(j.message || "Schema failed");
+            setWhTables((c) => ({ ...c, [connId]: j.tables! }));
+          } catch {
+            setWhTables((c) => ({ ...c, [connId]: "error" }));
+          }
+        })();
+        return { ...cur, [connId]: "loading" };
+      });
+    },
+    [token],
+  );
+
   useEffect(() => {
     void load();
   }, [load]);
 
   const editModel = (m: Record<string, unknown>) => {
+    const kind = m.source_kind === "warehouse" ? "warehouse" : "data_table";
     setDraft({
       id: m.id as string,
       user_id: (m.user_id as string) ?? undefined,
       name: (m.name as string) ?? "",
       label: (m.label as string) ?? "",
       description: (m.description as string) ?? "",
+      source_kind: kind,
       source_table: (m.source_table as string) ?? "",
       table_id: (m.table_id as string) ?? null,
+      connection_id: (m.connection_id as string) ?? null,
       joins: Array.isArray(m.joins) ? (m.joins as SemanticJoin[]) : [],
       dimensions: Array.isArray(m.dimensions) ? (m.dimensions as SemanticDimension[]) : [],
       metrics: Array.isArray(m.metrics) ? (m.metrics as SemanticMetric[]) : [],
     });
+    if (kind === "warehouse" && m.connection_id) ensureWhTables(m.connection_id as string);
     setResult(null);
     setPickedMetrics([]);
     setPickedDims([]);
+    setPickedGrains({});
   };
 
   const selectedSource = useMemo(
     () => sources.find((s) => s.name === draft?.source_table),
     [sources, draft?.source_table],
   );
+
+  // Columns of whatever source is selected (local dataset or warehouse table)
+  // — drives the badges and the AI generator uniformly.
+  const sourceColumns = useMemo((): { name: string; type: string }[] | null => {
+    if (!draft) return null;
+    if (draft.source_kind === "data_table") return selectedSource?.columns ?? null;
+    if (!draft.connection_id || !draft.source_table) return null;
+    const tables = whTables[draft.connection_id];
+    if (!Array.isArray(tables)) return null;
+    const t = tables.find((x) => `${x.schema}.${x.name}` === draft.source_table);
+    return t?.columns ?? null;
+  }, [draft, selectedSource, whTables]);
 
   // A model owned by someone else (shared via IAM) is read-only: run + add to
   // dashboard are allowed, but editing/saving/deleting is the owner's.
@@ -191,7 +256,9 @@ function SemanticsPage() {
     if (isShared)
       return toast.error("This model is shared read-only — only its owner can edit it.");
     if (!draft.name.trim()) return toast.error("Model needs a name");
-    if (!draft.source_table) return toast.error("Pick a source dataset");
+    if (!draft.source_table) return toast.error("Pick a source table");
+    if (draft.source_kind === "warehouse" && !draft.connection_id)
+      return toast.error("Pick a warehouse connection");
     setSaving(true);
     try {
       const res = (await upsertFn({
@@ -202,8 +269,9 @@ function SemanticsPage() {
             name: draft.name.trim(),
             label: draft.label || undefined,
             description: draft.description || undefined,
-            source_kind: "data_table",
-            table_id: draft.table_id,
+            source_kind: draft.source_kind,
+            table_id: draft.source_kind === "data_table" ? draft.table_id : null,
+            connection_id: draft.source_kind === "warehouse" ? draft.connection_id : null,
             source_table: draft.source_table,
             joins: draft.joins,
             dimensions: draft.dimensions,
@@ -238,6 +306,12 @@ function SemanticsPage() {
     setRunning(true);
     setResult(null);
     try {
+      // Only grains for currently-picked TIME dimensions travel with the query.
+      const grains: Record<string, TimeGrain> = {};
+      for (const [dim, g] of Object.entries(pickedGrains)) {
+        if (!g || !pickedDims.includes(dim)) continue;
+        if (draft.dimensions.find((d) => d.name === dim)?.type === "time") grains[dim] = g;
+      }
       const res = (await runFn({
         data: {
           accessToken: token,
@@ -245,11 +319,17 @@ function SemanticsPage() {
             model: draft.name,
             metrics: pickedMetrics,
             dimensions: pickedDims,
+            grains: Object.keys(grains).length > 0 ? grains : undefined,
             limit: 100,
           },
         },
       })) as { columns: string[]; rows: Record<string, unknown>[]; sql: string };
-      setResult({ ...res, metrics: pickedMetrics, dimensions: pickedDims });
+      setResult({
+        ...res,
+        metrics: pickedMetrics,
+        dimensions: pickedDims,
+        grains: Object.keys(grains).length > 0 ? grains : undefined,
+      });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Query failed");
     } finally {
@@ -259,11 +339,17 @@ function SemanticsPage() {
 
   const generateWithAI = async () => {
     if (isShared) return;
-    if (!draft || !selectedSource) return toast.error("Pick a source dataset first");
+    if (!draft || !sourceColumns || sourceColumns.length === 0)
+      return toast.error("Pick a source table first");
     if (!biModel) return toast.error("Pick an AI model — connect a provider under Integrations");
     setGenerating(true);
     try {
-      const cols = selectedSource.columns.map((c) => `- \`${c.name}\` (${c.type})`).join("\n");
+      // Local (AlaSQL) columns are referenced in backticks; warehouse columns
+      // use their bare names in the connection's native dialect.
+      const isLocal = draft.source_kind === "data_table";
+      const cols = sourceColumns
+        .map((c) => `- ${isLocal ? `\`${c.name}\`` : c.name} (${c.type})`)
+        .join("\n");
       type Gen = {
         label?: string;
         description?: string;
@@ -281,12 +367,12 @@ function SemanticsPage() {
           "You design a semantic-layer model for analytics over a single table. " +
           "Return STRICT JSON: {label, description, dimensions:[{name,label,sql,type}], metrics:[{name,label,agg,sql,format}]}. " +
           "Rules: `name` is a snake_case identifier matching ^[a-z_][a-z0-9_]*$. " +
-          "`sql` is the column reference wrapped in backticks EXACTLY as given (e.g. `Order Date`) — never invent columns. " +
+          "`sql` is the column reference EXACTLY as listed below (keep any backticks shown) — never invent columns. " +
           "Dimensions are categorical or time columns (type one of categorical|time|number|boolean). " +
           "Metrics aggregate numeric columns: agg one of sum|avg|count|count_distinct|min|max. " +
           "Use sum for additive amounts; ALWAYS include one {name:'row_count', label:'Row count', agg:'count'} with no sql. " +
           "Set format:'currency' for money columns, 'percent' for rates. Output JSON only, no prose.",
-        userPrompt: `Table: ${selectedSource.name}\nColumns:\n${cols}\n\nDesign the semantic model.`,
+        userPrompt: `Table: ${draft.source_table}\nColumns:\n${cols}\n\nDesign the semantic model.`,
         model: biModel ?? undefined,
         temperature: 0.2,
       });
@@ -337,7 +423,7 @@ function SemanticsPage() {
         throw new Error("The AI didn't return any fields");
 
       patch({
-        name: draft.name || slug(selectedSource.name),
+        name: draft.name || slug(draft.source_table),
         label: draft.label || res.label || "",
         description: draft.description || res.description || "",
         dimensions: dims,
@@ -494,37 +580,128 @@ function SemanticsPage() {
                     placeholder="What this model represents…"
                   />
                 </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Source dataset</Label>
-                  <Select
-                    value={draft.source_table}
-                    disabled={isShared}
-                    onValueChange={(v) => {
-                      const s = sources.find((x) => x.name === v);
-                      patch({ source_table: v, table_id: s?.id ?? null });
-                    }}
-                  >
-                    <SelectTrigger className="h-8">
-                      <SelectValue placeholder="Pick a dataset…" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {sources.map((s) => (
-                        <SelectItem key={s.id} value={s.name}>
-                          {s.name} {s.is_sample ? "(sample)" : ""}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {selectedSource && (
-                    <div className="flex flex-wrap gap-1 pt-1">
-                      {selectedSource.columns.map((c) => (
-                        <Badge key={c.name} variant="secondary" className="font-mono text-[10px]">
-                          {c.name}
-                        </Badge>
-                      ))}
+                <div className="grid gap-3 sm:grid-cols-[160px_1fr]">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Source kind</Label>
+                    <Select
+                      value={draft.source_kind}
+                      disabled={isShared}
+                      onValueChange={(v) =>
+                        patch({
+                          source_kind: v as Draft["source_kind"],
+                          source_table: "",
+                          table_id: null,
+                          connection_id: null,
+                        })
+                      }
+                    >
+                      <SelectTrigger className="h-8">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="data_table">Local dataset</SelectItem>
+                        <SelectItem value="warehouse">Warehouse table</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {draft.source_kind === "data_table" ? (
+                    <div className="space-y-1">
+                      <Label className="text-xs">Source dataset</Label>
+                      <Select
+                        value={draft.source_table}
+                        disabled={isShared}
+                        onValueChange={(v) => {
+                          const s = sources.find((x) => x.name === v);
+                          patch({ source_table: v, table_id: s?.id ?? null });
+                        }}
+                      >
+                        <SelectTrigger className="h-8">
+                          <SelectValue placeholder="Pick a dataset…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {sources.map((s) => (
+                            <SelectItem key={s.id} value={s.name}>
+                              {s.name} {s.is_sample ? "(sample)" : ""}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ) : (
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Connection</Label>
+                        <Select
+                          value={draft.connection_id ?? ""}
+                          disabled={isShared}
+                          onValueChange={(v) => {
+                            patch({ connection_id: v, source_table: "", table_id: null });
+                            ensureWhTables(v);
+                          }}
+                        >
+                          <SelectTrigger className="h-8">
+                            <SelectValue
+                              placeholder={
+                                whConns.length === 0
+                                  ? "No warehouses connected (Integrations → Data Sources)"
+                                  : "Pick a connection…"
+                              }
+                            />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {whConns.map((c) => (
+                              <SelectItem key={c.id} value={c.id}>
+                                {c.name} ({c.provider})
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Table</Label>
+                        {draft.connection_id && whTables[draft.connection_id] === "loading" ? (
+                          <p className="pt-2 text-xs text-muted-foreground">Loading tables…</p>
+                        ) : draft.connection_id && whTables[draft.connection_id] === "error" ? (
+                          <p className="pt-2 text-xs text-destructive">
+                            Couldn't list tables — test the connection under Integrations.
+                          </p>
+                        ) : (
+                          <Select
+                            value={draft.source_table}
+                            disabled={isShared || !draft.connection_id}
+                            onValueChange={(v) => patch({ source_table: v })}
+                          >
+                            <SelectTrigger className="h-8">
+                              <SelectValue placeholder="Pick a table…" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {(Array.isArray(whTables[draft.connection_id ?? ""])
+                                ? (whTables[draft.connection_id ?? ""] as WhTable[])
+                                : []
+                              ).map((t) => (
+                                <SelectItem
+                                  key={`${t.schema}.${t.name}`}
+                                  value={`${t.schema}.${t.name}`}
+                                >
+                                  {t.schema}.{t.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
+                {sourceColumns && sourceColumns.length > 0 && (
+                  <div className="flex flex-wrap gap-1 pt-1">
+                    {sourceColumns.map((c) => (
+                      <Badge key={c.name} variant="secondary" className="font-mono text-[10px]">
+                        {c.name}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xs text-muted-foreground">AI model</span>
@@ -539,12 +716,12 @@ function SemanticsPage() {
                       size="sm"
                       variant="outline"
                       onClick={generateWithAI}
-                      disabled={generating || !selectedSource || !biModel || isShared}
+                      disabled={generating || !sourceColumns?.length || !biModel || isShared}
                       title={
                         isShared
                           ? "Shared models are read-only"
-                          : !selectedSource
-                            ? "Pick a source dataset first"
+                          : !sourceColumns?.length
+                            ? "Pick a source table first"
                             : !biModel
                               ? "Pick an AI model (connect a provider under Integrations)"
                               : ""
@@ -830,6 +1007,35 @@ function SemanticsPage() {
                     }
                   />
                 </div>
+                {/* Time rollup per picked time dimension */}
+                {draft.dimensions
+                  .filter((d) => d.type === "time" && pickedDims.includes(d.name))
+                  .map((d) => (
+                    <div key={d.name} className="flex items-center gap-2">
+                      <span className="font-mono text-xs text-muted-foreground">{d.name}</span>
+                      <Select
+                        value={pickedGrains[d.name] || "raw"}
+                        onValueChange={(v) =>
+                          setPickedGrains((g) => ({
+                            ...g,
+                            [d.name]: v === "raw" ? "" : (v as TimeGrain),
+                          }))
+                        }
+                      >
+                        <SelectTrigger className="h-7 w-36 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="raw">raw values</SelectItem>
+                          {TIME_GRAINS.map((g) => (
+                            <SelectItem key={g} value={g}>
+                              by {g}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ))}
                 {result && (
                   <div className="space-y-2">
                     <pre className="overflow-x-auto rounded bg-muted p-2 font-mono text-[11px]">
@@ -885,6 +1091,7 @@ function SemanticsPage() {
                 model: draft.name,
                 metrics: result.metrics,
                 dimensions: result.dimensions,
+                grains: result.grains,
                 columns: result.columns,
                 rows: result.rows,
                 sql: result.sql,

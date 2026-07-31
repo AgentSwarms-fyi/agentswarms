@@ -129,7 +129,17 @@ function SemanticsPage() {
               A column, or an expression such as <C key="e2">DATE_TRUNC('month', created_at)</C>.
             </>,
           ],
-          [<C key="e">type</C>, "No", "Field type, used for formatting and filter widgets"],
+          [
+            <C key="e">type</C>,
+            "No",
+            <>
+              Field type. A <C key="t2">time</C> dimension can be rolled up to a{" "}
+              <strong>grain</strong> at query time (day/week/month/quarter/year) — the compiler
+              emits the right truncation per warehouse dialect, so you write the raw column once and
+              get monthly or quarterly buckets on demand. Local (AlaSQL) datasets support every
+              grain except week.
+            </>,
+          ],
         ]}
       />
       <Callout kind="warn" title="These SQL fields are trusted">
@@ -140,10 +150,11 @@ function SemanticsPage() {
 
       <H2 id="define">Defining a metric</H2>
       <P>
-        Pick the source table, name the metric, choose the aggregation and expression, add the
-        filters that belong to the definition, and declare which dimensions it may be sliced by. The
-        editor previews the compiled SQL and a sample result before you save — read the SQL, it is
-        the definition.
+        Pick a source — a <strong>local dataset</strong> or a <strong>warehouse table</strong> (any
+        connected Snowflake / BigQuery / Postgres / … connection; the editor browses its tables) —
+        name the metric, choose the aggregation and expression, add the filters that belong to the
+        definition, and declare which dimensions it may be sliced by. The editor previews the
+        compiled SQL and a sample result before you save — read the SQL, it is the definition.
       </P>
       <Code lang="Compiled preview">{`SELECT date_trunc('month', o.created_at) AS month,
        o.region                          AS region,
@@ -185,6 +196,12 @@ GROUP BY 1, 2`}</Code>
               Agent Chat
             </DocLink>,
             "Answers about governed numbers come back consistent with the dashboards showing the same metric.",
+          ],
+          [
+            <DocLink key="ai" to="/docs/bi">
+              BI AI analyst
+            </DocLink>,
+            "When it writes SQL for a chart or an AI-generated dashboard, the governed definitions for the tables in play are injected into its context with an instruction to compute those metrics with exactly the defined expression — so ad-hoc BI agrees with the metric tiles instead of improvising a different formula.",
           ],
         ]}
       />

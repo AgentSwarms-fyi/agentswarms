@@ -14,6 +14,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { runQuery, type ColumnDef, type DatasetMeta, type QueryResult } from "@/lib/sqlEngine";
 import type { OntologySpec } from "@/lib/biOntology";
+import { metricExpression, type SemanticDimension, type SemanticMetric } from "@/lib/semanticLayer";
 import { parseModelChoice } from "@/utils/providers/modelChoice";
 
 export type ColumnMeta = {
@@ -229,6 +230,75 @@ export async function llmJson<T>(opts: {
   return data.result;
 }
 
+// ── Governed semantic models in the analyst's prompts ─────────────────────
+//
+// The semantic layer is only worth its name if EVERY AI surface computes
+// "revenue" the same way. metric_query enforces that for agent chat; the BI
+// analyst writes raw SQL, so it gets the governed definitions injected into
+// its schema context with an instruction to use them verbatim. Loaded once
+// per minute under RLS (own + IAM-shared models) and filtered to models over
+// the tables actually in context.
+
+type GovernedModelRow = {
+  name: string;
+  label: string | null;
+  source_kind: string;
+  source_table: string;
+  dimensions: SemanticDimension[];
+  metrics: SemanticMetric[];
+};
+
+let governedCache: { at: number; rows: GovernedModelRow[] } | null = null;
+const GOVERNED_TTL_MS = 60_000;
+
+/** Refresh the governed-model cache; callers await this before prompting. */
+export async function ensureGovernedCatalog(): Promise<void> {
+  if (governedCache && Date.now() - governedCache.at < GOVERNED_TTL_MS) return;
+  try {
+    const { data } = await supabase
+      .from("semantic_models")
+      .select("name, label, source_kind, source_table, dimensions, metrics");
+    governedCache = {
+      at: Date.now(),
+      rows: (data ?? []).map((r) => ({
+        name: r.name,
+        label: r.label,
+        source_kind: r.source_kind,
+        source_table: r.source_table,
+        dimensions: Array.isArray(r.dimensions) ? (r.dimensions as SemanticDimension[]) : [],
+        metrics: Array.isArray(r.metrics) ? (r.metrics as SemanticMetric[]) : [],
+      })),
+    };
+  } catch {
+    // Prompts must never fail because the catalog didn't load.
+    governedCache = { at: Date.now(), rows: [] };
+  }
+}
+
+function governedLines(datasets: DatasetMeta[]): string[] {
+  const tables = new Set(datasets.map((d) => d.name.toLowerCase()));
+  const rows = (governedCache?.rows ?? []).filter(
+    (m) => m.source_kind === "data_table" && tables.has(m.source_table.toLowerCase()),
+  );
+  const lines: string[] = [];
+  for (const m of rows.slice(0, 8)) {
+    lines.push(`MODEL ${m.name}${m.label ? ` (${m.label})` : ""} over TABLE ${m.source_table}:`);
+    for (const met of m.metrics.slice(0, 16)) {
+      try {
+        lines.push(
+          `  ${met.name} = ${metricExpression(met)}${met.format ? `  [${met.format}]` : ""}`,
+        );
+      } catch {
+        /* skip malformed metric rather than break the prompt */
+      }
+    }
+    for (const d of m.dimensions.slice(0, 16)) {
+      lines.push(`  dim ${d.name} = ${d.sql}${d.type ? ` (${d.type})` : ""}`);
+    }
+  }
+  return lines;
+}
+
 // ── Schema description for the LLM ────────────────────────────────────────
 
 function describeSchema(
@@ -258,11 +328,19 @@ function describeSchema(
     }
   });
 
+  const govLines = governedLines(datasets);
+
   return [
     "AVAILABLE TABLES:",
     ...tableLines,
     metricLines.length ? "\nSAVED METRICS (use these formulas verbatim):" : "",
     ...metricLines,
+    govLines.length
+      ? "\nGOVERNED SEMANTIC MODELS (authoritative business definitions — when the question " +
+        "uses one of these metric or dimension names, compute it with EXACTLY this expression " +
+        "over the model's table; never improvise a different formula):"
+      : "",
+    ...govLines,
     joinLines.length ? "\nJOIN HINTS:" : "",
     ...joinLines,
   ]
@@ -394,6 +472,7 @@ export async function planQuestion(args: {
   docs?: BiDocExcerpt[];
   model?: string;
 }): Promise<BiPlan> {
+  await ensureGovernedCatalog();
   const schema = describeSchema(args.datasets, args.semantics, args.metrics);
   const docBlock = args.docs?.length
     ? `\n\n${describeDocs(args.docs)}\nThe documents are unstructured context only — SQL can ONLY query the tables above. ` +
@@ -425,6 +504,7 @@ export async function generateSql(args: {
    */
   repair?: { sql: string; error: string };
 }): Promise<string> {
+  await ensureGovernedCatalog();
   const schema = describeSchema(args.datasets, args.semantics, args.metrics);
   const engineLine = args.dialect
     ? `You are a SQL generation agent for ${args.dialect}. Use standard ANSI SQL for that warehouse; ` +
@@ -550,6 +630,7 @@ export async function generateSuggestedQuestions(args: {
   model?: string;
 }): Promise<string[]> {
   if (args.datasets.length === 0) return [];
+  await ensureGovernedCatalog();
   const schema = describeSchema(args.datasets, args.semantics, args.metrics);
   const out = await llmJson<{ questions: string[] }>({
     model: args.model,
@@ -823,6 +904,7 @@ export async function planDashboard(args: {
   metrics: SavedMetric[];
   model?: string;
 }): Promise<{ title: string; questions: string[] }> {
+  await ensureGovernedCatalog();
   const schema = describeSchema(args.datasets, args.semantics, args.metrics);
   const out = await llmJson<{ title?: string; questions?: string[] }>({
     model: args.model,
@@ -879,6 +961,7 @@ export async function suggestDashboardWidgets(args: {
   focus?: string;
   model?: string;
 }): Promise<{ title: string; summary: string; suggestions: WidgetSuggestion[] }> {
+  await ensureGovernedCatalog();
   const schema = describeSchema(args.datasets, args.semantics, args.metrics);
   const out = await llmJson<{
     title?: string;

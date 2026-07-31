@@ -88,10 +88,20 @@ export type SemanticFilter = {
   value: string | number | boolean | Array<string | number>;
 };
 
+export const TIME_GRAINS = ["day", "week", "month", "quarter", "year"] as const;
+export type TimeGrain = (typeof TIME_GRAINS)[number];
+
 export type SemanticQuery = {
   model: string;
   metrics: string[];
   dimensions?: string[];
+  /**
+   * Optional per-dimension time rollup, e.g. { order_date: "month" }. Only
+   * valid on dimensions typed "time"; the compiler renders the right
+   * truncation per dialect, and filters on that dimension compare against
+   * the ROLLED-UP bucket (what the user sees), not the raw value.
+   */
+  grains?: Record<string, TimeGrain>;
   filters?: SemanticFilter[];
   orderBy?: Array<{ field: string; dir?: "asc" | "desc" }>;
   limit?: number;
@@ -133,15 +143,85 @@ function assertTableRef(t: string): string {
   return t;
 }
 
+// Dialects whose string LITERALS treat backslash as an escape character
+// (MySQL default mode, Spark/Databricks, BigQuery, Snowflake, Redshift —
+// and AlaSQL, proven empirically: its lexer honours \' inside strings, so
+// the local engine is exactly as injectable as MySQL without this).
+// On these, doubling quotes alone is NOT enough: a value ending in `\` turns
+// the "doubled" quote into an escaped one and the rest of the value goes
+// live as SQL. Backslashes must be doubled too. Postgres (standard strings)
+// and T-SQL treat backslash literally — doubling there would corrupt values.
+const BACKSLASH_ESCAPE_DIALECTS = new Set<SqlDialect>([
+  "alasql",
+  "mysql",
+  "databricks",
+  "bigquery",
+  "snowflake",
+  "redshift",
+]);
+
+/** Escape string CONTENT for a single-quoted literal in `dialect`. */
+function escapeString(v: string, dialect: SqlDialect): string {
+  let s = v.replace(/'/g, "''");
+  if (BACKSLASH_ESCAPE_DIALECTS.has(dialect)) s = s.replace(/\\/g, "\\\\");
+  return s;
+}
+
 /** Escape a scalar into a SQL literal. Only strings/finite numbers/booleans. */
-function literal(v: string | number | boolean): string {
+function literal(v: string | number | boolean, dialect: SqlDialect): string {
   if (typeof v === "number") {
     if (!Number.isFinite(v)) throw new Error("Non-finite number in filter value");
     return String(v);
   }
   if (typeof v === "boolean") return v ? "TRUE" : "FALSE";
-  if (typeof v === "string") return `'${v.replace(/'/g, "''")}'`;
+  if (typeof v === "string") return `'${escapeString(v, dialect)}'`;
   throw new Error("Unsupported filter value type");
+}
+
+/**
+ * Per-dialect time truncation for grained time dimensions.
+ *
+ * AlaSQL (local datasets) has no DATE_TRUNC, so buckets compile to sortable
+ * numeric composites (2024, 202401, 20240115…) — verified against the real
+ * engine. Week starts Monday everywhere it's supported; AlaSQL refuses the
+ * week grain outright rather than shipping a wrong bucket.
+ */
+export function truncateExpr(sql: string, grain: TimeGrain, dialect: SqlDialect): string {
+  if (dialect === "alasql") {
+    switch (grain) {
+      case "year":
+        return `YEAR(${sql})`;
+      case "quarter":
+        return `YEAR(${sql}) * 10 + FLOOR((MONTH(${sql}) + 2) / 3)`;
+      case "month":
+        return `YEAR(${sql}) * 100 + MONTH(${sql})`;
+      case "day":
+        return `YEAR(${sql}) * 10000 + MONTH(${sql}) * 100 + DAY(${sql})`;
+      case "week":
+        throw new Error("The week grain isn't supported for local datasets — use day or month.");
+    }
+  }
+  if (dialect === "bigquery") {
+    const unit = grain === "week" ? "WEEK(MONDAY)" : grain.toUpperCase();
+    return `DATE_TRUNC(DATE(${sql}), ${unit})`;
+  }
+  if (dialect === "azure_synapse") return `DATETRUNC(${grain}, ${sql})`;
+  if (dialect === "mysql") {
+    switch (grain) {
+      case "day":
+        return `DATE(${sql})`;
+      case "week":
+        return `DATE_SUB(DATE(${sql}), INTERVAL WEEKDAY(${sql}) DAY)`;
+      case "month":
+        return `DATE_FORMAT(${sql}, '%Y-%m-01')`;
+      case "quarter":
+        return `MAKEDATE(YEAR(${sql}), 1) + INTERVAL (QUARTER(${sql}) - 1) QUARTER`;
+      case "year":
+        return `DATE_FORMAT(${sql}, '%Y-01-01')`;
+    }
+  }
+  // postgres / redshift / snowflake / databricks all accept these unit names.
+  return `DATE_TRUNC('${grain}', ${sql})`;
 }
 
 function aggExpr(m: SemanticMetric): string {
@@ -169,7 +249,20 @@ function aggExpr(m: SemanticMetric): string {
   }
 }
 
-function compileFilter(f: SemanticFilter, exprByField: Map<string, string>): string {
+/**
+ * The full aggregate SQL for a metric — the SAME rendering compileSemanticQuery
+ * uses, exported so prompt surfaces (the BI analyst) can show the governed
+ * formula instead of letting the model improvise its own.
+ */
+export function metricExpression(m: SemanticMetric): string {
+  return aggExpr(m);
+}
+
+function compileFilter(
+  f: SemanticFilter,
+  exprByField: Map<string, string>,
+  dialect: SqlDialect,
+): string {
   const expr = exprByField.get(f.field);
   if (!expr) throw new Error(`Filter references unknown field "${f.field}"`);
   switch (f.op) {
@@ -181,19 +274,27 @@ function compileFilter(f: SemanticFilter, exprByField: Map<string, string>): str
     case "<=": {
       if (Array.isArray(f.value)) throw new Error(`Operator "${f.op}" needs a scalar`);
       const op = f.op === "!=" ? "<>" : f.op;
-      return `${expr} ${op} ${literal(f.value)}`;
+      return `${expr} ${op} ${literal(f.value, dialect)}`;
     }
     case "in":
     case "not_in": {
       const arr = Array.isArray(f.value) ? f.value : [f.value];
       if (arr.length === 0) return f.op === "in" ? "1 = 0" : "1 = 1";
-      const list = arr.map((v) => literal(v)).join(", ");
+      const list = arr.map((v) => literal(v, dialect)).join(", ");
       return `${expr} ${f.op === "in" ? "IN" : "NOT IN"} (${list})`;
     }
     case "contains": {
       if (typeof f.value !== "string") throw new Error('"contains" needs a string');
-      const esc = f.value.replace(/'/g, "''").replace(/([%_\\])/g, "\\$1");
-      return `${expr} LIKE '%${esc}%' ESCAPE '\\'`;
+      // LIKE metacharacters are escaped with `~` — a dialect-neutral escape
+      // char sidesteps the backslash-as-string-escape minefield entirely.
+      // BigQuery's LIKE has no ESCAPE clause; backslash is its built-in
+      // pattern escape, and escapeString doubles it for the literal.
+      if (dialect === "bigquery") {
+        const pattern = f.value.replace(/([\\%_])/g, "\\$1");
+        return `${expr} LIKE '%${escapeString(pattern, dialect)}%'`;
+      }
+      const pattern = f.value.replace(/~/g, "~~").replace(/([%_])/g, "~$1");
+      return `${expr} LIKE '%${escapeString(pattern, dialect)}%' ESCAPE '~'`;
     }
     default:
       throw new Error(`Unknown filter op "${(f as SemanticFilter).op}"`);
@@ -253,9 +354,23 @@ export function compileSemanticQuery(
     throw new Error("A query needs at least one metric or dimension");
   }
 
-  // Expression map for filters/order (raw dim exprs; compiled metric aggs).
+  // Effective dimension expression: the authored SQL, wrapped in the
+  // dialect's time truncation when the query asks for a grain.
+  const dimExpr = (name: string, d: SemanticDimension): string => {
+    const grain = q.grains?.[name];
+    if (!grain) return d.sql;
+    if (!TIME_GRAINS.includes(grain)) {
+      throw new Error(`Unknown time grain "${grain}" for dimension "${name}"`);
+    }
+    if (d.type !== "time") {
+      throw new Error(`Grain "${grain}" set on "${name}", which is not a time dimension`);
+    }
+    return truncateExpr(d.sql, grain, dialect);
+  };
+
+  // Expression map for filters/order (grained dim exprs; compiled metric aggs).
   const exprByField = new Map<string, string>();
-  for (const [name, d] of dimByName) exprByField.set(name, d.sql);
+  for (const [name, d] of dimByName) exprByField.set(name, dimExpr(name, d));
 
   const selectParts: string[] = [];
   const columns: string[] = [];
@@ -263,7 +378,7 @@ export function compileSemanticQuery(
   for (const name of dims) {
     const d = dimByName.get(name);
     if (!d) throw new Error(`Unknown dimension "${name}"`);
-    selectParts.push(`${d.sql} AS ${quoteIdent(name, dialect)}`);
+    selectParts.push(`${dimExpr(name, d)} AS ${quoteIdent(name, dialect)}`);
     columns.push(name);
   }
   const metricAgg = new Map<string, string>();
@@ -281,17 +396,17 @@ export function compileSemanticQuery(
   const whereParts: string[] = [];
   const havingParts: string[] = [];
   for (const f of q.filters ?? []) {
-    if (metricByName.has(f.field)) havingParts.push(compileFilter(f, exprByField));
-    else if (dimByName.has(f.field)) whereParts.push(compileFilter(f, exprByField));
+    if (metricByName.has(f.field)) havingParts.push(compileFilter(f, exprByField, dialect));
+    else if (dimByName.has(f.field)) whereParts.push(compileFilter(f, exprByField, dialect));
     else throw new Error(`Filter references unknown field "${f.field}"`);
   }
 
   const from = assertTableRef(model.source.table);
   let sql = `SELECT ${selectParts.join(", ")} FROM ${from}${compileJoins(model.joins)}`;
   if (whereParts.length) sql += ` WHERE ${whereParts.join(" AND ")}`;
-  // Group by dimension expressions when aggregating.
+  // Group by dimension expressions (grain-wrapped) when aggregating.
   if (metrics.length && dims.length) {
-    sql += ` GROUP BY ${dims.map((n) => dimByName.get(n)!.sql).join(", ")}`;
+    sql += ` GROUP BY ${dims.map((n) => dimExpr(n, dimByName.get(n)!)).join(", ")}`;
   }
   if (havingParts.length) sql += ` HAVING ${havingParts.join(" AND ")}`;
 
@@ -310,6 +425,10 @@ export function compileSemanticQuery(
 /** A compact catalog string an LLM can read to author semantic queries. */
 export function formatSemanticCatalog(models: SemanticModel[]): string {
   if (models.length === 0) return "(no semantic models defined)";
+  const hasTimeDim = models.some((m) => m.dimensions.some((d) => d.type === "time"));
+  const grainNote = hasTimeDim
+    ? `\n\nTime dimensions accept a rollup via "grains", e.g. {"order_date":"month"} (day|week|month|quarter|year).`
+    : "";
   return models
     .map((m) => {
       const dims = m.dimensions
@@ -331,5 +450,6 @@ export function formatSemanticCatalog(models: SemanticModel[]): string {
         .filter(Boolean)
         .join("\n");
     })
-    .join("\n\n");
+    .join("\n\n")
+    .concat(grainNote);
 }
