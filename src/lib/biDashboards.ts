@@ -1094,20 +1094,50 @@ export async function deleteDashboard(id: string): Promise<void> {
 }
 
 /** Append a widget to a dashboard (used by "Add to dashboard" on /data-sql). */
+/**
+ * Place a widget on page 1 and return the three fields a dashboard write must
+ * keep consistent: the updated `pages`, plus the top-level `widgets`/`layout`
+ * that mirror page 1.
+ *
+ * Pure, and separate from the write, so the invariant can be tested without a
+ * database — it was violated for as long as it was untested.
+ */
+export function appendWidgetToPages(
+  pages: BiPage[],
+  widget: BiWidget,
+): { widgets: BiWidget[]; layout: BiLayoutItem[]; pages: BiPage[] } {
+  const target = pages[0] ?? makeEmptyPage("Page 1");
+  const widgets = [...target.widgets, widget];
+  const layout = addWidgetToLayout(target.layout, widget);
+  const next = pages.length > 0 ? [...pages] : [target];
+  next[0] = { ...target, widgets, layout };
+  return { widgets, layout, pages: next };
+}
+
 export async function appendWidgetToDashboard(
   dashboardId: string,
   widget: BiWidget,
 ): Promise<void> {
   const row = await getDashboard(dashboardId);
   if (!row) throw new Error("Dashboard not found");
-  const widgets = [...parseWidgets(row.widgets), widget];
-  const layout = addWidgetToLayout(parseLayout(row.layout, parseWidgets(row.widgets)), widget);
+
+  // `pages` is the source of truth; top-level widgets/layout only MIRROR page 1
+  // (see BiDashboardRow). Writing the mirror alone made the widget invisible on
+  // any dashboard that had ever been saved with pages — parsePages returns the
+  // stored pages and ignores the top level entirely — and the builder's next
+  // save rebuilt the mirror from pages, silently discarding it for good.
+  const mirrorWidgets = parseWidgets(row.widgets);
+  const pages = parsePages(row.pages, mirrorWidgets, parseLayout(row.layout, mirrorWidgets));
+
+  const { widgets, layout, pages: nextPages } = appendWidgetToPages(pages, widget);
+
   // Store the data FIRST: updateDashboard strips rows from the document, so
   // without this the new widget would render empty until its first refresh.
   await syncWidgetResults(dashboardId, [widget]).catch(() => {});
   await updateDashboard(dashboardId, {
     widgets: widgets as unknown as Json,
     layout: layout as unknown as Json,
+    pages: nextPages as unknown as Json,
   });
 }
 
