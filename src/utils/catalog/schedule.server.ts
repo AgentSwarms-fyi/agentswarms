@@ -63,13 +63,7 @@ export async function processDueCatalogCrawls(force = false): Promise<number> {
           source.user_id,
           source,
           async (connectionId) =>
-            (
-              await loadWarehouseConnection(
-                supabaseAdmin,
-                { connectionId },
-                source.user_id,
-              )
-            ).config,
+            (await loadWarehouseConnection(supabaseAdmin, { connectionId }, source.user_id)).config,
           async (src) => loadStorageConfig(source.user_id, src),
         );
         const { added, removed, changed } = stats.changes;

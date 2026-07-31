@@ -46,18 +46,14 @@ async function signRequest(opts: {
   };
   if (sessionToken) canonicalHeadersObj["x-amz-security-token"] = sessionToken;
   const sortedHeaderKeys = Object.keys(canonicalHeadersObj).sort();
-  const canonicalHeaders =
-    sortedHeaderKeys.map((k) => `${k}:${canonicalHeadersObj[k].trim()}\n`).join("");
+  const canonicalHeaders = sortedHeaderKeys
+    .map((k) => `${k}:${canonicalHeadersObj[k].trim()}\n`)
+    .join("");
   const signedHeaders = sortedHeaderKeys.join(";");
 
-  const canonicalRequest = [
-    method,
-    path,
-    "",
-    canonicalHeaders,
-    signedHeaders,
-    payloadHash,
-  ].join("\n");
+  const canonicalRequest = [method, path, "", canonicalHeaders, signedHeaders, payloadHash].join(
+    "\n",
+  );
 
   const credentialScope = `${dateStamp}/${region}/${SERVICE}/aws4_request`;
   const stringToSign = [

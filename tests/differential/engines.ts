@@ -1,19 +1,19 @@
 // Engine adapters for the differential harness.
 //
 // Each adapter runs the SAME SQL against the SAME rows and returns a
-// normalised result. Adding a candidate engine (DuckDB) means adding one
-// adapter here — the corpus and the comparison logic stay untouched.
+// normalised result. Adding an engine means adding one adapter here — the
+// corpus and the comparison logic stay untouched.
 //
-// The hand-rolled adapter deliberately calls `runSelectOnTables`, the exact
-// function the sql_query agent tool uses. Re-implementing the parse/execute
-// steps in the harness would test a copy, and the copy is precisely where a
-// divergence would hide.
+// Adapters must mirror how production CALLS the engine, not just which engine
+// it is: the read-only guard and the prep-function registration below are both
+// applied because production applies them. An adapter that tests a
+// configuration which does not ship manufactures false alarms — this suite has
+// caught itself doing exactly that twice.
 import { createRequire } from "node:module";
 
 import { registerPrepFns } from "@/lib/alasqlPrepFns";
 import { checkLocalReadOnlySql } from "@/lib/sqlSafety";
 import type { LoadedTable, Row } from "@/utils/tools/sql.server";
-import { runSelectOnTables } from "@/utils/tools/sql.server";
 import { freshTables } from "./fixtures";
 
 // AlaSQL is a UMD bundle that misbehaves under ESM/Vite module runners, which
@@ -27,13 +27,6 @@ export type Engine = {
   id: string;
   label: string;
   run: (sql: string, tables: LoadedTable[]) => EngineResult;
-};
-
-/** The interpreter behind the sql_query agent tool. */
-export const handRolledEngine: Engine = {
-  id: "hand-rolled",
-  label: "node-sql-parser interpreter (sql_query agent tool)",
-  run: (sql, tables) => runSelectOnTables(sql, tables),
 };
 
 /** AlaSQL — what the Data & SQL workbench and the server refresh path use. */
@@ -68,7 +61,7 @@ export const alasqlEngine: Engine = {
   },
 };
 
-export const ENGINES: Engine[] = [handRolledEngine, alasqlEngine];
+export const ENGINES: Engine[] = [alasqlEngine];
 
 /** Run one statement on every synchronous engine, each on its own data copy. */
 export function runAll(sql: string): Record<string, EngineResult> {

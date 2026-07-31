@@ -3,8 +3,7 @@
 // Docs: https://help.aliyun.com/zh/model-studio/developer-reference/compatibility-of-openai-with-dashscope
 import type { ChatMessage, QwenConfig, QwenCreds } from "../types";
 
-const DEFAULT_BASE_URL =
-  "https://dashscope-intl.aliyuncs.com/compatible-mode/v1";
+const DEFAULT_BASE_URL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1";
 
 export async function qwenChatStream(args: {
   creds: QwenCreds;

@@ -19,10 +19,7 @@ function pemToArrayBuffer(pem: string): ArrayBuffer {
 }
 
 function base64UrlEncode(bytes: Uint8Array | string): string {
-  const bin =
-    typeof bytes === "string"
-      ? bytes
-      : String.fromCharCode(...bytes);
+  const bin = typeof bytes === "string" ? bytes : String.fromCharCode(...bytes);
   return btoa(bin).replace(/=+$/g, "").replace(/\+/g, "-").replace(/\//g, "_");
 }
 
@@ -99,9 +96,7 @@ export async function vertexChatStream(args: {
   // Use Vertex Gemini streamGenerateContent endpoint.
   // For Anthropic-on-Vertex (claude-* models), endpoint differs; we surface a clear error.
   if (modelId.startsWith("claude-")) {
-    throw new Error(
-      "Claude-on-Vertex routing is not yet implemented. Please pick a Gemini model.",
-    );
+    throw new Error("Claude-on-Vertex routing is not yet implemented. Please pick a Gemini model.");
   }
 
   const url = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/${encodeURIComponent(modelId)}:streamGenerateContent?alt=sse`;
@@ -160,7 +155,9 @@ export async function vertexChatStream(args: {
                   }
                 }
               }
-            } catch { /* skip */ }
+            } catch {
+              /* skip */
+            }
           }
         }
         controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"));

@@ -20,7 +20,16 @@ export async function anthropicChatStream(args: {
   baseUrl?: string;
   anthropicVersion?: string;
 }): Promise<Response> {
-  const { creds, modelId, systemPrompt, messages, temperature, maxTokens, baseUrl, anthropicVersion } = args;
+  const {
+    creds,
+    modelId,
+    systemPrompt,
+    messages,
+    temperature,
+    maxTokens,
+    baseUrl,
+    anthropicVersion,
+  } = args;
   const base = (baseUrl || "https://api.anthropic.com/v1").replace(/\/+$/, "");
   const url = base.endsWith("/v1") ? `${base}/messages` : `${base}/v1/messages`;
   const upstream = await fetch(url, {
@@ -71,7 +80,9 @@ export async function anthropicChatStream(args: {
                 const text = ev.delta.text as string;
                 if (text) controller.enqueue(new TextEncoder().encode(toOpenAIChunk(text)));
               }
-            } catch { /* skip */ }
+            } catch {
+              /* skip */
+            }
           }
         }
         controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"));

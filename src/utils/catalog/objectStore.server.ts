@@ -38,7 +38,10 @@ function hmac(key: Buffer | string, data: string): Buffer {
 /** AWS-style URI encoding: like encodeURIComponent but also !'()* and keeps /. */
 function awsUriEncode(path: string, encodeSlash: boolean): string {
   const enc = (s: string) =>
-    encodeURIComponent(s).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+    encodeURIComponent(s).replace(
+      /[!'()*]/g,
+      (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+    );
   return encodeSlash ? enc(path) : path.split("/").map(enc).join("/");
 }
 
@@ -93,7 +96,9 @@ export function signS3Request(args: {
     .join("&");
 
   const signedHeaderNames = Object.keys(args.headers).sort();
-  const canonicalHeaders = signedHeaderNames.map((k) => `${k}:${args.headers[k].trim()}\n`).join("");
+  const canonicalHeaders = signedHeaderNames
+    .map((k) => `${k}:${args.headers[k].trim()}\n`)
+    .join("");
   const signedHeaders = signedHeaderNames.join(";");
 
   const canonicalRequest = [
@@ -127,7 +132,10 @@ async function s3Get(
 ): Promise<Response> {
   const { origin, host, basePath } = resolveTarget(cfg);
   const canonicalUri = awsUriEncode(`${basePath}/${keyPath}`.replace(/\/{2,}/g, "/"), false) || "/";
-  const amzDate = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+  const amzDate = new Date()
+    .toISOString()
+    .replace(/[-:]/g, "")
+    .replace(/\.\d{3}/, "");
 
   const headers: Record<string, string> = {
     host,
@@ -277,14 +285,19 @@ export function computeColumnStats(
   const types = new Set(values.slice(0, 100).map(valueType));
   const type = types.size === 1 ? [...types][0] : "string";
   const first = values[0];
-  const distinct = new Set(values.map((v) => (typeof v === "object" ? JSON.stringify(v) : String(v))));
+  const distinct = new Set(
+    values.map((v) => (typeof v === "object" ? JSON.stringify(v) : String(v))),
+  );
   const out: ReturnType<typeof computeColumnStats> = {
     type,
     sample:
       first === undefined
         ? undefined
         : String(typeof first === "object" ? JSON.stringify(first) : first).slice(0, 80),
-    null_pct: records.length > 0 ? Math.round(((records.length - values.length) / records.length) * 100) : undefined,
+    null_pct:
+      records.length > 0
+        ? Math.round(((records.length - values.length) / records.length) * 100)
+        : undefined,
     distinct_count: distinct.size,
   };
   if (type === "number") {

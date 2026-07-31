@@ -26,7 +26,10 @@ export const memoryRememberTool: ToolDef = {
     parameters: {
       type: "object",
       properties: {
-        content: { type: "string", description: "The note to remember (one sentence, < 500 chars)" },
+        content: {
+          type: "string",
+          description: "The note to remember (one sentence, < 500 chars)",
+        },
         kind: {
           type: "string",
           enum: VALID_KINDS as readonly string[] as string[],
@@ -42,7 +45,8 @@ export async function runMemoryRemember(
   ctx: MemoryToolContext,
   args: { content?: string; kind?: string },
 ): Promise<string> {
-  if (!ctx.agentId) return JSON.stringify({ error: "No agent context — memory_remember unavailable" });
+  if (!ctx.agentId)
+    return JSON.stringify({ error: "No agent context — memory_remember unavailable" });
   const content = String(args.content || "").trim();
   if (!content || content.length < 3 || content.length > 500) {
     return JSON.stringify({ error: "content must be 3–500 chars" });
@@ -100,7 +104,8 @@ export async function runMemoryRecall(
     userPrompt: q,
     topK: Math.max(1, Math.min(args.top_k ?? 5, 10)),
   });
-  if (items.length === 0) return JSON.stringify({ items: [], note: "No matches in long-term memory." });
+  if (items.length === 0)
+    return JSON.stringify({ items: [], note: "No matches in long-term memory." });
   return JSON.stringify({
     items: items.map((it) => ({ id: it.id, kind: it.kind, content: it.content })),
     formatted: buildLtmBlock(items),
@@ -161,8 +166,7 @@ export const memoryGetTool: ToolDef = {
   type: "function",
   function: {
     name: "memory_get",
-    description:
-      "Read from this conversation's scratchpad. Omit `key` to dump all keys.",
+    description: "Read from this conversation's scratchpad. Omit `key` to dump all keys.",
     parameters: {
       type: "object",
       properties: {
@@ -176,7 +180,8 @@ export async function runMemorySet(
   ctx: MemoryToolContext,
   args: { key?: string; value?: unknown },
 ): Promise<string> {
-  if (!ctx.conversationId) return JSON.stringify({ error: "no conversation context — scratchpad unavailable" });
+  if (!ctx.conversationId)
+    return JSON.stringify({ error: "no conversation context — scratchpad unavailable" });
   const key = String(args.key || "").trim();
   if (!key || !/^[a-zA-Z0-9_]+$/.test(key)) {
     return JSON.stringify({ error: "key must be alphanumeric + underscore" });
@@ -187,7 +192,9 @@ export async function runMemorySet(
     .select("scratchpad")
     .eq("conversation_id", ctx.conversationId)
     .maybeSingle();
-  const sp = (row?.scratchpad && typeof row.scratchpad === "object" ? row.scratchpad : {}) as Record<string, unknown>;
+  const sp = (
+    row?.scratchpad && typeof row.scratchpad === "object" ? row.scratchpad : {}
+  ) as Record<string, unknown>;
   sp[key] = args.value ?? null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { error } = await (ctx.sb.from("conversation_memory") as any).upsert(
@@ -207,13 +214,16 @@ export async function runMemoryGet(
   ctx: MemoryToolContext,
   args: { key?: string },
 ): Promise<string> {
-  if (!ctx.conversationId) return JSON.stringify({ error: "no conversation context — scratchpad unavailable" });
+  if (!ctx.conversationId)
+    return JSON.stringify({ error: "no conversation context — scratchpad unavailable" });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: row } = await (ctx.sb.from("conversation_memory") as any)
     .select("scratchpad")
     .eq("conversation_id", ctx.conversationId)
     .maybeSingle();
-  const sp = (row?.scratchpad && typeof row.scratchpad === "object" ? row.scratchpad : {}) as Record<string, unknown>;
+  const sp = (
+    row?.scratchpad && typeof row.scratchpad === "object" ? row.scratchpad : {}
+  ) as Record<string, unknown>;
   if (args.key) {
     return JSON.stringify({ key: args.key, value: sp[String(args.key)] ?? null });
   }

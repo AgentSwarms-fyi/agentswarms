@@ -11,10 +11,67 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 
 const STOP = new Set([
-  "the","a","an","and","or","but","if","of","to","in","on","for","with","is","are","was","were",
-  "be","been","being","this","that","these","those","it","as","at","by","from","what","how","why",
-  "when","who","which","do","does","did","i","you","we","they","he","she","me","us","them","my",
-  "your","our","their","can","will","would","should","could","whom","about","into","over","under",
+  "the",
+  "a",
+  "an",
+  "and",
+  "or",
+  "but",
+  "if",
+  "of",
+  "to",
+  "in",
+  "on",
+  "for",
+  "with",
+  "is",
+  "are",
+  "was",
+  "were",
+  "be",
+  "been",
+  "being",
+  "this",
+  "that",
+  "these",
+  "those",
+  "it",
+  "as",
+  "at",
+  "by",
+  "from",
+  "what",
+  "how",
+  "why",
+  "when",
+  "who",
+  "which",
+  "do",
+  "does",
+  "did",
+  "i",
+  "you",
+  "we",
+  "they",
+  "he",
+  "she",
+  "me",
+  "us",
+  "them",
+  "my",
+  "your",
+  "our",
+  "their",
+  "can",
+  "will",
+  "would",
+  "should",
+  "could",
+  "whom",
+  "about",
+  "into",
+  "over",
+  "under",
 ]);
 
 export type GraphEntity = {
@@ -50,7 +107,11 @@ export type GraphContext = {
 };
 
 function normalize(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export async function retrieveGraphContextServer(opts: {
@@ -89,17 +150,12 @@ export async function retrieveGraphContextServer(opts: {
   }
 
   // Fetch KB labels for citation display.
-  const { data: kbRows } = await sb
-    .from("knowledge_bases")
-    .select("id, name")
-    .in("id", uniqKbIds);
+  const { data: kbRows } = await sb.from("knowledge_bases").select("id, name").in("id", uniqKbIds);
   const kbName = new Map((kbRows ?? []).map((k) => [k.id, k.name]));
 
   // Tokenize query for lexical matching.
   const norm = normalize(opts.query);
-  const terms = Array.from(
-    new Set(norm.split(/\s+/).filter((t) => t.length >= 3 && !STOP.has(t))),
-  );
+  const terms = Array.from(new Set(norm.split(/\s+/).filter((t) => t.length >= 3 && !STOP.has(t))));
   if (terms.length === 0) {
     return { subgraph: [], entityFacts: [], citations: [] };
   }
@@ -142,14 +198,18 @@ export async function retrieveGraphContextServer(opts: {
   }
 
   // Step 3 — second hop from non-seed neighbours (lighter cap).
-  const hop2Seeds = Array.from(allEntityIds).filter((id) => !seedIds.includes(id)).slice(0, 10);
+  const hop2Seeds = Array.from(allEntityIds)
+    .filter((id) => !seedIds.includes(id))
+    .slice(0, 10);
   let rel2: typeof rel1 = [];
   if (hop2Seeds.length > 0 && allEntityIds.size < maxNodes) {
     const { data } = await sb
       .from("kb_graph_relations")
       .select("source_entity_id, target_entity_id, predicate, weight, document_id")
       .in("knowledge_base_id", uniqKbIds)
-      .or(`source_entity_id.in.(${hop2Seeds.join(",")}),target_entity_id.in.(${hop2Seeds.join(",")})`)
+      .or(
+        `source_entity_id.in.(${hop2Seeds.join(",")}),target_entity_id.in.(${hop2Seeds.join(",")})`,
+      )
       .limit(80);
     rel2 = data ?? [];
     for (const r of rel2) {
@@ -195,16 +255,32 @@ export async function retrieveGraphContextServer(opts: {
     : { data: [] as Array<{ id: string; name: string }> };
   const docName = new Map((docRows ?? []).map((d) => [d.id, d.name]));
 
-  const factsByEntity = new Map<string, { entity: string; type: string; description: string | null; snippets: Array<{ snippet: string; document: string | null }> }>();
+  const factsByEntity = new Map<
+    string,
+    {
+      entity: string;
+      type: string;
+      description: string | null;
+      snippets: Array<{ snippet: string; document: string | null }>;
+    }
+  >();
   for (const id of entityIds) {
     const e = eMap.get(id);
     if (!e) continue;
-    factsByEntity.set(id, { entity: e.name, type: e.type, description: e.description, snippets: [] });
+    factsByEntity.set(id, {
+      entity: e.name,
+      type: e.type,
+      description: e.description,
+      snippets: [],
+    });
   }
   for (const m of mentions ?? []) {
     const f = factsByEntity.get(m.entity_id);
     if (!f || f.snippets.length >= 2) continue;
-    f.snippets.push({ snippet: m.snippet, document: m.document_id ? docName.get(m.document_id) ?? null : null });
+    f.snippets.push({
+      snippet: m.snippet,
+      document: m.document_id ? (docName.get(m.document_id) ?? null) : null,
+    });
   }
 
   // Citations — one per entity that had a snippet, capped.
@@ -218,7 +294,7 @@ export async function retrieveGraphContextServer(opts: {
     citations.push({
       index: i++,
       documentId: m?.document_id ?? null,
-      documentName: m?.document_id ? docName.get(m.document_id) ?? "Document" : "Document",
+      documentName: m?.document_id ? (docName.get(m.document_id) ?? "Document") : "Document",
       knowledgeBaseId: e.knowledge_base_id,
       knowledgeBaseName: kbName.get(e.knowledge_base_id) || "Knowledge Base",
       snippet: f.snippets[0].snippet,
@@ -228,7 +304,9 @@ export async function retrieveGraphContextServer(opts: {
 
   return {
     subgraph: triples,
-    entityFacts: Array.from(factsByEntity.values()).filter((f) => f.snippets.length > 0).slice(0, 25),
+    entityFacts: Array.from(factsByEntity.values())
+      .filter((f) => f.snippets.length > 0)
+      .slice(0, 25),
     citations,
   };
 }

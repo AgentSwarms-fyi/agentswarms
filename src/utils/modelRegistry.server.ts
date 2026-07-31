@@ -56,11 +56,15 @@ function inferModality(type: string, tags: string[]): string {
   const t = type.toLowerCase();
   const tagSet = new Set(tags.map((x) => x.toLowerCase()));
   if (t.includes("embedding") || tagSet.has("playground:embeddings")) return "embedding";
-  if (t.includes("image") || tagSet.has("playground:image") || tagSet.has("playground:image_3d")) return "image";
+  if (t.includes("image") || tagSet.has("playground:image") || tagSet.has("playground:image_3d"))
+    return "image";
   if (t.includes("video") || tagSet.has("playground:video")) return "video";
-  if (t.includes("speech-to-text") || t.includes("stt") || tagSet.has("playground:stt")) return "speech-to-text";
-  if (t.includes("text-to-speech") || t.includes("tts") || tagSet.has("playground:tts")) return "text-to-speech";
-  if (t.includes("audio") || tagSet.has("playground:audio") || tagSet.has("playground:chat_audio")) return "audio";
+  if (t.includes("speech-to-text") || t.includes("stt") || tagSet.has("playground:stt"))
+    return "speech-to-text";
+  if (t.includes("text-to-speech") || t.includes("tts") || tagSet.has("playground:tts"))
+    return "text-to-speech";
+  if (t.includes("audio") || tagSet.has("playground:audio") || tagSet.has("playground:chat_audio"))
+    return "audio";
   if (t.includes("ocr") || tagSet.has("playground:ocr")) return "ocr";
   return "text";
 }
@@ -78,10 +82,12 @@ function inferCapabilities(modality: string, tags: string[], description: string
   if (modality === "text-to-speech") caps.add("voice-synth");
   if (modality === "ocr") caps.add("ocr");
   if (modality === "audio") caps.add("audio");
-  if (desc.includes("vision") || desc.includes("image input") || desc.includes("multimodal")) caps.add("vision");
+  if (desc.includes("vision") || desc.includes("image input") || desc.includes("multimodal"))
+    caps.add("vision");
   if (desc.includes("tool") || desc.includes("function call")) caps.add("tools");
   if (desc.includes("reason")) caps.add("reasoning");
-  if (desc.includes("long context") || desc.includes("1m token") || desc.includes("million token")) caps.add("long-context");
+  if (desc.includes("long context") || desc.includes("1m token") || desc.includes("million token"))
+    caps.add("long-context");
   return Array.from(caps);
 }
 
@@ -109,7 +115,8 @@ function normalize(entry: AimlEntry): {
   const description = (info.description || "").trim() || null;
   return {
     model_id: id,
-    alias: Array.isArray(entry.aliases) && entry.aliases.length > 0 ? String(entry.aliases[0]) : null,
+    alias:
+      Array.isArray(entry.aliases) && entry.aliases.length > 0 ? String(entry.aliases[0]) : null,
     display_name: (info.name || id).trim(),
     developer,
     provider_slug: devToSlug(developer),
@@ -148,7 +155,9 @@ export async function syncModelRegistryFromAimlapi(): Promise<{
       const key = `${norm.model_id}::${norm.modality}`;
       if (!seen.has(key)) seen.set(key, norm);
     }
-    const rows = Array.from(seen.values()).filter(Boolean) as Array<NonNullable<ReturnType<typeof normalize>>>;
+    const rows = Array.from(seen.values()).filter(Boolean) as Array<
+      NonNullable<ReturnType<typeof normalize>>
+    >;
 
     const BATCH = 200;
     let upserted = 0;

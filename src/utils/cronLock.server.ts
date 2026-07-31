@@ -37,7 +37,10 @@ function isMissingTable(error: { code?: string; message?: string } | null): bool
  * the pre-existing single-instance behaviour (possible duplicate work), never a
  * stalled scheduler.
  */
-export async function acquireCronLease(name: string, ttlMs: number = DEFAULT_TTL_MS): Promise<boolean> {
+export async function acquireCronLease(
+  name: string,
+  ttlMs: number = DEFAULT_TTL_MS,
+): Promise<boolean> {
   const nowIso = new Date().toISOString();
   const untilIso = new Date(Date.now() + ttlMs).toISOString();
   // Atomic at the row level: concurrent updates on this row serialize, so only

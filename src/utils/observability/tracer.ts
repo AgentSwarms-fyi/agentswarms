@@ -72,7 +72,8 @@ export async function createSwarmTracer(opts: {
       } as any)
       .select("id")
       .single();
-    if (runError || !runRow?.id) throw new Error(runError?.message ?? "Could not start swarm trace");
+    if (runError || !runRow?.id)
+      throw new Error(runError?.message ?? "Could not start swarm trace");
 
     const runId = runRow.id;
 
@@ -94,32 +95,35 @@ export async function createSwarmTracer(opts: {
       runId,
       startStep(args) {
         startedAtByNode.set(args.nodeId, Date.now());
-        const p = track(supabase
-          .from("swarm_run_steps")
-          .insert({
-            run_id: runId,
-            user_id: userId,
-            node_id: args.nodeId,
-            node_label: args.nodeLabel ?? null,
-            node_kind: args.nodeKind ?? "agent",
-            agent_id: args.agentId ?? null,
-            input: jsonValue(args.input ?? {}),
-            status: "running",
-          } as any)
-          .select("id")
-          .single()
-          .then(({ data, error }) => {
-            if (error || !data?.id) throw new Error(error?.message ?? "Could not start swarm step");
-            stepIdByNode.set(args.nodeId, data.id);
-          }));
+        const p = track(
+          supabase
+            .from("swarm_run_steps")
+            .insert({
+              run_id: runId,
+              user_id: userId,
+              node_id: args.nodeId,
+              node_label: args.nodeLabel ?? null,
+              node_kind: args.nodeKind ?? "agent",
+              agent_id: args.agentId ?? null,
+              input: jsonValue(args.input ?? {}),
+              status: "running",
+            } as any)
+            .select("id")
+            .single()
+            .then(({ data, error }) => {
+              if (error || !data?.id)
+                throw new Error(error?.message ?? "Could not start swarm step");
+              stepIdByNode.set(args.nodeId, data.id);
+            }),
+        );
         pendingStarts.set(args.nodeId, p);
       },
       finishStep(nodeId, args) {
         const start = pendingStarts.get(nodeId) ?? Promise.resolve();
         const startedAt = startedAtByNode.get(nodeId);
         const latencyMs = args.latencyMs ?? (startedAt ? Date.now() - startedAt : 0);
-        track(start
-          .then(() => {
+        track(
+          start.then(() => {
             const stepId = stepIdByNode.get(nodeId);
             if (!stepId) return;
             return supabase
@@ -143,24 +147,26 @@ export async function createSwarmTracer(opts: {
               } as any)
               .eq("id", stepId)
               .eq("user_id", userId);
-          }));
+          }),
+        );
       },
       recordEdge(args) {
         const sourceP = pendingStarts.get(args.sourceNodeId) ?? Promise.resolve();
         const targetP = pendingStarts.get(args.targetNodeId) ?? Promise.resolve();
-        track(Promise.all([sourceP, targetP])
-          .then(() =>
+        track(
+          Promise.all([sourceP, targetP]).then(() =>
             supabase.from("swarm_run_edges").insert({
-                run_id: runId,
-                user_id: userId,
-                source_step_id: stepIdByNode.get(args.sourceNodeId) ?? null,
-                target_step_id: stepIdByNode.get(args.targetNodeId) ?? null,
-                source_node_id: args.sourceNodeId,
-                target_node_id: args.targetNodeId,
-                payload_preview: args.payloadPreview ?? null,
-                bytes: args.bytes ?? 0,
-              } as any),
-          ));
+              run_id: runId,
+              user_id: userId,
+              source_step_id: stepIdByNode.get(args.sourceNodeId) ?? null,
+              target_step_id: stepIdByNode.get(args.targetNodeId) ?? null,
+              source_node_id: args.sourceNodeId,
+              target_node_id: args.targetNodeId,
+              payload_preview: args.payloadPreview ?? null,
+              bytes: args.bytes ?? 0,
+            } as any),
+          ),
+        );
       },
       async finish(args) {
         // Wait for all pending starts/finishes to flush.

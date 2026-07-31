@@ -4,20 +4,28 @@
 import type { ChatMessage } from "../types";
 
 export async function openAICompatChatStream(args: {
-  baseUrl: string;             // e.g. https://api.openai.com/v1
-  apiKey?: string;             // optional (Ollama doesn't need it)
+  baseUrl: string; // e.g. https://api.openai.com/v1
+  apiKey?: string; // optional (Ollama doesn't need it)
   modelId: string;
   systemPrompt?: string;
   messages: ChatMessage[];
   temperature?: number;
   maxTokens?: number;
-  organizationId?: string;     // OpenAI only
-  providerLabel?: string;      // for error messages
+  organizationId?: string; // OpenAI only
+  providerLabel?: string; // for error messages
   extraHeaders?: Record<string, string>;
 }): Promise<Response> {
   const {
-    baseUrl, apiKey, modelId, systemPrompt, messages,
-    temperature, maxTokens, organizationId, providerLabel, extraHeaders,
+    baseUrl,
+    apiKey,
+    modelId,
+    systemPrompt,
+    messages,
+    temperature,
+    maxTokens,
+    organizationId,
+    providerLabel,
+    extraHeaders,
   } = args;
 
   const url = `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
@@ -35,7 +43,10 @@ export async function openAICompatChatStream(args: {
     // "key=" prefix users copy from docs. Google's OpenAI-compat endpoint
     // returns "Multiple authentication credentials received" if a key sneaks
     // into both Authorization and another auth surface.
-    const cleanKey = apiKey.trim().replace(/^Bearer\s+/i, "").replace(/^key=/i, "");
+    const cleanKey = apiKey
+      .trim()
+      .replace(/^Bearer\s+/i, "")
+      .replace(/^key=/i, "");
     headers.Authorization = `Bearer ${cleanKey}`;
   }
   if (organizationId) headers["OpenAI-Organization"] = organizationId;
@@ -54,7 +65,9 @@ export async function openAICompatChatStream(args: {
 
   if (!upstream.ok || !upstream.body) {
     const t = await upstream.text();
-    throw new Error(`${providerLabel || "OpenAI-compatible"} error [${upstream.status}]: ${t.slice(0, 300)}`);
+    throw new Error(
+      `${providerLabel || "OpenAI-compatible"} error [${upstream.status}]: ${t.slice(0, 300)}`,
+    );
   }
 
   return new Response(upstream.body, {

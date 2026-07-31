@@ -52,10 +52,10 @@ export async function resolveMemoryConfig(opts: {
 
 export type LoadedMemory = {
   config: MemoryConfig;
-  summaryBlock: string;            // formatted [SUMMARY] block, or ""
-  ltmBlock: string;                // formatted [LTM] block, or ""
-  recalled: RecalledItem[];        // raw recalled items (for SSE chip)
-  windowMessageIds: string[];      // diagnostics
+  summaryBlock: string; // formatted [SUMMARY] block, or ""
+  ltmBlock: string; // formatted [LTM] block, or ""
+  recalled: RecalledItem[]; // raw recalled items (for SSE chip)
+  windowMessageIds: string[]; // diagnostics
 };
 
 export async function loadMemoryContext(opts: {

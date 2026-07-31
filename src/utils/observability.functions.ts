@@ -30,8 +30,12 @@ const PROMPTS = [
   "Translate the onboarding docs into Spanish and German",
 ];
 
-function rand<T>(arr: T[]): T { return arr[Math.floor(Math.random() * arr.length)]; }
-function randInt(min: number, max: number) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+function rand<T>(arr: T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+function randInt(min: number, max: number) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
 
 export const seedTraces = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -86,12 +90,29 @@ export const seedTraces = createServerFn({ method: "POST" })
             ? { error: "rate_limit_exceeded", code: 429 }
             : {
                 id: `chatcmpl_${Math.random().toString(36).slice(2, 10)}`,
-                choices: [{ message: { role: "assistant", content: "Here is the analysis you requested..." } }],
-                usage: { prompt_tokens: tokensIn, completion_tokens: tokensOut, total_tokens: tokensIn + tokensOut },
+                choices: [
+                  {
+                    message: {
+                      role: "assistant",
+                      content: "Here is the analysis you requested...",
+                    },
+                  },
+                ],
+                usage: {
+                  prompt_tokens: tokensIn,
+                  completion_tokens: tokensOut,
+                  total_tokens: tokensIn + tokensOut,
+                },
               },
-          tool_calls: Math.random() < 0.4
-            ? [{ name: rand(["web_search", "calculator", "sql_query", "send_email"]), arguments: { query: prompt.slice(0, 30) } }]
-            : [],
+          tool_calls:
+            Math.random() < 0.4
+              ? [
+                  {
+                    name: rand(["web_search", "calculator", "sql_query", "send_email"]),
+                    arguments: { query: prompt.slice(0, 30) },
+                  },
+                ]
+              : [],
           error_message: isError ? "Rate limit exceeded for model" : null,
           created_at: new Date(ts).toISOString(),
         });

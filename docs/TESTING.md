@@ -25,10 +25,13 @@ npm run test:watch
 
 ## The differential harness
 
-The app runs local SQL through more than one engine: AlaSQL in the workbench
-and on the scheduled-refresh path, and a hand-written AST interpreter behind
-the `sql_query` agent tool. **The same question asked through two surfaces must
-not produce two answers.**
+Every server-side local query now goes through one entry point
+(`utils/data/localEngine.server`), which runs either AlaSQL (default) or DuckDB
+(`LOCAL_ENGINE=duckdb`). **The same question asked through two surfaces must
+not produce two answers** — that is what this suite enforces.
+
+It used to be worse: three engines, including a hand-written AST interpreter
+behind the `sql_query` agent tool. That interpreter is gone.
 
 `tests/differential/` runs a shared corpus through every engine and compares
 canonicalised results. It exists for two jobs:
@@ -36,7 +39,8 @@ canonicalised results. It exists for two jobs:
 1. **Catch drift today.** On its first run it found three bugs in the
    interpreter: `!=` admitted NULL rows, `LIMIT n OFFSET m` paged wrongly, and
    a qualified column in a JOIN resolved to the wrong table — each silently
-   returning wrong data to an AI agent.
+   returning wrong data to an AI agent. Those assertions live on in
+   `tests/unit/localEngine.test.ts`, now aimed at whichever engine is active.
 2. **Make a future engine swap provable.** Replacing an engine (with DuckDB,
    say) means adding one adapter to `engines.ts` and watching the corpus. That
    is the difference between an evidence-based migration and a leap.

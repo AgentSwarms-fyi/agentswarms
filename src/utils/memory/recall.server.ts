@@ -8,11 +8,54 @@ import type { Database } from "@/integrations/supabase/types";
 import type { MemoryItem, RecalledItem } from "./types";
 
 const STOP = new Set([
-  "the", "and", "for", "with", "this", "that", "from", "have", "has", "had",
-  "are", "was", "were", "will", "would", "could", "should", "about", "into",
-  "your", "their", "they", "them", "our", "out", "not", "but", "any", "all",
-  "you", "user", "users", "agent", "agents", "some", "one", "two", "three",
-  "what", "how", "why", "when", "who", "which", "does", "did", "been", "being",
+  "the",
+  "and",
+  "for",
+  "with",
+  "this",
+  "that",
+  "from",
+  "have",
+  "has",
+  "had",
+  "are",
+  "was",
+  "were",
+  "will",
+  "would",
+  "could",
+  "should",
+  "about",
+  "into",
+  "your",
+  "their",
+  "they",
+  "them",
+  "our",
+  "out",
+  "not",
+  "but",
+  "any",
+  "all",
+  "you",
+  "user",
+  "users",
+  "agent",
+  "agents",
+  "some",
+  "one",
+  "two",
+  "three",
+  "what",
+  "how",
+  "why",
+  "when",
+  "who",
+  "which",
+  "does",
+  "did",
+  "been",
+  "being",
 ]);
 
 export function tokenize(text: string): string[] {
@@ -53,7 +96,10 @@ export async function recallMemoryItems(opts: {
       const overlap = (row.keywords || []).filter((k) => termSet.has(k)).length;
       // Combine: keyword overlap (heaviest), stored score, recency boost.
       const recencyBoost = row.last_used_at
-        ? Math.max(0, 1 - (Date.now() - new Date(row.last_used_at).getTime()) / (1000 * 60 * 60 * 24 * 30))
+        ? Math.max(
+            0,
+            1 - (Date.now() - new Date(row.last_used_at).getTime()) / (1000 * 60 * 60 * 24 * 30),
+          )
         : 0;
       const matchScore = overlap * 2 + (row.score || 0) + recencyBoost * 0.5;
       return { ...row, matchScore } satisfies RecalledItem & { keywords: string[] };

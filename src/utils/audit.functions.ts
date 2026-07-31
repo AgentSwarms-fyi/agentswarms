@@ -308,9 +308,7 @@ export const auditChainVerify = createServerFn({ method: "POST" })
       // check is exercised — defense in depth, not service-role bypass.
       const { data: rows, error } = await (
         sb as unknown as {
-          rpc: (
-            fn: string,
-          ) => Promise<{
+          rpc: (fn: string) => Promise<{
             data: { checked: number; first_broken_seq: number | null }[] | null;
             error: { message: string } | null;
           }>;

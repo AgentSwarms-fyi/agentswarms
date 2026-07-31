@@ -8,9 +8,11 @@ function getKeyMaterial(): Promise<CryptoKey> {
   if (!secret) throw new Error("PROVIDER_CREDS_SECRET is not configured");
   // Derive a 256-bit key by SHA-256 hashing the secret.
   const enc = new TextEncoder();
-  return crypto.subtle.digest("SHA-256", enc.encode(secret)).then((hash) =>
-    crypto.subtle.importKey("raw", hash, { name: ALGO }, false, ["encrypt", "decrypt"]),
-  );
+  return crypto.subtle
+    .digest("SHA-256", enc.encode(secret))
+    .then((hash) =>
+      crypto.subtle.importKey("raw", hash, { name: ALGO }, false, ["encrypt", "decrypt"]),
+    );
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -30,16 +32,11 @@ export async function encryptJson(payload: unknown): Promise<{ ciphertext: strin
   const key = await getKeyMaterial();
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const data = new TextEncoder().encode(JSON.stringify(payload));
-  const ct = new Uint8Array(
-    await crypto.subtle.encrypt({ name: ALGO, iv }, key, data),
-  );
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: ALGO, iv }, key, data));
   return { ciphertext: bytesToBase64(ct), iv: bytesToBase64(iv) };
 }
 
-export async function decryptJson<T = unknown>(
-  ciphertext: string,
-  iv: string,
-): Promise<T> {
+export async function decryptJson<T = unknown>(ciphertext: string, iv: string): Promise<T> {
   const key = await getKeyMaterial();
   const ct = base64ToBytes(ciphertext);
   const ivBytes = base64ToBytes(iv);

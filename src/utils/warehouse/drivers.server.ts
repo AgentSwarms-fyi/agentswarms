@@ -957,10 +957,7 @@ export async function executeWarehouseQuery(
   opts: { userId?: string; timeoutMs?: number } = {},
 ): Promise<WarehouseQueryResult> {
   const safeSql = assertReadOnlySql(sql);
-  const cappedRows = Math.min(
-    Math.max(1, maxRows ?? warehouseMaxRows()),
-    warehouseAbsMaxRows(),
-  );
+  const cappedRows = Math.min(Math.max(1, maxRows ?? warehouseMaxRows()), warehouseAbsMaxRows());
   const started = Date.now();
 
   const run = async (): Promise<{

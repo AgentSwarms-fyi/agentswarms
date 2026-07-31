@@ -47,11 +47,7 @@ async function sha256B64(body: string): Promise<string> {
 }
 
 async function signString(key: CryptoKey, str: string): Promise<string> {
-  const sig = await crypto.subtle.sign(
-    "RSASSA-PKCS1-v1_5",
-    key,
-    new TextEncoder().encode(str),
-  );
+  const sig = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(str));
   return bytesToB64(new Uint8Array(sig));
 }
 
@@ -204,12 +200,11 @@ export async function ociChatStream(args: {
               // GENERIC format: { message: { content: [{ text }] } } per chunk
               // COHERE format: { text: "...", finishReason?: "..." }
               const text: string | undefined =
-                ev.message?.content?.[0]?.text ??
-                ev.text ??
-                ev.delta?.content ??
-                undefined;
+                ev.message?.content?.[0]?.text ?? ev.text ?? ev.delta?.content ?? undefined;
               if (text) controller.enqueue(new TextEncoder().encode(toOpenAIChunk(text)));
-            } catch { /* skip non-JSON keepalives */ }
+            } catch {
+              /* skip non-JSON keepalives */
+            }
           }
         }
         controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"));
