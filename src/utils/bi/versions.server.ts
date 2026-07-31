@@ -239,6 +239,10 @@ export async function restoreDatasetVersion(args: {
     .update({ columns: (version.columns ?? []) as Json, data_loaded_at: new Date().toISOString() })
     .eq("id", version.table_id);
 
+  await import("@/utils/data/parquet.server")
+    .then((m) => m.refreshDatasetMirror({ userId: args.userId, tableId: version.table_id }))
+    .catch(() => null);
+
   return { tableId: version.table_id, rowCount: rows.length, tableName: table.name };
 }
 

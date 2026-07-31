@@ -397,6 +397,13 @@ export async function ingestUpload(args: {
   }
 }
 
+/** Rebuild the columnar mirror; never fails the upload that just succeeded. */
+async function refreshMirror(userId: string, tableId: string): Promise<void> {
+  await import("@/utils/data/parquet.server")
+    .then((m) => m.refreshDatasetMirror({ userId, tableId }))
+    .catch(() => null);
+}
+
 /**
  * Swap staged rows onto the real dataset.
  *
@@ -432,6 +439,7 @@ async function promoteStaging(args: {
       })
       .eq("id", args.stagingId);
     if (error) throw new Error(error.message);
+    await refreshMirror(args.userId, args.stagingId);
     return { tableId: args.stagingId, tableName: args.tableName };
   }
 
@@ -466,6 +474,7 @@ async function promoteStaging(args: {
   if (metaErr) throw new Error(metaErr.message);
 
   await supabaseAdmin.from("user_data_tables").delete().eq("id", args.stagingId);
+  await refreshMirror(args.userId, existing.id);
   return { tableId: existing.id, tableName: args.tableName };
 }
 

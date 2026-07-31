@@ -294,6 +294,28 @@ standard SQL. Two to know about before flipping it:
 
 See [TESTING.md](./TESTING.md).
 
+**Columnar mirror (Parquet).** With the DuckDB engine on, each dataset above
+`PARQUET_MIN_ROWS` is mirrored to a Parquet object in the private `datasets`
+bucket and cached on local disk. Queries then read one compressed columnar file
+instead of paging every row out of Postgres — the dominant cost in the old
+path, at 1,000 rows per round trip.
+
+It is strictly a **cache**: `user_data_rows` remains the source of truth, and a
+mirror is used only when its `parquet_synced_at` is at least as new as the
+dataset's `data_loaded_at`. Anything else falls back to reading rows, so a
+missing or stale mirror costs speed and never correctness.
+
+- `PARQUET_MIRROR` (default on; set `0` to disable).
+- `PARQUET_MIN_ROWS` (default `5000`) — below this the storage round trip
+  costs more than it saves.
+- `PARQUET_CACHE_DIR` (default the system temp dir) — **give this a real
+  volume** on a container host, or the cache is lost on every restart.
+- `PARQUET_CACHE_MAX_BYTES` (default `2147483648`, 2 GB) — oldest files evicted.
+
+Browser-side saves (CSV upload, warehouse import) cannot rebuild a mirror, so
+theirs goes stale and is ignored until the scheduled sweep heals it. The same
+sweep deletes objects whose dataset was removed.
+
 **Warehouse queries** are bounded per process. Every dashboard tile, prep
 pushdown, semantic query and agent tool call goes through one driver layer, so
 these are the knobs that decide what your warehouse is asked to do:

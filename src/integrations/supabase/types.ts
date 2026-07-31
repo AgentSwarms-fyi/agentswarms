@@ -3282,6 +3282,9 @@ export type Database = {
           created_at: string;
           data_loaded_at: string | null;
           id: string;
+          parquet_bytes: number | null;
+          parquet_rows: number | null;
+          parquet_synced_at: string | null;
           is_sample: boolean;
           name: string;
           source_filename: string | null;
@@ -3293,6 +3296,9 @@ export type Database = {
           created_at?: string;
           data_loaded_at?: string | null;
           id?: string;
+          parquet_bytes?: number | null;
+          parquet_rows?: number | null;
+          parquet_synced_at?: string | null;
           is_sample?: boolean;
           name: string;
           source_filename?: string | null;
@@ -3304,6 +3310,9 @@ export type Database = {
           created_at?: string;
           data_loaded_at?: string | null;
           id?: string;
+          parquet_bytes?: number | null;
+          parquet_rows?: number | null;
+          parquet_synced_at?: string | null;
           is_sample?: boolean;
           name?: string;
           source_filename?: string | null;

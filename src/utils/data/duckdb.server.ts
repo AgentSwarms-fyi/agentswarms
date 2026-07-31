@@ -26,7 +26,20 @@ import { assertLocalReadOnlySql } from "@/lib/sqlSafety";
 import type { ColumnDef } from "@/lib/datasetParse";
 
 export type DuckRow = Record<string, unknown>;
-export type DuckTable = { name: string; columns: ColumnDef[]; rows: DuckRow[] };
+export type DuckTable = {
+  name: string;
+  columns: ColumnDef[];
+  rows: DuckRow[];
+  /**
+   * Local Parquet file holding this dataset's rows.
+   *
+   * When set, `rows` is ignored and DuckDB reads the file directly — the whole
+   * point of the columnar mirror, since it can project and filter without
+   * materialising anything. Callers set this only for a mirror they have
+   * already verified is current (see parquet.server).
+   */
+  parquetPath?: string;
+};
 
 /** True when this deployment has opted into DuckDB for local SQL. */
 export function duckdbEnabled(): boolean {
@@ -66,6 +79,17 @@ const SAFE_IDENT_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
  */
 function quoteIdent(name: string): string {
   return `"${String(name).replace(/"/g, '""')}"`;
+}
+
+/**
+ * A single-quoted SQL string literal.
+ *
+ * DuckDB is ANSI — backslash is a literal character, so doubling the quote is
+ * the whole escape (asserted against the real engine in duckdbDialect.test).
+ * Used for filesystem paths, which on Windows are full of backslashes.
+ */
+function sqlLiteral(v: string): string {
+  return `'${v.replace(/'/g, "''")}'`;
 }
 
 /** SQL type for a declared column type. */
@@ -226,6 +250,39 @@ export async function runLocalSqlDuckDB(
   }
 }
 
+/**
+ * Write a dataset to a Parquet file.
+ *
+ * Uses the same load path as a query, so the mirror's types are exactly the
+ * types a query would have seen — a mirror written through a different
+ * conversion would answer differently from the rows it mirrors, which is the
+ * one thing a cache must never do.
+ */
+export async function writeTableToParquet(table: DuckTable, filePath: string): Promise<void> {
+  const { DuckDBInstance } = await import("@duckdb/node-api");
+  const instance = await DuckDBInstance.create(":memory:");
+  const connection = await instance.connect();
+  try {
+    await connection.run(`SET memory_limit='${memoryLimitMb()}MB'`);
+    await loadTable(connection, { ...table, parquetPath: undefined });
+    await connection.run(
+      `COPY (SELECT * FROM ${quoteIdent(table.name)}) TO ${sqlLiteral(filePath)} ` +
+        `(FORMAT PARQUET, COMPRESSION ZSTD)`,
+    );
+  } finally {
+    try {
+      connection.closeSync();
+    } catch {
+      /* already closed */
+    }
+    try {
+      instance.closeSync();
+    } catch {
+      /* already closed */
+    }
+  }
+}
+
 /** Create one table and insert its rows. Returns the coercion-failure count. */
 async function loadTable(
   connection: Awaited<
@@ -244,6 +301,16 @@ async function loadTable(
 
   // A dataset with no declared schema still has rows; derive the column list
   // from the data so the table is at least queryable.
+  // A mirrored dataset is read straight off disk. A VIEW rather than a table
+  // so nothing is copied into memory up front — DuckDB pushes the query's
+  // projections and filters into the Parquet scan.
+  if (table.parquetPath) {
+    await connection.run(
+      `CREATE VIEW ${quoteIdent(table.name)} AS SELECT * FROM read_parquet(${sqlLiteral(table.parquetPath)})`,
+    );
+    return 0;
+  }
+
   const columns: ColumnDef[] =
     table.columns.length > 0
       ? table.columns

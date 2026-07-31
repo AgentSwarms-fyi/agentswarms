@@ -402,6 +402,13 @@ export async function materialisePrepOutput(args: {
     if (error) throw new Error(error.message);
   }
 
+  // Refresh the columnar mirror off the write path. Best-effort: the rows are
+  // already committed, and a stale mirror is detected on read (its sync stamp
+  // is older than data_loaded_at) so the worst case is the slow path.
+  await import("@/utils/data/parquet.server")
+    .then((m) => m.refreshDatasetMirror({ userId: args.userId, tableId }))
+    .catch(() => null);
+
   return { tableId, name: args.tableName, rowCount: args.rows.length };
 }
 
@@ -476,6 +483,10 @@ export async function refreshPrepIncremental(args: {
       data_loaded_at: new Date().toISOString(),
     })
     .eq("id", args.tableId);
+
+  await import("@/utils/data/parquet.server")
+    .then((m) => m.refreshDatasetMirror({ userId: args.userId, tableId: args.tableId }))
+    .catch(() => null);
 
   return { rowsReplaced: result.rows.length, since, engine: result.engine };
 }

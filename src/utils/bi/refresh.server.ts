@@ -93,6 +93,8 @@ type LocalTable = {
   name: string;
   columns: { name: string; type: "number" | "string" | "date" }[];
   rows: Record<string, unknown>[];
+  /** Set when a current Parquet mirror was found; `rows` is then empty. */
+  parquetPath?: string;
 };
 
 /**
@@ -106,13 +108,33 @@ type LocalTable = {
 async function loadLocalTables(userId: string): Promise<LocalTable[]> {
   const { data: tables, error } = await supabaseAdmin
     .from("user_data_tables")
-    .select("id, name, columns, user_id, is_sample")
+    .select("id, name, columns, user_id, is_sample, data_loaded_at, parquet_synced_at")
     .not("name", "like", `${STAGING_PREFIX}%`)
     .or(`user_id.eq.${userId},is_sample.eq.true`);
   if (error) throw new Error(error.message);
 
+  const { localParquetPath } = await import("@/utils/data/parquet.server");
   const out: LocalTable[] = [];
   for (const t of tables ?? []) {
+    // A current columnar mirror replaces the whole paging loop below with a
+    // single file read. Absent or stale, we fall through to the slow path —
+    // the mirror is a cache and is never the source of truth.
+    const parquetPath =
+      (await localParquetPath({
+        tableId: t.id,
+        userId: t.user_id ?? userId,
+        parquet_synced_at: t.parquet_synced_at,
+        data_loaded_at: t.data_loaded_at,
+      })) ?? undefined;
+    if (parquetPath) {
+      out.push({
+        name: t.name,
+        columns: Array.isArray(t.columns) ? (t.columns as LocalTable["columns"]) : [],
+        rows: [],
+        parquetPath,
+      });
+      continue;
+    }
     const rows: Record<string, unknown>[] = [];
     const PAGE = 1000;
     for (let start = 0; start < LOCAL_ROWS_PER_TABLE_CAP; start += PAGE) {
@@ -129,6 +151,7 @@ async function loadLocalTables(userId: string): Promise<LocalTable[]> {
       name: t.name,
       columns: Array.isArray(t.columns) ? (t.columns as LocalTable["columns"]) : [],
       rows,
+      parquetPath,
     });
   }
   return out;
@@ -1005,6 +1028,11 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
     await import("@/utils/data/ingest.server")
       .then((m) => m.sweepAbandonedUploads())
       .catch((e) => console.warn("[upload-sweep] failed:", (e as Error).message));
+    // Rebuild columnar mirrors that browser-side saves left stale, and drop
+    // objects whose dataset is gone.
+    await import("@/utils/data/parquet.server")
+      .then((m) => m.sweepDatasetMirrors())
+      .catch((e) => console.warn("[parquet-sweep] failed:", (e as Error).message));
     await import("@/utils/integrations/health.server")
       .then(async (m) => {
         await m.checkIntegrationHealth(force);
