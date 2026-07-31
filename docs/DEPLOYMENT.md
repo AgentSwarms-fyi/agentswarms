@@ -274,12 +274,25 @@ and proper JOINs, none of which AlaSQL or the agent-tool interpreter support.
 - `LOCAL_ENGINE_THREADS` (default `2`).
 - `LOCAL_ENGINE_TIMEOUT_MS` (default `30000`) — the query is interrupted past this.
 
+When set, the flag applies to **all three** local paths: scheduled widget
+refresh, data-prep execution, and the `sql_query` agent tool. Prep flows are
+recompiled for the DuckDB dialect by the same compiler that emits the AlaSQL
+one, so switching engines cannot change what a flow means.
+
 Behaviour differences from the default engine are recorded and tested in
 `tests/differential/duckdb.test.ts`; all of them are cases where DuckDB follows
-standard SQL. The one most likely to be noticed: **DuckDB sorts NULLs last**
-(as PostgreSQL does), while AlaSQL places them mid-sequence, so a chart ordered
-by a column containing NULLs will order differently. See
-[TESTING.md](./TESTING.md).
+standard SQL. Two to know about before flipping it:
+
+- **NULL ordering.** DuckDB sorts NULLs last (as PostgreSQL does); AlaSQL
+  places them mid-sequence, so a chart ordered by a column containing NULLs
+  will order differently.
+- **Time-grain bucket labels.** With DuckDB a `month` grain produces
+  `2026-03-01`; AlaSQL produced the numeric `202603`. That is a better label,
+  but it means a widget using **incremental refresh** on a grained column
+  cannot merge its existing snapshot with newly-computed rows — the bucket
+  values no longer match. Run a full refresh on those widgets after switching.
+
+See [TESTING.md](./TESTING.md).
 
 **Warehouse queries** are bounded per process. Every dashboard tile, prep
 pushdown, semantic query and agent tool call goes through one driver layer, so

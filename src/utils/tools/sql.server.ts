@@ -738,10 +738,28 @@ export async function runSqlQuery(
     });
   }
 
-  const outcome = runSelectOnTables(sql, tables);
-  if (!outcome.ok) return JSON.stringify({ error: outcome.error, sql });
+  // `tables` above is the tenant boundary: loadUserTables has already applied
+  // scope filtering and shared-dataset masking. Whichever engine runs the SQL
+  // only ever sees rows this caller may read.
+  let result: Row[];
+  const { duckdbEnabled } = await import("@/utils/data/duckdb.server");
+  if (duckdbEnabled()) {
+    const { runLocalSqlDuckDB } = await import("@/utils/data/duckdb.server");
+    try {
+      const res = await runLocalSqlDuckDB(sql, tables);
+      result = res.rows;
+    } catch (e) {
+      // The agent needs the reason so it can rewrite the query, not a generic
+      // failure — DuckDB's binder errors are far more useful than the
+      // interpreter's "unsupported" messages ever were.
+      return JSON.stringify({ error: (e as Error).message, sql });
+    }
+  } else {
+    const outcome = runSelectOnTables(sql, tables);
+    if (!outcome.ok) return JSON.stringify({ error: outcome.error, sql });
+    result = outcome.rows;
+  }
 
-  const result = outcome.rows;
   const total = result.length;
   const capped = total > ROW_CAP;
   const limited = capped ? result.slice(0, ROW_CAP) : result;

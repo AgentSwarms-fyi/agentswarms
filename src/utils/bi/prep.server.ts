@@ -14,6 +14,7 @@
 import { createRequire } from "node:module";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { registerPrepFns } from "@/lib/alasqlPrepFns";
 import type { Json } from "@/integrations/supabase/types";
 import {
   buildPrepSql,
@@ -57,75 +58,6 @@ export function loadAlasql(): any {
   return alasqlModule;
 }
 
-let prepFnsRegistered = false;
-/**
- * Scalar functions the prep compiler emits that AlaSQL doesn't ship.
- * Registered once per process, on the shared module object.
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function registerPrepFns(alasql: any): void {
-  if (prepFnsRegistered) return;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const fn = alasql.fn as Record<string, (...args: any[]) => unknown>;
-  const toDate = (v: unknown): Date | null => {
-    if (v == null) return null;
-    const d = v instanceof Date ? v : new Date(v as string);
-    return Number.isNaN(d.getTime()) ? null : d;
-  };
-  const pad = (n: number) => String(n).padStart(2, "0");
-  fn.SPLIT_PART = (s, d, n) => {
-    if (s == null) return null;
-    const parts = String(s).split(String(d ?? ""));
-    const i = Number(n);
-    return i >= 1 && i <= parts.length ? parts[i - 1] : null;
-  };
-  fn.split_part = fn.SPLIT_PART;
-  const year = (v: unknown) => {
-    const d = toDate(v);
-    return d ? d.getFullYear() : null;
-  };
-  const month = (v: unknown) => {
-    const d = toDate(v);
-    return d ? d.getMonth() + 1 : null;
-  };
-  const day = (v: unknown) => {
-    const d = toDate(v);
-    return d ? d.getDate() : null;
-  };
-  fn.YEAR = year;
-  fn.year = year;
-  fn.MONTH = month;
-  fn.month = month;
-  fn.DAY = day;
-  fn.day = day;
-  fn.DATE_TRUNC = (u, v) => {
-    const d = toDate(v);
-    if (!d || typeof u !== "string") return null;
-    const y = d.getFullYear();
-    const m = d.getMonth();
-    switch (u.toLowerCase()) {
-      case "year":
-        return `${y}-01-01`;
-      case "quarter":
-        return `${y}-${pad(Math.floor(m / 3) * 3 + 1)}-01`;
-      case "month":
-        return `${y}-${pad(m + 1)}-01`;
-      case "day":
-        return `${y}-${pad(m + 1)}-${pad(d.getDate())}`;
-      default:
-        return null;
-    }
-  };
-  fn.date_trunc = fn.DATE_TRUNC;
-  const date = (v: unknown) => {
-    const d = toDate(v);
-    return d ? `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` : null;
-  };
-  fn.DATE = date;
-  fn.date = date;
-  prepFnsRegistered = true;
-}
-
 export type PrepExecution = {
   columns: { name: string; type: string }[];
   rows: Record<string, unknown>[];
@@ -149,20 +81,18 @@ export type PrepExecution = {
  * in-memory database. Loading every dataset — what the old code did — is both
  * slower and a memory hazard on accounts with many datasets.
  */
-async function loadFlowDatabase(
+async function loadFlowTables(
   userId: string,
   needed: Set<string>,
   cfg?: PrepFlowConfig,
-): Promise<{ db: unknown; truncated: string[] }> {
+): Promise<{ tables: FlowTable[]; truncated: string[] }> {
   const { data: tables, error } = await supabaseAdmin
     .from("user_data_tables")
-    .select("id, name, user_id, is_sample")
+    .select("id, name, columns, user_id, is_sample")
     .or(`user_id.eq.${userId},is_sample.eq.true`);
   if (error) throw new Error(error.message);
 
-  const alasql = loadAlasql();
-  registerPrepFns(alasql);
-  const db = new alasql.Database();
+  const loaded: FlowTable[] = [];
   const truncated: string[] = [];
 
   const sourceCap = prepSourceRowsCap();
@@ -191,8 +121,16 @@ async function loadFlowDatabase(
         sourceCap,
       );
       if (res.rows.length >= sourceCap) truncated.push(name);
-      db.exec(`CREATE TABLE \`${name}\``);
-      db.tables[name].data = res.rows;
+      // A buffered warehouse table has no locally declared schema; the column
+      // list is derived from the rows so a typed engine can still load it.
+      loaded.push({
+        name,
+        columns: res.columns.map((c) => ({
+          name: c.name,
+          type: /INT|NUM|DEC|FLOAT|DOUBLE|REAL/i.test(c.type) ? "number" : "string",
+        })),
+        rows: res.rows,
+      });
     }
   }
 
@@ -217,10 +155,25 @@ async function loadFlowDatabase(
       }
     }
     if (hitCap) truncated.push(t.name);
-    db.exec(`CREATE TABLE \`${t.name}\``);
-    db.tables[t.name].data = rows;
+    loaded.push({
+      name: t.name,
+      columns: Array.isArray(t.columns) ? (t.columns as FlowTable["columns"]) : [],
+      rows,
+    });
   }
-  return { db, truncated };
+  return { tables: loaded, truncated };
+}
+
+/** Build a fresh AlaSQL database from already-loaded tables. */
+function alasqlDatabaseFrom(tables: FlowTable[]): unknown {
+  const alasql = loadAlasql();
+  registerPrepFns(alasql);
+  const db = new alasql.Database();
+  for (const t of tables) {
+    db.exec(`CREATE TABLE \`${t.name}\``);
+    db.tables[t.name].data = t.rows;
+  }
+  return db;
 }
 
 /**
@@ -321,12 +274,29 @@ export async function executePrepFlow(
     if (s.kind === "append" && s.table) needed.add(s.table);
   }
 
-  const { db, truncated } = await loadFlowDatabase(userId, needed, cfg);
-  const sql = buildPrepSql(cfg);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const out = (db as any).exec(sql) as Record<string, unknown>[];
+  const { tables, truncated } = await loadFlowTables(userId, needed, cfg);
   const outputCap = opts.rowLimit ?? prepOutputRowsCap();
-  const produced = Array.isArray(out) ? out : [];
+
+  // The SAME compiler emits both, parameterised by dialect — so switching
+  // engines cannot change what the pipeline means, only how fast it runs.
+  const { duckdbEnabled } = await import("@/utils/data/duckdb.server");
+  const useDuck = duckdbEnabled();
+  const sql = buildPrepSql(cfg, useDuck ? { dialect: "duckdb" } : undefined);
+
+  let produced: Record<string, unknown>[];
+  if (useDuck) {
+    const { runLocalSqlDuckDB } = await import("@/utils/data/duckdb.server");
+    // rowCap is applied after, so `outputCapped` can still be reported
+    // honestly rather than silently truncating at the engine.
+    const res = await runLocalSqlDuckDB(sql, tables);
+    produced = res.rows;
+  } else {
+    const db = alasqlDatabaseFrom(tables);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const out = (db as any).exec(sql) as Record<string, unknown>[];
+    produced = Array.isArray(out) ? out : [];
+  }
+
   const limited = produced.slice(0, outputCap);
   const cast = castRows(limited, cfg);
 
@@ -354,6 +324,13 @@ function columnMetaFor(cfg: PrepFlowConfig): Record<string, { semantic_type?: st
 }
 
 const INSERT_BATCH = 500;
+
+/** A dataset loaded for a flow, in the shape both local engines accept. */
+type FlowTable = {
+  name: string;
+  columns: { name: string; type: "number" | "string" | "date" }[];
+  rows: Record<string, unknown>[];
+};
 
 /**
  * Materialise rows into a dataset owned by `userId`, replacing its contents.

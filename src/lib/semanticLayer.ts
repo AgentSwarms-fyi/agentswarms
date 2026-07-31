@@ -127,6 +127,9 @@ export type CompiledQuery = { sql: string; columns: string[] };
 /** SQL dialects we compile identifier-quoting for. */
 export type SqlDialect =
   | "alasql"
+  /** Local columnar engine. ANSI on every axis that matters here: double-quoted
+   *  identifiers, no backslash escapes, standard DATE_TRUNC and an ESCAPE clause. */
+  | "duckdb"
   | "postgres"
   | "mysql"
   | "snowflake"
@@ -215,6 +218,17 @@ export function truncateExpr(sql: string, grain: TimeGrain, dialect: SqlDialect)
       case "week":
         throw new Error("The week grain isn't supported for local datasets — use day or month.");
     }
+  }
+  if (dialect === "duckdb") {
+    // Local date columns are stored as ISO TEXT, so they must be cast before
+    // truncation — DuckDB is strict and `DATE_TRUNC('month', <varchar>)` is a
+    // binder error, not a silent coercion. TRY_CAST degrades an unparseable
+    // value to NULL rather than aborting the whole query, which matters
+    // because these columns are typed by inference from a 50-row sample.
+    //
+    // The result is rendered back to an ISO day so bucket labels stay text,
+    // matching how dates are stored everywhere else in the app.
+    return `CAST(CAST(DATE_TRUNC('${grain}', TRY_CAST(${sql} AS DATE)) AS DATE) AS VARCHAR)`;
   }
   if (dialect === "bigquery") {
     const unit = grain === "week" ? "WEEK(MONDAY)" : grain.toUpperCase();

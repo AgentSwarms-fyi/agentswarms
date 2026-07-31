@@ -10,6 +10,7 @@
 // divergence would hide.
 import { createRequire } from "node:module";
 
+import { registerPrepFns } from "@/lib/alasqlPrepFns";
 import { checkLocalReadOnlySql } from "@/lib/sqlSafety";
 import type { LoadedTable, Row } from "@/utils/tools/sql.server";
 import { runSelectOnTables } from "@/utils/tools/sql.server";
@@ -51,6 +52,9 @@ export const alasqlEngine: Engine = {
       // A fresh Database per call keeps runs isolated from each other.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const alasql = nodeRequire("alasql") as any;
+      // Production always registers these before running prep SQL. Skipping
+      // them here would report SPLIT_PART as broken when it works in the app.
+      registerPrepFns(alasql);
       const db = new alasql.Database();
       for (const t of tables) {
         db.exec(`CREATE TABLE \`${t.name}\``);
