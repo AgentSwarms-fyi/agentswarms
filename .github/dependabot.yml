@@ -1,0 +1,37 @@
+# Dependabot was already opening pull requests against this repository with no
+# configuration governing them, which produces a steady trickle of one-package
+# PRs that are individually tedious and collectively ignored. This groups them
+# so review is a weekly batch rather than a stream.
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # Patch and minor bumps travel together: they are the ones that are safe
+      # to merge on a green CI run, and reviewing thirty of them separately is
+      # how a security patch ends up buried.
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+    ignore:
+      # Majors are deliberate migrations, not dependency hygiene. React 19,
+      # Vite and TanStack Start are load-bearing here; a major arriving as an
+      # automated PR invites a merge that breaks the build for everyone.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    labels: ["dependencies"]
+    commit-message:
+      prefix: "deps"
+
+  # Keep the workflow's own actions current. Stale action majors are a common
+  # source of sudden CI breakage when GitHub retires a runtime.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    labels: ["dependencies", "ci"]
+    commit-message:
+      prefix: "ci"

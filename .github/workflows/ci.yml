@@ -13,21 +13,35 @@ permissions:
   contents: read
 
 concurrency:
+  # Cancel superseded runs on a branch, but never on main: a cancelled main run
+  # leaves the default branch with no verdict at all.
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # The README advertises Node >= 20.19, so the floor is tested and not
+        # merely claimed. Testing only the newest version means the supported
+        # range is a guess. `fail-fast: false` so one version's failure still
+        # reports the other's result.
+        node: ["20.19", "22"]
+    name: verify (node ${{ matrix.node }})
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ matrix.node }}
           cache: npm
 
+      # `npm ci` — never `npm install`. It fails loudly when package-lock.json
+      # is out of step with package.json instead of quietly resolving something
+      # different from what everyone else builds.
       - name: Install dependencies
         run: npm ci
 
@@ -40,12 +54,15 @@ jobs:
       - name: Test
         run: npm run test
 
-      # The build needs the VITE_* values baked in, but only as public
-      # client config. Placeholders are enough to prove the bundle compiles.
+      # NODE_OPTIONS is set by the build script itself (via cross-env, so it
+      # works on Windows too) and must not be duplicated here — two sources for
+      # one setting is how they drift apart.
+      #
+      # The VITE_* values are public client config, and placeholders are enough
+      # to prove the bundle compiles.
       - name: Build
         run: npm run build
         env:
-          NODE_OPTIONS: --max-old-space-size=6144
           VITE_SUPABASE_URL: https://placeholder.supabase.co
           VITE_SUPABASE_PUBLISHABLE_KEY: placeholder-anon-key
           VITE_SUPABASE_PROJECT_ID: placeholder
@@ -54,6 +71,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results
+          name: test-results-node-${{ matrix.node }}
           path: test-results/
           if-no-files-found: ignore

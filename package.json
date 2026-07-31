@@ -10,6 +10,9 @@
   "private": true,
   "sideEffects": false,
   "type": "module",
+  "engines": {
+    "node": ">=20.19"
+  },
   "scripts": {
     "dev": "vite dev",
     "build": "cross-env NODE_OPTIONS=--max-old-space-size=6144 vite build --sourcemap false",

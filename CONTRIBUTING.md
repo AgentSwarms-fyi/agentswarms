@@ -22,6 +22,17 @@ environment variables).
 4. If your change touches the database schema, add a new migration under
    `supabase/migrations/` rather than editing an existing one — migrations
    are append-only and already applied to running instances.
+
+   **Take the next number after the highest file already there — do not use
+   today's date.** The version prefixes in this directory are a synthetic
+   counter that has run ahead of the calendar (you will see a "day" of 32 or
+   71), and `supabase db push` keys on that prefix: a version that duplicates
+   an existing one, or sorts before it, is treated as **already applied and
+   silently skipped**. The failure surfaces much later as "table not found in
+   schema cache" against a migration that looks present in the repo.
+   `tests/unit/migrations.test.ts` fails on a duplicate, but only after you
+   have created it.
+
 5. Open a pull request describing **what** changed and **why**. Link any
    related issue.
 
