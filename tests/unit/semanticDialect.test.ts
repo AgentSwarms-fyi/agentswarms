@@ -136,6 +136,23 @@ describe("compileSemanticQuery — a backtick-authored model on DuckDB", () => {
     ]);
   });
 
+  it("normalises a filtered measure's CASE WHEN condition", async () => {
+    // `filters` is embedded as verbatim as `sql` is, and was missed by the
+    // first pass of this fix — a backtick simply moved inside the CASE.
+    const filtered: SemanticModel = {
+      ...backtickModel,
+      metrics: [{ name: "west_revenue", agg: "sum", sql: "`Sales`", filters: ["`Region` = 'West'"] }],
+    };
+    const { sql } = compileSemanticQuery(
+      filtered,
+      { model: "saas", metrics: ["west_revenue"] },
+      { dialect: "duckdb" },
+    );
+    expect(sql).not.toContain("`");
+    const { rows } = await runLocalSqlDuckDB(sql, tables);
+    expect(rows).toEqual([{ west_revenue: 15 }]);
+  });
+
   it("normalises a JOIN's ON condition too", () => {
     const joined: SemanticModel = {
       ...backtickModel,

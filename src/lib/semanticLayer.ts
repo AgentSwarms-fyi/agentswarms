@@ -481,7 +481,13 @@ export function compileSemanticQuery(
   const metricByName = new Map<string, SemanticMetric>();
   for (const m of model.metrics) {
     if (!isValidFieldName(m.name)) throw new Error(`Invalid metric name "${m.name}"`);
-    metricByName.set(m.name, m.sql ? { ...m, sql: q0(m.sql) } : m);
+    // `filters` (a filtered measure's CASE WHEN condition) is an authored
+    // fragment too, and is embedded just as verbatim as `sql`.
+    metricByName.set(m.name, {
+      ...m,
+      ...(m.sql ? { sql: q0(m.sql) } : {}),
+      ...(m.filters ? { filters: m.filters.map(q0) } : {}),
+    });
   }
 
   const dims = q.dimensions ?? [];
