@@ -15,17 +15,47 @@ npm run test:watch
 
 ## What is covered
 
-| Area                   | File                                        | Why it matters                                        |
-| ---------------------- | ------------------------------------------- | ----------------------------------------------------- |
-| Read-only SQL guard    | `tests/unit/sqlSafety.test.ts`              | A security boundary — everything past it executes     |
-| Local SQL semantics    | `tests/unit/localEngine.test.ts`            | What any engine must get right (NULLs, paging, joins) |
-| Cross-engine agreement | `tests/differential/duckdb.test.ts`         | AlaSQL and DuckDB must answer the same question alike |
-| Dialect routing        | `tests/differential/dialectRouting.test.ts` | Compiled SQL must run on the engine that receives it  |
-| DuckDB type boundary   | `tests/unit/duckdbEngine.test.ts`           | BigInt, DECIMAL, identifier quoting, isolation        |
-| Parquet mirror         | `tests/unit/parquetMirror.test.ts`          | The cache must answer identically to the rows         |
-| Data quality checks    | `tests/unit/dataQualityCore.test.ts`        | Decides whether a dataset is trustworthy              |
-| Upload parsing         | `tests/unit/datasetParse.test.ts`           | Decides the shape of every uploaded dataset           |
-| NL→SQL eval harness    | `tests/unit/nl2sqlEval.test.ts`             | Keeps the eval itself honest, without a model call    |
+| Area                    | File                                        | Why it matters                                        |
+| ----------------------- | ------------------------------------------- | ----------------------------------------------------- |
+| Read-only SQL guard     | `tests/unit/sqlSafety.test.ts`              | A security boundary — everything past it executes     |
+| Local SQL semantics     | `tests/unit/localEngine.test.ts`            | What any engine must get right (NULLs, paging, joins) |
+| Cross-engine agreement  | `tests/differential/duckdb.test.ts`         | AlaSQL and DuckDB must answer the same question alike |
+| Dialect routing         | `tests/differential/dialectRouting.test.ts` | Compiled SQL must run on the engine that receives it  |
+| DuckDB type boundary    | `tests/unit/duckdbEngine.test.ts`           | BigInt, DECIMAL, identifier quoting, isolation        |
+| Parquet mirror          | `tests/unit/parquetMirror.test.ts`          | The cache must answer identically to the rows         |
+| Data quality checks     | `tests/unit/dataQualityCore.test.ts`        | Decides whether a dataset is trustworthy              |
+| Upload parsing          | `tests/unit/datasetParse.test.ts`           | Decides the shape of every uploaded dataset           |
+| NL→SQL eval harness     | `tests/unit/nl2sqlEval.test.ts`             | Keeps the eval itself honest, without a model call    |
+| Request limiting        | `tests/unit/rateLimit.test.ts`              | Enforces the documented governance ceilings           |
+| Dashboard pages         | `tests/unit/biDashboardPages.test.ts`       | A widget must land where the dashboard reads it       |
+| **End-to-end journeys** | `tests/journey/`                            | The seams between units — where the real bugs were    |
+
+## Journey tests
+
+```bash
+npx vitest run tests/journey
+```
+
+Unit tests check a function. Journey tests check the SEAMS between functions,
+which is where every defect that reached a user actually lived: a semantic model
+that would not compile for the configured engine, a widget written to a mirror
+nothing reads, a chart that survived a reload but rendered empty. Each unit
+involved was correct and tested.
+
+`tests/journey/semanticToDashboard.test.ts` chains the REAL production functions
+in the order the product calls them — compile the metric, run it on the
+configured engine, build the widget, place it on a page, strip it for storage,
+read it back, merge the stored results — and asserts on what the user would see.
+Both engines are driven through `runLocalSelect` via `LOCAL_ENGINE`, so engine
+selection is under test too.
+
+**Nothing in here may re-implement production logic.** If a step needs a helper
+buried in a component or a route handler, extract it. A copy passes while the
+product breaks, which is precisely how these bugs survived.
+
+A journey test is only worth its runtime if it FAILS for the original reason.
+These were verified by mutation: reintroducing the quoting bug fails 4 of them,
+reintroducing the mirror-only write fails 8. Do the same when you add one.
 
 ## The differential harness
 
@@ -177,11 +207,25 @@ right things) without spending a model call.
 Tests that need a real Supabase project live under `tests/integration/` and are
 **excluded from the default run** (see `vitest.config.ts`). CI must never be
 able to write to a database, and a fork must be able to run the suite. Run them
-deliberately, against a throwaway project, with a filled-in `.env`:
+deliberately, against a throwaway project:
 
 ```bash
-npx vitest run --dir tests/integration
+npm run test:integration
 ```
+
+They need `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`. Without them the
+suite **skips cleanly** rather than failing, so running it on a machine with no
+project configured is a no-op.
+
+`--dir tests/integration` does NOT work, which is why there is a dedicated
+config: the default config excludes that directory, and `--dir` narrows the
+search without lifting the exclude, so the run exits "No test files found".
+
+What they cover today: the cross-instance rate limiter and concurrency leases —
+specifically that a configured ceiling holds across INDEPENDENT callers (the
+guarantee that was broken when those limits were counted per process), and that
+an expired lease frees its slot so a crashed instance self-heals. Those are
+properties of the SQL, and no amount of mocking can demonstrate them.
 
 ## CI
 

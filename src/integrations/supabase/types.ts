@@ -3722,6 +3722,45 @@ export type Database = {
         };
         Relationships: [];
       };
+      rate_limit_hits: {
+        Row: {
+          id: number;
+          bucket: string;
+          at: string;
+        };
+        Insert: {
+          id?: number;
+          bucket: string;
+          at?: string;
+        };
+        Update: {
+          id?: number;
+          bucket?: string;
+          at?: string;
+        };
+        Relationships: [];
+      };
+      concurrency_leases: {
+        Row: {
+          id: string;
+          bucket: string;
+          acquired_at: string;
+          expires_at: string;
+        };
+        Insert: {
+          id?: string;
+          bucket: string;
+          acquired_at?: string;
+          expires_at: string;
+        };
+        Update: {
+          id?: string;
+          bucket?: string;
+          acquired_at?: string;
+          expires_at?: string;
+        };
+        Relationships: [];
+      };
       otel_export_cursor: {
         Row: {
           last_id: string;

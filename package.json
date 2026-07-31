@@ -19,6 +19,7 @@
     "format": "prettier --write .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:differential": "tsx tests/differential/report.ts",
     "eval:nl2sql": "tsx evals/nl2sql/run.ts"
   },
