@@ -173,12 +173,21 @@ export function indexEdges<E extends GraphEdge>(edges: E[]): GraphIndex<E> {
  * Self-edges are ignored for ordering — a loop node points at itself, and that
  * is iteration, not a dependency. Any other cycle is a graph the executor
  * cannot run, and saying so is better than looping forever.
+ *
+ * An edge whose SOURCE is not in `nodes` is ignored too. A graph can carry one
+ * after an import, an AI-authored build, or a node deleted without its edges;
+ * counting it as a dependency left its target permanently un-ready, which
+ * surfaced as "Swarm has a cycle" — refusing to run the whole swarm and
+ * blaming something that isn't there. A dangling edge can never deliver a
+ * value, so it cannot gate anything.
  */
 export function topoLevelIds(nodes: GraphNode[], edges: GraphEdge[]): string[][] {
   const incoming = new Map<string, Set<string>>();
   for (const n of nodes) incoming.set(n.id, new Set());
+  const known = new Set(nodes.map((n) => n.id));
   for (const e of edges) {
     if (e.source === e.target) continue;
+    if (!known.has(e.source)) continue;
     incoming.get(e.target)?.add(e.source);
   }
   const levels: string[][] = [];
