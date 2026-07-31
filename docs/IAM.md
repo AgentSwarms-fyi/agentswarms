@@ -18,7 +18,17 @@ manage everything else:
   Enforced server-side on every LLM call and reflected in the model pickers.
 - **Shares** — grant users or groups **read-only** access to any knowledge
   base, SQL data table, secret, or BI dashboard; recipients' agents can
-  search/query them but never modify them.
+  search/query them but never modify them. Dataset and dashboard grants also
+  take a **row filter** (only rows whose column matches the listed values) and
+  a **column mask** (named columns are removed entirely, not blanked). Both
+  are enforced **inside the database** — a grantee cannot read a shared
+  dataset's raw rows at all; every read goes through a security-definer
+  function that applies the restriction first, so masks hold whether the data
+  is reached through the SQL workbench, an agent tool, or the REST API. When
+  several grants apply to the same person the effect is **union of access**:
+  row filters combine (any allowing grant admits the row) and column masks
+  intersect (a column is hidden only when *every* grant hides it), so holding
+  two grants never leaves someone with less access than one alone.
 - **Settings** — flip the instance to **invite-only**: public self-signup
   (including OAuth) is rejected at the database level, while invited,
   admin-created, and SSO-provisioned users still get in.

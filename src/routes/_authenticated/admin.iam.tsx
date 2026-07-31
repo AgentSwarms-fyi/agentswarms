@@ -1104,7 +1104,10 @@ function AccessTab({
   const [shareFilterColumn, setShareFilterColumn] = useState("");
   const [shareFilterValues, setShareFilterValues] = useState("");
   const [shareMaskColumns, setShareMaskColumns] = useState("");
-  const shareIsDashboard = shareResourceType === "bi_dashboard";
+  // Dashboards and datasets both serve rows, so both accept a row filter and
+  // a column mask. Restricting one without the other left a way around it.
+  const shareIsDashboard =
+    shareResourceType === "bi_dashboard" || shareResourceType === "data_table";
   const shareTypeOptions: { value: ShareResourceType; label: string }[] = [
     { value: "knowledge_base", label: "📚 Knowledge base" },
     { value: "data_table", label: "🗃 SQL data table" },

@@ -22,6 +22,7 @@ import {
   type BiCrossFilter,
   type BiFilterState,
 } from "@/lib/biDashboards";
+import { dashboardFreshness } from "@/lib/biFreshness";
 import { cn } from "@/lib/utils";
 import { biGetPublicDashboard, type PublicDashboard } from "@/utils/bi.functions";
 
@@ -102,6 +103,10 @@ function PublicBiDashboardPage() {
     ]),
   );
 
+  // Freshness is computed from EVERY widget on the dashboard, not just the
+  // active page — a viewer switching pages shouldn't see the claim change.
+  const freshness = dashboardFreshness(pages.flatMap((p) => p.widgets));
+
   return (
     <div className={isEmbed ? "min-h-screen bg-background" : "min-h-screen bg-muted/30"}>
       {!isEmbed && (
@@ -118,9 +123,22 @@ function PublicBiDashboardPage() {
                 </p>
               )}
             </div>
-            <p className="flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/50 px-3 py-1 text-xs text-muted-foreground">
+            {/* The DATA's age, not the document's. This used to read
+                `updated_at`, which changes when someone renames a tile — so a
+                dashboard whose numbers were months old could claim to be
+                current. The oldest widget decides: a dashboard is only as
+                fresh as its stalest tile. */}
+            <p
+              className={cn(
+                "flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs",
+                freshness?.stale
+                  ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                  : "border-border/60 bg-muted/50 text-muted-foreground",
+              )}
+              title={freshness ? `Oldest widget refreshed ${freshness.absolute}` : undefined}
+            >
               <Clock className="h-3 w-3" />
-              Data as of {new Date(dashboard.updated_at).toLocaleString()}
+              {freshness ? `Data as of ${freshness.relative}` : "Data not refreshed yet"}
             </p>
           </div>
         </header>

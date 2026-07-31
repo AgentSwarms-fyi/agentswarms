@@ -3778,6 +3778,11 @@ export type Database = {
         Args: { uid: string };
         Returns: boolean;
       };
+      /** Rows of a SHARED dataset, with the grant's row filter + column mask applied. */
+      shared_dataset_rows: {
+        Args: { _table_id: string };
+        Returns: Json[];
+      };
       insert_sample_rows: {
         Args: { _rows: Json; _table_id: string };
         Returns: number;

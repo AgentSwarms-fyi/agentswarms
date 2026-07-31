@@ -284,10 +284,26 @@ export async function hydrateFromSupabase(): Promise<DatasetMeta[]> {
     .order("created_at", { ascending: false });
   if (error || !tables) return [];
 
+  // Who we are decides HOW rows are read: own/sample tables come straight
+  // from user_data_rows, while a dataset SHARED with us goes through the
+  // shared_dataset_rows() function so the grant's row filter and column mask
+  // are applied inside Postgres. RLS no longer serves those rows directly —
+  // a mask enforced only in the browser would be no mask at all.
+  const { data: auth } = await supabase.auth.getUser();
+  const myId = auth.user?.id ?? null;
+
   // Hydrate every table in parallel — and within each table, fetch row pages
   // in parallel batches as well. Big speedup vs. the old serial loop.
   const PAGE = 1000;
   const PARALLEL_PAGES = 5;
+
+  async function loadShared(tableId: string): Promise<Record<string, unknown>[]> {
+    const { data, error: rpcErr } = await supabase.rpc("shared_dataset_rows", {
+      _table_id: tableId,
+    });
+    if (rpcErr || !Array.isArray(data)) return [];
+    return data as Record<string, unknown>[];
+  }
 
   async function loadOne(t: {
     id: string;
@@ -298,6 +314,23 @@ export async function hydrateFromSupabase(): Promise<DatasetMeta[]> {
     user_id: string | null;
   }): Promise<DatasetMeta> {
     const cols = (Array.isArray(t.columns) ? t.columns : []) as ColumnDef[];
+    const shared = !t.is_sample && !!myId && t.user_id !== myId;
+    if (shared) {
+      const rows = await loadShared(t.id);
+      registerTable(t.name, rows);
+      // Report the columns actually present after masking, so pickers and
+      // the AI never offer a column the viewer cannot see.
+      const visible = rows.length > 0 ? cols.filter((c) => Object.hasOwn(rows[0], c.name)) : cols;
+      return {
+        id: t.id,
+        name: t.name,
+        source_filename: t.source_filename,
+        is_sample: t.is_sample,
+        user_id: t.user_id,
+        columns: visible,
+        row_count: rows.length,
+      };
+    }
     const allRows: Record<string, unknown>[] = [];
     let pageIndex = 0;
     for (;;) {

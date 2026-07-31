@@ -852,11 +852,16 @@ export const iamCreateGrant = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<IamError | { ok: true }> => {
     const guard = await requireSuperadmin(data.access_token);
     if (!guard.ok) return guard;
-    if (data.row_filter && data.resource_type !== "bi_dashboard") {
-      return { ok: false, error: "Row filters only apply to BI dashboard grants" };
+    // Row filters and column masks apply to the two resource types that
+    // actually serve rows: dashboards and datasets. Granting a masked
+    // dashboard while the underlying dataset stayed all-or-nothing was a hole
+    // — the same person could read past the mask through SQL.
+    const RESTRICTABLE = new Set(["bi_dashboard", "data_table"]);
+    if (data.row_filter && !RESTRICTABLE.has(data.resource_type)) {
+      return { ok: false, error: "Row filters only apply to BI dashboard and dataset grants" };
     }
-    if (data.column_mask?.length && data.resource_type !== "bi_dashboard") {
-      return { ok: false, error: "Column masks only apply to BI dashboard grants" };
+    if (data.column_mask?.length && !RESTRICTABLE.has(data.resource_type)) {
+      return { ok: false, error: "Column masks only apply to BI dashboard and dataset grants" };
     }
     // Merge on conflict so re-granting updates the row filter in place.
     const { error } = await supabaseAdmin.from("iam_resource_grants").upsert(

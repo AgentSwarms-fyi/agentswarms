@@ -16,6 +16,7 @@ import { BiChartRender, fmtBiValue, toBiNumber } from "@/components/bi/BiChartRe
 import { MarkdownMessage } from "@/components/playground/MarkdownMessage";
 import type { BiColumnFormat } from "@/lib/biAgent";
 import { WIDGET_ACCENTS, type BiImage, type BiWidget } from "@/lib/biDashboards";
+import { describeFreshness } from "@/lib/biFreshness";
 import { cn } from "@/lib/utils";
 
 const TABLE_PAGE = 50;
@@ -217,6 +218,11 @@ export function BiWidgetCard({
   const columns = widget.columns ?? [];
   // Ontology widgets render from the spec inside `chart` — no row snapshot.
   const isOntology = chart.type === "ontology";
+  // Text and image tiles have no queried data, so an age would be meaningless.
+  const freshness = useMemo(
+    () => (isText || isImage ? null : describeFreshness(widget.refreshed_at)),
+    [isText, isImage, widget.refreshed_at],
+  );
   const Icon = isImage
     ? ImageIcon
     : isText
@@ -270,6 +276,23 @@ export function BiWidgetCard({
             }
           >
             Partial
+          </span>
+        )}
+        {/* When the data was last computed. Every widget already recorded
+            this; not showing it meant a viewer — especially on a published
+            or embedded dashboard, which always renders a stored snapshot —
+            had no way to tell last night's numbers from last quarter's. */}
+        {freshness && (
+          <span
+            className={cn(
+              "shrink-0 cursor-help text-[9px] tabular-nums",
+              freshness.stale
+                ? "font-semibold text-amber-600 dark:text-amber-400"
+                : "text-muted-foreground/70",
+            )}
+            title={`Data last refreshed ${freshness.absolute}`}
+          >
+            {freshness.relative}
           </span>
         )}
         <div className="opacity-0 transition-opacity has-[[data-state=open]]:opacity-100 group-focus-within/widget:opacity-100 group-hover/widget:opacity-100">
