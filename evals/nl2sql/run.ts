@@ -26,6 +26,7 @@ import Papa from "papaparse";
 import { buildSqlPrompt } from "@/lib/biAgent";
 import { coerceRow, inferColumns, type ColumnDef } from "@/lib/datasetParse";
 import { runLocalSelect, type LocalEngineTable } from "@/utils/data/localEngine.server";
+import { parseModelChoice } from "@/utils/providers/modelChoice";
 import { grade, summarize, type Verdict } from "./grade";
 import { QUESTIONS, type EvalQuestion } from "./questions";
 
@@ -82,6 +83,9 @@ async function generate(q: EvalQuestion, schema: string): Promise<string> {
     plan: { intent: q.question, tables: q.tables, steps: [] } as never,
     schema,
   });
+  // The endpoint takes provider and model as separate fields; handing it the
+  // encoded "provider::model" choice is a 400.
+  const choice = parseModelChoice(MODEL);
   const res = await fetch(`${BASE}/api/bi`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${TOKEN}` },
@@ -89,7 +93,7 @@ async function generate(q: EvalQuestion, schema: string): Promise<string> {
       stage: "sql",
       systemPrompt,
       userPrompt,
-      ...(MODEL ? { model: MODEL } : {}),
+      ...(choice ? { provider: choice.provider, model: choice.model } : {}),
     }),
   });
   const body = (await res.json()) as { result?: { sql?: string }; error?: string };

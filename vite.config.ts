@@ -67,7 +67,11 @@ export default defineConfig(async ({ command, mode }) => {
     command === "serve"
       ? {
           optimizeDeps: {
-            exclude: ["nodemailer"],
+            // @duckdb/node-api resolves to a platform-specific `.node` binary.
+            // esbuild has no loader for those, so leaving it in the optimizer
+            // crashes `vite dev` outright — the production build already
+            // externalises it, which is why this only ever broke dev.
+            exclude: ["nodemailer", "@duckdb/node-api", "@duckdb/node-bindings"],
             include: ["pptxgenjs", "docx", "write-excel-file/browser"],
             esbuildOptions: {
               plugins: [

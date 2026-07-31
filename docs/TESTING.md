@@ -15,13 +15,13 @@ npm run test:watch
 
 ## What is covered
 
-| Area | File | Why it matters |
-| --- | --- | --- |
-| Read-only SQL guard | `tests/unit/sqlSafety.test.ts` | A security boundary — everything past it executes |
-| SELECT interpreter | `tests/unit/sqlInterpreter.test.ts` | The engine behind the `sql_query` agent tool |
-| Cross-engine agreement | `tests/differential/differential.test.ts` | The app has more than one local SQL engine |
-| Data quality checks | `tests/unit/dataQualityCore.test.ts` | Decides whether a dataset is trustworthy |
-| Upload parsing | `tests/unit/datasetParse.test.ts` | Decides the shape of every uploaded dataset |
+| Area                   | File                                      | Why it matters                                    |
+| ---------------------- | ----------------------------------------- | ------------------------------------------------- |
+| Read-only SQL guard    | `tests/unit/sqlSafety.test.ts`            | A security boundary — everything past it executes |
+| SELECT interpreter     | `tests/unit/sqlInterpreter.test.ts`       | The engine behind the `sql_query` agent tool      |
+| Cross-engine agreement | `tests/differential/differential.test.ts` | The app has more than one local SQL engine        |
+| Data quality checks    | `tests/unit/dataQualityCore.test.ts`      | Decides whether a dataset is trustworthy          |
+| Upload parsing         | `tests/unit/datasetParse.test.ts`         | Decides the shape of every uploaded dataset       |
 
 ## The differential harness
 
@@ -101,12 +101,35 @@ per-category breakdown, so a regression can be located rather than just felt.
 **It costs money and never runs in CI.** It calls a real model through your own
 `/api/bi` endpoint, so it needs a running app and a token:
 
-| Variable | Meaning |
-| --- | --- |
-| `EVAL_BASE_URL` | The running app (default `http://localhost:8080`) |
-| `EVAL_ACCESS_TOKEN` | A Supabase access token for a signed-in user |
-| `EVAL_MODEL` | Optional `provider::model` choice |
-| `EVAL_ONLY` | Run one question id, or one category |
+| Variable            | Meaning                                           |
+| ------------------- | ------------------------------------------------- |
+| `EVAL_BASE_URL`     | The running app (default `http://localhost:8080`) |
+| `EVAL_ACCESS_TOKEN` | A Supabase access token for a signed-in user      |
+| `EVAL_MODEL`        | Optional `provider::model` choice                 |
+| `EVAL_ONLY`         | Run one question id, or one category              |
+
+### Baseline
+
+| Date       | Model                                       | Question set     | Execution accuracy |
+| ---------- | ------------------------------------------- | ---------------- | ------------------ |
+| 2026-07-31 | `anthropic/claude-haiku-4.5` via OpenRouter | 23 questions, v1 | **78.3% (18/23)**  |
+
+Per category: aggregate 4/4, grouping 4/4, date 3/3, ratio 2/2, lookup 2/2,
+ranking 2/4, filter 1/3, ambiguity 0/1.
+
+The five failures, and what they say:
+
+- **filter (2)** — genuinely wrong SQL. One counted 2,098 rows where the answer
+  is 4,219; the other filtered two string values and matched nothing. Literal
+  values that must be read exactly out of the schema are the weak spot.
+- **ranking (2)** — one returned an empty result; one returned the right five
+  rows with five columns where the reference has three.
+- **ambiguity (1)** — right ordering, but extra columns and no `LIMIT 1`.
+
+So roughly half the misses are "right analysis, wrong result shape". That is a
+prompt problem, not a reasoning problem, and it is the first thing to attack.
+A bigger model would likely score higher; Haiku was chosen to keep the run
+cheap enough to repeat often.
 
 ### How it grades
 
@@ -117,7 +140,7 @@ aliases and column order are ignored; values are not. Row order matters only
 for questions marked `ordered` — a ranking returned in the wrong order is the
 wrong answer.
 
-Failures are separated into *wrong answer*, *engine error* and *refused*,
+Failures are separated into _wrong answer_, _engine error_ and _refused_,
 because those need different fixes.
 
 ### Adding questions

@@ -49,15 +49,45 @@ export function grade(input: GradeInput): Verdict {
   return { outcome: "wrong", expected, actual };
 }
 
-/** Canonical form with column names stripped, so aliases don't matter. */
+/**
+ * Canonical form with column names stripped, so aliases don't matter.
+ *
+ * Columns are matched by POSITION — the order they appear in the SELECT, which
+ * both engines preserve. An earlier version sorted by key name first, which
+ * defeated the purpose: `SELECT season, COUNT(*) AS n` sorts to (n, season)
+ * while `... AS season_count` sorts to (season, season_count), so simply
+ * renaming a column reordered the comparison and a correct answer was scored
+ * wrong.
+ */
 function canonValues(rows: Record<string, unknown>[], ordered: boolean): string {
-  const positional = rows.map((r) => {
-    // Sort by key so column ORDER doesn't matter either; only the multiset of
-    // values in each row does.
-    const keys = Object.keys(r).sort();
-    return Object.fromEntries(keys.map((k, i) => [`c${i}`, r[k]]));
-  });
+  const positional = rows.map((r) =>
+    Object.fromEntries(Object.values(r).map((v, i) => [`c${i}`, roundForCompare(v)])),
+  );
   return canonRows(positional, ordered);
+}
+
+/**
+ * Numbers are compared to 2 decimal places, so a deliberately rounded answer
+ * counts as correct.
+ *
+ * A model that answers "12.47%" to "what is our profit margin" has answered
+ * correctly; the reference's 12.467212 is the same number to more places.
+ * Scoring that as a failure would measure formatting, not correctness.
+ *
+ * Fixed decimals rather than significant figures or a relative epsilon: a
+ * relative grid derived from the value snaps every number to itself and does
+ * nothing (which is exactly what a first attempt here did), and significant
+ * figures would blur large integers — 1,043,887 and 1,043,900 must stay
+ * different.
+ */
+const COMPARE_DECIMALS = 2;
+
+function roundForCompare(v: unknown): unknown {
+  if (typeof v === "string" && v.trim() === "") return v;
+  const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
+  if (!Number.isFinite(n)) return v;
+  const f = 10 ** COMPARE_DECIMALS;
+  return Math.round(n * f) / f;
 }
 
 export type Summary = {
