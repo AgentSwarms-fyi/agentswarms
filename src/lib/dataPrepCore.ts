@@ -333,6 +333,13 @@ export type PrepSourceBinding = {
   ref: string;
 };
 
+/**
+ * Incremental refresh: reprocess only the newest slice instead of rebuilding
+ * the whole output. `column` is a DATE output column that advances over time
+ * (created_at, updated_at…).
+ */
+export type PrepIncremental = { column: string };
+
 export type PrepFlowConfig = {
   base: string | null;
   joins: PrepJoin[];
@@ -340,6 +347,8 @@ export type PrepFlowConfig = {
   steps: PrepStep[];
   /** Flow table name → its origin. Only warehouse-linked tables appear. */
   sources?: Record<string, PrepSourceBinding>;
+  /** When set (and eligible), refreshes reprocess from the watermark. */
+  incremental?: PrepIncremental;
 };
 
 /**
@@ -884,6 +893,79 @@ export type FoldVerdict =
   | { foldable: true }
   | { foldable: false; reason: string; stepIndex?: number };
 
+// ── Incremental refresh eligibility ───────────────────────────────────────
+//
+// Incremental is only SOUND when each output row derives from one input row,
+// so reprocessing a tail slice can replace exactly that slice. A summarize
+// folds many rows into one — appending fresh aggregates would double-count —
+// and a union brings in a table the watermark doesn't govern. Those refuse.
+
+/** Steps that destroy the row-to-row correspondence incremental relies on. */
+const NON_INCREMENTAL_STEPS: Record<string, string> = {
+  aggregate: "Summarize combines many rows into one, so a partial re-run would double-count.",
+  pivot: "Pivot aggregates across the whole dataset, so it can't be built from a slice.",
+  dedupe: "Remove-duplicates compares every row, which a partial re-run can't do.",
+  append: "Append unions another table that the watermark doesn't cover.",
+};
+
+export type IncrementalVerdict =
+  | { ok: true; column: string }
+  | { ok: false; reason: string; stepIndex?: number };
+
+/**
+ * Is incremental refresh sound for this flow, with this watermark column?
+ * The column must be a DATE that exists in the SOURCE projection — a value
+ * invented by a later step can't filter the source that feeds it.
+ */
+export function incrementalEligibility(cfg: PrepFlowConfig): IncrementalVerdict {
+  const column = cfg.incremental?.column;
+  if (!column) return { ok: false, reason: "No watermark column chosen." };
+  const src = cfg.columns.find((c) => c.include && c.outputName === column);
+  if (!src) {
+    return {
+      ok: false,
+      reason: `"${column}" isn't one of the flow's source columns — pick a column that comes straight from a source table.`,
+    };
+  }
+  if (src.type !== "date") {
+    return {
+      ok: false,
+      reason: `"${column}" must be a Date column (dates compare reliably in storage; other types don't).`,
+    };
+  }
+  for (let i = 0; i < cfg.steps.length; i++) {
+    const blocked = NON_INCREMENTAL_STEPS[cfg.steps[i].kind];
+    if (blocked) return { ok: false, reason: blocked, stepIndex: i };
+  }
+  return { ok: true, column };
+}
+
+/**
+ * The flow, restricted to rows at or after `since`.
+ *
+ * The filter goes FIRST so the source scan itself is narrowed (and, on a
+ * folded flow, the warehouse gets a WHERE it can use an index for). `>=`
+ * rather than `>` is deliberate: the caller deletes the same range before
+ * inserting, so boundary rows are recomputed exactly once instead of being
+ * duplicated (`>=` alone) or lost forever on a tie (`>`).
+ */
+export function withIncrementalWindow(cfg: PrepFlowConfig, since: string): PrepFlowConfig {
+  const column = cfg.incremental?.column;
+  if (!column) return cfg;
+  return {
+    ...cfg,
+    steps: [
+      {
+        id: "__incremental__",
+        kind: "filter",
+        combine: "AND",
+        conditions: [{ id: "__wm__", column, op: ">=", value: since }],
+      },
+      ...cfg.steps,
+    ],
+  };
+}
+
 /**
  * Can this flow be compiled to `dialect` with semantics identical to the
  * local engine? Returns the first blocking reason, so the UI can name it.
@@ -1181,8 +1263,15 @@ export function parsePrepConfig(v: Json): PrepFlowConfig {
       ? (cfg.sources as Record<string, PrepSourceBinding>)
       : undefined;
 
+  const incremental =
+    cfg.incremental &&
+    typeof cfg.incremental === "object" &&
+    typeof (cfg.incremental as { column?: unknown }).column === "string"
+      ? { column: (cfg.incremental as { column: string }).column }
+      : undefined;
+
   if (Array.isArray(cfg.steps)) {
-    return { base, joins, columns, steps: cfg.steps as PrepStep[], sources };
+    return { base, joins, columns, steps: cfg.steps as PrepStep[], sources, incremental };
   }
 
   // Legacy shape: { calcs, filters, aggregate } → ordered steps.
@@ -1223,5 +1312,5 @@ export function parsePrepConfig(v: Json): PrepFlowConfig {
     });
   }
 
-  return { base, joins, columns, steps, sources };
+  return { base, joins, columns, steps, sources, incremental };
 }

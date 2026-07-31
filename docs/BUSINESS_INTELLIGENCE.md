@@ -138,6 +138,26 @@ and reports. An editable dashboard is called a **BI project**:
   sampled. Re-running writes to the same dataset, so every model, widget and
   flow pointing at it keeps working. External warehouse tables can be pulled in
   as capped snapshots to join against local data.
+- **Pushdown (query folding)** — an external table can be **linked live**
+  instead of snapshotted. When every source in a flow is linked to the *same*
+  connection and every step is provably translatable, the whole pipeline is
+  compiled into that warehouse's SQL and runs there — a summarize over
+  hundreds of millions of rows returns the summary, not the rows. The same
+  compiler emits both the local and the warehouse SQL (so they cannot drift),
+  the folded query is validated against the real connection before it's
+  trusted, and anything unprovable — an unrecognised function in a calculated
+  field, remove-duplicates on specific columns, sources spanning two
+  connections — falls back to local execution with the reason shown. The
+  Output card always says where the work happened.
+- **Incremental refresh** — a scheduled refresh can reprocess only the newest
+  slice instead of rebuilding everything: pick a Date output column as the
+  watermark under *Schedule*. Each run recomputes rows from the newest stored
+  value onward and replaces exactly that range, so re-running is idempotent
+  and rows sharing the boundary timestamp are neither duplicated nor lost.
+  Pipelines where this would be wrong — summarize, pivot, remove-duplicates,
+  append — are refused with an explanation and keep rebuilding fully. Edits to
+  rows *older* than the watermark aren't revisited; use **Run &amp; save** for a
+  full rebuild.
 - **Safe dataset deletion** — deleting a dataset (from the prep palette or
   Data &amp; SQL) first resolves everything that depends on it — prep flows that
   read it, the flow that *produces* it, semantic models, dashboards whose SQL

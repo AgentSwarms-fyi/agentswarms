@@ -107,6 +107,7 @@ import {
   PREP_SAVE_ROW_CAP,
   PREP_STEP_KINDS,
   PREP_TYPE_META,
+  incrementalEligibility,
   prepTables,
   prepWarehouseBinding,
   removeTableFromFlow,
@@ -2757,19 +2758,50 @@ function ScheduleDialog({
 }) {
   const [enabled, setEnabled] = useState(false);
   const [intervalMin, setIntervalMin] = useState(1440);
+  const [incColumn, setIncColumn] = useState("");
   const [busy, setBusy] = useState(false);
+
+  // The saved flow's own config drives which watermark columns are offered
+  // and whether incremental is sound for its pipeline.
+  const savedCfg = useMemo(() => (flow ? parsePrepConfig(flow.config) : null), [flow]);
+  const dateColumns = useMemo(
+    () =>
+      (savedCfg?.columns ?? [])
+        .filter((c) => c.include && c.type === "date")
+        .map((c) => c.outputName),
+    [savedCfg],
+  );
+  const incVerdict = useMemo(
+    () =>
+      savedCfg && incColumn
+        ? incrementalEligibility({ ...savedCfg, incremental: { column: incColumn } })
+        : null,
+    [savedCfg, incColumn],
+  );
 
   useEffect(() => {
     if (open && flow) {
       setEnabled(Boolean(flow.refresh_enabled));
       setIntervalMin(flow.refresh_interval_minutes ?? 1440);
+      setIncColumn(parsePrepConfig(flow.config).incremental?.column ?? "");
     }
   }, [open, flow]);
 
   async function save() {
-    if (!flow) return;
+    if (!flow || !savedCfg) return;
     setBusy(true);
     try {
+      // The watermark lives in the flow CONFIG (it changes what the pipeline
+      // does), while cadence lives in the schedule columns.
+      const nextCfg: PrepFlowConfig = { ...savedCfg };
+      if (incColumn) nextCfg.incremental = { column: incColumn };
+      else delete nextCfg.incremental;
+      await savePrepFlow({
+        id: flow.id,
+        userId: flow.user_id,
+        name: flow.name,
+        cfg: nextCfg,
+      });
       await setPrepRefreshSchedule({
         id: flow.id,
         enabled,
@@ -2820,6 +2852,49 @@ function ScheduleDialog({
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+          )}
+          {enabled && (
+            <div className="space-y-1.5">
+              <Label className="text-xs">Incremental refresh</Label>
+              <Select
+                value={incColumn || "__full__"}
+                onValueChange={(v) => setIncColumn(v === "__full__" ? "" : v)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__full__">Rebuild everything each time</SelectItem>
+                  {dateColumns.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      Only new rows by {c}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {/* Say plainly what incremental can and cannot do — a user who
+                  picks it expecting late-arriving edits to be picked up would
+                  otherwise be quietly wrong. */}
+              {incVerdict && !incVerdict.ok && incColumn ? (
+                <p className="rounded border border-amber-400/40 bg-amber-400/10 px-2 py-1 text-[10px] text-amber-700 dark:text-amber-300">
+                  Can&apos;t refresh incrementally: {incVerdict.reason} Refreshes will rebuild the
+                  whole dataset.
+                </p>
+              ) : incColumn ? (
+                <p className="text-[10px] leading-relaxed text-muted-foreground">
+                  Each refresh reprocesses rows from the newest <code>{incColumn}</code> onward and
+                  replaces exactly that range — much faster on large sources. Rows edited{" "}
+                  <em>before</em> that point aren&apos;t revisited; use Run &amp; save for a full
+                  rebuild.
+                </p>
+              ) : (
+                <p className="text-[10px] text-muted-foreground">
+                  {dateColumns.length === 0
+                    ? "Add a Date output column to enable incremental refresh."
+                    : "Safe default — every refresh recomputes the whole output."}
+                </p>
+              )}
             </div>
           )}
           {flow?.last_refresh_at && (

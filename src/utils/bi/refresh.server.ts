@@ -773,8 +773,27 @@ export async function refreshPrepFlowServer(
   if (error || !flow) throw new Error(error?.message ?? "Prep flow not found");
   if (!flow.output_table_id) throw new Error("Flow has never been run — nothing to refresh");
 
-  const { executePrepFlow, materialisePrepOutput } = await import("@/utils/bi/prep.server");
+  const { executePrepFlow, materialisePrepOutput, refreshPrepIncremental } =
+    await import("@/utils/bi/prep.server");
   const cfg = parsePrepConfig(flow.config);
+
+  // Incremental first: reprocess only the newest slice when the flow is
+  // eligible and already has data. Returns null when a full rebuild is
+  // required (no watermark, ineligible pipeline, or an empty output).
+  const incremental = await refreshPrepIncremental({
+    userId: flow.user_id,
+    cfg,
+    tableId: flow.output_table_id,
+  }).catch((e) => {
+    // An incremental failure must never leave the dataset half-written with
+    // no fallback — fall through to the full rebuild below.
+    console.warn(`[prep-refresh] incremental failed, rebuilding fully: ${(e as Error).message}`);
+    return null;
+  });
+  if (incremental) {
+    return { userId: flow.user_id, name: flow.name, rowCount: incremental.rowsReplaced };
+  }
+
   const result = await executePrepFlow(flow.user_id, cfg);
 
   // Keep writing to the SAME dataset row so every model/widget pointing at it

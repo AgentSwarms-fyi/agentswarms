@@ -20,7 +20,9 @@ import {
   castRows,
   effectiveOutputColumns,
   foldEligibility,
+  incrementalEligibility,
   prepTables,
+  withIncrementalWindow,
   prepWarehouseBinding,
   PREP_TYPE_META,
   validatePrepConfig,
@@ -411,6 +413,68 @@ export async function materialisePrepOutput(args: {
   }
 
   return { tableId, name: args.tableName, rowCount: args.rows.length };
+}
+
+/**
+ * Refresh a flow's output INCREMENTALLY: reprocess only rows at or after the
+ * newest watermark already stored, and replace exactly that range.
+ *
+ * Strategy is dbt's delete+insert rather than plain append. Appending with
+ * `> max` loses rows that share the boundary timestamp; appending with
+ * `>= max` duplicates them. Deleting the `>= max` range first and re-running
+ * it makes the operation idempotent — run it twice, get the same table.
+ *
+ * Returns null when incremental isn't applicable (no watermark, ineligible
+ * flow, or an empty output that needs a first full build), so the caller
+ * falls back to a full refresh.
+ */
+export async function refreshPrepIncremental(args: {
+  userId: string;
+  cfg: PrepFlowConfig;
+  tableId: string;
+}): Promise<{ rowsReplaced: number; since: string; engine: "local" | "warehouse" } | null> {
+  const verdict = incrementalEligibility(args.cfg);
+  if (!verdict.ok) return null;
+  const column = verdict.column;
+
+  // Newest watermark already in the output. Dates are stored as YYYY-MM-DD,
+  // so lexicographic ordering IS chronological ordering.
+  const { data: newest } = await supabaseAdmin
+    .from("user_data_rows")
+    .select("row")
+    .eq("table_id", args.tableId)
+    .order(`row->>${column}`, { ascending: false })
+    .limit(1);
+  const since = (newest?.[0]?.row as Record<string, unknown> | undefined)?.[column];
+  if (typeof since !== "string" || !since) return null; // empty output → full build
+
+  const windowed = withIncrementalWindow(args.cfg, since);
+  const result = await executePrepFlow(args.userId, windowed);
+
+  // Replace exactly the reprocessed range.
+  const { error: delErr } = await supabaseAdmin
+    .from("user_data_rows")
+    .delete()
+    .eq("table_id", args.tableId)
+    .gte(`row->>${column}`, since);
+  if (delErr) throw new Error(delErr.message);
+
+  for (let i = 0; i < result.rows.length; i += INSERT_BATCH) {
+    const slice = result.rows.slice(i, i + INSERT_BATCH).map((row) => ({
+      table_id: args.tableId,
+      row: row as unknown as Json,
+    }));
+    const { error } = await supabaseAdmin.from("user_data_rows").insert(slice);
+    if (error) throw new Error(error.message);
+  }
+
+  // The output schema can still drift (a renamed column); keep it current.
+  await supabaseAdmin
+    .from("user_data_tables")
+    .update({ columns: result.columns as unknown as Json })
+    .eq("id", args.tableId);
+
+  return { rowsReplaced: result.rows.length, since, engine: result.engine };
 }
 
 /** Best-effort semantic metadata for a materialised prep output. */
