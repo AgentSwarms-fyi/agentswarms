@@ -318,12 +318,47 @@ function freshName(baseName: string, taken: string[]): string {
 
 // ── Flow config ─────────────────────────────────────────────────────────────
 
+/**
+ * Where a table on the canvas physically lives.
+ *
+ * Absent (the default, and every pre-existing flow) means a local dataset.
+ * A `warehouse` binding makes the table LIVE — the flow reads it in place
+ * instead of a copied snapshot, which is what makes pushdown possible.
+ */
+export type PrepSourceBinding = {
+  kind: "warehouse";
+  connectionId: string;
+  connectionName: string;
+  /** Physical reference in the warehouse, e.g. "public.orders". */
+  ref: string;
+};
+
 export type PrepFlowConfig = {
   base: string | null;
   joins: PrepJoin[];
   columns: PrepColumn[];
   steps: PrepStep[];
+  /** Flow table name → its origin. Only warehouse-linked tables appear. */
+  sources?: Record<string, PrepSourceBinding>;
 };
+
+/**
+ * The single warehouse connection a flow reads from, or null when it reads
+ * local data (or mixes sources — which blocks pushdown, since one query
+ * cannot span two systems).
+ */
+export function prepWarehouseBinding(
+  cfg: PrepFlowConfig,
+): { connectionId: string; connectionName: string } | null {
+  const tables = new Set(prepTables(cfg));
+  for (const s of cfg.steps) if (s.kind === "append" && s.table) tables.add(s.table);
+  if (tables.size === 0) return null;
+  const bindings = [...tables].map((t) => cfg.sources?.[t]);
+  if (bindings.some((b) => !b)) return null; // at least one local table
+  const ids = new Set(bindings.map((b) => b!.connectionId));
+  if (ids.size !== 1) return null; // spans connections
+  return { connectionId: bindings[0]!.connectionId, connectionName: bindings[0]!.connectionName };
+}
 
 export type PrepTableInfo = { name: string; columns: ColumnDef[] };
 export type PrepSchemaCol = { name: string; type: PrepColumnType };
@@ -553,16 +588,71 @@ export function effectiveOutputColumns(cfg: PrepFlowConfig): PrepSchemaCol[] {
 
 // ── SQL compilation ─────────────────────────────────────────────────────────
 
-const q = (ident: string) => `\`${ident}\``;
+/**
+ * SQL dialect the pipeline compiles to.
+ *
+ * ONE compiler serves both execution paths — the local AlaSQL engine and
+ * pushdown into a warehouse. A second warehouse-only compiler would inevitably
+ * drift from this one, and "the same flow returns different numbers depending
+ * on where it ran" is the exact failure this design refuses.
+ */
+export type PrepDialect =
+  | "alasql"
+  | "postgres"
+  | "mysql"
+  | "snowflake"
+  | "bigquery"
+  | "redshift"
+  | "databricks"
+  | "azure_synapse"
+  | "trino"
+  | "athena"
+  | "oracle";
+
+const BACKTICK_DIALECTS = new Set<PrepDialect>(["alasql", "mysql", "bigquery", "databricks"]);
+
+function quoteFor(dialect: PrepDialect): (ident: string) => string {
+  // Identifiers here are all safeIdent()-shaped, so quoting can never inject.
+  return BACKTICK_DIALECTS.has(dialect)
+    ? (ident: string) => `\`${ident}\``
+    : (ident: string) => `"${ident}"`;
+}
+
+const q = quoteFor("alasql");
 const sqlStr = (v: string) => `'${v.replace(/'/g, "''")}'`;
 const isNumericLiteral = (v: string) => /^-?\d+(\.\d+)?$/.test(v.trim());
+
+/**
+ * Split one text column into the n-th part, per dialect.
+ *
+ * Only dialects with a proven 1-based equivalent are listed; anything absent
+ * is refused by the fold analyzer rather than approximated.
+ */
+function splitPartSql(dialect: PrepDialect, col: string, delim: string, n: number): string {
+  const d = sqlStr(delim);
+  switch (dialect) {
+    case "bigquery":
+      return `SPLIT(${col}, ${d})[SAFE_OFFSET(${n - 1})]`;
+    case "databricks":
+      return `SPLIT(${col}, ${d})[${n - 1}]`;
+    case "mysql":
+      // SUBSTRING_INDEX returns everything up to the n-th part, so peel the
+      // last one off to isolate it.
+      return n === 1
+        ? `SUBSTRING_INDEX(${col}, ${d}, 1)`
+        : `SUBSTRING_INDEX(SUBSTRING_INDEX(${col}, ${d}, ${n}), ${d}, -1)`;
+    default:
+      // alasql (custom fn), postgres, redshift, snowflake, trino, athena, oracle
+      return `SPLIT_PART(${col}, ${d}, ${n})`;
+  }
+}
 const indent = (s: string) =>
   s
     .split("\n")
     .map((l) => "  " + l)
     .join("\n");
 
-function measureSql(m: PrepMeasure): string {
+function measureSql(m: PrepMeasure, q: (s: string) => string): string {
   switch (m.fn) {
     case "count":
       return "COUNT(*)";
@@ -573,7 +663,7 @@ function measureSql(m: PrepMeasure): string {
   }
 }
 
-function filterSql(f: PrepFilter): string {
+function filterSql(f: PrepFilter, q: (s: string) => string): string {
   const col = q(f.column);
   switch (f.op) {
     case "is_null":
@@ -593,7 +683,13 @@ function filterSql(f: PrepFilter): string {
   }
 }
 
-function pivotCell(agg: PrepAggFn, pivotCol: string, val: string, valueCol: string): string {
+function pivotCell(
+  agg: PrepAggFn,
+  pivotCol: string,
+  val: string,
+  valueCol: string,
+  q: (s: string) => string,
+): string {
   const cond = `${q(pivotCol)} = ${sqlStr(val)}`;
   if (agg === "count") return `COUNT(CASE WHEN ${cond} THEN 1 END)`;
   if (agg === "count_distinct") return `COUNT(DISTINCT CASE WHEN ${cond} THEN ${q(valueCol)} END)`;
@@ -601,19 +697,26 @@ function pivotCell(agg: PrepAggFn, pivotCol: string, val: string, valueCol: stri
 }
 
 /** Compile one step, wrapping the previous relation `sql` as a derived table. */
-function compileStep(sql: string, step: PrepStep, inCols: PrepSchemaCol[]): string {
+function compileStep(
+  sql: string,
+  step: PrepStep,
+  inCols: PrepSchemaCol[],
+  dialect: PrepDialect,
+  tableRef: (name: string) => string,
+): string {
+  const q = quoteFor(dialect);
   const src = `(\n${indent(sql)}\n) AS _s`;
   switch (step.kind) {
     case "calc":
       return `SELECT *, (${step.expr.trim()}) AS ${q(step.name)}\nFROM ${src}`;
     case "filter": {
-      const where = step.conditions.map(filterSql).join(`\n  ${step.combine} `);
+      const where = step.conditions.map((c) => filterSql(c, q)).join(`\n  ${step.combine} `);
       return `SELECT *\nFROM ${src}\nWHERE ${where}`;
     }
     case "aggregate": {
       const sel = [
         ...step.groupBy.map(q),
-        ...step.measures.map((m) => `${measureSql(m)} AS ${q(m.name)}`),
+        ...step.measures.map((m) => `${measureSql(m, q)} AS ${q(m.name)}`),
       ].join(", ");
       const gb = step.groupBy.length > 0 ? `\nGROUP BY ${step.groupBy.map(q).join(", ")}` : "";
       return `SELECT ${sel}\nFROM ${src}${gb}`;
@@ -623,7 +726,7 @@ function compileStep(sql: string, step: PrepStep, inCols: PrepSchemaCol[]): stri
       const left = `SELECT ${cols.map(q).join(", ")}\nFROM ${src}`;
       const right = `SELECT ${cols
         .map((c) => (step.columns.includes(c) ? q(c) : `NULL AS ${q(c)}`))
-        .join(", ")}\nFROM ${q(step.table)}`;
+        .join(", ")}\nFROM ${tableRef(step.table)}`;
       return `${left}\nUNION ${step.mode === "all" ? "ALL " : ""}${right}`;
     }
     case "unpivot": {
@@ -638,7 +741,7 @@ function compileStep(sql: string, step: PrepStep, inCols: PrepSchemaCol[]): stri
     }
     case "pivot": {
       const cells = step.values.map(
-        (v) => `${pivotCell(step.agg, step.pivotColumn, v, step.valueColumn)} AS ${q(v)}`,
+        (v) => `${pivotCell(step.agg, step.pivotColumn, v, step.valueColumn, q)} AS ${q(v)}`,
       );
       const sel = [...step.group.map(q), ...cells].join(", ");
       const gb = step.group.length > 0 ? `\nGROUP BY ${step.group.map(q).join(", ")}` : "";
@@ -646,7 +749,7 @@ function compileStep(sql: string, step: PrepStep, inCols: PrepSchemaCol[]): stri
     }
     case "split": {
       const parts = step.into.map(
-        (n, i) => `SPLIT_PART(${q(step.column)}, ${sqlStr(step.delimiter)}, ${i + 1}) AS ${q(n)}`,
+        (n, i) => `${splitPartSql(dialect, q(step.column), step.delimiter, i + 1)} AS ${q(n)}`,
       );
       if (step.keepOriginal) return `SELECT *, ${parts.join(", ")}\nFROM ${src}`;
       const kept = inCols.filter((c) => c.name !== step.column).map((c) => q(c.name));
@@ -674,25 +777,160 @@ function compileStep(sql: string, step: PrepStep, inCols: PrepSchemaCol[]): stri
   }
 }
 
-export function buildPrepSql(cfg: PrepFlowConfig): string {
+export type BuildPrepSqlOpts = {
+  /** Target SQL dialect. Defaults to the local AlaSQL engine. */
+  dialect?: PrepDialect;
+  /**
+   * Maps a flow table name to its physical reference in the target system.
+   * Pushdown passes `schema.table` for the warehouse; the local path quotes
+   * the dataset name. Aliased back to the flow's name so every downstream
+   * fragment (joins, column refs) keeps working unchanged.
+   */
+  physicalTable?: (name: string) => string;
+};
+
+export function buildPrepSql(cfg: PrepFlowConfig, opts: BuildPrepSqlOpts = {}): string {
+  const dialect = opts.dialect ?? "alasql";
+  const qq = quoteFor(dialect);
+  // A warehouse table is referenced as `schema.table AS flow_name`, so the
+  // rest of the compiled SQL can address it by the flow's own table name.
+  const tableRef = (name: string) =>
+    opts.physicalTable ? `${opts.physicalTable(name)} AS ${qq(name)}` : qq(name);
+
   const proj = cfg.columns
     .filter((c) => c.include)
-    .map((c) => `${q(c.table)}.${q(c.column)} AS ${q(c.outputName)}`);
+    .map((c) => `${qq(c.table)}.${qq(c.column)} AS ${qq(c.outputName)}`);
   let sql = [
     `SELECT ${proj.join(", ")}`,
-    `FROM ${q(cfg.base!)}`,
+    `FROM ${tableRef(cfg.base!)}`,
     ...cfg.joins.map(
       (j) =>
-        `${j.type} ${q(j.table)} ON ${q(j.leftTable)}.${q(j.leftColumn)} = ${q(j.table)}.${q(j.rightColumn)}`,
+        `${j.type} ${tableRef(j.table)} ON ${qq(j.leftTable)}.${qq(j.leftColumn)} = ${qq(j.table)}.${qq(j.rightColumn)}`,
     ),
   ].join("\n");
 
   let cols = sourceColumns(cfg);
   for (const step of cfg.steps) {
-    sql = compileStep(sql, step, cols);
+    sql = compileStep(sql, step, cols, dialect, tableRef);
     cols = stepOutputSchema(cols, step);
   }
   return sql;
+}
+
+// ── Pushdown (query folding) eligibility ──────────────────────────────────
+//
+// "Folding" is Power Query's term for pushing pipeline work into the source
+// system; Tableau Prep calls it pushdown. The value is obvious — a summarize
+// over 500M warehouse rows should return 200 rows, not drag 500M rows across
+// the network — but the risk is subtle: a step that compiles to SQL meaning
+// something SLIGHTLY different in the target dialect produces wrong numbers
+// silently. So this analyzer proves a flow is foldable and REFUSES otherwise,
+// with a reason the UI shows. Anything refused still runs locally.
+
+/** Functions a calculated field may use and still be foldable. */
+const FOLDABLE_CALC_FNS = new Set([
+  // math
+  "ROUND",
+  "ABS",
+  "CEIL",
+  "CEILING",
+  "FLOOR",
+  "POWER",
+  "SQRT",
+  "MOD",
+  // text
+  "CONCAT",
+  "UPPER",
+  "LOWER",
+  "TRIM",
+  "SUBSTRING",
+  "REPLACE",
+  "COALESCE",
+  // logic
+  "CASE",
+  "WHEN",
+  "THEN",
+  "ELSE",
+  "END",
+  "AND",
+  "OR",
+  "NOT",
+  "NULL",
+  "IS",
+  "IN",
+  "LIKE",
+  "BETWEEN",
+  "CAST",
+  "AS",
+  // date (translated identically by every dialect we fold to)
+  "YEAR",
+  "MONTH",
+  "DAY",
+]);
+
+/** Dialects whose SPLIT/date semantics we have proven translations for. */
+const FOLDABLE_DIALECTS = new Set<PrepDialect>([
+  "postgres",
+  "redshift",
+  "snowflake",
+  "bigquery",
+  "databricks",
+  "mysql",
+  "trino",
+  "athena",
+]);
+
+export type FoldVerdict =
+  | { foldable: true }
+  | { foldable: false; reason: string; stepIndex?: number };
+
+/**
+ * Can this flow be compiled to `dialect` with semantics identical to the
+ * local engine? Returns the first blocking reason, so the UI can name it.
+ */
+export function foldEligibility(cfg: PrepFlowConfig, dialect: PrepDialect): FoldVerdict {
+  if (!FOLDABLE_DIALECTS.has(dialect)) {
+    return { foldable: false, reason: `Pushdown isn't supported for ${dialect} yet.` };
+  }
+  for (let i = 0; i < cfg.steps.length; i++) {
+    const s = cfg.steps[i];
+    switch (s.kind) {
+      case "calc": {
+        // Free-text formulas are the main hazard: an unknown function may not
+        // exist (or may differ) in the warehouse.
+        const used = s.expr.match(/[A-Za-z_][A-Za-z0-9_]*\s*\(/g) ?? [];
+        for (const raw of used) {
+          const fn = raw.replace(/\s*\($/, "").toUpperCase();
+          if (!FOLDABLE_CALC_FNS.has(fn)) {
+            return {
+              foldable: false,
+              stepIndex: i,
+              reason: `The calculated field uses ${fn}(), which isn't proven to behave identically on ${dialect}.`,
+            };
+          }
+        }
+        break;
+      }
+      case "dedupe":
+        // Column-scoped dedupe uses AlaSQL's FIRST(), which picks an arbitrary
+        // row. No portable equivalent keeps the same semantics, and silently
+        // swapping in MIN() would change the values. Plain DISTINCT is fine.
+        if (s.columns.length > 0) {
+          return {
+            foldable: false,
+            stepIndex: i,
+            reason:
+              "Remove-duplicates on specific columns keeps an arbitrary row per group, which has no exact SQL equivalent.",
+          };
+        }
+        break;
+      default:
+        // filter / aggregate / append / pivot / unpivot / split / replace all
+        // compile to ANSI constructs (or a dialect-specific SPLIT we've proven).
+        break;
+    }
+  }
+  return { foldable: true };
 }
 
 // ── Validation ────────────────────────────────────────────────────────────
@@ -938,9 +1176,13 @@ export function parsePrepConfig(v: Json): PrepFlowConfig {
   const base = typeof cfg.base === "string" ? cfg.base : null;
   const joins = Array.isArray(cfg.joins) ? (cfg.joins as PrepJoin[]) : [];
   const columns = Array.isArray(cfg.columns) ? (cfg.columns as PrepColumn[]) : [];
+  const sources =
+    cfg.sources && typeof cfg.sources === "object" && !Array.isArray(cfg.sources)
+      ? (cfg.sources as Record<string, PrepSourceBinding>)
+      : undefined;
 
   if (Array.isArray(cfg.steps)) {
-    return { base, joins, columns, steps: cfg.steps as PrepStep[] };
+    return { base, joins, columns, steps: cfg.steps as PrepStep[], sources };
   }
 
   // Legacy shape: { calcs, filters, aggregate } → ordered steps.
@@ -981,5 +1223,5 @@ export function parsePrepConfig(v: Json): PrepFlowConfig {
     });
   }
 
-  return { base, joins, columns, steps };
+  return { base, joins, columns, steps, sources };
 }

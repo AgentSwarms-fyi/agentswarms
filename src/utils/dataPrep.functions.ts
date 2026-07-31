@@ -40,6 +40,10 @@ export type PrepRunOutcome = {
   outputCapped: boolean;
   producedRows: number;
   failures: Record<string, number>;
+  /** Where the pipeline actually ran. */
+  engine: "local" | "warehouse";
+  /** Why it didn't fold into the warehouse (only when it could have). */
+  foldSkipReason?: string;
 };
 
 const RunSchema = z.object({
@@ -99,11 +103,83 @@ export const prepRunAndSave = createServerFn({ method: "POST" })
         outputCapped: result.outputCapped,
         producedRows: result.producedRows,
         failures: result.failures,
+        engine: result.engine,
+        foldSkipReason: result.foldSkipReason,
       };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : "Prep run failed" };
     }
   });
+
+type PreviewCell = string | number | boolean | null;
+
+/**
+ * Preview a flow that reads LIVE warehouse tables.
+ *
+ * Local flows preview instantly in the browser engine; a linked flow has no
+ * local rows, so its preview runs the same folded query the real run would —
+ * just with a small row cap. Previewing through the identical path is the
+ * point: what you see is what will be materialised.
+ */
+export const prepPreview = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        accessToken: z.string().min(1),
+        config: z.record(z.string(), z.unknown()),
+        limit: z.number().int().min(1).max(5000).default(200),
+      })
+      .parse(input),
+  )
+  .handler(
+    async ({
+      data,
+    }): Promise<
+      | {
+          ok: true;
+          columns: string[];
+          rows: Record<string, PreviewCell>[];
+          engine: "local" | "warehouse";
+          foldSkipReason?: string;
+          sql: string;
+        }
+      | { ok: false; error: string }
+    > => {
+      try {
+        const { userId } = await requireUser(data.accessToken);
+        const { parsePrepConfig } = await import("@/lib/dataPrepCore");
+        const { executePrepFlow } = await import("@/utils/bi/prep.server");
+        const cfg = parsePrepConfig(data.config as never);
+        const res = await executePrepFlow(userId, cfg, { rowLimit: data.limit });
+        return {
+          ok: true,
+          columns: res.columns.map((c) => c.name),
+          // Coerce to primitives — the server-fn serializer rejects `unknown`
+          // (Dates and driver-specific objects arrive here).
+          rows: res.rows.slice(0, data.limit).map((r) => {
+            const out: Record<string, PreviewCell> = {};
+            for (const [k, v] of Object.entries(r)) {
+              out[k] =
+                v === null ||
+                typeof v === "string" ||
+                typeof v === "number" ||
+                typeof v === "boolean"
+                  ? v
+                  : v === undefined
+                    ? null
+                    : String(v);
+            }
+            return out;
+          }),
+          engine: res.engine,
+          foldSkipReason: res.foldSkipReason,
+          sql: res.sql,
+        };
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : "Preview failed" };
+      }
+    },
+  );
 
 // ── Dependency lookup (safe deletion) ─────────────────────────────────────
 

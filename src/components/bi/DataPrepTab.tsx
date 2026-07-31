@@ -108,6 +108,7 @@ import {
   PREP_STEP_KINDS,
   PREP_TYPE_META,
   prepTables,
+  prepWarehouseBinding,
   removeTableFromFlow,
   savePrepFlow,
   syncColumns,
@@ -138,6 +139,7 @@ import { fetchWarehouseSchema, runWarehouseQuery } from "@/lib/warehouseClient";
 import { listWarehouseConnections } from "@/utils/warehouse.functions";
 import {
   datasetDependents,
+  prepPreview,
   prepRunAndSave,
   type DatasetDependents,
   type PrepRunOutcome,
@@ -263,6 +265,11 @@ export function DataPrepTab() {
    * the rows you expected.
    */
   const [previewStep, setPreviewStep] = useState<number | null>(null);
+  /** Where the last preview ran, and why it didn't fold (when it didn't). */
+  const [foldState, setFoldState] = useState<{
+    engine: "local" | "warehouse";
+    reason?: string;
+  } | null>(null);
   const [preview, setPreview] = useState<PreviewState>({ kind: "empty" });
   const [runBusy, setRunBusy] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
@@ -275,6 +282,7 @@ export function DataPrepTab() {
   // table imports a snapshot as a local dataset and drops it on the canvas.
   const listWarehousesFn = useServerFn(listWarehouseConnections);
   const runPrepFn = useServerFn(prepRunAndSave);
+  const previewFn = useServerFn(prepPreview);
   const dependentsFn = useServerFn(datasetDependents);
   const [whConns, setWhConns] = useState<WarehouseConnectionSummary[] | null>(null);
   const [whSchemas, setWhSchemas] = useState<
@@ -284,10 +292,38 @@ export function DataPrepTab() {
   const [importingKey, setImportingKey] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
 
-  const tableInfos: PrepTableInfo[] = useMemo(
-    () => (datasets ?? []).map((d) => ({ name: d.name, columns: d.columns })),
-    [datasets],
-  );
+  /**
+   * Tables the flow can address: local datasets PLUS any warehouse tables
+   * linked live into this flow. Linked tables have no local rows, so their
+   * columns come from the connection's fetched schema — that's what lets the
+   * Columns editor, joins and steps treat them like any other table.
+   */
+  const tableInfos: PrepTableInfo[] = useMemo(() => {
+    const infos: PrepTableInfo[] = (datasets ?? []).map((d) => ({
+      name: d.name,
+      columns: d.columns,
+    }));
+    const known = new Set(infos.map((i) => i.name));
+    for (const [name, binding] of Object.entries(cfg.sources ?? {})) {
+      if (known.has(name)) continue;
+      const tables = whSchemas[binding.connectionId];
+      const t = Array.isArray(tables)
+        ? tables.find((x) => `${x.schema}.${x.name}` === binding.ref)
+        : undefined;
+      infos.push({
+        name,
+        columns: (t?.columns ?? []).map((c) => ({
+          name: c.name,
+          type: /int|num|dec|float|double|real/i.test(c.type)
+            ? ("number" as const)
+            : /date|time/i.test(c.type)
+              ? ("date" as const)
+              : ("string" as const),
+        })),
+      });
+    }
+    return infos;
+  }, [datasets, cfg.sources, whSchemas]);
   const onCanvas = useMemo(() => new Set(prepTables(cfg)), [cfg]);
   const preparedNames = useMemo(
     () => new Set(flows.map((f) => f.output_table_name).filter((n): n is string => Boolean(n))),
@@ -371,6 +407,40 @@ export function DataPrepTab() {
     }
   }
 
+  /**
+   * Link a warehouse table LIVE into the flow: no rows are copied, the flow
+   * records where the table lives, and the pipeline can then be pushed down
+   * into the warehouse instead of dragging the table across the network.
+   */
+  function linkExternal(conn: WarehouseConnectionSummary, t: WarehouseTable) {
+    const name = safeTableName(t.name);
+    if (onCanvas.has(name)) return toast.error(`"${name}" is already on the canvas`);
+    const columns = t.columns.map((c) => ({
+      name: c.name,
+      type: /int|num|dec|float|double|real/i.test(c.type)
+        ? ("number" as const)
+        : /date|time/i.test(c.type)
+          ? ("date" as const)
+          : ("string" as const),
+    }));
+    setCfg((prev) => {
+      const withSource: PrepFlowConfig = {
+        ...prev,
+        sources: {
+          ...(prev.sources ?? {}),
+          [name]: {
+            kind: "warehouse",
+            connectionId: conn.id,
+            connectionName: conn.name,
+            ref: `${t.schema}.${t.name}`,
+          },
+        },
+      };
+      return addTableToFlow(withSource, { name, columns }, [...tableInfos, { name, columns }]);
+    });
+    toast.success(`Linked ${t.schema}.${t.name} — reads live from ${conn.name}`);
+  }
+
   // ── Live preview (debounced) ────────────────────────────────────────
   useEffect(() => {
     if (!cfg.base) {
@@ -387,6 +457,48 @@ export function DataPrepTab() {
         setPreview({ kind: "invalid", error: valid.error });
         return;
       }
+      // Linked warehouse tables have no local rows, so the preview runs on the
+      // server through the SAME folded query the real run uses — what you see
+      // is what gets materialised.
+      if (prepWarehouseBinding(effective) && token) {
+        void (async () => {
+          try {
+            const res = (await previewFn({
+              data: {
+                accessToken: token,
+                config: effective as unknown as Record<string, unknown>,
+                limit: PREVIEW_SAMPLE,
+              },
+            })) as
+              | {
+                  ok: true;
+                  columns: string[];
+                  rows: Record<string, unknown>[];
+                  engine: "local" | "warehouse";
+                  foldSkipReason?: string;
+                }
+              | { ok: false; error: string };
+            if (!res.ok) {
+              setPreview({ kind: "error", error: res.error });
+              return;
+            }
+            setFoldState({ engine: res.engine, reason: res.foldSkipReason });
+            setPreview({
+              kind: "ok",
+              columns: res.columns,
+              rows: res.rows,
+              total: res.rows.length,
+              sampled: res.rows.length >= PREVIEW_SAMPLE,
+              failures: {},
+              profile: profilePrepColumns(res.rows, effectiveOutputColumns(effective)),
+            });
+          } catch (e) {
+            setPreview({ kind: "error", error: (e as Error).message });
+          }
+        })();
+        return;
+      }
+      setFoldState(null);
       try {
         const res = runQueryUnlimited(buildPrepSql(effective), PREVIEW_SAMPLE);
         const cast = castRows(res.rows, effective);
@@ -404,7 +516,7 @@ export function DataPrepTab() {
       }
     }, 450);
     return () => clearTimeout(t);
-  }, [cfg, previewStep]);
+  }, [cfg, previewStep, token, previewFn]);
 
   // A step index can go stale when steps are removed/reordered.
   useEffect(() => {
@@ -525,7 +637,18 @@ export function DataPrepTab() {
       setOutputName(result.tableName);
       setFlows(await listPrepFlows());
       await reloadDatasets();
-      toast.success(`Saved "${result.tableName}" with ${result.rowCount.toLocaleString()} rows`);
+      toast.success(
+        `Saved "${result.tableName}" with ${result.rowCount.toLocaleString()} rows` +
+          (result.engine === "warehouse" ? " — computed in the warehouse" : ""),
+      );
+      // Folding is a performance property, so a refusal is informational, not
+      // an error — but it must be VISIBLE, or a flow silently drags a whole
+      // table across the network and nobody knows why it got slow.
+      if (result.foldSkipReason) {
+        toast.info(`Ran locally instead of in the warehouse: ${result.foldSkipReason}`, {
+          duration: 10000,
+        });
+      }
       // Truncation is reported LOUDLY — a silently sampled output is the
       // failure mode this whole path exists to remove.
       if (result.outputCapped) {
@@ -806,24 +929,49 @@ export function DataPrepTab() {
                           schema.slice(0, 200).map((t) => {
                             const key = `${conn.id}||${t.schema}||${t.name}`;
                             const busy = importingKey === key;
+                            const linked = Boolean(cfg.sources?.[safeTableName(t.name)]);
                             return (
-                              <button
+                              <div
                                 key={key}
-                                type="button"
-                                disabled={Boolean(importingKey)}
-                                onClick={() => void importExternal(conn, t)}
-                                className="flex w-full items-center gap-1.5 rounded px-1 py-1 text-left hover:bg-muted/50 disabled:opacity-50"
-                                title="Import a snapshot (up to 1,000 rows) and add it to the canvas"
+                                className="group/ext flex w-full items-center gap-1.5 rounded px-1 py-1 hover:bg-muted/50"
                               >
                                 {busy ? (
                                   <Loader2 className="h-2.5 w-2.5 shrink-0 animate-spin text-primary" />
                                 ) : (
                                   <Table2 className="h-2.5 w-2.5 shrink-0 text-muted-foreground" />
                                 )}
-                                <span className="truncate font-mono text-[10px]">
+                                <span
+                                  className="min-w-0 flex-1 truncate font-mono text-[10px]"
+                                  title={`${t.schema}.${t.name}`}
+                                >
                                   {t.schema}.{t.name}
                                 </span>
-                              </button>
+                                {/* LINK keeps the table where it is, so the
+                                    pipeline can be pushed down to the
+                                    warehouse. IMPORT copies a small snapshot —
+                                    fine for a quick look, wrong for real
+                                    volume. Link is the default action. */}
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-5 shrink-0 px-1.5 text-[9px]"
+                                  disabled={Boolean(importingKey) || linked}
+                                  onClick={() => linkExternal(conn, t)}
+                                  title="Link live — the flow reads this table in place and can push the whole pipeline into the warehouse"
+                                >
+                                  {linked ? "linked" : "Link"}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-5 shrink-0 px-1.5 text-[9px] text-muted-foreground opacity-0 transition group-hover/ext:opacity-100"
+                                  disabled={Boolean(importingKey)}
+                                  onClick={() => void importExternal(conn, t)}
+                                  title="Import a snapshot (up to 1,000 rows) as a local table"
+                                >
+                                  Snapshot
+                                </Button>
+                              </div>
                             );
                           })
                         )}
@@ -835,8 +983,9 @@ export function DataPrepTab() {
             )}
             {whConns && whConns.length > 0 && (
               <p className="pt-0.5 text-[10px] leading-relaxed text-muted-foreground">
-                Clicking an external table imports a snapshot (up to 1,000 rows) as a local table
-                and adds it to the canvas.
+                <strong>Link</strong> reads the table in place — when every source is linked to the
+                same connection, the whole pipeline runs inside the warehouse.{" "}
+                <strong>Snapshot</strong> copies up to 1,000 rows locally.
               </p>
             )}
           </CardContent>
@@ -1199,6 +1348,44 @@ export function DataPrepTab() {
               />
             </CardHeader>
             <CardContent className="space-y-2 pt-0">
+              {/* Where the pipeline runs — Power Query calls this "folding".
+                  Making it visible is the point: an unfolded flow drags the
+                  whole table across the network, and silence about that is
+                  how a prep job quietly becomes slow. */}
+              {foldState && (
+                <div
+                  className={`flex items-start gap-2 rounded border px-2 py-1.5 ${
+                    foldState.engine === "warehouse"
+                      ? "border-emerald-500/40 bg-emerald-500/5"
+                      : "border-amber-400/40 bg-amber-400/10"
+                  }`}
+                >
+                  <Server
+                    className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${
+                      foldState.engine === "warehouse" ? "text-emerald-600" : "text-amber-600"
+                    }`}
+                  />
+                  <p
+                    className={`text-[11px] leading-snug ${
+                      foldState.engine === "warehouse"
+                        ? "text-emerald-700 dark:text-emerald-400"
+                        : "text-amber-700 dark:text-amber-400"
+                    }`}
+                  >
+                    {foldState.engine === "warehouse" ? (
+                      <>
+                        <strong>Pushed down</strong> — the whole pipeline runs inside the warehouse;
+                        only the result travels.
+                      </>
+                    ) : (
+                      <>
+                        <strong>Running locally</strong> — source data is copied here first.{" "}
+                        {foldState.reason}
+                      </>
+                    )}
+                  </p>
+                </div>
+              )}
               {/* A step-scoped preview must never be mistaken for the output
                   that "Run & save" would materialise. */}
               {previewStep !== null && (

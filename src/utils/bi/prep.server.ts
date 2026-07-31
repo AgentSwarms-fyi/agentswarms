@@ -19,9 +19,12 @@ import {
   buildPrepSql,
   castRows,
   effectiveOutputColumns,
+  foldEligibility,
   prepTables,
+  prepWarehouseBinding,
   PREP_TYPE_META,
   validatePrepConfig,
+  type PrepDialect,
   type PrepFlowConfig,
 } from "@/lib/dataPrepCore";
 
@@ -133,6 +136,10 @@ export type PrepExecution = {
   /** Total rows the flow produced before the output cap was applied. */
   producedRows: number;
   sql: string;
+  /** "warehouse" when the pipeline was folded into the source system. */
+  engine: "local" | "warehouse";
+  /** Why folding didn't happen (shown to the user); absent when it did. */
+  foldSkipReason?: string;
 };
 
 /**
@@ -143,6 +150,7 @@ export type PrepExecution = {
 async function loadFlowDatabase(
   userId: string,
   needed: Set<string>,
+  cfg?: PrepFlowConfig,
 ): Promise<{ db: unknown; truncated: string[] }> {
   const { data: tables, error } = await supabaseAdmin
     .from("user_data_tables")
@@ -156,8 +164,39 @@ async function loadFlowDatabase(
   const truncated: string[] = [];
 
   const sourceCap = prepSourceRowsCap();
+
+  // Warehouse-linked tables have no local rows. When folding was refused we
+  // still owe the user a correct answer, so their data is BUFFERED locally
+  // (bounded, and reported when the bound bites) and the pipeline runs here.
+  const wareTables = Object.entries(cfg?.sources ?? {}).filter(([name]) => needed.has(name));
+  if (wareTables.length > 0) {
+    const { loadWarehouseConnection } = await import("@/utils/warehouse/connections.server");
+    const { executeWarehouseQuery } = await import("@/utils/warehouse/drivers.server");
+    const connCache = new Map<string, Awaited<ReturnType<typeof loadWarehouseConnection>>>();
+    for (const [name, binding] of wareTables) {
+      let conn = connCache.get(binding.connectionId);
+      if (!conn) {
+        conn = await loadWarehouseConnection(
+          supabaseAdmin,
+          { connectionId: binding.connectionId },
+          userId,
+        );
+        connCache.set(binding.connectionId, conn);
+      }
+      const res = await executeWarehouseQuery(
+        conn.config,
+        `SELECT * FROM ${binding.ref}`,
+        sourceCap,
+      );
+      if (res.rows.length >= sourceCap) truncated.push(name);
+      db.exec(`CREATE TABLE \`${name}\``);
+      db.tables[name].data = res.rows;
+    }
+  }
+
   for (const t of tables ?? []) {
     if (!needed.has(t.name)) continue;
+    if (cfg?.sources?.[t.name]) continue; // already buffered from the warehouse
     const rows: Record<string, unknown>[] = [];
     const PAGE = 1000;
     let hitCap = false;
@@ -183,12 +222,96 @@ async function loadFlowDatabase(
 }
 
 /**
+ * Try to run the whole pipeline INSIDE the warehouse (query folding).
+ *
+ * Returns null whenever folding isn't provably safe or the warehouse won't
+ * accept the query — the caller then runs locally, so a refusal can only ever
+ * cost performance, never correctness.
+ */
+async function tryFoldToWarehouse(
+  userId: string,
+  cfg: PrepFlowConfig,
+  rowLimit?: number,
+): Promise<{ execution: PrepExecution } | { skip: string } | null> {
+  const binding = prepWarehouseBinding(cfg);
+  if (!binding) return null; // local (or mixed) sources — nothing to fold
+
+  const { loadWarehouseConnection } = await import("@/utils/warehouse/connections.server");
+  const { executeWarehouseQuery } = await import("@/utils/warehouse/drivers.server");
+
+  let conn: Awaited<ReturnType<typeof loadWarehouseConnection>>;
+  try {
+    conn = await loadWarehouseConnection(
+      supabaseAdmin,
+      { connectionId: binding.connectionId },
+      userId,
+    );
+  } catch (e) {
+    return { skip: `the warehouse connection is unavailable (${(e as Error).message})` };
+  }
+
+  const dialect = conn.config.provider as PrepDialect;
+  const verdict = foldEligibility(cfg, dialect);
+  if (!verdict.foldable) {
+    return {
+      skip:
+        verdict.stepIndex !== undefined
+          ? `step ${verdict.stepIndex + 1} can't be pushed down — ${verdict.reason}`
+          : verdict.reason,
+    };
+  }
+
+  const sql = buildPrepSql(cfg, {
+    dialect,
+    physicalTable: (name) => cfg.sources?.[name]?.ref ?? name,
+  });
+
+  // PROVE the fold on the real warehouse before trusting it. Ten dialects
+  // cannot be verified from here; the warehouse itself is the authority, and
+  // a parse/semantic error must degrade to the local path, never to bad data.
+  try {
+    await executeWarehouseQuery(conn.config, `SELECT * FROM (${sql}) AS _fold_check`, 1);
+  } catch (e) {
+    return { skip: `the warehouse rejected the pushed-down query (${(e as Error).message})` };
+  }
+
+  const outputCap = rowLimit ?? prepOutputRowsCap();
+  const res = await executeWarehouseQuery(conn.config, sql, outputCap);
+  const cast = castRows(res.rows, cfg);
+  return {
+    execution: {
+      columns: cast.columns,
+      rows: cast.rows,
+      failures: cast.failures,
+      truncatedSources: [],
+      // The warehouse driver caps at outputCap; a full page back means there
+      // may be more, which is reported the same way the local path reports it.
+      outputCapped: res.rows.length >= outputCap,
+      producedRows: res.rows.length,
+      sql,
+      engine: "warehouse",
+    },
+  };
+}
+
+/**
  * Compile and execute a prep flow against the owner's stored data.
  * Never writes anything — callers decide what to do with the result.
+ *
+ * Prefers PUSHDOWN when every source is a live table on one warehouse
+ * connection and every step is provably translatable; otherwise runs locally.
  */
-export async function executePrepFlow(userId: string, cfg: PrepFlowConfig): Promise<PrepExecution> {
+export async function executePrepFlow(
+  userId: string,
+  cfg: PrepFlowConfig,
+  opts: { rowLimit?: number } = {},
+): Promise<PrepExecution> {
   const valid = validatePrepConfig(cfg);
   if (!valid.ok) throw new Error(valid.error);
+
+  const folded = await tryFoldToWarehouse(userId, cfg, opts.rowLimit);
+  if (folded && "execution" in folded) return folded.execution;
+  const foldSkipReason = folded && "skip" in folded ? folded.skip : undefined;
 
   // Every table the flow touches: base, joins, and any append step's source.
   const needed = new Set(prepTables(cfg));
@@ -196,11 +319,11 @@ export async function executePrepFlow(userId: string, cfg: PrepFlowConfig): Prom
     if (s.kind === "append" && s.table) needed.add(s.table);
   }
 
-  const { db, truncated } = await loadFlowDatabase(userId, needed);
+  const { db, truncated } = await loadFlowDatabase(userId, needed, cfg);
   const sql = buildPrepSql(cfg);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const out = (db as any).exec(sql) as Record<string, unknown>[];
-  const outputCap = prepOutputRowsCap();
+  const outputCap = opts.rowLimit ?? prepOutputRowsCap();
   const produced = Array.isArray(out) ? out : [];
   const limited = produced.slice(0, outputCap);
   const cast = castRows(limited, cfg);
@@ -213,6 +336,8 @@ export async function executePrepFlow(userId: string, cfg: PrepFlowConfig): Prom
     outputCapped: produced.length > outputCap,
     producedRows: produced.length,
     sql,
+    engine: "local",
+    foldSkipReason,
   };
 }
 
