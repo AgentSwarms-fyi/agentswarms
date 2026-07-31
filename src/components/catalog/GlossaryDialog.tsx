@@ -17,11 +17,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useAuth } from "@/hooks/use-auth";
-import {
-  deleteGlossaryTerm,
-  upsertGlossaryTerm,
-  type GlossaryTerm,
-} from "@/lib/dataCatalog";
+import { deleteGlossaryTerm, upsertGlossaryTerm, type GlossaryTerm } from "@/lib/dataCatalog";
 
 export function GlossaryDialog({
   open,
@@ -79,8 +75,8 @@ export function GlossaryDialog({
             <BookMarked className="h-4 w-4 text-primary" /> Business glossary
           </DialogTitle>
           <DialogDescription className="text-xs">
-            Define the business terms your data uses. Tag an asset with a term's name to link
-            them — tags matching a glossary term show its definition on hover.
+            Define the business terms your data uses. Tag an asset with a term's name to link them —
+            tags matching a glossary term show its definition on hover.
           </DialogDescription>
         </DialogHeader>
 
@@ -98,8 +94,17 @@ export function GlossaryDialog({
             placeholder="Definition — what it means, how it's measured"
             className="h-8 flex-1 text-xs"
           />
-          <Button size="sm" className="h-8 gap-1 px-2.5 text-xs" disabled={busy || !newTerm.trim()} onClick={add}>
-            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+          <Button
+            size="sm"
+            className="h-8 gap-1 px-2.5 text-xs"
+            disabled={busy || !newTerm.trim()}
+            onClick={add}
+          >
+            {busy ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Plus className="h-3.5 w-3.5" />
+            )}
             Add
           </Button>
         </div>

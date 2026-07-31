@@ -64,7 +64,8 @@ async function sendViaSmtp(args: MailArgs): Promise<MailResult> {
   try {
     // @vite-ignore keeps the bundler from trying to resolve this at build time;
     // it resolves at runtime on Node when nodemailer is installed.
-    nodemailer = (await import(/* @vite-ignore */ "nodemailer")).default ??
+    nodemailer =
+      (await import(/* @vite-ignore */ "nodemailer")).default ??
       (await import(/* @vite-ignore */ "nodemailer"));
   } catch {
     return {

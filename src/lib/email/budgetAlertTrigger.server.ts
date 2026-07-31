@@ -11,89 +11,92 @@
 // Designed to be called fire-and-forget from recordGatewayCall — it must
 // never throw and never block the caller's request.
 
-import * as React from 'react'
-import { render } from '@react-email/components'
-import { supabaseAdmin } from '@/integrations/supabase/client.server'
-import { TEMPLATES } from '@/lib/email-templates/registry'
-import { sendMail } from '@/lib/email/mailer.server'
+import * as React from "react";
+import { render } from "@react-email/components";
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { TEMPLATES } from "@/lib/email-templates/registry";
+import { sendMail } from "@/lib/email/mailer.server";
 
 // Self-hosted: the instance's public URL (used for links inside the email).
-const SITE_URL = process.env.SITE_URL || 'http://localhost:8080'
-const TEMPLATE_NAME = 'budget-alert'
+const SITE_URL = process.env.SITE_URL || "http://localhost:8080";
+const TEMPLATE_NAME = "budget-alert";
 
 function generateToken(): string {
-  const bytes = new Uint8Array(32)
-  crypto.getRandomValues(bytes)
-  return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('')
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 function firstOfMonth(d: Date = new Date()): string {
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-01`
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-01`;
 }
 
 async function enqueueBudgetEmail(args: {
-  userId: string
-  email: string
-  displayName: string | null
-  monthlyCapUsd: number
-  spentUsd: number
-  percentUsed: number
-  kind: 'threshold' | 'exceeded'
+  userId: string;
+  email: string;
+  displayName: string | null;
+  monthlyCapUsd: number;
+  spentUsd: number;
+  percentUsed: number;
+  kind: "threshold" | "exceeded";
 }) {
-  const sb = supabaseAdmin
-  const normalized = args.email.toLowerCase()
+  const sb = supabaseAdmin;
+  const normalized = args.email.toLowerCase();
 
   // Suppression check
   const { data: suppressed } = await sb
-    .from('suppressed_emails')
-    .select('id')
-    .eq('email', normalized)
-    .maybeSingle()
-  if (suppressed) return
+    .from("suppressed_emails")
+    .select("id")
+    .eq("email", normalized)
+    .maybeSingle();
+  if (suppressed) return;
 
   // Unsubscribe token (one per email)
-  let unsubscribeToken: string
+  let unsubscribeToken: string;
   const { data: existing } = await sb
-    .from('email_unsubscribe_tokens')
-    .select('token, used_at')
-    .eq('email', normalized)
-    .maybeSingle()
-  if (existing?.used_at) return
+    .from("email_unsubscribe_tokens")
+    .select("token, used_at")
+    .eq("email", normalized)
+    .maybeSingle();
+  if (existing?.used_at) return;
   if (existing?.token) {
-    unsubscribeToken = existing.token
+    unsubscribeToken = existing.token;
   } else {
-    unsubscribeToken = generateToken()
-    await sb.from('email_unsubscribe_tokens').upsert(
-      { token: unsubscribeToken, email: normalized },
-      { onConflict: 'email', ignoreDuplicates: true },
-    )
+    unsubscribeToken = generateToken();
+    await sb
+      .from("email_unsubscribe_tokens")
+      .upsert(
+        { token: unsubscribeToken, email: normalized },
+        { onConflict: "email", ignoreDuplicates: true },
+      );
     const { data: stored } = await sb
-      .from('email_unsubscribe_tokens')
-      .select('token')
-      .eq('email', normalized)
-      .maybeSingle()
-    if (!stored?.token) return
-    unsubscribeToken = stored.token
+      .from("email_unsubscribe_tokens")
+      .select("token")
+      .eq("email", normalized)
+      .maybeSingle();
+    if (!stored?.token) return;
+    unsubscribeToken = stored.token;
   }
 
-  const entry = TEMPLATES[TEMPLATE_NAME]
-  if (!entry) return
+  const entry = TEMPLATES[TEMPLATE_NAME];
+  if (!entry) return;
   const data = {
-    siteName: 'AgentSwarms',
+    siteName: "AgentSwarms",
     siteUrl: SITE_URL,
-    recipient: args.displayName || normalized.split('@')[0] || 'there',
+    recipient: args.displayName || normalized.split("@")[0] || "there",
     monthlyCapUsd: args.monthlyCapUsd,
     spentUsd: args.spentUsd,
     percentUsed: args.percentUsed,
     kind: args.kind,
-  }
-  const element = React.createElement(entry.component, data)
-  const html = await render(element)
-  const text = await render(element, { plainText: true })
-  const subject =
-    typeof entry.subject === 'function' ? entry.subject(data) : entry.subject
+  };
+  const element = React.createElement(entry.component, data);
+  const html = await render(element);
+  const text = await render(element, { plainText: true });
+  const subject = typeof entry.subject === "function" ? entry.subject(data) : entry.subject;
 
-  const messageId = crypto.randomUUID()
+  const messageId = crypto.randomUUID();
 
   // Send directly via the configured mailer (Resend / SMTP / no-op).
   // Per-month idempotency is already enforced by the caller via
@@ -104,98 +107,97 @@ async function enqueueBudgetEmail(args: {
     html,
     text,
     headers: {
-      'List-Unsubscribe': `<${SITE_URL}/email/unsubscribe?token=${unsubscribeToken}>`,
-      'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+      "List-Unsubscribe": `<${SITE_URL}/email/unsubscribe?token=${unsubscribeToken}>`,
+      "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
     },
-  })
+  });
 
-  await sb.from('email_send_log').insert({
+  await sb.from("email_send_log").insert({
     message_id: messageId,
     template_name: TEMPLATE_NAME,
     recipient_email: args.email,
-    status: result.sent ? 'sent' : result.reason === 'no_mailer_configured' ? 'skipped' : 'failed',
+    status: result.sent ? "sent" : result.reason === "no_mailer_configured" ? "skipped" : "failed",
     error_message: result.sent ? null : result.reason,
-  })
-  if (!result.sent && result.reason !== 'no_mailer_configured') {
-    console.error('[budgetAlertTrigger] send failed:', result.reason)
+  });
+  if (!result.sent && result.reason !== "no_mailer_configured") {
+    console.error("[budgetAlertTrigger] send failed:", result.reason);
   }
 }
 
 export async function checkAndNotifyBudget(userId: string): Promise<void> {
-  if (!userId) return
+  if (!userId) return;
   try {
-    const sb = supabaseAdmin
+    const sb = supabaseAdmin;
 
     // 1. Load (or create) the user's budget settings.
     let { data: budget } = await sb
-      .from('budget_settings')
-      .select('*')
-      .eq('user_id', userId)
-      .maybeSingle()
+      .from("budget_settings")
+      .select("*")
+      .eq("user_id", userId)
+      .maybeSingle();
     if (!budget) {
       const { data: created } = await sb
-        .from('budget_settings')
+        .from("budget_settings")
         .insert({ user_id: userId })
-        .select('*')
-        .maybeSingle()
-      budget = created
+        .select("*")
+        .maybeSingle();
+      budget = created;
     }
-    if (!budget || !budget.alerts_enabled) return
+    if (!budget || !budget.alerts_enabled) return;
 
-    const cap = Number(budget.monthly_cap_usd ?? 0)
-    if (cap <= 0) return
+    const cap = Number(budget.monthly_cap_usd ?? 0);
+    if (cap <= 0) return;
 
     // 2. Compute month-to-date spend.
     const monthStartIso = new Date(
       Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1),
-    ).toISOString()
+    ).toISOString();
     const { data: traces } = await sb
-      .from('execution_traces')
-      .select('cost_usd')
-      .eq('user_id', userId)
-      .gte('created_at', monthStartIso)
+      .from("execution_traces")
+      .select("cost_usd")
+      .eq("user_id", userId)
+      .gte("created_at", monthStartIso);
     const mtd = (traces ?? []).reduce(
       (s: number, r: { cost_usd: number | null }) => s + Number(r.cost_usd ?? 0),
       0,
-    )
-    const pct = (mtd / cap) * 100
+    );
+    const pct = (mtd / cap) * 100;
 
     // 3. Reset per-period dedupe state if month rolled.
-    const period = firstOfMonth()
-    const samePeriod = budget.notified_period === period
+    const period = firstOfMonth();
+    const samePeriod = budget.notified_period === period;
     const notified: number[] = samePeriod
       ? ((budget.notified_thresholds as number[] | null) ?? [])
-      : []
-    const capExceededAlreadySent =
-      budget.cap_exceeded_notified_period === period
+      : [];
+    const capExceededAlreadySent = budget.cap_exceeded_notified_period === period;
 
     // 4. Determine which alerts to fire.
-    const thresholdsToFire: number[] = []
-    const sortedThresholds = ([...(budget.alert_thresholds as number[] | null ?? [])])
-      .filter((t) => typeof t === 'number' && t > 0 && t < 100)
-      .sort((a, b) => a - b)
+    const thresholdsToFire: number[] = [];
+    const sortedThresholds = [...((budget.alert_thresholds as number[] | null) ?? [])]
+      .filter((t) => typeof t === "number" && t > 0 && t < 100)
+      .sort((a, b) => a - b);
     for (const t of sortedThresholds) {
-      if (pct >= t && !notified.includes(t)) thresholdsToFire.push(t)
+      if (pct >= t && !notified.includes(t)) thresholdsToFire.push(t);
     }
-    const fireExceeded = pct >= 100 && !capExceededAlreadySent
+    const fireExceeded = pct >= 100 && !capExceededAlreadySent;
 
-    if (thresholdsToFire.length === 0 && !fireExceeded) return
+    if (thresholdsToFire.length === 0 && !fireExceeded) return;
 
     // 5. Look up recipient email + display name.
-    const { data: authUser } = await sb.auth.admin.getUserById(userId)
-    const email = authUser?.user?.email
-    if (!email) return
+    const { data: authUser } = await sb.auth.admin.getUserById(userId);
+    const email = authUser?.user?.email;
+    if (!email) return;
     const { data: profile } = await sb
-      .from('profiles')
-      .select('display_name')
-      .eq('user_id', userId)
-      .maybeSingle()
-    const displayName = (profile?.display_name as string | null) ?? null
+      .from("profiles")
+      .select("display_name")
+      .eq("user_id", userId)
+      .maybeSingle();
+    const displayName = (profile?.display_name as string | null) ?? null;
 
     // 6. Send the highest-crossed threshold (avoid spamming when several cross at once),
     //    and/or the "exceeded" email.
     if (thresholdsToFire.length > 0) {
-      const top = thresholdsToFire[thresholdsToFire.length - 1]
+      const top = thresholdsToFire[thresholdsToFire.length - 1];
       await enqueueBudgetEmail({
         userId,
         email,
@@ -203,19 +205,19 @@ export async function checkAndNotifyBudget(userId: string): Promise<void> {
         monthlyCapUsd: cap,
         spentUsd: mtd,
         percentUsed: pct,
-        kind: 'threshold',
-      })
+        kind: "threshold",
+      });
       // Persist that we've now notified every threshold up to and including `top`.
-      const merged = Array.from(new Set([...notified, ...thresholdsToFire]))
+      const merged = Array.from(new Set([...notified, ...thresholdsToFire]));
       await sb
-        .from('budget_settings')
+        .from("budget_settings")
         .update({
           notified_thresholds: merged,
           notified_period: period,
         })
-        .eq('id', budget.id)
+        .eq("id", budget.id);
       // top is used by the upcoming exceeded branch via merged state.
-      void top
+      void top;
     }
     if (fireExceeded) {
       await enqueueBudgetEmail({
@@ -225,14 +227,14 @@ export async function checkAndNotifyBudget(userId: string): Promise<void> {
         monthlyCapUsd: cap,
         spentUsd: mtd,
         percentUsed: pct,
-        kind: 'exceeded',
-      })
+        kind: "exceeded",
+      });
       await sb
-        .from('budget_settings')
+        .from("budget_settings")
         .update({ cap_exceeded_notified_period: period })
-        .eq('id', budget.id)
+        .eq("id", budget.id);
     }
   } catch (e) {
-    console.error('[checkAndNotifyBudget] failed:', e)
+    console.error("[checkAndNotifyBudget] failed:", e);
   }
 }

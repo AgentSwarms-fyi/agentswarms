@@ -976,7 +976,7 @@ function IntegrationsPage() {
     setFirecrawlTesting(true);
     setFirecrawlStatus(null);
     // Only live-test when a new key was entered (we can't read the stored one back).
-    let testResult: { ok: boolean; detail: string } = key
+    const testResult: { ok: boolean; detail: string } = key
       ? await testFirecrawlKey({ data: { access_token: session.access_token, api_key: key } })
       : { ok: true, detail: "Kept the saved key." };
     setFirecrawlStatus(testResult);

@@ -40,7 +40,11 @@ export function SkillSampleTour({ agentId, skillTourId, onUseSuggestedPrompt }: 
 
   function dismiss() {
     if (dismissKey) {
-      try { sessionStorage.setItem(dismissKey, "1"); } catch { /* ignore */ }
+      try {
+        sessionStorage.setItem(dismissKey, "1");
+      } catch {
+        /* ignore */
+      }
     }
     setDismissed(true);
   }

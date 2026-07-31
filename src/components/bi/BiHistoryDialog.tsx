@@ -104,8 +104,8 @@ export function BiHistoryDialog({
             <History className="h-4 w-4" /> Version history
           </DialogTitle>
           <DialogDescription className="text-xs">
-            Snapshots are captured automatically as you edit (at most every 10 minutes) and
-            whenever you save one manually. Restoring first snapshots the current state.
+            Snapshots are captured automatically as you edit (at most every 10 minutes) and whenever
+            you save one manually. Restoring first snapshots the current state.
           </DialogDescription>
         </DialogHeader>
 
@@ -117,8 +117,17 @@ export function BiHistoryDialog({
             placeholder="Label this version (optional)"
             className="h-8 text-xs"
           />
-          <Button size="sm" className="h-8 gap-1.5 px-3 text-xs" onClick={saveNow} disabled={saving}>
-            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+          <Button
+            size="sm"
+            className="h-8 gap-1.5 px-3 text-xs"
+            onClick={saveNow}
+            disabled={saving}
+          >
+            {saving ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Save className="h-3.5 w-3.5" />
+            )}
             Save version
           </Button>
         </div>

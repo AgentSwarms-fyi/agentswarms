@@ -8,11 +8,11 @@
 // runtime into the agent's effective system prompt.
 
 export type SampleSkill = {
-  id: string;            // e.g. "sample:code-reviewer"
+  id: string; // e.g. "sample:code-reviewer"
   name: string;
   description: string;
   tags: string[];
-  body: string;          // raw markdown of the skill.md
+  body: string; // raw markdown of the skill.md
 };
 
 const md = (s: string) => s.replace(/^\n/, "").replace(/\n+$/, "\n");
@@ -21,8 +21,7 @@ export const SAMPLE_SKILLS: SampleSkill[] = [
   {
     id: "sample:code-reviewer",
     name: "Code Reviewer",
-    description:
-      "Review code changes like a senior engineer: bugs, security, readability, tests.",
+    description: "Review code changes like a senior engineer: bugs, security, readability, tests.",
     tags: ["engineering", "review"],
     body: md(`
 ---
@@ -69,8 +68,7 @@ Do NOT use for greenfield design questions or pure architectural debate.
   {
     id: "sample:sql-analyst",
     name: "SQL Analyst",
-    description:
-      "Translate business questions into safe, read-only SQL and explain the result.",
+    description: "Translate business questions into safe, read-only SQL and explain the result.",
     tags: ["data", "sql"],
     body: md(`
 ---
@@ -116,8 +114,7 @@ Use when the user asks an analytical question that can be answered from a table 
   {
     id: "sample:research-synthesizer",
     name: "Research Synthesizer",
-    description:
-      "Search the web, then return a structured, cited briefing — not a wall of text.",
+    description: "Search the web, then return a structured, cited briefing — not a wall of text.",
     tags: ["research", "web"],
     body: md(`
 ---
@@ -150,8 +147,7 @@ Use when the user asks "research X", "what's the latest on X", "compare A vs B",
   {
     id: "sample:support-tone",
     name: "Customer Support Tone",
-    description:
-      "Reply to customer messages with empathy, clarity, and a concrete next step.",
+    description: "Reply to customer messages with empathy, clarity, and a concrete next step.",
     tags: ["support", "writing"],
     body: md(`
 ---
@@ -186,8 +182,7 @@ Use whenever the input looks like an inbound customer message: complaints, quest
   {
     id: "sample:json-only",
     name: "JSON-Only Output",
-    description:
-      "Force the agent to reply with a single valid JSON object — no prose, no fences.",
+    description: "Force the agent to reply with a single valid JSON object — no prose, no fences.",
     tags: ["formatting", "structured-output"],
     body: md(`
 ---

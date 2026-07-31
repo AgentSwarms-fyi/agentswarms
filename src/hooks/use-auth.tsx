@@ -31,9 +31,7 @@ async function sendWelcomeEmailOnce(session: Session) {
         templateData: {
           siteName: "AgentSwarms",
           siteUrl: window.location.origin,
-          recipient:
-            (meta.full_name as string | undefined)?.split(" ")[0] ||
-            email.split("@")[0],
+          recipient: (meta.full_name as string | undefined)?.split(" ")[0] || email.split("@")[0],
         },
       }),
     });
@@ -57,10 +55,7 @@ export function useAuth() {
 
       // Send welcome email on first sign-in (covers both email confirmation
       // flow and immediate auto-confirm). Idempotent via user_metadata flag.
-      if (
-        session &&
-        (event === "SIGNED_IN" || event === "INITIAL_SESSION")
-      ) {
+      if (session && (event === "SIGNED_IN" || event === "INITIAL_SESSION")) {
         // Defer so we don't block the auth listener (Supabase guidance).
         setTimeout(() => {
           void sendWelcomeEmailOnce(session);

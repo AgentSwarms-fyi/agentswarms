@@ -70,9 +70,8 @@ export function CookieConsent() {
         <div className="flex items-start gap-3 sm:flex-1">
           <Cookie className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
           <p className="text-sm text-muted-foreground">
-            We use only essential cookies to keep you signed in. Optional
-            analytics cookies (Google Analytics) help us improve AgentSwarms —
-            they only load if you accept. See our{" "}
+            We use only essential cookies to keep you signed in. Optional analytics cookies (Google
+            Analytics) help us improve AgentSwarms — they only load if you accept. See our{" "}
             <Link to="/privacy" className="text-primary hover:underline">
               Privacy Policy
             </Link>

@@ -98,7 +98,8 @@ export function TemplateTour({ templateId, signals, onUseSuggestedPrompt }: Tour
   }, [dismissKey]);
 
   const completed = useMemo(
-    () => (template ? computeCompletedSteps(template, signals) : new Set<TemplateLessonStep["id"]>()),
+    () =>
+      template ? computeCompletedSteps(template, signals) : new Set<TemplateLessonStep["id"]>(),
     [template, signals],
   );
 
@@ -139,7 +140,11 @@ export function TemplateTour({ templateId, signals, onUseSuggestedPrompt }: Tour
   const dismiss = () => {
     setDismissed(true);
     if (dismissKey) {
-      try { sessionStorage.setItem(dismissKey, "1"); } catch { /* ignore */ }
+      try {
+        sessionStorage.setItem(dismissKey, "1");
+      } catch {
+        /* ignore */
+      }
     }
   };
 
@@ -157,7 +162,9 @@ export function TemplateTour({ templateId, signals, onUseSuggestedPrompt }: Tour
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
               <p className="text-xs font-semibold truncate">Guided tour</p>
-              <Badge variant="outline" className="text-[9px] py-0 px-1.5 h-4">DEMO</Badge>
+              <Badge variant="outline" className="text-[9px] py-0 px-1.5 h-4">
+                DEMO
+              </Badge>
             </div>
             <p className="text-[11px] text-muted-foreground truncate">{template.title}</p>
           </div>
@@ -177,7 +184,9 @@ export function TemplateTour({ templateId, signals, onUseSuggestedPrompt }: Tour
       <div className="px-3 pt-3 pb-2">
         <div className="flex items-center justify-between mb-1.5">
           <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">
-            {allDone ? "Tour complete 🎉" : `Step ${Math.min(completedCount + 1, totalSteps)} of ${totalSteps}`}
+            {allDone
+              ? "Tour complete 🎉"
+              : `Step ${Math.min(completedCount + 1, totalSteps)} of ${totalSteps}`}
           </span>
           <span className="text-[10px] text-muted-foreground font-mono">{progressPct}%</span>
         </div>
@@ -195,7 +204,9 @@ export function TemplateTour({ templateId, signals, onUseSuggestedPrompt }: Tour
             return (
               <li
                 key={step.id}
-                ref={(el) => { stepRefs.current[idx] = el; }}
+                ref={(el) => {
+                  stepRefs.current[idx] = el;
+                }}
                 className={cn(
                   "rounded-lg border p-2.5 transition-colors",
                   isDone
@@ -266,7 +277,11 @@ export function TemplateTour({ templateId, signals, onUseSuggestedPrompt }: Tour
                             onClick={() => copyPrompt(prompt, idx)}
                             title="Copy prompt"
                           >
-                            {isCopied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                            {isCopied ? (
+                              <Check className="h-3 w-3" />
+                            ) : (
+                              <Copy className="h-3 w-3" />
+                            )}
                           </Button>
                         </div>
                       </div>
@@ -289,26 +304,26 @@ export function TemplateTour({ templateId, signals, onUseSuggestedPrompt }: Tour
       </ScrollArea>
 
       {/* Fallback footer — only when the current step has no inline prompt and no message sent yet */}
-      {signals.userMessageCount === 0
-        && currentIdx >= 0
-        && !template.lesson[currentIdx]?.suggestedPrompt
-        && fallbackFirstPrompt && (
-        <div className="border-t border-border p-3 bg-muted/30">
-          <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium mb-1.5">
-            Suggested first prompt
-          </p>
-          <p className="text-[11px] text-muted-foreground leading-snug line-clamp-3 mb-2 italic">
-            "{fallbackFirstPrompt}"
-          </p>
-          <Button
-            size="sm"
-            className="w-full h-7 text-xs gap-1"
-            onClick={() => onUseSuggestedPrompt(fallbackFirstPrompt)}
-          >
-            <Sparkles className="h-3 w-3" /> Try this prompt
-          </Button>
-        </div>
-      )}
+      {signals.userMessageCount === 0 &&
+        currentIdx >= 0 &&
+        !template.lesson[currentIdx]?.suggestedPrompt &&
+        fallbackFirstPrompt && (
+          <div className="border-t border-border p-3 bg-muted/30">
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium mb-1.5">
+              Suggested first prompt
+            </p>
+            <p className="text-[11px] text-muted-foreground leading-snug line-clamp-3 mb-2 italic">
+              "{fallbackFirstPrompt}"
+            </p>
+            <Button
+              size="sm"
+              className="w-full h-7 text-xs gap-1"
+              onClick={() => onUseSuggestedPrompt(fallbackFirstPrompt)}
+            >
+              <Sparkles className="h-3 w-3" /> Try this prompt
+            </Button>
+          </div>
+        )}
 
       {allDone && (
         <div className="border-t border-border p-3 bg-emerald-500/5">

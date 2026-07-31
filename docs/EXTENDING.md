@@ -2,10 +2,10 @@
 
 Two extension points, from lightest to heaviest:
 
-| You want to…                                             | Use               | Code required |
-| -------------------------------------------------------- | ----------------- | ------------- |
-| Teach an agent a procedure, style, or domain method      | **Skill**         | none          |
-| Give agents a new capability that calls an API / system  | **Built-in tool** | one PR        |
+| You want to…                                            | Use               | Code required |
+| ------------------------------------------------------- | ----------------- | ------------- |
+| Teach an agent a procedure, style, or domain method     | **Skill**         | none          |
+| Give agents a new capability that calls an API / system | **Built-in tool** | one PR        |
 
 ## Skills (no code)
 
@@ -23,7 +23,7 @@ composed into its effective system prompt.
   `sample:`. Sample skills are read-only, always available to every user, and
   forkable from the Skills page.
 
-Write skills like the built-ins: a crisp *When to use* (and when NOT), a
+Write skills like the built-ins: a crisp _When to use_ (and when NOT), a
 numbered procedure, and hard constraints. Skills steer **behaviour**; they
 cannot grant new powers — that's what tools are for.
 
@@ -64,7 +64,7 @@ No changes needed there.
 
 When several sources are attached (data tables + knowledge bases + web + MCP),
 the registry emits **TOOL ROUTING** guidance built from what is actually
-enabled — e.g. *sql_query reads only the tables listed in its description; for
-external/vendor/current information use web_search*. If you see an agent
+enabled — e.g. _sql_query reads only the tables listed in its description; for
+external/vendor/current information use web_search_. If you see an agent
 reaching for the wrong source, tune `buildRoutingGuidance()` — not the
 individual tool descriptions — so the fix applies everywhere at once.

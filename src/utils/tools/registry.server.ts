@@ -581,7 +581,6 @@ export async function runCalculator(
     });
   }
   try {
-    // eslint-disable-next-line @typescript-eslint/no-implied-eval
     const value = Function(`"use strict"; return (${sanitized});`)();
     if (typeof value !== "number" || !Number.isFinite(value)) {
       return JSON.stringify({ error: "Result is not a finite number" });

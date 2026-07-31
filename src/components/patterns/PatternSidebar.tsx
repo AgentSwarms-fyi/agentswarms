@@ -35,15 +35,23 @@ export function PatternSidebar({ activeId, onSelect }: Props) {
 
       <div className="border-t border-border p-3 text-[10px] text-muted-foreground leading-relaxed">
         <p className="font-semibold text-foreground mb-1">Read-only canvas</p>
-        <p>Drag nodes to rearrange. You can't edit, connect, or run — this is purely educational.</p>
+        <p>
+          Drag nodes to rearrange. You can't edit, connect, or run — this is purely educational.
+        </p>
       </div>
     </aside>
   );
 }
 
 function PatternItem({
-  pattern, isActive, onClick,
-}: { pattern: AgenticPattern; isActive: boolean; onClick: () => void }) {
+  pattern,
+  isActive,
+  onClick,
+}: {
+  pattern: AgenticPattern;
+  isActive: boolean;
+  onClick: () => void;
+}) {
   const c = ACCENT_CLASSES[pattern.accent];
   return (
     <button
@@ -57,7 +65,9 @@ function PatternItem({
     >
       <div className="flex items-center gap-2">
         <span className={cn("h-2 w-2 rounded-full", c.bg, "ring-2", c.ring)} />
-        <span className={cn("text-xs font-semibold truncate", isActive ? c.text : "text-foreground")}>
+        <span
+          className={cn("text-xs font-semibold truncate", isActive ? c.text : "text-foreground")}
+        >
           {pattern.name}
         </span>
       </div>

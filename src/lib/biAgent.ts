@@ -713,7 +713,7 @@ export async function runBiTurn(args: {
   const docExcerpts = args.documents?.length
     ? extractDocExcerpts(args.question, args.documents)
     : undefined;
-  let turn: BiTurn = {
+  const turn: BiTurn = {
     question: args.question,
     status: "planning",
     docNames: args.documents?.length ? args.documents.map((d) => d.name) : undefined,

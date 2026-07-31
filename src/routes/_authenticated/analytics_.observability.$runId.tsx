@@ -29,7 +29,10 @@ type Run = {
   step_count: number;
   error_count: number;
   error_message: string | null;
-  swarm_snapshot: { nodes?: Array<{ id: string; data?: { label?: string } }>; edges?: Array<{ source: string; target: string }> } | null;
+  swarm_snapshot: {
+    nodes?: Array<{ id: string; data?: { label?: string } }>;
+    edges?: Array<{ source: string; target: string }>;
+  } | null;
 };
 
 type Step = {
@@ -87,16 +90,27 @@ function TraceDetail() {
     })();
   }, [runId]);
 
-  if (loading) return <div className="p-6"><Skeleton className="h-64" /></div>;
+  if (loading)
+    return (
+      <div className="p-6">
+        <Skeleton className="h-64" />
+      </div>
+    );
   if (!run) return <div className="p-6 text-sm text-muted-foreground">Run not found.</div>;
 
   const startedAt = new Date(run.started_at).getTime();
-  const totalDuration = Math.max(1, run.total_latency_ms || (run.finished_at ? new Date(run.finished_at).getTime() - startedAt : 1));
+  const totalDuration = Math.max(
+    1,
+    run.total_latency_ms || (run.finished_at ? new Date(run.finished_at).getTime() - startedAt : 1),
+  );
 
   return (
     <div className="p-6 space-y-4">
       <div className="flex items-center gap-2">
-        <Link to="/analytics/observability" className="text-xs text-muted-foreground hover:text-primary inline-flex items-center gap-1">
+        <Link
+          to="/analytics/observability"
+          className="text-xs text-muted-foreground hover:text-primary inline-flex items-center gap-1"
+        >
           <ArrowLeft className="h-3.5 w-3.5" /> All runs
         </Link>
       </div>
@@ -104,11 +118,18 @@ function TraceDetail() {
       <div>
         <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
           {run.swarm_name ?? "Untitled swarm"}
-          <Badge variant="outline" className={
-            run.status === "success" ? "border-emerald-500/40 text-emerald-500" :
-            run.status === "error" ? "border-red-500/40 text-red-500" :
-            "border-amber-500/40 text-amber-500"
-          }>{run.status}</Badge>
+          <Badge
+            variant="outline"
+            className={
+              run.status === "success"
+                ? "border-emerald-500/40 text-emerald-500"
+                : run.status === "error"
+                  ? "border-red-500/40 text-red-500"
+                  : "border-amber-500/40 text-amber-500"
+            }
+          >
+            {run.status}
+          </Badge>
         </h1>
         <p className="text-xs text-muted-foreground mt-1 font-mono">
           {format(new Date(run.started_at), "PPpp")} · run {run.id.slice(0, 8)}
@@ -125,16 +146,26 @@ function TraceDetail() {
       </div>
 
       {run.input_prompt && (
-        <Card className="p-3"><p className="text-[10px] uppercase text-muted-foreground mb-1">Input</p><p className="text-xs whitespace-pre-wrap">{run.input_prompt}</p></Card>
+        <Card className="p-3">
+          <p className="text-[10px] uppercase text-muted-foreground mb-1">Input</p>
+          <p className="text-xs whitespace-pre-wrap">{run.input_prompt}</p>
+        </Card>
       )}
       {run.error_message && (
-        <Card className="p-3 border-red-500/30 bg-red-500/5"><p className="text-[10px] uppercase text-red-400 mb-1">Error</p><p className="text-xs font-mono whitespace-pre-wrap text-red-400">{run.error_message}</p></Card>
+        <Card className="p-3 border-red-500/30 bg-red-500/5">
+          <p className="text-[10px] uppercase text-red-400 mb-1">Error</p>
+          <p className="text-xs font-mono whitespace-pre-wrap text-red-400">{run.error_message}</p>
+        </Card>
       )}
 
       <Tabs defaultValue="canvas" className="w-full">
         <TabsList>
-          <TabsTrigger value="canvas"><GitBranch className="h-3.5 w-3.5 mr-1" /> Canvas</TabsTrigger>
-          <TabsTrigger value="timeline"><ListOrdered className="h-3.5 w-3.5 mr-1" /> Timeline</TabsTrigger>
+          <TabsTrigger value="canvas">
+            <GitBranch className="h-3.5 w-3.5 mr-1" /> Canvas
+          </TabsTrigger>
+          <TabsTrigger value="timeline">
+            <ListOrdered className="h-3.5 w-3.5 mr-1" /> Timeline
+          </TabsTrigger>
           <TabsTrigger value="dataflow">Data flow ({edges.length})</TabsTrigger>
         </TabsList>
 
@@ -146,16 +177,20 @@ function TraceDetail() {
             onSelectStep={(s) => setSelectedStep(s as Step)}
           />
           <p className="text-[10px] text-muted-foreground mt-2">
-            Solid edges fired during this run · animated edges flowed successfully · dashed edges were configured but not taken (e.g. condition routed away).
+            Solid edges fired during this run · animated edges flowed successfully · dashed edges
+            were configured but not taken (e.g. condition routed away).
           </p>
         </TabsContent>
 
         <TabsContent value="timeline" className="mt-3">
           <Card>
-            <div className="px-4 py-2 border-b border-border text-xs uppercase tracking-wider text-muted-foreground">Execution timeline · click any step to dig in</div>
+            <div className="px-4 py-2 border-b border-border text-xs uppercase tracking-wider text-muted-foreground">
+              Execution timeline · click any step to dig in
+            </div>
             <div className="divide-y divide-border">
               {steps.map((s) => {
-                const offset = ((new Date(s.started_at).getTime() - startedAt) / totalDuration) * 100;
+                const offset =
+                  ((new Date(s.started_at).getTime() - startedAt) / totalDuration) * 100;
                 const width = Math.max(1, (s.latency_ms / totalDuration) * 100);
                 return (
                   <button
@@ -165,27 +200,38 @@ function TraceDetail() {
                   >
                     <div className="col-span-3 min-w-0">
                       <p className="text-sm font-medium truncate">{s.node_label ?? s.node_id}</p>
-                      <p className="text-[10px] text-muted-foreground font-mono truncate">{s.node_kind} · {s.llm_model ?? "—"}</p>
+                      <p className="text-[10px] text-muted-foreground font-mono truncate">
+                        {s.node_kind} · {s.llm_model ?? "—"}
+                      </p>
                     </div>
                     <div className="col-span-6 relative h-5 bg-muted/30 rounded">
                       <div
                         className={
                           "absolute top-0 bottom-0 rounded " +
-                          (s.status === "success" ? "bg-emerald-500/60" :
-                           s.status === "error" ? "bg-red-500/60" :
-                           s.status === "skipped" ? "bg-muted-foreground/30" :
-                           "bg-amber-500/60")
+                          (s.status === "success"
+                            ? "bg-emerald-500/60"
+                            : s.status === "error"
+                              ? "bg-red-500/60"
+                              : s.status === "skipped"
+                                ? "bg-muted-foreground/30"
+                                : "bg-amber-500/60")
                         }
-                        style={{ left: `${Math.min(99, offset)}%`, width: `${Math.min(100 - offset, width)}%` }}
+                        style={{
+                          left: `${Math.min(99, offset)}%`,
+                          width: `${Math.min(100 - offset, width)}%`,
+                        }}
                       />
                     </div>
                     <div className="col-span-3 text-right text-[11px] font-mono text-muted-foreground">
-                      {s.latency_ms}ms · {s.tokens_in}/{s.tokens_out} tok · ${Number(s.cost_usd).toFixed(4)}
+                      {s.latency_ms}ms · {s.tokens_in}/{s.tokens_out} tok · $
+                      {Number(s.cost_usd).toFixed(4)}
                     </div>
                   </button>
                 );
               })}
-              {steps.length === 0 && <p className="text-sm text-muted-foreground p-6 text-center">No steps recorded.</p>}
+              {steps.length === 0 && (
+                <p className="text-sm text-muted-foreground p-6 text-center">No steps recorded.</p>
+              )}
             </div>
           </Card>
         </TabsContent>
@@ -202,7 +248,11 @@ function TraceDetail() {
                     <span className="text-primary">→</span>
                     <span className="text-muted-foreground">{e.target_node_id}</span>
                     <span className="text-[10px] text-muted-foreground/70 ml-auto">{e.bytes}b</span>
-                    {e.payload_preview && <span className="truncate max-w-[40%] text-muted-foreground/70">{e.payload_preview.slice(0, 80)}</span>}
+                    {e.payload_preview && (
+                      <span className="truncate max-w-[40%] text-muted-foreground/70">
+                        {e.payload_preview.slice(0, 80)}
+                      </span>
+                    )}
                   </div>
                 ))}
               </div>
@@ -212,18 +262,26 @@ function TraceDetail() {
       </Tabs>
 
       {run.final_output && (
-        <Card className="p-3 border-emerald-500/30"><p className="text-[10px] uppercase text-emerald-400 mb-1">Final output</p><p className="text-xs whitespace-pre-wrap">{run.final_output}</p></Card>
+        <Card className="p-3 border-emerald-500/30">
+          <p className="text-[10px] uppercase text-emerald-400 mb-1">Final output</p>
+          <p className="text-xs whitespace-pre-wrap">{run.final_output}</p>
+        </Card>
       )}
 
       <Sheet open={!!selectedStep} onOpenChange={(o) => !o && setSelectedStep(null)}>
         <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
           {selectedStep && (
             <>
-              <SheetHeader><SheetTitle>{selectedStep.node_label ?? selectedStep.node_id}</SheetTitle></SheetHeader>
+              <SheetHeader>
+                <SheetTitle>{selectedStep.node_label ?? selectedStep.node_id}</SheetTitle>
+              </SheetHeader>
               <div className="mt-4 grid grid-cols-4 gap-2">
                 <Metric label="Status" value={selectedStep.status} />
                 <Metric label="Latency" value={`${selectedStep.latency_ms}ms`} />
-                <Metric label="Tokens" value={`${selectedStep.tokens_in}/${selectedStep.tokens_out}`} />
+                <Metric
+                  label="Tokens"
+                  value={`${selectedStep.tokens_in}/${selectedStep.tokens_out}`}
+                />
                 <Metric label="Cost" value={`$${Number(selectedStep.cost_usd).toFixed(4)}`} />
               </div>
               <Tabs defaultValue="input" className="mt-4">
@@ -236,13 +294,27 @@ function TraceDetail() {
                   <TabsTrigger value="rag">RAG</TabsTrigger>
                   <TabsTrigger value="error">Error</TabsTrigger>
                 </TabsList>
-                <TabsContent value="input"><Pre>{JSON.stringify(selectedStep.input, null, 2)}</Pre></TabsContent>
-                <TabsContent value="output"><Pre>{selectedStep.output ?? "—"}</Pre></TabsContent>
-                <TabsContent value="thinking"><Pre>{selectedStep.thinking ?? "(none captured)"}</Pre></TabsContent>
-                <TabsContent value="tools"><Pre>{JSON.stringify(selectedStep.tool_calls, null, 2)}</Pre></TabsContent>
-                <TabsContent value="memory"><Pre>{JSON.stringify(selectedStep.memory_used, null, 2)}</Pre></TabsContent>
-                <TabsContent value="rag"><Pre>{JSON.stringify(selectedStep.rag_chunks, null, 2)}</Pre></TabsContent>
-                <TabsContent value="error"><Pre>{selectedStep.error_message ?? "(no error)"}</Pre></TabsContent>
+                <TabsContent value="input">
+                  <Pre>{JSON.stringify(selectedStep.input, null, 2)}</Pre>
+                </TabsContent>
+                <TabsContent value="output">
+                  <Pre>{selectedStep.output ?? "—"}</Pre>
+                </TabsContent>
+                <TabsContent value="thinking">
+                  <Pre>{selectedStep.thinking ?? "(none captured)"}</Pre>
+                </TabsContent>
+                <TabsContent value="tools">
+                  <Pre>{JSON.stringify(selectedStep.tool_calls, null, 2)}</Pre>
+                </TabsContent>
+                <TabsContent value="memory">
+                  <Pre>{JSON.stringify(selectedStep.memory_used, null, 2)}</Pre>
+                </TabsContent>
+                <TabsContent value="rag">
+                  <Pre>{JSON.stringify(selectedStep.rag_chunks, null, 2)}</Pre>
+                </TabsContent>
+                <TabsContent value="error">
+                  <Pre>{selectedStep.error_message ?? "(no error)"}</Pre>
+                </TabsContent>
               </Tabs>
             </>
           )}
@@ -263,6 +335,8 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 function Pre({ children }: { children: React.ReactNode }) {
   return (
-    <pre className="bg-muted/30 border border-border rounded-md p-3 text-[11px] font-mono whitespace-pre-wrap break-all max-h-96 overflow-auto">{children}</pre>
+    <pre className="bg-muted/30 border border-border rounded-md p-3 text-[11px] font-mono whitespace-pre-wrap break-all max-h-96 overflow-auto">
+      {children}
+    </pre>
   );
 }

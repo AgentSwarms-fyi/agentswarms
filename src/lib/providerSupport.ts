@@ -10,13 +10,13 @@ export const SUPPORTED_PROVIDER_SLUGS: ReadonlySet<string> = new Set([
   // Direct integrations on the Integrations page
   "openai",
   "anthropic",
-  "google",      // Gemini direct + Vertex
-  "xai",         // Grok
-  "alibaba",     // Qwen via DashScope
-  "meta",        // served via Bedrock / Groq / vLLM / OpenRouter / NVIDIA NIM
-  "mistral",     // served via Bedrock / Groq / vLLM / OpenRouter / NVIDIA NIM
-  "deepseek",    // served via Groq / vLLM / OpenRouter / NVIDIA NIM
-  "nvidia",      // NVIDIA NIM (build.nvidia.com) — Nemotron family, free tier
+  "google", // Gemini direct + Vertex
+  "xai", // Grok
+  "alibaba", // Qwen via DashScope
+  "meta", // served via Bedrock / Groq / vLLM / OpenRouter / NVIDIA NIM
+  "mistral", // served via Bedrock / Groq / vLLM / OpenRouter / NVIDIA NIM
+  "deepseek", // served via Groq / vLLM / OpenRouter / NVIDIA NIM
+  "nvidia", // NVIDIA NIM (build.nvidia.com) — Nemotron family, free tier
   // Anything routable via OpenRouter is effectively supported too —
   // most other providers are reachable through it.
 ]);
@@ -28,10 +28,7 @@ export const SUPPORTED_PROVIDER_SLUGS: ReadonlySet<string> = new Set([
 //               base64 data URL we render and offer for download. Supported
 //               only on the `google` provider slug for now (the gateway
 //               doesn't ship Flux/Runway/Imagen image surfaces yet).
-export const SUPPORTED_MODALITIES: ReadonlySet<string> = new Set([
-  "text",
-  "image",
-]);
+export const SUPPORTED_MODALITIES: ReadonlySet<string> = new Set(["text", "image"]);
 
 // Canonical list of image-generation model ids served by the AgentSwarms AI
 // gateway. Used by:

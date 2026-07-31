@@ -30,14 +30,14 @@
 - **Self-hosted, on-prem** — no external SaaS or per-sandbox billing required; code and data never leave the operator's infrastructure.
 - Runs on **Windows and Linux hosts** (Docker Desktop/WSL2 on Windows; Docker or Kubernetes on Linux).
 - **Secure by default** for the platform's real threat model (authenticated, IAM-governed enterprise users — see §2).
-- **Scalable** from a single laptop to a Kubernetes cluster with the *same* container image.
+- **Scalable** from a single laptop to a Kubernetes cluster with the _same_ container image.
 - Fully **governed**: model/KB calls from a server kernel still respect IAM model rules and budgets and land in Traces, exactly like `agentswarms.chat()` does today.
 - **Pluggable** backend (`docker` | `k8s` | `e2b`) so operators can upgrade isolation without an app rewrite.
 
 **Non-goals (initially)**
 
 - GPU scheduling inside kernels (design leaves room; not in phase 1–3).
-- Running genuinely *untrusted, anonymous, public* code (that's the microVM/E2B tier; see §5.6).
+- Running genuinely _untrusted, anonymous, public_ code (that's the microVM/E2B tier; see §5.6).
 - Replacing Pyodide. The browser "Lite" runtime stays for the zero-setup teaching samples.
 
 ---
@@ -111,6 +111,7 @@ Key property: **provider API keys and the service-role key never enter the sandb
 ## 4. Components
 
 ### 4.1 Per-session kernel image (`agentswarms/notebook-runtime`)
+
 - Base: `python:3.12-slim` (or `jupyter/base-notebook`).
 - Runs **[Jupyter Kernel Gateway](https://jupyter-kernel-gateway.readthedocs.io/) in websocket mode** — a battle-tested server that exposes one IPython kernel over HTTP/WebSocket. This is the "robust, headache-free" choice: we don't hand-roll a kernel protocol.
 - Pre-installs the common heavy frameworks (`langchain`, `langchain-openai`, `langgraph`, `llama-index`, `pydantic`, `httpx`, `pandas`, `numpy`) so the frequent case needs no install and is deterministic. Additional `pip install`s work at runtime through the egress proxy.
@@ -119,16 +120,16 @@ Key property: **provider API keys and the service-role key never enter the sandb
 
 **Three modes, selected by `NB_MODE`** (see `docker/notebook-runtime/entrypoint.sh`):
 
-| `NB_MODE` | Session `kind` | Process | Used by |
-|---|---|---|---|
-| `interactive` (default) | `interactive` | Jupyter Kernel Gateway, one kernel | Notebook cells over the websocket gateway |
-| `batch` | `batch` | `batch_runner.py`, runs and exits | Scheduled jobs, notebooks published as an API |
-| `mcp` | `service` | `mcp_runner.py`, serves `:8888/mcp` | **MCP Builder** — a user-authored FastMCP server |
+| `NB_MODE`               | Session `kind` | Process                             | Used by                                          |
+| ----------------------- | -------------- | ----------------------------------- | ------------------------------------------------ |
+| `interactive` (default) | `interactive`  | Jupyter Kernel Gateway, one kernel  | Notebook cells over the websocket gateway        |
+| `batch`                 | `batch`        | `batch_runner.py`, runs and exits   | Scheduled jobs, notebooks published as an API    |
+| `mcp`                   | `service`      | `mcp_runner.py`, serves `:8888/mcp` | **MCP Builder** — a user-authored FastMCP server |
 
 The `service` kind is the only long-lived one. It differs from an interactive kernel in exactly two
 places — the readiness probe (its own `/mcp` path rather than Jupyter's `/api`, and any status
 below 500 counts, because a conformant MCP endpoint answers a bare GET with 405/406) and a bounded
-`on-failure` restart policy when the app is marked *keep warm*. Every hardening flag in §5 is
+`on-failure` restart policy when the app is marked _keep warm_. Every hardening flag in §5 is
 identical; if a future change needs a third difference, that is a signal to re-examine it rather
 than widen the sandbox.
 
@@ -138,15 +139,19 @@ any of it as container environment. A response body is not visible to `docker in
 spec, so bound secrets exist only in the sandbox process's memory (§5.5).
 
 ### 4.2 Orchestrator (pluggable)
+
 Interface (`NotebookOrchestrator`): `create(session) → {ref, url}`, `stop(ref)`, `status(ref)`, `list()`.
+
 - **`DockerOrchestrator`** (dev / single host): talks to the Docker Engine API. The web app does **not** get raw `docker.sock`; instead a minimal **socket-proxy** (e.g. `tecnativa/docker-socket-proxy`) exposes only `POST /containers/create|start|stop|remove` — least privilege.
 - **`K8sOrchestrator`** (enterprise): creates a **Pod/Job per session** via the K8s API using a dedicated `ServiceAccount` with RBAC scoped to one namespace (`create/delete pods` only). This is cleaner and safer than the Docker socket.
 - **`E2BOrchestrator`** (optional): for teams that want managed Firecracker microVMs; same interface, points at E2B.
 
 ### 4.3 Runtime gateway
+
 A small stateless service (Node or Python) that: authenticates the **session token**, verifies the caller owns that session, and proxies the WebSocket to the correct kernel pod (cluster-internal DNS). Keeps live-kernel websockets out of the vinxi app and scales independently. On single-host Docker it's a tiny container; on K8s it's a Deployment behind the ingress.
 
 ### 4.4 Egress proxy
+
 The kernel pods have **no direct internet route**. Their only egress is an **HTTP/HTTPS forward proxy** the platform runs, which enforces a domain **allowlist** (PyPI + configured LLM endpoints + the app's own API) and **audits** every outbound request. Portable across Docker and K8s. On K8s, additionally enforce a `NetworkPolicy` (default-deny egress, allow only the proxy + DNS) so the proxy can't be bypassed.
 
 ---
@@ -154,6 +159,7 @@ The kernel pods have **no direct internet route**. Their only egress is an **HTT
 ## 5. Isolation & hardening (concrete spec)
 
 ### 5.1 Container runtime flags (Docker profile)
+
 ```
 --user 65534:65534            # non-root (or a baked 'runner' uid)
 --read-only                   # read-only root filesystem
@@ -169,6 +175,7 @@ The kernel pods have **no direct internet route**. Their only egress is an **HTT
 ```
 
 ### 5.2 Kubernetes profile (`securityContext` + policy)
+
 - `runAsNonRoot: true`, `readOnlyRootFilesystem: true`, `allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]`, `seccompProfile.type: RuntimeDefault`.
 - `resources.limits` (cpu/memory/ephemeral-storage) + `activeDeadlineSeconds` on the Job (hard wall-clock cap).
 - `NetworkPolicy`: default-deny ingress+egress; allow egress only to the egress-proxy Service and kube-dns; allow ingress only from the runtime gateway.
@@ -176,26 +183,30 @@ The kernel pods have **no direct internet route**. Their only egress is an **HTT
 - Optional `RuntimeClass: gvisor` (runsc) for user-space-kernel isolation on Linux — **zero app changes**, just a scheduling attribute.
 
 ### 5.3 Time & lifecycle limits
+
 - **Per-cell timeout** (e.g. 120 s default, configurable): the gateway interrupts the kernel; a second miss kills the pod.
 - **Session idle TTL** (e.g. 30 min): reaper destroys idle sessions.
 - **Session max lifetime** (e.g. 8 h): hard cap regardless of activity.
 - **Concurrency caps**: max sessions per user and per instance (protects the cluster).
 
 ### 5.4 Filesystem
+
 - Root FS read-only; the only writable path is the ephemeral work dir (lost on teardown — notebooks persist in Supabase, not on the kernel disk).
 - No host mounts; no shared volumes between sessions.
 
 ### 5.5 Secrets & governance (critical)
+
 - The sandbox environment contains **no** provider API keys and **no** Supabase service-role key. Verified by an automated test (§13).
 - Model/KB access is brokered: the kernel calls `/api/python-chat` / `/api/python-kb` with a **session token** (a short-TTL JWT signed by the platform, scoped to `{userId, sessionId, scope: notebook-runtime}`, refreshed by the gateway). The app resolves the real provider credentials server-side, enforces IAM model rules + budgets, and writes an `execution_traces` row — identical governance to the current Pyodide path.
-- If a user wants to call an LLM *directly* from the sandbox with their *own* key, that's an explicit opt-in (they paste it into a cell); document that such keys then live in their session only.
+- If a user wants to call an LLM _directly_ from the sandbox with their _own_ key, that's an explicit opt-in (they paste it into a cell); document that such keys then live in their session only.
 
 ### 5.6 Isolation tiers (operator choice)
-| Tier | Mechanism | Host requirement | When |
-|---|---|---|---|
-| **A (default)** | Hardened container (§5.1/5.2) + egress proxy | Docker or K8s; **Windows or Linux** | Standard enterprise, IAM-governed users |
-| **B** | Tier A **+ gVisor RuntimeClass** | Linux only | Stronger defense-in-depth, still self-hosted/free |
-| **C** | Firecracker microVM / E2B backend | KVM/bare-metal Linux, or E2B account | Untrusted code or strict multi-tenant SaaS |
+
+| Tier            | Mechanism                                    | Host requirement                     | When                                              |
+| --------------- | -------------------------------------------- | ------------------------------------ | ------------------------------------------------- |
+| **A (default)** | Hardened container (§5.1/5.2) + egress proxy | Docker or K8s; **Windows or Linux**  | Standard enterprise, IAM-governed users           |
+| **B**           | Tier A **+ gVisor RuntimeClass**             | Linux only                           | Stronger defense-in-depth, still self-hosted/free |
+| **C**           | Firecracker microVM / E2B backend            | KVM/bare-metal Linux, or E2B account | Untrusted code or strict multi-tenant SaaS        |
 
 ---
 
@@ -209,7 +220,7 @@ New migration `supabase/migrations/<ts>_notebook_runtime.sql`:
 - `notebook_runtime_settings` (single-row, admin-managed, mirrors the `iam_settings` pattern)
   - `server_runtime_enabled bool default false` (opt-in — the feature is off until an operator turns it on), `backend text default 'docker'`, `default_image text`, `max_sessions_per_user int`, `idle_ttl_minutes int`, `cell_timeout_seconds int`, `egress_allowlist text[]`, `pip_allowed bool default true`, `pip_allowlist text[] null` (null = any).
   - RLS: SELECT authenticated; UPDATE superadmin only.
-- Optionally extend IAM: a `notebook_runtime` capability grantable per user/group (reuse the model-rules/grants machinery) so admins can gate *who* may start server kernels.
+- Optionally extend IAM: a `notebook_runtime` capability grantable per user/group (reuse the model-rules/grants machinery) so admins can gate _who_ may start server kernels.
 - Model calls continue to use `execution_traces` (no change).
 
 Operator defaults also settable via env (`NOTEBOOK_RUNTIME_BACKEND`, `NOTEBOOK_RUNTIME_IMAGE`, `NOTEBOOK_EGRESS_ALLOWLIST`, …); the settings row overrides env when present.
@@ -235,7 +246,7 @@ Reuse the existing pieces: `getEffectiveModelRules`/`isModelAllowed` (IAM gate),
 - **Runtime switcher** in the notebook editor header: `Lite (browser)` ⟷ `Server (full Python)`. Server shows a session status pill (`starting → ready`), a **Restart kernel** and **Stop** button, and current limits (mem/CPU/timeout).
 - When Server is selected, cell execution goes over the gateway websocket instead of `runPythonCell` (Pyodide). Same cell UI, same output rendering.
 - **Packages**: `!pip install …` in a cell just works; optionally a small "Packages" panel that shows installed versions and lets users add from the allowlist.
-- The four framework **samples** stay runnable in Lite (teaching), and each gains a note: *"Switch to Server runtime to run the real `langchain`/… package end-to-end."* Optionally add real-framework sample variants that require Server.
+- The four framework **samples** stay runnable in Lite (teaching), and each gains a note: _"Switch to Server runtime to run the real `langchain`/… package end-to-end."_ Optionally add real-framework sample variants that require Server.
 - If `server_runtime_enabled` is false, the switcher shows a disabled "Server runtime — ask your admin to enable" state.
 
 ---
@@ -243,21 +254,26 @@ Reuse the existing pieces: `getEffectiveModelRules`/`isModelAllowed` (IAM gate),
 ## 9. Deployment profiles
 
 ### 9.1 Single-host (dev & small teams) — Docker Compose
+
 Adds four services to `docker-compose.yml`, all opt-in behind a compose profile `notebooks`:
+
 ```
 notebook-gateway     # ws proxy
 docker-socket-proxy  # least-privilege container control for the orchestrator
 notebook-egress      # filtering forward proxy (allowlist)
 # kernel containers are created on demand by the orchestrator (not long-running)
 ```
+
 Works on **Windows (Docker Desktop/WSL2)** and **Linux**. The `agentswarms/notebook-runtime` image is built from `docker/notebook-runtime/Dockerfile`.
 
 ### 9.2 Enterprise — Kubernetes
+
 - Helm chart / manifests under `deploy/k8s/notebooks/`: gateway Deployment + Service + Ingress, egress-proxy Deployment, the `agentswarms-notebooks` namespace with `ResourceQuota`/`LimitRange`/`NetworkPolicy`, and the RBAC `ServiceAccount` for the orchestrator.
 - Kernels run as **Jobs** (per session) with the securityContext of §5.2; optional `RuntimeClass: gvisor`.
 - Horizontal scale is automatic (each session is its own Job); cap total load with the namespace `ResourceQuota`.
 
 ### 9.3 Windows note
+
 Kernel containers are **Linux containers** (the frameworks are Linux-first). On Windows they run under Docker Desktop's WSL2 Linux VM — fully supported. gVisor/Firecracker tiers are Linux-prod only (documented as such).
 
 ---
@@ -273,14 +289,15 @@ Kernel containers are **Linux containers** (the frameworks are Linux-first). On 
 
 ## 11. Rollout phases (each independently shippable)
 
-1. **MVP (single-host Docker)** — runtime image (JKG + frameworks), `DockerOrchestrator` via socket-proxy, gateway, session model + `/api/notebook/runtime/*`, UI switcher, session-token brokering into `/api/python-*`. Egress proxy + Tier-A hardening. *Outcome: `import langchain` works end-to-end on one host.*
-2. **Security hardening pass** — seccomp profile, egress allowlist enforcement + audit, resource/timeout/idle limits, reaper, token scoping, IAM `notebook_runtime` capability, audit events. *Outcome: passes the §13 security suite.*
-3. **Kubernetes backend** — `K8sOrchestrator`, manifests/Helm, `NetworkPolicy`, quotas, optional gVisor RuntimeClass, autoscale. *Outcome: enterprise-scale deploy.*
+1. **MVP (single-host Docker)** — runtime image (JKG + frameworks), `DockerOrchestrator` via socket-proxy, gateway, session model + `/api/notebook/runtime/*`, UI switcher, session-token brokering into `/api/python-*`. Egress proxy + Tier-A hardening. _Outcome: `import langchain` works end-to-end on one host._
+2. **Security hardening pass** — seccomp profile, egress allowlist enforcement + audit, resource/timeout/idle limits, reaper, token scoping, IAM `notebook_runtime` capability, audit events. _Outcome: passes the §13 security suite._
+3. **Kubernetes backend** — `K8sOrchestrator`, manifests/Helm, `NetworkPolicy`, quotas, optional gVisor RuntimeClass, autoscale. _Outcome: enterprise-scale deploy._
 4. **Polish & optional** — warm pool, packages panel, real-framework sample variants, `E2BOrchestrator`, GPU-node opt-in.
 
 ---
 
 ## 12. Documentation deliverables
+
 - `docs/INSTALL.md`: new "Enabling the server runtime" section (Docker profile + Windows/Linux notes, the container-runtime dependency, how to turn it on).
 - `docs/DEPLOYMENT.md`: the K8s profile, hardening knobs, egress allowlist, scaling.
 - `docs/SECURITY.md` (or a section): the threat model + isolation tiers, so operators can make an informed risk decision.
@@ -293,12 +310,14 @@ Kernel containers are **Linux containers** (the frameworks are Linux-first). On 
 Testing has five layers. **The security suite (13.3) is the gate** — the feature must not ship a phase past #2 until every check passes.
 
 ### 13.1 Unit tests (CI, no Docker needed)
+
 - `orchestrator` interface with a **mock backend**: `create/stop/status/list` state transitions; reconciliation of orphaned refs.
 - **Session-token** minting/verification: correct `{userId, sessionId, scope}`, TTL expiry rejected, wrong-scope rejected, another user's token can't drive your session.
 - **Egress allowlist** parser + matcher (domain globs, default-deny).
 - `/api/python-chat` accepting a session token resolves to the right `userId` and still applies IAM/budget (extend existing tests).
 
 ### 13.2 Integration tests (CI job with Docker-in-Docker, gated on `docker` availability)
+
 - **Lifecycle**: start session → status becomes `ready` → run a cell → get output → idle-reap → `stopped`.
 - **State sharing**: define `x=41` in cell 1, `x+1` in cell 2 → `42` (kernel persistence).
 - **Framework smoke** (the whole point):
@@ -322,37 +341,41 @@ Testing has five layers. **The security suite (13.3) is the gate** — the featu
 - **Kernel restart** clears state (`x` is now undefined).
 
 ### 13.3 Security suite (the gate) — run these as cells; each must behave as marked
-| # | Test cell | Expected |
-|---|---|---|
-| S1 | `import urllib.request as u; u.urlopen("http://169.254.169.254/latest/meta-data/", timeout=3)` | **FAIL** (blocked egress) |
-| S2 | `u.urlopen("http://<internal-app-or-db-host>:5432", timeout=3)` | **FAIL** (NetworkPolicy/proxy) |
-| S3 | `u.urlopen("https://pypi.org/simple/", timeout=5)` | **PASS** (allowlisted) |
-| S4 | `open("/etc/passwd","a")` / `open("/usr/bin/x","w")` | **FAIL** (read-only rootfs) |
-| S5 | `open("/home/runner/work/t.txt","w").write("ok")` | **PASS** (only writable path) |
-| S6 | `import os; os.getuid()` | **non-zero** (non-root) |
-| S7 | `import subprocess; subprocess.run(["apt-get","install","-y","curl"])` | **FAIL** (no root/caps) |
-| S8 | `[os.environ.get(k) for k in ("OPENAI_API_KEY","SUPABASE_SERVICE_ROLE_KEY","OPENROUTER_API_KEY")]` | all **None** (no secrets in sandbox) |
-| S9 | `import os; os.listdir("/var/run/docker.sock")` / stat it | **FAIL** (no docker socket) |
-| S10 | fork bomb `import os\nwhile True: os.fork()` | killed by `pids-limit`; session survives or is reaped cleanly |
-| S11 | memory hog `x=bytearray(4*1024**3)` | OOM-killed at the mem limit, not the host |
-| S12 | Cross-tenant: user B calls `GET/stop` on user A's `sessionId`; user B connects the gateway with A's `sessionId` | **403 / rejected** |
-| S13 | Escape probe: `os.listdir("/proc/1/root")`, mount attempts | **FAIL** (no caps, no host view) |
+
+| #   | Test cell                                                                                                       | Expected                                                      |
+| --- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| S1  | `import urllib.request as u; u.urlopen("http://169.254.169.254/latest/meta-data/", timeout=3)`                  | **FAIL** (blocked egress)                                     |
+| S2  | `u.urlopen("http://<internal-app-or-db-host>:5432", timeout=3)`                                                 | **FAIL** (NetworkPolicy/proxy)                                |
+| S3  | `u.urlopen("https://pypi.org/simple/", timeout=5)`                                                              | **PASS** (allowlisted)                                        |
+| S4  | `open("/etc/passwd","a")` / `open("/usr/bin/x","w")`                                                            | **FAIL** (read-only rootfs)                                   |
+| S5  | `open("/home/runner/work/t.txt","w").write("ok")`                                                               | **PASS** (only writable path)                                 |
+| S6  | `import os; os.getuid()`                                                                                        | **non-zero** (non-root)                                       |
+| S7  | `import subprocess; subprocess.run(["apt-get","install","-y","curl"])`                                          | **FAIL** (no root/caps)                                       |
+| S8  | `[os.environ.get(k) for k in ("OPENAI_API_KEY","SUPABASE_SERVICE_ROLE_KEY","OPENROUTER_API_KEY")]`              | all **None** (no secrets in sandbox)                          |
+| S9  | `import os; os.listdir("/var/run/docker.sock")` / stat it                                                       | **FAIL** (no docker socket)                                   |
+| S10 | fork bomb `import os\nwhile True: os.fork()`                                                                    | killed by `pids-limit`; session survives or is reaped cleanly |
+| S11 | memory hog `x=bytearray(4*1024**3)`                                                                             | OOM-killed at the mem limit, not the host                     |
+| S12 | Cross-tenant: user B calls `GET/stop` on user A's `sessionId`; user B connects the gateway with A's `sessionId` | **403 / rejected**                                            |
+| S13 | Escape probe: `os.listdir("/proc/1/root")`, mount attempts                                                      | **FAIL** (no caps, no host view)                              |
 
 Automate S1–S13 as a pytest that drives a real session through the gateway and asserts pass/fail. Wire into CI (Linux) and document the manual run for Windows.
 
 ### 13.4 Load / scale
+
 - Spawn N concurrent sessions (e.g. 25, 100); measure spawn latency, per-kernel memory, and that the per-instance cap rejects overflow gracefully.
 - Idle-reaper correctness under load (no leaked containers — assert `docker ps` / `kubectl get pods` returns to baseline).
 - K8s: confirm the namespace `ResourceQuota` caps total consumption and HPA/Job scheduling behaves.
 
 ### 13.5 Manual E2E matrix (must pass on both OSes)
-| Host | Backend | Checks |
-|---|---|---|
-| **Windows 11 + Docker Desktop (WSL2)** | docker | start Server session, `import langchain`, run a LangGraph sample end-to-end, governed `chat()`, stop; run the S1–S13 suite |
-| **Linux + Docker** | docker | same |
-| **Linux + Kubernetes** | k8s | same + NetworkPolicy blocks S1/S2, quota caps load, optional gVisor RuntimeClass active |
+
+| Host                                   | Backend | Checks                                                                                                                     |
+| -------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------- |
+| **Windows 11 + Docker Desktop (WSL2)** | docker  | start Server session, `import langchain`, run a LangGraph sample end-to-end, governed `chat()`, stop; run the S1–S13 suite |
+| **Linux + Docker**                     | docker  | same                                                                                                                       |
+| **Linux + Kubernetes**                 | k8s     | same + NetworkPolicy blocks S1/S2, quota caps load, optional gVisor RuntimeClass active                                    |
 
 ### 13.6 Acceptance criteria (definition of done)
+
 - [ ] `import langchain / langgraph / llama_index` and a real end-to-end agent run succeed in Server runtime on Windows **and** Linux.
 - [ ] Every S1–S13 security check passes (automated).
 - [ ] Model/KB calls from Server runtime enforce IAM rules, count toward budgets, and appear in Traces (parity with Pyodide).
@@ -363,6 +386,7 @@ Automate S1–S13 as a pytest that drives a real session through the gateway and
 ---
 
 ## 14. Risks & open questions
+
 - **Websockets through the stack.** Confirmed approach keeps live kernel websockets in the dedicated gateway (not vinxi). Validate the gateway ↔ JKG protocol early in phase 1.
 - **Operational weight for tiny deploys.** Mitigation: everything is behind the `notebooks` compose profile and `server_runtime_enabled=false` — a hobby operator is unaffected until they opt in.
 - **pip supply-chain.** `pip_allowlist` (optional) and the audited egress proxy constrain what can be pulled; document the residual risk.
@@ -370,4 +394,5 @@ Automate S1–S13 as a pytest that drives a real session through the gateway and
 - **gVisor syscall gaps.** Some native libs misbehave under runsc; keep Tier A the default and Tier B opt-in.
 
 ## 15. Rough effort
+
 Phase 1 (MVP) ≈ the bulk; phases 2–3 are hardening + K8s. Estimate ~1.5–3 weeks of focused work to a production-ready phase 3, plus image maintenance. Phase 1 alone yields a demoable "real LangChain in a notebook" on a single host.

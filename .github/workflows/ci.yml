@@ -34,6 +34,9 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit -p tsconfig.json
 
+      - name: Lint
+        run: npm run lint
+
       - name: Test
         run: npm run test
 
@@ -54,27 +57,3 @@ jobs:
           name: test-results
           path: test-results/
           if-no-files-found: ignore
-
-  # Lint runs separately and does NOT gate merges yet.
-  #
-  # `npm run lint` currently reports ~3,400 pre-existing prettier/prettier
-  # violations across the codebase — formatting debt from before the linter was
-  # wired up, not new problems. Making it a required check today would mean a
-  # permanently red build, which teaches everyone to ignore CI. Making it
-  # green by deleting the step would be worse.
-  #
-  # So it runs, it is visible, and it is honest about being advisory. Clear the
-  # backlog with `npm run format` (a mechanical, review-as-formatting-only
-  # change) and then move this into the `verify` job as a blocking step.
-  lint:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm run lint

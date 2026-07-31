@@ -261,8 +261,7 @@ export async function invokeAgent(opts: InvokeOptions): Promise<InvokeResult> {
     if (j.task.status?.state === "failed" || j.task.status?.state === "rejected") {
       return {
         ok: false,
-        error:
-          partsToText(j.task.status.message?.parts) || `Remote task ${j.task.status.state}`,
+        error: partsToText(j.task.status.message?.parts) || `Remote task ${j.task.status.state}`,
       };
     }
     if (j.task.status?.state === "input-required") {
@@ -327,7 +326,10 @@ export async function invokeAgent(opts: InvokeOptions): Promise<InvokeResult> {
         }
 
         // Plain Task object (some servers send a final Task instead of an event)
-        if ((ev as Task).kind === "task" || ((ev as Task).status && (ev as Task).id && !(ev as { kind?: string }).kind)) {
+        if (
+          (ev as Task).kind === "task" ||
+          ((ev as Task).status && (ev as Task).id && !(ev as { kind?: string }).kind)
+        ) {
           lastTask = ev as Task;
           const t = taskToText(lastTask);
           if (t && t !== accumulated) {

@@ -8,7 +8,14 @@ import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Bell, AlertTriangle, DollarSign } from "lucide-react";
 import { startOfMonth } from "date-fns";
@@ -59,10 +66,7 @@ function BudgetsPage() {
     if (!user) return;
     (async () => {
       // Load or create budget
-      const { data: budgetRow } = await supabase
-        .from("budget_settings")
-        .select("*")
-        .maybeSingle();
+      const { data: budgetRow } = await supabase.from("budget_settings").select("*").maybeSingle();
 
       if (budgetRow) {
         setBudget(budgetRow as Budget);
@@ -76,17 +80,15 @@ function BudgetsPage() {
       }
 
       // Load agents
-      const { data: agentsRows } = await supabase
-        .from("agents")
-        .select("id, name, is_active");
+      const { data: agentsRows } = await supabase.from("agents").select("id, name, is_active");
       setAgents((agentsRows ?? []) as Agent[]);
 
       // Load limits
-      const { data: limitRows } = await supabase
-        .from("agent_limits")
-        .select("*");
+      const { data: limitRows } = await supabase.from("agent_limits").select("*");
       const map: Record<string, AgentLimit> = {};
-      (limitRows ?? []).forEach((l: any) => { map[l.agent_id] = l; });
+      (limitRows ?? []).forEach((l: any) => {
+        map[l.agent_id] = l;
+      });
       setLimits(map);
 
       // MTD spend
@@ -146,7 +148,9 @@ function BudgetsPage() {
     <div className="p-6 space-y-6 max-w-5xl">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Budgets & Guardrails</h1>
-        <p className="text-muted-foreground mt-1">Set spend caps and automated guardrails for your agent fleet.</p>
+        <p className="text-muted-foreground mt-1">
+          Set spend caps and automated guardrails for your agent fleet.
+        </p>
       </div>
 
       {/* Global Budget */}
@@ -156,7 +160,9 @@ function BudgetsPage() {
             <DollarSign className="h-4 w-4 text-primary" />
             Monthly Hard Cap
           </CardTitle>
-          <p className="text-xs text-muted-foreground">Agents will refuse new requests once this cap is reached.</p>
+          <p className="text-xs text-muted-foreground">
+            Agents will refuse new requests once this cap is reached.
+          </p>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4 md:grid-cols-[1fr_180px] items-end">
@@ -164,14 +170,18 @@ function BudgetsPage() {
               <Label className="text-xs">Cap amount</Label>
               <Slider
                 value={[cap]}
-                min={10} max={5000} step={10}
+                min={10}
+                max={5000}
+                step={10}
                 onValueChange={(v) => updateBudget({ monthly_cap_usd: v[0] })}
               />
             </div>
             <div className="space-y-2">
               <Label className="text-xs">USD / month</Label>
               <Input
-                type="number" min={10} step={10}
+                type="number"
+                min={10}
+                step={10}
                 value={cap}
                 onChange={(e) => updateBudget({ monthly_cap_usd: Number(e.target.value) })}
                 className="font-mono"
@@ -182,17 +192,29 @@ function BudgetsPage() {
           <div className="space-y-1.5 pt-2">
             <div className="flex items-center justify-between text-xs">
               <span className="text-muted-foreground">
-                Month-to-date spend: <span className="font-mono font-semibold text-foreground">${mtdSpend.toFixed(2)}</span> / ${cap.toFixed(2)}
+                Month-to-date spend:{" "}
+                <span className="font-mono font-semibold text-foreground">
+                  ${mtdSpend.toFixed(2)}
+                </span>{" "}
+                / ${cap.toFixed(2)}
               </span>
-              <Badge variant="outline" className={
-                isOver ? "text-red-400 border-red-500/30" :
-                isWarn ? "text-amber-400 border-amber-500/30" :
-                "text-emerald-400 border-emerald-500/30"
-              }>
+              <Badge
+                variant="outline"
+                className={
+                  isOver
+                    ? "text-red-400 border-red-500/30"
+                    : isWarn
+                      ? "text-amber-400 border-amber-500/30"
+                      : "text-emerald-400 border-emerald-500/30"
+                }
+              >
                 {pct.toFixed(1)}% used
               </Badge>
             </div>
-            <Progress value={pct} className={`h-2 ${isOver ? "[&>*]:bg-red-500" : isWarn ? "[&>*]:bg-amber-500" : ""}`} />
+            <Progress
+              value={pct}
+              className={`h-2 ${isOver ? "[&>*]:bg-red-500" : isWarn ? "[&>*]:bg-amber-500" : ""}`}
+            />
           </div>
         </CardContent>
       </Card>
@@ -210,7 +232,9 @@ function BudgetsPage() {
           <div className="flex items-center justify-between">
             <div>
               <Label className="text-sm">Enable Spend Alerts</Label>
-              <p className="text-xs text-muted-foreground">Email notifications at the selected thresholds.</p>
+              <p className="text-xs text-muted-foreground">
+                Email notifications at the selected thresholds.
+              </p>
             </div>
             <Switch
               checked={budget.alerts_enabled}
@@ -222,7 +246,7 @@ function BudgetsPage() {
             <div className="space-y-2">
               <Label className="text-xs">Alert thresholds</Label>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {THRESHOLD_PRESETS.map(p => {
+                {THRESHOLD_PRESETS.map((p) => {
                   const current = budget.alert_thresholds.join(",");
                   const isSelected = current === p.value;
                   return (
@@ -231,7 +255,9 @@ function BudgetsPage() {
                       variant={isSelected ? "default" : "outline"}
                       size="sm"
                       className="h-9 text-xs"
-                      onClick={() => updateBudget({ alert_thresholds: p.value.split(",").map(Number) })}
+                      onClick={() =>
+                        updateBudget({ alert_thresholds: p.value.split(",").map(Number) })
+                      }
                     >
                       {p.label}
                     </Button>
@@ -253,7 +279,9 @@ function BudgetsPage() {
             <AlertTriangle className="h-4 w-4 text-primary" />
             Agent-Specific Limits
           </CardTitle>
-          <p className="text-xs text-muted-foreground">Cap daily spend per agent and optionally auto-disable on limit reached.</p>
+          <p className="text-xs text-muted-foreground">
+            Cap daily spend per agent and optionally auto-disable on limit reached.
+          </p>
         </CardHeader>
         <CardContent className="p-0">
           {agents.length === 0 ? (
@@ -270,7 +298,7 @@ function BudgetsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {agents.map(a => {
+                {agents.map((a) => {
                   const lim = limits[a.id];
                   return (
                     <TableRow key={a.id}>
@@ -278,9 +306,16 @@ function BudgetsPage() {
                         <div className="flex items-center gap-2">
                           <span className="font-medium text-sm">{a.name}</span>
                           {a.is_active ? (
-                            <Badge variant="outline" className="text-[10px] text-emerald-400 border-emerald-500/30">Active</Badge>
+                            <Badge
+                              variant="outline"
+                              className="text-[10px] text-emerald-400 border-emerald-500/30"
+                            >
+                              Active
+                            </Badge>
                           ) : (
-                            <Badge variant="outline" className="text-[10px] text-muted-foreground">Inactive</Badge>
+                            <Badge variant="outline" className="text-[10px] text-muted-foreground">
+                              Inactive
+                            </Badge>
                           )}
                         </div>
                       </TableCell>
@@ -288,9 +323,13 @@ function BudgetsPage() {
                         <div className="flex items-center gap-1.5">
                           <span className="text-xs text-muted-foreground">$</span>
                           <Input
-                            type="number" min={0} step={0.5}
+                            type="number"
+                            min={0}
+                            step={0.5}
                             value={lim?.max_spend_per_day_usd ?? 10}
-                            onChange={(e) => upsertLimit(a.id, { max_spend_per_day_usd: Number(e.target.value) })}
+                            onChange={(e) =>
+                              upsertLimit(a.id, { max_spend_per_day_usd: Number(e.target.value) })
+                            }
                             className="h-8 font-mono"
                           />
                         </div>
@@ -311,7 +350,11 @@ function BudgetsPage() {
       </Card>
 
       <div className="flex justify-end">
-        <Button onClick={() => toast.success("All settings auto-saved")} variant="outline" size="sm">
+        <Button
+          onClick={() => toast.success("All settings auto-saved")}
+          variant="outline"
+          size="sm"
+        >
           Settings auto-save on change
         </Button>
       </div>

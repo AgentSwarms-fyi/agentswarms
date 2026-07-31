@@ -46,9 +46,9 @@ export function RuntimeRequired({ reason }: { reason?: string }) {
         <div>
           <h2 className="text-lg font-semibold tracking-tight">Server runtime required</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Notebooks run on real container kernels — full CPython with{" "}
-            <code>pip install</code> and the actual frameworks (LangChain, LangGraph, LlamaIndex).
-            That runtime isn&apos;t available yet, so cells can&apos;t execute.
+            Notebooks run on real container kernels — full CPython with <code>pip install</code> and
+            the actual frameworks (LangChain, LangGraph, LlamaIndex). That runtime isn&apos;t
+            available yet, so cells can&apos;t execute.
           </p>
           {reason ? (
             <p className="mt-2 rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-xs">
@@ -80,8 +80,8 @@ export function RuntimeRequired({ reason }: { reason?: string }) {
               <Link to="/admin/runtime" className="text-primary hover:underline">
                 Admin → Developer runtime
               </Link>
-              , run the preflight, and switch{" "}
-              <strong>Enable server runtime</strong> on. The signing secret is generated for you.
+              , run the preflight, and switch <strong>Enable server runtime</strong> on. The signing
+              secret is generated for you.
             </p>
           ) : (
             <p className="text-xs text-muted-foreground">

@@ -30,8 +30,7 @@ async function parsePdf(file: File): Promise<string> {
   const pdfjsUrl = `https://esm.sh/pdfjs-dist@${PDFJS_VERSION}/build/pdf.mjs`;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pdfjs: any = await import(/* @vite-ignore */ pdfjsUrl);
-  pdfjs.GlobalWorkerOptions.workerSrc =
-    `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/build/pdf.worker.min.mjs`;
+  pdfjs.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/build/pdf.worker.min.mjs`;
 
   const buf = await file.arrayBuffer();
   const pdf = await pdfjs.getDocument({ data: buf }).promise;
@@ -54,4 +53,3 @@ async function parseDocx(file: File): Promise<string> {
   const result = await (mammoth.default ?? mammoth).extractRawText({ arrayBuffer: buf });
   return String(result?.value || "").trim();
 }
-

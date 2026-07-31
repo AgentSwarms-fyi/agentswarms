@@ -54,7 +54,10 @@ export function SkillPicker({ value, onChange }: Props) {
     onChange(Array.from(next));
   };
 
-  const renderSkill = (s: { id: string; name: string; description: string | null; tags: string[] }, sample: boolean) => (
+  const renderSkill = (
+    s: { id: string; name: string; description: string | null; tags: string[] },
+    sample: boolean,
+  ) => (
     <label
       key={s.id}
       className="flex cursor-pointer items-start gap-3 rounded-md border border-border/60 bg-card/60 p-3 hover:bg-accent/30"
@@ -109,8 +112,8 @@ export function SkillPicker({ value, onChange }: Props) {
         </Button>
       </div>
       <p className="text-xs text-muted-foreground">
-        Skills are reusable playbooks injected into this agent's system prompt at run time.
-        Pick the ones that match what this agent should be able to do.
+        Skills are reusable playbooks injected into this agent's system prompt at run time. Pick the
+        ones that match what this agent should be able to do.
       </p>
 
       <div className="space-y-2">

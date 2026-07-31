@@ -176,7 +176,9 @@ export function PromptLibraryPicker({
             >
               <option value="all">All categories</option>
               {PROMPT_CATEGORIES.map((c) => (
-                <option key={c.id} value={c.id}>{c.label}</option>
+                <option key={c.id} value={c.id}>
+                  {c.label}
+                </option>
               ))}
             </select>
           </div>
@@ -224,13 +226,11 @@ export function PromptLibraryPicker({
                         </div>
                         <div className="flex items-center gap-1 mt-1.5 flex-wrap">
                           <Badge variant="secondary" className="text-[9px] py-0 px-1.5 h-4">
-                            {PROMPT_CATEGORIES.find((c) => c.id === p.category)?.label ?? p.category}
+                            {PROMPT_CATEGORIES.find((c) => c.id === p.category)?.label ??
+                              p.category}
                           </Badge>
                           {p.tags.slice(0, 2).map((t) => (
-                            <span
-                              key={t}
-                              className="text-[9px] text-muted-foreground"
-                            >
+                            <span key={t} className="text-[9px] text-muted-foreground">
                               #{t}
                             </span>
                           ))}

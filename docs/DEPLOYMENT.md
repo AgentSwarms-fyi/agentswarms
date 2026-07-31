@@ -25,12 +25,12 @@ background scheduler — and it's a two-line setup covered below.
 
 ### Which option should I pick?
 
-| You want to… | Use | Section |
-| --- | --- | --- |
-| Try it on your own machine | **Local desktop (Docker Desktop)** | [A](#a-local-desktop) |
-| Run it for a team on one server | **Single cloud VM** — the recommended default | [B](#b-single-cloud-vm-recommended) |
-| Handle spiky/high load with autoscaling | **Autoscaled VMs + load balancer** | [C](#c-autoscaled-vms-behind-a-load-balancer) |
-| Run on an existing K8s cluster / scale Python notebooks | **Kubernetes** | [D](#d-kubernetes) |
+| You want to…                                            | Use                                           | Section                                       |
+| ------------------------------------------------------- | --------------------------------------------- | --------------------------------------------- |
+| Try it on your own machine                              | **Local desktop (Docker Desktop)**            | [A](#a-local-desktop)                         |
+| Run it for a team on one server                         | **Single cloud VM** — the recommended default | [B](#b-single-cloud-vm-recommended)           |
+| Handle spiky/high load with autoscaling                 | **Autoscaled VMs + load balancer**            | [C](#c-autoscaled-vms-behind-a-load-balancer) |
+| Run on an existing K8s cluster / scale Python notebooks | **Kubernetes**                                | [D](#d-kubernetes)                            |
 
 All options share the same two prerequisites.
 
@@ -43,9 +43,11 @@ All options share the same two prerequisites.
    ```bash
    npx supabase login
    ```
+
    ```bash
    npx supabase link --project-ref <your-project-id>
    ```
+
    ```bash
    npx supabase db push
    ```
@@ -55,14 +57,14 @@ All options share the same two prerequisites.
    [INSTALL.md §4](./INSTALL.md#4-configure-environment-variables). The ones
    that matter specifically in production:
 
-   | Variable | Why |
-   | --- | --- |
-   | `PROVIDER_CREDS_SECRET` | **Required** if anyone uses warehouses, Secrets, or Data Catalog — the AES-256 key encrypting stored credentials. Set once (`openssl rand -hex 32`); rotating it invalidates saved creds. |
-   | `SITE_URL` | Your public URL — used in email links and as the default origin for scheduled work. |
-   | `RESEND_API_KEY` **or** `SMTP_*` + `EMAIL_FROM` | Outbound app email (welcome, budget alerts, scheduled report digests). Without it, sends are skipped and logged. |
-   | `BI_CRON_TOKEN` | Lets an external scheduler drive background jobs — see [Scheduling](#scheduling--background-jobs). |
-   | `OPENROUTER_API_KEY` | Optional but recommended — makes the app usable with zero per-user key setup. |
-   | `OPENAI_API_KEY` | Optional — real vector embeddings for Knowledge Base search (otherwise keyword search). |
+   | Variable                                        | Why                                                                                                                                                                                       |
+   | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+   | `PROVIDER_CREDS_SECRET`                         | **Required** if anyone uses warehouses, Secrets, or Data Catalog — the AES-256 key encrypting stored credentials. Set once (`openssl rand -hex 32`); rotating it invalidates saved creds. |
+   | `SITE_URL`                                      | Your public URL — used in email links and as the default origin for scheduled work.                                                                                                       |
+   | `RESEND_API_KEY` **or** `SMTP_*` + `EMAIL_FROM` | Outbound app email (welcome, budget alerts, scheduled report digests). Without it, sends are skipped and logged.                                                                          |
+   | `BI_CRON_TOKEN`                                 | Lets an external scheduler drive background jobs — see [Scheduling](#scheduling--background-jobs).                                                                                        |
+   | `OPENROUTER_API_KEY`                            | Optional but recommended — makes the app usable with zero per-user key setup.                                                                                                             |
+   | `OPENAI_API_KEY`                                | Optional — real vector embeddings for Knowledge Base search (otherwise keyword search).                                                                                                   |
 
    ```bash
    cp .env.example .env
@@ -176,11 +178,11 @@ docker build \
 
 The autoscaling primitives on each cloud:
 
-| Cloud | Compute group + autoscaler | Load balancer | Scheduler |
-| --- | --- | --- | --- |
-| **OCI** | Instance Configuration → **Instance Pool** + **Autoscaling** | **Flexible Load Balancer** (HTTP backend set, health check `/api/health`) | **Resource Scheduler** or an always-on micro instance running cron |
-| **AWS** | Launch Template → **Auto Scaling Group** (target tracking on CPU/RPS) | **ALB** (target group health check `/api/health`) | **EventBridge Scheduler** → API destination, or a scheduled Lambda |
-| **GCP** | Instance Template → **Managed Instance Group** + autoscaler | **External HTTPS LB** (health check `/api/health`) | **Cloud Scheduler** → HTTP target |
+| Cloud   | Compute group + autoscaler                                            | Load balancer                                                             | Scheduler                                                          |
+| ------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| **OCI** | Instance Configuration → **Instance Pool** + **Autoscaling**          | **Flexible Load Balancer** (HTTP backend set, health check `/api/health`) | **Resource Scheduler** or an always-on micro instance running cron |
+| **AWS** | Launch Template → **Auto Scaling Group** (target tracking on CPU/RPS) | **ALB** (target group health check `/api/health`)                         | **EventBridge Scheduler** → API destination, or a scheduled Lambda |
+| **GCP** | Instance Template → **Managed Instance Group** + autoscaler           | **External HTTPS LB** (health check `/api/health`)                        | **Cloud Scheduler** → HTTP target                                  |
 
 **Load-balancer settings:** disable response buffering and use a generous idle
 timeout (≥ 300s) so streamed chat responses (Server-Sent Events) aren't cut
@@ -213,18 +215,21 @@ in-cluster. See [DEVELOPER_WORKSPACE_RUNTIME.md](./DEVELOPER_WORKSPACE_RUNTIME.m
 ## Production checklist (cross-cutting)
 
 ### TLS & domain
+
 Serve over HTTPS (reverse proxy or cloud LB) and set both **`SITE_URL`** and the
 Supabase **Auth → URL Configuration** (Site URL + `https://your-domain.com/**`
 redirect) to your real domain, or email confirmation and password-reset links
 won't resolve.
 
 ### Bootstrap the operator
+
 Sign up with the `ADMIN_EMAIL` account — it's the permanent bootstrap
 superadmin. Then under **Admin → IAM** create users/groups, set model rules and
 resource grants, and (for a private instance) enable **invite-only** to disable
 public signup at the database level.
 
 ### Scheduling & background jobs
+
 `/api/bi/cron` runs one pass of all scheduled work. It's safe to call from
 anywhere and from many callers at once — a cross-instance lease guarantees only
 one pass runs at a time (extra callers get `{"skipped": true}`).
@@ -251,7 +256,7 @@ Integrations page. The same pass runs a daily sweep that re-encrypts any
 legacy plaintext integration secrets in place.
 
 **Data-prep execution** runs on the server (the same code path the interactive
-"Run & save" button uses), so prepared datasets reflect the *full* source data
+"Run & save" button uses), so prepared datasets reflect the _full_ source data
 rather than whatever fitted in a browser tab. Two ceilings bound it, both read
 per run:
 
@@ -380,10 +385,11 @@ Two related knobs:
   URLs from inside your network; SSRF-guarded, but not a free probe loop).
 - `WEBHOOK_SIGNING_SECRET` — when set, outbound n8n post-turn webhooks are
   HMAC-signed: `X-AgentSwarms-Signature: v1=hex(hmac_sha256(secret,
-  "<timestamp>.<raw body>"))` plus `X-AgentSwarms-Timestamp` (ms epoch), so
+"<timestamp>.<raw body>"))` plus `X-AgentSwarms-Timestamp` (ms epoch), so
   receivers can verify authenticity and reject replays.
 
 ### Health checks
+
 - `GET /api/health` → `200` **liveness** — the process is up and serving. No
   database work, so it stays green even if Postgres is unreachable. Use it for
   the K8s liveness probe and as the LB target-health check.
@@ -395,6 +401,7 @@ Two related knobs:
   restart every pod at once instead of just draining them.)
 
 ### Progressive Web App (PWA)
+
 The app ships an installable PWA: `public/manifest.webmanifest` plus a
 conservative service worker (`public/sw.js`) registered from the root. It
 caches only same-origin static assets (cache-first) and serves an offline
@@ -404,6 +411,7 @@ stale-data or auth risk. Nothing extra to configure; it activates once the app
 is served over HTTPS. Users get an "Install" prompt in supported browsers.
 
 ### Metrics (Prometheus / OpenMetrics)
+
 `GET /api/metrics` exposes fleet-level operational gauges in the Prometheus text
 exposition format — run and LLM-call volume over the last 24h broken down by
 status (`success`/`error`/`running`), month-to-date AI spend, active users, a
@@ -442,6 +450,7 @@ ships at [`deploy/prometheus/alerts.yml`](../deploy/prometheus/alerts.yml) —
 load it via `rule_files` and tune the thresholds to your fleet.
 
 ### Distributed tracing (OpenTelemetry / OTLP)
+
 Where `/api/metrics` gives aggregate numbers, OTLP export gives per-run
 **traces**. Set `OTEL_EXPORTER_OTLP_ENDPOINT` to any OTLP/HTTP collector and a
 background job on the scheduler pass streams:
@@ -474,20 +483,24 @@ lease, exactly one instance exports across the fleet — no duplication behind a
 load balancer.
 
 ### Required secret for stored credentials
+
 If anyone connects a warehouse, saves a Secret, or adds a Data Catalog source,
 `PROVIDER_CREDS_SECRET` **must** be set (no default) — it encrypts those
 credentials at rest.
 
 ### Database backups
+
 Supabase provides automated backups / point-in-time recovery on paid plans —
 enable and verify them; this is your system of record.
 
 ### Pin image digests
+
 `docker-compose.yml` uses `:latest` for the third-party runtime images
 (`tecnativa/docker-socket-proxy`, `ubuntu/squid`) and flags this inline — pin
 them to digests in production for reproducibility.
 
 ### Developer-workspace Python runtime
+
 Optional, off by default. Enable the containers, then flip it on in
 **Admin → Developer runtime**:
 
@@ -505,6 +518,7 @@ Security model, scaling (Docker single-host vs. K8s pod-per-session), and the
 full test matrix: [DEVELOPER_WORKSPACE_RUNTIME.md](./DEVELOPER_WORKSPACE_RUNTIME.md).
 
 ### Upgrades
+
 Docker: `git pull && docker compose up -d --build`. Apply any new migrations
 with `npx supabase db push` (already-applied migrations are skipped; it's safe
 to re-run).

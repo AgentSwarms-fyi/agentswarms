@@ -44,8 +44,7 @@ export function UserMenu() {
   if (!user) return null;
 
   const displayName =
-    profile?.display_name?.trim() ||
-    (user.email ? user.email.split("@")[0] : "Account");
+    profile?.display_name?.trim() || (user.email ? user.email.split("@")[0] : "Account");
   const initial = (displayName[0] || "U").toUpperCase();
 
   return (
@@ -60,16 +59,12 @@ export function UserMenu() {
             {profile?.avatar_url ? (
               <AvatarImage src={profile.avatar_url} alt={displayName} />
             ) : null}
-            <AvatarFallback className="text-xs font-semibold">
-              {initial}
-            </AvatarFallback>
+            <AvatarFallback className="text-xs font-semibold">{initial}</AvatarFallback>
           </Avatar>
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuLabel className="truncate">
-          {user.email ?? "Signed in"}
-        </DropdownMenuLabel>
+        <DropdownMenuLabel className="truncate">{user.email ?? "Signed in"}</DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
           <Link to="/dashboard" className="flex items-center gap-2">

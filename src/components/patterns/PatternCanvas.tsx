@@ -7,9 +7,16 @@
 //   active nodes so the user doesn't have to scroll the canvas manually.
 import { useEffect, useMemo } from "react";
 import {
-  ReactFlow, ReactFlowProvider, Background, Controls, MarkerType,
-  useNodesState, useEdgesState, useReactFlow,
-  type Edge, type Node,
+  ReactFlow,
+  ReactFlowProvider,
+  Background,
+  Controls,
+  MarkerType,
+  useNodesState,
+  useEdgesState,
+  useReactFlow,
+  type Edge,
+  type Node,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { ACCENT_CLASSES, type AgenticPattern } from "@/lib/agenticPatterns";
@@ -83,11 +90,7 @@ function PatternCanvasInner({ pattern, activeNodeIds, activeEdgeIds }: Props) {
         ...n,
         data: {
           ...n.data,
-          highlight: !tourActive
-            ? "idle"
-            : activeNodeSet.has(n.id)
-              ? "active"
-              : "dimmed",
+          highlight: !tourActive ? "idle" : activeNodeSet.has(n.id) ? "active" : "dimmed",
         },
       })),
     );
@@ -142,7 +145,9 @@ function PatternCanvasInner({ pattern, activeNodeIds, activeEdgeIds }: Props) {
   useEffect(() => {
     setEdges((cur: Edge[]) =>
       cur.map((e: Edge) => {
-        const meta = e.data as { dashed?: boolean; variant?: "danger" | "success" | null } | undefined;
+        const meta = e.data as
+          | { dashed?: boolean; variant?: "danger" | "success" | null }
+          | undefined;
         const variant = meta?.variant ?? null;
         const baseStroke = variant ? VARIANT_STROKE[variant] : "#64748b";
         const isActive = activeEdgeSet.has(e.id);
@@ -183,7 +188,13 @@ function PatternCanvasInner({ pattern, activeNodeIds, activeEdgeIds }: Props) {
     if (activeNodeIds.length === 0) return;
     // Focus on just the highlighted nodes — small padding so they fill ~half the viewport.
     const id = window.setTimeout(
-      () => fitView({ nodes: activeNodeIds.map((nodeId) => ({ id: nodeId })), padding: 0.45, duration: 700, maxZoom: 1.4 }),
+      () =>
+        fitView({
+          nodes: activeNodeIds.map((nodeId) => ({ id: nodeId })),
+          padding: 0.45,
+          duration: 700,
+          maxZoom: 1.4,
+        }),
       50,
     );
     return () => window.clearTimeout(id);

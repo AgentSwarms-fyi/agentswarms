@@ -48,10 +48,10 @@ only the review/refine pass is skipped.
 
 ## Endpoints
 
-- `GET  /health`       → `{ ok, soffice, verify_available, formats }`
-- `POST /render`       → `{ pptx_base64, thumb, notes }`  (body: `{ plan, verify?, model? }`)
-- `POST /render/docx`  → `{ docx_base64, thumb }`         (body: `{ plan }`)
-- `POST /render/xlsx`  → `{ xlsx_base64, thumb }`         (body: `{ plan }`, sheets already materialised)
+- `GET  /health` → `{ ok, soffice, verify_available, formats }`
+- `POST /render` → `{ pptx_base64, thumb, notes }` (body: `{ plan, verify?, model? }`)
+- `POST /render/docx` → `{ docx_base64, thumb }` (body: `{ plan }`)
+- `POST /render/xlsx` → `{ xlsx_base64, thumb }` (body: `{ plan }`, sheets already materialised)
 
 ## Local dev (without Docker)
 

@@ -177,7 +177,9 @@ export const Route = createFileRoute("/api/email/send")({
         const html = await render(element);
         const plainText = await render(element, { plainText: true });
         const resolvedSubject =
-          typeof template.subject === "function" ? template.subject(templateData) : template.subject;
+          typeof template.subject === "function"
+            ? template.subject(templateData)
+            : template.subject;
 
         // 5. Send directly via the configured mailer (no queue in the OSS build)
         // Origin comes from config, not the request: a spoofed Host header
@@ -198,7 +200,11 @@ export const Route = createFileRoute("/api/email/send")({
           message_id: messageId,
           template_name: templateName,
           recipient_email: effectiveRecipient,
-          status: result.sent ? "sent" : result.reason === "no_mailer_configured" ? "skipped" : "failed",
+          status: result.sent
+            ? "sent"
+            : result.reason === "no_mailer_configured"
+              ? "skipped"
+              : "failed",
           error_message: result.sent ? null : result.reason,
         });
 

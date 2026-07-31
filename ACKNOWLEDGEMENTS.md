@@ -23,46 +23,46 @@ node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json
 
 ## Application framework
 
-| Project | License | Used for |
-| --- | --- | --- |
-| [React](https://github.com/facebook/react) | MIT | UI runtime |
-| [TanStack Start / Router / Query](https://github.com/TanStack/router) | MIT | Framework, file-based routing, server functions, data fetching |
-| [Vite](https://github.com/vitejs/vite) | MIT | Build tooling and dev server |
-| [Nitro](https://github.com/nitrojs/nitro) | MIT | Server runtime |
-| [Tailwind CSS](https://github.com/tailwindlabs/tailwindcss) | MIT | Styling |
-| [shadcn/ui](https://github.com/shadcn-ui/ui) + [Radix UI](https://github.com/radix-ui/primitives) | MIT | Accessible UI primitives and components |
-| [Framer Motion](https://github.com/motiondivision/motion) | MIT | Animations |
-| [Lucide](https://github.com/lucide-icons/lucide) | ISC | Icon set |
-| [Zod](https://github.com/colinhacks/zod) | MIT | Runtime validation |
-| [sonner](https://github.com/emilkowalski/sonner), [cmdk](https://github.com/pacocoursey/cmdk), [vaul](https://github.com/emilkowalski/vaul), [react-hook-form](https://github.com/react-hook-form/react-hook-form) | MIT | Toasts, command menu, drawers, forms |
+| Project                                                                                                                                                                                                            | License | Used for                                                       |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------- | -------------------------------------------------------------- |
+| [React](https://github.com/facebook/react)                                                                                                                                                                         | MIT     | UI runtime                                                     |
+| [TanStack Start / Router / Query](https://github.com/TanStack/router)                                                                                                                                              | MIT     | Framework, file-based routing, server functions, data fetching |
+| [Vite](https://github.com/vitejs/vite)                                                                                                                                                                             | MIT     | Build tooling and dev server                                   |
+| [Nitro](https://github.com/nitrojs/nitro)                                                                                                                                                                          | MIT     | Server runtime                                                 |
+| [Tailwind CSS](https://github.com/tailwindlabs/tailwindcss)                                                                                                                                                        | MIT     | Styling                                                        |
+| [shadcn/ui](https://github.com/shadcn-ui/ui) + [Radix UI](https://github.com/radix-ui/primitives)                                                                                                                  | MIT     | Accessible UI primitives and components                        |
+| [Framer Motion](https://github.com/motiondivision/motion)                                                                                                                                                          | MIT     | Animations                                                     |
+| [Lucide](https://github.com/lucide-icons/lucide)                                                                                                                                                                   | ISC     | Icon set                                                       |
+| [Zod](https://github.com/colinhacks/zod)                                                                                                                                                                           | MIT     | Runtime validation                                             |
+| [sonner](https://github.com/emilkowalski/sonner), [cmdk](https://github.com/pacocoursey/cmdk), [vaul](https://github.com/emilkowalski/vaul), [react-hook-form](https://github.com/react-hook-form/react-hook-form) | MIT     | Toasts, command menu, drawers, forms                           |
 
 ## Agents & AI
 
-| Project | License | Used for |
-| --- | --- | --- |
-| [LangChain.js / LangGraph](https://github.com/langchain-ai/langchainjs) | MIT | Agent runtime, RAG pipelines, swarm export targets |
-| [XYFlow (React Flow)](https://github.com/xyflow/xyflow) | MIT | The visual swarm canvas |
-| [Pyodide](https://github.com/pyodide/pyodide) | MPL-2.0 | In-browser Python notebooks — loaded at runtime from jsDelivr, not bundled |
-| [CodeMirror](https://github.com/codemirror/dev) | MIT | Code editors (SQL, Python, Markdown) |
-| [react-markdown](https://github.com/remarkjs/react-markdown) + [remark-gfm](https://github.com/remarkjs/remark-gfm) + [rehype-highlight](https://github.com/rehypejs/rehype-highlight) | MIT | Markdown rendering with syntax highlighting |
+| Project                                                                                                                                                                                | License | Used for                                                                   |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | -------------------------------------------------------------------------- |
+| [LangChain.js / LangGraph](https://github.com/langchain-ai/langchainjs)                                                                                                                | MIT     | Agent runtime, RAG pipelines, swarm export targets                         |
+| [XYFlow (React Flow)](https://github.com/xyflow/xyflow)                                                                                                                                | MIT     | The visual swarm canvas                                                    |
+| [Pyodide](https://github.com/pyodide/pyodide)                                                                                                                                          | MPL-2.0 | In-browser Python notebooks — loaded at runtime from jsDelivr, not bundled |
+| [CodeMirror](https://github.com/codemirror/dev)                                                                                                                                        | MIT     | Code editors (SQL, Python, Markdown)                                       |
+| [react-markdown](https://github.com/remarkjs/react-markdown) + [remark-gfm](https://github.com/remarkjs/remark-gfm) + [rehype-highlight](https://github.com/rehypejs/rehype-highlight) | MIT     | Markdown rendering with syntax highlighting                                |
 
 ## Business Intelligence & data
 
-| Project | License | Used for |
-| --- | --- | --- |
-| [Recharts](https://github.com/recharts/recharts) | MIT | Chart rendering |
-| [AlaSQL](https://github.com/AlaSQL/alasql) | MIT | The in-browser (and server-side refresh) SQL engine for local datasets |
-| [d3-force](https://github.com/d3/d3-force) / [d3-geo](https://github.com/d3/d3-geo) | ISC | Ontology graph layout, filled & bubble maps |
-| [topojson-client](https://github.com/topojson/topojson-client) + [world-atlas](https://github.com/topojson/world-atlas) | ISC | Map geometry (derived from the public-domain [Natural Earth](https://www.naturalearthdata.com/) dataset) |
-| [pdf-lib](https://github.com/Hopding/pdf-lib) | MIT | Dashboard PDF export |
-| [html2canvas-pro](https://github.com/yorickshan/html2canvas-pro) | MIT | Widget/dashboard rasterisation for PDF & PNG export |
-| [PptxGenJS](https://github.com/gitbrent/PptxGenJS) | MIT | AI-generated PowerPoint files (Agent Chat) |
-| [docx](https://github.com/dolanmiu/docx) | MIT | AI-generated Word documents (Agent Chat) |
-| [write-excel-file](https://gitlab.com/catamphetamine/write-excel-file) | MIT | AI-generated Excel workbooks with live formulas (Agent Chat) |
-| [Papa Parse](https://github.com/mholt/PapaParse) | MIT | CSV parsing |
-| [node-sql-parser](https://github.com/taozhi8833998/node-sql-parser) | Apache-2.0 | SQL validation |
-| [pdfjs-dist](https://github.com/mozilla/pdf.js) | Apache-2.0 | PDF text extraction for knowledge bases |
-| [mammoth](https://github.com/mwilliamson/mammoth.js) | BSD-2-Clause | DOCX text extraction for knowledge bases |
+| Project                                                                                                                 | License      | Used for                                                                                                 |
+| ----------------------------------------------------------------------------------------------------------------------- | ------------ | -------------------------------------------------------------------------------------------------------- |
+| [Recharts](https://github.com/recharts/recharts)                                                                        | MIT          | Chart rendering                                                                                          |
+| [AlaSQL](https://github.com/AlaSQL/alasql)                                                                              | MIT          | The in-browser (and server-side refresh) SQL engine for local datasets                                   |
+| [d3-force](https://github.com/d3/d3-force) / [d3-geo](https://github.com/d3/d3-geo)                                     | ISC          | Ontology graph layout, filled & bubble maps                                                              |
+| [topojson-client](https://github.com/topojson/topojson-client) + [world-atlas](https://github.com/topojson/world-atlas) | ISC          | Map geometry (derived from the public-domain [Natural Earth](https://www.naturalearthdata.com/) dataset) |
+| [pdf-lib](https://github.com/Hopding/pdf-lib)                                                                           | MIT          | Dashboard PDF export                                                                                     |
+| [html2canvas-pro](https://github.com/yorickshan/html2canvas-pro)                                                        | MIT          | Widget/dashboard rasterisation for PDF & PNG export                                                      |
+| [PptxGenJS](https://github.com/gitbrent/PptxGenJS)                                                                      | MIT          | AI-generated PowerPoint files (Agent Chat)                                                               |
+| [docx](https://github.com/dolanmiu/docx)                                                                                | MIT          | AI-generated Word documents (Agent Chat)                                                                 |
+| [write-excel-file](https://gitlab.com/catamphetamine/write-excel-file)                                                  | MIT          | AI-generated Excel workbooks with live formulas (Agent Chat)                                             |
+| [Papa Parse](https://github.com/mholt/PapaParse)                                                                        | MIT          | CSV parsing                                                                                              |
+| [node-sql-parser](https://github.com/taozhi8833998/node-sql-parser)                                                     | Apache-2.0   | SQL validation                                                                                           |
+| [pdfjs-dist](https://github.com/mozilla/pdf.js)                                                                         | Apache-2.0   | PDF text extraction for knowledge bases                                                                  |
+| [mammoth](https://github.com/mwilliamson/mammoth.js)                                                                    | BSD-2-Clause | DOCX text extraction for knowledge bases                                                                 |
 
 ### Bundled open datasets
 
@@ -87,14 +87,14 @@ lights, ISS aurora, SDO sun).
 
 ## Backend & connectivity
 
-| Project | License | Used for |
-| --- | --- | --- |
+| Project                                                                                                     | License          | Used for                                               |
+| ----------------------------------------------------------------------------------------------------------- | ---------------- | ------------------------------------------------------ |
 | [Supabase](https://github.com/supabase/supabase) (+ [supabase-js](https://github.com/supabase/supabase-js)) | Apache-2.0 / MIT | Postgres, Auth, Storage, pgvector — the entire backend |
-| [node-postgres (pg)](https://github.com/brianc/node-postgres) | MIT | PostgreSQL / Redshift-compatible connections |
-| [mysql2](https://github.com/sidorares/node-mysql2) | MIT | MySQL / MariaDB connections |
-| [tedious](https://github.com/tediousjs/tedious) | MIT | Azure Synapse (T-SQL) connections |
-| [Nodemailer](https://github.com/nodemailer/nodemailer) | MIT-0 | Budget alert e-mails |
-| [React Email](https://github.com/resend/react-email) | MIT | E-mail templates |
+| [node-postgres (pg)](https://github.com/brianc/node-postgres)                                               | MIT              | PostgreSQL / Redshift-compatible connections           |
+| [mysql2](https://github.com/sidorares/node-mysql2)                                                          | MIT              | MySQL / MariaDB connections                            |
+| [tedious](https://github.com/tediousjs/tedious)                                                             | MIT              | Azure Synapse (T-SQL) connections                      |
+| [Nodemailer](https://github.com/nodemailer/nodemailer)                                                      | MIT-0            | Budget alert e-mails                                   |
+| [React Email](https://github.com/resend/react-email)                                                        | MIT              | E-mail templates                                       |
 
 ## Tooling
 

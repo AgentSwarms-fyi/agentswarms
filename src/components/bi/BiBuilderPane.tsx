@@ -334,7 +334,6 @@ export function BiBuilderPane({
   // Preload the KB list as soon as the ontology panel is shown.
   useEffect(() => {
     if (tab === "build" && chartType === "ontology") void ensureOntoKbList().catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, chartType]);
 
   function toggleOntoExpanded(key: string) {

@@ -6,7 +6,13 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -34,7 +40,12 @@ export function OnboardingDialog() {
         .maybeSingle();
       if (cancelled) return;
 
-      const row = data as { first_name?: string | null; last_name?: string | null; organization?: string | null; display_name?: string | null } | null;
+      const row = data as {
+        first_name?: string | null;
+        last_name?: string | null;
+        organization?: string | null;
+        display_name?: string | null;
+      } | null;
       const hasName = !!(row?.first_name?.trim() && row?.last_name?.trim());
       if (!hasName) {
         // Pre-fill from OAuth metadata when available
@@ -93,7 +104,12 @@ export function OnboardingDialog() {
   if (checking || !user) return null;
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { /* not dismissible until saved */ if (!saving && v) setOpen(true); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        /* not dismissible until saved */ if (!saving && v) setOpen(true);
+      }}
+    >
       <DialogContent
         className="sm:max-w-md [&>button.absolute]:hidden"
         onPointerDownOutside={(e) => e.preventDefault()}
@@ -104,7 +120,8 @@ export function OnboardingDialog() {
             <Sparkles className="h-4 w-4 text-primary" /> Welcome to AgentSwarms
           </DialogTitle>
           <DialogDescription>
-            Tell us your name so we can print it on your certificate when you pass the certification exam.
+            Tell us your name so we can print it on your certificate when you pass the certification
+            exam.
           </DialogDescription>
         </DialogHeader>
 

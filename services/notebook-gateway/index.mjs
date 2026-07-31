@@ -132,7 +132,9 @@ wss.on("connection", async (browser, req) => {
   if (!claims) {
     return reject(4001, "invalid token", "signature/expiry check failed");
   }
-  console.log(`[gateway] token ok user=${claims.sub.slice(0, 8)} session=${claims.sid.slice(0, 8)}`);
+  console.log(
+    `[gateway] token ok user=${claims.sub.slice(0, 8)} session=${claims.sid.slice(0, 8)}`,
+  );
 
   let session;
   try {
@@ -142,7 +144,8 @@ wss.on("connection", async (browser, req) => {
   }
   if (!session) return reject(4004, "session not found", claims.sid);
   if (session.user_id !== claims.sub) return reject(4003, "session belongs to another user");
-  if (session.status !== "ready") return reject(4004, "session not ready", `status=${session.status}`);
+  if (session.status !== "ready")
+    return reject(4004, "session not ready", `status=${session.status}`);
   if (!session.endpoint) return reject(4004, "session has no endpoint yet");
   const endpoint = session.endpoint.replace(/\/$/, "");
   console.log(`[gateway] session ok endpoint=${endpoint}`);
@@ -201,7 +204,8 @@ wss.on("connection", async (browser, req) => {
         pending.delete(msgId);
       }, CELL_TIMEOUT * 1000);
       pending.set(msgId, { browserId: m.id, timer });
-      if (kernel.readyState === WebSocket.OPEN) kernel.send(executeRequest(msgId, jsession, m.code));
+      if (kernel.readyState === WebSocket.OPEN)
+        kernel.send(executeRequest(msgId, jsession, m.code));
     }
   });
 

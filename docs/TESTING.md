@@ -174,14 +174,13 @@ npx vitest run --dir tests/integration
 every push and pull request. No secrets are used; the build gets placeholder
 `VITE_*` values, which is enough to prove the bundle compiles.
 
-**Lint is currently advisory, not blocking.** `npm run lint` reports ~3,400
-pre-existing `prettier/prettier` violations — formatting debt from before the
-linter was wired up, not new problems. A permanently red required check teaches
-people to ignore CI, and deleting the step would be worse. Clear it with:
+**Lint gates.** The ~3,400-violation formatting backlog that once made it
+permanently red has been cleared with `npm run format`, so `npm run lint`
+reports **0 errors** and CI fails on any new one.
 
-```bash
-npm run format
-```
-
-That is a mechanical change reviewable as formatting-only. Once it lands, move
-the lint step into the `verify` job so it gates merges.
+362 warnings remain, almost all `@typescript-eslint/no-explicit-any` at untyped
+external boundaries — LLM provider responses, the MCP protocol, AlaSQL's UMD
+surface, Supabase `Json`. That rule is deliberately a **warning** rather than an
+error: replacing those with `unknown` plus narrowing is worth doing and is its
+own project, and a permanently-red required check is one everybody learns to
+ignore. Treat the count as tracked debt — it should go down, never up.

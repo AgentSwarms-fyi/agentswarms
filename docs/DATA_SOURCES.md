@@ -47,30 +47,30 @@ secrets with users/groups via **Admin → IAM**.
 
 The connectors split by how they reach the source:
 
-| Transport | Providers | Runs on |
-| --- | --- | --- |
-| HTTP / REST API | Snowflake, Databricks, BigQuery, Amazon Redshift (Data API), Amazon Athena, Trino/Starburst/Presto, **Oracle (ORDS)** | **Any** deployment |
-| Native TCP driver | PostgreSQL, MySQL/MariaDB, Azure Synapse (TDS) | **Any** deployment |
+| Transport         | Providers                                                                                                             | Runs on            |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------ |
+| HTTP / REST API   | Snowflake, Databricks, BigQuery, Amazon Redshift (Data API), Amazon Athena, Trino/Starburst/Presto, **Oracle (ORDS)** | **Any** deployment |
+| Native TCP driver | PostgreSQL, MySQL/MariaDB, Azure Synapse (TDS)                                                                        | **Any** deployment |
 
 ## Providers
 
-| Provider | Key fields | Notes |
-| --- | --- | --- |
-| **PostgreSQL** | host, port (5432), database, username, password, SSL | Any Postgres — Supabase, RDS, Neon, self-hosted. `ssl=require` for managed hosts. |
-| **MySQL / MariaDB** | host, port (3306), database, username, password, SSL | RDS, PlanetScale, self-hosted. |
-| **Oracle** | ORDS base URL, database user, password, schema alias (optional) | Autonomous Database or any ORDS-enabled Oracle — see below. HTTPS only; no wallet or client driver needed. |
-| **Amazon Redshift** | region, access key, secret key, database, workgroup **or** cluster+DB user | Uses the Redshift Data API (serverless or provisioned). IAM needs `redshift-data:*` (+ `GetClusterCredentials` for provisioned). |
-| **Snowflake** | account, programmatic access token, warehouse, database, schema, role | SQL API v2 with a PAT (Snowsight → profile → Programmatic access tokens). |
-| **Databricks SQL** | workspace URL, SQL warehouse ID, PAT, catalog, schema | Statement Execution API. |
-| **Google BigQuery** | project ID, service-account JSON, location, dataset | Needs BigQuery Job User + Data Viewer roles. |
-| **Azure Synapse** | server, database, username, password | Dedicated SQL pool over TDS — **Node deployment only**. |
-| **Trino / Starburst / Presto** | host, port, user, password **or** JWT/OAuth2, catalog, schema, TLS | The usual way to query a raw Iceberg / Delta / Hive lakehouse. |
-| **Amazon Athena** | region, access key, secret key, (session token), database, workgroup, results S3 location, catalog | Serverless SQL over S3/Glue. IAM needs Athena + Glue read + `s3:GetObject/PutObject` on the results location. |
+| Provider                       | Key fields                                                                                         | Notes                                                                                                                            |
+| ------------------------------ | -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| **PostgreSQL**                 | host, port (5432), database, username, password, SSL                                               | Any Postgres — Supabase, RDS, Neon, self-hosted. `ssl=require` for managed hosts.                                                |
+| **MySQL / MariaDB**            | host, port (3306), database, username, password, SSL                                               | RDS, PlanetScale, self-hosted.                                                                                                   |
+| **Oracle**                     | ORDS base URL, database user, password, schema alias (optional)                                    | Autonomous Database or any ORDS-enabled Oracle — see below. HTTPS only; no wallet or client driver needed.                       |
+| **Amazon Redshift**            | region, access key, secret key, database, workgroup **or** cluster+DB user                         | Uses the Redshift Data API (serverless or provisioned). IAM needs `redshift-data:*` (+ `GetClusterCredentials` for provisioned). |
+| **Snowflake**                  | account, programmatic access token, warehouse, database, schema, role                              | SQL API v2 with a PAT (Snowsight → profile → Programmatic access tokens).                                                        |
+| **Databricks SQL**             | workspace URL, SQL warehouse ID, PAT, catalog, schema                                              | Statement Execution API.                                                                                                         |
+| **Google BigQuery**            | project ID, service-account JSON, location, dataset                                                | Needs BigQuery Job User + Data Viewer roles.                                                                                     |
+| **Azure Synapse**              | server, database, username, password                                                               | Dedicated SQL pool over TDS — **Node deployment only**.                                                                          |
+| **Trino / Starburst / Presto** | host, port, user, password **or** JWT/OAuth2, catalog, schema, TLS                                 | The usual way to query a raw Iceberg / Delta / Hive lakehouse.                                                                   |
+| **Amazon Athena**              | region, access key, secret key, (session token), database, workgroup, results S3 location, catalog | Serverless SQL over S3/Glue. IAM needs Athena + Glue read + `s3:GetObject/PutObject` on the results location.                    |
 
 ### Oracle (Autonomous Database / ORDS)
 
 Oracle is reached over **Oracle REST Data Services (ORDS)** rather than the
-native SQL*Net protocol, so it works from any deployment (including Cloudflare
+native SQL\*Net protocol, so it works from any deployment (including Cloudflare
 Workers) with no wallet or Instant Client:
 
 1. **ORDS base URL** — on Autonomous Database, open **Database Actions** and
@@ -97,7 +97,7 @@ probe), then open the **Data Catalog → SQL workbench**, expand the source to
 confirm its tables list, and run a small `SELECT`. Green on all three means the
 driver, credentials, schema listing and read path all work.
 
-**From the command line** — a harness runs the *real* drivers against your own
+**From the command line** — a harness runs the _real_ drivers against your own
 credentials and reports connectivity + schema listing + a read query per
 connector:
 

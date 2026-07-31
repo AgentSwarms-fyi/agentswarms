@@ -22,10 +22,10 @@ export const Route = createFileRoute("/api/public/hooks/refresh-model-registry")
       },
       // Allow a manual GET probe (cheaper than running the full sync).
       GET: async () =>
-        new Response(
-          JSON.stringify({ ok: true, message: "POST to trigger a refresh" }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
+        new Response(JSON.stringify({ ok: true, message: "POST to trigger a refresh" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
     },
   },
 });

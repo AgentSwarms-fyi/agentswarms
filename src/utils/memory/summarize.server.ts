@@ -97,7 +97,7 @@ export async function summarizeIfNeeded(opts: {
   const { sb, userId, conversationId, windowMessages, summaryModel, apiKey } = opts;
 
   // Pull current memory row + all conversation messages ordered oldest-first.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   const [{ data: memRow }, { data: msgs }] = await Promise.all([
     (sb.from("conversation_memory") as any)
       .select("summary, last_summarized_message_id")

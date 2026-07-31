@@ -5,8 +5,8 @@
 A **semantic layer** turns raw tables into governed business concepts —
 **metrics** (what you measure) and **dimensions** (how you slice) — defined once
 and consumed the same way by the BI engine and your AI agents. So
-"revenue" always computes the same way, and an AI answering *"why are European
-sales down?"* picks a metric **name** rather than inventing SQL.
+"revenue" always computes the same way, and an AI answering _"why are European
+sales down?"_ picks a metric **name** rather than inventing SQL.
 
 ## Why it matters
 
@@ -23,7 +23,7 @@ catalog and the platform compiles the exact, consistent SQL.
   `DATE_TRUNC('month', created_at)`).
 - **Metric** — an aggregation over a column: `sum`, `avg`, `count`,
   `count_distinct`, `min`, `max`, or a `custom` expression. Metrics can carry
-  filters (a *filtered measure*, e.g. revenue where `status = 'paid'`) and a
+  filters (a _filtered measure_, e.g. revenue where `status = 'paid'`) and a
   display format.
 
 Every field has a stable **name** (`[a-zA-Z_][a-zA-Z0-9_]*`) used as the query
@@ -46,8 +46,12 @@ Open **Semantic Layer** in the sidebar:
 A query references fields by name:
 
 ```json
-{ "model": "orders", "metrics": ["revenue"], "dimensions": ["region"],
-  "filters": [{ "field": "region", "op": "in", "value": ["EU", "US"] }] }
+{
+  "model": "orders",
+  "metrics": ["revenue"],
+  "dimensions": ["region"],
+  "filters": [{ "field": "region", "op": "in", "value": ["EU", "US"] }]
+}
 ```
 
 The compiler (`src/lib/semanticLayer.ts`) turns that into a single read-only

@@ -830,12 +830,7 @@ Either way, model and knowledge access stays governed by IAM, capped by budgets,
   ]),
 };
 
-export const SAMPLE_NOTEBOOKS: SampleNotebook[] = [
-  langchain,
-  langgraph,
-  llamaindex,
-  agenticStack,
-];
+export const SAMPLE_NOTEBOOKS: SampleNotebook[] = [langchain, langgraph, llamaindex, agenticStack];
 
 export function getSampleNotebook(slug: string): SampleNotebook | undefined {
   return SAMPLE_NOTEBOOKS.find((n) => n.slug === slug);

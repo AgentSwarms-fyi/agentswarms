@@ -36,12 +36,12 @@ export const PROMPT_CATEGORIES: { id: PromptCategory; label: string }[] = [
 ];
 
 export type BuiltInPrompt = {
-  id: string;            // stable id, e.g. "builtin:tier1-support"
+  id: string; // stable id, e.g. "builtin:tier1-support"
   title: string;
-  description: string;   // one-liner shown in the picker
+  description: string; // one-liner shown in the picker
   category: PromptCategory;
   tags: string[];
-  content: string;       // the actual system prompt
+  content: string; // the actual system prompt
 };
 
 // One source of truth. Each prompt is detailed, role-anchored, with explicit

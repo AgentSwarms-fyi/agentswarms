@@ -8,14 +8,7 @@
 // CRITICAL: extraction model is currently hardcoded to google/gemini-2.5-flash
 // on the server. We surface that to the user so it's not a black box.
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  ReactFlow,
-  Background,
-  Controls,
-  MiniMap,
-  type Node,
-  type Edge,
-} from "@xyflow/react";
+import { ReactFlow, Background, Controls, MiniMap, type Node, type Edge } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -56,13 +49,13 @@ type Props = {
 // both themes. We avoid `hsl(var(--token))` because this project's tokens are
 // oklch, not hsl, and wrapping them in hsl() yields invalid colors.
 const TYPE_COLOR: Record<string, string> = {
-  person: "oklch(0.62 0.22 265)",   // indigo
-  org: "oklch(0.65 0.18 160)",      // teal
-  product: "oklch(0.65 0.24 305)",  // violet
-  concept: "oklch(0.68 0.18 220)",  // sky
-  location: "oklch(0.72 0.17 75)",  // amber
-  event: "oklch(0.65 0.23 18)",     // rose
-  other: "oklch(0.6 0.04 260)",     // slate
+  person: "oklch(0.62 0.22 265)", // indigo
+  org: "oklch(0.65 0.18 160)", // teal
+  product: "oklch(0.65 0.24 305)", // violet
+  concept: "oklch(0.68 0.18 220)", // sky
+  location: "oklch(0.72 0.17 75)", // amber
+  event: "oklch(0.65 0.23 18)", // rose
+  other: "oklch(0.6 0.04 260)", // slate
 };
 
 export function KnowledgeGraphTab({ knowledgeBaseId, isSample }: Props) {
@@ -170,9 +163,7 @@ export function KnowledgeGraphTab({ knowledgeBaseId, isSample }: Props) {
               <div className="text-xs font-medium leading-tight text-center max-w-[120px] truncate">
                 {e.name}
               </div>
-              <div className="text-[9px] uppercase tracking-wider opacity-70">
-                {e.type}
-              </div>
+              <div className="text-[9px] uppercase tracking-wider opacity-70">{e.type}</div>
             </div>
           ),
         },
@@ -224,17 +215,26 @@ export function KnowledgeGraphTab({ knowledgeBaseId, isSample }: Props) {
               <p className="text-sm font-medium flex items-center gap-2 flex-wrap">
                 Knowledge Graph
                 {status === "ready" && (
-                  <Badge variant="outline" className="border-emerald-500/40 text-emerald-600 dark:text-emerald-400 text-[10px]">
+                  <Badge
+                    variant="outline"
+                    className="border-emerald-500/40 text-emerald-600 dark:text-emerald-400 text-[10px]"
+                  >
                     Ready
                   </Badge>
                 )}
                 {status === "building" && (
-                  <Badge variant="outline" className="border-amber-500/40 text-amber-600 dark:text-amber-400 text-[10px]">
+                  <Badge
+                    variant="outline"
+                    className="border-amber-500/40 text-amber-600 dark:text-amber-400 text-[10px]"
+                  >
                     Building…
                   </Badge>
                 )}
                 {status === "error" && (
-                  <Badge variant="outline" className="border-destructive/40 text-destructive text-[10px]">
+                  <Badge
+                    variant="outline"
+                    className="border-destructive/40 text-destructive text-[10px]"
+                  >
                     Error
                   </Badge>
                 )}
@@ -261,11 +261,17 @@ export function KnowledgeGraphTab({ knowledgeBaseId, isSample }: Props) {
             {!isSample && (
               <Button size="sm" onClick={buildGraph} disabled={building}>
                 {building ? (
-                  <><Loader2 className="h-3 w-3 mr-1 animate-spin" /> Building…</>
+                  <>
+                    <Loader2 className="h-3 w-3 mr-1 animate-spin" /> Building…
+                  </>
                 ) : hasGraph ? (
-                  <><GitBranch className="h-3 w-3 mr-1" /> Rebuild Graph</>
+                  <>
+                    <GitBranch className="h-3 w-3 mr-1" /> Rebuild Graph
+                  </>
                 ) : (
-                  <><Sparkles className="h-3 w-3 mr-1" /> Build Graph</>
+                  <>
+                    <Sparkles className="h-3 w-3 mr-1" /> Build Graph
+                  </>
                 )}
               </Button>
             )}
@@ -294,21 +300,28 @@ export function KnowledgeGraphTab({ knowledgeBaseId, isSample }: Props) {
             <div className="space-y-1">
               <p className="text-sm font-medium">No graph yet</p>
               <p className="text-xs text-muted-foreground max-w-md mx-auto">
-                Graph RAG extracts <span className="font-medium">entities</span> (people, products, concepts) and the
-                <span className="font-medium"> relations</span> between them, so agents can answer multi-hop questions like
+                Graph RAG extracts <span className="font-medium">entities</span> (people, products,
+                concepts) and the
+                <span className="font-medium"> relations</span> between them, so agents can answer
+                multi-hop questions like
                 <em> "if we change Auth, who is affected?"</em> — questions that vector RAG misses.
               </p>
               <p className="text-[11px] text-muted-foreground pt-2">
-                Extraction uses <code className="px-1 bg-muted rounded">google/gemini-2.5-flash</code> via the built-in AI gateway.
-                Hardcoded for v1 — model picker coming soon.
+                Extraction uses{" "}
+                <code className="px-1 bg-muted rounded">google/gemini-2.5-flash</code> via the
+                built-in AI gateway. Hardcoded for v1 — model picker coming soon.
               </p>
             </div>
             {!isSample && (
               <Button onClick={buildGraph} disabled={building}>
                 {building ? (
-                  <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Building…</>
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Building…
+                  </>
                 ) : (
-                  <><Sparkles className="h-4 w-4 mr-2" /> Build Graph from Documents</>
+                  <>
+                    <Sparkles className="h-4 w-4 mr-2" /> Build Graph from Documents
+                  </>
                 )}
               </Button>
             )}
@@ -321,9 +334,7 @@ export function KnowledgeGraphTab({ knowledgeBaseId, isSample }: Props) {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="md:col-span-3">
             <Card className="overflow-hidden">
-              <div
-                style={{ width: "100%", height: 560, background: "var(--muted)" }}
-              >
+              <div style={{ width: "100%", height: 560, background: "var(--muted)" }}>
                 <ReactFlow
                   nodes={nodes}
                   edges={edges}
@@ -400,9 +411,7 @@ export function KnowledgeGraphTab({ knowledgeBaseId, isSample }: Props) {
                       </Badge>
                     </div>
                     {selectedEntity.description && (
-                      <p className="text-xs text-muted-foreground">
-                        {selectedEntity.description}
-                      </p>
+                      <p className="text-xs text-muted-foreground">{selectedEntity.description}</p>
                     )}
                     <p className="text-[10px] text-muted-foreground">
                       Mentioned {selectedEntity.mention_count}× across documents
@@ -450,9 +459,10 @@ export function KnowledgeGraphTab({ knowledgeBaseId, isSample }: Props) {
           <CardContent className="py-3 text-xs text-muted-foreground space-y-1">
             <p className="font-medium text-foreground">How agents use this graph</p>
             <p>
-              Enable the <span className="font-mono px-1 bg-muted rounded">kb_graph_search</span> tool on any agent or swarm node
-              wired to this knowledge base. The agent will query the graph for entity neighbourhoods (1–2 hops) and use the
-              resulting triples to answer multi-hop questions.
+              Enable the <span className="font-mono px-1 bg-muted rounded">kb_graph_search</span>{" "}
+              tool on any agent or swarm node wired to this knowledge base. The agent will query the
+              graph for entity neighbourhoods (1–2 hops) and use the resulting triples to answer
+              multi-hop questions.
             </p>
           </CardContent>
         </Card>

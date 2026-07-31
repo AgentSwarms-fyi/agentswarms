@@ -1,6 +1,12 @@
 // Drawer to edit per-table business metadata for the BI Agent.
 import { useEffect, useState } from "react";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -140,7 +146,9 @@ export function SemanticLayerEditor({
                 return (
                   <div key={col.name} className="grid grid-cols-12 gap-1.5 items-start">
                     <div className="col-span-3 pt-1.5">
-                      <div className="text-[10px] font-mono text-slate-700 dark:text-slate-300 truncate">{col.name}</div>
+                      <div className="text-[10px] font-mono text-slate-700 dark:text-slate-300 truncate">
+                        {col.name}
+                      </div>
                       <div className="text-[9px] text-slate-400">{col.type}</div>
                     </div>
                     <Input
@@ -164,9 +172,15 @@ export function SemanticLayerEditor({
           </div>
 
           <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
-            <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
             <Button size="sm" onClick={handleSave} disabled={busy || isSampleReadOnly}>
-              {busy ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1.5" />}
+              {busy ? (
+                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+              ) : (
+                <Save className="h-3.5 w-3.5 mr-1.5" />
+              )}
               Save
             </Button>
           </div>

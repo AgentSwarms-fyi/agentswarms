@@ -60,18 +60,18 @@ function isPrivateHostname(host: string): boolean {
 
   // IPv4 (or IPv4-in-IPv6 like ::ffff:192.168.1.1)
   const v4Match = h.match(/(?:^|:)((?:\d{1,3}\.){3}\d{1,3})$/);
-  const v4 = v4Match ? v4Match[1] : (/^\d{1,3}(\.\d{1,3}){3}$/.test(h) ? h : null);
+  const v4 = v4Match ? v4Match[1] : /^\d{1,3}(\.\d{1,3}){3}$/.test(h) ? h : null;
   if (v4) {
     const parts = v4.split(".").map(Number);
     if (parts.some((n) => Number.isNaN(n) || n < 0 || n > 255)) return true;
     const [a, b] = parts;
-    if (a === 127) return true;          // 127.0.0.0/8
-    if (a === 10) return true;           // 10.0.0.0/8
-    if (a === 0) return true;            // 0.0.0.0/8
+    if (a === 127) return true; // 127.0.0.0/8
+    if (a === 10) return true; // 10.0.0.0/8
+    if (a === 0) return true; // 0.0.0.0/8
     if (a === 169 && b === 254) return true; // link-local + AWS/GCE metadata 169.254.169.254
     if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
-    if (a === 192 && b === 168) return true;          // 192.168.0.0/16
-    if (a >= 224) return true;           // multicast / reserved
+    if (a === 192 && b === 168) return true; // 192.168.0.0/16
+    if (a >= 224) return true; // multicast / reserved
   }
   return false;
 }
@@ -98,11 +98,7 @@ function looksLikeAgentCard(x: unknown): x is AgentCard {
   const c = x as Record<string, unknown>;
   // Required by both legacy and current A2A spec: name + url + skills[].
   // version/capabilities are sometimes omitted by minimal servers — accept anyway.
-  return (
-    typeof c.name === "string" &&
-    typeof c.url === "string" &&
-    Array.isArray(c.skills)
-  );
+  return typeof c.name === "string" && typeof c.url === "string" && Array.isArray(c.skills);
 }
 
 async function handleDiscover(payload: { endpoint?: string }): Promise<Response> {
@@ -182,7 +178,9 @@ interface InvokePayload {
   stream?: boolean;
 }
 
-async function resolveRpcUrl(rawEndpoint: string): Promise<{ ok: true; url: URL } | { ok: false; error: string }> {
+async function resolveRpcUrl(
+  rawEndpoint: string,
+): Promise<{ ok: true; url: URL } | { ok: false; error: string }> {
   const v = validateRemoteUrl(rawEndpoint);
   if (!v.ok) return v;
 
@@ -194,7 +192,10 @@ async function resolveRpcUrl(rawEndpoint: string): Promise<{ ok: true; url: URL 
   try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 10_000);
-    const r = await fetch(v.url.href, { headers: { Accept: "application/json" }, signal: ctrl.signal });
+    const r = await fetch(v.url.href, {
+      headers: { Accept: "application/json" },
+      signal: ctrl.signal,
+    });
     clearTimeout(t);
     if (!r.ok) return { ok: false, error: `Could not re-fetch agent card (${r.status})` };
     const card = (await r.json().catch(() => null)) as AgentCard | null;
@@ -205,7 +206,10 @@ async function resolveRpcUrl(rawEndpoint: string): Promise<{ ok: true; url: URL 
     if (!v2.ok) return v2;
     return { ok: true, url: v2.url };
   } catch (e) {
-    return { ok: false, error: `Failed to resolve RPC URL: ${e instanceof Error ? e.message : String(e)}` };
+    return {
+      ok: false,
+      error: `Failed to resolve RPC URL: ${e instanceof Error ? e.message : String(e)}`,
+    };
   }
 }
 
@@ -235,10 +239,11 @@ async function handleInvoke(payload: InvokePayload): Promise<Response> {
   };
   if (payload.remoteAuthHeader) {
     // Trust the user's input — they entered this for their own remote agent.
-    headers.Authorization = payload.remoteAuthHeader.startsWith("Bearer ") ||
+    headers.Authorization =
+      payload.remoteAuthHeader.startsWith("Bearer ") ||
       payload.remoteAuthHeader.startsWith("Basic ")
-      ? payload.remoteAuthHeader
-      : `Bearer ${payload.remoteAuthHeader}`;
+        ? payload.remoteAuthHeader
+        : `Bearer ${payload.remoteAuthHeader}`;
   }
 
   const ctrl = new AbortController();
@@ -291,9 +296,10 @@ async function handleInvoke(payload: InvokePayload): Promise<Response> {
   // spec allows the result to be either a Task object OR a direct Message
   // object (some agents like the Hello World sample reply with a Message).
   // We pass it through and let the client decode either shape.
-  const j = (await upstream.json().catch(() => null)) as
-    | { result?: Task | A2AMessage; error?: { message?: string; code?: number } }
-    | null;
+  const j = (await upstream.json().catch(() => null)) as {
+    result?: Task | A2AMessage;
+    error?: { message?: string; code?: number };
+  } | null;
   clearTimeout(timeout);
   if (!j) return jsonResponse({ error: "Upstream returned non-JSON response" }, 502);
   if (j.error) {

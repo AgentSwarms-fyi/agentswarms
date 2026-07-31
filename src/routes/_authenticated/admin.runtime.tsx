@@ -14,8 +14,7 @@ export const Route = createFileRoute("/_authenticated/admin/runtime")({
       { title: "Developer runtime — AgentSwarms" },
       {
         name: "description",
-        content:
-          "Enable and configure the server-side Python runtime for the Developer workspace.",
+        content: "Enable and configure the server-side Python runtime for the Developer workspace.",
       },
     ],
   }),
@@ -60,8 +59,8 @@ function AdminRuntimePage() {
             Developer workspace
           </Link>{" "}
           — real CPython kernels with <code>pip install</code> and the full frameworks, sandboxed
-          and governed. Off by default: until you enable it, notebooks show a short
-          &ldquo;runtime required&rdquo; prompt instead of running.
+          and governed. Off by default: until you enable it, notebooks show a short &ldquo;runtime
+          required&rdquo; prompt instead of running.
         </p>
       </div>
       <div className="max-w-3xl">

@@ -21,9 +21,7 @@ import { cn } from "@/lib/utils";
 const MARKDOWN_IMAGE_RE =
   /!\[([^\]]*)\]\((data:image\/[a-zA-Z+.-]+;base64,[A-Za-z0-9+/=]+|https?:\/\/[^\s)]+\.(?:png|jpe?g|gif|webp|avif|svg)(?:\?[^\s)]*)?)\)/g;
 
-type Segment =
-  | { kind: "text"; value: string }
-  | { kind: "image"; src: string; alt: string };
+type Segment = { kind: "text"; value: string } | { kind: "image"; src: string; alt: string };
 
 function splitImageSegments(content: string): Segment[] {
   const segments: Segment[] = [];
@@ -67,7 +65,6 @@ export function MarkdownMessage({ content }: { content: string }) {
 function MarkdownChunk({ content }: { content: string }) {
   return (
     <>
-
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeHighlight]}
@@ -82,23 +79,17 @@ function MarkdownChunk({ content }: { content: string }) {
             </h1>
           ),
           h2: ({ children }) => (
-            <h2 className="mt-6 mb-3 text-xl font-semibold tracking-tight">
-              {children}
-            </h2>
+            <h2 className="mt-6 mb-3 text-xl font-semibold tracking-tight">{children}</h2>
           ),
           h3: ({ children }) => (
-            <h3 className="mt-5 mb-2 text-base font-semibold tracking-tight">
-              {children}
-            </h3>
+            <h3 className="mt-5 mb-2 text-base font-semibold tracking-tight">{children}</h3>
           ),
           h4: ({ children }) => (
             <h4 className="mt-4 mb-2 text-sm font-semibold tracking-tight text-foreground/90">
               {children}
             </h4>
           ),
-          p: ({ children }) => (
-            <p className="my-3 text-sm leading-7">{children}</p>
-          ),
+          p: ({ children }) => <p className="my-3 text-sm leading-7">{children}</p>,
           a: ({ children, href }) => (
             <a
               href={href}
@@ -135,9 +126,7 @@ function MarkdownChunk({ content }: { content: string }) {
               <table className="w-full border-collapse text-sm">{children}</table>
             </div>
           ),
-          thead: ({ children }) => (
-            <thead className="bg-muted/60">{children}</thead>
-          ),
+          thead: ({ children }) => <thead className="bg-muted/60">{children}</thead>,
           tr: ({ children }) => (
             <tr className="border-b border-border/40 last:border-0">{children}</tr>
           ),
@@ -146,9 +135,7 @@ function MarkdownChunk({ content }: { content: string }) {
               {children}
             </th>
           ),
-          td: ({ children }) => (
-            <td className="px-3 py-2 align-top text-sm">{children}</td>
-          ),
+          td: ({ children }) => <td className="px-3 py-2 align-top text-sm">{children}</td>,
           code: ({ className, children, ...props }) => {
             // Inline code: react-markdown passes no language className for inline.
             const isBlock = typeof className === "string" && /language-/.test(className);
@@ -171,7 +158,9 @@ function MarkdownChunk({ content }: { content: string }) {
             );
           },
           pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
-          img: ({ src, alt }) => <RenderedImage src={typeof src === "string" ? src : ""} alt={alt || "image"} />,
+          img: ({ src, alt }) => (
+            <RenderedImage src={typeof src === "string" ? src : ""} alt={alt || "image"} />
+          ),
         }}
       >
         {content}

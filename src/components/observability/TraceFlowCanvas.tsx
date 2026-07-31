@@ -34,7 +34,11 @@ export type TraceCanvasEdge = {
 };
 
 type SwarmSnapshot = {
-  nodes?: Array<{ id: string; position?: { x: number; y: number }; data?: { label?: string; kind?: string } }>;
+  nodes?: Array<{
+    id: string;
+    position?: { x: number; y: number };
+    data?: { label?: string; kind?: string };
+  }>;
   edges?: Array<{ id?: string; source: string; target: string; label?: string }>;
 } | null;
 
@@ -72,16 +76,20 @@ export function TraceFlowCanvas({
 
   const { rfNodes, rfEdges } = useMemo(() => {
     // Source of truth: snapshot if present, else derive from steps + edges.
-    const snapNodes = snapshot?.nodes ?? steps.map((s, i) => ({
-      id: s.node_id,
-      position: { x: 60 + (i % 4) * 240, y: 60 + Math.floor(i / 4) * 140 },
-      data: { label: s.node_label ?? s.node_id, kind: s.node_kind },
-    }));
-    const snapEdges = snapshot?.edges ?? edges.map((e) => ({
-      id: `${e.source_node_id}->${e.target_node_id}`,
-      source: e.source_node_id,
-      target: e.target_node_id,
-    }));
+    const snapNodes =
+      snapshot?.nodes ??
+      steps.map((s, i) => ({
+        id: s.node_id,
+        position: { x: 60 + (i % 4) * 240, y: 60 + Math.floor(i / 4) * 140 },
+        data: { label: s.node_label ?? s.node_id, kind: s.node_kind },
+      }));
+    const snapEdges =
+      snapshot?.edges ??
+      edges.map((e) => ({
+        id: `${e.source_node_id}->${e.target_node_id}`,
+        source: e.source_node_id,
+        target: e.target_node_id,
+      }));
 
     const rfNodes: RFNode[] = snapNodes.map((n) => {
       const step = stepByNodeId.get(n.id);
@@ -99,10 +107,13 @@ export function TraceFlowCanvas({
               title={step?.error_message ?? ""}
             >
               <div className="text-[11px] font-semibold truncate">{label}</div>
-              <div className="text-[9px] uppercase tracking-wider text-muted-foreground mt-0.5">{kind} · {status}</div>
+              <div className="text-[9px] uppercase tracking-wider text-muted-foreground mt-0.5">
+                {kind} · {status}
+              </div>
               {step && (
                 <div className="text-[10px] font-mono text-muted-foreground mt-1">
-                  {step.latency_ms}ms · {step.tokens_in}/{step.tokens_out}t · ${Number(step.cost_usd).toFixed(4)}
+                  {step.latency_ms}ms · {step.tokens_in}/{step.tokens_out}t · $
+                  {Number(step.cost_usd).toFixed(4)}
                 </div>
               )}
             </div>
@@ -129,11 +140,22 @@ export function TraceFlowCanvas({
         target: e.target,
         animated: fired && !errored,
         style: {
-          stroke: errored ? "var(--destructive)" : fired ? "var(--primary)" : "color-mix(in oklab, var(--muted-foreground) 40%, transparent)",
+          stroke: errored
+            ? "var(--destructive)"
+            : fired
+              ? "var(--primary)"
+              : "color-mix(in oklab, var(--muted-foreground) 40%, transparent)",
           strokeWidth: fired ? 2.5 : 1.5,
           strokeDasharray: fired ? undefined : "4 4",
         },
-        markerEnd: { type: MarkerType.ArrowClosed, color: errored ? "var(--destructive)" : fired ? "var(--primary)" : "var(--muted-foreground)" },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          color: errored
+            ? "var(--destructive)"
+            : fired
+              ? "var(--primary)"
+              : "var(--muted-foreground)",
+        },
       };
     });
 

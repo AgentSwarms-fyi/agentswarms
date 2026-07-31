@@ -2,7 +2,11 @@
 // Visual states: default, dimmed (when another node is being highlighted in the tour),
 // and active (glowing accent ring + slight scale).
 import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
-import { ACCENT_CLASSES, type AgenticPattern, type PatternNode as PatternNodeData } from "@/lib/agenticPatterns";
+import {
+  ACCENT_CLASSES,
+  type AgenticPattern,
+  type PatternNode as PatternNodeData,
+} from "@/lib/agenticPatterns";
 import { cn } from "@/lib/utils";
 
 export type PatternFlowNodeData = {

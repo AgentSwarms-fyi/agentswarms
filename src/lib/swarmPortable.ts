@@ -152,7 +152,11 @@ export function downloadSwarmAsJson(portable: PortableSwarm) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  const safeName = portable.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "swarm";
+  const safeName =
+    portable.name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "") || "swarm";
   a.download = `${safeName}.swarm.json`;
   document.body.appendChild(a);
   a.click();
@@ -170,7 +174,8 @@ export interface ImportedSwarm {
 export function importSwarm(raw: unknown): ImportedSwarm {
   if (!raw || typeof raw !== "object") throw new Error("Invalid swarm file: not an object");
   const obj = raw as Record<string, unknown>;
-  if (obj.kind !== "agent-swarm") throw new Error('Invalid swarm file: expected kind "agent-swarm"');
+  if (obj.kind !== "agent-swarm")
+    throw new Error('Invalid swarm file: expected kind "agent-swarm"');
   const portableNodes = Array.isArray(obj.nodes) ? (obj.nodes as PortableSwarmNode[]) : [];
   const portableEdges = Array.isArray(obj.edges) ? (obj.edges as PortableSwarmEdge[]) : [];
 

@@ -44,9 +44,8 @@ export function HighDemandNotice({ show }: { show: boolean }) {
         <AlertDialogHeader>
           <AlertDialogTitle>We're experiencing high demand</AlertDialogTitle>
           <AlertDialogDescription>
-            Please use <strong>Google Sign-In</strong> to access AgentSwarms.
-            Email registration is facing a temporary issue and may not work
-            reliably right now. Thanks for your patience!
+            Please use <strong>Google Sign-In</strong> to access AgentSwarms. Email registration is
+            facing a temporary issue and may not work reliably right now. Thanks for your patience!
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

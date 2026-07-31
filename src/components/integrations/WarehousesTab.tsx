@@ -665,10 +665,9 @@ export function WarehousesTab() {
                   The stored credentials are deleted.
                 </p>
                 <p className="text-destructive">
-                  Anything built on this connection stops working: BI dashboards and prep flows
-                  that query it, catalog assets crawled from it, and agents using it through the
-                  SQL tool. This cannot be undone — reconnecting later requires re-entering
-                  credentials.
+                  Anything built on this connection stops working: BI dashboards and prep flows that
+                  query it, catalog assets crawled from it, and agents using it through the SQL
+                  tool. This cannot be undone — reconnecting later requires re-entering credentials.
                 </p>
               </div>
             </AlertDialogDescription>

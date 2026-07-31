@@ -46,9 +46,8 @@ export function MobileLabNotice() {
         <AlertDialogHeader>
           <AlertDialogTitle>Best on a larger screen</AlertDialogTitle>
           <AlertDialogDescription>
-            For the best lab experience, please open the lab menus on a
-            desktop, laptop, or tablet. Some builders (swarm canvas, knowledge
-            graph, traces) are designed for wider screens.
+            For the best lab experience, please open the lab menus on a desktop, laptop, or tablet.
+            Some builders (swarm canvas, knowledge graph, traces) are designed for wider screens.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

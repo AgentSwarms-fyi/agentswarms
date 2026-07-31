@@ -1,4 +1,9 @@
-import { SAMPLE_SKILLS, SAMPLE_SKILL_BY_ID, isSampleSkillId, type SampleSkill } from "./sampleSkills";
+import {
+  SAMPLE_SKILLS,
+  SAMPLE_SKILL_BY_ID,
+  isSampleSkillId,
+  type SampleSkill,
+} from "./sampleSkills";
 
 export type Skill = {
   id: string;

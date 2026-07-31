@@ -22,23 +22,20 @@ function FlowConnector({
 }) {
   const reduce = useReducedMotion();
   const isH = orientation === "horizontal";
-  const strokeClass =
-    tone === "destructive" ? "border-destructive/60" : "border-primary/40";
-  const dotClass =
-    tone === "destructive" ? "bg-destructive" : "bg-primary";
+  const strokeClass = tone === "destructive" ? "border-destructive/60" : "border-primary/40";
+  const dotClass = tone === "destructive" ? "bg-destructive" : "bg-primary";
 
   return (
     <div
       className={
-        isH
-          ? "relative hidden h-px flex-1 sm:block"
-          : "relative my-1 mx-auto h-6 w-px sm:hidden"
+        isH ? "relative hidden h-px flex-1 sm:block" : "relative my-1 mx-auto h-6 w-px sm:hidden"
       }
     >
       <div
         className={
-          (isH ? "absolute inset-0 border-t border-dashed " : "absolute inset-0 border-l border-dashed ") +
-          strokeClass
+          (isH
+            ? "absolute inset-0 border-t border-dashed "
+            : "absolute inset-0 border-l border-dashed ") + strokeClass
         }
       />
       {active && !reduce && (
@@ -94,11 +91,7 @@ export function RealBuilderMock() {
                 </>
               )}
               <motion.div
-                animate={
-                  active && !reduce
-                    ? { scale: [1, 1.04, 1] }
-                    : { scale: 1 }
-                }
+                animate={active && !reduce ? { scale: [1, 1.04, 1] } : { scale: 1 }}
                 transition={{ duration: 0.5 }}
                 className={`mx-auto flex min-w-0 items-center gap-2 rounded-lg border bg-card px-3 py-2 shadow-sm transition-all sm:mx-0 ${
                   active ? `border-transparent ring-2 ${n.ring}` : "border-border"
@@ -113,9 +106,7 @@ export function RealBuilderMock() {
                     className="h-1.5 w-1.5 rounded-full bg-current"
                   />
                 </span>
-                <span className="truncate text-[11px] font-semibold tracking-tight">
-                  {n.label}
-                </span>
+                <span className="truncate text-[11px] font-semibold tracking-tight">{n.label}</span>
               </motion.div>
             </div>
           );
@@ -128,7 +119,9 @@ export function RealBuilderMock() {
           animate={step === 3 && !reduce ? { scale: [1, 1.05, 1] } : { scale: 1 }}
           transition={{ duration: 0.5 }}
           className={`mx-auto flex min-w-0 items-center gap-1.5 rounded-lg border bg-emerald-500/10 px-3 py-2 sm:mx-0 ${
-            step === 3 ? "border-emerald-500/60 ring-2 ring-emerald-500/30" : "border-emerald-500/30"
+            step === 3
+              ? "border-emerald-500/60 ring-2 ring-emerald-500/30"
+              : "border-emerald-500/30"
           }`}
         >
           <span className="block h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-emerald-500" />
@@ -285,13 +278,56 @@ export function BrokenSwarmMock() {
 export function NotebookMock() {
   const reduce = useReducedMotion();
   const cats = [
-    { l: "Foundations", n: 2, file: "fnd-prompt-engineering.ipynb", title: "Anatomy of a chat request", model: "gemini-3-flash" },
-    { l: "Agentic Evals", n: 8, file: "eval-faithfulness.ipynb", title: "Scoring grounded answers", model: "gpt-5.1" },
-    { l: "LangChain", n: 5, file: "lc-rag-router.ipynb", title: "Route by intent, then retrieve", model: "claude-4.5-sonnet" },
-    { l: "LlamaIndex.ts", n: 7, file: "li-query-engine.ipynb", title: "Composable query engines", model: "gemini-3-flash" },
-    { l: "OpenAI Agents", n: 6, file: "oa-handoff.ipynb", title: "Handoff between agents", model: "gpt-5.1" },
-    { l: "Vercel AI SDK", n: 6, file: "vai-stream-ui.ipynb", title: "Streaming tool calls to the UI", model: "claude-4.5-sonnet" },
-    { l: "Failure Modes", n: 10, warn: true, file: "fm-tool-loop.ipynb", title: "Reproducing a runaway loop", model: "gpt-5.1" },
+    {
+      l: "Foundations",
+      n: 2,
+      file: "fnd-prompt-engineering.ipynb",
+      title: "Anatomy of a chat request",
+      model: "gemini-3-flash",
+    },
+    {
+      l: "Agentic Evals",
+      n: 8,
+      file: "eval-faithfulness.ipynb",
+      title: "Scoring grounded answers",
+      model: "gpt-5.1",
+    },
+    {
+      l: "LangChain",
+      n: 5,
+      file: "lc-rag-router.ipynb",
+      title: "Route by intent, then retrieve",
+      model: "claude-4.5-sonnet",
+    },
+    {
+      l: "LlamaIndex.ts",
+      n: 7,
+      file: "li-query-engine.ipynb",
+      title: "Composable query engines",
+      model: "gemini-3-flash",
+    },
+    {
+      l: "OpenAI Agents",
+      n: 6,
+      file: "oa-handoff.ipynb",
+      title: "Handoff between agents",
+      model: "gpt-5.1",
+    },
+    {
+      l: "Vercel AI SDK",
+      n: 6,
+      file: "vai-stream-ui.ipynb",
+      title: "Streaming tool calls to the UI",
+      model: "claude-4.5-sonnet",
+    },
+    {
+      l: "Failure Modes",
+      n: 10,
+      warn: true,
+      file: "fm-tool-loop.ipynb",
+      title: "Reproducing a runaway loop",
+      model: "gpt-5.1",
+    },
   ];
   const [idx, setIdx] = useState(0);
   useEffect(() => {

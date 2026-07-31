@@ -27,7 +27,7 @@ manage everything else:
   is reached through the SQL workbench, an agent tool, or the REST API. When
   several grants apply to the same person the effect is **union of access**:
   row filters combine (any allowing grant admits the row) and column masks
-  intersect (a column is hidden only when *every* grant hides it), so holding
+  intersect (a column is hidden only when _every_ grant hides it), so holding
   two grants never leaves someone with less access than one alone.
 - **Settings** — flip the instance to **invite-only**: public self-signup
   (including OAuth) is rejected at the database level, while invited,
@@ -45,4 +45,3 @@ manage everything else:
   > feature; self-hosted GoTrue → set `GOTRUE_SAML_ENABLED=true` with a
   > `GOTRUE_SAML_PRIVATE_KEY`. The SSO tab detects and explains this if it's
   > not enabled yet.
-

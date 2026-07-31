@@ -1,13 +1,7 @@
 import { cn } from "@/lib/utils";
 
 /* ─── tiny helpers ─── */
-const Box = ({
-  children,
-  className,
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) => (
+const Box = ({ children, className }: { children: React.ReactNode; className?: string }) => (
   <div
     className={cn(
       "rounded-lg border border-border/60 bg-card px-3 py-2 text-center text-[11px] font-medium leading-tight",
@@ -18,7 +12,13 @@ const Box = ({
   </div>
 );
 
-const Arrow = ({ direction = "down", className }: { direction?: "down" | "right" | "left"; className?: string }) => (
+const Arrow = ({
+  direction = "down",
+  className,
+}: {
+  direction?: "down" | "right" | "left";
+  className?: string;
+}) => (
   <div className={cn("flex items-center justify-center text-muted-foreground", className)}>
     {direction === "down" && <span className="text-lg leading-none">↓</span>}
     {direction === "right" && <span className="text-lg leading-none">→</span>}
@@ -37,21 +37,41 @@ function GenAIvsPredictive() {
     <DiagramShell title="Generative vs Predictive ML">
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Box className="border-primary/40 bg-primary/5 font-semibold text-primary">Generative AI</Box>
+          <Box className="border-primary/40 bg-primary/5 font-semibold text-primary">
+            Generative AI
+          </Box>
           <div className="space-y-1 text-[10px] text-muted-foreground">
-            <div className="flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-primary" /> Samples from P(next token)</div>
-            <div className="flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-primary" /> Non-deterministic</div>
-            <div className="flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-primary" /> Creates new content</div>
-            <div className="flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-primary" /> Needs eval harnesses</div>
+            <div className="flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-primary" /> Samples from P(next token)
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-primary" /> Non-deterministic
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-primary" /> Creates new content
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-primary" /> Needs eval harnesses
+            </div>
           </div>
         </div>
         <div className="space-y-2">
-          <Box className="border-amber-500/40 bg-amber-500/5 font-semibold text-amber-700 dark:text-amber-400">Predictive ML</Box>
+          <Box className="border-amber-500/40 bg-amber-500/5 font-semibold text-amber-700 dark:text-amber-400">
+            Predictive ML
+          </Box>
           <div className="space-y-1 text-[10px] text-muted-foreground">
-            <div className="flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-amber-500" /> Outputs class / scalar</div>
-            <div className="flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-amber-500" /> Deterministic</div>
-            <div className="flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-amber-500" /> Classifies / predicts</div>
-            <div className="flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-amber-500" /> Standard metrics</div>
+            <div className="flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-500" /> Outputs class / scalar
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-500" /> Deterministic
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-500" /> Classifies / predicts
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-500" /> Standard metrics
+            </div>
           </div>
         </div>
       </div>
@@ -67,8 +87,12 @@ function TransformerAttention() {
         <Arrow />
         <div className="grid w-full max-w-xs grid-cols-3 gap-1">
           <Box className="border-blue-400/40 bg-blue-400/5 text-blue-600 dark:text-blue-400">Q</Box>
-          <Box className="border-violet-400/40 bg-violet-400/5 text-violet-600 dark:text-violet-400">K</Box>
-          <Box className="border-emerald-400/40 bg-emerald-400/5 text-emerald-600 dark:text-emerald-400">V</Box>
+          <Box className="border-violet-400/40 bg-violet-400/5 text-violet-600 dark:text-violet-400">
+            K
+          </Box>
+          <Box className="border-emerald-400/40 bg-emerald-400/5 text-emerald-600 dark:text-emerald-400">
+            V
+          </Box>
         </div>
         <Arrow />
         <Box className="w-full max-w-xs border-amber-500/30 bg-amber-500/5">
@@ -110,9 +134,21 @@ function TempTopP() {
     <DiagramShell title="Temperature & Top-p Sampling">
       <div className="grid grid-cols-3 gap-2">
         {[
-          { label: "Low temp (0.1)", desc: "Deterministic, safe", color: "bg-blue-500/10 border-blue-500/30 text-blue-600 dark:text-blue-400" },
-          { label: "Med temp (0.7)", desc: "Balanced creativity", color: "bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400" },
-          { label: "High temp (1.5)", desc: "Very creative, risky", color: "bg-red-500/10 border-red-500/30 text-red-600 dark:text-red-400" },
+          {
+            label: "Low temp (0.1)",
+            desc: "Deterministic, safe",
+            color: "bg-blue-500/10 border-blue-500/30 text-blue-600 dark:text-blue-400",
+          },
+          {
+            label: "Med temp (0.7)",
+            desc: "Balanced creativity",
+            color: "bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400",
+          },
+          {
+            label: "High temp (1.5)",
+            desc: "Very creative, risky",
+            color: "bg-red-500/10 border-red-500/30 text-red-600 dark:text-red-400",
+          },
         ].map((t) => (
           <div key={t.label} className={cn("rounded-lg border p-2 text-center", t.color)}>
             <div className="text-[10px] font-semibold">{t.label}</div>
@@ -121,7 +157,9 @@ function TempTopP() {
         ))}
       </div>
       <div className="mt-3 rounded-lg border border-border/40 bg-muted/20 p-2 text-[10px] text-muted-foreground">
-        <strong className="text-foreground/80">Top-p (nucleus):</strong> Dynamically truncates the token pool to the smallest set whose cumulative probability ≥ p. Lower p → fewer candidate tokens → safer output.
+        <strong className="text-foreground/80">Top-p (nucleus):</strong> Dynamically truncates the
+        token pool to the smallest set whose cumulative probability ≥ p. Lower p → fewer candidate
+        tokens → safer output.
       </div>
     </DiagramShell>
   );
@@ -149,7 +187,9 @@ function RAGPipeline() {
         <Arrow />
         <Box className="border-violet-400/30 bg-violet-400/5">Re-ranker (cross-encoder)</Box>
         <Arrow />
-        <Box className="border-emerald-400/30 bg-emerald-400/5">LLM with retrieved context → Answer</Box>
+        <Box className="border-emerald-400/30 bg-emerald-400/5">
+          LLM with retrieved context → Answer
+        </Box>
       </div>
     </DiagramShell>
   );
@@ -162,9 +202,13 @@ function RAGvsFineTune() {
         <table className="w-full text-[10px]">
           <thead>
             <tr className="border-b border-border/50">
-              <th className="px-2 py-1.5 text-left font-semibold text-muted-foreground">Criterion</th>
+              <th className="px-2 py-1.5 text-left font-semibold text-muted-foreground">
+                Criterion
+              </th>
               <th className="px-2 py-1.5 text-center font-semibold text-primary">RAG</th>
-              <th className="px-2 py-1.5 text-center font-semibold text-amber-600 dark:text-amber-400">Fine-Tune</th>
+              <th className="px-2 py-1.5 text-center font-semibold text-amber-600 dark:text-amber-400">
+                Fine-Tune
+              </th>
             </tr>
           </thead>
           <tbody className="text-foreground/80">
@@ -193,13 +237,31 @@ function ChunkingStrategies() {
     <DiagramShell title="Chunking Strategies Compared">
       <div className="space-y-2">
         {[
-          { name: "Fixed-size", visual: ["████", "████", "████"], desc: "Simple, may split sentences" },
-          { name: "Recursive", visual: ["██", "██████", "███"], desc: "Split on \\n\\n → \\n → sentence" },
-          { name: "Semantic", visual: ["█████", "███", "████████"], desc: "By embedding similarity shifts" },
-          { name: "Agentic / Late", visual: ["Query→Doc→Answer"], desc: "Full doc at inference, no pre-chunk" },
+          {
+            name: "Fixed-size",
+            visual: ["████", "████", "████"],
+            desc: "Simple, may split sentences",
+          },
+          {
+            name: "Recursive",
+            visual: ["██", "██████", "███"],
+            desc: "Split on \\n\\n → \\n → sentence",
+          },
+          {
+            name: "Semantic",
+            visual: ["█████", "███", "████████"],
+            desc: "By embedding similarity shifts",
+          },
+          {
+            name: "Agentic / Late",
+            visual: ["Query→Doc→Answer"],
+            desc: "Full doc at inference, no pre-chunk",
+          },
         ].map((s) => (
           <div key={s.name} className="flex items-center gap-3">
-            <div className="w-20 shrink-0 text-[10px] font-semibold text-foreground/80">{s.name}</div>
+            <div className="w-20 shrink-0 text-[10px] font-semibold text-foreground/80">
+              {s.name}
+            </div>
             <div className="flex flex-1 gap-1">
               {s.visual.map((v, i) => (
                 <div
@@ -225,13 +287,19 @@ function AgentLoop() {
         <Box className="border-primary/40 bg-primary/5">User Goal</Box>
         <Arrow />
         <div className="rounded-xl border-2 border-dashed border-primary/30 p-3">
-          <div className="mb-1 text-center text-[9px] font-semibold uppercase tracking-wider text-primary">Loop</div>
+          <div className="mb-1 text-center text-[9px] font-semibold uppercase tracking-wider text-primary">
+            Loop
+          </div>
           <div className="flex flex-col items-center gap-1">
-            <Box className="w-44 border-blue-400/30 bg-blue-400/5">Think (reason about next step)</Box>
+            <Box className="w-44 border-blue-400/30 bg-blue-400/5">
+              Think (reason about next step)
+            </Box>
             <Arrow />
             <Box className="w-44 border-amber-400/30 bg-amber-400/5">Act (call tool / API)</Box>
             <Arrow />
-            <Box className="w-44 border-emerald-400/30 bg-emerald-400/5">Observe (parse result)</Box>
+            <Box className="w-44 border-emerald-400/30 bg-emerald-400/5">
+              Observe (parse result)
+            </Box>
           </div>
           <div className="mt-1 flex justify-end">
             <span className="text-[9px] text-muted-foreground">↻ repeat until done</span>
@@ -259,7 +327,8 @@ function OrchestratorWorker() {
           ))}
         </div>
         <div className="mt-2 flex items-center gap-1 text-[9px] text-muted-foreground">
-          <span>results ↑ merge</span> <Arrow direction="right" /> <Box className="border-emerald-400/30 bg-emerald-400/5">Merged Output</Box>
+          <span>results ↑ merge</span> <Arrow direction="right" />{" "}
+          <Box className="border-emerald-400/30 bg-emerald-400/5">Merged Output</Box>
         </div>
       </div>
     </DiagramShell>
@@ -272,19 +341,41 @@ function PromptInjection() {
       <div className="space-y-2">
         <div className="grid grid-cols-2 gap-2">
           <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-2">
-            <div className="mb-1 text-[10px] font-semibold text-red-600 dark:text-red-400">Direct Injection</div>
-            <div className="text-[9px] text-muted-foreground">User crafts prompt to override system instructions</div>
+            <div className="mb-1 text-[10px] font-semibold text-red-600 dark:text-red-400">
+              Direct Injection
+            </div>
+            <div className="text-[9px] text-muted-foreground">
+              User crafts prompt to override system instructions
+            </div>
           </div>
           <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-2">
-            <div className="mb-1 text-[10px] font-semibold text-red-600 dark:text-red-400">Indirect Injection</div>
-            <div className="text-[9px] text-muted-foreground">Malicious instructions hidden in retrieved docs / tools</div>
+            <div className="mb-1 text-[10px] font-semibold text-red-600 dark:text-red-400">
+              Indirect Injection
+            </div>
+            <div className="text-[9px] text-muted-foreground">
+              Malicious instructions hidden in retrieved docs / tools
+            </div>
           </div>
         </div>
         <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3">
-          <div className="mb-1.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-400">Defenses (layered)</div>
+          <div className="mb-1.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-400">
+            Defenses (layered)
+          </div>
           <div className="flex flex-wrap gap-1.5">
-            {["Input sanitization", "Output filtering", "Privilege separation", "Tool allowlists", "Human-in-the-loop", "Canary tokens"].map((d) => (
-              <span key={d} className="rounded-full border border-emerald-400/30 bg-emerald-400/5 px-2 py-0.5 text-[9px] font-medium text-emerald-700 dark:text-emerald-400">{d}</span>
+            {[
+              "Input sanitization",
+              "Output filtering",
+              "Privilege separation",
+              "Tool allowlists",
+              "Human-in-the-loop",
+              "Canary tokens",
+            ].map((d) => (
+              <span
+                key={d}
+                className="rounded-full border border-emerald-400/30 bg-emerald-400/5 px-2 py-0.5 text-[9px] font-medium text-emerald-700 dark:text-emerald-400"
+              >
+                {d}
+              </span>
             ))}
           </div>
         </div>
@@ -299,22 +390,29 @@ function LoRA() {
       <div className="flex items-center justify-center gap-4">
         <div className="flex flex-col items-center gap-1">
           <div className="flex h-20 w-20 items-center justify-center rounded-lg border border-blue-400/40 bg-blue-400/5 text-[10px] font-semibold text-blue-600 dark:text-blue-400">
-            W<br /><span className="text-[8px] font-normal">(frozen)</span>
+            W<br />
+            <span className="text-[8px] font-normal">(frozen)</span>
           </div>
           <Label>d × d</Label>
         </div>
         <span className="text-lg text-muted-foreground">+</span>
         <div className="flex flex-col items-center gap-1">
           <div className="flex gap-0.5">
-            <div className="flex h-20 w-5 items-center justify-center rounded border border-primary/40 bg-primary/5 text-[8px] font-bold text-primary">A</div>
-            <div className="flex h-5 w-20 items-center justify-center rounded border border-primary/40 bg-primary/5 text-[8px] font-bold text-primary">B</div>
+            <div className="flex h-20 w-5 items-center justify-center rounded border border-primary/40 bg-primary/5 text-[8px] font-bold text-primary">
+              A
+            </div>
+            <div className="flex h-5 w-20 items-center justify-center rounded border border-primary/40 bg-primary/5 text-[8px] font-bold text-primary">
+              B
+            </div>
           </div>
           <Label>rank r ≪ d</Label>
         </div>
         <span className="text-lg text-muted-foreground">=</span>
         <div className="flex flex-col items-center gap-1">
           <div className="flex h-20 w-20 items-center justify-center rounded-lg border border-emerald-400/40 bg-emerald-400/5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
-            W′<br /><span className="text-[8px] font-normal">(adapted)</span>
+            W′
+            <br />
+            <span className="text-[8px] font-normal">(adapted)</span>
           </div>
           <Label>~0.1% params trained</Label>
         </div>
@@ -362,7 +460,9 @@ function SystemDesignAgent() {
           <Box className="border-amber-400/30 bg-amber-400/5">Queue / Async</Box>
         </div>
         <Arrow />
-        <Box className="w-full border-violet-400/40 bg-violet-400/5 font-semibold">Agent Orchestrator</Box>
+        <Box className="w-full border-violet-400/40 bg-violet-400/5 font-semibold">
+          Agent Orchestrator
+        </Box>
         <div className="grid w-full grid-cols-2 gap-2 mt-1">
           <div className="flex flex-col items-center gap-1">
             <Arrow />
@@ -389,16 +489,31 @@ function CostLatency() {
     <DiagramShell title="Cost & Latency Optimization Levers">
       <div className="grid grid-cols-2 gap-2">
         {[
-          { title: "Reduce Tokens", items: ["Shorter prompts", "Summarize context", "Prune few-shot"] },
-          { title: "Cache Aggressively", items: ["Semantic cache", "Prompt cache", "KV cache reuse"] },
-          { title: "Model Routing", items: ["Small model first", "Escalate on failure", "Task-specific models"] },
-          { title: "Async / Batch", items: ["Queue non-urgent", "Batch API calls", "Speculative decode"] },
+          {
+            title: "Reduce Tokens",
+            items: ["Shorter prompts", "Summarize context", "Prune few-shot"],
+          },
+          {
+            title: "Cache Aggressively",
+            items: ["Semantic cache", "Prompt cache", "KV cache reuse"],
+          },
+          {
+            title: "Model Routing",
+            items: ["Small model first", "Escalate on failure", "Task-specific models"],
+          },
+          {
+            title: "Async / Batch",
+            items: ["Queue non-urgent", "Batch API calls", "Speculative decode"],
+          },
         ].map((g) => (
           <div key={g.title} className="rounded-lg border border-border/50 bg-muted/20 p-2">
             <div className="mb-1 text-[10px] font-semibold text-foreground/80">{g.title}</div>
             <div className="space-y-0.5">
               {g.items.map((item) => (
-                <div key={item} className="flex items-center gap-1 text-[9px] text-muted-foreground">
+                <div
+                  key={item}
+                  className="flex items-center gap-1 text-[9px] text-muted-foreground"
+                >
                   <span className="h-1 w-1 rounded-full bg-primary" />
                   {item}
                 </div>
@@ -443,9 +558,21 @@ function MemoryTypes() {
     <DiagramShell title="Agent Memory Architecture">
       <div className="grid grid-cols-3 gap-2">
         {[
-          { name: "Short-term", desc: "Current conversation context window", color: "border-blue-400/30 bg-blue-400/5" },
-          { name: "Working", desc: "Scratchpad for current task reasoning", color: "border-violet-400/30 bg-violet-400/5" },
-          { name: "Long-term", desc: "Persisted facts, user prefs, past sessions", color: "border-emerald-400/30 bg-emerald-400/5" },
+          {
+            name: "Short-term",
+            desc: "Current conversation context window",
+            color: "border-blue-400/30 bg-blue-400/5",
+          },
+          {
+            name: "Working",
+            desc: "Scratchpad for current task reasoning",
+            color: "border-violet-400/30 bg-violet-400/5",
+          },
+          {
+            name: "Long-term",
+            desc: "Persisted facts, user prefs, past sessions",
+            color: "border-emerald-400/30 bg-emerald-400/5",
+          },
         ].map((m) => (
           <div key={m.name} className={cn("rounded-lg border p-2 text-center", m.color)}>
             <div className="text-[10px] font-semibold">{m.name}</div>
@@ -454,7 +581,9 @@ function MemoryTypes() {
         ))}
       </div>
       <div className="mt-2 rounded-lg border border-border/40 bg-muted/20 p-2 text-center text-[9px] text-muted-foreground">
-        Pattern: <strong className="text-foreground/80">Summarize → Store → Retrieve → Inject</strong> into prompt on each turn
+        Pattern:{" "}
+        <strong className="text-foreground/80">Summarize → Store → Retrieve → Inject</strong> into
+        prompt on each turn
       </div>
     </DiagramShell>
   );
@@ -469,14 +598,20 @@ function GraphRAG() {
           <div className="rounded border border-border/40 p-2 text-[9px] text-muted-foreground">
             Query → embed → nearest neighbors → context → LLM
           </div>
-          <div className="text-[9px] text-muted-foreground">✅ Fast, simple | ❌ Misses multi-hop relations</div>
+          <div className="text-[9px] text-muted-foreground">
+            ✅ Fast, simple | ❌ Misses multi-hop relations
+          </div>
         </div>
         <div className="space-y-1.5">
-          <Box className="border-violet-400/40 bg-violet-400/5 font-semibold text-violet-600 dark:text-violet-400">GraphRAG</Box>
+          <Box className="border-violet-400/40 bg-violet-400/5 font-semibold text-violet-600 dark:text-violet-400">
+            GraphRAG
+          </Box>
           <div className="rounded border border-border/40 p-2 text-[9px] text-muted-foreground">
             Query → entity extraction → knowledge graph traversal → community summaries → LLM
           </div>
-          <div className="text-[9px] text-muted-foreground">✅ Multi-hop reasoning | ❌ Higher indexing cost</div>
+          <div className="text-[9px] text-muted-foreground">
+            ✅ Multi-hop reasoning | ❌ Higher indexing cost
+          </div>
         </div>
       </div>
     </DiagramShell>
@@ -528,7 +663,9 @@ function FunctionCalling() {
               <div className="text-[9px]">{"{ name, args }"}</div>
             </Box>
             <Arrow />
-            <Box className="w-full border-emerald-400/30 bg-emerald-400/5">Execute & Return Result</Box>
+            <Box className="w-full border-emerald-400/30 bg-emerald-400/5">
+              Execute & Return Result
+            </Box>
             <Arrow />
             <Box className="w-full border-blue-400/30 bg-blue-400/5">LLM synthesizes answer</Box>
           </div>
@@ -551,22 +688,38 @@ function RLHFvsDPO() {
         <div className="space-y-1.5">
           <Box className="border-primary/40 bg-primary/5 font-semibold">RLHF</Box>
           <div className="flex flex-col items-center gap-1 text-[9px]">
-            <span className="rounded border border-border/40 px-2 py-0.5">1. Collect human rankings</span>
+            <span className="rounded border border-border/40 px-2 py-0.5">
+              1. Collect human rankings
+            </span>
             <Arrow />
-            <span className="rounded border border-border/40 px-2 py-0.5">2. Train reward model</span>
+            <span className="rounded border border-border/40 px-2 py-0.5">
+              2. Train reward model
+            </span>
             <Arrow />
-            <span className="rounded border border-border/40 px-2 py-0.5">3. PPO to optimize policy</span>
+            <span className="rounded border border-border/40 px-2 py-0.5">
+              3. PPO to optimize policy
+            </span>
           </div>
-          <div className="text-[9px] text-muted-foreground">Complex, unstable, but proven at scale</div>
+          <div className="text-[9px] text-muted-foreground">
+            Complex, unstable, but proven at scale
+          </div>
         </div>
         <div className="space-y-1.5">
-          <Box className="border-emerald-400/40 bg-emerald-400/5 font-semibold text-emerald-600 dark:text-emerald-400">DPO</Box>
+          <Box className="border-emerald-400/40 bg-emerald-400/5 font-semibold text-emerald-600 dark:text-emerald-400">
+            DPO
+          </Box>
           <div className="flex flex-col items-center gap-1 text-[9px]">
-            <span className="rounded border border-border/40 px-2 py-0.5">1. Collect preference pairs</span>
+            <span className="rounded border border-border/40 px-2 py-0.5">
+              1. Collect preference pairs
+            </span>
             <Arrow />
-            <span className="rounded border border-border/40 px-2 py-0.5">2. Direct optimization</span>
+            <span className="rounded border border-border/40 px-2 py-0.5">
+              2. Direct optimization
+            </span>
             <Arrow />
-            <span className="rounded border border-border/40 px-2 py-0.5">No reward model needed</span>
+            <span className="rounded border border-border/40 px-2 py-0.5">
+              No reward model needed
+            </span>
           </div>
           <div className="text-[9px] text-muted-foreground">Simpler, stabler, gaining adoption</div>
         </div>
@@ -580,8 +733,19 @@ function DiagramShell({ title, children }: { title: string; children: React.Reac
   return (
     <div className="rounded-xl border border-border/50 bg-gradient-to-br from-muted/30 to-muted/10 p-4">
       <div className="mb-3 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-        <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" />
+        <svg
+          className="h-3.5 w-3.5"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <rect x="3" y="3" width="7" height="7" />
+          <rect x="14" y="3" width="7" height="7" />
+          <rect x="14" y="14" width="7" height="7" />
+          <rect x="3" y="14" width="7" height="7" />
         </svg>
         {title}
       </div>
@@ -598,21 +762,21 @@ const DIAGRAM_MAP: Record<string, () => React.ReactNode> = {
   "temp-topp": TempTopP,
   "what-is-rag": RAGPipeline,
   "rag-vs-finetune": RAGvsFineTune,
-  "chunking": ChunkingStrategies,
+  chunking: ChunkingStrategies,
   "hybrid-search": HybridSearch,
-  "graphrag": GraphRAG,
+  graphrag: GraphRAG,
   "react-pattern": AgentLoop,
   "what-is-agent": AgentLoop,
   "orchestrator-worker": OrchestratorWorker,
   "when-multi-agent": OrchestratorWorker,
   "prompt-injection": PromptInjection,
   "agent-security": PromptInjection,
-  "lora": LoRA,
+  lora: LoRA,
   "rlhf-vs-dpo": RLHFvsDPO,
   "eval-harness": EvalHarness,
   "llm-as-judge": EvalHarness,
   "function-calling": FunctionCalling,
-  "mcp": MCPProtocol,
+  mcp: MCPProtocol,
   "agent-memory": MemoryTypes,
   "lost-in-middle": ContextWindow,
   "design-support-agent": SystemDesignAgent,

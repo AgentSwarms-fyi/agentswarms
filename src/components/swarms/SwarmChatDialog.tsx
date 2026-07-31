@@ -132,7 +132,9 @@ export function SwarmChatDialog({
     chatIdRef.current = id;
     setActiveChatId(id);
     setMessages(((data?.messages as ChatMsg[] | null) ?? []) as ChatMsg[]);
-    setCarriedState(((data?.state as Record<string, string> | null) ?? {}) as Record<string, string>);
+    setCarriedState(
+      ((data?.state as Record<string, string> | null) ?? {}) as Record<string, string>,
+    );
     setError(null);
     setLiveText("");
     setRunning(false);
@@ -298,14 +300,21 @@ export function SwarmChatDialog({
             {/* Chat list */}
             <div className="w-52 shrink-0 border-r border-border/60 flex flex-col bg-muted/20">
               <div className="p-2">
-                <Button size="sm" variant="outline" className="w-full h-8 text-xs" onClick={newChat}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full h-8 text-xs"
+                  onClick={newChat}
+                >
                   <Plus className="h-3.5 w-3.5 mr-1.5" /> New chat
                 </Button>
               </div>
               <ScrollArea className="flex-1">
                 <div className="px-2 pb-2 space-y-1">
                   {chats.length === 0 ? (
-                    <p className="text-[11px] text-muted-foreground px-1 py-2">No conversations yet.</p>
+                    <p className="text-[11px] text-muted-foreground px-1 py-2">
+                      No conversations yet.
+                    </p>
                   ) : (
                     chats.map((c) => (
                       <div
@@ -373,7 +382,9 @@ export function SwarmChatDialog({
                       ) : (
                         <span className="flex items-center gap-2 text-muted-foreground">
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          {runningNode ? `Running ${nodeLabel.get(runningNode) ?? "node"}…` : "Thinking…"}
+                          {runningNode
+                            ? `Running ${nodeLabel.get(runningNode) ?? "node"}…`
+                            : "Thinking…"}
                         </span>
                       )}
                     </div>
@@ -401,7 +412,8 @@ export function SwarmChatDialog({
                     ) : (
                       <ChevronRight className="h-3 w-3" />
                     )}
-                    Flow state · {stateEntries.length} variable{stateEntries.length === 1 ? "" : "s"}
+                    Flow state · {stateEntries.length} variable
+                    {stateEntries.length === 1 ? "" : "s"}
                   </button>
                   {showState && (
                     <div className="mt-1.5 max-h-32 overflow-y-auto space-y-1 pb-1">

@@ -4,13 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { KeyRound, Loader2, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 
@@ -36,22 +30,23 @@ function ResetPasswordPage() {
     // Supabase puts the recovery session in the URL hash. The client picks it
     // up automatically; we listen for the PASSWORD_RECOVERY event and also
     // check the existing session in case the event already fired.
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event) => {
-        if (event === "PASSWORD_RECOVERY") {
-          setValidRecovery(true);
-          setReady(true);
-        }
-      },
-    );
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "PASSWORD_RECOVERY") {
+        setValidRecovery(true);
+        setReady(true);
+      }
+    });
 
     // Fallback: if there's already a session and the URL came from the recovery
     // flow, allow the user to set a new password.
     void (async () => {
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       const hash = typeof window !== "undefined" ? window.location.hash : "";
-      const isRecoveryUrl =
-        hash.includes("type=recovery") || hash.includes("access_token=");
+      const isRecoveryUrl = hash.includes("type=recovery") || hash.includes("access_token=");
       if (session && isRecoveryUrl) {
         setValidRecovery(true);
       }
@@ -99,9 +94,7 @@ function ResetPasswordPage() {
             <KeyRound className="h-6 w-6 text-primary-foreground" />
           </div>
           <CardTitle className="text-2xl font-bold">Set a new password</CardTitle>
-          <CardDescription>
-            Choose a new password for your AgentSwarms account.
-          </CardDescription>
+          <CardDescription>Choose a new password for your AgentSwarms account.</CardDescription>
         </CardHeader>
         <CardContent>
           {!ready ? (
@@ -112,8 +105,7 @@ function ResetPasswordPage() {
             <div className="space-y-3 text-center text-sm">
               <ShieldCheck className="mx-auto h-8 w-8 text-muted-foreground" />
               <p className="text-muted-foreground">
-                This reset link is invalid or has expired. Request a new one
-                from the sign-in page.
+                This reset link is invalid or has expired. Request a new one from the sign-in page.
               </p>
               <Button
                 variant="outline"

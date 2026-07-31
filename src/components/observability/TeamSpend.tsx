@@ -181,9 +181,8 @@ export function TeamSpend() {
           )}
         </div>
         <p className="text-[10px] text-muted-foreground lg:col-span-2">
-          A user belonging to several groups counts toward each of them. Spend comes from
-          execution traces (every model call across chat, agents, swarms, BI and background
-          jobs).
+          A user belonging to several groups counts toward each of them. Spend comes from execution
+          traces (every model call across chat, agents, swarms, BI and background jobs).
         </p>
       </CardContent>
     </Card>

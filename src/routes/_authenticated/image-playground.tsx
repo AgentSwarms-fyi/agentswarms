@@ -6,10 +6,7 @@ import {
   fetchConnectedIntegrations,
   type ConnectedIntegration,
 } from "@/components/bi/BiModelSelect";
-import {
-  listProviderImageModels,
-  type ProviderModelInfo,
-} from "@/utils/providerModels.functions";
+import { listProviderImageModels, type ProviderModelInfo } from "@/utils/providerModels.functions";
 import { PROVIDER_LABELS, type ProviderId } from "@/utils/providers/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -578,7 +575,10 @@ function ImagePlaygroundPage() {
               {inputImages.length > 0 && (
                 <div className="grid grid-cols-2 gap-2">
                   {inputImages.map((img, i) => (
-                    <div key={`${img.name}-${i}`} className="relative overflow-hidden rounded-md border">
+                    <div
+                      key={`${img.name}-${i}`}
+                      className="relative overflow-hidden rounded-md border"
+                    >
                       <img
                         src={img.dataUrl}
                         alt={img.name}
@@ -640,7 +640,11 @@ function ImagePlaygroundPage() {
               ) : (
                 <>
                   <Sparkles className="h-4 w-4" />{" "}
-                  {isBlend ? `Blend ${inputImages.length} images` : isEdit ? "Apply edit" : "Generate"}
+                  {isBlend
+                    ? `Blend ${inputImages.length} images`
+                    : isEdit
+                      ? "Apply edit"
+                      : "Generate"}
                 </>
               )}
             </Button>

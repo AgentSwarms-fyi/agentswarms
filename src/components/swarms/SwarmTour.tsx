@@ -21,7 +21,15 @@ type Props = {
   isRunning?: boolean;
 };
 
-export function SwarmTour({ steps, templateTitle, caseStudies, onFocusNode, onClose, activeNodeIds, isRunning }: Props) {
+export function SwarmTour({
+  steps,
+  templateTitle,
+  caseStudies,
+  onFocusNode,
+  onClose,
+  activeNodeIds,
+  isRunning,
+}: Props) {
   const [collapsed, setCollapsed] = useState(false);
   const [idx, setIdx] = useState(0);
   const [showCases, setShowCases] = useState(false);
@@ -63,7 +71,6 @@ export function SwarmTour({ steps, templateTitle, caseStudies, onFocusNode, onCl
 
     return () => clearInterval(timer);
   }, [activeNodeIds, steps]);
-
 
   // Auto-highlight the current step's node whenever the step changes or
   // the tour is expanded — removes the need for a manual highlight button.
@@ -118,10 +125,22 @@ export function SwarmTour({ steps, templateTitle, caseStudies, onFocusNode, onCl
               {caseStudies.length} case {caseStudies.length === 1 ? "study" : "studies"}
             </Button>
           )}
-          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setCollapsed(true)} title="Minimize">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
+            onClick={() => setCollapsed(true)}
+            title="Minimize"
+          >
             <ChevronLeft className="h-3.5 w-3.5 rotate-90" />
           </Button>
-          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onClose} title="Close tour">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
+            onClick={onClose}
+            title="Close tour"
+          >
             <X className="h-3.5 w-3.5" />
           </Button>
         </div>
@@ -164,15 +183,21 @@ export function SwarmTour({ steps, templateTitle, caseStudies, onFocusNode, onCl
 
         <div className="space-y-2 text-xs leading-relaxed">
           <div>
-            <p className="text-[10px] uppercase tracking-wider text-primary font-bold mb-0.5">What it does</p>
+            <p className="text-[10px] uppercase tracking-wider text-primary font-bold mb-0.5">
+              What it does
+            </p>
             <p className="text-foreground/90">{step.what}</p>
           </div>
           <div>
-            <p className="text-[10px] uppercase tracking-wider text-primary font-bold mb-0.5">Why it's here</p>
+            <p className="text-[10px] uppercase tracking-wider text-primary font-bold mb-0.5">
+              Why it's here
+            </p>
             <p className="text-muted-foreground">{step.why}</p>
           </div>
           <div>
-            <p className="text-[10px] uppercase tracking-wider text-primary font-bold mb-0.5">Watch for</p>
+            <p className="text-[10px] uppercase tracking-wider text-primary font-bold mb-0.5">
+              Watch for
+            </p>
             <p className="text-muted-foreground">{step.watchFor}</p>
           </div>
           {step.realWorldRef && (
@@ -180,7 +205,9 @@ export function SwarmTour({ steps, templateTitle, caseStudies, onFocusNode, onCl
               <p className="text-[10px] uppercase tracking-wider text-primary font-bold mb-1 flex items-center gap-1">
                 <Building2 className="h-3 w-3" /> In production at {step.realWorldRef.org}
               </p>
-              <p className="text-[11px] text-foreground/85 leading-relaxed mb-1">{step.realWorldRef.label}</p>
+              <p className="text-[11px] text-foreground/85 leading-relaxed mb-1">
+                {step.realWorldRef.label}
+              </p>
               <a
                 href={step.realWorldRef.url}
                 target="_blank"
@@ -192,7 +219,6 @@ export function SwarmTour({ steps, templateTitle, caseStudies, onFocusNode, onCl
             </div>
           )}
         </div>
-
 
         <div className="flex items-center justify-between pt-2 border-t border-border">
           <Button
@@ -210,7 +236,9 @@ export function SwarmTour({ steps, templateTitle, caseStudies, onFocusNode, onCl
                 key={i}
                 onClick={() => setIdx(i)}
                 className={`h-1.5 rounded-full transition-all ${
-                  i === idx ? "w-6 bg-primary" : "w-1.5 bg-muted-foreground/30 hover:bg-muted-foreground/60"
+                  i === idx
+                    ? "w-6 bg-primary"
+                    : "w-1.5 bg-muted-foreground/30 hover:bg-muted-foreground/60"
                 }`}
                 aria-label={`Go to step ${i + 1}`}
               />

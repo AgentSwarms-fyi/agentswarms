@@ -139,7 +139,7 @@ and reports. An editable dashboard is called a **BI project**:
   — Text, Integer, Decimal, Date, Boolean, **Location**, Category, Currency,
   Percentage, Identifier — with un-convertible values nulled and counted.
   The result preview updates live at the bottom, on a 1,000-row sample; click
-  the **eye** on any step to preview the data *as of that step* (the fastest
+  the **eye** on any step to preview the data _as of that step_ (the fastest
   way to find which transform dropped the rows you expected), and **undo/redo**
   (Ctrl+Z / Ctrl+Shift+Z) covers every edit to the pipeline. **Run &amp; save**
   executes the flow **on the server against the full source data** — the same
@@ -155,7 +155,7 @@ and reports. An editable dashboard is called a **BI project**:
   flow pointing at it keeps working. External warehouse tables can be pulled in
   as capped snapshots to join against local data.
 - **Pushdown (query folding)** — an external table can be **linked live**
-  instead of snapshotted. When every source in a flow is linked to the *same*
+  instead of snapshotted. When every source in a flow is linked to the _same_
   connection and every step is provably translatable, the whole pipeline is
   compiled into that warehouse's SQL and runs there — a summarize over
   hundreds of millions of rows returns the summary, not the rows. The same
@@ -167,27 +167,27 @@ and reports. An editable dashboard is called a **BI project**:
   Output card always says where the work happened.
 - **Incremental refresh** — a scheduled refresh can reprocess only the newest
   slice instead of rebuilding everything: pick a Date output column as the
-  watermark under *Schedule*. Each run recomputes rows from the newest stored
+  watermark under _Schedule_. Each run recomputes rows from the newest stored
   value onward and replaces exactly that range, so re-running is idempotent
   and rows sharing the boundary timestamp are neither duplicated nor lost.
   Pipelines where this would be wrong — summarize, pivot, remove-duplicates,
   append — are refused with an explanation and keep rebuilding fully. Edits to
-  rows *older* than the watermark aren't revisited; use **Run &amp; save** for a
+  rows _older_ than the watermark aren't revisited; use **Run &amp; save** for a
   full rebuild.
 - **Quality checks** — assert what has to be true of a dataset, in the
   vocabulary analysts already use: `not_null`, `unique`, `accepted_values`,
   numeric `range`, a minimum row count, and a **freshness SLA** ("alert me if
   this hasn't loaded in 24h"). Add them per dataset in **Data → Catalog**;
-  each check is either an *error* (fails the dataset) or a *warn* (reported
+  each check is either an _error_ (fails the dataset) or a _warn_ (reported
   without failing). They run when you press **Run**, immediately after every
   prep refresh rewrites the dataset, and on a scheduled sweep — the sweep is
-  what makes a freshness SLA work at all, since a table that *stopped*
+  what makes a freshness SLA work at all, since a table that _stopped_
   refreshing produces no event of its own. Alerts fire when the verdict
   **changes** (including recovery), not on every failing run, so an hourly
   check on a broken table doesn't deliver 24 identical messages a day.
   Results are written by the server and are read-only to you: a red check
   cannot be edited green. Checks that cannot run — a missing column,
-  unparseable dates — report *error* rather than quietly passing.
+  unparseable dates — report _error_ rather than quietly passing.
 - **Version history** — every overwrite of a dataset (file re-upload, **Run &amp;
   save**, scheduled refresh, incremental refresh) snapshots the outgoing
   contents first, and any of the last few versions can be restored from the
@@ -197,7 +197,7 @@ and reports. An editable dashboard is called a **BI project**:
   [deployment](./DEPLOYMENT.md).
 - **Safe dataset deletion** — deleting a dataset (from the prep palette or
   Data &amp; SQL) first resolves everything that depends on it — prep flows that
-  read it, the flow that *produces* it, semantic models, dashboards whose SQL
+  read it, the flow that _produces_ it, semantic models, dashboards whose SQL
   references it, saved metrics — and lists them. Deleting something with
   dependents requires typing its name; a dataset nothing uses deletes in one
   click. Prepared datasets are labelled with the flow that rebuilds them, so
@@ -210,7 +210,7 @@ and reports. An editable dashboard is called a **BI project**:
   never leave the server.
 - **Workspaces, folders & promotion** — group dashboards into **workspaces**
   (with user- or IAM-group members, read-only for members) and nest them in
-  **folders**; a `null` workspace stays your private *Personal* space, so this
+  **folders**; a `null` workspace stays your private _Personal_ space, so this
   is entirely opt-in. **Promote** an owned dashboard from a personal draft
   into a shared workspace (the first promote copies it in as a Draft;
   re-promoting re-syncs the content while keeping the promoted copy's publish
@@ -220,7 +220,6 @@ and reports. An editable dashboard is called a **BI project**:
   repo (per-user, encrypted token) and push **model + dashboard definitions**
   as one commit for review/versioning. Only definitions are exported — widget
   **data rows are stripped**, never the snapshots.
-
 
 ## Theming
 

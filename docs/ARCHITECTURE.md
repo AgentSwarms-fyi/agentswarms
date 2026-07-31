@@ -4,18 +4,17 @@
 
 ## Tech stack
 
-| Layer        | Tech                                                                                            |
-| ------------ | ----------------------------------------------------------------------------------------------- |
-| Framework    | [TanStack Start](https://tanstack.com/start) (React 19), file-based routing via TanStack Router |
-| Backend      | [Supabase](https://supabase.com) — Postgres, Auth, Storage, pgvector                            |
-| Styling      | [Tailwind CSS](https://tailwindcss.com) + [shadcn/ui](https://ui.shadcn.com)                    |
-| Agents       | [LangChain](https://js.langchain.com) / LangGraph                                               |
-| Swarm canvas | [XYFlow](https://xyflow.com)                                                                    |
-| BI & SQL     | Custom SVG chart renderers · in-browser SQL via [AlaSQL](https://github.com/AlaSQL/alasql)      |
+| Layer        | Tech                                                                                                                                                                  |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Framework    | [TanStack Start](https://tanstack.com/start) (React 19), file-based routing via TanStack Router                                                                       |
+| Backend      | [Supabase](https://supabase.com) — Postgres, Auth, Storage, pgvector                                                                                                  |
+| Styling      | [Tailwind CSS](https://tailwindcss.com) + [shadcn/ui](https://ui.shadcn.com)                                                                                          |
+| Agents       | [LangChain](https://js.langchain.com) / LangGraph                                                                                                                     |
+| Swarm canvas | [XYFlow](https://xyflow.com)                                                                                                                                          |
+| BI & SQL     | Custom SVG chart renderers · in-browser SQL via [AlaSQL](https://github.com/AlaSQL/alasql)                                                                            |
 | Documents    | Client-side [pptxgenjs](https://gitbrent.github.io/PptxGenJS/) · [docx](https://docx.js.org) · [write-excel-file](https://gitlab.com/catamphetamine/write-excel-file) |
-| Notebooks    | In-browser Python via [Pyodide](https://pyodide.org) (+ optional server runtime)               |
-| Deployment   | Docker (Node) · Kubernetes · installable PWA                                                     |
-
+| Notebooks    | In-browser Python via [Pyodide](https://pyodide.org) (+ optional server runtime)                                                                                      |
+| Deployment   | Docker (Node) · Kubernetes · installable PWA                                                                                                                          |
 
 ## Project structure
 
@@ -42,4 +41,3 @@ agentswarms/
   every visual type.
 - **Document generation** — `src/lib/docGen/` (typed plans → client-side
   builders). See [Agent Chat & document generation](./AGENT_CHAT.md).
-

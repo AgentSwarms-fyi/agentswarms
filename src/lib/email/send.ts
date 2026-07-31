@@ -9,9 +9,7 @@ interface SendTransactionalEmailParams {
   templateData?: Record<string, unknown>;
 }
 
-export async function sendTransactionalEmail(
-  params: SendTransactionalEmailParams,
-) {
+export async function sendTransactionalEmail(params: SendTransactionalEmailParams) {
   const {
     data: { session },
   } = await supabase.auth.getSession();
