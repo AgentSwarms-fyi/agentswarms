@@ -296,7 +296,7 @@ export function ApprovalInbox() {
                         <summary className="text-[11px] text-muted-foreground cursor-pointer hover:text-foreground select-none">
                           View payload
                         </summary>
-                        <pre className="mt-1 rounded-md bg-background border border-border/50 p-2 text-[10px] leading-relaxed overflow-x-auto font-mono text-muted-foreground">
+                        <pre className="mt-1 max-w-full rounded-md bg-background border border-border/50 p-2 text-[10px] leading-relaxed whitespace-pre-wrap break-all font-mono text-muted-foreground">
                           {JSON.stringify(ap.payload, null, 2)}
                         </pre>
                       </details>
