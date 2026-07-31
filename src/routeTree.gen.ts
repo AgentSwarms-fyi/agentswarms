@@ -103,6 +103,7 @@ import { Route as ApiDocgenXlsxRouteImport } from './routes/api/docgen.xlsx'
 import { Route as ApiDocgenStatusRouteImport } from './routes/api/docgen.status'
 import { Route as ApiDocgenPptxRouteImport } from './routes/api/docgen.pptx'
 import { Route as ApiDocgenDocxRouteImport } from './routes/api/docgen.docx'
+import { Route as ApiDataUploadRouteImport } from './routes/api/data.upload'
 import { Route as ApiBiDirectQueryRouteImport } from './routes/api/bi.direct-query'
 import { Route as ApiBiCronRouteImport } from './routes/api/bi.cron'
 import { Route as ApiAuthSsoConfigRouteImport } from './routes/api/auth/sso-config'
@@ -595,6 +596,11 @@ const ApiDocgenDocxRoute = ApiDocgenDocxRouteImport.update({
   path: '/api/docgen/docx',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiDataUploadRoute = ApiDataUploadRouteImport.update({
+  id: '/api/data/upload',
+  path: '/api/data/upload',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiBiDirectQueryRoute = ApiBiDirectQueryRouteImport.update({
   id: '/direct-query',
   path: '/direct-query',
@@ -778,6 +784,7 @@ export interface FileRoutesByFullPath {
   '/api/auth/sso-config': typeof ApiAuthSsoConfigRoute
   '/api/bi/cron': typeof ApiBiCronRoute
   '/api/bi/direct-query': typeof ApiBiDirectQueryRoute
+  '/api/data/upload': typeof ApiDataUploadRoute
   '/api/docgen/docx': typeof ApiDocgenDocxRoute
   '/api/docgen/pptx': typeof ApiDocgenPptxRoute
   '/api/docgen/status': typeof ApiDocgenStatusRoute
@@ -890,6 +897,7 @@ export interface FileRoutesByTo {
   '/api/auth/sso-config': typeof ApiAuthSsoConfigRoute
   '/api/bi/cron': typeof ApiBiCronRoute
   '/api/bi/direct-query': typeof ApiBiDirectQueryRoute
+  '/api/data/upload': typeof ApiDataUploadRoute
   '/api/docgen/docx': typeof ApiDocgenDocxRoute
   '/api/docgen/pptx': typeof ApiDocgenPptxRoute
   '/api/docgen/status': typeof ApiDocgenStatusRoute
@@ -1005,6 +1013,7 @@ export interface FileRoutesById {
   '/api/auth/sso-config': typeof ApiAuthSsoConfigRoute
   '/api/bi/cron': typeof ApiBiCronRoute
   '/api/bi/direct-query': typeof ApiBiDirectQueryRoute
+  '/api/data/upload': typeof ApiDataUploadRoute
   '/api/docgen/docx': typeof ApiDocgenDocxRoute
   '/api/docgen/pptx': typeof ApiDocgenPptxRoute
   '/api/docgen/status': typeof ApiDocgenStatusRoute
@@ -1120,6 +1129,7 @@ export interface FileRouteTypes {
     | '/api/auth/sso-config'
     | '/api/bi/cron'
     | '/api/bi/direct-query'
+    | '/api/data/upload'
     | '/api/docgen/docx'
     | '/api/docgen/pptx'
     | '/api/docgen/status'
@@ -1232,6 +1242,7 @@ export interface FileRouteTypes {
     | '/api/auth/sso-config'
     | '/api/bi/cron'
     | '/api/bi/direct-query'
+    | '/api/data/upload'
     | '/api/docgen/docx'
     | '/api/docgen/pptx'
     | '/api/docgen/status'
@@ -1346,6 +1357,7 @@ export interface FileRouteTypes {
     | '/api/auth/sso-config'
     | '/api/bi/cron'
     | '/api/bi/direct-query'
+    | '/api/data/upload'
     | '/api/docgen/docx'
     | '/api/docgen/pptx'
     | '/api/docgen/status'
@@ -1403,6 +1415,7 @@ export interface RootRouteChildren {
   EmailUnsubscribeRoute: typeof EmailUnsubscribeRoute
   ApiAuditExportRoute: typeof ApiAuditExportRoute
   ApiAuthSsoConfigRoute: typeof ApiAuthSsoConfigRoute
+  ApiDataUploadRoute: typeof ApiDataUploadRoute
   ApiDocgenDocxRoute: typeof ApiDocgenDocxRoute
   ApiDocgenPptxRoute: typeof ApiDocgenPptxRoute
   ApiDocgenStatusRoute: typeof ApiDocgenStatusRoute
@@ -2086,6 +2099,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiDocgenDocxRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/data/upload': {
+      id: '/api/data/upload'
+      path: '/api/data/upload'
+      fullPath: '/api/data/upload'
+      preLoaderRoute: typeof ApiDataUploadRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/bi/direct-query': {
       id: '/api/bi/direct-query'
       path: '/direct-query'
@@ -2467,6 +2487,7 @@ const rootRouteChildren: RootRouteChildren = {
   EmailUnsubscribeRoute: EmailUnsubscribeRoute,
   ApiAuditExportRoute: ApiAuditExportRoute,
   ApiAuthSsoConfigRoute: ApiAuthSsoConfigRoute,
+  ApiDataUploadRoute: ApiDataUploadRoute,
   ApiDocgenDocxRoute: ApiDocgenDocxRoute,
   ApiDocgenPptxRoute: ApiDocgenPptxRoute,
   ApiDocgenStatusRoute: ApiDocgenStatusRoute,

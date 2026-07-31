@@ -947,6 +947,11 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
     await import("@/utils/swarmWebhook.server")
       .then((m) => m.purgeIdempotencyRecords())
       .catch((e) => console.warn("[idempotency-purge] failed:", (e as Error).message));
+    // A process killed mid-upload leaves a staging dataset nobody can see and
+    // nothing else will ever delete.
+    await import("@/utils/data/ingest.server")
+      .then((m) => m.sweepAbandonedUploads())
+      .catch((e) => console.warn("[upload-sweep] failed:", (e as Error).message));
     await import("@/utils/integrations/health.server")
       .then(async (m) => {
         await m.checkIntegrationHealth(force);

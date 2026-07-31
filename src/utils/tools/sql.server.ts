@@ -84,7 +84,11 @@ async function loadUserTables(
   // RLS OFF, so we MUST restrict to what the owner may read — their own tables,
   // public samples, and tables shared to them via an IAM grant (mirroring the
   // RLS policy). This is the only tenant boundary here.
-  let query = ctx.sb.from("user_data_tables").select("id, name, columns, user_id, is_sample");
+  // `__upload_*` rows are staging areas for an in-flight upload, not datasets.
+  let query = ctx.sb
+    .from("user_data_tables")
+    .select("id, name, columns, user_id, is_sample")
+    .not("name", "like", "__upload_%");
   if (ctx.scopeUserId) {
     if (!UUID_RE.test(ctx.scopeUserId)) return [];
     const { resolveGrantedResourceIds } = await import("@/utils/iam.server");

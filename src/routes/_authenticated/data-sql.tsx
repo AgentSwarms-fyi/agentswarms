@@ -922,7 +922,7 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
               </div>
             ) : datasets.length === 0 ? (
               <div className="px-2 py-3 text-xs text-slate-500">
-                No tables yet. Upload a CSV to get started.
+                No tables yet. Upload a file to get started.
               </div>
             ) : (
               datasets.map((d) => (
@@ -1104,7 +1104,7 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
             className="w-full justify-start h-8 text-xs bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:text-teal-700 dark:bg-muted dark:border-border dark:text-foreground dark:hover:bg-accent dark:hover:text-teal-300"
             onClick={() => setUploadOpen(true)}
           >
-            <Upload className="h-3 w-3 mr-1.5" /> Upload CSV
+            <Upload className="h-3 w-3 mr-1.5" /> Upload data
           </Button>
           <p className="text-[9px] text-slate-400 dark:text-muted-foreground px-1 pt-1 leading-snug">
             In-memory tables · read-only SELECT · capped at {PLAYGROUND_ROW_CAP} rows

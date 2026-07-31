@@ -15,10 +15,19 @@
 import alasql from "alasql";
 import Papa from "papaparse";
 import { supabase } from "@/integrations/supabase/client";
+// Type inference and coercion are shared with the streaming server upload —
+// two implementations would eventually disagree about what a date is.
+import {
+  coerceRow,
+  inferColumns,
+  safeTableName,
+  STAGING_PREFIX,
+  type ColumnDef,
+} from "@/lib/datasetParse";
 
 export const PLAYGROUND_ROW_CAP = 50;
 
-export type ColumnDef = { name: string; type: "number" | "string" | "date" };
+export type { ColumnDef };
 
 export type DatasetMeta = {
   id: string; // user_data_tables.id
@@ -161,74 +170,7 @@ function registerCustomFunctions(a: typeof alasql) {
   fn.SPLIT_PART = splitPart;
 }
 
-// Sanitize a string into a safe SQL identifier — letters, digits, underscores
-// only, must start with a letter, lowercased.
-export function safeTableName(raw: string): string {
-  const cleaned = raw
-    .toLowerCase()
-    .replace(/[^a-z0-9_]/g, "_")
-    .replace(/^_+/, "")
-    .replace(/_+/g, "_")
-    .replace(/_$/, "");
-  if (!cleaned || !/^[a-z]/.test(cleaned)) return `t_${cleaned || "table"}`;
-  return cleaned.slice(0, 48);
-}
-
-function inferType(value: unknown): "number" | "string" | "date" {
-  if (typeof value === "number") return "number";
-  if (typeof value === "string") {
-    if (value === "") return "string";
-    // ISO date / common date formats
-    if (/^\d{4}-\d{2}-\d{2}/.test(value)) return "date";
-    if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(value)) return "date";
-    const n = Number(value.replace(/,/g, ""));
-    if (!Number.isNaN(n) && value.trim() !== "") return "number";
-  }
-  return "string";
-}
-
-function inferColumns(rows: Record<string, unknown>[]): ColumnDef[] {
-  if (rows.length === 0) return [];
-  const headers = Object.keys(rows[0]);
-  return headers.map((name) => {
-    // Sample first 50 non-empty values to guess the type
-    const counts = { number: 0, string: 0, date: 0 };
-    let seen = 0;
-    for (const r of rows) {
-      const v = r[name];
-      if (v === null || v === undefined || v === "") continue;
-      counts[inferType(v)]++;
-      seen++;
-      if (seen >= 50) break;
-    }
-    const winner =
-      counts.number > counts.string && counts.number >= counts.date
-        ? "number"
-        : counts.date > counts.string
-          ? "date"
-          : "string";
-    return { name, type: winner };
-  });
-}
-
-// Coerce values to their inferred type so AlaSQL can SUM, AVG, ORDER BY etc.
-function coerceRow(row: Record<string, unknown>, cols: ColumnDef[]): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const c of cols) {
-    const v = row[c.name];
-    if (v === null || v === undefined || v === "") {
-      out[c.name] = null;
-      continue;
-    }
-    if (c.type === "number" && typeof v === "string") {
-      const n = Number(v.replace(/,/g, ""));
-      out[c.name] = Number.isNaN(n) ? v : n;
-    } else {
-      out[c.name] = v;
-    }
-  }
-  return out;
-}
+export { safeTableName };
 
 export type ParsedCsv = {
   rows: Record<string, unknown>[];
@@ -281,6 +223,9 @@ export async function hydrateFromSupabase(): Promise<DatasetMeta[]> {
   const { data: tables, error } = await supabase
     .from("user_data_tables")
     .select("id, name, source_filename, columns, is_sample, user_id")
+    // An upload in flight owns a staging dataset until it is promoted; showing
+    // it would put a half-written table in the picker.
+    .not("name", "like", `${STAGING_PREFIX}%`)
     .order("created_at", { ascending: false });
   if (error || !tables) return [];
 

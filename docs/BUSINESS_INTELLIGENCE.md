@@ -116,6 +116,17 @@ and reports. An editable dashboard is called a **BI project**:
   **reference lines** (average or target value) on bar/line/area.
 - **Export PDF** — one click renders the dashboard (layout preserved) into a
   downloadable A4 PDF report, entirely client-side.
+- **Uploading data** — Data &amp; SQL → **Upload data** accepts **CSV, TSV,
+  JSON, NDJSON and Excel (.xlsx)**. The file streams to the server and is
+  parsed there, so a large upload is bounded by the server's limits rather than
+  by a browser tab's memory; CSV/TSV/NDJSON are read incrementally, while JSON
+  arrays and workbooks are read whole because those formats cannot be streamed.
+  Rows are staged and only swapped onto the real dataset once the entire file
+  parses, so a malformed row halfway down leaves your existing data intact.
+  Exceeding `UPLOAD_MAX_BYTES` / `UPLOAD_MAX_ROWS` refuses the import outright
+  rather than loading a silent subset — see [deployment](./DEPLOYMENT.md).
+  Types are inferred from a sample and shown after the import; re-uploading over
+  an existing dataset keeps the old contents as a restorable version.
 - **Data preparation** — a visual prep studio (BI Workspace → Data
   preparation): drag tables onto the canvas to build a join pipeline (left /
   inner / right / full outer, join keys auto-detected from matching column

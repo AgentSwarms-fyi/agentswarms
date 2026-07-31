@@ -287,6 +287,22 @@ the flow actually produced) — a prepared dataset is never silently sampled.
 Raise them for larger flows, mindful that rows are held in memory during the
 run and inserted in batches of 500.
 
+**Dataset uploads** are parsed on the server. CSV, TSV and NDJSON are streamed
+and written in batches, so peak memory is one batch rather than one file; JSON
+arrays and `.xlsx` cannot be read incrementally and are buffered under the byte
+cap. Rows land in a staging dataset and are re-pointed to the real one only
+after the whole file parses, so a failed or cancelled upload leaves the previous
+data untouched.
+
+- `UPLOAD_MAX_BYTES` (default `104857600`, 100 MB) — largest accepted file.
+- `UPLOAD_MAX_ROWS` (default `500000`) — largest accepted dataset. Breaching
+  either **refuses** the upload; it never imports a silent subset.
+- `UPLOAD_PER_MINUTE` (default `10`) — per-user upload rate limit, since
+  parsing is the most expensive thing an unprivileged user can request.
+
+A staging dataset orphaned by a killed process is swept an hour later by the
+same cron pass.
+
 **Data quality checks** run after each prep refresh and on a scheduled sweep in
 the same cron pass:
 
