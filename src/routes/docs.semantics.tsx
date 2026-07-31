@@ -84,7 +84,7 @@ function SemanticsPage() {
             <>
               <C key="1">sum</C>, <C key="2">avg</C>, <C key="3">count</C>,{" "}
               <C key="4">count_distinct</C>, <C key="5">min</C>, <C key="6">max</C>,{" "}
-              <C key="7">custom</C>
+              <C key="7">custom</C>, <C key="8">derived</C>
             </>,
           ],
           [
@@ -93,7 +93,12 @@ function SemanticsPage() {
             <>
               The column or expression to aggregate. Optional for <C key="c2">count</C>; REQUIRED
               for <C key="c3">custom</C>, where it is the full aggregate expression, e.g.{" "}
-              <C key="c4">SUM(revenue) - SUM(cost)</C>.
+              <C key="c4">SUM(revenue) - SUM(cost)</C>. For <C key="c5">derived</C> it is a formula
+              over OTHER metrics referenced as <C key="c6">{"{metric_name}"}</C>, e.g.{" "}
+              <C key="c7">{"{revenue} / NULLIF({orders}, 0)"}</C> — each token is replaced with that
+              metric's own expression, so a ratio always tracks its parts' current definitions.
+              Derived metrics may reference other derived metrics; circular or unknown references
+              are refused at compile time.
             </>,
           ],
           [
@@ -155,6 +160,14 @@ function SemanticsPage() {
         name the metric, choose the aggregation and expression, add the filters that belong to the
         definition, and declare which dimensions it may be sliced by. The editor previews the
         compiled SQL and a sample result before you save — read the SQL, it is the definition.
+      </P>
+      <P>
+        <strong>Validate</strong> compiles every dimension and metric and runs each one against the
+        real source, reporting failures per field. Use it before saving: a typo'd column otherwise
+        surfaces as an engine error much later, on a dashboard refresh. The{" "}
+        <strong>query runner</strong> below the editor picks metrics and dimensions, adds filters
+        (dimension filters become <C>WHERE</C>, metric filters <C>HAVING</C>) and time rollups, and
+        the result can be sent straight to a dashboard as a governed widget.
       </P>
       <Code lang="Compiled preview">{`SELECT date_trunc('month', o.created_at) AS month,
        o.region                          AS region,

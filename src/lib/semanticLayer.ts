@@ -23,18 +23,33 @@ export type SemanticDimension = {
   type?: SemanticFieldType;
 };
 
-export type MetricAgg = "sum" | "avg" | "count" | "count_distinct" | "min" | "max" | "custom";
+export type MetricAgg =
+  | "sum"
+  | "avg"
+  | "count"
+  | "count_distinct"
+  | "min"
+  | "max"
+  | "custom"
+  | "derived";
 
 export type SemanticMetric = {
   name: string;
   label?: string;
   description?: string;
   agg: MetricAgg;
-  /** Column/expression to aggregate. Optional for `count`. Required for `custom`
-   *  (the full aggregate expression, e.g. SUM(revenue) - SUM(cost)). */
+  /**
+   * Column/expression to aggregate. Optional for `count`. Required for `custom`
+   * (the full aggregate expression, e.g. SUM(revenue) - SUM(cost)) and for
+   * `derived` (a formula over OTHER metrics referenced as `{metric_name}`,
+   * e.g. "{revenue} / NULLIF({orders}, 0)" — the compiler substitutes each
+   * with that metric's own aggregate, so the ratio tracks its parts' current
+   * definitions). No raw aggregate may wrap a `{ref}` (a metric is already
+   * aggregated).
+   */
   sql?: string;
   /** Trusted boolean SQL fragments ANDed inside the aggregate (a filtered
-   *  measure), e.g. ["status = 'paid'"]. Ignored for `custom`. */
+   *  measure), e.g. ["status = 'paid'"]. Ignored for `custom`/`derived`. */
   filters?: string[];
   format?: "number" | "currency" | "percent";
   currency?: string;
@@ -224,6 +239,9 @@ export function truncateExpr(sql: string, grain: TimeGrain, dialect: SqlDialect)
   return `DATE_TRUNC('${grain}', ${sql})`;
 }
 
+const METRIC_REF_RE = /\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g;
+
+/** Aggregate expression for a NON-derived metric (a leaf measure). */
 function aggExpr(m: SemanticMetric): string {
   const filters = (m.filters ?? []).filter((f) => f && f.trim());
   const guarded = (inner: string) =>
@@ -232,6 +250,10 @@ function aggExpr(m: SemanticMetric): string {
     case "custom":
       if (!m.sql) throw new Error(`Metric "${m.name}" is custom but has no sql`);
       return m.sql; // fully trusted, filters not applied
+    case "derived":
+      // A derived metric is only meaningful with the sibling metric map, so it
+      // is resolved by resolveMetricExpr, never here.
+      throw new Error(`Derived metric "${m.name}" must be resolved with its model's metrics`);
     case "count":
       return filters.length ? `COUNT(${guarded("1")})` : "COUNT(*)";
     case "count_distinct":
@@ -250,12 +272,48 @@ function aggExpr(m: SemanticMetric): string {
 }
 
 /**
+ * Full SQL for a metric, resolving `derived` formulas by substituting each
+ * `{ref}` with the referenced metric's own expression (recursively). Cycles
+ * and unknown references throw — a derived metric with a broken graph must
+ * fail loudly, not compute a silently-wrong number.
+ */
+function resolveMetricExpr(
+  m: SemanticMetric,
+  byName: Map<string, SemanticMetric>,
+  resolving: Set<string> = new Set(),
+): string {
+  if (m.agg !== "derived") return aggExpr(m);
+  if (!m.sql) throw new Error(`Derived metric "${m.name}" needs an sql formula`);
+  if (resolving.has(m.name)) {
+    throw new Error(`Derived metric "${m.name}" has a circular reference`);
+  }
+  resolving.add(m.name);
+  let referenced = false;
+  const out = m.sql.replace(METRIC_REF_RE, (_full, ref: string) => {
+    referenced = true;
+    const target = byName.get(ref);
+    if (!target) throw new Error(`Derived metric "${m.name}" references unknown metric "${ref}"`);
+    return `(${resolveMetricExpr(target, byName, resolving)})`;
+  });
+  resolving.delete(m.name);
+  if (!referenced) {
+    throw new Error(
+      `Derived metric "${m.name}" references no other metric — use {metric_name} tokens.`,
+    );
+  }
+  return out;
+}
+
+/**
  * The full aggregate SQL for a metric — the SAME rendering compileSemanticQuery
  * uses, exported so prompt surfaces (the BI analyst) can show the governed
- * formula instead of letting the model improvise its own.
+ * formula instead of letting the model improvise its own. Pass the model's
+ * metrics so a `derived` metric resolves its `{ref}` tokens.
  */
-export function metricExpression(m: SemanticMetric): string {
-  return aggExpr(m);
+export function metricExpression(m: SemanticMetric, allMetrics?: SemanticMetric[]): string {
+  if (m.agg !== "derived") return aggExpr(m);
+  const byName = new Map((allMetrics ?? [m]).map((x) => [x.name, x]));
+  return resolveMetricExpr(m, byName);
 }
 
 function compileFilter(
@@ -385,7 +443,7 @@ export function compileSemanticQuery(
   for (const name of metrics) {
     const m = metricByName.get(name);
     if (!m) throw new Error(`Unknown metric "${name}"`);
-    const expr = aggExpr(m);
+    const expr = resolveMetricExpr(m, metricByName);
     metricAgg.set(name, expr);
     exprByField.set(name, expr);
     selectParts.push(`${expr} AS ${quoteIdent(name, dialect)}`);

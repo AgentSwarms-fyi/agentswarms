@@ -286,7 +286,7 @@ function governedLines(datasets: DatasetMeta[]): string[] {
     for (const met of m.metrics.slice(0, 16)) {
       try {
         lines.push(
-          `  ${met.name} = ${metricExpression(met)}${met.format ? `  [${met.format}]` : ""}`,
+          `  ${met.name} = ${metricExpression(met, m.metrics)}${met.format ? `  [${met.format}]` : ""}`,
         );
       } catch {
         /* skip malformed metric rather than break the prompt */

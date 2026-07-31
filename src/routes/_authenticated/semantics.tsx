@@ -4,7 +4,16 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { Layers, LayoutDashboard, Play, Plus, Save, Sparkles, Trash2 } from "lucide-react";
+import {
+  Layers,
+  LayoutDashboard,
+  Play,
+  Plus,
+  Save,
+  ShieldCheck,
+  Sparkles,
+  Trash2,
+} from "lucide-react";
 
 import { llmJson } from "@/lib/biAgent";
 import { BiModelSelect, useBiModelPref } from "@/components/bi/BiModelSelect";
@@ -34,8 +43,10 @@ import {
 } from "@/components/ui/table";
 import { TIME_GRAINS, type TimeGrain } from "@/lib/semanticLayer";
 import type {
+  FilterOp,
   MetricAgg,
   SemanticDimension,
+  SemanticFilter,
   SemanticJoin,
   SemanticMetric,
 } from "@/lib/semanticLayer";
@@ -45,6 +56,7 @@ import {
   semanticListModels,
   semanticRunQuery,
   semanticUpsertModel,
+  semanticValidateModel,
 } from "@/utils/semantic.functions";
 import { listWarehouseConnections } from "@/utils/warehouse.functions";
 
@@ -88,7 +100,18 @@ type Draft = {
 type WhConn = { id: string; name: string; provider: string };
 type WhTable = { schema: string; name: string; columns: { name: string; type: string }[] };
 
-const AGGS: MetricAgg[] = ["sum", "avg", "count", "count_distinct", "min", "max", "custom"];
+const AGGS: MetricAgg[] = [
+  "sum",
+  "avg",
+  "count",
+  "count_distinct",
+  "min",
+  "max",
+  "custom",
+  "derived",
+];
+
+const FILTER_OPS: FilterOp[] = ["=", "!=", ">", ">=", "<", "<=", "in", "not_in", "contains"];
 
 function slug(s: string): string {
   const out = s
@@ -123,6 +146,7 @@ function SemanticsPage() {
   const upsertFn = useServerFn(semanticUpsertModel);
   const deleteFn = useServerFn(semanticDeleteModel);
   const runFn = useServerFn(semanticRunQuery);
+  const validateFn = useServerFn(semanticValidateModel);
 
   const [loading, setLoading] = useState(true);
   const [models, setModels] = useState<Array<Record<string, unknown>>>([]);
@@ -138,6 +162,11 @@ function SemanticsPage() {
   const [pickedMetrics, setPickedMetrics] = useState<string[]>([]);
   const [pickedDims, setPickedDims] = useState<string[]>([]);
   const [pickedGrains, setPickedGrains] = useState<Record<string, TimeGrain | "">>({});
+  const [pickedFilters, setPickedFilters] = useState<SemanticFilter[]>([]);
+  const [validating, setValidating] = useState(false);
+  const [issues, setIssues] = useState<
+    { kind: string; name: string; error: string }[] | "clean" | null
+  >(null);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<{
     columns: string[];
@@ -146,6 +175,7 @@ function SemanticsPage() {
     metrics: string[];
     dimensions: string[];
     grains?: Record<string, TimeGrain>;
+    filters?: SemanticFilter[];
   } | null>(null);
   const [addOpen, setAddOpen] = useState(false);
 
@@ -226,6 +256,44 @@ function SemanticsPage() {
     setPickedMetrics([]);
     setPickedDims([]);
     setPickedGrains({});
+    setPickedFilters([]);
+    setIssues(null);
+  };
+
+  /** Compile + probe every field against the real backend, without saving. */
+  const validate = async () => {
+    if (!draft) return;
+    setValidating(true);
+    setIssues(null);
+    try {
+      const res = (await validateFn({
+        data: {
+          accessToken: token,
+          model: {
+            id: draft.id,
+            name: draft.name.trim() || "model",
+            source_kind: draft.source_kind,
+            table_id: draft.source_kind === "data_table" ? draft.table_id : null,
+            connection_id: draft.source_kind === "warehouse" ? draft.connection_id : null,
+            source_table: draft.source_table,
+            joins: draft.joins,
+            dimensions: draft.dimensions,
+            metrics: draft.metrics,
+          },
+        },
+      })) as {
+        ok: boolean;
+        checked: number;
+        issues: { kind: string; name: string; error: string }[];
+      };
+      setIssues(res.ok ? "clean" : res.issues);
+      if (res.ok) toast.success(`All ${res.checked} field(s) compile and run.`);
+      else toast.error(`${res.issues.length} field(s) failed — see the details below.`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Validation failed");
+    } finally {
+      setValidating(false);
+    }
   };
 
   const selectedSource = useMemo(
@@ -312,6 +380,12 @@ function SemanticsPage() {
         if (!g || !pickedDims.includes(dim)) continue;
         if (draft.dimensions.find((d) => d.name === dim)?.type === "time") grains[dim] = g;
       }
+      // Only filters whose field is still a known metric/dimension travel.
+      const known = new Set([
+        ...draft.metrics.map((m) => m.name),
+        ...draft.dimensions.map((d) => d.name),
+      ]);
+      const filters = pickedFilters.filter((f) => f.field && known.has(f.field));
       const res = (await runFn({
         data: {
           accessToken: token,
@@ -320,6 +394,7 @@ function SemanticsPage() {
             metrics: pickedMetrics,
             dimensions: pickedDims,
             grains: Object.keys(grains).length > 0 ? grains : undefined,
+            filters: filters.length > 0 ? filters : undefined,
             limit: 100,
           },
         },
@@ -329,6 +404,7 @@ function SemanticsPage() {
         metrics: pickedMetrics,
         dimensions: pickedDims,
         grains: Object.keys(grains).length > 0 ? grains : undefined,
+        filters: filters.length > 0 ? filters : undefined,
       });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Query failed");
@@ -730,12 +806,40 @@ function SemanticsPage() {
                       <Sparkles className="mr-1 h-4 w-4" />
                       {generating ? "Generating…" : "Generate with AI"}
                     </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={validate}
+                      disabled={validating || !draft.source_table}
+                      title="Compile every field and run it against the real source — catches typo'd columns before they reach a dashboard"
+                    >
+                      <ShieldCheck className="mr-1 h-4 w-4" />
+                      {validating ? "Validating…" : "Validate"}
+                    </Button>
                     {!isShared && (
                       <Button size="sm" onClick={save} disabled={saving}>
                         <Save className="mr-1 h-4 w-4" /> {saving ? "Saving…" : "Save model"}
                       </Button>
                     )}
                   </div>
+                  {issues === "clean" && (
+                    <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                      Every dimension and metric compiles and runs against the source.
+                    </p>
+                  )}
+                  {Array.isArray(issues) && issues.length > 0 && (
+                    <div className="space-y-1 rounded-md border border-destructive/40 bg-destructive/10 p-2.5">
+                      {issues.map((it, i) => (
+                        <p key={i} className="text-xs">
+                          <span className="font-mono font-semibold text-destructive">
+                            {it.kind}
+                            {it.name ? ` ${it.name}` : ""}
+                          </span>
+                          <span className="text-destructive/90"> — {it.error}</span>
+                        </p>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -953,7 +1057,18 @@ function SemanticsPage() {
                   </Select>
                   <Input
                     value={m.sql ?? ""}
-                    placeholder={m.agg === "count" ? "(optional)" : "`Amount`"}
+                    placeholder={
+                      m.agg === "count"
+                        ? "(optional)"
+                        : m.agg === "derived"
+                          ? "{revenue} / NULLIF({orders}, 0)"
+                          : "`Amount`"
+                    }
+                    title={
+                      m.agg === "derived"
+                        ? "Formula over other metrics — reference them as {metric_name}"
+                        : undefined
+                    }
                     className="h-8 font-mono"
                     onChange={(e) =>
                       patch({
@@ -1007,6 +1122,103 @@ function SemanticsPage() {
                     }
                   />
                 </div>
+                {/* Filters — dimension filters become WHERE, metric filters HAVING */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-muted-foreground">Filters</span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 px-2 text-xs"
+                      onClick={() =>
+                        setPickedFilters((f) => [
+                          ...f,
+                          { field: draft.dimensions[0]?.name ?? "", op: "=", value: "" },
+                        ])
+                      }
+                      disabled={draft.dimensions.length === 0 && draft.metrics.length === 0}
+                    >
+                      <Plus className="mr-1 h-3 w-3" /> Add filter
+                    </Button>
+                  </div>
+                  {pickedFilters.map((f, i) => {
+                    const isList = f.op === "in" || f.op === "not_in";
+                    const patchFilter = (p: Partial<SemanticFilter>) =>
+                      setPickedFilters((cur) =>
+                        cur.map((x, j) => (j === i ? ({ ...x, ...p } as SemanticFilter) : x)),
+                      );
+                    return (
+                      <div key={i} className="grid gap-2 sm:grid-cols-[1.2fr_110px_1.4fr_32px]">
+                        <Select value={f.field} onValueChange={(v) => patchFilter({ field: v })}>
+                          <SelectTrigger className="h-7 text-xs">
+                            <SelectValue placeholder="field…" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {draft.dimensions.map((d) => (
+                              <SelectItem key={`d-${d.name}`} value={d.name}>
+                                {d.name} (dim)
+                              </SelectItem>
+                            ))}
+                            {draft.metrics.map((m) => (
+                              <SelectItem key={`m-${m.name}`} value={m.name}>
+                                {m.name} (metric)
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Select
+                          value={f.op}
+                          onValueChange={(v) => patchFilter({ op: v as FilterOp })}
+                        >
+                          <SelectTrigger className="h-7 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {FILTER_OPS.map((op) => (
+                              <SelectItem key={op} value={op}>
+                                {op}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Input
+                          className="h-7 font-mono text-xs"
+                          placeholder={isList ? "a, b, c" : "value"}
+                          value={
+                            Array.isArray(f.value) ? f.value.join(", ") : String(f.value ?? "")
+                          }
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            if (isList) {
+                              patchFilter({
+                                value: raw
+                                  .split(",")
+                                  .map((s) => s.trim())
+                                  .filter(Boolean),
+                              });
+                            } else {
+                              // Numeric-looking input is sent as a number so
+                              // comparisons work on numeric columns.
+                              const n = Number(raw);
+                              patchFilter({
+                                value: raw !== "" && Number.isFinite(n) ? n : raw,
+                              });
+                            }
+                          }}
+                        />
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => setPickedFilters((cur) => cur.filter((_, j) => j !== i))}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+
                 {/* Time rollup per picked time dimension */}
                 {draft.dimensions
                   .filter((d) => d.type === "time" && pickedDims.includes(d.name))
@@ -1092,6 +1304,7 @@ function SemanticsPage() {
                 metrics: result.metrics,
                 dimensions: result.dimensions,
                 grains: result.grains,
+                filters: result.filters,
                 columns: result.columns,
                 rows: result.rows,
                 sql: result.sql,

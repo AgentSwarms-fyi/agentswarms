@@ -8,11 +8,14 @@ import { z } from "zod";
 
 import type { Database } from "@/integrations/supabase/types";
 import {
+  compileSemanticQuery,
   isValidFieldName,
   MAX_JOINS,
   type SemanticDimension,
   type SemanticMetric,
+  type SemanticModel,
   type SemanticQuery,
+  type SqlDialect,
 } from "@/lib/semanticLayer";
 import { runSemanticQuery } from "@/utils/semantic/query.server";
 
@@ -44,7 +47,7 @@ const metricSchema = z.object({
   name: z.string(),
   label: z.string().optional(),
   description: z.string().optional(),
-  agg: z.enum(["sum", "avg", "count", "count_distinct", "min", "max", "custom"]),
+  agg: z.enum(["sum", "avg", "count", "count_distinct", "min", "max", "custom", "derived"]),
   sql: z.string().optional(),
   filters: z.array(z.string()).optional(),
   format: z.enum(["number", "currency", "percent"]).optional(),
@@ -180,6 +183,113 @@ export const semanticRunQuery = createServerFn({ method: "POST" })
     });
     return { model: res.model, columns: res.columns, sql: res.sql, rows };
   });
+
+/**
+ * Dry-run a model without saving: compile every metric and dimension, then
+ * probe the real backend with a LIMIT 1 query per field.
+ *
+ * A typo'd column used to surface as a raw engine error at query time (or,
+ * worse, on a dashboard refresh hours later). This turns authoring into a
+ * checkable loop — each field is reported independently so one bad metric
+ * doesn't hide the rest.
+ */
+export const semanticValidateModel = createServerFn({ method: "POST" })
+  .inputValidator((d: { accessToken: string; model: z.input<typeof modelSchema> }) => d)
+  .handler(
+    async ({
+      data,
+    }): Promise<{
+      ok: boolean;
+      issues: Array<{ kind: "dimension" | "metric" | "model"; name: string; error: string }>;
+      checked: number;
+    }> => {
+      const { sb, userId } = await requireUser(data.accessToken);
+      const issues: Array<{ kind: "dimension" | "metric" | "model"; name: string; error: string }> =
+        [];
+      let m: z.output<typeof modelSchema>;
+      try {
+        m = modelSchema.parse(data.model);
+        validateNames(m.dimensions, m.metrics);
+      } catch (e) {
+        return {
+          ok: false,
+          checked: 0,
+          issues: [
+            { kind: "model", name: "", error: e instanceof Error ? e.message : "Invalid model" },
+          ],
+        };
+      }
+
+      const model: SemanticModel = {
+        name: m.name,
+        source:
+          m.source_kind === "warehouse"
+            ? { kind: "warehouse", connectionId: m.connection_id ?? "", table: m.source_table }
+            : { kind: "data_table", table: m.source_table },
+        joins: m.joins ?? [],
+        dimensions: m.dimensions,
+        metrics: m.metrics,
+      };
+
+      // Resolve the execution backend once (dialect + runner), then probe each
+      // field. Warehouse connections are verified as the caller's own.
+      let dialect: SqlDialect = "alasql";
+      let exec: (sql: string) => Promise<unknown>;
+      if (m.source_kind === "warehouse") {
+        const { loadWarehouseConnection } = await import("@/utils/warehouse/connections.server");
+        const { executeWarehouseQuery } = await import("@/utils/warehouse/drivers.server");
+        try {
+          const conn = await loadWarehouseConnection(
+            sb,
+            { connectionId: m.connection_id ?? "" },
+            userId,
+          );
+          dialect = conn.config.provider as SqlDialect;
+          exec = (sql) => executeWarehouseQuery(conn.config, sql, 1);
+        } catch (e) {
+          return {
+            ok: false,
+            checked: 0,
+            issues: [
+              {
+                kind: "model",
+                name: "",
+                error: e instanceof Error ? e.message : "Warehouse connection unavailable",
+              },
+            ],
+          };
+        }
+      } else {
+        const { runLocalSqlForUser } = await import("@/utils/bi/refresh.server");
+        exec = (sql) => runLocalSqlForUser(userId, sql);
+      }
+
+      let checked = 0;
+      const probe = async (kind: "dimension" | "metric", name: string) => {
+        checked++;
+        try {
+          const { sql } = compileSemanticQuery(
+            model,
+            kind === "metric"
+              ? { model: m.name, metrics: [name], limit: 1 }
+              : { model: m.name, metrics: [], dimensions: [name], limit: 1 },
+            { dialect },
+          );
+          await exec(sql);
+        } catch (e) {
+          issues.push({
+            kind,
+            name,
+            error: (e instanceof Error ? e.message : String(e)).slice(0, 300),
+          });
+        }
+      };
+      for (const d of m.dimensions) await probe("dimension", d.name);
+      for (const met of m.metrics) await probe("metric", met.name);
+
+      return { ok: issues.length === 0, issues, checked };
+    },
+  );
 
 /** Local datasets (with columns) to author models against. */
 export const semanticListLocalSources = createServerFn({ method: "GET" })
