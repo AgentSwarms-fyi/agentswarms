@@ -14,7 +14,7 @@ A small rendering service for the three Office formats:
 
 This is **optional and Node/Docker-only**. By default AgentSwarms generates all
 three formats **in the browser** (pptxgenjs / docx / write-excel-file) — which
-works on every deploy including Cloudflare Workers. When this service is
+works on every deploy. When this service is
 configured the app uses it and **falls back to the browser generators** if it's
 unreachable, so nothing breaks by default.
 

@@ -95,9 +95,8 @@ the preview card references it, so **Download still works after you reload** —
 until the conversation is purged. How long that is comes from the agent's
 **Chat history retention** setting (agent builder → **Memory**), which defaults
 to **7 days** and can only be **increased** (7-day floor). A scheduled purge
-deletes messages past the window and removes their stored files with them. On a
-Cloudflare/serverless deploy without storage configured, the download works for
-the current session only.
+deletes messages past the window and removes their stored files with them.
+Without storage configured, the download works for the current session only.
 
 ### Optional server-side renderer
 

@@ -141,7 +141,9 @@ describe("compileSemanticQuery — a backtick-authored model on DuckDB", () => {
     // first pass of this fix — a backtick simply moved inside the CASE.
     const filtered: SemanticModel = {
       ...backtickModel,
-      metrics: [{ name: "west_revenue", agg: "sum", sql: "`Sales`", filters: ["`Region` = 'West'"] }],
+      metrics: [
+        { name: "west_revenue", agg: "sum", sql: "`Sales`", filters: ["`Region` = 'West'"] },
+      ],
     };
     const { sql } = compileSemanticQuery(
       filtered,

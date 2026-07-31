@@ -70,8 +70,8 @@ The connectors split by how they reach the source:
 ### Oracle (Autonomous Database / ORDS)
 
 Oracle is reached over **Oracle REST Data Services (ORDS)** rather than the
-native SQL\*Net protocol, so it works from any deployment (including Cloudflare
-Workers) with no wallet or Instant Client:
+native SQL\*Net protocol, so it works from any deployment with no wallet or
+Instant Client:
 
 1. **ORDS base URL** — on Autonomous Database, open **Database Actions** and
    copy the base up to `/ords`, e.g.

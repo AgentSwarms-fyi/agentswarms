@@ -36,7 +36,13 @@ const BUCKET = "datasets";
 /** Datasets below this many rows are not worth mirroring — the round trip to
  *  storage costs more than paging them out of Postgres. */
 function minRowsToMirror(): number {
-  const n = Number(process.env.PARQUET_MIN_ROWS);
+  // An UNSET or blank value must mean "use the default". Number("") is 0, which
+  // passes an `n >= 0` test and would silently set the threshold to zero —
+  // mirroring every tiny dataset. .env.example ships keys as "" by convention,
+  // so that is the common case, not an edge one.
+  const raw = (process.env.PARQUET_MIN_ROWS ?? "").trim();
+  if (!raw) return 5_000;
+  const n = Number(raw);
   return Number.isFinite(n) && n >= 0 ? n : 5_000;
 }
 

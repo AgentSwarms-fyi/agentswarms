@@ -13,7 +13,7 @@
     <img alt="Node" src="https://img.shields.io/badge/node-%E2%89%A520.19-339933?logo=node.js&logoColor=white" />
     <img alt="TanStack Start" src="https://img.shields.io/badge/TanStack%20Start-React%2019-FF4154?logo=react&logoColor=white" />
     <img alt="Supabase" src="https://img.shields.io/badge/backend-Supabase-3ECF8E?logo=supabase&logoColor=white" />
-    <img alt="Deploy" src="https://img.shields.io/badge/deploy-Docker%20%7C%20Cloudflare-2496ED?logo=docker&logoColor=white" />
+    <img alt="Deploy" src="https://img.shields.io/badge/deploy-Docker%20%7C%20Node-2496ED?logo=docker&logoColor=white" />
   </p>
 
   <p>
