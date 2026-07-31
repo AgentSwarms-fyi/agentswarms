@@ -174,10 +174,13 @@ export const Route = createFileRoute("/api/bi/direct-query")({
             agg: aggPlan ?? undefined,
             dialect: conn.config.provider as SqlDialect,
           });
+          // Billed to the dashboard OWNER: a dashboard shared with fifty
+          // people must not be able to spend fifty tenants' query slots.
           const result = await executeWarehouseQuery(
             conn.config,
             effectiveSql,
             DIRECT_QUERY_MAX_ROWS,
+            { userId: ownerId },
           );
           auditEvent({
             userId,

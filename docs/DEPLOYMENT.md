@@ -287,6 +287,27 @@ the flow actually produced) — a prepared dataset is never silently sampled.
 Raise them for larger flows, mindful that rows are held in memory during the
 run and inserted in batches of 500.
 
+**Warehouse queries** are bounded per process. Every dashboard tile, prep
+pushdown, semantic query and agent tool call goes through one driver layer, so
+these are the knobs that decide what your warehouse is asked to do:
+
+- `WAREHOUSE_MAX_ROWS` (default `1000`) — rows returned when a caller doesn't
+  request a specific number.
+- `WAREHOUSE_ABS_MAX_ROWS` (default `5000`) — hard ceiling no caller can
+  exceed. Never applied below `WAREHOUSE_MAX_ROWS`.
+- `WAREHOUSE_QUERY_TIMEOUT_MS` (default `60000`) — wall-clock budget for one
+  query including result polling.
+- `WAREHOUSE_MAX_CONCURRENT` (default `8`) — queries in flight per instance.
+- `WAREHOUSE_MAX_CONCURRENT_PER_USER` (default `3`) — per tenant, counted
+  against the dashboard OWNER for shared dashboards so one popular dashboard
+  cannot consume everyone else's budget.
+- `WAREHOUSE_QUEUE_TIMEOUT_MS` (default `30000`) — how long a query waits for a
+  slot before failing with a message naming the limit.
+
+These are **per process**, like the run limiter: behind a load balancer each
+instance enforces its own budget, so multiply by your replica count when sizing
+against a warehouse's connection limits.
+
 **Dataset uploads** are parsed on the server. CSV, TSV and NDJSON are streamed
 and written in batches, so peak memory is one batch rather than one file; JSON
 arrays and `.xlsx` cannot be read incrementally and are buffered under the byte

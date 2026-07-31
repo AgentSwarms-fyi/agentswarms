@@ -293,7 +293,9 @@ export async function refreshDashboardServer(dashboardId: string): Promise<{
           dash.user_id,
         );
         const sql = widgetQuerySql(w, preserve, conn.config.provider as SqlDialect, inc);
-        const res = await executeWarehouseQuery(conn.config, sql, WIDGET_ROW_CAP);
+        const res = await executeWarehouseQuery(conn.config, sql, WIDGET_ROW_CAP, {
+          userId: dash.user_id,
+        });
         result = { columns: res.columns.map((c) => c.name), rows: res.rows };
       } else {
         result = await runLocalSqlForUser(dash.user_id, widgetQuerySql(w, preserve, "alasql", inc));

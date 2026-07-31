@@ -13,6 +13,13 @@
 // results to { columns, rows } with numeric coercion driven by column types.
 
 import { isBlockedAlways } from "@/utils/ssrfGuard.server";
+import {
+  warehouseAbsMaxRows,
+  warehouseMaxRows,
+  warehouseTimeoutMs,
+  withWarehouseSlot,
+  withWarehouseTimeout,
+} from "@/utils/warehouse/governor.server";
 
 import type {
   WarehouseColumn,
@@ -21,10 +28,15 @@ import type {
   WarehouseTable,
 } from "./types";
 
+/**
+ * @deprecated Read `warehouseMaxRows()` instead — the limit is configurable
+ * per deployment now, and this constant is only the built-in default.
+ */
 export const MAX_WAREHOUSE_ROWS = 1000;
-// Schema listings need more headroom than data queries (one row per column).
-const ABS_MAX_ROWS = 5000;
 const POLL_INTERVAL_MS = 750;
+// Per-poll-loop deadline. The whole query is additionally bounded by the
+// governor's wall-clock budget, which is what stops a chain of individually
+// fast polls from running for ever.
 const POLL_TIMEOUT_MS = 60_000;
 
 // ── Guards + helpers ─────────────────────────────────────────────────────────
@@ -936,45 +948,56 @@ async function oracleQuery(
 export async function executeWarehouseQuery(
   config: WarehouseConfig,
   sql: string,
-  maxRows = MAX_WAREHOUSE_ROWS,
+  maxRows?: number,
+  /**
+   * `userId` is the tenant this query is billed to — for a shared dashboard
+   * that is the OWNER, not the viewer, so one popular dashboard cannot consume
+   * every other tenant's concurrency budget.
+   */
+  opts: { userId?: string; timeoutMs?: number } = {},
 ): Promise<WarehouseQueryResult> {
   const safeSql = assertReadOnlySql(sql);
-  const cappedRows = Math.min(Math.max(1, maxRows), ABS_MAX_ROWS);
+  const cappedRows = Math.min(
+    Math.max(1, maxRows ?? warehouseMaxRows()),
+    warehouseAbsMaxRows(),
+  );
   const started = Date.now();
 
-  let raw: { columns: WarehouseColumn[]; data: unknown[][]; truncated: boolean };
-  switch (config.provider) {
-    case "snowflake":
-      raw = await snowflakeQuery(config, safeSql, cappedRows);
-      break;
-    case "databricks":
-      raw = await databricksQuery(config, safeSql, cappedRows);
-      break;
-    case "bigquery":
-      raw = await bigqueryQuery(config, safeSql, cappedRows);
-      break;
-    case "redshift":
-      raw = await redshiftQuery(config, safeSql, cappedRows);
-      break;
-    case "azure_synapse":
-      raw = await synapseQuery(config, safeSql, cappedRows);
-      break;
-    case "postgres":
-      raw = await pgQuery(config, safeSql, cappedRows);
-      break;
-    case "mysql":
-      raw = await mysqlQuery(config, safeSql, cappedRows);
-      break;
-    case "trino":
-      raw = await trinoQuery(config, safeSql, cappedRows);
-      break;
-    case "athena":
-      raw = await athenaQuery(config, safeSql, cappedRows);
-      break;
-    case "oracle":
-      raw = await oracleQuery(config, safeSql, cappedRows);
-      break;
-  }
+  const run = async (): Promise<{
+    columns: WarehouseColumn[];
+    data: unknown[][];
+    truncated: boolean;
+  }> => {
+    switch (config.provider) {
+      case "snowflake":
+        return snowflakeQuery(config, safeSql, cappedRows);
+      case "databricks":
+        return databricksQuery(config, safeSql, cappedRows);
+      case "bigquery":
+        return bigqueryQuery(config, safeSql, cappedRows);
+      case "redshift":
+        return redshiftQuery(config, safeSql, cappedRows);
+      case "azure_synapse":
+        return synapseQuery(config, safeSql, cappedRows);
+      case "postgres":
+        return pgQuery(config, safeSql, cappedRows);
+      case "mysql":
+        return mysqlQuery(config, safeSql, cappedRows);
+      case "trino":
+        return trinoQuery(config, safeSql, cappedRows);
+      case "athena":
+        return athenaQuery(config, safeSql, cappedRows);
+      case "oracle":
+        return oracleQuery(config, safeSql, cappedRows);
+    }
+  };
+
+  // Slot first, then the clock: time spent queueing behind other queries is
+  // not the warehouse being slow, so it must not count against the query's
+  // own time budget.
+  const raw = await withWarehouseSlot(opts.userId, () =>
+    withWarehouseTimeout(opts.timeoutMs ?? warehouseTimeoutMs(), () => run()),
+  );
 
   return {
     columns: raw.columns,
@@ -1034,7 +1057,7 @@ export async function listWarehouseTables(config: WarehouseConfig): Promise<Ware
         "FROM user_tab_columns ORDER BY table_name, column_id FETCH FIRST 5000 ROWS ONLY";
       break;
   }
-  const result = await executeWarehouseQuery(config, sql, ABS_MAX_ROWS);
+  const result = await executeWarehouseQuery(config, sql, warehouseAbsMaxRows());
   // Normalise column-name casing across dialects before grouping.
   const rows = result.rows.map((r) => {
     const lower: Record<string, unknown> = {};

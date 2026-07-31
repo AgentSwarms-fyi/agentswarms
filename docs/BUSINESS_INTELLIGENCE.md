@@ -116,6 +116,11 @@ and reports. An editable dashboard is called a **BI project**:
   **reference lines** (average or target value) on bar/line/area.
 - **Export PDF** — one click renders the dashboard (layout preserved) into a
   downloadable A4 PDF report, entirely client-side.
+- **Query history** — the workbench records every statement you run, local or
+  warehouse, with its row count, duration and (for failures) the error. Click
+  one to load it back into the editor along with the connection it ran against.
+  Kept per user, newest 200, and clearable at any time — separate from the
+  compliance audit trail, which is hash-chained and retention-governed.
 - **Uploading data** — Data &amp; SQL → **Upload data** accepts **CSV, TSV,
   JSON, NDJSON and Excel (.xlsx)**. The file streams to the server and is
   parsed there, so a large upload is bounded by the server's limits rather than

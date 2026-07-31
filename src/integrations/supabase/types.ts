@@ -1353,6 +1353,45 @@ export type Database = {
         };
         Relationships: [];
       };
+      sql_query_history: {
+        Row: {
+          connection_id: string | null;
+          connection_name: string | null;
+          created_at: string;
+          duration_ms: number | null;
+          error: string | null;
+          id: string;
+          row_count: number | null;
+          source: string;
+          sql: string;
+          user_id: string;
+        };
+        Insert: {
+          connection_id?: string | null;
+          connection_name?: string | null;
+          created_at?: string;
+          duration_ms?: number | null;
+          error?: string | null;
+          id?: string;
+          row_count?: number | null;
+          source?: string;
+          sql: string;
+          user_id: string;
+        };
+        Update: {
+          connection_id?: string | null;
+          connection_name?: string | null;
+          created_at?: string;
+          duration_ms?: number | null;
+          error?: string | null;
+          id?: string;
+          row_count?: number | null;
+          source?: string;
+          sql?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       data_quality_tests: {
         Row: {
           column_name: string | null;

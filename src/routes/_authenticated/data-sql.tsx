@@ -68,6 +68,8 @@ import {
 import { downloadCsv, downloadXlsx } from "@/lib/exportData";
 import { ensureSampleDataset, forceSeedSampleDataset, SAMPLE_TABLE_NAME } from "@/lib/sampleData";
 import { CsvUploadDialog } from "@/components/data-sql/CsvUploadDialog";
+import { QueryHistoryPanel } from "@/components/data-sql/QueryHistoryPanel";
+import { recordQuery } from "@/lib/queryHistory";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Dialog,
@@ -327,6 +329,8 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
     {},
   );
   const [dataSource, setDataSource] = useState<string>("local");
+  // Bumped after each run so the history panel refetches.
+  const [historyNonce, setHistoryNonce] = useState(0);
 
   useEffect(() => {
     const token = session?.access_token;
@@ -536,17 +540,41 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
       .then(() => {});
   }
 
+  /** Save the run to the user's history — successes and failures alike, since
+   *  re-running the query that broke is exactly what history is for. */
+  function remember(
+    sqlText: string,
+    outcome: { rowCount?: number | null; durationMs?: number | null; error?: string | null },
+  ) {
+    if (!user?.id) return;
+    void recordQuery(user.id, {
+      source: dataSource === "local" ? "local" : "warehouse",
+      connectionId: dataSource === "local" ? null : dataSource,
+      connectionName: activeWarehouse?.name ?? null,
+      sql: sqlText,
+      ...outcome,
+    })
+      .then(() => setHistoryNonce((n) => n + 1))
+      .catch(() => {});
+  }
+
   async function handleRun() {
     if (!sql.trim()) return;
     setRunning(true);
     setQueryError(null);
+    const started = Date.now();
     try {
       const r = dataSource === "local" ? runQuery(sql) : await runWarehouseSql(dataSource, sql);
       if (dataSource === "local") auditLocalQuery(sql);
       setResult(r);
+      remember(sql, {
+        rowCount: r.row_count,
+        durationMs: r.duration_ms ?? Date.now() - started,
+      });
     } catch (e) {
       setQueryError((e as Error).message);
       setResult(null);
+      remember(sql, { durationMs: Date.now() - started, error: (e as Error).message });
     } finally {
       setRunning(false);
     }
@@ -1096,6 +1124,24 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
             )}
           </div>
         </ScrollArea>
+
+        <div className="max-h-56 shrink-0 border-t border-slate-200 p-2 dark:border-border">
+          <QueryHistoryPanel
+            userId={user?.id}
+            nonce={historyNonce}
+            onPick={(e) => {
+              setSql(e.sql);
+              // Put the source back too — replaying a warehouse query against
+              // the local engine would just fail confusingly.
+              if (e.source === "warehouse" && e.connection_id) {
+                setDataSource(e.connection_id);
+                void loadWarehouseSchema(e.connection_id);
+              } else if (e.source === "local") {
+                setDataSource("local");
+              }
+            }}
+          />
+        </div>
 
         <div className="border-t border-slate-200 dark:border-border p-2 space-y-1">
           <Button

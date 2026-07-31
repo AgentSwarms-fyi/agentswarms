@@ -57,7 +57,8 @@ export const Route = createFileRoute("/api/warehouse/query")({
           const result = await executeWarehouseQuery(
             conn.config,
             body.sql,
-            typeof body.max_rows === "number" ? body.max_rows : MAX_WAREHOUSE_ROWS,
+            typeof body.max_rows === "number" ? body.max_rows : undefined,
+            { userId },
           );
           auditEvent({
             userId,
