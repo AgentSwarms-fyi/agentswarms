@@ -376,6 +376,9 @@ function LandingPage() {
                   <Link to="/docs">Docs</Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
+                  <Link to="/security">Security</Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
                   <Link to="/about">About</Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
@@ -512,7 +515,7 @@ function LandingPage() {
                   { n: "10+", l: "Model Providers" },
                   { n: "1", l: "Command Deploy" },
                   { n: "19", l: "BI Visual Types" },
-                  { n: "7", l: "Data Connectors" },
+                  { n: "27", l: "Data Connectors" },
                   { n: "ELv2", l: "Licensed" },
                   { n: "100%", l: "Your Data" },
                 ].map((s) => (
@@ -912,8 +915,8 @@ function LandingPage() {
                 },
                 {
                   icon: Database,
-                  title: "Seven data connectors",
-                  body: "PostgreSQL, MySQL, Snowflake, BigQuery, Databricks, Redshift and Synapse — encrypted credentials, strictly read-only.",
+                  title: "27 data connectors",
+                  body: "22 databases and warehouses — Postgres, MySQL, SQL Server, Oracle, Snowflake, BigQuery, Databricks, Redshift, Synapse, Trino, Athena, ClickHouse, CockroachDB and more — plus 5 apps: Google Sheets, Stripe, Shopify, HubSpot, Salesforce. Encrypted credentials, strictly read-only.",
                 },
                 {
                   icon: Share2,

@@ -139,6 +139,19 @@ function DashboardPage() {
   const [userName, setUserName] = useState<string>("there");
   const [loading, setLoading] = useState(true);
 
+  /**
+   * Things that are already broken and would otherwise only be found by
+   * opening the right tab.
+   *
+   * Every one of these statuses is already recorded — by the SaaS sync, the
+   * warehouse connection test, the swarm scheduler. Nothing aggregated them,
+   * so a source that stopped syncing three weeks ago looked exactly like one
+   * that synced this morning from anywhere but its own settings page.
+   */
+  const [health, setHealth] = useState({ syncs: 0, warehouses: 0, schedules: 0 });
+  /** Month-to-date spend against the cap, computed the same way /budgets does. */
+  const [budget, setBudget] = useState<{ spend: number; cap: number } | null>(null);
+
   useEffect(() => {
     async function load() {
       const [a, s, c, i, k, t, u] = await Promise.all([
@@ -164,6 +177,47 @@ function DashboardPage() {
         knowledgeBases: k.count ?? 0,
       });
       setTraces((t.data ?? []) as Trace[]);
+
+      // Health + budget are loaded SEPARATELY and never allowed to fail the
+      // page. A count against a table a deployment has not migrated yet
+      // returns an error rather than throwing, and a dashboard that renders
+      // nothing because one optional feature is absent is worse than one
+      // missing a badge.
+      const monthStart = new Date();
+      monthStart.setUTCDate(1);
+      monthStart.setUTCHours(0, 0, 0, 0);
+      const [sy, wh, sc, cap, spend] = await Promise.all([
+        supabase
+          .from("saas_connections")
+          .select("id", { count: "exact", head: true })
+          .in("last_sync_status", ["error", "partial"]),
+        supabase
+          .from("data_warehouse_connections")
+          .select("id", { count: "exact", head: true })
+          .eq("last_test_status", "error"),
+        supabase
+          .from("swarm_schedules")
+          .select("id", { count: "exact", head: true })
+          .eq("last_run_status", "error"),
+        supabase.from("budget_settings").select("monthly_cap_usd").limit(1).maybeSingle(),
+        supabase
+          .from("execution_traces")
+          .select("cost_usd")
+          .gte("created_at", monthStart.toISOString()),
+      ]);
+      setHealth({
+        syncs: sy.count ?? 0,
+        warehouses: wh.count ?? 0,
+        schedules: sc.count ?? 0,
+      });
+      const capUsd = Number(cap.data?.monthly_cap_usd ?? 0);
+      if (capUsd > 0) {
+        const used = (spend.data ?? []).reduce(
+          (acc: number, r: { cost_usd: number | null }) => acc + Number(r.cost_usd ?? 0),
+          0,
+        );
+        setBudget({ spend: used, cap: capUsd });
+      }
       const meta = u.data.user?.user_metadata as { full_name?: string; name?: string } | undefined;
       const fullName = meta?.full_name ?? meta?.name ?? "";
       const first = fullName.trim().split(/\s+/)[0];
@@ -330,6 +384,53 @@ function DashboardPage() {
               Pick up where you left off, or start something new.
             </p>
           </header>
+
+          {/* Attention strip — only rendered when something needs attention.
+              A permanent "all good" banner trains people to stop reading it. */}
+          {(health.syncs > 0 ||
+            health.warehouses > 0 ||
+            health.schedules > 0 ||
+            (budget && budget.spend >= budget.cap * 0.8)) && (
+            <div className="relative mt-5 flex flex-wrap items-center gap-2">
+              {health.syncs > 0 && (
+                <Link
+                  to="/integrations"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive ring-1 ring-destructive/20 transition hover:bg-destructive/15"
+                >
+                  {health.syncs} data {health.syncs === 1 ? "source" : "sources"} failed to sync
+                </Link>
+              )}
+              {health.warehouses > 0 && (
+                <Link
+                  to="/integrations"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive ring-1 ring-destructive/20 transition hover:bg-destructive/15"
+                >
+                  {health.warehouses}{" "}
+                  {health.warehouses === 1 ? "connection is" : "connections are"} unreachable
+                </Link>
+              )}
+              {health.schedules > 0 && (
+                <Link
+                  to="/swarms"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive ring-1 ring-destructive/20 transition hover:bg-destructive/15"
+                >
+                  {health.schedules} scheduled {health.schedules === 1 ? "run" : "runs"} failed
+                </Link>
+              )}
+              {budget && budget.spend >= budget.cap * 0.8 && (
+                <Link
+                  to="/budgets"
+                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium ring-1 transition ${
+                    budget.spend >= budget.cap
+                      ? "bg-destructive/10 text-destructive ring-destructive/20 hover:bg-destructive/15"
+                      : "bg-amber-500/10 text-amber-600 ring-amber-500/20 hover:bg-amber-500/15 dark:text-amber-500"
+                  }`}
+                >
+                  {Math.round((budget.spend / budget.cap) * 100)}% of this month&rsquo;s budget used
+                </Link>
+              )}
+            </div>
+          )}
 
           {/* Action Tiles */}
           <div className="relative mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
