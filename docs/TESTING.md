@@ -161,8 +161,17 @@ per-category breakdown, so a regression can be located rather than just felt.
 | 2026-07-31 | `anthropic/claude-haiku-4.5` via OpenRouter | 23 questions, v1 | 78.3% (18/23), 1 run      |
 | 2026-07-31 | same, after the result-shape prompt fix     | 23 questions, v1 | **82.6% (19/23), 3 runs** |
 
-Current: aggregate 4/4, grouping 4/4, date 3/3, ratio 2/2, lookup 2/2,
-ranking 2/4, filter 1/3, ambiguity 1/1.
+**The v1 numbers above are no longer comparable.** The set is now **45
+questions (v2)**, spread across seven of the bundled datasets instead of
+concentrating twelve of twenty-four on `saas_sales` — the old score largely
+measured performance on one schema. A v2 baseline has not been measured yet;
+until it is, this product has **no current accuracy number**, and saying so is
+better than quoting a figure from a different question set.
+
+The v1 per-category breakdown was: aggregate 4/4, grouping 4/4, date 3/3,
+ratio 2/2, lookup 2/2, ranking 2/4, filter 1/3, ambiguity 1/1. Ranking and
+filter were the weak spots, so v2 deliberately adds more of both — a score that
+avoids what a model is bad at is not a measurement.
 
 **Run it more than once.** Model sampling makes a single pass noisy — during
 this baseline a category went 4/4 → 3/4 → 4/4 with no code change at all, which

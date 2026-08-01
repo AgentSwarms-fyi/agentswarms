@@ -262,6 +262,214 @@ export const QUESTIONS: EvalQuestion[] = [
       "default; this is scored to notice if that convention drifts, not because there is only " +
       "one defensible answer.",
   },
+
+  // -- Beyond saas_sales ----------------------------------------------------
+  // Twelve of the first twenty-four questions ran against one table, so the
+  // score largely measured performance on a single schema. These spread the
+  // set across the other bundled datasets: different column naming styles,
+  // different shapes (time series, incident logs), and domain words a model
+  // has to map onto real columns.
+  //
+  // Reference queries stay within what AlaSQL supports -- no CTEs, window
+  // functions or subqueries -- because AlaSQL is still the default engine and
+  // a reference that cannot run grades nothing.
+
+  {
+    id: "siem-count-critical",
+    tables: ["siem_alerts"],
+    question: "How many P1 alerts are there?",
+    referenceSql: "SELECT COUNT(*) AS n FROM siem_alerts WHERE severity = 'P1'",
+    category: "filter",
+    note: "A literal that must be matched exactly; 'critical' is not a value in the data.",
+  },
+  {
+    id: "siem-by-severity",
+    tables: ["siem_alerts"],
+    question: "How many alerts of each severity?",
+    referenceSql:
+      "SELECT severity, COUNT(*) AS n FROM siem_alerts GROUP BY severity ORDER BY severity",
+    category: "grouping",
+  },
+  {
+    id: "siem-open-by-technique",
+    tables: ["siem_alerts"],
+    question: "Which MITRE techniques have the most alerts that are still NEW?",
+    referenceSql:
+      "SELECT mitre_technique, COUNT(*) AS n FROM siem_alerts WHERE status = 'NEW' " +
+      "GROUP BY mitre_technique ORDER BY n DESC, mitre_technique ASC LIMIT 5",
+    category: "ranking",
+    ordered: true,
+    note: "Filter plus group plus rank -- the combination that failed most often at baseline.",
+  },
+  {
+    id: "siem-distinct-assets",
+    tables: ["siem_alerts"],
+    question: "How many distinct asset classes appear in the alerts?",
+    referenceSql: "SELECT COUNT(DISTINCT asset_class) AS n FROM siem_alerts",
+    category: "aggregate",
+  },
+  {
+    id: "siem-benign-share",
+    tables: ["siem_alerts"],
+    question: "What percentage of alerts were closed as benign?",
+    referenceSql:
+      "SELECT ROUND(100.0 * SUM(CASE WHEN status = 'BENIGN' THEN 1 ELSE 0 END) / COUNT(*), 2) " +
+      "AS pct FROM siem_alerts",
+    category: "ratio",
+  },
+
+  {
+    id: "elec-solar-2020",
+    tables: ["global_electricity"],
+    question: "Which country generated the most solar power in 2020?",
+    referenceSql:
+      "SELECT country, solar_twh FROM global_electricity WHERE year = 2020 " +
+      "ORDER BY solar_twh DESC LIMIT 1",
+    category: "ranking",
+    ordered: true,
+    note: "A superlative: exactly one row is the right answer, not a ranked list.",
+  },
+  {
+    id: "elec-total-by-year",
+    tables: ["global_electricity"],
+    question: "What was worldwide total generation each year?",
+    referenceSql:
+      "SELECT year, SUM(total_twh) AS twh FROM global_electricity GROUP BY year ORDER BY year",
+    category: "date",
+  },
+  {
+    id: "elec-renewables-leaders",
+    tables: ["global_electricity"],
+    question: "In 2020, which countries got more than half their electricity from renewables?",
+    referenceSql:
+      "SELECT country, renewables_share_pct FROM global_electricity " +
+      "WHERE year = 2020 AND renewables_share_pct > 50 ORDER BY country",
+    category: "filter",
+  },
+  {
+    id: "elec-nuclear-avg",
+    tables: ["global_electricity"],
+    question: "What is the average nuclear generation per country in 2019?",
+    referenceSql:
+      "SELECT AVG(nuclear_twh) AS avg_nuclear FROM global_electricity WHERE year = 2019",
+    category: "aggregate",
+  },
+  {
+    id: "elec-country-count",
+    tables: ["global_electricity"],
+    question: "How many countries are covered?",
+    referenceSql: "SELECT COUNT(DISTINCT country) AS n FROM global_electricity",
+    category: "lookup",
+  },
+
+  {
+    id: "nba-most-wins",
+    tables: ["nba_team_seasons"],
+    question: "Which franchise had the most wins in a single season?",
+    referenceSql: "SELECT franchise, season, wins FROM nba_team_seasons ORDER BY wins DESC LIMIT 1",
+    category: "ranking",
+    ordered: true,
+  },
+  {
+    id: "nba-winning-seasons",
+    tables: ["nba_team_seasons"],
+    question: "How many seasons did a team win at least 60 games?",
+    referenceSql: "SELECT COUNT(*) AS n FROM nba_team_seasons WHERE wins >= 60",
+    category: "filter",
+    note: "'At least' must become >=, not >.",
+  },
+  {
+    id: "nba-avg-by-franchise",
+    tables: ["nba_team_seasons"],
+    question: "What is each franchise's average win percentage?",
+    referenceSql:
+      "SELECT franchise, AVG(win_pct) AS avg_win_pct FROM nba_team_seasons " +
+      "GROUP BY franchise ORDER BY franchise",
+    category: "grouping",
+  },
+  {
+    id: "nba-playoff-teams",
+    tables: ["nba_team_seasons"],
+    question: "How many team-seasons reached the playoffs?",
+    referenceSql: "SELECT COUNT(*) AS n FROM nba_team_seasons WHERE playoff_games > 0",
+    category: "filter",
+    note: "The data has no 'made_playoffs' flag; it must be derived from playoff_games.",
+  },
+
+  {
+    id: "health-life-expectancy-2019",
+    tables: ["world_health_indicators"],
+    question: "What was average life expectancy by region in 2019?",
+    referenceSql:
+      "SELECT region, AVG(life_expectancy) AS avg_life_expectancy FROM world_health_indicators " +
+      "WHERE year = 2019 GROUP BY region ORDER BY region",
+    category: "grouping",
+  },
+  {
+    id: "health-top-spenders",
+    tables: ["world_health_indicators"],
+    question: "Which three countries spent the most per capita on health in 2019?",
+    referenceSql:
+      "SELECT country, health_spend_per_capita_usd FROM world_health_indicators " +
+      "WHERE year = 2019 ORDER BY health_spend_per_capita_usd DESC, country ASC LIMIT 3",
+    category: "ranking",
+    ordered: true,
+  },
+  {
+    id: "health-infant-mortality-worst",
+    tables: ["world_health_indicators"],
+    question: "Which country had the highest infant mortality in 2019?",
+    referenceSql:
+      "SELECT country, infant_mortality_per_1k FROM world_health_indicators " +
+      "WHERE year = 2019 ORDER BY infant_mortality_per_1k DESC LIMIT 1",
+    category: "ranking",
+    ordered: true,
+  },
+  {
+    id: "health-physicians-threshold",
+    tables: ["world_health_indicators"],
+    question: "In 2019, how many countries had fewer than 1 physician per 1000 people?",
+    referenceSql:
+      "SELECT COUNT(*) AS n FROM world_health_indicators WHERE year = 2019 AND physicians_per_1k < 1",
+    category: "filter",
+  },
+
+  {
+    id: "defects-by-line",
+    tables: ["factory_defect_log"],
+    question: "How many defects were logged on each production line?",
+    referenceSql: "SELECT line, COUNT(*) AS n FROM factory_defect_log GROUP BY line ORDER BY line",
+    category: "grouping",
+  },
+  {
+    id: "defects-worst-shift",
+    tables: ["factory_defect_log"],
+    question: "Which shift has the highest average PPM?",
+    referenceSql:
+      "SELECT shift, AVG(ppm) AS avg_ppm FROM factory_defect_log GROUP BY shift " +
+      "ORDER BY avg_ppm DESC LIMIT 1",
+    category: "ranking",
+    ordered: true,
+  },
+
+  {
+    id: "claims-fraud-flagged",
+    tables: ["auto_claims_history"],
+    question: "How many claims were flagged as fraud?",
+    referenceSql: "SELECT COUNT(*) AS n FROM auto_claims_history WHERE fraud_flag = 'Y'",
+    category: "filter",
+    note: "The flag is a Y/N string, not a boolean -- the literal has to match the data.",
+  },
+  {
+    id: "claims-loss-by-peril",
+    tables: ["auto_claims_history"],
+    question: "What is the total reported loss by peril?",
+    referenceSql:
+      "SELECT peril, SUM(reported_loss_usd) AS loss_usd FROM auto_claims_history " +
+      "GROUP BY peril ORDER BY loss_usd DESC",
+    category: "grouping",
+    note: "Aliasing this 'total' would be a parse error in AlaSQL -- see the note at the top.",
+  },
 ];
 
 export const CATEGORIES = [...new Set(QUESTIONS.map((q) => q.category))];
