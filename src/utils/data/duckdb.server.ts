@@ -46,6 +46,40 @@ export function duckdbEnabled(): boolean {
   return (process.env.LOCAL_ENGINE ?? "").trim().toLowerCase() === "duckdb";
 }
 
+/**
+ * One DuckDB instance for the process, created on first use.
+ *
+ * It used to be one instance PER QUERY, which cost ~2100 ms against ~3 ms for
+ * AlaSQL on a small aggregate — a ten-widget dashboard would have spent
+ * twenty seconds starting databases. That is why DuckDB could not become the
+ * default engine.
+ *
+ * ISOLATION IS NOT FREE HERE, and it is the reason this was left per-query in
+ * the first place. Tables are registered with CREATE TEMP TABLE, which DuckDB
+ * scopes to the CONNECTION — two connections can each hold a different `t` and
+ * neither sees the other's. The same applies to the VIEW that fronts a
+ * Parquet mirror. A plain CREATE lands in the shared catalog
+ * and IS visible to every other connection, so with a shared instance it would
+ * expose one caller's rows to another's concurrent query. Verified, not
+ * assumed. Never register a table here without TEMP.
+ */
+let sharedInstance: Promise<
+  Awaited<ReturnType<typeof import("@duckdb/node-api").DuckDBInstance.create>>
+> | null = null;
+
+async function getInstance() {
+  if (!sharedInstance) {
+    sharedInstance = import("@duckdb/node-api").then(({ DuckDBInstance }) =>
+      DuckDBInstance.create(":memory:"),
+    );
+    // A failed create must not poison every later call with the same rejection.
+    sharedInstance.catch(() => {
+      sharedInstance = null;
+    });
+  }
+  return sharedInstance;
+}
+
 function envInt(name: string, fallback: number): number {
   const n = Number(process.env[name]);
   return Number.isFinite(n) && n > 0 ? Math.trunc(n) : fallback;
@@ -188,8 +222,7 @@ export async function runLocalSqlDuckDB(
   // Same guard as every other local engine — DuckDB would happily run DDL.
   const safeSql = assertLocalReadOnlySql(sql);
 
-  const { DuckDBInstance } = await import("@duckdb/node-api");
-  const instance = await DuckDBInstance.create(":memory:");
+  const instance = await getInstance();
   const connection = await instance.connect();
 
   let timer: NodeJS.Timeout | undefined;
@@ -242,11 +275,8 @@ export async function runLocalSqlDuckDB(
     } catch {
       /* already closed */
     }
-    try {
-      instance.closeSync();
-    } catch {
-      /* already closed */
-    }
+    // The INSTANCE is shared and deliberately not closed — other queries are
+    // using it. Only the connection, and with it this query's temp tables, goes.
   }
 }
 
@@ -259,8 +289,7 @@ export async function runLocalSqlDuckDB(
  * one thing a cache must never do.
  */
 export async function writeTableToParquet(table: DuckTable, filePath: string): Promise<void> {
-  const { DuckDBInstance } = await import("@duckdb/node-api");
-  const instance = await DuckDBInstance.create(":memory:");
+  const instance = await getInstance();
   const connection = await instance.connect();
   try {
     await connection.run(`SET memory_limit='${memoryLimitMb()}MB'`);
@@ -275,11 +304,8 @@ export async function writeTableToParquet(table: DuckTable, filePath: string): P
     } catch {
       /* already closed */
     }
-    try {
-      instance.closeSync();
-    } catch {
-      /* already closed */
-    }
+    // The INSTANCE is shared and deliberately not closed — other queries are
+    // using it. Only the connection, and with it this query's temp tables, goes.
   }
 }
 
@@ -306,7 +332,7 @@ async function loadTable(
   // projections and filters into the Parquet scan.
   if (table.parquetPath) {
     await connection.run(
-      `CREATE VIEW ${quoteIdent(table.name)} AS SELECT * FROM read_parquet(${sqlLiteral(table.parquetPath)})`,
+      `CREATE TEMP VIEW ${quoteIdent(table.name)} AS SELECT * FROM read_parquet(${sqlLiteral(table.parquetPath)})`,
     );
     return 0;
   }
@@ -317,12 +343,12 @@ async function loadTable(
       : Object.keys(table.rows[0] ?? {}).map((name) => ({ name, type: "string" as const }));
 
   if (columns.length === 0) {
-    await connection.run(`CREATE TABLE ${quoteIdent(table.name)} (placeholder VARCHAR)`);
+    await connection.run(`CREATE TEMP TABLE ${quoteIdent(table.name)} (placeholder VARCHAR)`);
     return 0;
   }
 
   const ddl = columns.map((c) => `${quoteIdent(c.name)} ${sqlTypeFor(c.type)}`).join(", ");
-  await connection.run(`CREATE TABLE ${quoteIdent(table.name)} (${ddl})`);
+  await connection.run(`CREATE TEMP TABLE ${quoteIdent(table.name)} (${ddl})`);
   if (table.rows.length === 0) return 0;
 
   const placeholders = columns.map((_, i) => `$${i + 1}`).join(", ");
