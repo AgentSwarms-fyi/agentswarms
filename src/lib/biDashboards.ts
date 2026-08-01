@@ -9,7 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
 import type { BiTurn, ChartSpec } from "@/lib/biAgent";
 import { isAggregatableChart } from "@/lib/biAggregate";
-import type { SemanticFilter, TimeGrain } from "@/lib/semanticLayer";
+import type { ComparePeriod, SemanticFilter, TimeGrain } from "@/lib/semanticLayer";
 
 export const GRID_COLS = 12;
 export const WIDGET_ROW_CAP = 500;
@@ -27,6 +27,15 @@ export type BiWidgetSource =
       filters?: SemanticFilter[];
       /** Per-time-dimension rollup (e.g. { order_date: "month" }). */
       grains?: Record<string, TimeGrain>;
+      /**
+       * Period-over-period comparison, if the query had one.
+       *
+       * It has to be stored with the rest of the query: refresh recompiles from
+       * this source, so a comparison left out here would quietly disappear on
+       * the widget's next scheduled refresh — the chart keeps its columns and
+       * loses its numbers.
+       */
+      compare?: ComparePeriod;
     };
 
 /** Content of an image widget: an uploaded data-URI OR an external URL. */
@@ -737,6 +746,7 @@ export function widgetFromSemantic(args: {
   dimensions: string[];
   filters?: SemanticFilter[];
   grains?: Record<string, TimeGrain>;
+  compare?: ComparePeriod;
   chartType: SemanticChartType;
   columns: string[];
   rows: Record<string, unknown>[];
@@ -777,6 +787,7 @@ export function widgetFromSemantic(args: {
       dimensions: args.dimensions,
       filters: args.filters,
       grains: args.grains,
+      compare: args.compare,
     },
     sql: args.sql,
     chart,

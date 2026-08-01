@@ -314,6 +314,107 @@ describe.each(ENGINES)("journey on $dialect", ({ dialect, run }) => {
   });
 });
 
+/**
+ * A period-over-period widget, all the way to a reopened dashboard.
+ *
+ * DuckDB only — AlaSQL has no CTEs or date arithmetic and the compiler refuses
+ * rather than emitting something it cannot run.
+ *
+ * The seam under test is the WIDGET SOURCE. A dashboard widget stores its
+ * governed query and refresh RECOMPILES from that, so a `compare` that fails to
+ * survive the round trip gives the worst possible outcome: the chart keeps its
+ * comparison columns from the snapshot and silently loses them at the next
+ * scheduled refresh. Nothing errors; the numbers just stop being there.
+ */
+describe("a period-over-period widget", () => {
+  it("keeps its comparison through save and reopen", async () => {
+    const q = {
+      model: "saas",
+      metrics: ["total_discount"],
+      dimensions: ["order_date"],
+      grains: { order_date: "month" as const },
+      orderBy: [{ field: "order_date", dir: "asc" as const }],
+      compare: "prior_period" as const,
+    };
+    const compiled = compileSemanticQuery(model, q, { dialect: "duckdb" });
+    const result = await runOn("duckdb", compiled.sql);
+
+    expect(compiled.columns).toEqual([
+      "order_date",
+      "total_discount",
+      "total_discount_prev",
+      "total_discount_change",
+      "total_discount_pct_change",
+    ]);
+    // March is 10 + 4 = 14 with nothing before it; April is 7, down 7 on March.
+    const april = result.rows.find((r) => String(r.order_date).startsWith("2026-04"))!;
+    expect(Number(april.total_discount)).toBe(7);
+    expect(Number(april.total_discount_prev)).toBe(14);
+    expect(Number(april.total_discount_change)).toBe(-7);
+    expect(Number(april.total_discount_pct_change)).toBeCloseTo(-0.5, 10);
+
+    const march = result.rows.find((r) => String(r.order_date).startsWith("2026-03"))!;
+    expect(march.total_discount_prev).toBeNull();
+
+    const widget = widgetFromSemantic({
+      title: "Discount month on month",
+      model: "saas",
+      metrics: ["total_discount"],
+      dimensions: ["order_date"],
+      grains: { order_date: "month" },
+      compare: "prior_period",
+      chartType: "line",
+      columns: compiled.columns,
+      rows: snapshotRows(result.rows),
+      sql: compiled.sql,
+    });
+    const added = appendWidgetToPages([makeEmptyPage("Page 1")], widget);
+    const loaded = roundTrip(added.pages, [resultRowFor(widget)]);
+
+    const reloaded = loaded[0].widgets.find((w) => w.id === widget.id);
+    expect(reloaded, "the widget must exist after a reload").toBeDefined();
+    expect(reloaded!.rows).toEqual(result.rows);
+
+    // THE ACTUAL SEAM: the stored source must still say `prior_period`, because
+    // that is the only thing refresh has to go on.
+    const source = reloaded!.source as { kind: string; compare?: string; grains?: unknown };
+    expect(source.kind).toBe("semantic");
+    expect(source.compare).toBe("prior_period");
+    expect(source.grains).toEqual({ order_date: "month" });
+
+    // And recompiling from the stored source reproduces the same query — which
+    // is exactly what the scheduled refresh does.
+    const recompiled = compileSemanticQuery(
+      model,
+      {
+        model: "saas",
+        metrics: ["total_discount"],
+        dimensions: ["order_date"],
+        grains: source.grains as { order_date: "month" },
+        compare: source.compare as "prior_period",
+      },
+      { dialect: "duckdb" },
+    );
+    expect(recompiled.columns).toEqual(compiled.columns);
+  });
+
+  it("is refused on AlaSQL rather than answered wrongly", () => {
+    expect(() =>
+      compileSemanticQuery(
+        model,
+        {
+          model: "saas",
+          metrics: ["total_discount"],
+          dimensions: ["order_date"],
+          grains: { order_date: "month" },
+          compare: "yoy",
+        },
+        { dialect: "alasql" },
+      ),
+    ).toThrow(/AlaSQL/i);
+  });
+});
+
 describe("journey regressions the suite must never lose", () => {
   it("a widget stored WITHOUT its results reloads empty — why sync must run first", () => {
     // appendWidgetToDashboard calls syncWidgetResults BEFORE updateDashboard.

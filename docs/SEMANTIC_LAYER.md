@@ -59,6 +59,63 @@ The compiler (`src/lib/semanticLayer.ts`) turns that into a single read-only
 authored fragments; field names are validated against the model and filter
 values are literal-escaped, so a query can never inject SQL.
 
+### Relative date filters
+
+Prefer these over hard-coded dates — they resolve against today every time the
+query runs, so a dashboard does not need editing as time passes.
+
+| op                              | window                                             |
+| ------------------------------- | -------------------------------------------------- |
+| `last_n_days`                   | the last N days, **today included** (`value` is N) |
+| `this_month` / `last_month`     | the calendar month                                 |
+| `this_quarter` / `last_quarter` | the calendar quarter                               |
+| `ytd`                           | 1 January **to today**                             |
+
+```json
+{ "field": "order_date", "op": "last_n_days", "value": 30 }
+```
+
+They apply only to a **time** dimension, and compare the raw date rather than a
+rollup bucket — so "last 30 days" grouped by month still means 30 days. Windows
+are **half-open** (`>= start AND < end`), which keeps a timestamp late on the
+final day inside the window, and are computed in **UTC** so the same dashboard
+answers identically wherever it is deployed. The runner shows the resolved
+dates beside the filter.
+
+### Period-over-period
+
+Set `compare` to `yoy`, `mom` or `prior_period` and each metric gains three
+columns: `<metric>_prev`, `<metric>_change` and `<metric>_pct_change` (a
+fraction — `0.25` is +25%).
+
+```json
+{
+  "model": "orders",
+  "metrics": ["revenue"],
+  "dimensions": ["order_date"],
+  "grains": { "order_date": "month" },
+  "compare": "yoy"
+}
+```
+
+Requires **exactly one time dimension with a grain** — that is the axis being
+compared. `prior_period` steps back one unit of that grain; `mom` one month and
+`yoy` one year, whatever the grain.
+
+Worth knowing:
+
+- A period with **no predecessor** (the first in the series, or a gap in the
+  data) gets NULL rather than being dropped from the result.
+- `pct_change` is **NULL when the earlier value was zero** — a change from
+  nothing is not a percentage.
+- Any date filter you set **moves with the comparison**, so filtering to this
+  year still compares against last year rather than against nothing.
+- It compiles to a date-shifted self-join, not `LAG`, so a gap in the series
+  cannot line a period up against the wrong predecessor.
+- **Not available on the AlaSQL escape hatch** (`LOCAL_ENGINE=alasql`), which
+  has neither CTEs nor date arithmetic. The compiler refuses with that message
+  rather than emitting SQL that cannot run.
+
 ## On a dashboard
 
 From the query runner, **Add to dashboard** creates a metric-backed widget in a
@@ -76,13 +133,16 @@ the account may access.
 
 ## Execution backends
 
-- **Local datasets** run through the in-app AlaSQL engine.
+- **Local datasets** run through the in-app **DuckDB** engine. Setting
+  `LOCAL_ENGINE=alasql` opts out to a JS interpreter that has no CTEs, window
+  functions or date arithmetic — period-over-period is unavailable there.
 - **Warehouse models** compile with the connection's dialect and run through the
   existing warehouse drivers (Snowflake, BigQuery, Redshift, Postgres, …).
 
-Write dimension/metric SQL for the model's own backend (e.g. `DATE_TRUNC` on a
-warehouse; AlaSQL-compatible expressions on a local dataset) — the compiler only
-composes SELECT/GROUP BY/WHERE/HAVING and quotes identifiers per dialect.
+Write dimension/metric SQL for the model's own backend — the compiler only
+composes SELECT/GROUP BY/WHERE/HAVING and quotes identifiers per dialect. It
+does re-quote authored identifiers for the target dialect, so a model authored
+against a local dataset is not locked to one engine.
 
 ## Sharing
 
@@ -95,6 +155,9 @@ access to the underlying tables/warehouse.
 
 ## Not yet (roadmap)
 
+- **Multiple comparison axes** — a query compares along exactly one grained time
+  dimension. Two would have no single "previous period", so the compiler refuses
+  rather than choosing one.
 - Authoring **warehouse-sourced** models from the UI (the engine already runs
   them; the editor's source picker is local-dataset only for now).
 - A native metric option **inside the BI visual builder** (today you author +

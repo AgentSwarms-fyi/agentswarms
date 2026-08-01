@@ -42,10 +42,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  COMPARE_PERIODS,
   isRelativeDateOp,
   relativeDateRange,
   RELATIVE_DATE_OPS,
   TIME_GRAINS,
+  type ComparePeriod,
   type RelativeDateOp,
   type TimeGrain,
 } from "@/lib/semanticLayer";
@@ -120,6 +122,13 @@ const AGGS: MetricAgg[] = [
 
 const FILTER_OPS: FilterOp[] = ["=", "!=", ">", ">=", "<", "<=", "in", "not_in", "contains"];
 
+/** Readable names for the comparison periods; the raw values are snake_case. */
+const COMPARE_LABELS: Record<ComparePeriod, string> = {
+  prior_period: "vs previous period",
+  mom: "vs a month earlier",
+  yoy: "vs a year earlier",
+};
+
 /** Readable names for the relative-date ops; the raw values are snake_case. */
 const RELATIVE_OP_LABELS: Record<RelativeDateOp, string> = {
   last_n_days: "in the last N days",
@@ -180,6 +189,7 @@ function SemanticsPage() {
   const [pickedDims, setPickedDims] = useState<string[]>([]);
   const [pickedGrains, setPickedGrains] = useState<Record<string, TimeGrain | "">>({});
   const [pickedFilters, setPickedFilters] = useState<SemanticFilter[]>([]);
+  const [pickedCompare, setPickedCompare] = useState<ComparePeriod | "">("");
   const [validating, setValidating] = useState(false);
   const [issues, setIssues] = useState<
     { kind: string; name: string; error: string }[] | "clean" | null
@@ -193,6 +203,7 @@ function SemanticsPage() {
     dimensions: string[];
     grains?: Record<string, TimeGrain>;
     filters?: SemanticFilter[];
+    compare?: ComparePeriod;
   } | null>(null);
   const [addOpen, setAddOpen] = useState(false);
 
@@ -334,6 +345,18 @@ function SemanticsPage() {
   // dashboard are allowed, but editing/saving/deleting is the owner's.
   const isShared = !!draft?.user_id && !!user?.id && draft.user_id !== user.id;
 
+  /**
+   * The grained time dimensions currently selected — the candidate comparison
+   * axes. A comparison needs exactly one, so this drives whether the control is
+   * offered at all and what it says when it is not.
+   */
+  const comparableAxes = pickedDims.filter(
+    (n) =>
+      pickedGrains[n] &&
+      draft?.dimensions.find((d) => d.name === n && d.type === "time") !== undefined,
+  );
+  const compareIsAvailable = comparableAxes.length === 1 && pickedMetrics.length > 0;
+
   const patch = (p: Partial<Draft>) => setDraft((d) => (d ? { ...d, ...p } : d));
 
   const save = async () => {
@@ -403,6 +426,10 @@ function SemanticsPage() {
         ...draft.dimensions.map((d) => d.name),
       ]);
       const filters = pickedFilters.filter((f) => f.field && known.has(f.field));
+      // A comparison only travels while its axis is still selected — the
+      // compiler rejects it otherwise, and sending it anyway would turn
+      // deselecting a dimension into a confusing error.
+      const compare = pickedCompare && compareIsAvailable ? pickedCompare : undefined;
       const res = (await runFn({
         data: {
           accessToken: token,
@@ -412,6 +439,7 @@ function SemanticsPage() {
             dimensions: pickedDims,
             grains: Object.keys(grains).length > 0 ? grains : undefined,
             filters: filters.length > 0 ? filters : undefined,
+            compare,
             limit: 100,
           },
         },
@@ -422,6 +450,7 @@ function SemanticsPage() {
         dimensions: pickedDims,
         grains: Object.keys(grains).length > 0 ? grains : undefined,
         filters: filters.length > 0 ? filters : undefined,
+        compare,
       });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Query failed");
@@ -1323,6 +1352,53 @@ function SemanticsPage() {
                       </Select>
                     </div>
                   ))}
+
+                {/* Period-over-period. Shown only when the query has exactly
+                    one grained time axis to compare along — the compiler
+                    refuses anything else, so offering it would be a trap. */}
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-muted-foreground">Compare</span>
+                    <Select
+                      value={pickedCompare || "none"}
+                      onValueChange={(v) =>
+                        setPickedCompare(v === "none" ? "" : (v as ComparePeriod))
+                      }
+                      disabled={!compareIsAvailable}
+                    >
+                      <SelectTrigger className="h-7 w-48 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">no comparison</SelectItem>
+                        {COMPARE_PERIODS.map((c) => (
+                          <SelectItem key={c} value={c}>
+                            {COMPARE_LABELS[c]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {!compareIsAvailable && (
+                    <p className="pl-1 text-[11px] text-muted-foreground">
+                      {pickedMetrics.length === 0
+                        ? "Pick a metric to compare."
+                        : comparableAxes.length === 0
+                          ? "Pick a time dimension and give it a rollup — that becomes the comparison axis."
+                          : `Only one time axis can be compared at a time (${comparableAxes.join(", ")}).`}
+                    </p>
+                  )}
+                  {compareIsAvailable && pickedCompare && (
+                    <p className="pl-1 text-[11px] text-muted-foreground">
+                      Adds <span className="font-mono">_prev</span>,{" "}
+                      <span className="font-mono">_change</span> and{" "}
+                      <span className="font-mono">_pct_change</span> per metric, along{" "}
+                      <span className="font-mono">{comparableAxes[0]}</span>. A period with no
+                      predecessor shows blank rather than zero.
+                    </p>
+                  )}
+                </div>
+
                 {result && (
                   <div className="space-y-2">
                     <pre className="overflow-x-auto rounded bg-muted p-2 font-mono text-[11px]">
@@ -1380,6 +1456,7 @@ function SemanticsPage() {
                 dimensions: result.dimensions,
                 grains: result.grains,
                 filters: result.filters,
+                compare: result.compare,
                 columns: result.columns,
                 rows: result.rows,
                 sql: result.sql,

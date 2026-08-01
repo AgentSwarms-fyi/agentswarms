@@ -74,6 +74,7 @@ type WidgetJson = {
     dimensions?: string[];
     filters?: unknown[];
     grains?: Record<string, import("@/lib/semanticLayer").TimeGrain>;
+    compare?: import("@/lib/semanticLayer").ComparePeriod;
   };
   columns?: string[];
   rows?: Record<string, unknown>[];
@@ -378,6 +379,9 @@ export async function refreshDashboardServer(dashboardId: string): Promise<{
             dimensions: w.source.dimensions ?? [],
             filters: (w.source.filters ?? []) as SemanticQuery["filters"],
             grains: w.source.grains,
+            // Every part of the stored query travels, or refresh answers a
+            // different question from the one the widget was built to ask.
+            compare: w.source.compare,
           },
           maxRows: WIDGET_ROW_CAP,
         });

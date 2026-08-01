@@ -33,7 +33,7 @@ import {
   type BiDashboardRow,
   type SemanticChartType,
 } from "@/lib/biDashboards";
-import type { SemanticFilter, TimeGrain } from "@/lib/semanticLayer";
+import type { ComparePeriod, SemanticFilter, TimeGrain } from "@/lib/semanticLayer";
 
 const NEW_PROJECT = "__new__";
 const CHART_TYPES: SemanticChartType[] = ["bar", "line", "area", "pie", "kpi", "table"];
@@ -44,6 +44,7 @@ export type SemanticWidgetPayload = {
   dimensions: string[];
   filters?: SemanticFilter[];
   grains?: Record<string, TimeGrain>;
+  compare?: ComparePeriod;
   columns: string[];
   rows: Record<string, unknown>[];
   sql: string;
@@ -100,6 +101,7 @@ export function AddMetricToDashboardDialog({
         dimensions: payload.dimensions,
         filters: payload.filters,
         grains: payload.grains,
+        compare: payload.compare,
         chartType,
         columns: payload.columns,
         rows: payload.rows,

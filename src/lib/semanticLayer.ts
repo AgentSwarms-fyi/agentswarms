@@ -143,6 +143,20 @@ export type SemanticFilter = {
 export const TIME_GRAINS = ["day", "week", "month", "quarter", "year"] as const;
 export type TimeGrain = (typeof TIME_GRAINS)[number];
 
+/**
+ * Period-over-period comparisons.
+ *
+ * `prior_period` shifts by ONE UNIT OF THE QUERY'S GRAIN — at a month grain
+ * that is month-on-month, at a day grain day-on-day. `mom` and `yoy` shift by
+ * a fixed month or year whatever the grain, so a daily series can be compared
+ * against the same day a year ago.
+ */
+export const COMPARE_PERIODS = ["prior_period", "mom", "yoy"] as const;
+export type ComparePeriod = (typeof COMPARE_PERIODS)[number];
+
+/** Suffixes added to each metric's column when a comparison is requested. */
+export const COMPARE_SUFFIXES = ["_prev", "_change", "_pct_change"] as const;
+
 export type SemanticQuery = {
   model: string;
   metrics: string[];
@@ -150,13 +164,23 @@ export type SemanticQuery = {
   /**
    * Optional per-dimension time rollup, e.g. { order_date: "month" }. Only
    * valid on dimensions typed "time"; the compiler renders the right
-   * truncation per dialect, and filters on that dimension compare against
-   * the ROLLED-UP bucket (what the user sees), not the raw value.
+   * truncation per dialect. A COMPARISON filter on that dimension compares
+   * against the ROLLED-UP bucket (what the user sees); a RELATIVE-DATE filter
+   * deliberately compares the raw value instead, because a day window has no
+   * meaning against a month label.
    */
   grains?: Record<string, TimeGrain>;
   filters?: SemanticFilter[];
   orderBy?: Array<{ field: string; dir?: "asc" | "desc" }>;
   limit?: number;
+  /**
+   * Compare each row against the equivalent earlier period, adding
+   * `<metric>_prev`, `<metric>_change` and `<metric>_pct_change`.
+   *
+   * Requires exactly one grained time dimension — the axis being compared —
+   * and a dialect with CTEs and date arithmetic, which excludes AlaSQL.
+   */
+  compare?: ComparePeriod;
 };
 
 export type CompiledQuery = { sql: string; columns: string[] };
@@ -457,6 +481,81 @@ export function relativeDateExpr(
   return `(${sql} >= ${dateLiteral(start, dialect)} AND ${sql} < ${dateLiteral(end, dialect)})`;
 }
 
+/** Units `dateAddExpr` shifts by, after quarters and weeks are normalised away. */
+type DateAddUnit = "day" | "month" | "year";
+
+/**
+ * Shift a date expression by a whole number of units, per dialect.
+ *
+ * QUARTER AND WEEK ARE NORMALISED AWAY (3 months, 7 days) rather than passed
+ * through. Support for them as interval units is uneven — and a dialect that
+ * silently rounds an unsupported unit would produce a comparison against the
+ * wrong period, which looks like a business result rather than a bug.
+ *
+ * AlaSQL has no date arithmetic at all and is rejected by the caller before
+ * reaching here.
+ */
+function dateAddExpr(sql: string, n: number, unit: DateAddUnit, dialect: SqlDialect): string {
+  if (!Number.isInteger(n)) throw new Error(`Date shift must be a whole number, got ${n}`);
+  const U = unit.toUpperCase();
+  switch (dialect) {
+    case "alasql":
+      throw new Error("The AlaSQL engine has no date arithmetic.");
+    case "duckdb":
+      // TRY_CAST for the same reason truncateExpr uses it: local date columns
+      // are ISO TEXT typed by inference, so one unparseable value must become
+      // NULL rather than abort the query.
+      return `(TRY_CAST(${sql} AS DATE) + INTERVAL ${n} ${U})`;
+    case "postgres":
+    case "redshift":
+      return `(CAST(${sql} AS DATE) + INTERVAL '${n} ${unit}')`;
+    case "databricks":
+      return `(CAST(${sql} AS DATE) + INTERVAL ${n} ${U})`;
+    case "snowflake":
+    case "azure_synapse":
+      return `DATEADD(${unit}, ${n}, CAST(${sql} AS DATE))`;
+    case "bigquery":
+      return `DATE_ADD(DATE(${sql}), INTERVAL ${n} ${U})`;
+    case "mysql":
+      return `DATE_ADD(${sql}, INTERVAL ${n} ${U})`;
+    default: {
+      const exhaustive: never = dialect;
+      throw new Error(`No date arithmetic defined for dialect "${exhaustive as string}"`);
+    }
+  }
+}
+
+/** How far back a comparison looks, as a unit `dateAddExpr` understands. */
+function compareShift(period: ComparePeriod, grain: TimeGrain): { n: number; unit: DateAddUnit } {
+  if (period === "yoy") return { n: 1, unit: "year" };
+  if (period === "mom") return { n: 1, unit: "month" };
+  switch (grain) {
+    case "day":
+      return { n: 1, unit: "day" };
+    case "week":
+      return { n: 7, unit: "day" };
+    case "month":
+      return { n: 1, unit: "month" };
+    case "quarter":
+      return { n: 3, unit: "month" };
+    case "year":
+      return { n: 1, unit: "year" };
+  }
+}
+
+/**
+ * A NULL-safe equality, for joining a period to its predecessor.
+ *
+ * Plain `=` is WRONG here. A dimension value of NULL — a region that was never
+ * recorded, say — makes `b.region = p.region` evaluate to NULL, the join finds
+ * no partner, and that entire group silently loses its comparison while every
+ * other group keeps one. The result looks complete and is not.
+ */
+function nullSafeEq(left: string, right: string, dialect: SqlDialect): string {
+  // MySQL spells it `<=>`; everything else we target accepts the ANSI form.
+  return dialect === "mysql" ? `${left} <=> ${right}` : `${left} IS NOT DISTINCT FROM ${right}`;
+}
+
 const METRIC_REF_RE = /\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g;
 
 /** Aggregate expression for a NON-derived metric (a leaf measure). */
@@ -673,77 +772,166 @@ export function compileSemanticQuery(
     throw new Error("A query needs at least one metric or dimension");
   }
 
-  // Effective dimension expression: the authored SQL, wrapped in the
-  // dialect's time truncation when the query asks for a grain.
-  const dimExpr = (name: string, d: SemanticDimension): string => {
-    const grain = q.grains?.[name];
-    if (!grain) return d.sql;
-    if (!TIME_GRAINS.includes(grain)) {
-      throw new Error(`Unknown time grain "${grain}" for dimension "${name}"`);
+  /**
+   * The aggregate SELECT, with every reference to the comparison axis
+   * optionally shifted FORWARD by one period.
+   *
+   * Shifting forward rather than backward is what makes the join trivial: last
+   * year's rows land in this year's buckets, so the two results line up on
+   * equality. It also means a date FILTER needs no special handling — the same
+   * predicate applied to a shifted column selects the prior window by
+   * construction, so "this year, compared to last" cannot end up comparing
+   * against rows the filter excluded.
+   */
+  const buildAggregate = (shift?: { name: string; n: number; unit: DateAddUnit }) => {
+    const dimFor = (name: string): SemanticDimension => {
+      const d = dimByName.get(name);
+      if (!d) throw new Error(`Unknown dimension "${name}"`);
+      return shift && shift.name === name
+        ? { ...d, sql: dateAddExpr(d.sql, shift.n, shift.unit, dialect) }
+        : d;
+    };
+
+    // Effective dimension expression: the authored SQL, wrapped in the
+    // dialect's time truncation when the query asks for a grain.
+    const dimExpr = (name: string): string => {
+      const d = dimFor(name);
+      const grain = q.grains?.[name];
+      if (!grain) return d.sql;
+      if (!TIME_GRAINS.includes(grain)) {
+        throw new Error(`Unknown time grain "${grain}" for dimension "${name}"`);
+      }
+      if (d.type !== "time") {
+        throw new Error(`Grain "${grain}" set on "${name}", which is not a time dimension`);
+      }
+      return truncateExpr(d.sql, grain, dialect);
+    };
+
+    // Expression map for filters/order (grained dim exprs; compiled metric aggs).
+    const exprByField = new Map<string, string>();
+    for (const name of dimByName.keys()) exprByField.set(name, dimExpr(name));
+
+    const selectParts: string[] = [];
+    const cols: string[] = [];
+
+    for (const name of dims) {
+      selectParts.push(`${dimExpr(name)} AS ${quoteIdent(name, dialect)}`);
+      cols.push(name);
     }
-    if (d.type !== "time") {
-      throw new Error(`Grain "${grain}" set on "${name}", which is not a time dimension`);
+    for (const name of metrics) {
+      const m = metricByName.get(name);
+      if (!m) throw new Error(`Unknown metric "${name}"`);
+      const expr = resolveMetricExpr(m, metricByName);
+      exprByField.set(name, expr);
+      selectParts.push(`${expr} AS ${quoteIdent(name, dialect)}`);
+      cols.push(name);
     }
-    return truncateExpr(d.sql, grain, dialect);
+
+    // Filters: dimension filters → WHERE; metric filters → HAVING.
+    const whereParts: string[] = [];
+    const havingParts: string[] = [];
+    for (const f of q.filters ?? []) {
+      if (metricByName.has(f.field)) {
+        havingParts.push(compileFilter(f, exprByField, dialect, { now: opts?.now }));
+      } else if (dimByName.has(f.field)) {
+        // The dimension itself goes through so a relative-date filter can reach
+        // its type and its ungrained SQL — shifted here when this is the prior
+        // period, so the window moves with it.
+        whereParts.push(
+          compileFilter(f, exprByField, dialect, { dim: dimFor(f.field), now: opts?.now }),
+        );
+      } else throw new Error(`Filter references unknown field "${f.field}"`);
+    }
+
+    const from = assertTableRef(model.source.table);
+    let out = `SELECT ${selectParts.join(", ")} FROM ${from}${compileJoins(model.joins, dialect)}`;
+    if (whereParts.length) out += ` WHERE ${whereParts.join(" AND ")}`;
+    // Group by dimension expressions (grain-wrapped) when aggregating.
+    if (metrics.length && dims.length) {
+      out += ` GROUP BY ${dims.map(dimExpr).join(", ")}`;
+    }
+    if (havingParts.length) out += ` HAVING ${havingParts.join(" AND ")}`;
+    return { sql: out, columns: cols };
   };
 
-  // Expression map for filters/order (grained dim exprs; compiled metric aggs).
-  const exprByField = new Map<string, string>();
-  for (const [name, d] of dimByName) exprByField.set(name, dimExpr(name, d));
-
-  const selectParts: string[] = [];
-  const columns: string[] = [];
-
-  for (const name of dims) {
-    const d = dimByName.get(name);
-    if (!d) throw new Error(`Unknown dimension "${name}"`);
-    selectParts.push(`${dimExpr(name, d)} AS ${quoteIdent(name, dialect)}`);
-    columns.push(name);
-  }
-  const metricAgg = new Map<string, string>();
-  for (const name of metrics) {
-    const m = metricByName.get(name);
-    if (!m) throw new Error(`Unknown metric "${name}"`);
-    const expr = resolveMetricExpr(m, metricByName);
-    metricAgg.set(name, expr);
-    exprByField.set(name, expr);
-    selectParts.push(`${expr} AS ${quoteIdent(name, dialect)}`);
-    columns.push(name);
-  }
-
-  // Filters: dimension filters → WHERE; metric filters → HAVING.
-  const whereParts: string[] = [];
-  const havingParts: string[] = [];
-  for (const f of q.filters ?? []) {
-    if (metricByName.has(f.field)) {
-      havingParts.push(compileFilter(f, exprByField, dialect, { now: opts?.now }));
-    } else if (dimByName.has(f.field)) {
-      // The dimension itself goes through so a relative-date filter can reach
-      // its type and its ungrained SQL.
-      whereParts.push(
-        compileFilter(f, exprByField, dialect, { dim: dimByName.get(f.field), now: opts?.now }),
-      );
-    } else throw new Error(`Filter references unknown field "${f.field}"`);
-  }
-
-  const from = assertTableRef(model.source.table);
-  let sql = `SELECT ${selectParts.join(", ")} FROM ${from}${compileJoins(model.joins, dialect)}`;
-  if (whereParts.length) sql += ` WHERE ${whereParts.join(" AND ")}`;
-  // Group by dimension expressions (grain-wrapped) when aggregating.
-  if (metrics.length && dims.length) {
-    sql += ` GROUP BY ${dims.map((n) => dimExpr(n, dimByName.get(n)!)).join(", ")}`;
-  }
-  if (havingParts.length) sql += ` HAVING ${havingParts.join(" AND ")}`;
-
-  const order = (q.orderBy ?? []).filter((o) => columns.includes(o.field));
-  if (order.length) {
-    sql += ` ORDER BY ${order
-      .map((o) => `${quoteIdent(o.field, dialect)} ${o.dir === "asc" ? "ASC" : "DESC"}`)
-      .join(", ")}`;
-  }
-
   const limit = Math.max(1, Math.min(q.limit ?? DEFAULT_LIMIT, MAX_LIMIT));
-  sql += ` LIMIT ${limit}`;
+
+  /** ORDER BY … LIMIT …, appended once, over whatever columns exist. */
+  const tail = (available: string[]) => {
+    const order = (q.orderBy ?? []).filter((o) => available.includes(o.field));
+    const parts = order.map(
+      (o) => `${quoteIdent(o.field, dialect)} ${o.dir === "asc" ? "ASC" : "DESC"}`,
+    );
+    return `${parts.length ? ` ORDER BY ${parts.join(", ")}` : ""} LIMIT ${limit}`;
+  };
+
+  if (!q.compare) {
+    const base = buildAggregate();
+    return { sql: base.sql + tail(base.columns), columns: base.columns };
+  }
+
+  // ── Period over period ────────────────────────────────────────────────
+  if (!COMPARE_PERIODS.includes(q.compare)) {
+    throw new Error(`Unknown comparison "${q.compare as string}"`);
+  }
+  if (dialect === "alasql") {
+    // Refused, not degraded. AlaSQL has neither CTEs nor date arithmetic, and
+    // there is no partial version of this that is still correct.
+    throw new Error(
+      "Period-over-period comparisons need CTEs and date arithmetic, which the AlaSQL " +
+        "engine does not have. Remove LOCAL_ENGINE=alasql to use the default engine.",
+    );
+  }
+  if (metrics.length === 0) {
+    throw new Error("A comparison needs at least one metric to compare.");
+  }
+  // The comparison axis has to be unambiguous. With two grained time
+  // dimensions there is no single "previous period" to shift along, and
+  // picking one for the user would silently answer a different question.
+  const grainedTime = dims.filter((n) => q.grains?.[n] && dimByName.get(n)?.type === "time");
+  if (grainedTime.length !== 1) {
+    throw new Error(
+      grainedTime.length === 0
+        ? "A comparison needs exactly one time dimension with a grain — that is the axis being compared."
+        : `A comparison needs exactly one grained time dimension, but this query has ${grainedTime.length} (${grainedTime.join(", ")}).`,
+    );
+  }
+  const axis = grainedTime[0];
+  const { n, unit } = compareShift(q.compare, q.grains![axis]!);
+
+  const cur = buildAggregate();
+  const prev = buildAggregate({ name: axis, n, unit });
+
+  const CUR = "semantic_cur";
+  const PREV = "semantic_prev";
+  const ref = (t: string, col: string) => `${t}.${quoteIdent(col, dialect)}`;
+
+  const selectParts = cur.columns.map((c) => ref(CUR, c));
+  const columns = [...cur.columns];
+  for (const name of metrics) {
+    const c = ref(CUR, name);
+    const p = ref(PREV, name);
+    const delta = `(${c} - ${p})`;
+    selectParts.push(`${p} AS ${quoteIdent(`${name}_prev`, dialect)}`);
+    selectParts.push(`${delta} AS ${quoteIdent(`${name}_change`, dialect)}`);
+    // A percentage change from zero (or from a period with no data) is not
+    // zero and not infinity — it does not exist. NULL says so; any number
+    // here would be read as a real result.
+    selectParts.push(
+      `CASE WHEN ${p} IS NULL OR ${p} = 0 THEN NULL ELSE ${delta} * 1.0 / ${p} END ` +
+        `AS ${quoteIdent(`${name}_pct_change`, dialect)}`,
+    );
+    columns.push(`${name}_prev`, `${name}_change`, `${name}_pct_change`);
+  }
+
+  // LEFT JOIN: a bucket with no predecessor still appears, with NULL
+  // comparisons. An INNER JOIN would silently drop the first period of every
+  // series — including the oldest bucket a user is looking at.
+  const on = dims.map((d) => nullSafeEq(ref(CUR, d), ref(PREV, d), dialect)).join(" AND ");
+  const sql =
+    `WITH ${CUR} AS (${cur.sql}), ${PREV} AS (${prev.sql}) ` +
+    `SELECT ${selectParts.join(", ")} FROM ${CUR} LEFT JOIN ${PREV} ON ${on}` +
+    tail(columns);
   return { sql, columns };
 }
 
@@ -752,7 +940,12 @@ export function formatSemanticCatalog(models: SemanticModel[]): string {
   if (models.length === 0) return "(no semantic models defined)";
   const hasTimeDim = models.some((m) => m.dimensions.some((d) => d.type === "time"));
   const grainNote = hasTimeDim
-    ? `\n\nTime dimensions accept a rollup via "grains", e.g. {"order_date":"month"} (day|week|month|quarter|year).`
+    ? `\n\nTime dimensions accept a rollup via "grains", e.g. {"order_date":"month"} (day|week|month|quarter|year).` +
+      `\nFor "compared to last year" style questions set "compare" to yoy, mom or prior_period rather than` +
+      ` running two queries — it adds <metric>_prev, <metric>_change and <metric>_pct_change, and needs exactly` +
+      ` one grained time dimension.` +
+      `\nFor date ranges prefer a relative filter op (last_n_days, this_month, last_month, this_quarter,` +
+      ` last_quarter, ytd) over hard-coded dates.`
     : "";
   return models
     .map((m) => {

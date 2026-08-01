@@ -5,8 +5,10 @@
 import type { ToolDef, AgentToolContext } from "./registry.server";
 import { listSemanticModels, runSemanticQuery } from "@/utils/semantic/query.server";
 import {
+  COMPARE_PERIODS,
   formatSemanticCatalog,
   TIME_GRAINS,
+  type ComparePeriod,
   type SemanticFilter,
   type TimeGrain,
 } from "@/lib/semanticLayer";
@@ -64,6 +66,16 @@ export const metricQueryTool: ToolDef = {
             'Optional time rollup per TIME dimension, e.g. {"order_date":"month"}. Values: day|week|month|quarter|year.',
           additionalProperties: { type: "string" },
         },
+        compare: {
+          type: "string",
+          enum: ["prior_period", "mom", "yoy"],
+          description:
+            "Optional period-over-period comparison. Adds <metric>_prev, <metric>_change and " +
+            "<metric>_pct_change (a fraction: 0.25 is +25%). Requires exactly ONE time dimension " +
+            "with a grain — that is the axis compared. prior_period steps back one unit of that " +
+            "grain; mom one month; yoy one year. A period with no predecessor gets NULL rather " +
+            "than being dropped, and pct_change is NULL when the earlier value was zero.",
+        },
         limit: { type: "number", description: "Max rows (default 1000)." },
       },
       required: ["model", "metrics"],
@@ -97,8 +109,16 @@ type MetricArgs = {
   dimensions?: unknown;
   filters?: unknown;
   grains?: unknown;
+  compare?: unknown;
   limit?: number;
 };
+
+/** A comparison the compiler knows, or nothing — never a guess. */
+function sanitizeCompare(v: unknown): ComparePeriod | undefined {
+  return typeof v === "string" && (COMPARE_PERIODS as readonly string[]).includes(v)
+    ? (v as ComparePeriod)
+    : undefined;
+}
 
 /** Keep only well-formed {dimension: grain} entries from model-authored args. */
 function sanitizeGrains(v: unknown): Record<string, TimeGrain> | undefined {
@@ -140,6 +160,7 @@ export async function runMetricQuery(ctx: AgentToolContext, args: MetricArgs): P
         dimensions,
         filters,
         grains: sanitizeGrains(args.grains),
+        compare: sanitizeCompare(args.compare),
         limit: args.limit,
       },
       maxRows: RESULT_ROW_CAP,
