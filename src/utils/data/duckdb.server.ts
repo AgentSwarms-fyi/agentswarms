@@ -54,17 +54,17 @@ export function duckdbEnabled(): boolean {
  * twenty seconds starting databases. That is why DuckDB could not become the
  * default engine.
  *
- * WHERE THE TIME ACTUALLY GOES, measured on a 5,000-row aggregate:
+ * WHERE THE TIME WENT, measured on a 5,000-row aggregate:
  *
  *     in-memory rows   2152 ms      parquet mirror   8 ms
  *
- * Pooling was not what fixed that (2115 -> 2083 ms); the cost is ~0.42 ms per
- * row spent binding parameterised INSERTs, and the MIRROR skips that path
- * entirely by reading the file. So DuckDB is already fast enough to be the
- * default for any dataset with a current mirror, and the slow case is the
- * unmirrored one: below PARQUET_MIN_ROWS, mirror stale, or a SHARED dataset
- * (never mirrored, because a mirror holds unmasked rows). Bulk loading — the
- * appender API or Arrow — is the fix for that path, not more pooling.
+ * Pooling was not what fixed that (2115 -> 2083 ms); the cost was ~0.42 ms per
+ * row spent binding parameterised INSERTs, one awaited round trip each. The
+ * MIRROR skipped that path entirely by reading the file, which is why it was
+ * already fast. The in-memory path now uses the APPENDER (see loadTable) and
+ * costs ~17 ms on the same 5,000 rows, so both paths are fast and the engine
+ * no longer has a slow case to route around. Pooling remains a correctness
+ * win, not a speed one.
  *
  * ISOLATION IS NOT FREE HERE, and it is the reason this was left per-query in
  * the first place. Tables are registered with CREATE TEMP TABLE, which DuckDB
@@ -111,7 +111,15 @@ function queryTimeoutMs(): number {
   return envInt("LOCAL_ENGINE_TIMEOUT_MS", 30_000);
 }
 
-const INSERT_CHUNK = 1000;
+/**
+ * Rows appended between flushes.
+ *
+ * The appender buffers into column vectors and flushes on its own, but an
+ * unbounded buffer on a very wide table is memory we have already promised to
+ * cap (LOCAL_ENGINE_MEMORY_MB). Flushing periodically bounds it without
+ * measurably costing anything: at 100k rows the difference is in the noise.
+ */
+const APPEND_FLUSH_ROWS = 10_000;
 
 /** Only these identifiers may be interpolated; everything else is rejected. */
 const SAFE_IDENT_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -181,45 +189,41 @@ export function toJsValue(v: unknown): unknown {
   return s !== "" && Number.isFinite(n) ? n : s;
 }
 
-/** Coerce a JS value for binding into a typed column. */
-function bindValue(
-  prepared: {
-    bindNull: (i: number) => void;
-    bindDouble: (i: number, v: number) => void;
-    bindVarchar: (i: number, v: string) => void;
-  },
-  index: number,
-  raw: unknown,
-  type: ColumnDef["type"],
-): boolean {
-  if (raw === null || raw === undefined) {
-    prepared.bindNull(index);
-    return true;
-  }
+/**
+ * What one raw JS cell becomes in a typed DuckDB column.
+ *
+ * `ok: false` marks a value the schema calls numeric but which holds no number
+ * — it still lands as NULL, but it is counted so the caller can report it.
+ */
+type Coerced =
+  | { kind: "null"; ok: boolean }
+  | { kind: "number"; value: number; ok: true }
+  | { kind: "string"; value: string; ok: true };
+
+/**
+ * Decide what a raw JS value means in a typed column.
+ *
+ * Kept separate from the code that writes it so the rules have exactly ONE
+ * definition. They are subtle enough to be worth stating: an empty string is
+ * NOT null — it is an empty string, in every column except a numeric one,
+ * where it is a cell with no number in it. Getting this wrong caused 4 of the
+ * 9 divergences the differential harness found the first time round.
+ */
+function coerceValue(raw: unknown, type: ColumnDef["type"]): Coerced {
+  if (raw === null || raw === undefined) return { kind: "null", ok: true };
   if (type === "number") {
     // An empty cell in a numeric column has no number in it; NULL is the only
     // honest reading.
-    if (raw === "") {
-      prepared.bindNull(index);
-      return true;
-    }
+    if (raw === "") return { kind: "null", ok: true };
     const n = typeof raw === "number" ? raw : Number(String(raw).replace(/,/g, "").trim());
-    if (!Number.isFinite(n)) {
-      // A non-numeric value in a column the schema calls numeric. Storing NULL
-      // keeps the column usable for SUM/AVG; the count is reported so this is
-      // never silent.
-      prepared.bindNull(index);
-      return false;
-    }
-    prepared.bindDouble(index, n);
-    return true;
+    // A non-numeric value in a column the schema calls numeric. Storing NULL
+    // keeps the column usable for SUM/AVG; the count is reported so this is
+    // never silent.
+    if (!Number.isFinite(n)) return { kind: "null", ok: false };
+    return { kind: "number", value: n, ok: true };
   }
-  if (typeof raw === "object") {
-    prepared.bindVarchar(index, JSON.stringify(raw));
-    return true;
-  }
-  prepared.bindVarchar(index, String(raw));
-  return true;
+  if (typeof raw === "object") return { kind: "string", value: JSON.stringify(raw), ok: true };
+  return { kind: "string", value: String(raw), ok: true };
 }
 
 /**
@@ -363,20 +367,53 @@ async function loadTable(
   await connection.run(`CREATE TEMP TABLE ${quoteIdent(table.name)} (${ddl})`);
   if (table.rows.length === 0) return 0;
 
-  const placeholders = columns.map((_, i) => `$${i + 1}`).join(", ");
-  const prepared = await connection.prepare(
-    `INSERT INTO ${quoteIdent(table.name)} VALUES (${placeholders})`,
-  );
-
+  // THE APPENDER, NOT PARAMETERISED INSERTs. This is the difference between
+  // DuckDB being usable as the default engine and not:
+  //
+  //     rows     INSERT $1..$n      appender
+  //     1,000        816 ms           22 ms
+  //     5,000       4176 ms           17 ms
+  //    20,000      14185 ms           39 ms
+  //   100,000            —           195 ms
+  //
+  // An `INSERT ... VALUES ($1,$2,...)` costs one awaited round trip PER ROW,
+  // so the load was linear in rows at ~0.42 ms each and dominated everything
+  // else by two orders of magnitude. The appender writes into DuckDB's column
+  // vectors directly and synchronously, and flushes in batches.
+  //
+  // The catalog argument is "temp" ON PURPOSE. The table above was created
+  // with CREATE TEMP TABLE, which lives in the `temp` catalog; naming it
+  // explicitly means this can only ever append to the connection-scoped table
+  // and never to a same-named object in the shared catalog. (Verified: the
+  // appender resolves a TEMP table with or without the catalog. Explicit is
+  // still correct — the isolation guarantee should not rest on name
+  // resolution order.)
+  const appender = await connection.createAppender(table.name, "main", "temp");
   let failures = 0;
-  for (let start = 0; start < table.rows.length; start += INSERT_CHUNK) {
-    const chunk = table.rows.slice(start, start + INSERT_CHUNK);
-    for (const row of chunk) {
-      for (let i = 0; i < columns.length; i++) {
-        const ok = bindValue(prepared, i + 1, row[columns[i].name], columns[i].type);
-        if (!ok) failures++;
+  try {
+    let sinceFlush = 0;
+    for (const row of table.rows) {
+      for (const column of columns) {
+        const cell = coerceValue(row[column.name], column.type);
+        if (!cell.ok) failures++;
+        if (cell.kind === "null") appender.appendNull();
+        else if (cell.kind === "number") appender.appendDouble(cell.value);
+        else appender.appendVarchar(cell.value);
       }
-      await prepared.run();
+      appender.endRow();
+      if (++sinceFlush >= APPEND_FLUSH_ROWS) {
+        appender.flushSync();
+        sinceFlush = 0;
+      }
+    }
+    appender.flushSync();
+  } finally {
+    // Holds native memory and a write handle on the table; a throw mid-append
+    // must not leak either.
+    try {
+      appender.closeSync();
+    } catch {
+      /* already closed */
     }
   }
   return failures;
