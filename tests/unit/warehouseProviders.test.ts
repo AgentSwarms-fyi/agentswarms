@@ -8,7 +8,7 @@
 //
 // So these assert the WIRING, across every provider at once, rather than
 // testing any one connector. A new provider that is only half-added fails here.
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -134,6 +134,63 @@ describe("every provider is accepted by the API and offered by the UI", () => {
     for (const p of WAREHOUSE_PROVIDERS) {
       expect(tabSrc.includes(`${p}:`), `"${p}" has no PROVIDER_META entry`).toBe(true);
     }
+  });
+});
+
+describe("the database accepts every provider the app offers", () => {
+  /**
+   * The provider list from the most recent CHECK constraint in the migrations.
+   *
+   * THIS IS NOT A STYLE TEST. The original constraint listed five providers and
+   * was never widened as more shipped, so postgres, mysql, trino, athena and
+   * oracle could not be saved at all — the insert failed on a constraint
+   * violation whose message names neither the provider nor the reason. Twelve
+   * more were added on top before anyone noticed.
+   *
+   * Types cannot catch this: the union, the driver and the form were all
+   * correct. Only the database disagreed, and only at runtime.
+   */
+  function providersInLatestCheck(): string[] {
+    const dir = "supabase/migrations";
+    const files = readdirSync(dir)
+      .filter((f) => f.endsWith(".sql"))
+      .sort();
+    let latest: string[] | null = null;
+    for (const f of files) {
+      const sql = readFileSync(`${dir}/${f}`, "utf8");
+      // ANCHORED to the table, then read the provider list that FOLLOWS it.
+      // A whole-file search is wrong: the saas_connections migration mentions
+      // data_warehouse_connections in a comment and has its own `provider IN`,
+      // so an unanchored match read the wrong constraint entirely — which is
+      // how this test first failed.
+      const anchor = sql.search(
+        /(CREATE TABLE public\.data_warehouse_connections|ALTER TABLE public\.data_warehouse_connections)/i,
+      );
+      if (anchor < 0) continue;
+      const m = sql.slice(anchor).match(/provider\s+IN\s*\(([\s\S]*?)\)/i);
+      if (m) latest = [...m[1].matchAll(/'([a-z_]+)'/g)].map((x) => x[1]);
+    }
+    if (!latest) throw new Error("No provider CHECK found in the migrations");
+    return latest;
+  }
+
+  it("permits exactly the providers in WAREHOUSE_PROVIDERS", () => {
+    const allowed = new Set(providersInLatestCheck());
+    const missing = WAREHOUSE_PROVIDERS.filter((p) => !allowed.has(p));
+    expect(
+      missing,
+      `These providers are offered in the app but REJECTED by the database CHECK ` +
+        `constraint — saving one fails with a constraint violation. Add them in a ` +
+        `new migration: ${missing.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("does not permit providers the app cannot actually run", () => {
+    // The reverse drift: a provider left in the constraint after being removed
+    // would let a row exist that no driver can serve.
+    const known = new Set<string>(WAREHOUSE_PROVIDERS);
+    const stale = providersInLatestCheck().filter((p) => !known.has(p));
+    expect(stale, `Constraint permits providers with no driver: ${stale.join(", ")}`).toEqual([]);
   });
 });
 

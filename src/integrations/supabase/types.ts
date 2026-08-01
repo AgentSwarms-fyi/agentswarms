@@ -1503,6 +1503,51 @@ export type Database = {
         };
         Relationships: [];
       };
+      saas_connections: {
+        Row: {
+          config: Json;
+          created_at: string;
+          id: string;
+          is_active: boolean;
+          last_sync_error: string | null;
+          last_sync_status: string | null;
+          last_synced_at: string | null;
+          name: string;
+          provider: string;
+          streams: Json;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          config?: Json;
+          created_at?: string;
+          id?: string;
+          is_active?: boolean;
+          last_sync_error?: string | null;
+          last_sync_status?: string | null;
+          last_synced_at?: string | null;
+          name: string;
+          provider: string;
+          streams?: Json;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          config?: Json;
+          created_at?: string;
+          id?: string;
+          is_active?: boolean;
+          last_sync_error?: string | null;
+          last_sync_status?: string | null;
+          last_synced_at?: string | null;
+          name?: string;
+          provider?: string;
+          streams?: Json;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       data_warehouse_connections: {
         Row: {
           created_at: string;

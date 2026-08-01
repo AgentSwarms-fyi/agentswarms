@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { WarehousesTab } from "@/components/integrations/WarehousesTab";
+import { SaasSourcesTab } from "@/components/integrations/SaasSourcesTab";
 import { Badge } from "@/components/ui/badge";
 import {
   Select,
@@ -1102,6 +1103,7 @@ function IntegrationsPage() {
           <TabsList>
             <TabsTrigger value="llm">LLM Providers</TabsTrigger>
             <TabsTrigger value="warehouses">Data Sources</TabsTrigger>
+            <TabsTrigger value="apps">Apps</TabsTrigger>
             <TabsTrigger value="gateway">LLM Gateway</TabsTrigger>
             <TabsTrigger value="websearch">Web Search</TabsTrigger>
             <TabsTrigger value="notifications">Notifications</TabsTrigger>
@@ -1110,6 +1112,12 @@ function IntegrationsPage() {
 
           <TabsContent value="warehouses" className="space-y-4">
             <WarehousesTab />
+          </TabsContent>
+
+          {/* Apps are SaaS sources pulled into datasets, as opposed to the
+              Data Sources tab's databases, which are queried live. */}
+          <TabsContent value="apps" className="space-y-4">
+            <SaasSourcesTab />
           </TabsContent>
 
           <TabsContent value="llm" className="space-y-4">
