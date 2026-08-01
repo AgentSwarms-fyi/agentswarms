@@ -25,6 +25,7 @@ import { getOrchestrator, MCP_SERVICE_PATH } from "@/utils/notebookRuntime/orche
 import {
   MCP_PROTOCOL_VERSION,
   parseJsonOrSse,
+  isLegacyFingerprint,
   toolsFingerprint,
   toolsFromListResult,
   type McpTool,
@@ -367,7 +368,14 @@ export async function deploy(app: McpAppRow): Promise<DeployResult> {
   const hash = toolsFingerprint(shook.tools);
   // Only a *change* counts — a first deploy has nothing to have drifted from,
   // so it must not open with a scary re-approval banner.
-  const toolsChanged = Boolean(app.tools_hash) && app.tools_hash !== hash;
+  //
+  // A hash written by an older algorithm is not a change either: it cannot be
+  // compared with a new one, and flagging every existing app at once would
+  // train owners to click through the diff, which is the habit a real rug pull
+  // relies on. It is upgraded in place instead. The one-deploy cost is that a
+  // tool change made in the SAME deploy as the upgrade is not flagged.
+  const toolsChanged =
+    Boolean(app.tools_hash) && !isLegacyFingerprint(app.tools_hash) && app.tools_hash !== hash;
   const now = new Date().toISOString();
 
   await supabaseAdmin
