@@ -7,7 +7,15 @@
 //   databricks    → SQL Statement Execution API (/api/2.0/sql/statements)
 //   bigquery      → BigQuery REST (jobs.query) with a service-account JWT
 //   azure_synapse → TDS via the pure-JS `tedious` driver (dynamic import —
-//                   Node/Docker deployments only; Synapse has no REST SQL API)
+//   + sqlserver     Node/Docker deployments only; neither has a REST SQL API)
+//   clickhouse    → HTTP interface, FORMAT JSONCompact
+//
+// MOST PROVIDERS ARE NOT SEPARATE DRIVERS. CockroachDB, Timescale, AlloyDB,
+// Greenplum and Yugabyte speak the PostgreSQL wire protocol; MariaDB,
+// SingleStore, StarRocks, Doris and PlanetScale speak MySQL's. Each is a
+// first-class provider with its own label, defaults and docs, but dispatch
+// routes on PROVIDER_FAMILY so they all share one proven connection routine.
+// See types.ts. Adding a wire-compatible database should not add a driver.
 //
 // All drivers enforce read-only SQL, cap returned rows, and normalise
 // results to { columns, rows } with numeric coercion driven by column types.
@@ -21,6 +29,7 @@ import {
   withWarehouseTimeout,
 } from "@/utils/warehouse/governor.server";
 
+import { FAMILY_DEFAULT_PORT, PROVIDER_FAMILY } from "./types";
 import type {
   WarehouseColumn,
   WarehouseConfig,
@@ -613,34 +622,61 @@ async function athenaQuery(
 // ── Azure Synapse (TDS via tedious — Node runtimes only) ─────────────────────
 
 type SynapseConfig = Extract<WarehouseConfig, { provider: "azure_synapse" }>;
+type SqlServerConfig = Extract<WarehouseConfig, { provider: "sqlserver" }>;
+type TdsLike = SynapseConfig | SqlServerConfig;
 
-async function synapseQuery(
-  cfg: SynapseConfig,
+/**
+ * SQL Server and Azure Synapse over TDS.
+ *
+ * One routine for both: Synapse's dedicated SQL pool IS SQL Server as far as
+ * the wire is concerned. They differ only in defaults, and those differences
+ * are real — an on-prem SQL Server commonly presents a self-signed
+ * certificate, which Azure never does, so `trustServerCertificate` is
+ * offered for SQL Server and pinned OFF for Synapse rather than being left to
+ * a shared default that would be wrong for one of them.
+ */
+async function tdsQuery(
+  cfg: TdsLike,
   sql: string,
   maxRows: number,
 ): Promise<{ columns: WarehouseColumn[]; data: unknown[][]; truncated: boolean }> {
+  const label = cfg.provider === "sqlserver" ? "SQL Server" : "Azure Synapse";
   let tedious: typeof import("tedious");
   try {
     tedious = await import(/* @vite-ignore */ "tedious");
   } catch {
     throw new Error(
-      "Azure Synapse connections need a Node deployment (Docker/bare Node) — the TDS driver is not available in this runtime.",
+      `${label} connections need a Node deployment (Docker/bare Node) — the TDS driver is not available in this runtime.`,
     );
   }
   const { Connection, Request } = tedious;
 
+  const isServer = cfg.provider === "sqlserver";
+  // Synapse is addressed by `server`; SQL Server by host/port like every other
+  // host-based provider, so its config uses the shared HostPortConfig shape.
+  const server = isServer ? cfg.host : cfg.server;
+  const port = isServer && cfg.port ? Number(cfg.port) : undefined;
+
   return new Promise((resolve, reject) => {
     const connection = new Connection({
-      server: cfg.server,
+      server,
       authentication: {
         type: "default",
         options: { userName: cfg.username, password: cfg.password },
       },
       options: {
         database: cfg.database,
-        encrypt: true,
+        // A named instance is resolved by the SQL Browser service and is
+        // mutually exclusive with a port; sending both makes tedious ignore
+        // the instance and silently hit the wrong server.
+        ...(isServer && cfg.instance_name
+          ? { instanceName: cfg.instance_name }
+          : port
+            ? { port }
+            : {}),
+        encrypt: isServer ? cfg.ssl !== "disable" : true,
         rowCollectionOnRequestCompletion: false,
-        trustServerCertificate: false,
+        trustServerCertificate: isServer ? cfg.trust_server_certificate === "true" : false,
         requestTimeout: POLL_TIMEOUT_MS,
         connectTimeout: 20_000,
       },
@@ -657,7 +693,7 @@ async function synapseQuery(
         } catch {
           /* ignore */
         }
-        reject(new Error(`Azure Synapse: ${err.message}`));
+        reject(new Error(`${label}: ${err.message}`));
       }
     };
 
@@ -700,15 +736,25 @@ function pgTypeName(oid: number): string {
   return "text";
 }
 
+/**
+ * Any provider that speaks the PostgreSQL wire protocol.
+ *
+ * The driver is deliberately typed by SHAPE rather than by provider name:
+ * CockroachDB, Timescale, AlloyDB, Greenplum and Yugabyte are all served by
+ * this one routine, and it must not need editing to add the next one.
+ */
+type PgLike = Extract<WarehouseConfig, { provider: "postgres" }>;
+type MySqlLike = Extract<WarehouseConfig, { provider: "mysql" }>;
+
 async function pgQuery(
-  config: Extract<WarehouseConfig, { provider: "postgres" }>,
+  config: PgLike,
   sql: string,
   maxRows: number,
 ): Promise<{ columns: WarehouseColumn[]; data: unknown[][]; truncated: boolean }> {
   const { Client } = await import("pg");
   const client = new Client({
     host: config.host,
-    port: Number(config.port) || 5432,
+    port: Number(config.port) || FAMILY_DEFAULT_PORT.postgres,
     database: config.database,
     user: config.username,
     password: config.password,
@@ -739,14 +785,14 @@ function mysqlTypeName(t: number | undefined): string {
 }
 
 async function mysqlQuery(
-  config: Extract<WarehouseConfig, { provider: "mysql" }>,
+  config: MySqlLike,
   sql: string,
   maxRows: number,
 ): Promise<{ columns: WarehouseColumn[]; data: unknown[][]; truncated: boolean }> {
   const mysql = await import("mysql2/promise");
   const conn = await mysql.createConnection({
     host: config.host,
-    port: Number(config.port) || 3306,
+    port: Number(config.port) || FAMILY_DEFAULT_PORT.mysql,
     database: config.database,
     user: config.username,
     password: config.password,
@@ -765,6 +811,72 @@ async function mysqlQuery(
   } finally {
     await conn.end();
   }
+}
+
+// ── ClickHouse ───────────────────────────────────────────────────────────────
+// ClickHouse's HTTP interface takes the SQL as the POST body and returns
+// whatever FORMAT the query asks for. Asking for JSONCompact gets typed column
+// metadata and row arrays in one response, so there is no second round trip to
+// discover the schema and no per-row key repetition on the wire.
+
+type ClickHouseConfig = Extract<WarehouseConfig, { provider: "clickhouse" }>;
+
+type ClickHouseResponse = {
+  meta?: { name: string; type: string }[];
+  data?: unknown[][];
+  rows?: number;
+  exception?: string;
+};
+
+async function clickhouseQuery(
+  cfg: ClickHouseConfig,
+  sql: string,
+  maxRows: number,
+): Promise<{ columns: WarehouseColumn[]; data: unknown[][]; truncated: boolean }> {
+  const base = cfg.url.replace(/\/+$/, "");
+  const url = new URL(base);
+  if (cfg.database) url.searchParams.set("database", cfg.database);
+  // Ask for one row more than the cap so a full page is distinguishable from a
+  // truncated one without a second COUNT query.
+  url.searchParams.set("max_result_rows", String(maxRows + 1));
+  url.searchParams.set("result_overflow_mode", "break");
+  // Belt and braces against a query that ignores the guard: the server refuses
+  // to write regardless of what the SQL says.
+  url.searchParams.set("readonly", "1");
+
+  // SSRF: refuse cloud metadata / link-local targets. Private networks stay
+  // allowed, as for Trino — a self-hosted ClickHouse commonly sits inside the
+  // customer's own VPC.
+  if (isBlockedAlways(url.hostname)) {
+    throw new Error("ClickHouse: refusing to connect to a blocked host");
+  }
+  const res = await fetch(url.toString(), {
+    method: "POST",
+    headers: {
+      // ClickHouse Cloud and self-hosted both accept Basic; the X-ClickHouse-*
+      // headers are not supported by every proxy in front of it.
+      Authorization: `Basic ${btoa(`${cfg.username}:${cfg.password}`)}`,
+      "Content-Type": "text/plain; charset=utf-8",
+    },
+    // FORMAT is appended rather than set via a param so it survives a query
+    // that already ends in a semicolon-free SELECT.
+    body: `${sql}\nFORMAT JSONCompact`,
+    signal: AbortSignal.timeout(POLL_TIMEOUT_MS),
+  });
+
+  if (!res.ok) throw new Error(`ClickHouse: ${await readError(res, "clickhouse")}`);
+  const json = (await res.json()) as ClickHouseResponse;
+  // A 200 with an `exception` body happens when the error is raised after the
+  // response has begun streaming; treating it as success would surface a
+  // truncated result as a complete one.
+  if (json.exception) throw new Error(`ClickHouse: ${json.exception}`);
+
+  const columns: WarehouseColumn[] = (json.meta ?? []).map((m) => ({
+    name: m.name,
+    type: m.type,
+  }));
+  const all = json.data ?? [];
+  return { columns, data: all.slice(0, maxRows), truncated: all.length > maxRows };
 }
 
 // ── Trino / Starburst / Presto ───────────────────────────────────────────────
@@ -965,6 +1077,13 @@ export async function executeWarehouseQuery(
     data: unknown[][];
     truncated: boolean;
   }> => {
+    // Wire-compatible providers route to the driver for their family FIRST, so
+    // adding CockroachDB or MariaDB never means adding a connection routine.
+    const family = PROVIDER_FAMILY[config.provider];
+    if (family === "postgres") return pgQuery(config as PgLike, safeSql, cappedRows);
+    if (family === "mysql") return mysqlQuery(config as MySqlLike, safeSql, cappedRows);
+    if (family === "tds") return tdsQuery(config as TdsLike, safeSql, cappedRows);
+
     switch (config.provider) {
       case "snowflake":
         return snowflakeQuery(config, safeSql, cappedRows);
@@ -974,18 +1093,23 @@ export async function executeWarehouseQuery(
         return bigqueryQuery(config, safeSql, cappedRows);
       case "redshift":
         return redshiftQuery(config, safeSql, cappedRows);
-      case "azure_synapse":
-        return synapseQuery(config, safeSql, cappedRows);
-      case "postgres":
-        return pgQuery(config, safeSql, cappedRows);
-      case "mysql":
-        return mysqlQuery(config, safeSql, cappedRows);
       case "trino":
         return trinoQuery(config, safeSql, cappedRows);
       case "athena":
         return athenaQuery(config, safeSql, cappedRows);
       case "oracle":
         return oracleQuery(config, safeSql, cappedRows);
+      case "clickhouse":
+        return clickhouseQuery(config, safeSql, cappedRows);
+      default:
+        // Every provider must be reachable. A new one added to the union but
+        // to neither PROVIDER_FAMILY nor this switch would otherwise fall
+        // through and return undefined, surfacing as an unreadable crash
+        // rather than "this provider is not wired up".
+        throw new Error(
+          `No driver for provider "${(config as { provider: string }).provider}". ` +
+            `Add it to PROVIDER_FAMILY or give it a driver here.`,
+        );
     }
   };
 
@@ -1006,7 +1130,26 @@ export async function executeWarehouseQuery(
 }
 
 export async function listWarehouseTables(config: WarehouseConfig): Promise<WarehouseTable[]> {
-  let sql: string;
+  let sql = "";
+
+  // Every wire-compatible family member exposes the ANSI information_schema,
+  // so schema browsing follows the family exactly as querying does. MySQL-family
+  // engines need their internal schemas filtered out or the picker is buried
+  // under hundreds of system tables.
+  const family = PROVIDER_FAMILY[config.provider];
+  if (family === "postgres" || family === "tds") {
+    return runColumnsQuery(config, COLUMNS_QUERY("information_schema.columns"));
+  }
+  if (family === "mysql") {
+    return runColumnsQuery(
+      config,
+      COLUMNS_QUERY(
+        "information_schema.columns",
+        "AND table_schema NOT IN ('mysql', 'performance_schema', 'sys')",
+      ),
+    );
+  }
+
   switch (config.provider) {
     case "snowflake":
       sql = COLUMNS_QUERY(`"${config.database}".information_schema.columns`);
@@ -1021,18 +1164,19 @@ export async function listWarehouseTables(config: WarehouseConfig): Promise<Ware
       sql = COLUMNS_QUERY(scope);
       break;
     }
-    case "postgres":
-      sql = COLUMNS_QUERY("information_schema.columns");
-      break;
-    case "mysql":
-      sql = COLUMNS_QUERY(
-        "information_schema.columns",
-        "AND table_schema NOT IN ('mysql', 'performance_schema')",
-      );
-      break;
     case "redshift":
-    case "azure_synapse":
       sql = COLUMNS_QUERY("information_schema.columns");
+      break;
+    case "clickhouse":
+      // ClickHouse ships information_schema, but system.columns is the native
+      // view and is present on every version including the older ones people
+      // actually run. Its own databases are excluded for the same reason
+      // MySQL's are.
+      sql =
+        "SELECT database AS table_schema, table AS table_name, name AS column_name, " +
+        "type AS data_type FROM system.columns " +
+        "WHERE database NOT IN ('system', 'INFORMATION_SCHEMA', 'information_schema') " +
+        "ORDER BY database, table, position LIMIT 5000";
       break;
     case "trino":
       // Qualify with the catalog when set (X-Trino-Catalog also scopes it).
@@ -1054,8 +1198,24 @@ export async function listWarehouseTables(config: WarehouseConfig): Promise<Ware
         "FROM user_tab_columns ORDER BY table_name, column_id FETCH FIRST 5000 ROWS ONLY";
       break;
   }
+  if (!sql) {
+    throw new Error(
+      `Schema browsing is not wired up for provider "${(config as { provider: string }).provider}".`,
+    );
+  }
+  return runColumnsQuery(config, sql);
+}
+
+/**
+ * Run a catalog query and group its rows into tables.
+ *
+ * Shared by the family branch and the per-provider switch so both normalise
+ * identically — dialects disagree about the CASE of information_schema column
+ * names (Oracle and Snowflake upper-case them), and grouping on the raw key
+ * silently produces zero tables rather than an error.
+ */
+async function runColumnsQuery(config: WarehouseConfig, sql: string): Promise<WarehouseTable[]> {
   const result = await executeWarehouseQuery(config, sql, warehouseAbsMaxRows());
-  // Normalise column-name casing across dialects before grouping.
   const rows = result.rows.map((r) => {
     const lower: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(r)) lower[k.toLowerCase()] = v;

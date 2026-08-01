@@ -11,11 +11,101 @@ export type WarehouseProvider =
   | "mysql"
   | "trino"
   | "athena"
-  | "oracle";
+  | "oracle"
+  // ── Postgres wire protocol ────────────────────────────────────────────
+  | "cockroachdb"
+  | "timescaledb"
+  | "alloydb"
+  | "greenplum"
+  | "yugabytedb"
+  // ── MySQL wire protocol ───────────────────────────────────────────────
+  | "mariadb"
+  | "singlestore"
+  | "starrocks"
+  | "doris"
+  | "planetscale"
+  // ── TDS (SQL Server) wire protocol ────────────────────────────────────
+  | "sqlserver"
+  // ── Own HTTP protocol ─────────────────────────────────────────────────
+  | "clickhouse";
+
+/**
+ * The wire protocol a provider speaks.
+ *
+ * MOST "NEW DATABASES" ARE NOT NEW PROTOCOLS. CockroachDB, Timescale, AlloyDB,
+ * Greenplum and Yugabyte all speak the PostgreSQL wire protocol; MariaDB,
+ * SingleStore, StarRocks, Doris and PlanetScale speak MySQL's; Azure Synapse
+ * and SQL Server both speak TDS. Giving each its own driver would mean ten
+ * copies of one connection routine, ten places for a timeout fix to be missed,
+ * and ten drivers of which only two are ever exercised in anger.
+ *
+ * So a provider declares its family and the dispatcher routes on THAT. The
+ * provider is still first-class — its own entry, label, defaults and docs,
+ * because someone looking for CockroachDB should find CockroachDB — but the
+ * code that talks to it is the code that is already proven.
+ */
+export type WireFamily = "postgres" | "mysql" | "tds" | "own";
+
+export const PROVIDER_FAMILY: Record<WarehouseProvider, WireFamily> = {
+  postgres: "postgres",
+  cockroachdb: "postgres",
+  timescaledb: "postgres",
+  alloydb: "postgres",
+  greenplum: "postgres",
+  yugabytedb: "postgres",
+  // Redshift's HTTP Data API is used instead of its Postgres wire protocol —
+  // it needs no VPC route and authenticates with IAM, so it stays "own".
+  redshift: "own",
+
+  mysql: "mysql",
+  mariadb: "mysql",
+  singlestore: "mysql",
+  starrocks: "mysql",
+  doris: "mysql",
+  planetscale: "mysql",
+
+  azure_synapse: "tds",
+  sqlserver: "tds",
+
+  snowflake: "own",
+  databricks: "own",
+  bigquery: "own",
+  trino: "own",
+  athena: "own",
+  oracle: "own",
+  clickhouse: "own",
+};
+
+/**
+ * Providers whose config is exactly host/port/database/user/password.
+ *
+ * `postgres`, `mysql` and `sqlserver` are deliberately NOT here: they are the
+ * originals and carry extra fields of their own, so they keep bespoke entries.
+ */
+export const HOST_PORT_PROVIDERS = [
+  "cockroachdb",
+  "timescaledb",
+  "alloydb",
+  "greenplum",
+  "yugabytedb",
+  "mariadb",
+  "singlestore",
+  "starrocks",
+  "doris",
+  "planetscale",
+] as const satisfies readonly WarehouseProvider[];
+
+/** Default TCP port per family, used when a connection leaves port blank. */
+export const FAMILY_DEFAULT_PORT: Record<Exclude<WireFamily, "own">, number> = {
+  postgres: 5432,
+  mysql: 3306,
+  tds: 1433,
+};
 
 export const WAREHOUSE_PROVIDERS: WarehouseProvider[] = [
   "postgres",
   "mysql",
+  "sqlserver",
   "oracle",
   "redshift",
   "snowflake",
@@ -24,6 +114,17 @@ export const WAREHOUSE_PROVIDERS: WarehouseProvider[] = [
   "azure_synapse",
   "trino",
   "athena",
+  "clickhouse",
+  "cockroachdb",
+  "timescaledb",
+  "alloydb",
+  "greenplum",
+  "yugabytedb",
+  "mariadb",
+  "singlestore",
+  "starrocks",
+  "doris",
+  "planetscale",
 ];
 
 export const WAREHOUSE_LABELS: Record<WarehouseProvider, string> = {
@@ -33,14 +134,68 @@ export const WAREHOUSE_LABELS: Record<WarehouseProvider, string> = {
   bigquery: "Google BigQuery",
   azure_synapse: "Azure Synapse (dedicated SQL pool)",
   postgres: "PostgreSQL",
-  mysql: "MySQL / MariaDB",
+  mysql: "MySQL",
   trino: "Trino / Starburst / Presto",
   athena: "Amazon Athena",
   oracle: "Oracle Database / Autonomous DB",
+  sqlserver: "Microsoft SQL Server / Azure SQL",
+  clickhouse: "ClickHouse",
+  cockroachdb: "CockroachDB",
+  timescaledb: "TimescaleDB",
+  alloydb: "Google AlloyDB",
+  greenplum: "Greenplum",
+  yugabytedb: "YugabyteDB",
+  mariadb: "MariaDB",
+  singlestore: "SingleStore",
+  starrocks: "StarRocks",
+  doris: "Apache Doris",
+  planetscale: "PlanetScale",
+};
+
+/**
+ * Host/port/user/password, the shape every wire-compatible database shares.
+ *
+ * `provider` stays specific so the connection remembers what it actually is —
+ * the label, the docs and the default port all follow from it — while the
+ * driver dispatches on PROVIDER_FAMILY.
+ */
+export type HostPortConfig<P extends WarehouseProvider> = {
+  provider: P;
+  host: string;
+  port?: string;
+  database: string;
+  username: string;
+  password: string;
+  /** "require" enables TLS (rejectUnauthorized: false for managed hosts). */
+  ssl?: string;
 };
 
 /** Per-provider connection config. Stored encrypted — never sent back to the client. */
 export type WarehouseConfig =
+  | HostPortConfig<"cockroachdb">
+  | HostPortConfig<"timescaledb">
+  | HostPortConfig<"alloydb">
+  | HostPortConfig<"greenplum">
+  | HostPortConfig<"yugabytedb">
+  | HostPortConfig<"mariadb">
+  | HostPortConfig<"singlestore">
+  | HostPortConfig<"starrocks">
+  | HostPortConfig<"doris">
+  | HostPortConfig<"planetscale">
+  | (HostPortConfig<"sqlserver"> & {
+      /** Self-signed certs are normal on-prem; Azure SQL should leave this off. */
+      trust_server_certificate?: string;
+      /** Named instance, e.g. "SQLEXPRESS". Mutually exclusive with a port. */
+      instance_name?: string;
+    })
+  | {
+      provider: "clickhouse";
+      /** Base URL of the HTTP interface, e.g. "https://abc.clickhouse.cloud:8443". */
+      url: string;
+      username: string;
+      password: string;
+      database?: string;
+    }
   | {
       provider: "redshift";
       region: string;

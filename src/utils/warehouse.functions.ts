@@ -9,6 +9,7 @@ import type { Database } from "@/integrations/supabase/types";
 import { encryptJson } from "@/utils/providers/crypto.server";
 import { testWarehouseConnection } from "@/utils/warehouse/drivers.server";
 import { loadWarehouseConnection } from "@/utils/warehouse/connections.server";
+import { HOST_PORT_PROVIDERS } from "@/utils/warehouse/types";
 import type { WarehouseConfig, WarehouseConnectionSummary } from "@/utils/warehouse/types";
 import { auditEvent } from "@/utils/audit.server";
 
@@ -118,6 +119,39 @@ const ConfigSchema = z.discriminatedUnion("provider", [
     password: z.string().min(1),
     schema: z.string().optional(),
   }),
+  z.object({
+    provider: z.literal("clickhouse"),
+    url: z.string().url(),
+    username: z.string().min(1),
+    password: z.string(),
+    database: z.string().optional(),
+  }),
+  z.object({
+    provider: z.literal("sqlserver"),
+    host: z.string().min(1),
+    port: z.string().optional(),
+    database: z.string().min(1),
+    username: z.string().min(1),
+    password: z.string().min(1),
+    ssl: z.string().optional(),
+    trust_server_certificate: z.string().optional(),
+    instance_name: z.string().optional(),
+  }),
+  // Wire-compatible providers. Each is its own member rather than a shared
+  // one with a loose provider field, because a discriminated union is what
+  // makes an unknown provider a validation ERROR instead of a config that
+  // saves cleanly and fails at query time.
+  ...HOST_PORT_PROVIDERS.map((p) =>
+    z.object({
+      provider: z.literal(p),
+      host: z.string().min(1),
+      port: z.string().optional(),
+      database: z.string().min(1),
+      username: z.string().min(1),
+      password: z.string().min(1),
+      ssl: z.string().optional(),
+    }),
+  ),
 ]);
 
 export const listWarehouseConnections = createServerFn({ method: "POST" })

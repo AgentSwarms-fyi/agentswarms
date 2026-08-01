@@ -1,5 +1,6 @@
-// "Data Sources" tab of the Integration Hub: connect PostgreSQL, MySQL, Oracle,
-// Redshift, Snowflake, Databricks, BigQuery, Azure Synapse, Trino or Athena.
+// "Data Sources" tab of the Integration Hub. The provider list comes from
+// WAREHOUSE_PROVIDERS, so adding a connector there makes it appear here —
+// this file only supplies each one's description and connection fields.
 // Credentials are encrypted server-side and never come back to the client;
 // queries run through /api/warehouse/* and the warehouse agent tools.
 import { useCallback, useEffect, useState } from "react";
@@ -78,7 +79,12 @@ type Field = {
   hint?: string;
 };
 
-const PROVIDER_LOGOS: Record<WarehouseProvider, string> = {
+/**
+ * Bundled logos. PARTIAL ON PURPOSE — a provider without one falls back to a
+ * lettered tile, so adding a connector never blocks on sourcing a trademarked
+ * image we may not have the right to redistribute in an MIT repo.
+ */
+const PROVIDER_LOGOS: Partial<Record<WarehouseProvider, string>> = {
   redshift: redshiftLogo,
   snowflake: snowflakeLogo,
   databricks: databricksLogo,
@@ -91,10 +97,164 @@ const PROVIDER_LOGOS: Record<WarehouseProvider, string> = {
   oracle: oracleLogo,
 };
 
+/** The logo tile, or the provider's initials when no logo is bundled. */
+function ProviderMark({ provider }: { provider: WarehouseProvider }) {
+  const logo = PROVIDER_LOGOS[provider];
+  if (logo) {
+    return (
+      <img
+        src={logo}
+        alt={`${WAREHOUSE_LABELS[provider]} logo`}
+        className="h-full w-full object-contain"
+      />
+    );
+  }
+  const initials = WAREHOUSE_LABELS[provider]
+    .replace(/[^A-Za-z ]/g, "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0]!.toUpperCase())
+    .join("");
+  return (
+    <span aria-hidden className="text-[11px] font-semibold tracking-tight text-muted-foreground">
+      {initials}
+    </span>
+  );
+}
+
+/**
+ * Fields for a host/port provider.
+ *
+ * Generated rather than written out per provider: twelve hand-copied field
+ * lists is twelve places for the SSL hint to drift, and the only thing that
+ * legitimately differs between them is the default port.
+ */
+function hostPortFields(defaultPort: number, dbPlaceholder?: string): Field[] {
+  return [
+    { key: "host", label: "Host", placeholder: "db.example.com" },
+    { key: "port", label: "Port", placeholder: String(defaultPort), optional: true },
+    { key: "database", label: "Database", placeholder: dbPlaceholder },
+    { key: "username", label: "Username" },
+    { key: "password", label: "Password", type: "password" },
+    {
+      key: "ssl",
+      label: "SSL",
+      optional: true,
+      placeholder: "require",
+      hint: 'Set to "require" for managed hosts (TLS without CA verification).',
+    },
+  ];
+}
+
+const READ_ONLY_NOTE = "Use a read-only role — only SELECT statements are ever sent.";
+
 const PROVIDER_META: Record<
   WarehouseProvider,
   { description: string; fields: Field[]; note?: string }
 > = {
+  // ── PostgreSQL wire protocol ──────────────────────────────────────────
+  cockroachdb: {
+    description:
+      "Distributed SQL, Postgres-compatible. Works with Cockroach Cloud and self-hosted.",
+    fields: hostPortFields(26257, "defaultdb"),
+    note: READ_ONLY_NOTE,
+  },
+  timescaledb: {
+    description: "PostgreSQL for time-series. Works with Timescale Cloud and self-hosted.",
+    fields: hostPortFields(5432, "tsdb"),
+    note: READ_ONLY_NOTE,
+  },
+  alloydb: {
+    description:
+      "Google Cloud's PostgreSQL-compatible database. Connect via its private or public IP.",
+    fields: hostPortFields(5432, "postgres"),
+    note: READ_ONLY_NOTE,
+  },
+  greenplum: {
+    description: "Massively parallel PostgreSQL-derived warehouse.",
+    fields: hostPortFields(5432, "gpadmin"),
+    note: READ_ONLY_NOTE,
+  },
+  yugabytedb: {
+    description: "Distributed SQL with a PostgreSQL-compatible API (YSQL).",
+    fields: hostPortFields(5433, "yugabyte"),
+    note: READ_ONLY_NOTE,
+  },
+
+  // ── MySQL wire protocol ───────────────────────────────────────────────
+  mariadb: {
+    description: "MariaDB server or SkySQL, over the MySQL wire protocol.",
+    fields: hostPortFields(3306),
+    note: READ_ONLY_NOTE,
+  },
+  singlestore: {
+    description: "SingleStore (formerly MemSQL), real-time analytics over the MySQL protocol.",
+    fields: hostPortFields(3306),
+    note: READ_ONLY_NOTE,
+  },
+  starrocks: {
+    description: "StarRocks MPP analytics engine. Connect to the FE query port.",
+    fields: hostPortFields(9030),
+    note: READ_ONLY_NOTE,
+  },
+  doris: {
+    description: "Apache Doris MPP analytics engine. Connect to the FE query port.",
+    fields: hostPortFields(9030),
+    note: READ_ONLY_NOTE,
+  },
+  planetscale: {
+    description: "PlanetScale serverless MySQL. Use a branch password from the dashboard.",
+    fields: hostPortFields(3306),
+    note: 'PlanetScale requires TLS — set SSL to "require".',
+  },
+  sqlserver: {
+    description: "Microsoft SQL Server or Azure SQL Database, over TDS. Needs a Node deployment.",
+    fields: [
+      { key: "host", label: "Host", placeholder: "sql.example.com" },
+      { key: "port", label: "Port", placeholder: "1433", optional: true },
+      {
+        key: "instance_name",
+        label: "Named instance",
+        placeholder: "SQLEXPRESS",
+        optional: true,
+        hint: "Only for a named instance. Leave the port blank when using this.",
+      },
+      { key: "database", label: "Database" },
+      { key: "username", label: "Username" },
+      { key: "password", label: "Password", type: "password" },
+      {
+        key: "ssl",
+        label: "Encryption",
+        optional: true,
+        placeholder: "require",
+        hint: 'Encrypted by default. Set to "disable" only for a legacy on-prem server.',
+      },
+      {
+        key: "trust_server_certificate",
+        label: "Trust server certificate",
+        optional: true,
+        placeholder: "true",
+        hint: 'Set "true" for a self-signed on-prem certificate. Leave blank for Azure SQL.',
+      },
+    ],
+    note: READ_ONLY_NOTE,
+  },
+  clickhouse: {
+    description: "ClickHouse Cloud or self-hosted, over its HTTP interface.",
+    fields: [
+      {
+        key: "url",
+        label: "HTTP URL",
+        placeholder: "https://abc.clickhouse.cloud:8443",
+        hint: "Include the scheme and port. Self-hosted defaults to port 8123 (or 8443 for TLS).",
+      },
+      { key: "username", label: "Username", placeholder: "default" },
+      { key: "password", label: "Password", type: "password", optional: true },
+      { key: "database", label: "Database", placeholder: "default", optional: true },
+    ],
+    note: "Queries are sent with readonly=1, so the server refuses writes regardless.",
+  },
   postgres: {
     description: "Connect any PostgreSQL database directly (Supabase, RDS, Neon, self-hosted).",
     fields: [
@@ -443,11 +603,7 @@ export function WarehousesTab() {
             <CardHeader className="pb-3">
               <div className="flex items-center gap-2.5">
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border/50 bg-white p-1.5">
-                  <img
-                    src={PROVIDER_LOGOS[p]}
-                    alt={`${WAREHOUSE_LABELS[p]} logo`}
-                    className="h-full w-full object-contain"
-                  />
+                  <ProviderMark provider={p} />
                 </div>
                 <CardTitle className="text-base">{WAREHOUSE_LABELS[p]}</CardTitle>
               </div>
