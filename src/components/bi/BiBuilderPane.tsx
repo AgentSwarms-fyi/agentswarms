@@ -145,70 +145,21 @@ const ONTO_STAGE_LABEL: Record<OntologyBuildStage, string> = {
   enriching: "AI is building the ontology…",
 };
 
-// ── Ontology source selection ─────────────────────────────────────────────
-// Each source group (local datasets, one per warehouse, knowledge bases)
-// holds "all" or an explicit set of member names/ids. "all" survives lists
-// that haven't loaded yet (warehouse schemas, KB list) — it resolves to the
-// full list at build time.
+// Source selection, join detection and seed SQL now live in lib/biBuilder —
+// pure, React-free, and tested. Re-exported so the (single) consumer of this
+// file, and any future split children, keep one import site.
+import { groupCheckState, seedSql, selHas, toggleName } from "@/lib/biBuilder";
+import type { SelOrAll, SourceTable } from "@/lib/biBuilder";
 
-export type SelOrAll = "all" | Set<string>;
+export { groupCheckState, selHas, toggleName, type SelOrAll, type SourceTable };
 
 type OntoKb = { id: string; name: string; docCount: number; docs: string[] };
-
-export const selHas = (sel: SelOrAll, name: string) => sel === "all" || sel.has(name);
-
-/** Tri-state group checkbox value; `names` is null while the list loads. */
-export function groupCheckState(
-  sel: SelOrAll | undefined,
-  names: string[] | null,
-): boolean | "indeterminate" {
-  if (!sel) return false;
-  if (sel === "all") return true;
-  if (sel.size === 0) return false;
-  if (!names || names.length === 0) return true;
-  const n = names.filter((x) => sel.has(x)).length;
-  return n === 0 ? false : n === names.length ? true : "indeterminate";
-}
-
-export function toggleName(sel: SelOrAll | undefined, names: string[], name: string): SelOrAll {
-  const set = sel === "all" ? new Set(names) : new Set(sel ?? []);
-  if (set.has(name)) set.delete(name);
-  else set.add(name);
-  return set;
-}
-
-type SourceTable = { name: string; cols: string[] };
 
 /** A knowledge-base document the analyst can pull unstructured context from. */
 type KbDocOption = { id: string; name: string; kbName: string };
 
 /** Per-question cap keeps the excerpt budget meaningful per document. */
 const MAX_AI_DOCS = 6;
-
-function detectJoinKey(a: string[], b: string[]): string | null {
-  const setB = new Set(b.map((c) => c.toLowerCase()));
-  const common = a.filter((c) => setB.has(c.toLowerCase()));
-  return (
-    common.find((c) => /_id$/i.test(c)) ?? common.find((c) => /^id$/i.test(c)) ?? common[0] ?? null
-  );
-}
-
-function seedSql(tables: SourceTable[]): string {
-  if (tables.length === 0) return "";
-  if (tables.length === 1) return `SELECT *\nFROM ${tables[0].name}\nLIMIT 50`;
-  const [first, ...rest] = tables;
-  const lines = ["SELECT *", `FROM ${first.name}`];
-  for (const t of rest) {
-    const key = detectJoinKey(first.cols, t.cols);
-    lines.push(
-      key
-        ? `JOIN ${t.name} ON ${first.name}.${key} = ${t.name}.${key}`
-        : `JOIN ${t.name} ON ${first.name}.<join_key> = ${t.name}.<join_key>`,
-    );
-  }
-  lines.push("LIMIT 50");
-  return lines.join("\n");
-}
 
 export function BiBuilderPane({
   ctx,
