@@ -397,6 +397,73 @@ export async function ingestUpload(args: {
   }
 }
 
+/**
+ * Replace (or create) a dataset from a stream of already-parsed rows.
+ *
+ * The SaaS sync path's entry point. It shares the ENTIRE staging lifecycle with
+ * file upload — same RowSink, same type inference from the same sample size,
+ * same snapshot-then-swap, same mirror refresh — because a dataset's behaviour
+ * must not depend on whether the rows arrived from a CSV or from an API. A
+ * second implementation would drift on exactly the details that are invisible
+ * until they are wrong: which rows count as empty, when columns are decided,
+ * and whether a failure leaves the previous data intact.
+ *
+ * Rows are consumed lazily, so a connector can page through a large source
+ * without holding it in memory.
+ */
+export async function ingestRows(args: {
+  userId: string;
+  tableName: string;
+  /** Shown as the dataset's origin, e.g. "Google Sheets · Q3 Budget". */
+  sourceLabel: string;
+  rows: AsyncIterable<Record<string, unknown>>;
+}): Promise<IngestResult> {
+  const maxRows = uploadMaxRows();
+  const stagingName = `${STAGING_PREFIX}${crypto.randomUUID().replace(/-/g, "").slice(0, 24)}`;
+  const { data: staging, error: stErr } = await supabaseAdmin
+    .from("user_data_tables")
+    .insert({
+      user_id: args.userId,
+      name: stagingName,
+      source_filename: args.sourceLabel.slice(0, 200),
+      columns: [] as unknown as Json,
+      is_sample: false,
+    })
+    .select("id")
+    .single();
+  if (stErr || !staging) throw new Error(stErr?.message ?? "Could not start the sync");
+
+  const sink = new RowSink(staging.id, maxRows);
+  try {
+    for await (const row of args.rows) await sink.push(row);
+    await sink.finish();
+
+    if (sink.count === 0 || !sink.columns || sink.columns.length === 0) {
+      throw new IngestError(`No rows returned by ${args.sourceLabel}.`);
+    }
+
+    const result = await promoteStaging({
+      userId: args.userId,
+      stagingId: staging.id,
+      tableName: args.tableName,
+      sourceFilename: args.sourceLabel,
+      columns: sink.columns,
+    });
+    return {
+      ...result,
+      rowCount: sink.count,
+      columns: sink.columns,
+      format: "json",
+      skipped: sink.skipped,
+    };
+  } catch (e) {
+    // Same guarantee as an upload: the live dataset is never touched unless
+    // the whole sync succeeded.
+    await supabaseAdmin.from("user_data_tables").delete().eq("id", staging.id);
+    throw e instanceof IngestError ? new Error(e.message) : e;
+  }
+}
+
 /** Rebuild the columnar mirror; never fails the upload that just succeeded. */
 async function refreshMirror(userId: string, tableId: string): Promise<void> {
   await import("@/utils/data/parquet.server")

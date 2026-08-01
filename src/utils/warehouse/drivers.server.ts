@@ -22,6 +22,10 @@
 
 import { isBlockedAlways } from "@/utils/ssrfGuard.server";
 import {
+  GOOGLE_SCOPES,
+  googleAccessToken as googleServiceAccountToken,
+} from "@/utils/google/serviceAccount.server";
+import {
   warehouseAbsMaxRows,
   warehouseMaxRows,
   warehouseTimeoutMs,
@@ -265,56 +269,13 @@ function pemToArrayBuffer(pem: string): ArrayBuffer {
   return buf.buffer;
 }
 
-function b64url(input: string | Uint8Array): string {
-  const bytes = typeof input === "string" ? new TextEncoder().encode(input) : input;
-  let bin = "";
-  bytes.forEach((b) => (bin += String.fromCharCode(b)));
-  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-async function googleAccessToken(serviceAccountJson: string): Promise<string> {
-  let sa: { client_email?: string; private_key?: string; token_uri?: string };
-  try {
-    sa = JSON.parse(serviceAccountJson);
-  } catch {
-    throw new Error("BigQuery: service account key is not valid JSON");
-  }
-  if (!sa.client_email || !sa.private_key) {
-    throw new Error("BigQuery: service account key is missing client_email/private_key");
-  }
-  const tokenUri = sa.token_uri || "https://oauth2.googleapis.com/token";
-  const now = Math.floor(Date.now() / 1000);
-  const header = b64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
-  const claims = b64url(
-    JSON.stringify({
-      iss: sa.client_email,
-      scope: "https://www.googleapis.com/auth/bigquery",
-      aud: tokenUri,
-      iat: now,
-      exp: now + 3600,
-    }),
-  );
-  const key = await crypto.subtle.importKey(
-    "pkcs8",
-    pemToArrayBuffer(sa.private_key),
-    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const sig = await crypto.subtle.sign(
-    "RSASSA-PKCS1-v1_5",
-    key,
-    new TextEncoder().encode(`${header}.${claims}`),
-  );
-  const jwt = `${header}.${claims}.${b64url(new Uint8Array(sig))}`;
-  const res = await fetch(tokenUri, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${encodeURIComponent(jwt)}`,
+/** BigQuery's access token. The signing itself lives in utils/google so the
+ *  Sheets connector uses the same implementation rather than a second copy. */
+function googleAccessToken(serviceAccountJson: string): Promise<string> {
+  return googleServiceAccountToken(serviceAccountJson, {
+    scope: GOOGLE_SCOPES.bigquery,
+    label: "BigQuery",
   });
-  if (!res.ok) throw new Error(await readError(res, "BigQuery auth"));
-  const { access_token } = (await res.json()) as { access_token: string };
-  return access_token;
 }
 
 async function bigqueryQuery(
