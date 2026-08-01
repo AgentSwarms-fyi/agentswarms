@@ -333,8 +333,8 @@ function BiPage() {
             body: 'Open the underlying rows behind any data point — the answer to "is this number real?" and the fastest way to spot a broken join.',
           },
           {
-            name: "Ask AI",
-            body: "Readers can ask a follow-up question of the dashboard's data in natural language, including a drill-down on what they clicked.",
+            name: "Ask AI (embeds)",
+            body: "On an EMBEDDED dashboard, readers can ask a follow-up question of its data in natural language, including a drill-down on what they clicked. Inside the app this is not a separate control — the AI analyst in the builder answers the same questions with more of the model behind it.",
           },
         ]}
       />

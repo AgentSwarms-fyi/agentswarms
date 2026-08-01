@@ -55,7 +55,6 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { AskDashboardDialog } from "@/components/bi/AskDashboardDialog";
 import { BiBuilderPane, type BuilderTab } from "@/components/bi/BiBuilderPane";
 import { BiExploreDialog, extractBaseTable } from "@/components/bi/BiExploreDialog";
 import { BiFilterBar } from "@/components/bi/BiFilterBar";
@@ -307,7 +306,6 @@ function BiProjectPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [insightBusyId, setInsightBusyId] = useState<string | null>(null);
-  const [askOpen, setAskOpen] = useState(false);
   const [biModel, setBiModel] = useBiModelPref();
   const gridWrapRef = useRef<HTMLDivElement>(null);
 
@@ -496,7 +494,7 @@ function BiProjectPage() {
 
   // Row-level security: viewers get the row filters attached to their IAM
   // grants (null = unrestricted). Applied to every widget snapshot before
-  // rendering, filter options and the Ask AI context.
+  // rendering and to the filter options.
   const [rowFilters, setRowFilters] = useState<BiRowFilter[] | null>(null);
   // Viewers wait for their grant filters before any data renders, so
   // restricted rows never flash unfiltered while the query is in flight.
@@ -1065,8 +1063,7 @@ function BiProjectPage() {
 
   // Mandatory grant row filters first (viewers can't clear them), then
   // dashboard filters + the cross-filter. securedWidgets also feeds the
-  // filter bar and Ask AI so restricted rows never reach the viewer's UI
-  // or the AI context.
+  // filter bar, so restricted rows never reach the viewer's UI.
   const securedWidgets = rowFilters
     ? widgets.map((w) =>
         w.kind === "chart" && (w.rows?.length ?? 0) > 0
@@ -1281,20 +1278,6 @@ function BiProjectPage() {
               </Button>
             </>
           )}
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-8 gap-1.5 px-2.5 text-xs"
-            onClick={() => setAskOpen(true)}
-            disabled={layout.length === 0}
-            title={
-              crossFilter
-                ? `Ask AI about your selection (${crossFilter.column} = ${crossFilter.value})`
-                : "Ask AI questions about this dashboard's data"
-            }
-          >
-            <Sparkles className="h-3.5 w-3.5 text-primary" /> Ask AI
-          </Button>
           <Button
             size="sm"
             variant="ghost"
@@ -1672,14 +1655,6 @@ function BiProjectPage() {
         </>
       )}
 
-      <AskDashboardDialog
-        open={askOpen}
-        onOpenChange={setAskOpen}
-        dashboardName={row.name}
-        widgets={securedWidgets}
-        model={row.ai_model}
-        context={crossFilter}
-      />
       {!readOnly && (
         <BiExploreDialog
           widget={exploreWidget}
