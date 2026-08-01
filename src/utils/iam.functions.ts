@@ -914,7 +914,19 @@ export type IamSettings = {
   allow_public_signup: boolean;
   sso_enabled: boolean;
   sso_enforced: boolean;
+  /**
+   * Days to keep execution traces and swarm runs. 0 means keep for ever.
+   *
+   * The purge itself has existed and run on the scheduler since 20260736000000;
+   * it was simply unreachable, because nothing but a direct database write
+   * could change this number. A retention control nobody can find is a
+   * retention policy nobody has.
+   */
+  trace_retention_days: number;
 };
+
+/** Refuse a value that would silently delete more than intended. */
+const MAX_RETENTION_DAYS = 3650;
 
 export const iamGetSettings = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
@@ -923,7 +935,7 @@ export const iamGetSettings = createServerFn({ method: "POST" })
     if (!guard.ok) return guard;
     const { data: row, error } = await supabaseAdmin
       .from("iam_settings")
-      .select("allow_public_signup, sso_enabled, sso_enforced")
+      .select("allow_public_signup, sso_enabled, sso_enforced, trace_retention_days")
       .eq("id", true)
       .maybeSingle();
     if (error) return { ok: false, error: error.message };
@@ -932,6 +944,7 @@ export const iamGetSettings = createServerFn({ method: "POST" })
       allow_public_signup: row?.allow_public_signup ?? true,
       sso_enabled: row?.sso_enabled ?? false,
       sso_enforced: row?.sso_enforced ?? false,
+      trace_retention_days: Number(row?.trace_retention_days ?? 0),
     };
   });
 
@@ -943,6 +956,9 @@ export const iamUpdateSettings = createServerFn({ method: "POST" })
         allow_public_signup: z.boolean().optional(),
         sso_enabled: z.boolean().optional(),
         sso_enforced: z.boolean().optional(),
+        // Validated here rather than trusted from the form: this number
+        // decides what gets permanently deleted on the next scheduler pass.
+        trace_retention_days: z.number().int().min(0).max(MAX_RETENTION_DAYS).optional(),
       })
       .parse(input),
   )
@@ -954,11 +970,14 @@ export const iamUpdateSettings = createServerFn({ method: "POST" })
       allow_public_signup?: boolean;
       sso_enabled?: boolean;
       sso_enforced?: boolean;
+      trace_retention_days?: number;
     } = { updated_at: new Date().toISOString() };
     if (typeof data.allow_public_signup === "boolean")
       patch.allow_public_signup = data.allow_public_signup;
     if (typeof data.sso_enabled === "boolean") patch.sso_enabled = data.sso_enabled;
     if (typeof data.sso_enforced === "boolean") patch.sso_enforced = data.sso_enforced;
+    if (typeof data.trace_retention_days === "number")
+      patch.trace_retention_days = data.trace_retention_days;
     const { error } = await supabaseAdmin.from("iam_settings").update(patch).eq("id", true);
     if (error) return { ok: false, error: error.message };
     auditEvent({
@@ -969,6 +988,7 @@ export const iamUpdateSettings = createServerFn({ method: "POST" })
         allow_public_signup: data.allow_public_signup,
         sso_enabled: data.sso_enabled,
         sso_enforced: data.sso_enforced,
+        trace_retention_days: data.trace_retention_days,
       },
     });
     return { ok: true };

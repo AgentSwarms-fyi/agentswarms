@@ -97,9 +97,48 @@ const PROVIDER_LOGOS: Partial<Record<WarehouseProvider, string>> = {
   oracle: oracleLogo,
 };
 
+/**
+ * Any logo dropped into the assets directory, keyed by filename.
+ *
+ * DROP IN `src/assets/warehouses/<provider>.svg` AND IT APPEARS — no code
+ * change. The hand-written map above is exactly why twelve providers added in
+ * one commit had none: nobody edits a lookup table in a component file when
+ * adding a connector, and nothing fails if they do not.
+ */
+const LOGO_FILES = import.meta.glob<{ default: string }>("../../assets/warehouses/*.svg", {
+  eager: true,
+});
+
+function logoFor(provider: WarehouseProvider): string | null {
+  const explicit = PROVIDER_LOGOS[provider];
+  if (explicit) return explicit;
+  const hit = Object.entries(LOGO_FILES).find(([path]) => path.endsWith(`/${provider}.svg`));
+  return hit ? hit[1].default : null;
+}
+
+/**
+ * Initials for a provider with no bundled logo.
+ *
+ * A single-word label takes its first TWO letters, not one: ClickHouse and
+ * CockroachDB would otherwise render as two identical "C" tiles in the same
+ * grid.
+ */
+export function providerInitials(label: string): string {
+  const words = label
+    .replace(/[^A-Za-z ]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+  if (words.length === 0) return "?";
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return words
+    .slice(0, 2)
+    .map((w) => w[0]!.toUpperCase())
+    .join("");
+}
+
 /** The logo tile, or the provider's initials when no logo is bundled. */
 function ProviderMark({ provider }: { provider: WarehouseProvider }) {
-  const logo = PROVIDER_LOGOS[provider];
+  const logo = logoFor(provider);
   if (logo) {
     return (
       <img
@@ -109,16 +148,9 @@ function ProviderMark({ provider }: { provider: WarehouseProvider }) {
       />
     );
   }
-  const initials = WAREHOUSE_LABELS[provider]
-    .replace(/[^A-Za-z ]/g, "")
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((w) => w[0]!.toUpperCase())
-    .join("");
   return (
     <span aria-hidden className="text-[11px] font-semibold tracking-tight text-muted-foreground">
-      {initials}
+      {providerInitials(WAREHOUSE_LABELS[provider])}
     </span>
   );
 }

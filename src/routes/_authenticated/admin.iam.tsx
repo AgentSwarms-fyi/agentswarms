@@ -191,6 +191,7 @@ function AdminIamPage() {
           allow_public_signup: st.allow_public_signup,
           sso_enabled: st.sso_enabled,
           sso_enforced: st.sso_enforced,
+          trace_retention_days: st.trace_retention_days,
         });
         // SSO provider listing is non-fatal: SAML may simply not be enabled
         // on the Supabase project yet.
@@ -1550,6 +1551,12 @@ function SettingsTab({
   const updateSettings = useServerFn(iamUpdateSettings);
   const superadmins = users.filter((u) => u.is_superadmin);
   const allowSignup = settings?.allow_public_signup ?? true;
+  const retentionDays = settings?.trace_retention_days ?? 0;
+  // Held as a draft string so a half-typed number does not fire a save, and
+  // so the field can be cleared while editing.
+  const [retentionDraft, setRetentionDraft] = useState(String(retentionDays));
+  const [savingRetention, setSavingRetention] = useState(false);
+  useEffect(() => setRetentionDraft(String(retentionDays)), [retentionDays]);
 
   return (
     <div className="space-y-6 max-w-2xl">
@@ -1576,6 +1583,62 @@ function SettingsTab({
             />
             Allow anyone to sign up
           </label>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Trace retention</CardTitle>
+          <CardDescription>
+            How long execution traces and swarm runs are kept. Older rows are deleted in batches on
+            the scheduled maintenance pass. <strong>0 keeps everything for ever</strong>, which is
+            the default — on a busy instance these are the fastest-growing tables you have.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              type="number"
+              min={0}
+              max={3650}
+              className="h-9 w-28"
+              value={retentionDraft}
+              onChange={(e) => setRetentionDraft(e.target.value)}
+            />
+            <span className="text-sm text-muted-foreground">days</span>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={savingRetention || retentionDraft === String(retentionDays)}
+              onClick={async () => {
+                const n = Number(retentionDraft);
+                // Guarded here as well as server-side: this number decides what
+                // gets permanently deleted on the next pass, and a typo should
+                // not reach the database to be rejected there.
+                if (!Number.isInteger(n) || n < 0 || n > 3650) {
+                  return toast.error("Enter a whole number of days between 0 and 3650");
+                }
+                setSavingRetention(true);
+                const res = await updateSettings({
+                  data: { access_token: token, trace_retention_days: n },
+                });
+                setSavingRetention(false);
+                if (!res.ok) return toast.error(res.error);
+                if (settings) setSettings({ ...settings, trace_retention_days: n });
+                toast.success(
+                  n === 0 ? "Traces will be kept indefinitely" : `Traces kept for ${n} days`,
+                );
+              }}
+            >
+              Save
+            </Button>
+          </div>
+          {Number(retentionDraft) > 0 && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Traces and swarm runs older than {retentionDraft} days will be deleted permanently.
+              Audit events are governed separately and are not affected.
+            </p>
+          )}
         </CardContent>
       </Card>
 

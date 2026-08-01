@@ -51,6 +51,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
+import { providerInitials } from "@/components/integrations/WarehousesTab";
 import { SAAS_LABELS, SAAS_PROVIDERS } from "@/utils/saas/types";
 import type {
   SaasConfig,
@@ -74,6 +75,37 @@ type Field = {
   type?: "password" | "textarea";
   hint?: string;
 };
+
+/**
+ * App logos, discovered from the assets directory.
+ *
+ * Same contract as the warehouse tab: drop `src/assets/saas/<provider>.svg`
+ * in and it appears. There are none bundled yet — these are trademarked marks
+ * the project may not have the right to redistribute — so every card currently
+ * renders initials, which is deliberate rather than missing.
+ */
+const LOGO_FILES = import.meta.glob<{ default: string }>("../../assets/saas/*.svg", {
+  eager: true,
+});
+
+/** The logo tile, or the provider's initials when no logo is bundled. */
+function ProviderMark({ provider }: { provider: SaasProvider }) {
+  const hit = Object.entries(LOGO_FILES).find(([path]) => path.endsWith(`/${provider}.svg`));
+  if (hit) {
+    return (
+      <img
+        src={hit[1].default}
+        alt={`${SAAS_LABELS[provider]} logo`}
+        className="h-full w-full object-contain"
+      />
+    );
+  }
+  return (
+    <span aria-hidden className="text-[11px] font-semibold tracking-tight text-muted-foreground">
+      {providerInitials(SAAS_LABELS[provider])}
+    </span>
+  );
+}
 
 /**
  * Per-provider copy and form fields.
@@ -334,7 +366,12 @@ export function SaasSourcesTab() {
         {SAAS_PROVIDERS.map((p) => (
           <Card key={p} className="border-border/50">
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">{SAAS_LABELS[p]}</CardTitle>
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border/50 bg-white p-1.5">
+                  <ProviderMark provider={p} />
+                </div>
+                <CardTitle className="text-base">{SAAS_LABELS[p]}</CardTitle>
+              </div>
               <p className="text-xs text-muted-foreground">{PROVIDER_HELP[p].description}</p>
               {connections.some((c) => c.provider === p && c.last_sync_status === "ok") ? (
                 <Badge variant="outline" className="w-fit border-primary/30 text-primary">
