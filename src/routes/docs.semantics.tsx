@@ -187,6 +187,49 @@ GROUP BY 1, 2`}</Code>
         exists, qualify column names in your fragments.
       </P>
 
+      <H3 id="relative-dates">Relative date filters</H3>
+      <P>
+        Prefer these to hard-coded dates: they resolve against today every time the query runs, so a
+        dashboard never needs editing as time passes. <C>last_n_days</C> (with the number of days as
+        the value), <C>this_month</C>, <C>last_month</C>, <C>this_quarter</C>, <C>last_quarter</C>{" "}
+        and <C>ytd</C>. They apply only to a <strong>time</strong> dimension, and compare the raw
+        date rather than a rollup bucket — so &ldquo;last 30 days&rdquo; grouped by month still
+        means 30 days. Windows are half-open and computed in UTC, and the runner shows the exact
+        dates each one resolves to.
+      </P>
+
+      <H3 id="compare">Period-over-period</H3>
+      <P>
+        Set <C>compare</C> to <C>yoy</C>, <C>mom</C> or <C>prior_period</C> and every metric gains{" "}
+        <C>_prev</C>, <C>_change</C> and <C>_pct_change</C> (a fraction — <C>0.25</C> is +25%). It
+        needs exactly one time dimension with a grain: that is the axis being compared.{" "}
+        <C>prior_period</C> steps back one unit of that grain, <C>mom</C> one month and <C>yoy</C>{" "}
+        one year whatever the grain.
+      </P>
+      <P>
+        Three behaviours worth knowing. A period with <strong>no predecessor</strong> — the first in
+        the series, or a gap in the data — shows blank rather than being dropped from the result.{" "}
+        <C>_pct_change</C> is <strong>blank when the earlier value was zero</strong>, because a
+        change from nothing is not a percentage. And any date filter you set{" "}
+        <strong>moves with the comparison</strong>, so filtering to this year still compares against
+        last year rather than against nothing.
+      </P>
+      <P>
+        Not available on the AlaSQL escape hatch (<C>LOCAL_ENGINE=alasql</C>), which has neither
+        CTEs nor date arithmetic — the compiler refuses with that message rather than emitting SQL
+        it cannot run.
+      </P>
+      <Code lang="Compiled preview">{`WITH semantic_cur AS (…), semantic_prev AS (… shifted one year …)
+SELECT semantic_cur."month",
+       semantic_cur."net_revenue",
+       semantic_prev."net_revenue"                                    AS "net_revenue_prev",
+       (semantic_cur."net_revenue" - semantic_prev."net_revenue")     AS "net_revenue_change",
+       CASE WHEN semantic_prev."net_revenue" = 0 THEN NULL
+            ELSE (semantic_cur."net_revenue" - semantic_prev."net_revenue")
+                 * 1.0 / semantic_prev."net_revenue" END              AS "net_revenue_pct_change"
+FROM   semantic_cur
+LEFT JOIN semantic_prev ON semantic_cur."month" IS NOT DISTINCT FROM semantic_prev."month"`}</Code>
+
       <H2 id="consumers">Who uses it</H2>
       <Table
         headers={["Consumer", "How"]}

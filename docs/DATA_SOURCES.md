@@ -47,10 +47,46 @@ secrets with users/groups via **Admin → IAM**.
 
 The connectors split by how they reach the source:
 
-| Transport         | Providers                                                                                                             | Runs on            |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------ |
-| HTTP / REST API   | Snowflake, Databricks, BigQuery, Amazon Redshift (Data API), Amazon Athena, Trino/Starburst/Presto, **Oracle (ORDS)** | **Any** deployment |
-| Native TCP driver | PostgreSQL, MySQL/MariaDB, Azure Synapse (TDS)                                                                        | **Any** deployment |
+| Transport        | Providers                                                                                                                             | Runs on            |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
+| HTTP / REST API  | Snowflake, Databricks, BigQuery, Amazon Redshift (Data API), Amazon Athena, Trino/Starburst/Presto, **Oracle (ORDS)**, **ClickHouse** | **Any** deployment |
+| PostgreSQL wire  | PostgreSQL, **CockroachDB**, **TimescaleDB**, **AlloyDB**, **Greenplum**, **YugabyteDB**                                              | **Any** deployment |
+| MySQL wire       | MySQL, **MariaDB**, **SingleStore**, **StarRocks**, **Apache Doris**, **PlanetScale**                                                 | **Any** deployment |
+| TDS (SQL Server) | Azure Synapse, **Microsoft SQL Server / Azure SQL**                                                                                   | **Node** only      |
+
+**Most "new databases" are not new protocols.** A provider declares its wire
+family and the dispatcher routes on that, so every Postgres-compatible engine
+shares one proven driver rather than getting a near-duplicate of it. Each is
+still first-class — its own entry, label, default port and docs — because
+someone looking for CockroachDB should find CockroachDB.
+
+## Apps (SaaS sources)
+
+Databases are **queried in place**. Apps have no query language, so they are
+**pulled into datasets** instead: Integrations → **Apps** → connect, discover
+what is in there, choose what to sync. Each stream becomes its own dataset and
+is then indistinguishable from an uploaded CSV — same type inference, same
+version history, same use in BI, prep flows and the semantic layer.
+
+| App               | Auth                                           | Streams                                                                                                                |
+| ----------------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| **Google Sheets** | Service-account JSON (share the sheet with it) | One per worksheet                                                                                                      |
+| **Stripe**        | Secret or restricted key                       | Charges, customers, invoices, subscriptions, payment intents, products, prices, refunds, payouts, balance transactions |
+| **Shopify**       | Admin API access token                         | Orders, customers, products, draft orders, price rules                                                                 |
+| **HubSpot**       | Private app token                              | Contacts, companies, deals, tickets, line items, products                                                              |
+| **Salesforce**    | Connected app (client credentials)             | Accounts, contacts, leads, opportunities, cases, campaigns, users                                                      |
+
+**Auth is a pasted credential, never OAuth.** A redirect flow needs a public
+callback URL that a self-hosted deployment behind a firewall may not have, so
+every connector uses the vendor's server-to-server credential instead. That is
+a deliberate constraint, and it is why sources offering no such credential are
+not here yet.
+
+A sync **replaces** its dataset — the correct semantic for a source where rows
+are edited and deleted in place. The previous contents are snapshotted as a
+restorable version first. Syncs run on demand or hourly / daily / weekly, and
+the owner is notified if one fails or comes back partial. Nested API objects
+are flattened into columns; arrays are stored as JSON with a count alongside.
 
 ## Providers
 

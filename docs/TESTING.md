@@ -299,7 +299,15 @@ discipline that keeps this honest: a question you cannot answer unambiguously
 in SQL does not belong in a score.
 
 Avoid aliasing to `total` or `value` in reference queries — both are reserved
-words in AlaSQL, the default engine.
+words in AlaSQL. DuckDB (the default) accepts them, so a reference query using
+one would score differently on the two engines.
+
+**A score is only comparable to another run on the SAME engine.** The eval
+inherits `LOCAL_ENGINE`, and both the reference query and the model's query run
+on it — so DuckDB's window functions, CTEs and subqueries, and the absence of
+AlaSQL's reserved-word failures, move the number without any prompt or model
+change. `npm run eval:nl2sql` prints the engine beside the score for this
+reason.
 
 `tests/unit/nl2sqlEval.test.ts` checks the harness itself on every push (that
 every reference query still runs, and that the grader accepts and rejects the

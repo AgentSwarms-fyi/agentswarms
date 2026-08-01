@@ -13,6 +13,11 @@ import { Check, Loader2, Plug2, Trash2, Unplug, X } from "lucide-react";
 // Sources: Simple Icons (CC0) for Snowflake / Databricks / BigQuery;
 // Wikimedia Commons for Amazon Redshift; Microsoft's Azure architecture
 // icon set for Synapse.
+//
+// These explicit imports exist only because their filenames predate the
+// convention. ANY NEW LOGO IS A FILE DROP — see src/assets/README.md for the
+// naming contract, the list of providers still showing initials, and the
+// licence check to do before bundling a mark.
 import redshiftLogo from "@/assets/warehouses/redshift.svg";
 import snowflakeLogo from "@/assets/warehouses/snowflake.svg";
 import databricksLogo from "@/assets/warehouses/databricks.svg";
