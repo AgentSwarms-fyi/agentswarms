@@ -39,7 +39,12 @@ export const metricQueryTool: ToolDef = {
         filters: {
           type: "array",
           description:
-            "Optional filters. Each: {field, op, value}. op ∈ =,!=,>,>=,<,<=,in,not_in,contains.",
+            "Optional filters. Each: {field, op, value}. " +
+            "op ∈ =,!=,>,>=,<,<=,in,not_in,contains. " +
+            "For dates prefer a RELATIVE op over a hard-coded range — " +
+            "last_n_days (value = number of days, today included), this_month, last_month, " +
+            "this_quarter, last_quarter, ytd. These take no value except last_n_days, " +
+            "apply only to a TIME dimension, and resolve against today at query time.",
           items: {
             type: "object",
             properties: {
@@ -47,7 +52,10 @@ export const metricQueryTool: ToolDef = {
               op: { type: "string" },
               value: {},
             },
-            required: ["field", "op", "value"],
+            // `value` is NOT required: every relative-date op except
+            // last_n_days takes none, and demanding one would make the model
+            // invent a filler that the compiler then has to ignore.
+            required: ["field", "op"],
           },
         },
         grains: {

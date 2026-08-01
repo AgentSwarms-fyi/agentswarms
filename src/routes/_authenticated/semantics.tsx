@@ -41,7 +41,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { TIME_GRAINS, type TimeGrain } from "@/lib/semanticLayer";
+import {
+  isRelativeDateOp,
+  relativeDateRange,
+  RELATIVE_DATE_OPS,
+  TIME_GRAINS,
+  type RelativeDateOp,
+  type TimeGrain,
+} from "@/lib/semanticLayer";
 import type {
   FilterOp,
   MetricAgg,
@@ -112,6 +119,16 @@ const AGGS: MetricAgg[] = [
 ];
 
 const FILTER_OPS: FilterOp[] = ["=", "!=", ">", ">=", "<", "<=", "in", "not_in", "contains"];
+
+/** Readable names for the relative-date ops; the raw values are snake_case. */
+const RELATIVE_OP_LABELS: Record<RelativeDateOp, string> = {
+  last_n_days: "in the last N days",
+  this_month: "this month",
+  last_month: "last month",
+  this_quarter: "this quarter",
+  last_quarter: "last quarter",
+  ytd: "year to date",
+};
 
 function slug(s: string): string {
   const out = s
@@ -1157,77 +1174,121 @@ function SemanticsPage() {
                   </div>
                   {pickedFilters.map((f, i) => {
                     const isList = f.op === "in" || f.op === "not_in";
+                    const isRelative = isRelativeDateOp(f.op);
+                    // Only a time dimension can carry a relative window; the
+                    // compiler rejects anything else, so the picker should not
+                    // offer a combination that cannot run.
+                    const fieldIsTime =
+                      draft.dimensions.find((d) => d.name === f.field)?.type === "time";
                     const patchFilter = (p: Partial<SemanticFilter>) =>
                       setPickedFilters((cur) =>
                         cur.map((x, j) => (j === i ? ({ ...x, ...p } as SemanticFilter) : x)),
                       );
+                    // Show the dates the window resolves to. "Last 30 days"
+                    // with no way to see WHICH 30 days is how someone ends up
+                    // unable to reproduce a number they are disputing.
+                    let windowHint = "";
+                    if (isRelative) {
+                      try {
+                        const { start, end } = relativeDateRange(f.op as RelativeDateOp, {
+                          n: Number(f.value),
+                        });
+                        windowHint = `${start} → ${end} (end exclusive)`;
+                      } catch (e) {
+                        windowHint = e instanceof Error ? e.message : "invalid window";
+                      }
+                    }
                     return (
-                      <div key={i} className="grid gap-2 sm:grid-cols-[1.2fr_110px_1.4fr_32px]">
-                        <Select value={f.field} onValueChange={(v) => patchFilter({ field: v })}>
-                          <SelectTrigger className="h-7 text-xs">
-                            <SelectValue placeholder="field…" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {draft.dimensions.map((d) => (
-                              <SelectItem key={`d-${d.name}`} value={d.name}>
-                                {d.name} (dim)
-                              </SelectItem>
-                            ))}
-                            {draft.metrics.map((m) => (
-                              <SelectItem key={`m-${m.name}`} value={m.name}>
-                                {m.name} (metric)
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <Select
-                          value={f.op}
-                          onValueChange={(v) => patchFilter({ op: v as FilterOp })}
-                        >
-                          <SelectTrigger className="h-7 text-xs">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {FILTER_OPS.map((op) => (
-                              <SelectItem key={op} value={op}>
-                                {op}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <Input
-                          className="h-7 font-mono text-xs"
-                          placeholder={isList ? "a, b, c" : "value"}
-                          value={
-                            Array.isArray(f.value) ? f.value.join(", ") : String(f.value ?? "")
-                          }
-                          onChange={(e) => {
-                            const raw = e.target.value;
-                            if (isList) {
-                              patchFilter({
-                                value: raw
-                                  .split(",")
-                                  .map((s) => s.trim())
-                                  .filter(Boolean),
-                              });
-                            } else {
-                              // Numeric-looking input is sent as a number so
-                              // comparisons work on numeric columns.
-                              const n = Number(raw);
-                              patchFilter({
-                                value: raw !== "" && Number.isFinite(n) ? n : raw,
-                              });
-                            }
-                          }}
-                        />
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          onClick={() => setPickedFilters((cur) => cur.filter((_, j) => j !== i))}
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
+                      <div key={i} className="space-y-1">
+                        <div className="grid gap-2 sm:grid-cols-[1.2fr_110px_1.4fr_32px]">
+                          <Select value={f.field} onValueChange={(v) => patchFilter({ field: v })}>
+                            <SelectTrigger className="h-7 text-xs">
+                              <SelectValue placeholder="field…" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {draft.dimensions.map((d) => (
+                                <SelectItem key={`d-${d.name}`} value={d.name}>
+                                  {d.name} (dim)
+                                </SelectItem>
+                              ))}
+                              {draft.metrics.map((m) => (
+                                <SelectItem key={`m-${m.name}`} value={m.name}>
+                                  {m.name} (metric)
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Select
+                            value={f.op}
+                            onValueChange={(v) => patchFilter({ op: v as FilterOp })}
+                          >
+                            <SelectTrigger className="h-7 text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {FILTER_OPS.map((op) => (
+                                <SelectItem key={op} value={op}>
+                                  {op}
+                                </SelectItem>
+                              ))}
+                              {fieldIsTime &&
+                                RELATIVE_DATE_OPS.map((op) => (
+                                  <SelectItem key={op} value={op}>
+                                    {RELATIVE_OP_LABELS[op]}
+                                  </SelectItem>
+                                ))}
+                            </SelectContent>
+                          </Select>
+                          {isRelative && f.op !== "last_n_days" ? (
+                            // These windows take no value at all.
+                            <div className="flex h-7 items-center text-xs text-muted-foreground">
+                              no value needed
+                            </div>
+                          ) : (
+                            <Input
+                              className="h-7 font-mono text-xs"
+                              type={f.op === "last_n_days" ? "number" : "text"}
+                              min={f.op === "last_n_days" ? 1 : undefined}
+                              placeholder={
+                                f.op === "last_n_days" ? "30" : isList ? "a, b, c" : "value"
+                              }
+                              value={
+                                Array.isArray(f.value) ? f.value.join(", ") : String(f.value ?? "")
+                              }
+                              onChange={(e) => {
+                                const raw = e.target.value;
+                                if (isList) {
+                                  patchFilter({
+                                    value: raw
+                                      .split(",")
+                                      .map((s) => s.trim())
+                                      .filter(Boolean),
+                                  });
+                                } else {
+                                  // Numeric-looking input is sent as a number so
+                                  // comparisons work on numeric columns.
+                                  const n = Number(raw);
+                                  patchFilter({
+                                    value: raw !== "" && Number.isFinite(n) ? n : raw,
+                                  });
+                                }
+                              }}
+                            />
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => setPickedFilters((cur) => cur.filter((_, j) => j !== i))}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+                        {windowHint && (
+                          <p className="pl-1 font-mono text-[11px] text-muted-foreground">
+                            {windowHint}
+                          </p>
+                        )}
                       </div>
                     );
                   })}

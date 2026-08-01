@@ -94,13 +94,50 @@ export type SemanticModel = {
   metrics: SemanticMetric[];
 };
 
-export type FilterOp = "=" | "!=" | ">" | ">=" | "<" | "<=" | "in" | "not_in" | "contains";
+/**
+ * Filters whose window is derived from TODAY rather than from a supplied value.
+ *
+ * These are the filters every dashboard actually wants — "this month", "last
+ * 30 days" — and writing them by hand means editing a hard-coded date every
+ * time the question is asked again.
+ *
+ * They are ordinary WHERE predicates over a half-open date range, so unlike
+ * period-over-period comparisons they need no window functions and work on
+ * every dialect, including AlaSQL.
+ */
+export const RELATIVE_DATE_OPS = [
+  "last_n_days",
+  "this_month",
+  "last_month",
+  "this_quarter",
+  "last_quarter",
+  "ytd",
+] as const;
+
+export type RelativeDateOp = (typeof RELATIVE_DATE_OPS)[number];
+
+export type FilterOp =
+  | "="
+  | "!="
+  | ">"
+  | ">="
+  | "<"
+  | "<="
+  | "in"
+  | "not_in"
+  | "contains"
+  | RelativeDateOp;
+
+export function isRelativeDateOp(op: FilterOp): op is RelativeDateOp {
+  return (RELATIVE_DATE_OPS as readonly string[]).includes(op);
+}
 
 export type SemanticFilter = {
   /** A dimension name (→ WHERE) or metric name (→ HAVING). */
   field: string;
   op: FilterOp;
-  value: string | number | boolean | Array<string | number>;
+  /** Not used by the relative-date ops except `last_n_days`, which reads N. */
+  value?: string | number | boolean | Array<string | number>;
 };
 
 export const TIME_GRAINS = ["day", "week", "month", "quarter", "year"] as const;
@@ -309,6 +346,117 @@ export function truncateExpr(sql: string, grain: TimeGrain, dialect: SqlDialect)
   return `DATE_TRUNC('${grain}', ${sql})`;
 }
 
+/** A window longer than this is a mistake, not a filter. */
+export const MAX_RELATIVE_DAYS = 3650;
+
+/** The UTC calendar day `d` falls on, as an ISO date. */
+function isoDay(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+function utcDay(year: number, monthIndex: number, day: number): Date {
+  return new Date(Date.UTC(year, monthIndex, day));
+}
+
+/**
+ * The half-open date window `[start, end)` a relative filter covers.
+ *
+ * Exported because the filter UI shows the resolved dates — "last 30 days"
+ * with no way to see which 30 days is how someone ends up disputing a number
+ * they cannot reproduce.
+ *
+ * HALF-OPEN ON PURPOSE. `>= start AND < end` is correct whether the column
+ * holds a plain date or a timestamp; a closed `<= end` silently drops
+ * everything after midnight on the final day, which is a whole day of missing
+ * data on the most recent — and most looked-at — bucket.
+ *
+ * WINDOWS ARE UTC. The app has no per-user timezone, and picking the server's
+ * local zone would mean the same dashboard answered differently depending on
+ * where it was deployed.
+ *
+ * `last_n_days` INCLUDES today: n=30 is today plus the 29 days before it, so
+ * the window is exactly n days long.
+ */
+export function relativeDateRange(
+  op: RelativeDateOp,
+  opts: { n?: number; now?: Date } = {},
+): { start: string; end: string } {
+  const now = opts.now ?? new Date();
+  const y = now.getUTCFullYear();
+  const m = now.getUTCMonth();
+  const today = utcDay(y, m, now.getUTCDate());
+  const tomorrow = utcDay(y, m, now.getUTCDate() + 1);
+
+  switch (op) {
+    case "last_n_days": {
+      const n = opts.n;
+      if (typeof n !== "number" || !Number.isFinite(n) || n < 1 || n > MAX_RELATIVE_DAYS) {
+        throw new Error(
+          `"last_n_days" needs a whole number of days between 1 and ${MAX_RELATIVE_DAYS}`,
+        );
+      }
+      const days = Math.trunc(n);
+      return { start: isoDay(utcDay(y, m, now.getUTCDate() - (days - 1))), end: isoDay(tomorrow) };
+    }
+    case "this_month":
+      return { start: isoDay(utcDay(y, m, 1)), end: isoDay(utcDay(y, m + 1, 1)) };
+    case "last_month":
+      return { start: isoDay(utcDay(y, m - 1, 1)), end: isoDay(utcDay(y, m, 1)) };
+    case "this_quarter": {
+      const q = Math.floor(m / 3) * 3;
+      return { start: isoDay(utcDay(y, q, 1)), end: isoDay(utcDay(y, q + 3, 1)) };
+    }
+    case "last_quarter": {
+      const q = Math.floor(m / 3) * 3;
+      return { start: isoDay(utcDay(y, q - 3, 1)), end: isoDay(utcDay(y, q, 1)) };
+    }
+    case "ytd":
+      // To DATE — through today, not through the end of the year.
+      return { start: isoDay(utcDay(y, 0, 1)), end: isoDay(tomorrow) };
+    default:
+      throw new Error(`Unknown relative date op "${op as string}"`);
+  }
+}
+
+/**
+ * A date literal for `dialect`.
+ *
+ * Everywhere except BigQuery an ISO string compares correctly against a date
+ * column (the engine casts) and against the ISO TEXT that local datasets store
+ * — see the `date` → VARCHAR decision in duckdb.server. BigQuery will not
+ * compare DATE to STRING at all and needs the explicit constructor.
+ *
+ * The input is generated here from a Date, never taken from a user, so it
+ * cannot carry a quote; it is escaped anyway rather than trusted by argument.
+ */
+function dateLiteral(iso: string, dialect: SqlDialect): string {
+  const quoted = `'${escapeString(iso, dialect)}'`;
+  return dialect === "bigquery" ? `DATE ${quoted}` : quoted;
+}
+
+/**
+ * A relative date filter as a plain WHERE predicate.
+ *
+ * Deliberately NOT emitted as `CURRENT_DATE - INTERVAL n DAY`. Compiling the
+ * boundaries to literals here means one implementation for every dialect
+ * instead of a date-function matrix per engine — AlaSQL has no CURRENT_DATE
+ * and no INTERVAL at all — and it makes the compiled SQL reproducible, so a
+ * number someone disputes can be re-run and get the same answer.
+ *
+ * That is only safe because compileSemanticQuery runs on every execution
+ * rather than being cached (see query.server), so the window is recomputed
+ * each time the question is asked.
+ */
+export function relativeDateExpr(
+  sql: string,
+  op: RelativeDateOp,
+  dialect: SqlDialect,
+  opts: { n?: number; now?: Date } = {},
+): string {
+  const { start, end } = relativeDateRange(op, opts);
+  return `(${sql} >= ${dateLiteral(start, dialect)} AND ${sql} < ${dateLiteral(end, dialect)})`;
+}
+
 const METRIC_REF_RE = /\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g;
 
 /** Aggregate expression for a NON-derived metric (a leaf measure). */
@@ -390,9 +538,34 @@ function compileFilter(
   f: SemanticFilter,
   exprByField: Map<string, string>,
   dialect: SqlDialect,
+  opts: { dim?: SemanticDimension; now?: Date } = {},
 ): string {
   const expr = exprByField.get(f.field);
   if (!expr) throw new Error(`Filter references unknown field "${f.field}"`);
+
+  if (isRelativeDateOp(f.op)) {
+    const dim = opts.dim;
+    // A relative date window over a non-date column would compare a string to
+    // whatever that column holds and quietly return nothing — a filter that
+    // silently empties a dashboard is the exact failure this layer exists to
+    // prevent, so it must be impossible to express rather than merely unwise.
+    if (!dim) {
+      throw new Error(
+        `"${f.op}" filters a time dimension; "${f.field}" is a metric. ` +
+          `Filter the date dimension instead.`,
+      );
+    }
+    if (dim.type !== "time") {
+      throw new Error(`"${f.op}" needs a time dimension; "${f.field}" is ${dim.type}.`);
+    }
+    // The RAW column, never the grain-wrapped expression. Filtering "last 30
+    // days" against a dimension grained to month would compare the bucket
+    // label rather than the row's date, so a query grouped by month would
+    // silently filter by month — right-looking output, wrong rows.
+    const n = typeof f.value === "number" ? f.value : Number(f.value);
+    return relativeDateExpr(dim.sql, f.op, dialect, { n, now: opts.now });
+  }
+
   switch (f.op) {
     case "=":
     case "!=":
@@ -401,11 +574,13 @@ function compileFilter(
     case "<":
     case "<=": {
       if (Array.isArray(f.value)) throw new Error(`Operator "${f.op}" needs a scalar`);
+      if (f.value === undefined) throw new Error(`Operator "${f.op}" needs a value`);
       const op = f.op === "!=" ? "<>" : f.op;
       return `${expr} ${op} ${literal(f.value, dialect)}`;
     }
     case "in":
     case "not_in": {
+      if (f.value === undefined) throw new Error(`Operator "${f.op}" needs a value`);
       const arr = Array.isArray(f.value) ? f.value : [f.value];
       if (arr.length === 0) return f.op === "in" ? "1 = 0" : "1 = 1";
       const list = arr.map((v) => literal(v, dialect)).join(", ");
@@ -462,7 +637,9 @@ function compileJoins(joins: SemanticJoin[] | undefined, dialect: SqlDialect): s
 export function compileSemanticQuery(
   model: SemanticModel,
   q: SemanticQuery,
-  opts?: { dialect?: SqlDialect },
+  /** `now` pins the reference date for relative-date filters; tests use it so
+   *  a compiled window is reproducible rather than dependent on the clock. */
+  opts?: { dialect?: SqlDialect; now?: Date },
 ): CompiledQuery {
   const dialect: SqlDialect = opts?.dialect ?? "postgres";
 
@@ -538,9 +715,15 @@ export function compileSemanticQuery(
   const whereParts: string[] = [];
   const havingParts: string[] = [];
   for (const f of q.filters ?? []) {
-    if (metricByName.has(f.field)) havingParts.push(compileFilter(f, exprByField, dialect));
-    else if (dimByName.has(f.field)) whereParts.push(compileFilter(f, exprByField, dialect));
-    else throw new Error(`Filter references unknown field "${f.field}"`);
+    if (metricByName.has(f.field)) {
+      havingParts.push(compileFilter(f, exprByField, dialect, { now: opts?.now }));
+    } else if (dimByName.has(f.field)) {
+      // The dimension itself goes through so a relative-date filter can reach
+      // its type and its ungrained SQL.
+      whereParts.push(
+        compileFilter(f, exprByField, dialect, { dim: dimByName.get(f.field), now: opts?.now }),
+      );
+    } else throw new Error(`Filter references unknown field "${f.field}"`);
   }
 
   const from = assertTableRef(model.source.table);
