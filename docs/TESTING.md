@@ -238,6 +238,28 @@ project configured is a no-op.
 config: the default config excludes that directory, and `--dir` narrows the
 search without lifting the exclude, so the run exits "No test files found".
 
+**The audit hash chain is verified here and only here.** Each audit event
+hashes its content plus its predecessor's hash, so an edit or a deletion breaks
+every link after it. `audit_chain_verify()` lets the database check its own
+chain, which is the weaker half of the guarantee — whoever can rewrite rows can
+usually re-run the trigger. The property that matters is that the NDJSON
+archive shipped off the box can be verified by a DIFFERENT implementation, and
+`src/lib/auditChain.ts` is it.
+
+One trap makes that module necessary rather than optional: the trigger hashes
+`detail::text`, Postgres's JSONB rendering, which orders object keys by LENGTH
+then bytewise and puts a space after `:` and `,`. `JSON.stringify` produces
+neither, so the obvious verifier reports a perfectly intact trail as entirely
+tampered with — destroying trust in the evidence rather than in an attacker.
+The unit tests cannot catch drift there, because they would agree with a wrong
+implementation; only the integration test, which recomputes hashes the trigger
+actually wrote, can. **Run it after touching `jsonbText`.**
+
+These tests are strictly READ-ONLY against the trail. Inserting events would
+pollute it, and deleting them afterwards would leave a sequence gap that makes
+the chain look tampered with from then on — the suite must not break the
+guarantee it checks.
+
 What they cover today: the cross-instance rate limiter and concurrency leases —
 specifically that a configured ceiling holds across INDEPENDENT callers (the
 guarantee that was broken when those limits were counted per process), and that
