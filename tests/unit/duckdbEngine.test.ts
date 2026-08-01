@@ -9,29 +9,32 @@ import {
   type DuckTable,
 } from "@/utils/data/duckdb.server";
 
-describe("the opt-in flag", () => {
+describe("the opt-out flag", () => {
   const original = process.env.LOCAL_ENGINE;
   afterEach(() => {
     if (original === undefined) delete process.env.LOCAL_ENGINE;
     else process.env.LOCAL_ENGINE = original;
   });
 
-  it("is off unless explicitly set", () => {
+  it("is on unless explicitly opted out of", () => {
     delete process.env.LOCAL_ENGINE;
-    expect(duckdbEnabled()).toBe(false);
+    expect(duckdbEnabled()).toBe(true);
   });
 
-  it("accepts the value case- and whitespace-insensitively", () => {
-    for (const v of ["duckdb", "DuckDB", "  DUCKDB  "]) {
+  it("takes the escape hatch case- and whitespace-insensitively", () => {
+    for (const v of ["alasql", "AlaSQL", "  ALASQL  "]) {
       process.env.LOCAL_ENGINE = v;
-      expect(duckdbEnabled()).toBe(true);
+      expect(duckdbEnabled()).toBe(false);
     }
   });
 
-  it("ignores anything else rather than guessing", () => {
-    for (const v of ["", "alasql", "duck", "true", "1"]) {
+  it("treats an unrecognised value as the default engine, not as opting out", () => {
+    // A typo must not silently downgrade the engine. Under the old opt-in
+    // reading LOCAL_ENGINE=duckdbb left you on AlaSQL and nothing said so;
+    // only an exact "alasql" now moves you off the default.
+    for (const v of ["", "duckdb", "duck", "alasq", "true", "1"]) {
       process.env.LOCAL_ENGINE = v;
-      expect(duckdbEnabled()).toBe(false);
+      expect(duckdbEnabled(), `LOCAL_ENGINE=${JSON.stringify(v)}`).toBe(true);
     }
   });
 });

@@ -77,9 +77,10 @@ The record so far, each verified rather than assumed:
 ## The differential harness
 
 Every server-side local query now goes through one entry point
-(`utils/data/localEngine.server`), which runs either AlaSQL (default) or DuckDB
-(`LOCAL_ENGINE=duckdb`). **The same question asked through two surfaces must
-not produce two answers** — that is what this suite enforces.
+(`utils/data/localEngine.server`), which runs either DuckDB (the default) or
+AlaSQL (`LOCAL_ENGINE=alasql`, the escape hatch). **The same question asked
+through two surfaces must not produce two answers** — that is what this suite
+enforces.
 
 It used to be worse: three engines, including a hand-written AST interpreter
 behind the `sql_query` agent tool. That interpreter is gone.
@@ -102,7 +103,7 @@ To see the differences rather than a pass/fail:
 npm run test:differential
 ```
 
-### DuckDB, the candidate engine
+### DuckDB, the default engine
 
 `tests/differential/duckdb.test.ts` measures DuckDB against AlaSQL. It runs
 **every** corpus query and matches on all but four, each recorded in
@@ -110,10 +111,15 @@ npm run test:differential
 PostgreSQL is) and summing a numeric column that holds strings.
 
 Anything **not** in that list must match. A new divergence fails the test, so
-promoting DuckDB to the default is a decision made against a written list of
-what changes rather than a hope that nothing does.
+promoting DuckDB to the default was a decision made against a written list of
+what changes rather than a hope that nothing did.
 
-Enable it with `LOCAL_ENGINE=duckdb` (see [DEPLOYMENT.md](./DEPLOYMENT.md)).
+It is now the default; `LOCAL_ENGINE=alasql` takes the escape hatch (see
+[DEPLOYMENT.md](./DEPLOYMENT.md)). **A test that wants a specific engine must
+name it** — `process.env.LOCAL_ENGINE = "alasql"`. Unsetting the variable no
+longer selects AlaSQL, and a harness written that way would quietly run DuckDB
+twice and claim both engines agreed. `runOn()` in the journey suite asserts
+`res.engine` for exactly this reason.
 
 Entries in `DUCKDB_DIFFERENCES` are asserted to **still** differ — if you fix
 one, the test fails and you must update the record. That is deliberate: an

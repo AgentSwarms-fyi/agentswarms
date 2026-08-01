@@ -182,12 +182,12 @@ async function loadLocalTables(userId: string): Promise<LocalTable[]> {
 /**
  * Run a widget's SQL against the owner's stored datasets, server-side.
  *
- * Two engines: AlaSQL (default) and DuckDB (LOCAL_ENGINE=duckdb). The flag
- * exists so DuckDB can be exercised on real traffic before it becomes the
- * default — tests/differential records exactly how the two differ, and the
- * only differences are cases where DuckDB follows standard SQL. If DuckDB
- * fails for an environmental reason (a missing native binary on an unusual
- * platform), fall back rather than failing a scheduled refresh outright.
+ * Two engines: DuckDB (the default) and AlaSQL (LOCAL_ENGINE=alasql, the
+ * escape hatch for a deployment that cannot run the native module).
+ * tests/differential records exactly how the two differ, and the only
+ * differences are cases where DuckDB follows standard SQL. If DuckDB fails for
+ * an environmental reason (a missing native binary on an unusual platform),
+ * fall back rather than failing a scheduled refresh outright.
  */
 export async function runLocalSqlForUser(
   userId: string,

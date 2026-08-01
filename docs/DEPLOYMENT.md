@@ -269,24 +269,30 @@ the flow actually produced) — a prepared dataset is never silently sampled.
 Raise them for larger flows, mindful that rows are held in memory during the
 run and inserted in batches of 500.
 
-**Local SQL engine (experimental).** Queries over datasets stored in this app
-run on AlaSQL by default. Set `LOCAL_ENGINE=duckdb` to use DuckDB instead — a
-vectorised columnar engine with real SQL: CTEs, subqueries, window functions
-and proper JOINs, none of which AlaSQL or the agent-tool interpreter support.
+**Local SQL engine.** Queries over datasets stored in this app run on **DuckDB**
+— a vectorised columnar engine with real SQL: CTEs, subqueries, window
+functions and proper JOINs, none of which AlaSQL supports. You do not need to
+configure anything.
 
-- `LOCAL_ENGINE` (default unset = AlaSQL) — set to `duckdb` to opt in.
+- `LOCAL_ENGINE` (default unset = DuckDB) — set to `alasql` **only** as an
+  escape hatch, if the native module will not install on your platform. Any
+  other value is treated as the default, so a typo cannot silently downgrade
+  the engine.
 - `LOCAL_ENGINE_MEMORY_MB` (default `512`) — per-query memory ceiling.
 - `LOCAL_ENGINE_THREADS` (default `2`).
 - `LOCAL_ENGINE_TIMEOUT_MS` (default `30000`) — the query is interrupted past this.
 
-When set, the flag applies to **all three** local paths: scheduled widget
-refresh, data-prep execution, and the `sql_query` agent tool. Prep flows are
-recompiled for the DuckDB dialect by the same compiler that emits the AlaSQL
-one, so switching engines cannot change what a flow means.
+The engine applies to **all three** local paths: scheduled widget refresh,
+data-prep execution, and the `sql_query` agent tool. Prep flows are recompiled
+for each dialect by the same compiler, so switching engines cannot change what
+a flow means.
 
-Behaviour differences from the default engine are recorded and tested in
-`tests/differential/duckdb.test.ts`; all of them are cases where DuckDB follows
-standard SQL. Two to know about before flipping it:
+**Taking the AlaSQL escape hatch costs you features**, not just speed: no
+window functions means the semantic layer's period-over-period comparisons
+(YoY, MoM, prior period) are unavailable. Differences are recorded and tested
+in `tests/differential/duckdb.test.ts`; all are cases where DuckDB follows
+standard SQL. Two to know about if you switch **to** AlaSQL, or are upgrading
+from a release where it was the default:
 
 - **NULL ordering.** DuckDB sorts NULLs last (as PostgreSQL does); AlaSQL
   places them mid-sequence, so a chart ordered by a column containing NULLs
@@ -295,20 +301,29 @@ standard SQL. Two to know about before flipping it:
   `2026-03-01`; AlaSQL produced the numeric `202603`. That is a better label,
   but it means a widget using **incremental refresh** on a grained column
   cannot merge its existing snapshot with newly-computed rows — the bucket
-  values no longer match. Run a full refresh on those widgets after switching.
+  values no longer match. **Upgrading from a release where AlaSQL was the
+  default, run one full refresh on those widgets.**
 
 See [TESTING.md](./TESTING.md).
 
-**Columnar mirror (Parquet).** With the DuckDB engine on, each dataset above
-`PARQUET_MIN_ROWS` is mirrored to a Parquet object in the private `datasets`
-bucket and cached on local disk. Queries then read one compressed columnar file
-instead of paging every row out of Postgres — the dominant cost in the old
-path, at 1,000 rows per round trip.
+**Columnar mirror (Parquet).** Each dataset above `PARQUET_MIN_ROWS` is
+mirrored to a Parquet object in the private `datasets` bucket and cached on
+local disk. Queries then read one compressed columnar file instead of paging
+every row out of Postgres — the dominant cost in the old path, at 1,000 rows
+per round trip.
 
 It is strictly a **cache**: `user_data_rows` remains the source of truth, and a
 mirror is used only when its `parquet_synced_at` is at least as new as the
 dataset's `data_loaded_at`. Anything else falls back to reading rows, so a
 missing or stale mirror costs speed and never correctness.
+
+**SHARED datasets are never mirrored**, and this is deliberate. A mirror holds
+the full table with no row filter and no column mask, so a per-grantee mirror
+would be a cache of an access-control decision — and a stale one would serve
+rows to someone whose grant had since been narrowed or revoked. Shared datasets
+always read their rows through `shared_dataset_rows()`. That path is fast
+enough that the safe choice is cheap: loading rows into DuckDB costs about
+20 ms per 5,000 rows.
 
 - `PARQUET_MIRROR` (default on; set `0` to disable).
 - `PARQUET_MIN_ROWS` (default `5000`) — below this the storage round trip

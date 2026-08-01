@@ -1,14 +1,15 @@
-// DuckDB as a local SQL engine — the candidate replacement for AlaSQL and the
+// DuckDB is the local SQL engine. It replaced AlaSQL and, before that, a
 // hand-written interpreter.
 //
-// Opt in with LOCAL_ENGINE=duckdb. Off by default: this is proven against the
-// existing engines by tests/differential before it becomes the default, not
-// after.
+// LOCAL_ENGINE=alasql is the escape hatch for a deployment that cannot run the
+// native module. It was proven against both incumbents by tests/differential
+// over a full corpus BEFORE becoming the default, which is the only order in
+// which that evidence is worth anything.
 //
-// Why bother: AlaSQL is a JS interpreter over plain objects with no real type
-// system, no window functions, no CTEs, and semantics that drift from SQL in
-// ways the differential harness has already caught. DuckDB is a vectorised
-// columnar engine that speaks actual SQL.
+// Why: AlaSQL is a JS interpreter over plain objects with no real type system,
+// no window functions, no CTEs, and semantics that drift from SQL in ways the
+// differential harness caught repeatedly. DuckDB is a vectorised columnar
+// engine that speaks actual SQL.
 //
 // Invariants worth protecting:
 //
@@ -41,9 +42,21 @@ export type DuckTable = {
   parquetPath?: string;
 };
 
-/** True when this deployment has opted into DuckDB for local SQL. */
+/**
+ * True unless this deployment has opted OUT of DuckDB.
+ *
+ * DuckDB is the default engine. `LOCAL_ENGINE=alasql` is the escape hatch, for
+ * a deployment that cannot run the native module at all — a platform without a
+ * prebuilt binary, or one where installing it is not permitted.
+ *
+ * ANY other value, including an unrecognised one, means DuckDB. That is
+ * deliberate: the failure mode of guessing wrong is now reversed. Under the old
+ * opt-in reading, a typo (`LOCAL_ENGINE=duckdbb`) silently left you on the
+ * weaker engine, which is the outcome nobody wants and nothing reports. Falling
+ * through to the default engine instead means a typo costs nothing.
+ */
 export function duckdbEnabled(): boolean {
-  return (process.env.LOCAL_ENGINE ?? "").trim().toLowerCase() === "duckdb";
+  return (process.env.LOCAL_ENGINE ?? "").trim().toLowerCase() !== "alasql";
 }
 
 /**

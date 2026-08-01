@@ -607,7 +607,7 @@ export function effectiveOutputColumns(cfg: PrepFlowConfig): PrepSchemaCol[] {
  */
 export type PrepDialect =
   | "alasql"
-  // The local columnar engine (LOCAL_ENGINE=duckdb). ANSI quoting, ANSI
+  // The local columnar engine, and the default. ANSI quoting, ANSI
   // string escaping, and a 1-based SPLIT_PART — so it needs no special cases
   // below; it is listed for exhaustiveness, not for exceptions.
   | "duckdb"

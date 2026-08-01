@@ -25,7 +25,11 @@ import Papa from "papaparse";
 
 import { buildSqlPrompt, describeColumn } from "@/lib/biAgent";
 import { coerceRow, inferColumns, type ColumnDef } from "@/lib/datasetParse";
-import { runLocalSelect, type LocalEngineTable } from "@/utils/data/localEngine.server";
+import {
+  localEngineName,
+  runLocalSelect,
+  type LocalEngineTable,
+} from "@/utils/data/localEngine.server";
 import { parseModelChoice } from "@/utils/providers/modelChoice";
 import { grade, summarize, type Verdict } from "./grade";
 import { QUESTIONS, type EvalQuestion } from "./questions";
@@ -202,9 +206,16 @@ async function main() {
   for (const [cat, v] of Object.entries(s.byCategory).sort()) {
     console.log(`  ${cat.padEnd(12)} ${v.passed}/${v.total}`);
   }
+  // The ENGINE belongs next to the number. Both the reference query and the
+  // model's query execute on whatever LOCAL_ENGINE selects, so the same
+  // question set and model can score differently on two engines — DuckDB has
+  // window functions, CTEs and subqueries that AlaSQL lacks, and AlaSQL cannot
+  // parse `AS total` at all. A score recorded without its engine is not
+  // comparable to anything, and the default changed once already.
   console.log(
-    "\nA score is only comparable against another run with the SAME question set,\n" +
-      "model and prompt. Record all three alongside the number.\n",
+    `\nA score is only comparable against another run with the SAME question set,\n` +
+      `model, prompt AND engine. This run: engine=${await localEngineName()}, ` +
+      `questions=${QUESTIONS.length}, repeats=${repeats}.\n`,
   );
 }
 

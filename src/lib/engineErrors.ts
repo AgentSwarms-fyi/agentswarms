@@ -43,8 +43,9 @@ const RULES: Rule[] = [
       `The ${engine} engine could not parse this SQL. ` +
       "A common cause is aliasing a column `total` or `value` — both are reserved words in AlaSQL, " +
       "so `SUM(amount) AS total` fails to parse. Rename the alias (for example `total_amount`). " +
-      "AlaSQL also does not support CTEs, window functions or subqueries; " +
-      "set LOCAL_ENGINE=duckdb if you need them.",
+      "AlaSQL also does not support CTEs, window functions or subqueries. " +
+      "This deployment has opted out of the default engine with LOCAL_ENGINE=alasql; " +
+      "removing that setting restores DuckDB, which supports all three.",
   },
   {
     match: /(?:Table with name|Table not found|Cannot find table)\s+"?([A-Za-z0-9_]+)"?/i,

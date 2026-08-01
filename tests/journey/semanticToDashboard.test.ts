@@ -23,7 +23,7 @@
 // only exists inside a component or a server handler, extract it — a copy would
 // pass while the product breaks, which is exactly how these bugs survived.
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   appendWidgetToPages,
@@ -86,8 +86,11 @@ const table: LocalEngineTable = {
  */
 async function runOn(engine: "alasql" | "duckdb", sql: string) {
   const previous = process.env.LOCAL_ENGINE;
-  if (engine === "duckdb") process.env.LOCAL_ENGINE = "duckdb";
-  else delete process.env.LOCAL_ENGINE;
+  // Both engines are named EXPLICITLY. Neither is "whatever the default is" —
+  // when the default flipped to DuckDB, an unset variable stopped meaning
+  // AlaSQL, and a harness that leaned on that would silently have run the same
+  // engine twice. The res.engine assertion below is what catches it.
+  process.env.LOCAL_ENGINE = engine;
   try {
     const res = await runLocalSelect(sql, [table]);
     // The engine that answered must be the one asked for; otherwise every
@@ -106,6 +109,48 @@ const ENGINES = [
   { dialect: "alasql" as const, run: (sql: string) => runOn("alasql", sql) },
   { dialect: "duckdb" as const, run: (sql: string) => runOn("duckdb", sql) },
 ];
+
+/**
+ * WHICH ENGINE A DEPLOYMENT GETS WHEN IT CONFIGURES NOTHING.
+ *
+ * This is a seam test, not a flag test. `duckdbEnabled()` has its own unit
+ * tests, but when the default flipped from AlaSQL to DuckDB those were the ONLY
+ * thing in the whole suite that failed — every other test either names its
+ * engine or does not care, so nothing asserted what a real query does on a
+ * fresh install. That is the shape of a claim the product makes and the suite
+ * does not check.
+ *
+ * It runs a real query through the real entry point with the variable unset,
+ * which is what a fresh `.env` looks like.
+ */
+describe("the engine a fresh deployment gets", () => {
+  const previous = process.env.LOCAL_ENGINE;
+  afterEach(() => {
+    if (previous === undefined) delete process.env.LOCAL_ENGINE;
+    else process.env.LOCAL_ENGINE = previous;
+  });
+
+  it("is DuckDB when LOCAL_ENGINE is unset", async () => {
+    delete process.env.LOCAL_ENGINE;
+    const res = await runLocalSelect(`SELECT COUNT(*) AS n FROM ${table.name}`, [table]);
+    expect(res.engine).toBe("duckdb");
+    // Not a mock: it answered the question too.
+    expect(Number(res.rows[0].n)).toBe(table.rows.length);
+  });
+
+  it("is DuckDB when LOCAL_ENGINE holds a value nobody recognises", async () => {
+    // A typo must not silently downgrade a deployment to the weaker engine.
+    process.env.LOCAL_ENGINE = "duckdbb";
+    const res = await runLocalSelect(`SELECT COUNT(*) AS n FROM ${table.name}`, [table]);
+    expect(res.engine).toBe("duckdb");
+  });
+
+  it("is AlaSQL only when explicitly asked for", async () => {
+    process.env.LOCAL_ENGINE = "alasql";
+    const res = await runLocalSelect(`SELECT COUNT(*) AS n FROM ${table.name}`, [table]);
+    expect(res.engine).toBe("alasql");
+  });
+});
 
 /**
  * Persist a dashboard the way the app does, then load it the way the app does.
