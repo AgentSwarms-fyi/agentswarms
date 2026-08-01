@@ -57,6 +57,23 @@ A journey test is only worth its runtime if it FAILS for the original reason.
 These were verified by mutation: reintroducing the quoting bug fails 4 of them,
 reintroducing the mirror-only write fails 8. Do the same when you add one.
 
+## Mutation-check anything that guards a boundary
+
+A test that guards security or determinism should be broken ON PURPOSE once,
+before you trust it. Passing proves nothing about what a test would catch, and
+these are exactly the tests nobody notices are hollow — an access check that
+cannot fail looks identical to one that works.
+
+The record so far, each verified rather than assumed:
+
+| Reintroduced defect                           | Tests that fail |
+| --------------------------------------------- | --------------- |
+| Dialect-locked semantic fragments             | 4 journey       |
+| "Add to dashboard" writing only the mirror    | 8 journey       |
+| A cosmetic column mask (values left in rows)  | 2 ACL           |
+| Unknown viewer failing OPEN instead of closed | 3 ACL           |
+| A duplicate migration version                 | 1 migration     |
+
 ## The differential harness
 
 Every server-side local query now goes through one entry point
