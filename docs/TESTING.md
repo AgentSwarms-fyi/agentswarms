@@ -161,12 +161,35 @@ per-category breakdown, so a regression can be located rather than just felt.
 | 2026-07-31 | `anthropic/claude-haiku-4.5` via OpenRouter | 23 questions, v1 | 78.3% (18/23), 1 run      |
 | 2026-07-31 | same, after the result-shape prompt fix     | 23 questions, v1 | **82.6% (19/23), 3 runs** |
 
-**The v1 numbers above are no longer comparable.** The set is now **45
-questions (v2)**, spread across seven of the bundled datasets instead of
-concentrating twelve of twenty-four on `saas_sales` — the old score largely
-measured performance on one schema. A v2 baseline has not been measured yet;
-until it is, this product has **no current accuracy number**, and saying so is
-better than quoting a figure from a different question set.
+**The v1 numbers above are not comparable to what follows.** The set is now 45
+questions (v2) across seven bundled datasets, instead of concentrating twelve
+of twenty-four on `saas_sales`.
+
+| Date       | Model                                       | Question set     | Execution accuracy       |
+| ---------- | ------------------------------------------- | ---------------- | ------------------------ |
+| 2026-08-01 | `anthropic/claude-haiku-4.5` via OpenRouter | 45 questions, v2 | **84.4% (38/45)**, 1 run |
+
+By category: aggregate 6/6, grouping 9/9, date 4/4, lookup 3/3, ambiguity 1/1,
+ranking 7/10, filter 6/9, ratio 2/3. **This is a single pass — treat it as
+provisional until someone runs `EVAL_REPEATS=3`**, which scores a question as
+passing only if every attempt passes.
+
+The first v2 pass scored 80.0%, and reading the failures found two defects in
+the QUESTIONS rather than in the model: "which countries got more than half
+their electricity from renewables?" and "which franchise had the most wins in a
+single season?" both admit more than one correct output shape, while their
+reference queries demanded a particular one. Questions with two right answers
+were reworded to name the columns they want — which is this file's existing
+standard ("a question you cannot answer unambiguously in SQL does not belong in
+a score"), not a concession to a failing case. The grader was NOT touched.
+
+**The remaining failures are real, and they cluster.** `filter` and `ranking`
+hold seven of the nine. Two returned zero rows because the model invented a
+literal — `fraud_flag` is `Y`/`N` and `status` is `BENIGN`, both plainly listed
+in the schema block it was given. That is the same weakness v1 recorded, now
+reproduced on data it had never seen, which is the strongest evidence yet that
+it is a property of the pipeline rather than of one dataset. Literal fidelity
+is where prompt work should go next.
 
 The v1 per-category breakdown was: aggregate 4/4, grouping 4/4, date 3/3,
 ratio 2/2, lookup 2/2, ranking 2/4, filter 1/3, ambiguity 1/1. Ranking and

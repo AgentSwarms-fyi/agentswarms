@@ -340,11 +340,16 @@ export const QUESTIONS: EvalQuestion[] = [
   {
     id: "elec-renewables-leaders",
     tables: ["global_electricity"],
-    question: "In 2020, which countries got more than half their electricity from renewables?",
+    question:
+      "In 2020, list each country that got more than half its electricity from renewables, " +
+      "with its renewables share.",
     referenceSql:
       "SELECT country, renewables_share_pct FROM global_electricity " +
       "WHERE year = 2020 AND renewables_share_pct > 50 ORDER BY country",
     category: "filter",
+    note:
+      "Names the columns it wants: 'which countries' alone would make a one-column " +
+      "answer equally correct, and a question with two right shapes cannot be graded.",
   },
   {
     id: "elec-nuclear-avg",
@@ -365,7 +370,7 @@ export const QUESTIONS: EvalQuestion[] = [
   {
     id: "nba-most-wins",
     tables: ["nba_team_seasons"],
-    question: "Which franchise had the most wins in a single season?",
+    question: "Which franchise had the most wins in a single season, and in which season?",
     referenceSql: "SELECT franchise, season, wins FROM nba_team_seasons ORDER BY wins DESC LIMIT 1",
     category: "ranking",
     ordered: true,
