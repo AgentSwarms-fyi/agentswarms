@@ -168,6 +168,7 @@ of twenty-four on `saas_sales`.
 | Date       | Model                                       | Question set     | Execution accuracy       |
 | ---------- | ------------------------------------------- | ---------------- | ------------------------ |
 | 2026-08-01 | `anthropic/claude-haiku-4.5` via OpenRouter | 45 questions, v2 | **84.4% (38/45)**, 1 run |
+| 2026-08-01 | same, after value linking                   | 45 questions, v2 | **86.7% (39/45)**, 1 run |
 
 By category: aggregate 6/6, grouping 9/9, date 4/4, lookup 3/3, ambiguity 1/1,
 ranking 7/10, filter 6/9, ratio 2/3. **This is a single pass — treat it as
@@ -189,7 +190,23 @@ literal — `fraud_flag` is `Y`/`N` and `status` is `BENIGN`, both plainly liste
 in the schema block it was given. That is the same weakness v1 recorded, now
 reproduced on data it had never seen, which is the strongest evidence yet that
 it is a property of the pipeline rather than of one dataset. Literal fidelity
-is where prompt work should go next.
+was addressed by VALUE LINKING rather than by prompt wording, because the
+wording was already there and could not have worked: the prompt said "match
+string literals exactly as they appear in the schema" while the schema block
+listed only column names and types. No literal ever appeared in it, so on a
+column like `fraud_flag` the model was being asked to copy something it had
+never been shown.
+
+`inferColumns` now records every distinct value of a string column that has few
+enough of them, and `describeColumn` renders them — `fraud_flag string
+values=[N|Y]`. The eval calls that same production renderer rather than
+formatting columns itself, so it cannot drift into scoring a prompt the app
+never sends.
+
+Effect, single pass: **filter 6/9 → 8/9** and **ratio 2/3 → 3/3**, the two
+categories holding the literal-guessing failures. `aggregate` and `ambiguity`
+each dropped by one question, which on a single pass is most likely sampling
+noise — `EVAL_REPEATS=3` would settle it and has not been run.
 
 The v1 per-category breakdown was: aggregate 4/4, grouping 4/4, date 3/3,
 ratio 2/2, lookup 2/2, ranking 2/4, filter 1/3, ambiguity 1/1. Ranking and

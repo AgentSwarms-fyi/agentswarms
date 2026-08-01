@@ -348,8 +348,13 @@ function describeSchema(
     .join("\n");
 }
 
-function describeColumn(c: ColumnDef, meta?: ColumnMeta): string {
+export function describeColumn(c: ColumnDef, meta?: ColumnMeta): string {
   const parts = [c.name, c.type];
+  // The values a low-cardinality string column actually holds. Without these
+  // the model has to guess a literal — `= 'Yes'` against data holding `Y` —
+  // and the query silently returns nothing. "Match literals exactly as they
+  // appear in the schema" is only actionable once they appear in the schema.
+  if (c.values?.length) parts.push(`values=[${c.values.join("|")}]`);
   if (meta?.semantic_type) parts.push(`semantic=${meta.semantic_type}`);
   if (meta?.alias) parts.push(`alias="${meta.alias}"`);
   if (meta?.unit) parts.push(`unit=${meta.unit}`);

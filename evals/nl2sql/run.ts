@@ -23,7 +23,7 @@ import path from "node:path";
 
 import Papa from "papaparse";
 
-import { buildSqlPrompt } from "@/lib/biAgent";
+import { buildSqlPrompt, describeColumn } from "@/lib/biAgent";
 import { coerceRow, inferColumns, type ColumnDef } from "@/lib/datasetParse";
 import { runLocalSelect, type LocalEngineTable } from "@/utils/data/localEngine.server";
 import { parseModelChoice } from "@/utils/providers/modelChoice";
@@ -70,7 +70,9 @@ function describeTables(tables: LocalEngineTable[]): string {
     .map(
       (t) =>
         `TABLE ${t.name} (${t.rows.length} rows)\n` +
-        t.columns.map((c: ColumnDef) => `  - ${c.name}: ${c.type}`).join("\n"),
+        // The PRODUCTION renderer, not a copy: the eval must describe columns
+        // exactly as the app does, or it scores a prompt nobody ever sends.
+        t.columns.map((c: ColumnDef) => `  - ${describeColumn(c)}`).join("\n"),
     )
     .join("\n\n");
 }

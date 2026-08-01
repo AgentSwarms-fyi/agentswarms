@@ -157,3 +157,44 @@ describe("table names are safe SQL identifiers", () => {
     expect(safeTableName("a".repeat(200)).length).toBeLessThanOrEqual(48);
   });
 });
+
+// Value linking: low-cardinality string columns carry their values into the
+// schema block the SQL model reads. Without it the model had to GUESS a
+// literal — it wrote `fraud_flag = 'Yes'` against data holding `Y` — and the
+// query returned zero rows with no error. Measured on the NL-to-SQL eval,
+// adding these took `filter` from 6/9 to 8/9.
+describe("inferColumns — enumerable string values", () => {
+  const rows = (n: number, val: (i: number) => unknown) =>
+    Array.from({ length: n }, (_, i) => ({ c: val(i) }));
+
+  it("captures the distinct values of a small string column, sorted", () => {
+    const [col] = inferColumns(rows(30, (i) => (i % 2 ? "Y" : "N")));
+    expect(col.values).toEqual(["N", "Y"]);
+  });
+
+  it("scans the WHOLE column, not just the type sample", () => {
+    // A category appearing only in late rows is exactly the literal a model
+    // would otherwise invent, so a sampled scan would defeat the point.
+    const many = rows(400, () => "COMMON");
+    many[399] = { c: "RARE" };
+    expect(inferColumns(many)[0].values).toEqual(["COMMON", "RARE"]);
+  });
+
+  it("gives up on a high-cardinality column rather than bloating the prompt", () => {
+    expect(inferColumns(rows(100, (i) => `id-${i}`))[0].values).toBeUndefined();
+  });
+
+  it("gives up when the values are prose rather than categories", () => {
+    expect(inferColumns(rows(5, () => "x".repeat(120)))[0].values).toBeUndefined();
+  });
+
+  it("never attaches values to number or date columns", () => {
+    expect(inferColumns(rows(20, () => 42))[0].values).toBeUndefined();
+    expect(inferColumns(rows(20, () => "2026-01-01"))[0].values).toBeUndefined();
+  });
+
+  it("ignores blanks, and omits values entirely when the column is empty", () => {
+    expect(inferColumns(rows(10, (i) => (i === 0 ? "A" : "")))[0].values).toEqual(["A"]);
+    expect(inferColumns(rows(10, () => ""))[0].values).toBeUndefined();
+  });
+});

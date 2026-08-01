@@ -6,7 +6,29 @@
 // disagree, and the disagreement would show up as a chart that sorts wrongly.
 
 export type ColumnType = "number" | "string" | "date";
-export type ColumnDef = { name: string; type: ColumnType };
+export type ColumnDef = {
+  name: string;
+  type: ColumnType;
+  /**
+   * Every distinct value, for a STRING column that has few enough of them.
+   *
+   * This exists for the SQL-writing model. The schema block it is given lists
+   * column names and types, and the prompt tells it to match string literals
+   * exactly "as they appear in the schema" — but no values ever appeared
+   * there, so on a column like `fraud_flag` it had to GUESS, and wrote
+   * `= 'Yes'` against data holding `Y`. Measured on the NL-to-SQL eval, that
+   * guess was the single largest cause of a query returning zero rows.
+   *
+   * Absent when the column is not a string, or has more distinct values than
+   * are worth putting in a prompt.
+   */
+  values?: string[];
+};
+
+/** Most distinct values worth listing; beyond this a column is free-form. */
+const MAX_ENUM_VALUES = 12;
+/** Values longer than this are prose, not categories. */
+const MAX_ENUM_VALUE_LEN = 40;
 
 export type DatasetFormat = "csv" | "tsv" | "json" | "ndjson" | "xlsx";
 
@@ -130,7 +152,22 @@ export function inferColumns(rows: Record<string, unknown>[]): ColumnDef[] {
         : counts.date > counts.string
           ? "date"
           : "string";
-    return { name, type: winner };
+    if (winner !== "string") return { name, type: winner };
+
+    // Scan the WHOLE column, not the type sample: a category that appears only
+    // late is exactly the literal a model would otherwise invent. Bail as soon
+    // as the column proves too varied to be an enumeration.
+    const distinct = new Set<string>();
+    for (const r of rows) {
+      const v = r[name];
+      if (v === null || v === undefined || v === "") continue;
+      const str = String(v);
+      if (str.length > MAX_ENUM_VALUE_LEN) return { name, type: winner };
+      distinct.add(str);
+      if (distinct.size > MAX_ENUM_VALUES) return { name, type: winner };
+    }
+    if (distinct.size === 0) return { name, type: winner };
+    return { name, type: winner, values: [...distinct].sort() };
   });
 }
 
