@@ -165,10 +165,10 @@ per-category breakdown, so a regression can be located rather than just felt.
 questions (v2) across seven bundled datasets, instead of concentrating twelve
 of twenty-four on `saas_sales`.
 
-| Date       | Model                                       | Question set     | Execution accuracy       |
-| ---------- | ------------------------------------------- | ---------------- | ------------------------ |
-| 2026-08-01 | `anthropic/claude-haiku-4.5` via OpenRouter | 45 questions, v2 | **84.4% (38/45)**, 1 run |
-| 2026-08-01 | same, after value linking                   | 45 questions, v2 | **86.7% (39/45)**, 1 run |
+| Date       | Model                                       | Question set     | Execution accuracy                     |
+| ---------- | ------------------------------------------- | ---------------- | -------------------------------------- |
+| 2026-08-01 | `anthropic/claude-haiku-4.5` via OpenRouter | 45 questions, v2 | **84.4% (38/45)**, 1 run               |
+| 2026-08-01 | same, after value linking                   | 45 questions, v2 | **86.7% (39/45)**, **3 runs (strict)** |
 
 By category: aggregate 6/6, grouping 9/9, date 4/4, lookup 3/3, ambiguity 1/1,
 ranking 7/10, filter 6/9, ratio 2/3. **This is a single pass — treat it as
@@ -206,7 +206,25 @@ never sends.
 Effect, single pass: **filter 6/9 → 8/9** and **ratio 2/3 → 3/3**, the two
 categories holding the literal-guessing failures. `aggregate` and `ambiguity`
 each dropped by one question, which on a single pass is most likely sampling
-noise — `EVAL_REPEATS=3` would settle it and has not been run.
+noise — `EVAL_REPEATS=3` has since been run, and returns the SAME 39/45 — but as a
+STRICT score, where a question counts only if it passed all three attempts.
+Same number, much stronger claim.
+
+It also inverts the guess above: surviving three passes says the `aggregate`
+and `ambiguity` dips are REAL, not sampling noise. Value linking bought
+`filter` and `ratio` at a small cost elsewhere rather than being free.
+
+The repeats earned their cost in composition rather than total —
+`health-infant-mortality-worst` passed on one pass and fails across three.
+
+**Known defect in the question set.** That question ("Which country had the
+highest infant mortality in 2019?") is the third instance of an ambiguity two
+others were already corrected for: it admits a one-column answer (`Nigeria`)
+while its reference demands country AND value. The model is right and the
+question is wrong. It is left unfixed HERE on purpose, so the recorded score
+describes the set that was actually scored — correcting it silently would
+leave this table describing a question set that no longer exists. Fix it and
+re-measure in one step.
 
 The v1 per-category breakdown was: aggregate 4/4, grouping 4/4, date 3/3,
 ratio 2/2, lookup 2/2, ranking 2/4, filter 1/3, ambiguity 1/1. Ranking and
