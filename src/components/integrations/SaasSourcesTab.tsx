@@ -45,7 +45,12 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
 import { SAAS_LABELS, SAAS_PROVIDERS } from "@/utils/saas/types";
-import type { SaasConnectionSummary, SaasProvider, SaasStream } from "@/utils/saas/types";
+import type {
+  SaasConfig,
+  SaasConnectionSummary,
+  SaasProvider,
+  SaasStream,
+} from "@/utils/saas/types";
 import {
   deleteSaasConnection,
   discoverSaasStreams,
@@ -54,13 +59,83 @@ import {
   syncSaasConnection,
 } from "@/utils/saas.functions";
 
-const PROVIDER_HELP: Record<SaasProvider, { description: string; setup: string }> = {
+type Field = {
+  key: string;
+  label: string;
+  placeholder?: string;
+  type?: "password" | "textarea";
+  hint?: string;
+};
+
+/**
+ * Per-provider copy and form fields.
+ *
+ * Field-driven rather than a hand-written form per provider: the dialog below
+ * renders whatever is listed here, so a new connector is an entry in this
+ * table and its config type — not another branch in the JSX.
+ */
+const PROVIDER_HELP: Record<
+  SaasProvider,
+  { description: string; setup: string; unit: string; fields: Field[] }
+> = {
   google_sheets: {
     description: "Sync worksheets from a Google spreadsheet into datasets.",
     setup:
       "Create a service account in Google Cloud, download its JSON key, then SHARE the " +
       "spreadsheet with the key's client_email address (Share → paste it → Viewer). " +
       "Without that share step Google returns 403 no matter how valid the key is.",
+    unit: "worksheet",
+    fields: [
+      {
+        key: "spreadsheet_id",
+        label: "Spreadsheet URL or id",
+        placeholder: "https://docs.google.com/spreadsheets/d/…",
+      },
+      {
+        key: "service_account_json",
+        label: "Service account key JSON",
+        type: "textarea",
+        placeholder: '{ "type": "service_account", … }',
+      },
+    ],
+  },
+  stripe: {
+    description: "Sync charges, invoices, subscriptions and more into datasets.",
+    setup:
+      "Use a RESTRICTED key with read-only permissions (Developers → API keys → Create " +
+      "restricted key). A full secret key works but grants far more than this needs — " +
+      "nothing here ever writes to Stripe.",
+    unit: "object type",
+    fields: [
+      {
+        key: "api_key",
+        label: "Secret or restricted key",
+        type: "password",
+        placeholder: "rk_live_… or sk_live_…",
+        hint: "Not the publishable key (pk_…) — that cannot read these endpoints.",
+      },
+    ],
+  },
+  shopify: {
+    description: "Sync orders, customers and products into datasets.",
+    setup:
+      "In your Shopify admin: Settings → Apps and sales channels → Develop apps → create an " +
+      "app, grant it read_orders, read_customers and read_products, then install it and copy " +
+      "the Admin API access token.",
+    unit: "resource",
+    fields: [
+      {
+        key: "shop_domain",
+        label: "Shop domain",
+        placeholder: "acme.myshopify.com",
+      },
+      {
+        key: "access_token",
+        label: "Admin API access token",
+        type: "password",
+        placeholder: "shpat_…",
+      },
+    ],
   },
 };
 
@@ -78,8 +153,8 @@ export function SaasSourcesTab() {
   const [loading, setLoading] = useState(true);
   const [dialogProvider, setDialogProvider] = useState<SaasProvider | null>(null);
   const [name, setName] = useState("");
-  const [serviceAccountJson, setServiceAccountJson] = useState("");
-  const [spreadsheetId, setSpreadsheetId] = useState("");
+  /** Whatever the selected provider's fields are, keyed by field. */
+  const [values, setValues] = useState<Record<string, string>>({});
   const [streams, setStreams] = useState<SaasStream[] | null>(null);
   const [picked, setPicked] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -105,17 +180,23 @@ export function SaasSourcesTab() {
   const openDialog = (p: SaasProvider) => {
     setDialogProvider(p);
     setName("");
-    setServiceAccountJson("");
-    setSpreadsheetId("");
+    setValues({});
     setStreams(null);
     setPicked([]);
   };
 
-  const configFor = () => ({
-    provider: "google_sheets" as const,
-    service_account_json: serviceAccountJson,
-    spreadsheet_id: spreadsheetId,
-  });
+  /**
+   * The config object for the server function.
+   *
+   * Cast at this one point rather than typed per provider: the shape is
+   * validated by the same discriminated union server-side, so a mismatch is a
+   * rejected request rather than a bad row.
+   */
+  const configFor = () => ({ provider: dialogProvider, ...values }) as unknown as SaasConfig;
+
+  /** Every field for the chosen provider has a value. */
+  const fieldsComplete = () =>
+    !!dialogProvider && PROVIDER_HELP[dialogProvider].fields.every((f) => values[f.key]?.trim());
 
   const onDiscover = async () => {
     setBusy(true);
@@ -125,7 +206,8 @@ export function SaasSourcesTab() {
       // Pre-select everything: the common case is "sync this spreadsheet", and
       // an empty selection saves a source that does nothing.
       setPicked(found.map((s) => s.id));
-      toast.success(`Found ${found.length} worksheet${found.length === 1 ? "" : "s"}`);
+      const unit = dialogProvider ? PROVIDER_HELP[dialogProvider].unit : "item";
+      toast.success(`Found ${found.length} ${unit}${found.length === 1 ? "" : "s"}`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not read that source");
     } finally {
@@ -135,7 +217,8 @@ export function SaasSourcesTab() {
 
   const onSave = async () => {
     if (!name.trim()) return toast.error("Give this source a name");
-    if (picked.length === 0) return toast.error("Choose at least one worksheet to sync");
+    const unit = dialogProvider ? PROVIDER_HELP[dialogProvider].unit : "item";
+    if (picked.length === 0) return toast.error(`Choose at least one ${unit} to sync`);
     setBusy(true);
     try {
       const { id } = await save({
@@ -315,37 +398,44 @@ export function SaasSourcesTab() {
                 other.
               </p>
             </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Spreadsheet URL or id</Label>
-              <Input
-                value={spreadsheetId}
-                onChange={(e) => setSpreadsheetId(e.target.value)}
-                placeholder="https://docs.google.com/spreadsheets/d/…"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Service account key JSON</Label>
-              <Textarea
-                value={serviceAccountJson}
-                onChange={(e) => setServiceAccountJson(e.target.value)}
-                placeholder='{ "type": "service_account", … }'
-                className="h-28 font-mono text-[11px]"
-              />
-            </div>
+            {dialogProvider &&
+              PROVIDER_HELP[dialogProvider].fields.map((f) => (
+                <div key={f.key} className="space-y-1">
+                  <Label className="text-xs">{f.label}</Label>
+                  {f.type === "textarea" ? (
+                    <Textarea
+                      value={values[f.key] ?? ""}
+                      onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
+                      placeholder={f.placeholder}
+                      className="h-28 font-mono text-[11px]"
+                    />
+                  ) : (
+                    <Input
+                      type={f.type === "password" ? "password" : "text"}
+                      value={values[f.key] ?? ""}
+                      onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
+                      placeholder={f.placeholder}
+                    />
+                  )}
+                  {f.hint && <p className="text-[11px] text-muted-foreground">{f.hint}</p>}
+                </div>
+              ))}
 
             <Button
               variant="outline"
               size="sm"
-              disabled={busy || !serviceAccountJson || !spreadsheetId}
+              disabled={busy || !fieldsComplete()}
               onClick={onDiscover}
             >
               {busy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
-              Find worksheets
+              Connect and list {dialogProvider ? `${PROVIDER_HELP[dialogProvider].unit}s` : ""}
             </Button>
 
             {streams && (
               <div className="space-y-1">
-                <Label className="text-xs">Sync these worksheets</Label>
+                <Label className="text-xs">
+                  Sync these {dialogProvider ? `${PROVIDER_HELP[dialogProvider].unit}s` : "items"}
+                </Label>
                 <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border border-border/50 bg-background/40 p-2">
                   {streams.map((s) => (
                     <label

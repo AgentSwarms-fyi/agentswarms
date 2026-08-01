@@ -63,7 +63,10 @@ async function sheetsFetch<T>(
   return (await res.json()) as T;
 }
 
-function token(cfg: SaasConfig): Promise<string> {
+/** This connector's slice of the config union, narrowed once at the top. */
+type SheetsCfg = Extract<SaasConfig, { provider: "google_sheets" }>;
+
+function token(cfg: SheetsCfg): Promise<string> {
   return googleAccessToken(cfg.service_account_json, {
     scope: GOOGLE_SCOPES.sheetsReadonly,
     label: "Google Sheets",
@@ -81,7 +84,8 @@ type SheetMeta = {
 };
 
 /** Each worksheet (tab) is a stream, and becomes its own dataset. */
-export async function listSheetStreams(cfg: SaasConfig): Promise<SaasStream[]> {
+export async function listSheetStreams(config: SaasConfig): Promise<SaasStream[]> {
+  const cfg = config as SheetsCfg;
   const id = extractSpreadsheetId(cfg.spreadsheet_id);
   const meta = await sheetsFetch<SheetMeta>(await token(cfg), id, {
     // Only the tab list — asking for cell data here would download the whole
@@ -157,9 +161,10 @@ type ValuesResponse = { values?: unknown[][] };
  * requested is the end of the data.
  */
 export async function* fetchSheetRows(
-  cfg: SaasConfig,
+  config: SaasConfig,
   streamId: string,
 ): AsyncGenerator<Record<string, unknown>> {
+  const cfg = config as SheetsCfg;
   const id = extractSpreadsheetId(cfg.spreadsheet_id);
   const accessToken = await token(cfg);
 

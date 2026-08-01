@@ -37,6 +37,15 @@ const ConfigSchema = z.discriminatedUnion("provider", [
     service_account_json: z.string().min(2),
     spreadsheet_id: z.string().min(1),
   }),
+  z.object({
+    provider: z.literal("stripe"),
+    api_key: z.string().min(1),
+  }),
+  z.object({
+    provider: z.literal("shopify"),
+    shop_domain: z.string().min(1),
+    access_token: z.string().min(1),
+  }),
 ]);
 
 /**

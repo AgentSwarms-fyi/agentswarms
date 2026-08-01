@@ -11,6 +11,8 @@
 
 import { ingestRows } from "@/utils/data/ingest.server";
 import { fetchSheetRows, listSheetStreams } from "./googleSheets.server";
+import { fetchShopifyRows, listShopifyStreams } from "./shopify.server";
+import { fetchStripeRows, listStripeStreams } from "./stripe.server";
 import type { SaasConfig, SaasProvider, SaasStream, SaasSyncResult } from "./types";
 import { SAAS_LABELS } from "./types";
 
@@ -28,6 +30,8 @@ export type SaasConnector = {
 
 const CONNECTORS: Record<SaasProvider, SaasConnector> = {
   google_sheets: { listStreams: listSheetStreams, fetchRows: fetchSheetRows },
+  stripe: { listStreams: listStripeStreams, fetchRows: fetchStripeRows },
+  shopify: { listStreams: listShopifyStreams, fetchRows: fetchShopifyRows },
 };
 
 export function connectorFor(provider: SaasProvider): SaasConnector {

@@ -7,12 +7,14 @@
 // an HTTP API and materialised into a dataset. Sharing one abstraction would
 // mean a union type where half the fields are meaningless for either half.
 
-export type SaasProvider = "google_sheets";
+export type SaasProvider = "google_sheets" | "stripe" | "shopify";
 
-export const SAAS_PROVIDERS: SaasProvider[] = ["google_sheets"];
+export const SAAS_PROVIDERS: SaasProvider[] = ["google_sheets", "stripe", "shopify"];
 
 export const SAAS_LABELS: Record<SaasProvider, string> = {
   google_sheets: "Google Sheets",
+  stripe: "Stripe",
+  shopify: "Shopify",
 };
 
 /**
@@ -28,17 +30,33 @@ export type SaasStream = {
   rowCountHint?: number;
 };
 
-export type SaasConfig = {
-  provider: "google_sheets";
-  /**
-   * Full service-account key JSON. The sheet must be SHARED with the key's
-   * client_email — Google returns 403 otherwise, and that is the single most
-   * common setup mistake.
-   */
-  service_account_json: string;
-  /** Spreadsheet id, or the full edit URL (the id is extracted from it). */
-  spreadsheet_id: string;
-};
+export type SaasConfig =
+  | {
+      provider: "google_sheets";
+      /**
+       * Full service-account key JSON. The sheet must be SHARED with the key's
+       * client_email — Google returns 403 otherwise, and that is the single
+       * most common setup mistake.
+       */
+      service_account_json: string;
+      /** Spreadsheet id, or the full edit URL (the id is extracted from it). */
+      spreadsheet_id: string;
+    }
+  | {
+      provider: "stripe";
+      /**
+       * Secret key (sk_…) or, preferably, a RESTRICTED key with read-only
+       * permissions on the objects being synced. Nothing here ever writes.
+       */
+      api_key: string;
+    }
+  | {
+      provider: "shopify";
+      /** Shop domain — a full admin URL is accepted and reduced to this. */
+      shop_domain: string;
+      /** Admin API access token (shpat_…) from a custom app. */
+      access_token: string;
+    };
 
 /** Row shape returned to clients when listing connections (no secrets). */
 export type SaasConnectionSummary = {
