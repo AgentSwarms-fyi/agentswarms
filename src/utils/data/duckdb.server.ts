@@ -54,6 +54,18 @@ export function duckdbEnabled(): boolean {
  * twenty seconds starting databases. That is why DuckDB could not become the
  * default engine.
  *
+ * WHERE THE TIME ACTUALLY GOES, measured on a 5,000-row aggregate:
+ *
+ *     in-memory rows   2152 ms      parquet mirror   8 ms
+ *
+ * Pooling was not what fixed that (2115 -> 2083 ms); the cost is ~0.42 ms per
+ * row spent binding parameterised INSERTs, and the MIRROR skips that path
+ * entirely by reading the file. So DuckDB is already fast enough to be the
+ * default for any dataset with a current mirror, and the slow case is the
+ * unmirrored one: below PARQUET_MIN_ROWS, mirror stale, or a SHARED dataset
+ * (never mirrored, because a mirror holds unmasked rows). Bulk loading — the
+ * appender API or Arrow — is the fix for that path, not more pooling.
+ *
  * ISOLATION IS NOT FREE HERE, and it is the reason this was left per-query in
  * the first place. Tables are registered with CREATE TEMP TABLE, which DuckDB
  * scopes to the CONNECTION — two connections can each hold a different `t` and
