@@ -165,10 +165,11 @@ per-category breakdown, so a regression can be located rather than just felt.
 questions (v2) across seven bundled datasets, instead of concentrating twelve
 of twenty-four on `saas_sales`.
 
-| Date       | Model                                       | Question set     | Execution accuracy                     |
-| ---------- | ------------------------------------------- | ---------------- | -------------------------------------- |
-| 2026-08-01 | `anthropic/claude-haiku-4.5` via OpenRouter | 45 questions, v2 | **84.4% (38/45)**, 1 run               |
-| 2026-08-01 | same, after value linking                   | 45 questions, v2 | **86.7% (39/45)**, **3 runs (strict)** |
+| Date       | Model                                       | Question set       | Execution accuracy                     |
+| ---------- | ------------------------------------------- | ------------------ | -------------------------------------- |
+| 2026-08-01 | `anthropic/claude-haiku-4.5` via OpenRouter | 45 questions, v2   | **84.4% (38/45)**, 1 run               |
+| 2026-08-01 | same, after value linking                   | 45 questions, v2   | **86.7% (39/45)**, **3 runs (strict)** |
+| 2026-08-01 | same, one ambiguous question corrected      | 45 questions, v2.1 | **88.9% (40/45)**, **3 runs (strict)** |
 
 By category: aggregate 6/6, grouping 9/9, date 4/4, lookup 3/3, ambiguity 1/1,
 ranking 7/10, filter 6/9, ratio 2/3. **This is a single pass — treat it as
@@ -221,10 +222,22 @@ The repeats earned their cost in composition rather than total —
 highest infant mortality in 2019?") is the third instance of an ambiguity two
 others were already corrected for: it admits a one-column answer (`Nigeria`)
 while its reference demands country AND value. The model is right and the
-question is wrong. It is left unfixed HERE on purpose, so the recorded score
-describes the set that was actually scored — correcting it silently would
-leave this table describing a question set that no longer exists. Fix it and
-re-measure in one step.
+question is wrong. It has since been corrected AND re-measured in one
+step, which is the only way to change a question set without leaving this table
+describing something that no longer exists.
+
+**88.9% (40/45), v2.1, three runs strict.** `ranking` 7/10 -> 8/10 and every
+other category byte-identical — only the corrected question moved, which is the
+evidence that the edit did what it claimed and nothing else.
+
+Be clear about what that 2.2 points is: **the product did not improve, the
+measurement got less wrong.** A question with two correct answers was grading
+the model on a coin toss. Fixing a question after watching it fail is
+uncomfortably close to tuning to the score, and what makes it defensible is
+that the defect is in the QUESTION rather than the grader, that two identical
+defects were corrected before this result was ever seen, and that the grader
+itself remains untouched. If the only justification had been "this case failed
+and I wanted it to pass", it should have stayed.
 
 The v1 per-category breakdown was: aggregate 4/4, grouping 4/4, date 3/3,
 ratio 2/2, lookup 2/2, ranking 2/4, filter 1/3, ambiguity 1/1. Ranking and

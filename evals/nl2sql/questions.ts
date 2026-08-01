@@ -423,12 +423,16 @@ export const QUESTIONS: EvalQuestion[] = [
   {
     id: "health-infant-mortality-worst",
     tables: ["world_health_indicators"],
-    question: "Which country had the highest infant mortality in 2019?",
+    question: "Which country had the highest infant mortality in 2019, and what was the rate?",
     referenceSql:
       "SELECT country, infant_mortality_per_1k FROM world_health_indicators " +
       "WHERE year = 2019 ORDER BY infant_mortality_per_1k DESC LIMIT 1",
     category: "ranking",
     ordered: true,
+    note:
+      "Asks for the rate explicitly. 'Which country had the highest...' alone makes a " +
+      "one-column answer equally correct, and a question with two right shapes grades the " +
+      "model on a coin toss — the third such question found in this set.",
   },
   {
     id: "health-physicians-threshold",
