@@ -4,9 +4,11 @@
 // complete, and both fail SILENTLY when wrong — a nested object becomes one
 // "[object Object]" column, and a mishandled cursor stops early or loops for
 // ever. Neither needs a network to test.
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { flattenRecord, isoifyTimestamps, unixToIso } from "@/utils/saas/flatten";
+import { normaliseInstanceUrl } from "@/utils/saas/salesforce.server";
 import { normaliseShopDomain, nextPageUrl } from "@/utils/saas/shopify.server";
 import { connectorFor } from "@/utils/saas/sync.server";
 import { SAAS_LABELS, SAAS_PROVIDERS } from "@/utils/saas/types";
@@ -150,6 +152,37 @@ describe("normaliseShopDomain", () => {
   });
 });
 
+describe("normaliseInstanceUrl", () => {
+  it("keeps a My Domain origin", () => {
+    expect(normaliseInstanceUrl("https://acme.my.salesforce.com")).toBe(
+      "https://acme.my.salesforce.com",
+    );
+  });
+
+  it("adds the scheme people omit", () => {
+    expect(normaliseInstanceUrl("acme.my.salesforce.com")).toBe("https://acme.my.salesforce.com");
+  });
+
+  it("strips the path pasted from the address bar", () => {
+    // A path here would be carried into every API call.
+    expect(normaliseInstanceUrl("https://acme.my.salesforce.com/lightning/o/Account/list")).toBe(
+      "https://acme.my.salesforce.com",
+    );
+  });
+
+  it("accepts force.com, which sandboxes and communities use", () => {
+    expect(normaliseInstanceUrl("https://acme--dev.sandbox.my.salesforce.com")).toContain(
+      "salesforce.com",
+    );
+    expect(normaliseInstanceUrl("https://acme.force.com")).toBe("https://acme.force.com");
+  });
+
+  it("rejects a non-Salesforce host rather than failing later with a 404", () => {
+    expect(() => normaliseInstanceUrl("https://acme.example.com")).toThrow(/Salesforce domain/i);
+    expect(() => normaliseInstanceUrl("")).toThrow();
+  });
+});
+
 describe("the connector registry covers every provider", () => {
   it("has a connector and a label for each", () => {
     for (const p of SAAS_PROVIDERS) {
@@ -158,8 +191,48 @@ describe("the connector registry covers every provider", () => {
     }
   });
 
-  it("includes the sources added in this tranche", () => {
-    expect(SAAS_PROVIDERS).toContain("stripe");
-    expect(SAAS_PROVIDERS).toContain("shopify");
+  it("includes every source shipped so far", () => {
+    for (const p of ["google_sheets", "stripe", "shopify", "hubspot", "salesforce"]) {
+      expect(SAAS_PROVIDERS).toContain(p);
+    }
+  });
+});
+
+describe("the CRM connectors avoid their respective foot-guns", () => {
+  const sfSrc = readFileSync("src/utils/saas/salesforce.server.ts", "utf8");
+  const hsSrc = readFileSync("src/utils/saas/hubspot.server.ts", "utf8");
+
+  it("Salesforce excludes compound and binary fields from the SELECT", () => {
+    // address/location are aggregates of other queryable fields and base64 is
+    // a document body. ONE of them in the field list makes the entire query
+    // fail with MALFORMED_QUERY — so a whole object silently yields nothing.
+    for (const t of ["address", "location", "base64"]) {
+      expect(sfSrc, `${t} must be filtered out of the SOQL field list`).toContain(`"${t}"`);
+    }
+  });
+
+  it("Salesforce uses the instance_url the token response returns", () => {
+    // Sandboxes and My Domain redirects hand back a different host from the
+    // one used to log in; using the configured one breaks those.
+    expect(sfSrc).toContain("body.instance_url");
+  });
+
+  it("Salesforce drops the per-record attributes envelope", () => {
+    // It is metadata about the response, not data — two useless columns on
+    // every dataset otherwise.
+    expect(sfSrc).toMatch(/attributes: _drop|attributes:\s*_/);
+  });
+
+  it("HubSpot requests properties explicitly", () => {
+    // Without naming them, HubSpot returns a handful of defaults — a dataset
+    // with four columns from a CRM holding two hundred, looking like it worked.
+    expect(hsSrc).toContain('params.set("properties"');
+    expect(hsSrc).toContain("/crm/v3/properties/");
+  });
+
+  it("HubSpot keeps the record id alongside its properties", () => {
+    // The id sits BESIDE `properties`, not inside it, and is the only stable
+    // join key.
+    expect(hsSrc).toMatch(/id: r\.id/);
   });
 });

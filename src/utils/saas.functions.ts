@@ -46,6 +46,16 @@ const ConfigSchema = z.discriminatedUnion("provider", [
     shop_domain: z.string().min(1),
     access_token: z.string().min(1),
   }),
+  z.object({
+    provider: z.literal("hubspot"),
+    access_token: z.string().min(1),
+  }),
+  z.object({
+    provider: z.literal("salesforce"),
+    instance_url: z.string().min(1),
+    client_id: z.string().min(1),
+    client_secret: z.string().min(1),
+  }),
 ]);
 
 /**

@@ -116,6 +116,40 @@ const PROVIDER_HELP: Record<
       },
     ],
   },
+  hubspot: {
+    description: "Sync contacts, companies, deals and tickets into datasets.",
+    setup:
+      "Settings → Integrations → Private Apps → create an app, grant it the read scopes for " +
+      "the objects you want (crm.objects.contacts.read and so on), then copy its access token. " +
+      "A private app is used rather than OAuth because that needs a public redirect URL.",
+    unit: "object type",
+    fields: [
+      {
+        key: "access_token",
+        label: "Private app access token",
+        type: "password",
+        placeholder: "pat-na1-…",
+      },
+    ],
+  },
+  salesforce: {
+    description: "Sync accounts, contacts, leads, opportunities and cases into datasets.",
+    setup:
+      "Create a connected app with the Client Credentials flow enabled and a 'run as' user set " +
+      "(Setup → App Manager → New Connected App → OAuth Settings). Copy its consumer key and " +
+      "secret. No redirect URL is needed — this is a server-to-server flow.",
+    unit: "object",
+    fields: [
+      {
+        key: "instance_url",
+        label: "Instance URL",
+        placeholder: "https://acme.my.salesforce.com",
+        hint: "Your My Domain address. A sandbox uses its own domain.",
+      },
+      { key: "client_id", label: "Consumer key", type: "password", placeholder: "3MVG9…" },
+      { key: "client_secret", label: "Consumer secret", type: "password" },
+    ],
+  },
   shopify: {
     description: "Sync orders, customers and products into datasets.",
     setup:

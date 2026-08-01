@@ -7,14 +7,22 @@
 // an HTTP API and materialised into a dataset. Sharing one abstraction would
 // mean a union type where half the fields are meaningless for either half.
 
-export type SaasProvider = "google_sheets" | "stripe" | "shopify";
+export type SaasProvider = "google_sheets" | "stripe" | "shopify" | "hubspot" | "salesforce";
 
-export const SAAS_PROVIDERS: SaasProvider[] = ["google_sheets", "stripe", "shopify"];
+export const SAAS_PROVIDERS: SaasProvider[] = [
+  "google_sheets",
+  "stripe",
+  "shopify",
+  "hubspot",
+  "salesforce",
+];
 
 export const SAAS_LABELS: Record<SaasProvider, string> = {
   google_sheets: "Google Sheets",
   stripe: "Stripe",
   shopify: "Shopify",
+  hubspot: "HubSpot",
+  salesforce: "Salesforce",
 };
 
 /**
@@ -56,6 +64,22 @@ export type SaasConfig =
       shop_domain: string;
       /** Admin API access token (shpat_…) from a custom app. */
       access_token: string;
+    }
+  | {
+      provider: "hubspot";
+      /**
+       * Private app access token (pat-…). Not OAuth: a self-hosted deployment
+       * cannot be assumed to have a public redirect URL.
+       */
+      access_token: string;
+    }
+  | {
+      provider: "salesforce";
+      /** My Domain URL, e.g. https://acme.my.salesforce.com. */
+      instance_url: string;
+      /** Connected app consumer key + secret, used for client credentials. */
+      client_id: string;
+      client_secret: string;
     };
 
 /** Row shape returned to clients when listing connections (no secrets). */
