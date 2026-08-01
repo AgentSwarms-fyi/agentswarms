@@ -32,8 +32,24 @@ function normalize(host: string): string {
     .trim();
 }
 
-/** Parse an IPv4 (incl. IPv4-mapped IPv6) into octets, or null if not IPv4. */
+/**
+ * Parse an IPv4 (incl. IPv4-mapped IPv6) into octets, or null if not IPv4.
+ *
+ * Both spellings of the mapped form must be understood. `::ffff:169.254.169.254`
+ * keeps the dotted tail, but the COMPRESSED HEX form `::ffff:a9fe:a9fe` is the
+ * same address and used to fall through every static check: it was refused only
+ * because Node's resolver happened to hand the dotted form back. That is defence
+ * by luck — assertPublicUrl allows a URL whose lookup FAILS, so a resolver that
+ * errors (or a platform that does not normalise) turned a missed static check
+ * into a reachable metadata endpoint.
+ */
 function extractV4(h: string): [number, number, number, number] | null {
+  const hexMapped = h.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
+  if (hexMapped) {
+    const hi = parseInt(hexMapped[1], 16);
+    const lo = parseInt(hexMapped[2], 16);
+    return [hi >> 8, hi & 0xff, lo >> 8, lo & 0xff];
+  }
   const mapped = h.match(/(?:^|:)((?:\d{1,3}\.){3}\d{1,3})$/);
   const v4 = mapped ? mapped[1] : /^\d{1,3}(\.\d{1,3}){3}$/.test(h) ? h : null;
   if (!v4) return null;
