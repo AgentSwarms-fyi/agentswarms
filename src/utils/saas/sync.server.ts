@@ -9,6 +9,9 @@
 // Adding a connector means adding an entry to CONNECTORS. It must not mean
 // touching this file's logic.
 
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+import type { Database } from "@/integrations/supabase/types";
 import { ingestRows } from "@/utils/data/ingest.server";
 import { fetchSheetRows, listSheetStreams } from "./googleSheets.server";
 import { fetchHubspotRows, listHubspotStreams } from "./hubspot.server";
@@ -103,6 +106,60 @@ export async function syncSaasStream(args: {
     rowCount: result.rowCount,
     skipped: result.skipped,
   };
+}
+
+/** When a schedule is next due, or null for a source that only syncs on demand. */
+export function nextSyncAt(schedule: string, from = new Date()): string | null {
+  const hours: Record<string, number> = { hourly: 1, daily: 24, weekly: 24 * 7 };
+  const h = hours[schedule];
+  return h ? new Date(from.getTime() + h * 3600_000).toISOString() : null;
+}
+
+/**
+ * Sync a connection and record the outcome on its row.
+ *
+ * Shared by the manual button and the scheduler so the two cannot disagree
+ * about what counts as success. `sb` is the caller's client — a user JWT from
+ * the server function, the service role from the scheduler — and the row is
+ * always scoped by user_id so the service-role path cannot touch another
+ * tenant's connection through a stale id.
+ */
+export async function runConnectionSync(
+  sb: SupabaseClient<Database>,
+  conn: {
+    id: string;
+    userId: string;
+    name: string;
+    config: SaasConfig;
+    streamIds: string[];
+  },
+): Promise<{ synced: SaasSyncResult[]; failed: { stream: string; error: string }[] }> {
+  const result = await syncSaasStreams({
+    userId: conn.userId,
+    connectionName: conn.name,
+    config: conn.config,
+    streamIds: conn.streamIds,
+  });
+
+  // A PARTIAL SYNC IS NOT SUCCESS. One stream of six silently failing is how a
+  // dashboard goes stale for a quarter with nobody noticing.
+  await sb
+    .from("saas_connections")
+    .update({
+      last_sync_status: result.failed.length === 0 ? "ok" : "partial",
+      last_sync_error:
+        result.failed.length > 0
+          ? result.failed
+              .map((f) => `${f.stream}: ${f.error}`)
+              .join("; ")
+              .slice(0, 2000)
+          : null,
+      last_synced_at: new Date().toISOString(),
+    })
+    .eq("id", conn.id)
+    .eq("user_id", conn.userId);
+
+  return result;
 }
 
 /**

@@ -82,6 +82,10 @@ export type SaasConfig =
       client_secret: string;
     };
 
+/** Cadences a connection can be synced on. Client-safe: the picker needs these. */
+export const SYNC_SCHEDULES = ["manual", "hourly", "daily", "weekly"] as const;
+export type SyncSchedule = (typeof SYNC_SCHEDULES)[number];
+
 /** Row shape returned to clients when listing connections (no secrets). */
 export type SaasConnectionSummary = {
   id: string;

@@ -11,7 +11,8 @@ import { z } from "zod";
 import type { Database } from "@/integrations/supabase/types";
 import { decryptJson, encryptJson } from "@/utils/providers/crypto.server";
 import { auditEvent } from "@/utils/audit.server";
-import { listSaasStreams, syncSaasStreams } from "@/utils/saas/sync.server";
+import { listSaasStreams, runConnectionSync } from "@/utils/saas/sync.server";
+import { SYNC_SCHEDULES } from "@/utils/saas/types";
 import type { SaasConfig, SaasConnectionSummary, SaasStream } from "@/utils/saas/types";
 
 function userClient(accessToken: string) {
@@ -117,6 +118,7 @@ export const saveSaasConnection = createServerFn({ method: "POST" })
         name: z.string().min(1).max(120),
         config: ConfigSchema,
         streams: z.array(z.string().min(1)).default([]),
+        sync_schedule: z.enum(SYNC_SCHEDULES).default("manual"),
       })
       .parse(input),
   )
@@ -132,6 +134,11 @@ export const saveSaasConnection = createServerFn({ method: "POST" })
         encrypted as unknown as Database["public"]["Tables"]["saas_connections"]["Insert"]["config"],
       streams:
         data.streams as unknown as Database["public"]["Tables"]["saas_connections"]["Insert"]["streams"],
+      sync_schedule: data.sync_schedule,
+      // Due immediately on save for a scheduled source, so the first run does
+      // not wait a whole interval — and null for manual, which is what keeps
+      // it out of the scheduler's index entirely.
+      next_sync_at: data.sync_schedule === "manual" ? null : new Date().toISOString(),
     };
 
     const q = data.id
@@ -227,32 +234,16 @@ export const syncSaasConnection = createServerFn({ method: "POST" })
       throw new Error("No streams selected for this data source.");
     }
 
-    const result = await syncSaasStreams({
+    // The SAME routine the scheduler runs, including how it records the
+    // outcome — a manual sync and a scheduled one must not be able to disagree
+    // about what counts as success.
+    const result = await runConnectionSync(sb, {
+      id: data.id,
       userId,
-      connectionName: conn.name,
+      name: conn.name,
       config: conn.config,
       streamIds,
     });
-
-    // A partial success is recorded as a FAILURE with the detail, not as "ok".
-    // A source where one of six tabs silently stopped syncing is exactly the
-    // kind of thing that goes unnoticed for a quarter.
-    const status = result.failed.length === 0 ? "ok" : "partial";
-    await sb
-      .from("saas_connections")
-      .update({
-        last_sync_status: status,
-        last_sync_error:
-          result.failed.length > 0
-            ? result.failed
-                .map((f) => `${f.stream}: ${f.error}`)
-                .join("; ")
-                .slice(0, 2000)
-            : null,
-        last_synced_at: new Date().toISOString(),
-      })
-      .eq("id", data.id)
-      .eq("user_id", userId);
 
     auditEvent({
       userId,

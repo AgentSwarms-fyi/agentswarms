@@ -116,15 +116,20 @@ describe("credentials never leave the server", () => {
 });
 
 describe("sync outcomes are reported honestly", () => {
+  // The status decision lives in sync.server's runConnectionSync, which the
+  // manual button and the scheduler BOTH call — deliberately one place, so
+  // the two cannot disagree about what counts as success.
+  const syncSrc = readFileSync("src/utils/saas/sync.server.ts", "utf8");
+
   it("records a partial sync as 'partial', not as success", () => {
     // One tab of six silently failing is how a dashboard goes stale for a
     // quarter without anyone noticing.
-    expect(functionsSrc).toContain('result.failed.length === 0 ? "ok" : "partial"');
+    expect(syncSrc).toContain('result.failed.length === 0 ? "ok" : "partial"');
   });
 
   it("stores why it failed, not just that it did", () => {
-    expect(functionsSrc).toMatch(/last_sync_error/);
-    expect(functionsSrc).toMatch(/f\.stream.*f\.error|`\$\{f\.stream\}: \$\{f\.error\}`/);
+    expect(syncSrc).toMatch(/last_sync_error/);
+    expect(syncSrc).toMatch(/f\.stream.*f\.error|`\$\{f\.stream\}: \$\{f\.error\}`/);
   });
 
   it("surfaces a partial sync in the UI as a warning rather than a success", () => {

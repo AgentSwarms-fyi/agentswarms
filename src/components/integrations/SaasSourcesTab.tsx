@@ -42,6 +42,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
 import { SAAS_LABELS, SAAS_PROVIDERS } from "@/utils/saas/types";
@@ -50,6 +57,7 @@ import type {
   SaasConnectionSummary,
   SaasProvider,
   SaasStream,
+  SyncSchedule,
 } from "@/utils/saas/types";
 import {
   deleteSaasConnection,
@@ -189,6 +197,7 @@ export function SaasSourcesTab() {
   const [name, setName] = useState("");
   /** Whatever the selected provider's fields are, keyed by field. */
   const [values, setValues] = useState<Record<string, string>>({});
+  const [schedule, setSchedule] = useState<SyncSchedule>("daily");
   const [streams, setStreams] = useState<SaasStream[] | null>(null);
   const [picked, setPicked] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -215,6 +224,7 @@ export function SaasSourcesTab() {
     setDialogProvider(p);
     setName("");
     setValues({});
+    setSchedule("daily");
     setStreams(null);
     setPicked([]);
   };
@@ -261,6 +271,7 @@ export function SaasSourcesTab() {
           name: name.trim(),
           config: configFor(),
           streams: picked,
+          sync_schedule: schedule,
         },
       });
       setDialogProvider(null);
@@ -491,6 +502,27 @@ export function SaasSourcesTab() {
                     </label>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {streams && (
+              <div className="space-y-1">
+                <Label className="text-xs">Sync automatically</Label>
+                <Select value={schedule} onValueChange={(v) => setSchedule(v as SyncSchedule)}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="manual">Only when I click sync</SelectItem>
+                    <SelectItem value="hourly">Every hour</SelectItem>
+                    <SelectItem value="daily">Every day</SelectItem>
+                    <SelectItem value="weekly">Every week</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground">
+                  Each run REPLACES the datasets, keeping the previous contents as a restorable
+                  version. You are notified if a run fails.
+                </p>
               </div>
             )}
           </div>

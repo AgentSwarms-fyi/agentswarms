@@ -1513,8 +1513,10 @@ export type Database = {
           last_sync_status: string | null;
           last_synced_at: string | null;
           name: string;
+          next_sync_at: string | null;
           provider: string;
           streams: Json;
+          sync_schedule: string;
           updated_at: string;
           user_id: string;
         };
@@ -1527,8 +1529,10 @@ export type Database = {
           last_sync_status?: string | null;
           last_synced_at?: string | null;
           name: string;
+          next_sync_at?: string | null;
           provider: string;
           streams?: Json;
+          sync_schedule?: string;
           updated_at?: string;
           user_id: string;
         };
@@ -1541,8 +1545,10 @@ export type Database = {
           last_sync_status?: string | null;
           last_synced_at?: string | null;
           name?: string;
+          next_sync_at?: string | null;
           provider?: string;
           streams?: Json;
+          sync_schedule?: string;
           updated_at?: string;
           user_id?: string;
         };
