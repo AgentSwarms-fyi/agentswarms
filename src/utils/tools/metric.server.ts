@@ -91,16 +91,53 @@ async function grantedModelIdsFor(ctx: AgentToolContext): Promise<string[] | und
   return [...ids];
 }
 
-/** Compact catalog to append to the tool description at assembly time. */
+/**
+ * Compact catalog to append to the tool description at assembly time.
+ *
+ * `allowedNames` is the agent's own allow-list and is REQUIRED to be non-empty
+ * for this tool to do anything — an agent gets the models it was explicitly
+ * given, never every model its owner happens to be able to read. Two reasons,
+ * and the second is the one that shows up daily:
+ *
+ *   1. Least privilege. A marketing agent has no business reading the finance
+ *      metrics that live in the same account.
+ *   2. Cost and accuracy. The whole catalog goes into the system prompt on
+ *      EVERY call, so an unfiltered list is paid for on every turn and gives
+ *      the model more wrong names to choose between as the account grows.
+ *
+ * The allow-list is applied on top of the access scope, never instead of it:
+ * naming a model here cannot grant access to one the caller could not already
+ * read.
+ */
 export async function semanticCatalogForCtx(
   ctx: AgentToolContext,
+  allowedNames?: string[] | null,
 ): Promise<{ count: number; text: string }> {
+  const allow = normaliseAllowList(allowedNames);
+  if (!allow) return { count: 0, text: "" };
+
   // User-JWT callers: RLS returns own + shared. Headless: gate to owner + grants.
   const scope = ctx.scopeUserId
     ? { ownerId: ctx.scopeUserId, grantedIds: await grantedModelIdsFor(ctx) }
     : undefined;
-  const models = await listSemanticModels(ctx.sb, scope);
+  const models = (await listSemanticModels(ctx.sb, scope)).filter((m) => allow.has(m.name));
   return { count: models.length, text: formatSemanticCatalog(models) };
+}
+
+/**
+ * The allow-list as a lookup, or null when there is nothing allowed.
+ *
+ * Absent and empty both mean NOTHING — this is deny-by-default. An allow-list
+ * whose empty case meant "everything" would be one careless `?? []` away from
+ * silently opening the account up, and that mistake is invisible in review.
+ */
+export function normaliseAllowList(names?: string[] | null): Set<string> | null {
+  if (!Array.isArray(names)) return null;
+  const cleaned = names
+    .filter((s): s is string => typeof s === "string")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return cleaned.length > 0 ? new Set(cleaned) : null;
 }
 
 type MetricArgs = {
@@ -138,9 +175,36 @@ function asStringArray(v: unknown): string[] {
   return [];
 }
 
-export async function runMetricQuery(ctx: AgentToolContext, args: MetricArgs): Promise<string> {
+export async function runMetricQuery(
+  ctx: AgentToolContext,
+  args: MetricArgs,
+  allowedNames?: string[] | null,
+): Promise<string> {
   const model = typeof args.model === "string" ? args.model : "";
   if (!model) return "Error: `model` is required (a semantic model name from the catalog).";
+
+  // ENFORCED HERE, not only in the catalog. The model name arrives in the
+  // LLM's tool arguments, so filtering what gets ADVERTISED is cosmetic — a
+  // model can name something it was never shown, whether by hallucination or
+  // because a user asked it to. An allow-list that only shapes the prompt is
+  // not an allow-list.
+  const allow = normaliseAllowList(allowedNames);
+  if (!allow) {
+    return (
+      "Error: this agent has no semantic models enabled. " +
+      "Choose them in Agent Builder → Tools → Semantic Metrics."
+    );
+  }
+  if (!allow.has(model.trim())) {
+    // Names the permitted models so the model can correct itself, and says
+    // nothing about whether the requested one exists — that is not this
+    // agent's business either way.
+    return (
+      `Error: "${model}" is not enabled for this agent. ` +
+      `Available models: ${[...allow].join(", ")}.`
+    );
+  }
+
   const metrics = asStringArray(args.metrics);
   const dimensions = asStringArray(args.dimensions);
   if (metrics.length === 0 && dimensions.length === 0) {

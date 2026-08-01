@@ -311,6 +311,12 @@ export type ToolConfigs = {
   // catalog so the model sees ONLY those tables. Empty / undefined = every
   // table the user can read (own + public samples).
   sql_table_names?: string[];
+  // Allow-list of semantic model NAMES the metric_query tool may read.
+  // DENY BY DEFAULT: unlike sql_table_names, absent or empty means NOTHING,
+  // and the tool is not registered at all. The catalog is injected into the
+  // system prompt on every call, so an agent that was given no models should
+  // cost nothing rather than advertise the whole account's metrics.
+  metric_model_names?: string[];
 };
 
 async function braveSearch(query: string, limit: number, key: string): Promise<string> {
@@ -1509,12 +1515,18 @@ export async function resolveAgentTools(
     }
   }
 
-  // Governed semantic metrics — the metric_query tool, available when the user
-  // has defined at least one semantic model. The catalog (models + metric /
-  // dimension names) is injected into the tool description so the model picks
-  // names instead of writing SQL; the compiler guarantees the definition.
+  // Governed semantic metrics — the metric_query tool. The catalog (models +
+  // metric / dimension names) is injected into the tool description so the
+  // model picks names instead of writing SQL; the compiler guarantees the
+  // definition.
+  //
+  // DENY BY DEFAULT. The agent must name the models it may read; enabling the
+  // toggle alone does nothing. Registration is skipped entirely when the
+  // allow-list is empty, so an unconfigured agent pays no tokens for a tool
+  // description and a catalog it cannot use.
   if (allows("metric_query")) {
-    const catalog = await semanticCatalogForCtx(ctx);
+    const allowedModelNames = cfg.metric_model_names ?? [];
+    const catalog = await semanticCatalogForCtx(ctx, allowedModelNames);
     if (catalog.count > 0) {
       const metricTool: ToolDef = {
         ...metricQueryTool,
@@ -1524,7 +1536,9 @@ export async function resolveAgentTools(
         },
       };
       tools.push(metricTool);
-      handlers.set("metric_query", runMetricQuery);
+      // The same list guards the handler. The catalog only shapes the prompt;
+      // this is what actually refuses a model the agent was not given.
+      handlers.set("metric_query", (c, a) => runMetricQuery(c, a, allowedModelNames));
     }
   }
 

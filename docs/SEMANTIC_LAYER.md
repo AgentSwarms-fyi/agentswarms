@@ -125,11 +125,30 @@ Change what "revenue" means once, and every metric-backed widget updates.
 
 ## AI agents: the `metric_query` tool
 
-Enable **Semantic Metrics** on an agent (Agent Builder → Tools). The agent then
-sees the semantic catalog and calls `metric_query` with a structured query
-instead of writing SQL — governed by the same IAM model rules, budgets, and
+Enable **Semantic Metrics** on an agent (Agent Builder → Tools), **then pick
+which models it may read**. The agent calls `metric_query` with a structured
+query instead of writing SQL — governed by the same IAM model rules, budgets and
 Traces as every other model call, and owner-scoped so it only ever reads data
 the account may access.
+
+**The picker is deny-by-default: an agent with no models selected does not get
+the tool at all.** Two reasons:
+
+- **Least privilege.** A marketing agent has no business reading the finance
+  metrics that live in the same account.
+- **Cost and accuracy.** The catalog — every selected model's dimensions and
+  metrics — goes into the system prompt on _every_ call. Selecting the two
+  models an agent actually needs makes it cheaper per turn and leaves the model
+  fewer wrong names to choose between.
+
+The allow-list applies on top of access, never instead of it: naming a model
+cannot grant access to one the owner could not already read. It is enforced
+when the tool runs, not just in what gets advertised — an agent that asks for a
+model it was not given is refused.
+
+> **Upgrading:** agents that had this tool enabled before the picker existed
+> read every model in the account. They now read none until you select models
+> on each one.
 
 ## Execution backends
 

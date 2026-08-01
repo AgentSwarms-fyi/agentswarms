@@ -1107,6 +1107,7 @@ export const Route = createFileRoute("/api/chat")({
               n8n_workflow_ids?: string[];
               mcp_server_names?: string[];
               sql_table_names?: string[];
+              metric_model_names?: string[];
             };
             // Per-call guardrail override (used by swarm nodes that want
             // their own policy independent of the linked agent). Server
@@ -1229,6 +1230,7 @@ export const Route = createFileRoute("/api/chat")({
             n8n_workflow_ids?: string[];
             mcp_server_names?: string[];
             sql_table_names?: string[];
+            metric_model_names?: string[];
           } = {};
           let agentSkillIds: string[] = [];
           let agentGuardrails: Guardrails = parseGuardrails(undefined);
@@ -1313,6 +1315,19 @@ export const Route = createFileRoute("/api/chat")({
                     );
                   }
                 }
+                // Semantic model allow-list — saved under
+                // tools.toolConfigs.metric_query.model_names. Unlike the SQL
+                // list this is deny-by-default, so an absent config correctly
+                // leaves the tool with nothing and it is not registered.
+                const metricCfg = tools.toolConfigs?.metric_query;
+                if (metricCfg && typeof metricCfg === "object") {
+                  const raw = (metricCfg as { model_names?: unknown }).model_names;
+                  if (Array.isArray(raw)) {
+                    agentToolConfigs.metric_model_names = raw.filter(
+                      (s): s is string => typeof s === "string" && s.trim().length > 0,
+                    );
+                  }
+                }
               }
             } catch {
               /* ignore — trace label is non-critical */
@@ -1357,6 +1372,9 @@ export const Route = createFileRoute("/api/chat")({
               }
               if (Array.isArray(c.sql_table_names) && c.sql_table_names.length > 0) {
                 merged.sql_table_names = c.sql_table_names;
+              }
+              if (Array.isArray(c.metric_model_names) && c.metric_model_names.length > 0) {
+                merged.metric_model_names = c.metric_model_names;
               }
             }
             return merged;

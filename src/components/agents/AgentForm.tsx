@@ -120,9 +120,10 @@ const BUILT_IN_TOOLS: BuiltInTool[] = [
     id: "metric_query",
     name: "Semantic Metrics",
     description:
-      "Query governed metrics + dimensions defined in the Semantic Layer, so business definitions (revenue, active customers) compute consistently. Define models under Semantic Layer.",
+      "Query governed metrics + dimensions defined in the Semantic Layer, so business definitions (revenue, active customers) compute consistently. Pick which models this agent may read — it gets none until you do.",
     icon: Database,
     category: "data",
+    requiresConfig: true,
   },
 
   // Utilities — keyless, real implementations.
@@ -698,6 +699,22 @@ export function AgentForm({
     : [];
   const [sqlTableNames, setSqlTableNames] = useState<string[]>(initialSqlTables);
 
+  // Semantic models — the metric_query tool's per-agent allow-list. Unlike the
+  // SQL list this is DENY BY DEFAULT: an empty selection means the tool is not
+  // given to the agent at all, so the catalog never reaches the prompt.
+  const [availableSemanticModels, setAvailableSemanticModels] = useState<
+    { id: string; name: string; label: string | null; user_id: string }[]
+  >([]);
+  const [semanticModelsLoaded, setSemanticModelsLoaded] = useState(false);
+  const initialMetricModels: string[] = Array.isArray(
+    (existingTools.toolConfigs?.metric_query as { model_names?: unknown } | undefined)?.model_names,
+  )
+    ? (existingTools.toolConfigs!.metric_query as { model_names: unknown[] }).model_names.filter(
+        (s): s is string => typeof s === "string" && s.trim().length > 0,
+      )
+    : [];
+  const [metricModelNames, setMetricModelNames] = useState<string[]>(initialMetricModels);
+
   // Memory configuration. Loaded from agent_memory_config in the effect below
   // when editing an existing agent; defaults are used for new agents.
   const [memoryConfig, setMemoryConfig] = useState<MemoryConfigForm>(DEFAULT_MEMORY_CONFIG_FORM);
@@ -805,6 +822,25 @@ export function AgentForm({
         setDataTablesLoaded(true);
       });
 
+    // Load semantic models for the metric_query allow-list. RLS returns the
+    // user's own models plus any IAM-shared with them — the same set the tool
+    // could ever reach, so the picker cannot offer something that would then
+    // be refused at run time.
+    supabase
+      .from("semantic_models")
+      .select("id, name, label, user_id")
+      .order("name", { ascending: true })
+      .then(({ data }) => {
+        // Stored as fetched; whether a model is "shared" is derived at render
+        // from the current userId rather than frozen here.
+        if (data) {
+          setAvailableSemanticModels(
+            data as { id: string; name: string; label: string | null; user_id: string }[],
+          );
+        }
+        setSemanticModelsLoaded(true);
+      });
+
     // Load memory config + items for an existing agent.
     if (agent?.id) {
       (async () => {
@@ -863,6 +899,21 @@ export function AgentForm({
               const { sql_query: _omit, ...rest } = toolConfigs as Record<string, unknown>;
               return { ...(rest as typeof toolConfigs) };
             })()),
+        // Semantic-model allow-list. Persist only models still offered by the
+        // picker, so a model the user lost access to cannot linger in the
+        // config and quietly come back if it is ever re-shared.
+        ...(() => {
+          const kept = metricModelNames.filter(
+            (n) => !semanticModelsLoaded || availableSemanticModels.some((m) => m.name === n),
+          );
+          if (kept.length > 0) {
+            return { metric_query: { ...(toolConfigs.metric_query || {}), model_names: kept } };
+          }
+          // Empty means deny-all, which is also the absent case — drop the key
+          // rather than storing [] so there is exactly one representation.
+          const { metric_query: _omit, ...rest } = toolConfigs as Record<string, unknown>;
+          return { ...(rest as typeof toolConfigs) };
+        })(),
       },
       workflows: workflowConfigs,
       activeWorkflows,
@@ -2152,6 +2203,74 @@ export function AgentForm({
                                           {sqlTableNames.length === 0
                                             ? "No selection — the agent can query every table you can read."
                                             : `Agent will only see ${sqlTableNames.length} selected table${sqlTableNames.length === 1 ? "" : "s"}.`}
+                                        </p>
+                                      </>
+                                    )}
+                                  </div>
+                                ) : tool.id === "metric_query" ? (
+                                  <div className="space-y-1">
+                                    <Label className="text-xs">Allowed semantic models</Label>
+                                    {!semanticModelsLoaded ? (
+                                      <p className="text-[11px] text-muted-foreground">
+                                        Loading models…
+                                      </p>
+                                    ) : availableSemanticModels.length === 0 ? (
+                                      <p className="text-[11px] text-muted-foreground">
+                                        No semantic models yet. Define one under{" "}
+                                        <span className="font-medium text-foreground">
+                                          Semantic Layer
+                                        </span>
+                                        .
+                                      </p>
+                                    ) : (
+                                      <>
+                                        <div className="max-h-40 overflow-y-auto space-y-1 rounded-md border border-border/50 p-2 bg-background/40">
+                                          {availableSemanticModels.map((m) => {
+                                            const checked = metricModelNames.includes(m.name);
+                                            return (
+                                              <label
+                                                key={m.id}
+                                                className="flex items-start gap-2 cursor-pointer text-[11px]"
+                                              >
+                                                <input
+                                                  type="checkbox"
+                                                  className="mt-0.5"
+                                                  checked={checked}
+                                                  onChange={(e) =>
+                                                    setMetricModelNames((prev) =>
+                                                      e.target.checked
+                                                        ? Array.from(new Set([...prev, m.name]))
+                                                        : prev.filter((n) => n !== m.name),
+                                                    )
+                                                  }
+                                                />
+                                                <span className="font-mono truncate flex-1">
+                                                  {m.name}
+                                                </span>
+                                                {!!userId && m.user_id !== userId && (
+                                                  <Badge variant="outline" className="text-[9px]">
+                                                    shared
+                                                  </Badge>
+                                                )}
+                                              </label>
+                                            );
+                                          })}
+                                        </div>
+                                        {/* Deny-by-default, so an empty selection is a
+                                            dead tool rather than an open one. Say so
+                                            plainly — this is the opposite of the SQL
+                                            picker directly above and the difference is
+                                            invisible otherwise. */}
+                                        <p
+                                          className={`text-[11px] leading-snug ${
+                                            metricModelNames.length === 0
+                                              ? "text-amber-600 dark:text-amber-500"
+                                              : "text-muted-foreground"
+                                          }`}
+                                        >
+                                          {metricModelNames.length === 0
+                                            ? "No models selected — this tool is inactive and costs the agent nothing. Pick at least one."
+                                            : `Agent can query ${metricModelNames.length} model${metricModelNames.length === 1 ? "" : "s"}. Only these reach its prompt.`}
                                         </p>
                                       </>
                                     )}
