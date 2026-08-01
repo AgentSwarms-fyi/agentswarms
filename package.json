@@ -69,7 +69,7 @@
     "@tailwindcss/vite": "^4.2.1",
     "@tanstack/react-query": "^5.83.0",
     "@tanstack/react-router": "^1.168.0",
-    "@tanstack/react-start": "^1.167.14",
+    "@tanstack/react-start": "^1.168.34",
     "@tanstack/router-plugin": "^1.167.10",
     "@types/d3-force": "^3.0.10",
     "@types/js-yaml": "^4.0.9",
