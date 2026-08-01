@@ -1105,6 +1105,17 @@ function SemanticsPage() {
                 {!draft.id && (
                   <p className="text-xs text-muted-foreground">Save the model to run queries.</p>
                 )}
+                {draft.id && pickedMetrics.length > 0 && pickedDims.length === 0 && (
+                  // A metrics-only query is perfectly valid — it is a grand
+                  // total — so this cannot be an error. But nothing otherwise
+                  // distinguishes "I wanted one number" from "the dimension I
+                  // thought I picked did not register", and the second reads
+                  // as the runner ignoring you.
+                  <p className="text-xs text-muted-foreground">
+                    No dimension selected — this returns a single total. Pick a dimension to break
+                    it down.
+                  </p>
+                )}
                 <div className="grid gap-3 sm:grid-cols-2">
                   <Picker
                     label="Metrics"
