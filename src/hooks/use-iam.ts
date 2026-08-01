@@ -91,38 +91,11 @@ export function useMyModelRules(): MyModelRule[] | null {
   return useIamState().modelRules;
 }
 
-/** Client-side mirror of the server-side rule matcher in iam.server.ts. */
-export function isModelAllowedByRules(
-  rules: MyModelRule[] | null,
-  provider: string,
-  model: string,
-): boolean {
-  if (!rules) return true;
-  return rules.some((r) => {
-    if (r.provider !== provider) return false;
-    const p = r.model_pattern;
-    if (p === "*" || p === model) return true;
-    if (p.endsWith("*")) return model.startsWith(p.slice(0, -1));
-    return false;
-  });
-}
-
-/** Providers that have at least one allowed model for the current rules. */
-export function allowedProviders(rules: MyModelRule[] | null): Set<string> | null {
-  if (!rules) return null;
-  return new Set(rules.map((r) => r.provider));
-}
-
-/**
- * Provider-agnostic match: does any rule's pattern cover this model id?
- * Used by catalog pickers where the calling provider isn't known yet.
- */
-export function modelMatchesAnyRule(rules: MyModelRule[] | null, model: string): boolean {
-  if (!rules) return true;
-  return rules.some((r) => {
-    const p = r.model_pattern;
-    if (p === "*" || p === model) return true;
-    if (p.endsWith("*")) return model.startsWith(p.slice(0, -1));
-    return false;
-  });
-}
+// The matcher itself lives in src/lib/iamRules.ts and is shared with the
+// server, so the UI can never offer a model the server would refuse (or hide
+// one it would have allowed). These names are kept for existing callers.
+export {
+  isModelAllowed as isModelAllowedByRules,
+  modelMatchesAnyRule,
+  allowedProviders,
+} from "@/lib/iamRules";

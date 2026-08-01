@@ -94,15 +94,9 @@ export async function getEffectiveModelRules(
   return applicable.map((r) => ({ provider: r.provider, model_pattern: r.model_pattern }));
 }
 
-export function isModelAllowed(rules: ModelRule[], provider: string, model: string): boolean {
-  return rules.some((r) => {
-    if (r.provider !== provider) return false;
-    const p = r.model_pattern;
-    if (p === "*" || p === model) return true;
-    if (p.endsWith("*")) return model.startsWith(p.slice(0, -1));
-    return false;
-  });
-}
+// Re-exported from the shared matcher so the server and the browser cannot
+// disagree about who may call which model. See src/lib/iamRules.ts.
+export { isModelAllowed } from "@/lib/iamRules";
 
 // Resource ids of `resourceType` the user may read via an IAM grant — directly
 // or through any group they belong to. Mirrors the `has_resource_access` RLS
