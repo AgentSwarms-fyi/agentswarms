@@ -1748,6 +1748,12 @@ export const Route = createFileRoute("/api/chat")({
               "mcp_call_tool",
               "sql_query",
               "kb_search",
+              // Safe here for the same reason sql_query is: runMetricQuery
+              // forwards scopeUserId and the IAM-resolved grantedModelIds into
+              // runSemanticQuery, so a service-role run still only ever reads
+              // the swarm owner's own + shared models. Its per-agent allow-list
+              // narrows it further and is deny-by-default.
+              "metric_query",
             ]);
             const sbForTools = authToken
               ? getServerSupabase(authToken)

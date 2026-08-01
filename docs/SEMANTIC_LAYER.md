@@ -150,6 +150,12 @@ model it was not given is refused.
 > read every model in the account. They now read none until you select models
 > on each one.
 
+**Swarm agent nodes** get the same tool and the same picker, in the node
+inspector's Tools section. A swarm runs headless — under the service role, with
+no user JWT — so the tool still resolves the swarm owner's own and IAM-shared
+models via `scopeUserId`, never another tenant's, and the node's allow-list
+narrows it from there.
+
 ## Execution backends
 
 - **Local datasets** run through the in-app **DuckDB** engine. Setting

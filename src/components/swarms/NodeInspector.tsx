@@ -254,6 +254,12 @@ const TOOL_CATALOG: { id: SwarmToolId; label: string; desc: string; icon: typeof
     icon: Database,
   },
   {
+    id: "metric_query",
+    label: "Semantic Metrics",
+    desc: "Query governed metrics from the Semantic Layer. Pick the models below — the node gets none until you do.",
+    icon: Database,
+  },
+  {
     id: "calculator",
     label: "Calculator",
     desc: "Safe math expression evaluator. No key needed.",
@@ -329,6 +335,13 @@ export function NodeInspector({
     { id: string; name: string; is_sample: boolean }[]
   >([]);
   const [dataTablesLoaded, setDataTablesLoaded] = useState(false);
+  // Semantic models — the metric_query per-node allow-list. RLS returns the
+  // user's own plus IAM-shared, which is exactly the set the tool could reach,
+  // so the picker cannot offer something that would then be refused at run time.
+  const [availableSemanticModels, setAvailableSemanticModels] = useState<
+    { id: string; name: string }[]
+  >([]);
+  const [semanticModelsLoaded, setSemanticModelsLoaded] = useState(false);
   // Connected MCP servers — used by the mcp_call_tool per-node allow-list picker
   // so users can check off servers instead of typing names from memory.
   const [availableMcpServers, setAvailableMcpServers] = useState<
@@ -357,6 +370,12 @@ export function NodeInspector({
         .order("name", { ascending: true });
       if (dt) setAvailableDataTables(dt);
       setDataTablesLoaded(true);
+      const { data: sm } = await supabase
+        .from("semantic_models")
+        .select("id, name")
+        .order("name", { ascending: true });
+      if (sm) setAvailableSemanticModels(sm);
+      setSemanticModelsLoaded(true);
       const { data: mcp } = await supabase
         .from("mcp_servers")
         .select("id, name, type, status")
@@ -1071,6 +1090,71 @@ export function NodeInspector({
                                       {(tc.sql_table_names ?? []).length === 0
                                         ? "No selection — node can query every table you can read."
                                         : `Node will only see ${(tc.sql_table_names ?? []).length} selected table${(tc.sql_table_names ?? []).length === 1 ? "" : "s"}.`}
+                                    </p>
+                                  </>
+                                )}
+                              </div>
+                            )}
+
+                            {on && t.id === "metric_query" && (
+                              <div className="mt-2 pt-2 border-t border-border/40 space-y-1">
+                                <Label className="text-[10px] text-muted-foreground block">
+                                  Allowed semantic models (required)
+                                </Label>
+                                {!semanticModelsLoaded ? (
+                                  <p className="text-[10px] text-muted-foreground">
+                                    Loading models…
+                                  </p>
+                                ) : availableSemanticModels.length === 0 ? (
+                                  <p className="text-[10px] text-muted-foreground">
+                                    No semantic models yet. Define one under{" "}
+                                    <span className="font-medium text-foreground">
+                                      Semantic Layer
+                                    </span>
+                                    .
+                                  </p>
+                                ) : (
+                                  <>
+                                    <div className="max-h-32 overflow-y-auto space-y-1 rounded-md border border-border/40 bg-background/40 p-2">
+                                      {availableSemanticModels.map((sm) => {
+                                        const list = tc.metric_model_names ?? [];
+                                        const checked = list.includes(sm.name);
+                                        return (
+                                          <label
+                                            key={sm.id}
+                                            className="flex items-start gap-2 cursor-pointer text-[10px]"
+                                          >
+                                            <input
+                                              type="checkbox"
+                                              className="mt-0.5"
+                                              checked={checked}
+                                              onChange={(e) => {
+                                                const next = e.target.checked
+                                                  ? Array.from(new Set([...list, sm.name]))
+                                                  : list.filter((n) => n !== sm.name);
+                                                patchToolConfig({ metric_model_names: next });
+                                              }}
+                                            />
+                                            <span className="font-mono truncate flex-1">
+                                              {sm.name}
+                                            </span>
+                                          </label>
+                                        );
+                                      })}
+                                    </div>
+                                    {/* Deny-by-default, the opposite of the SQL
+                                        picker directly above. Say so, because the
+                                        difference is invisible otherwise. */}
+                                    <p
+                                      className={`text-[10px] ${
+                                        (tc.metric_model_names ?? []).length === 0
+                                          ? "text-amber-600 dark:text-amber-500"
+                                          : "text-muted-foreground"
+                                      }`}
+                                    >
+                                      {(tc.metric_model_names ?? []).length === 0
+                                        ? "No models selected — this tool stays inactive on this node."
+                                        : `Node can query ${(tc.metric_model_names ?? []).length} model${(tc.metric_model_names ?? []).length === 1 ? "" : "s"}.`}
                                     </p>
                                   </>
                                 )}

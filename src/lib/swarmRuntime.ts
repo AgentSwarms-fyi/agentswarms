@@ -104,7 +104,8 @@ export type SwarmToolId =
   | "calculator"
   | "datetime"
   | "weather"
-  | "sql_query";
+  | "sql_query"
+  | "metric_query";
 
 // Per-node tool configuration. Mirrors the server's ToolConfigs shape.
 export type SwarmToolConfigs = {
@@ -115,6 +116,11 @@ export type SwarmToolConfigs = {
   // Allow-list of CSV-derived data table names the sql_query tool may read.
   // Empty / undefined = every table the user can see.
   sql_table_names?: string[];
+  // Allow-list of semantic model names the metric_query tool may read.
+  // DENY BY DEFAULT — note this is the OPPOSITE of sql_table_names above:
+  // empty / undefined means NO models and the tool is not given to the node
+  // at all, because the model catalogue costs prompt tokens on every call.
+  metric_model_names?: string[];
 };
 
 // Per-node guardrails — same shape the agent builder writes under
