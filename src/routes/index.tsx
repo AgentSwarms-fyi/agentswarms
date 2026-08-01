@@ -376,7 +376,13 @@ function LandingPage() {
                   <Link to="/docs">Docs</Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
+                  <Link to="/architecture">Architecture</Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
                   <Link to="/security">Security</Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link to="/license">Licensing</Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
                   <Link to="/about">About</Link>
