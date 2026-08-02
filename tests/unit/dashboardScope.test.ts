@@ -20,6 +20,7 @@ import {
   allowedScopes,
   isDashboardRange,
   isDashboardScope,
+  personLabel,
   resolveRange,
 } from "@/utils/dashboard/scope";
 
@@ -171,5 +172,38 @@ describe("the scope and range vocabularies stay in step", () => {
     expect(isDashboardRange("all-time")).toBe(false);
     expect(fnSrc).toMatch(/z\.enum\(DASHBOARD_SCOPES\)/);
     expect(fnSrc).toMatch(/z\.enum\(DASHBOARD_RANGES\)/);
+  });
+});
+
+describe("personLabel", () => {
+  // Found by looking at the running app, not by reading code: the spend
+  // breakdown showed SEVEN raw UUIDs out of eight people. The label fallback
+  // was working exactly as written — those ids genuinely are not in
+  // auth.users, because execution traces outlive the accounts that made them.
+  // The code was right and the screen was still useless.
+  const ID = "3925a5c9-49c6-429f-90b3-4afa42c85eb5";
+
+  it("uses the email when there is one", () => {
+    expect(personLabel(ID, "someone@example.com")).toBe("someone@example.com");
+  });
+
+  it("says the account is gone rather than printing a bare UUID", () => {
+    // A chargeback table cannot bill a UUID, and a UUID where a name belongs
+    // reads as a rendering fault rather than as a fact about the data.
+    expect(personLabel(ID)).toBe("Removed account · 3925a5c9");
+    expect(personLabel(ID, null)).toBe("Removed account · 3925a5c9");
+    expect(personLabel(ID, "")).toBe("Removed account · 3925a5c9");
+    expect(personLabel(ID, "   ")).toBe("Removed account · 3925a5c9");
+  });
+
+  it("keeps removed accounts distinguishable from each other", () => {
+    // Two deleted users must not collapse into one row.
+    const a = personLabel("aaaaaaaa-0000-0000-0000-000000000000");
+    const b = personLabel("bbbbbbbb-0000-0000-0000-000000000000");
+    expect(a).not.toBe(b);
+  });
+
+  it("never leaks a full id into the label", () => {
+    expect(personLabel(ID)).not.toContain(ID);
   });
 });

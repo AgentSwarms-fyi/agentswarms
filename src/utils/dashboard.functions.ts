@@ -26,6 +26,7 @@ import {
   DASHBOARD_RANGES,
   DASHBOARD_SCOPES,
   allowedScopes,
+  personLabel,
   resolveRange,
   type DashboardScope,
 } from "@/utils/dashboard/scope";
@@ -195,11 +196,22 @@ export const dashboardOverview = createServerFn({ method: "POST" })
     // Names come from the admin auth API, not from a profile table that may not
     // have a row for everyone. Only for the ids actually present, and only for
     // scopes where a breakdown is shown at all.
+    //
+    // AN ID THAT DOES NOT RESOLVE IS SAID SO, not printed raw. Traces outlive
+    // the accounts that made them — a deleted user, or a database restored
+    // beside a fresh auth project, leaves spend attributed to an id with no
+    // owner. On the instance this was first checked against, SEVEN of eight
+    // people in the breakdown were in that state, one of them with 96 runs.
+    // A bare UUID in a chargeback table reads as a rendering fault and cannot
+    // be charged to anyone; naming it as a removed account is the same
+    // information, honestly labelled.
     if (data.scope !== "mine" && perUser.size > 0) {
       try {
         const { data: list } = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 1000 });
         const emails = new Map((list?.users ?? []).map((u) => [u.id, u.email ?? u.id]));
-        for (const [id, row] of perUser) row.label = emails.get(id) ?? id;
+        for (const [id, row] of perUser) {
+          row.label = personLabel(id, emails.get(id));
+        }
       } catch {
         // Falling back to ids is ugly but honest; failing the whole dashboard
         // because a name lookup broke is not.

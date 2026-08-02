@@ -91,3 +91,22 @@ export function allowedScopes(args: {
   if (args.isSuperadmin) scopes.push("org");
   return scopes;
 }
+
+/**
+ * Display name for one person in the spend breakdown.
+ *
+ * Execution traces OUTLIVE the accounts that made them: delete a user, or
+ * restore a database beside a fresh auth project, and spend stays attributed
+ * to an id with no owner. On the first instance this was checked against,
+ * seven of eight people in the breakdown were in that state — one with 96 runs.
+ *
+ * A bare UUID in a chargeback table reads as a rendering fault, and cannot be
+ * charged to anybody. Saying "Removed account" is the same information with
+ * the reason attached. The id fragment stays so two removed accounts remain
+ * distinguishable from each other.
+ */
+export function personLabel(userId: string, email?: string | null): string {
+  const trimmed = (email ?? "").trim();
+  if (trimmed) return trimmed;
+  return `Removed account · ${userId.slice(0, 8)}`;
+}
