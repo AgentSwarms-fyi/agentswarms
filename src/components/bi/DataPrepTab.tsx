@@ -128,6 +128,7 @@ import {
   type PrepStepKind,
   type PrepTableInfo,
 } from "@/lib/dataPrep";
+import { BROWSER_SQL_DIALECT } from "@/lib/browserDuckdb";
 import {
   deleteDataset,
   hydrateFromSupabase,
@@ -500,21 +501,28 @@ export function DataPrepTab() {
         return;
       }
       setFoldState(null);
-      try {
-        const res = runQueryUnlimited(buildPrepSql(effective), PREVIEW_SAMPLE);
-        const cast = castRows(res.rows, effective);
-        setPreview({
-          kind: "ok",
-          columns: cast.columns.map((c) => c.name),
-          rows: cast.rows,
-          total: res.total,
-          sampled: res.capped,
-          failures: cast.failures,
-          profile: profilePrepColumns(cast.rows, effectiveOutputColumns(effective)),
-        });
-      } catch (e) {
-        setPreview({ kind: "error", error: (e as Error).message });
-      }
+      // Wrapped in an async IIFE, exactly as the warehouse branch above is:
+      // the local engine is DuckDB-Wasm now and its queries are awaited.
+      void (async () => {
+        try {
+          const res = await runQueryUnlimited(
+            buildPrepSql(effective, { dialect: BROWSER_SQL_DIALECT }),
+            PREVIEW_SAMPLE,
+          );
+          const cast = castRows(res.rows, effective);
+          setPreview({
+            kind: "ok",
+            columns: cast.columns.map((c) => c.name),
+            rows: cast.rows,
+            total: res.total,
+            sampled: res.capped,
+            failures: cast.failures,
+            profile: profilePrepColumns(cast.rows, effectiveOutputColumns(effective)),
+          });
+        } catch (e) {
+          setPreview({ kind: "error", error: (e as Error).message });
+        }
+      })();
     }, 450);
     return () => clearTimeout(t);
   }, [cfg, previewStep, token, previewFn]);
@@ -757,10 +765,13 @@ export function DataPrepTab() {
   }
   // Distinct values of a column at a given step boundary (for the pivot step).
   const detectPivotValues = useCallback(
-    (index: number, column: string): string[] => {
+    async (index: number, column: string): Promise<string[]> => {
       try {
         const upto: PrepFlowConfig = { ...cfg, steps: cfg.steps.slice(0, index) };
-        const res = runQueryUnlimited(buildPrepSql(upto), PREP_SAVE_ROW_CAP);
+        const res = await runQueryUnlimited(
+          buildPrepSql(upto, { dialect: BROWSER_SQL_DIALECT }),
+          PREP_SAVE_ROW_CAP,
+        );
         const set = new Set<string>();
         for (const r of res.rows) {
           const v = r[column];
@@ -774,7 +785,10 @@ export function DataPrepTab() {
     [cfg],
   );
 
-  const sql = cfg.base && validatePrepConfig(cfg).ok ? buildPrepSql(cfg) : null;
+  const sql =
+    cfg.base && validatePrepConfig(cfg).ok
+      ? buildPrepSql(cfg, { dialect: BROWSER_SQL_DIALECT })
+      : null;
   const includedCount = cfg.columns.filter((c) => c.include).length;
 
   // ── Render ──────────────────────────────────────────────────────────
@@ -1741,7 +1755,7 @@ function StepsEditor({
   onUpdate: (index: number, next: PrepStep) => void;
   onRemove: (index: number) => void;
   onMove: (index: number, dir: -1 | 1) => void;
-  detectPivotValues: (index: number, column: string) => string[];
+  detectPivotValues: (index: number, column: string) => Promise<string[]>;
   previewStep: number | null;
   onPreviewStep: (index: number | null) => void;
 }) {
@@ -1827,7 +1841,7 @@ function StepCard({
   onUpdate: (next: PrepStep) => void;
   onRemove: () => void;
   onMove: (dir: -1 | 1) => void;
-  detectPivotValues: (index: number, column: string) => string[];
+  detectPivotValues: (index: number, column: string) => Promise<string[]>;
   previewing: boolean;
   onTogglePreview: () => void;
 }) {
@@ -2371,7 +2385,7 @@ function PivotStepEditor({
   step: Extract<PrepStep, { kind: "pivot" }>;
   columns: PrepSchemaCol[];
   onUpdate: (next: PrepStep) => void;
-  detect: (column: string) => string[];
+  detect: (column: string) => Promise<string[]>;
 }) {
   const names = columns.map((c) => c.name);
   return (
@@ -2397,7 +2411,14 @@ function PivotStepEditor({
           value={step.pivotColumn}
           columns={names}
           placeholder="pivot column"
-          onChange={(v) => onUpdate({ ...step, pivotColumn: v, values: detect(v) })}
+          // Two updates rather than one: set the column immediately so the
+          // picker reflects the choice, then fill in the detected values when
+          // the engine returns. Awaiting before the first update would leave
+          // the control looking unresponsive while DuckDB scans.
+          onChange={(v) => {
+            onUpdate({ ...step, pivotColumn: v, values: [] });
+            void detect(v).then((values) => onUpdate({ ...step, pivotColumn: v, values }));
+          }}
         />
         <span className="text-[10px] text-muted-foreground">values,</span>
         <Select value={step.agg} onValueChange={(v) => onUpdate({ ...step, agg: v as PrepAggFn })}>
@@ -2434,7 +2455,9 @@ function PivotStepEditor({
             variant="ghost"
             className="h-5 px-1.5 text-[10px]"
             disabled={!step.pivotColumn}
-            onClick={() => onUpdate({ ...step, values: detect(step.pivotColumn) })}
+            onClick={() =>
+              void detect(step.pivotColumn).then((values) => onUpdate({ ...step, values }))
+            }
           >
             <RefreshCw className="mr-1 h-2.5 w-2.5" /> Detect
           </Button>

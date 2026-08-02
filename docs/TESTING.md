@@ -103,48 +103,62 @@ To see the differences rather than a pass/fail:
 npm run test:differential
 ```
 
-### Local datasets run on TWO engines, in two places
+### One engine everywhere: DuckDB
 
-This is the most surprising thing in the data layer and it is not a bug that
-was introduced — it is where the architecture currently sits:
+Local datasets execute in two places, and **both now run DuckDB**:
 
-| Surface                                           | Engine                     |
-| ------------------------------------------------- | -------------------------- |
-| SQL workbench, local datasets                     | **AlaSQL, in the browser** |
-| BI Workspace "Ask AI", local datasets             | **AlaSQL, in the browser** |
-| Agent `sql_query` tool                            | Server — DuckDB            |
-| Scheduled BI refresh, prep flows, semantic runner | Server — DuckDB            |
-| Any warehouse connection                          | The warehouse              |
+| Surface                                           | Engine                          |
+| ------------------------------------------------- | ------------------------------- |
+| SQL workbench, local datasets                     | **DuckDB-Wasm, in the browser** |
+| BI Workspace "Ask AI", local datasets             | **DuckDB-Wasm, in the browser** |
+| Agent `sql_query` tool                            | DuckDB, on the server           |
+| Scheduled BI refresh, prep flows, semantic runner | DuckDB, on the server           |
+| Any warehouse connection                          | The warehouse                   |
 
-`lib/sqlEngine.ts` is the browser engine (`runQuery` → AlaSQL);
-`utils/data/localEngine.server.ts` is the server one. `askBi` calls `runQuery`
-whenever no warehouse `execute` override is supplied, which is every local
-dataset.
+`lib/browserDuckdb.ts` is the browser engine; `utils/data/localEngine.server.ts`
+is the server one. Both convert values through the same `lib/duckdbValues`, so
+a `COUNT`'s BigInt and a `DECIMAL` land identically on either side.
 
-**Measure the gap, do not guess at it:**
+#### Why this changed
 
-```bash
-npx vite-node evals/nl2sql/engine-gap.ts
-```
+The browser used to run **AlaSQL**, and the two engines disagreed. Measured
+before the swap with `npx vite-node evals/nl2sql/engine-gap.ts` — which runs
+every NL-to-SQL reference query, known-good SQL, on both engines and compares
+results — AlaSQL scored **56/61 against DuckDB's 61/61**. Every failure was a
+window function, and **three of the five were silent**:
 
-It runs every NL-to-SQL reference query — known-good SQL — on both engines and
-compares results. As of the v3 question set: **56/61 on AlaSQL against 61/61 on
-DuckDB**, and all five failures are window functions. Two error loudly; **three
-return a different answer without complaining**, which is the dangerous half:
-
-- _share of total_ — AlaSQL drops the computed column entirely, so the chart
-  renders with no measure;
-- _running total_ — AlaSQL returns `0` for every row, so a cumulative chart is
-  a flat line at zero;
+- _share of total_ — AlaSQL dropped the computed column entirely, so the chart
+  rendered with no measure;
+- _running total_ — AlaSQL returned `0` for every row, so a cumulative chart
+  was a flat line at zero;
 - _top-N-per-group_ — a different row set.
 
-Every join in the set works identically on both. The divergence is confined to
-window functions and CTEs referenced from a subquery.
+`RANK()` and a CTE referenced from a subquery failed outright. Joins were
+identical on both, which is why this went unnoticed for so long.
 
-Whether to unify the two (route browser SQL to the server, or ship a WASM
-DuckDB to the browser) is a product decision with real trade-offs — browser
-execution is instant and costs no server time. It is recorded here rather than
-quietly resolved.
+Every BI tool that executes in two places runs the same engine in both:
+MotherDuck advertises that a query working locally is guaranteed to work in the
+cloud; Evidence pairs build-time DuckDB with DuckDB-Wasm in the browser. Two
+different engines over one dataset is the arrangement nobody ships on purpose.
+
+Those five queries are now in the differential corpus, so the gap cannot
+reopen. `engine-gap.ts` is kept — it is the check to run if the browser engine
+is ever changed again.
+
+#### Verifying it in a real browser
+
+Unit tests and the bundler cannot tell you whether WebAssembly instantiates
+behind a customer's Content-Security-Policy, whether a proxy mangled the
+`.wasm`, or whether the worker was blocked. Those failures happen on someone
+else's machine.
+
+**Open `/engine-check`** on the deployment in question. It runs the exact
+queries the old engine got wrong, against four fixture rows, and prints
+pass/fail per case plus which wasm bundle the browser selected. It is
+unauthenticated and touches no user data, so it is safe to hit while
+diagnosing a locked-down environment.
+
+It reported **10/10 on the `eh` bundle** when the migration landed.
 
 ### DuckDB, the default engine
 

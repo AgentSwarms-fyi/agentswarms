@@ -24,6 +24,7 @@
 //     JSON.stringify throws or renders "[object Object]". See toJsValue.
 
 import { assertLocalReadOnlySql } from "@/lib/sqlSafety";
+import { toJsValue } from "@/lib/duckdbValues";
 import type { ColumnDef } from "@/lib/datasetParse";
 
 export type DuckRow = Record<string, unknown>;
@@ -179,28 +180,11 @@ export type DuckResult = {
 /**
  * Convert a DuckDB value into something JSON-serialisable.
  *
- * This is not cosmetic. COUNT(*) comes back as a BigInt, which JSON.stringify
- * throws on outright, and DECIMAL comes back as an object that stringifies to
- * "[object Object]" — either would surface as a broken widget or a 500 rather
- * than a wrong number, but both are failures.
+ * MOVED to lib/duckdbValues and re-exported here so existing importers keep
+ * working. DuckDB now runs in the browser too, and both engines must apply
+ * identical rules — a second copy is the divergence this change removes.
  */
-export function toJsValue(v: unknown): unknown {
-  if (v === null || v === undefined) return null;
-  if (typeof v === "bigint") {
-    // Beyond 2^53 a Number silently loses precision. A string is ugly but
-    // honest; a wrong total is neither.
-    return v >= BigInt(Number.MIN_SAFE_INTEGER) && v <= BigInt(Number.MAX_SAFE_INTEGER)
-      ? Number(v)
-      : v.toString();
-  }
-  if (typeof v === "number" || typeof v === "string" || typeof v === "boolean") return v;
-  if (v instanceof Date) return v.toISOString();
-  // DECIMAL / HUGEINT / DATE / TIMESTAMP arrive as objects with a faithful
-  // toString(). Prefer the numeric reading when there is one.
-  const s = String(v);
-  const n = Number(s);
-  return s !== "" && Number.isFinite(n) ? n : s;
-}
+export { toJsValue } from "@/lib/duckdbValues";
 
 /**
  * What one raw JS cell becomes in a typed DuckDB column.

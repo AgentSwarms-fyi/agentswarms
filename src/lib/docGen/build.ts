@@ -891,16 +891,16 @@ function noteSheet(name: string, message: string): XlsxLiteralSheet {
   return { name, headers: ["Note"], rows: [[message]] };
 }
 
-function materializeDataSheet(
+async function materializeDataSheet(
   name: string,
   sourceSql: string,
   computed: XlsxComputedColumn[],
   totals: XlsxTotalsRow | undefined,
   cap: number,
-): XlsxLiteralSheet {
+): Promise<XlsxLiteralSheet> {
   let result: { columns: string[]; rows: Record<string, unknown>[] };
   try {
-    result = runQueryUnlimited(sourceSql, cap);
+    result = await runQueryUnlimited(sourceSql, cap);
   } catch (e) {
     return noteSheet(
       name,
@@ -965,18 +965,25 @@ export async function materializeXlsxPlan(
     }
   }
 
-  const sheets: XlsxLiteralSheet[] = (plan.sheets ?? []).map((s) => {
+  // Sequential rather than Promise.all: each sheet's query runs on the same
+  // single DuckDB-Wasm connection, so firing them together would queue inside
+  // the worker anyway while making a failure harder to attribute to a sheet.
+  const sheets: XlsxLiteralSheet[] = [];
+  for (const s of plan.sheets ?? []) {
     if (isXlsxDataSheet(s)) {
-      return materializeDataSheet(
-        s.name || "Sheet1",
-        s.sourceSql,
-        s.computedColumns ?? [],
-        s.totals,
-        cap,
+      sheets.push(
+        await materializeDataSheet(
+          s.name || "Sheet1",
+          s.sourceSql,
+          s.computedColumns ?? [],
+          s.totals,
+          cap,
+        ),
       );
+    } else {
+      sheets.push({ name: s.name || "Sheet1", headers: s.headers ?? [], rows: s.rows ?? [] });
     }
-    return { name: s.name || "Sheet1", headers: s.headers ?? [], rows: s.rows ?? [] };
-  });
+  }
 
   return { sheets };
 }

@@ -8,6 +8,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
 import { saveSemantics } from "@/lib/biAgent";
+import { BROWSER_SQL_DIALECT } from "@/lib/browserDuckdb";
 import { runQueryUnlimited, safeTableName, saveDataset, type DatasetMeta } from "@/lib/sqlEngine";
 import {
   buildPrepSql,
@@ -39,8 +40,8 @@ export async function runAndSavePrep(args: {
   const valid = validatePrepConfig(args.cfg);
   if (!valid.ok) throw new Error(valid.error);
 
-  const sql = buildPrepSql(args.cfg);
-  const raw = runQueryUnlimited(sql, PREP_SAVE_ROW_CAP);
+  const sql = buildPrepSql(args.cfg, { dialect: BROWSER_SQL_DIALECT });
+  const raw = await runQueryUnlimited(sql, PREP_SAVE_ROW_CAP);
   const cast = castRows(raw.rows, args.cfg);
   if (cast.rows.length === 0) throw new Error("The flow produced no rows — nothing to save.");
 

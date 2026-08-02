@@ -4,8 +4,10 @@ Last reviewed: **2 August 2026**.
 
 > Recently completed and no longer listed below: connection sharing through
 > IAM, connection pooling, retry/backoff, corporate proxy support, scheduled
-> connection health checks, credential-age surfacing, and the admin UI for
-> trace retention. See [CHANGELOG.md](./CHANGELOG.md).
+> connection health checks, credential-age surfacing, the admin UI for trace
+> retention, and **one SQL engine everywhere** — the browser now runs
+> DuckDB-Wasm instead of AlaSQL, closing a divergence that returned silently
+> wrong answers for window functions. See [CHANGELOG.md](./CHANGELOG.md).
 
 A roadmap is worth more to someone evaluating this project than to someone
 using it: it is how they judge whether the gaps they just found are known.
@@ -70,20 +72,6 @@ Stated because you will find them anyway.
   warehouse's `max_connections`. A cluster-wide budget needs shared state.
 - **No numbered releases.** The project ships from `main`. Versioned releases
   and an upgrade guide are wanted, not yet done.
-- **Local datasets run on two engines.** The SQL workbench and the BI
-  Workspace's "Ask AI" execute local datasets in the **browser on AlaSQL**;
-  scheduled refreshes, prep flows, the semantic runner and the agents'
-  `sql_query` tool run on the **server, DuckDB by default**. Measured with
-  `npx vite-node evals/nl2sql/engine-gap.ts`: **56/61 vs 61/61**, every failure
-  a window function, and three of the five return a wrong answer silently
-  rather than erroring — a running total comes back as `0` for every row.
-
-  All five are now in the differential corpus with recorded reasons, so the
-  gap cannot widen unnoticed. Closing it means either routing browser SQL to
-  the server (a network round trip per run) or shipping DuckDB-WASM to the
-  browser (a large bundle). Neither is obviously right, which is why it is
-  written down rather than decided.
-
 - **Single-tenant dashboard view.** No org/workspace switcher — the dashboard
   shows what your account can see, with no scope selector.
 - **The BI builder pane is a 2,660-line component.** Its pure logic has been

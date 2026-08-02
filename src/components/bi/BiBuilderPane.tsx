@@ -484,7 +484,7 @@ export function BiBuilderPane({
       selectedTables[0] ??
       ctx.datasets[0]?.name;
     if (!table) return;
-    const q = `SELECT ${m.sql_expression} AS \`${m.name}\` FROM \`${table}\``;
+    const q = `SELECT ${m.sql_expression} AS "${m.name}" FROM "${table}"`;
     setSql(q);
     lastSeeded.current = q;
     if (!title.trim()) setTitle(m.name);
@@ -576,7 +576,7 @@ export function BiBuilderPane({
           try {
             const res = await ctx.runSql(
               { kind: "local" },
-              `SELECT * FROM \`${d.name}\` LIMIT ${sampleLimit}`,
+              `SELECT * FROM "${d.name}" LIMIT ${sampleLimit}`,
             );
             if (res.rows.length > 0) tableSamples.set(d.name, res.rows);
           } catch {

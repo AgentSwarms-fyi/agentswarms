@@ -653,6 +653,29 @@ ORDER  BY 1;`}</Code>
         </li>
       </UL>
 
+      <H3 id="workbench-engine">Which engine runs your SQL</H3>
+      <P>
+        Queries against a <strong>connected warehouse</strong> run on that warehouse. Queries
+        against <strong>uploaded tables and prepared datasets</strong> run on{" "}
+        <strong>DuckDB</strong> — in your browser for the workbench and Ask&nbsp;AI, and on the
+        server for scheduled refreshes, prep flows and agent tools.
+      </P>
+      <Callout kind="why">
+        It is the <em>same</em> engine in both places, which is the point. Local queries used to run
+        on a different in-browser engine that lacked window functions, so a question like
+        &ldquo;what percentage of total sales does each region account for?&rdquo; could return a
+        different answer in the workspace than on a schedule — and did so <em>silently</em>: a
+        running total came back as zero for every row rather than erroring. Window functions, CTEs
+        and correlated subqueries all work now, and they behave identically wherever they run.
+      </Callout>
+      <P>
+        The engine is WebAssembly, downloaded once on your first query and cached by the browser
+        afterwards. If a query fails immediately on a locked-down network, open{" "}
+        <DocLink to="/engine-check">/engine-check</DocLink> — it runs a handful of statements and
+        reports whether the engine loaded, which is usually enough to identify a
+        Content-Security-Policy or proxy that blocked it.
+      </P>
+
       {/* ── AGENTS ── */}
       <H2 id="agent-access">Giving an agent access</H2>
       <Steps

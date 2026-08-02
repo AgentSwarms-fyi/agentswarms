@@ -104,7 +104,7 @@ async function analyze(question: string, ctx: BiCtx): Promise<QueryResult | null
         ...(attempt > 0 && lastSql ? { repair: { sql: lastSql, error: lastErr } } : {}),
       });
       lastSql = firstStatement(sql);
-      const res = runQuery(lastSql);
+      const res = await runQuery(lastSql);
       if (res.row_count > 0) return res;
       // Ran, but returned nothing. A repair pass can still help (over-narrow
       // filter, wrong join), so let the second attempt see that.
@@ -237,11 +237,11 @@ function tableHasData(t: DocTable | null | undefined): boolean {
   return !!t && (t.columns?.length ?? 0) > 0 && (t.rows?.length ?? 0) > 0;
 }
 
-function fallbackTable(ctx: BiCtx): DocTable | null {
+async function fallbackTable(ctx: BiCtx): Promise<DocTable | null> {
   const ds = ctx.datasets[0];
   if (!ds) return null;
   try {
-    const r = runQueryUnlimited(`SELECT * FROM \`${ds.name}\` LIMIT 8`, 8);
+    const r = await runQueryUnlimited(`SELECT * FROM "${ds.name}" LIMIT 8`, 8);
     if (!r.rows.length) return null;
     return resultToTable({ columns: r.columns, rows: r.rows });
   } catch {
@@ -313,7 +313,7 @@ export async function materializePptxWithBI(
         let res: ResultLike | null = null;
         if (rawSql) {
           try {
-            const r = runQueryUnlimited(rawSql, 60);
+            const r = await runQueryUnlimited(rawSql, 60);
             res = { columns: r.columns, rows: r.rows };
           } catch {
             res = null;
@@ -346,7 +346,7 @@ export async function materializePptxWithBI(
           const t = res && res.rows.length ? resultToTable(res) : null;
           if (tableHasData(t)) slide.table = t!;
           else {
-            const fb = fallbackTable(ctx);
+            const fb = await fallbackTable(ctx);
             if (tableHasData(fb)) slide.table = fb!;
           }
         }
@@ -373,7 +373,7 @@ export async function materializePptxWithBI(
       for (const k of s.kpis) {
         if (!k.sql) continue;
         try {
-          const r = runQueryUnlimited(k.sql, 1);
+          const r = await runQueryUnlimited(k.sql, 1);
           const v = r.rows[0]?.[r.columns[0]];
           if (v !== undefined && v !== null && v !== "") k.value = formatKpiValue(k.label, v);
         } catch {

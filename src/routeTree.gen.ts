@@ -17,6 +17,7 @@ import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as LicenseRouteImport } from './routes/license'
+import { Route as EngineCheckRouteImport } from './routes/engine-check'
 import { Route as DocsRouteImport } from './routes/docs'
 import { Route as ContactRouteImport } from './routes/contact'
 import { Route as ArchitectureRouteImport } from './routes/architecture'
@@ -164,6 +165,11 @@ const LoginRoute = LoginRouteImport.update({
 const LicenseRoute = LicenseRouteImport.update({
   id: '/license',
   path: '/license',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EngineCheckRoute = EngineCheckRouteImport.update({
+  id: '/engine-check',
+  path: '/engine-check',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DocsRoute = DocsRouteImport.update({
@@ -726,6 +732,7 @@ export interface FileRoutesByFullPath {
   '/architecture': typeof ArchitectureRoute
   '/contact': typeof ContactRoute
   '/docs': typeof DocsRouteWithChildren
+  '/engine-check': typeof EngineCheckRoute
   '/index': typeof Char91indexChar93Route
   '/license': typeof LicenseRoute
   '/login': typeof LoginRoute
@@ -842,6 +849,7 @@ export interface FileRoutesByTo {
   '/about': typeof AboutRoute
   '/architecture': typeof ArchitectureRoute
   '/contact': typeof ContactRoute
+  '/engine-check': typeof EngineCheckRoute
   '/index': typeof Char91indexChar93Route
   '/license': typeof LicenseRoute
   '/login': typeof LoginRoute
@@ -961,6 +969,7 @@ export interface FileRoutesById {
   '/architecture': typeof ArchitectureRoute
   '/contact': typeof ContactRoute
   '/docs': typeof DocsRouteWithChildren
+  '/engine-check': typeof EngineCheckRoute
   '/index': typeof Char91indexChar93Route
   '/license': typeof LicenseRoute
   '/login': typeof LoginRoute
@@ -1080,6 +1089,7 @@ export interface FileRouteTypes {
     | '/architecture'
     | '/contact'
     | '/docs'
+    | '/engine-check'
     | '/index'
     | '/license'
     | '/login'
@@ -1196,6 +1206,7 @@ export interface FileRouteTypes {
     | '/about'
     | '/architecture'
     | '/contact'
+    | '/engine-check'
     | '/index'
     | '/license'
     | '/login'
@@ -1314,6 +1325,7 @@ export interface FileRouteTypes {
     | '/architecture'
     | '/contact'
     | '/docs'
+    | '/engine-check'
     | '/index'
     | '/license'
     | '/login'
@@ -1433,6 +1445,7 @@ export interface RootRouteChildren {
   ArchitectureRoute: typeof ArchitectureRoute
   ContactRoute: typeof ContactRoute
   DocsRoute: typeof DocsRouteWithChildren
+  EngineCheckRoute: typeof EngineCheckRoute
   Char91indexChar93Route: typeof Char91indexChar93Route
   LicenseRoute: typeof LicenseRoute
   LoginRoute: typeof LoginRoute
@@ -1534,6 +1547,13 @@ declare module '@tanstack/react-router' {
       path: '/license'
       fullPath: '/license'
       preLoaderRoute: typeof LicenseRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/engine-check': {
+      id: '/engine-check'
+      path: '/engine-check'
+      fullPath: '/engine-check'
+      preLoaderRoute: typeof EngineCheckRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/docs': {
@@ -2529,6 +2549,7 @@ const rootRouteChildren: RootRouteChildren = {
   ArchitectureRoute: ArchitectureRoute,
   ContactRoute: ContactRoute,
   DocsRoute: DocsRouteWithChildren,
+  EngineCheckRoute: EngineCheckRoute,
   Char91indexChar93Route: Char91indexChar93Route,
   LicenseRoute: LicenseRoute,
   LoginRoute: LoginRoute,

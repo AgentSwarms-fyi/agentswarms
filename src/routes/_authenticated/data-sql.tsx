@@ -426,7 +426,7 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
           // The workbench may mount straight into a seeded query, before
           // its own load effect has hydrated the in-browser engine.
           await hydrateFromSupabase();
-          r = runQuery(seed.sql);
+          r = await runQuery(seed.sql);
           auditLocalQuery(seed.sql);
         } else {
           r = await runWarehouseSql(seed.dataSource, seed.sql);
@@ -564,7 +564,8 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
     setQueryError(null);
     const started = Date.now();
     try {
-      const r = dataSource === "local" ? runQuery(sql) : await runWarehouseSql(dataSource, sql);
+      const r =
+        dataSource === "local" ? await runQuery(sql) : await runWarehouseSql(dataSource, sql);
       if (dataSource === "local") auditLocalQuery(sql);
       setResult(r);
       remember(sql, {

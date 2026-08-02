@@ -473,7 +473,7 @@ function SemanticsPage() {
       // their bare names in the connection's native dialect.
       const isLocal = draft.source_kind === "data_table";
       const cols = sourceColumns
-        .map((c) => `- ${isLocal ? `\`${c.name}\`` : c.name} (${c.type})`)
+        .map((c) => `- ${isLocal ? `"${c.name}"` : c.name} (${c.type})`)
         .join("\n");
       type Gen = {
         label?: string;
@@ -520,7 +520,7 @@ function SemanticsPage() {
         dims.push({
           name,
           label: d.label || undefined,
-          sql: d.sql?.trim() || `\`${d.name ?? name}\``,
+          sql: d.sql?.trim() || `"${d.name ?? name}"`,
           type: (["categorical", "time", "number", "boolean"].includes(d.type || "")
             ? d.type
             : "categorical") as SemanticDimension["type"],
@@ -569,14 +569,14 @@ function SemanticsPage() {
     patch({
       dimensions: [
         ...(draft?.dimensions ?? []),
-        { name: slug(col), label: col, sql: `\`${col}\``, type: "categorical" },
+        { name: slug(col), label: col, sql: `"${col}"`, type: "categorical" },
       ],
     });
   const addMetricFromColumn = (col: string) =>
     patch({
       metrics: [
         ...(draft?.metrics ?? []),
-        { name: slug(col), label: col, agg: "sum", sql: `\`${col}\`` },
+        { name: slug(col), label: col, agg: "sum", sql: `"${col}"` },
       ],
     });
 

@@ -787,7 +787,7 @@ export async function runBiTurn(args: {
     turn.status = "executing";
     args.onUpdate({ ...turn });
 
-    turn.result = args.execute ? await args.execute(turn.sql) : runQuery(turn.sql);
+    turn.result = args.execute ? await args.execute(turn.sql) : await runQuery(turn.sql);
     turn.status = "charting";
     args.onUpdate({ ...turn });
 

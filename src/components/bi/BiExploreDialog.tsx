@@ -68,8 +68,8 @@ export function BiExploreDialog({
         setRows(res.rows);
       } else {
         if (!isTableRegistered(table)) await hydrateFromSupabase();
-        const res = runQueryUnlimited(
-          `SELECT * FROM \`${table}\` LIMIT ${EXPLORE_ROW_CAP}`,
+        const res = await runQueryUnlimited(
+          `SELECT * FROM "${table}" LIMIT ${EXPLORE_ROW_CAP}`,
           EXPLORE_ROW_CAP,
         );
         setColumns(res.columns);

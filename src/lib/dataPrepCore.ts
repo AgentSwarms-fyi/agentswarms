@@ -631,7 +631,10 @@ function quoteFor(dialect: PrepDialect): (ident: string) => string {
     : (ident: string) => `"${ident}"`;
 }
 
-const q = quoteFor("alasql");
+// (A module-level `q` hard-wired to AlaSQL backticks lived here. It was
+// shadowed at every use — measureSql/filterSql/pivotCell take `q` as a
+// parameter and buildStepSql declares its own from the real dialect — so
+// it was dead, and dead code pinned to the wrong dialect is a trap.)
 const sqlStr = (v: string) => `'${v.replace(/'/g, "''")}'`;
 const isNumericLiteral = (v: string) => /^-?\d+(\.\d+)?$/.test(v.trim());
 

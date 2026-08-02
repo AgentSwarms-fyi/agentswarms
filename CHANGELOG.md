@@ -74,8 +74,30 @@ cut numbered releases; see [ROADMAP.md](./ROADMAP.md).
 
 ### Query engine
 
-- **DuckDB is now the default local engine**; `LOCAL_ENGINE=alasql` is the
-  escape hatch. Rows load through DuckDB's appender rather than one
+- **One engine everywhere: the browser now runs DuckDB-Wasm.** Local datasets
+  used to execute in AlaSQL in the browser and DuckDB on the server, and the
+  two disagreed. Measured across the 61 NL-to-SQL reference queries, AlaSQL
+  answered 56 — and **three of the five failures were silent**: "share of
+  total" dropped its computed column, and a running total returned `0` for
+  every row, so a cumulative chart rendered as a flat line with nothing
+  reporting an error. `RANK()` and a CTE referenced from a subquery failed
+  outright. Joins were identical on both, which is why it went unnoticed.
+
+  The `.wasm` binaries are self-hosted (not fetched from a CDN, so an
+  air-gapped deployment still works), emitted as separate assets, and loaded
+  lazily on the first query. Verify a deployment with **`/engine-check`**,
+  which runs the previously-broken queries in the actual browser and reports
+  which bundle it selected.
+
+  Consequences worth knowing: every local query function is now `async`, and
+  ~120 lines of hand-written JavaScript date shims are gone — DuckDB provides
+  `strftime`, `date_trunc`, `split_part` and the rest natively. One of those
+  shims took `strftime(format, value)` where every real engine takes
+  `(value, format)`, so SQL written against it worked in the browser and
+  failed on the server.
+
+- **DuckDB is the default local engine on the server**; `LOCAL_ENGINE=alasql`
+  is the escape hatch. Rows load through DuckDB's appender rather than one
   parameterised INSERT per row: a 5,000-row aggregate went from 2,152 ms to
   19.6 ms.
 

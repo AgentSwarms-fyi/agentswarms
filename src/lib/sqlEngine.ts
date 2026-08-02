@@ -1,18 +1,25 @@
-// In-browser SQL engine wrapping AlaSQL.
+// In-browser SQL engine, backed by DuckDB compiled to WebAssembly.
 //
 // Responsibilities:
 //   - Parse uploaded CSV → JSON rows + inferred schema (PapaParse)
-//   - Register tables in an isolated AlaSQL database
+//   - Materialise those tables in a per-tab DuckDB-Wasm database
 //   - Run only SELECT/WITH queries (read-only enforcement)
 //   - Cap result row count at 50 for the playground
 //   - Hydrate the engine from the user's persisted Supabase rows
 //
-// Used in two places:
-//   1. The /data-sql IDE (browser) — runs queries the user types
-//   2. The sql_query agent tool (server-side via the same logic re-instantiated
-//      in sql.server.ts; the browser engine is independent of that path)
+// IT USED TO BE ALASQL, AND THE ENGINES DISAGREED. Local datasets execute in
+// two places — here, and on the server for scheduled refreshes, prep flows,
+// the semantic runner and the agents' sql_query tool. AlaSQL answered 56 of
+// the 61 NL-to-SQL reference queries against DuckDB's 61, and three of the
+// failures were SILENT: "share of total" dropped its computed column and a
+// running total returned 0 for every row, so a cumulative chart rendered as a
+// flat line with no error anywhere. `evals/nl2sql/engine-gap.ts` measures it.
+//
+// EVERY QUERY FUNCTION HERE IS ASYNC as a result. WebAssembly instantiation
+// and the worker boundary cannot be made synchronous, and pretending otherwise
+// (a busy-wait, a cached snapshot) would trade a correctness bug for a
+// concurrency one.
 
-import alasql from "alasql";
 import Papa from "papaparse";
 import { supabase } from "@/integrations/supabase/client";
 // Type inference and coercion are shared with the streaming server upload —
@@ -25,6 +32,12 @@ import {
   type ColumnDef,
 } from "@/lib/datasetParse";
 import { isLocalReadOnlySql } from "@/lib/sqlSafety";
+import {
+  dropBrowserTable,
+  isBrowserTableRegistered,
+  registerBrowserTables,
+  runBrowserSql,
+} from "@/lib/browserDuckdb";
 
 export const PLAYGROUND_ROW_CAP = 50;
 
@@ -51,125 +64,18 @@ export type QueryResult = {
   duration_ms: number;
 };
 
-// One engine instance per browser session, lazily initialized.
-let engine: typeof alasql | null = null;
-const registered = new Set<string>();
-
-function getEngine(): typeof alasql {
-  if (!engine) {
-    engine = alasql;
-  }
-  registerCustomFunctions(engine);
-  const globalEngine = (globalThis as typeof globalThis & { alasql?: typeof alasql }).alasql;
-  if (globalEngine && globalEngine !== engine) registerCustomFunctions(globalEngine);
-  return engine;
-}
-
-// Register SQLite/Postgres-style helpers the LLM may use that alasql lacks.
-function registerCustomFunctions(a: typeof alasql) {
-  const toDate = (v: unknown): Date | null => {
-    if (v == null) return null;
-    if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v;
-    const d = new Date(v as string);
-    return Number.isNaN(d.getTime()) ? null : d;
-  };
-  const pad = (n: number, w = 2) => String(n).padStart(w, "0");
-
-  const fn = a.fn as Record<string, (...args: unknown[]) => unknown>;
-
-  const strftime = function (format: unknown, value: unknown) {
-    const d = toDate(value);
-    if (!d || typeof format !== "string") return null;
-    return format.replace(/%[YmdHMSjw%]/g, (token) => {
-      switch (token) {
-        case "%Y":
-          return String(d.getFullYear());
-        case "%m":
-          return pad(d.getMonth() + 1);
-        case "%d":
-          return pad(d.getDate());
-        case "%H":
-          return pad(d.getHours());
-        case "%M":
-          return pad(d.getMinutes());
-        case "%S":
-          return pad(d.getSeconds());
-        case "%j": {
-          const start = Date.UTC(d.getFullYear(), 0, 0);
-          const diff = Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) - start;
-          return pad(Math.floor(diff / 86400000), 3);
-        }
-        case "%w":
-          return String(d.getDay());
-        case "%%":
-          return "%";
-        default:
-          return token;
-      }
-    });
-  };
-  fn.strftime = strftime;
-  fn.STRFTIME = strftime;
-
-  const date = function (value: unknown) {
-    const d = toDate(value);
-    if (!d) return null;
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  };
-  fn.date = date;
-  fn.DATE = date;
-
-  const dateTrunc = function (unit: unknown, value: unknown) {
-    const d = toDate(value);
-    if (!d || typeof unit !== "string") return null;
-    const y = d.getFullYear();
-    const m = d.getMonth();
-    switch (unit.toLowerCase()) {
-      case "year":
-        return `${y}-01-01`;
-      case "quarter":
-        return `${y}-${pad(Math.floor(m / 3) * 3 + 1)}-01`;
-      case "month":
-        return `${y}-${pad(m + 1)}-01`;
-      case "day":
-        return `${y}-${pad(m + 1)}-${pad(d.getDate())}`;
-      default:
-        return null;
-    }
-  };
-  fn.date_trunc = dateTrunc;
-  fn.DATE_TRUNC = dateTrunc;
-
-  const year = function (v: unknown) {
-    const d = toDate(v);
-    return d ? d.getFullYear() : null;
-  };
-  const month = function (v: unknown) {
-    const d = toDate(v);
-    return d ? d.getMonth() + 1 : null;
-  };
-  const day = function (v: unknown) {
-    const d = toDate(v);
-    return d ? d.getDate() : null;
-  };
-  fn.year = year;
-  fn.YEAR = year;
-  fn.month = month;
-  fn.MONTH = month;
-  fn.day = day;
-  fn.DAY = day;
-
-  // SPLIT_PART(text, delimiter, n) — 1-based, like Postgres. Used by the
-  // data-prep "split column" step. Returns null when the part is absent.
-  const splitPart = function (value: unknown, delimiter: unknown, index: unknown) {
-    if (value == null) return null;
-    const parts = String(value).split(String(delimiter ?? ""));
-    const i = Number(index);
-    return Number.isInteger(i) && i >= 1 && i <= parts.length ? parts[i - 1] : null;
-  };
-  fn.split_part = splitPart;
-  fn.SPLIT_PART = splitPart;
-}
+// THE ~120 LINES THAT USED TO LIVE HERE ARE GONE ON PURPOSE.
+//
+// They hand-implemented strftime, date, date_trunc, year, month, day and
+// split_part in JavaScript, because AlaSQL has none of them and a model
+// writing SQL reaches for them constantly. DuckDB ships all of them natively,
+// so the shims are not merely unnecessary — keeping them would be a second
+// definition competing with the engine's own.
+//
+// One of them was actively wrong in a way nobody could have noticed: the shim
+// took strftime(format, value) while DuckDB (and Postgres, and SQLite) take
+// strftime(value, format). SQL written against the shim ran here and failed on
+// the server. That argument order now comes from the engine, once.
 
 export { safeTableName };
 
@@ -198,28 +104,32 @@ export function parseCsv(input: string | File): Promise<ParsedCsv> {
   });
 }
 
-// Register (or replace) a table inside the in-memory AlaSQL engine.
-function registerTable(name: string, rows: Record<string, unknown>[]) {
-  const e = getEngine();
-  // Drop any existing table with this name so re-uploading replaces it.
-  try {
-    e(`DROP TABLE IF EXISTS \`${name}\``);
-  } catch {
-    /* noop */
-  }
-  e(`CREATE TABLE \`${name}\``);
-  if (rows.length > 0) {
-    (e.tables as any)[name].data = rows;
-  }
-  registered.add(name);
+/**
+ * Materialise (or replace) a table in the browser database.
+ *
+ * DuckDB is typed, so this needs the COLUMNS as well as the rows — AlaSQL
+ * accepted a bare array of objects and inferred nothing. Every caller already
+ * had the inferred schema to hand.
+ */
+async function registerTable(
+  name: string,
+  rows: Record<string, unknown>[],
+  columns: ColumnDef[],
+): Promise<void> {
+  // A shared dataset arrives column-masked, so the schema is narrowed to what
+  // actually came back rather than what the catalog claims. Creating a column
+  // the rows do not have would resurrect a masked column as all-NULL, which
+  // reads as "no data" rather than "not permitted".
+  const present = rows.length > 0 ? columns.filter((c) => Object.hasOwn(rows[0], c.name)) : columns;
+  await registerBrowserTables([{ name, columns: present, rows }]);
 }
 
 export function isTableRegistered(name: string): boolean {
-  return registered.has(name);
+  return isBrowserTableRegistered(name);
 }
 
-// Fetch the user's persisted datasets and load every row into the AlaSQL engine.
-// This is called once when the IDE mounts so all queries work immediately.
+// Fetch the user's persisted datasets and materialise every row in the browser
+// DuckDB. Called once when the IDE mounts so all queries work immediately.
 export async function hydrateFromSupabase(): Promise<DatasetMeta[]> {
   const { data: tables, error } = await supabase
     .from("user_data_tables")
@@ -263,7 +173,7 @@ export async function hydrateFromSupabase(): Promise<DatasetMeta[]> {
     const shared = !t.is_sample && !!myId && t.user_id !== myId;
     if (shared) {
       const rows = await loadShared(t.id);
-      registerTable(t.name, rows);
+      await registerTable(t.name, rows, cols);
       // Report the columns actually present after masking, so pickers and
       // the AI never offer a column the viewer cannot see.
       const visible = rows.length > 0 ? cols.filter((c) => Object.hasOwn(rows[0], c.name)) : cols;
@@ -304,7 +214,7 @@ export async function hydrateFromSupabase(): Promise<DatasetMeta[]> {
       if (stop) break;
       pageIndex += PARALLEL_PAGES;
     }
-    registerTable(t.name, allRows);
+    await registerTable(t.name, allRows, cols);
     return {
       id: t.id,
       name: t.name,
@@ -417,7 +327,7 @@ export async function saveDataset(args: {
     if (error) throw new Error(error.message);
   }
 
-  registerTable(safeName, args.rows);
+  await registerTable(safeName, args.rows, args.columns);
 
   return {
     id: tableId,
@@ -432,31 +342,34 @@ export async function saveDataset(args: {
 
 export async function deleteDataset(tableId: string, tableName: string): Promise<void> {
   await supabase.from("user_data_tables").delete().eq("id", tableId);
-  registered.delete(tableName);
-  try {
-    getEngine()(`DROP TABLE IF EXISTS \`${tableName}\``);
-  } catch {
-    /* noop */
-  }
+  await dropBrowserTable(tableName);
 }
 
-// Reject anything that isn't a SELECT or CTE (WITH ... SELECT). No DDL/DML.
-export function runQuery(sql: string): QueryResult {
+/**
+ * Run a statement for the workbench, capped at PLAYGROUND_ROW_CAP.
+ *
+ * ASYNC because DuckDB-Wasm lives behind a worker. The read-only check is kept
+ * here as well as inside the engine so the workbench's own wording ("in the
+ * playground") survives — the engine's guard is the one that actually protects
+ * anything, and both call the same predicate.
+ */
+export async function runQuery(sql: string): Promise<QueryResult> {
   if (!isLocalReadOnlySql(sql)) {
     throw new Error(
       "Only read-only SELECT (or WITH … SELECT) queries are allowed in the playground.",
     );
   }
-  const e = getEngine();
   const t0 = performance.now();
-  const result = e(sql) as Record<string, unknown>[];
+  const result = await runBrowserSql(sql);
   const t1 = performance.now();
-  const total = result.length;
+  const total = result.rows.length;
   const capped = total > PLAYGROUND_ROW_CAP;
-  const limited = capped ? result.slice(0, PLAYGROUND_ROW_CAP) : result;
-  const columns = limited.length > 0 ? Object.keys(limited[0]) : [];
+  const limited = capped ? result.rows.slice(0, PLAYGROUND_ROW_CAP) : result.rows;
   return {
-    columns,
+    // Taken from the RESULT SCHEMA rather than from the first row's keys.
+    // DuckDB reports columns even when no rows come back, so an empty result
+    // now keeps its headers instead of rendering as a blank table.
+    columns: result.columns,
     rows: limited,
     row_count: limited.length,
     total_matched: total,
@@ -468,22 +381,22 @@ export function runQuery(sql: string): QueryResult {
 // Read-only execution WITHOUT the playground row cap — used by the data-prep
 // builder to materialise a full result before saving it as a dataset. The
 // caller supplies its own cap to guard against runaway joins.
-export function runQueryUnlimited(
+export async function runQueryUnlimited(
   sql: string,
   maxRows: number,
-): { columns: string[]; rows: Record<string, unknown>[]; total: number; capped: boolean } {
+): Promise<{
+  columns: string[];
+  rows: Record<string, unknown>[];
+  total: number;
+  capped: boolean;
+}> {
   if (!isLocalReadOnlySql(sql)) {
     throw new Error("Only read-only SELECT (or WITH … SELECT) queries are allowed.");
   }
-  const result = getEngine()(sql) as Record<string, unknown>[];
-  const capped = result.length > maxRows;
-  const rows = capped ? result.slice(0, maxRows) : result;
-  return {
-    columns: rows.length > 0 ? Object.keys(rows[0]) : [],
-    rows,
-    total: result.length,
-    capped,
-  };
+  const result = await runBrowserSql(sql);
+  const capped = result.rows.length > maxRows;
+  const rows = capped ? result.rows.slice(0, maxRows) : result.rows;
+  return { columns: result.columns, rows, total: result.rows.length, capped };
 }
 
 // Convert a query result to CSV text for the Export button.

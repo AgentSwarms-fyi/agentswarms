@@ -374,7 +374,7 @@ export function CatalogView({
     if (!onQueryAsset) return;
     if (a.local) {
       onQueryAsset({
-        sql: `SELECT * FROM \`${a.name}\` LIMIT 10`,
+        sql: `SELECT * FROM "${a.name}" LIMIT 10`,
         dataSource: "local",
         autorun: true,
       });
