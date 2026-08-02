@@ -480,14 +480,65 @@ function matchSafetyTerms(text: string, level: Guardrails["contentSafetyLevel"])
   return Array.from(new Set(matched));
 }
 
+/**
+ * Does this pattern have the shape that backtracks catastrophically?
+ *
+ * THIS IS A DENIAL-OF-SERVICE GUARD, not a style check. These patterns are
+ * typed by an operator into Agent Builder's "blocked patterns" box and then run
+ * server-side on every message. JavaScript regexes are synchronous and there is
+ * no way to time one out, so a pattern like `(a+)+$` against a 33-character
+ * input does not slow one agent down — it pins the event loop and the whole
+ * process stops answering ANY request, for every user. Measured before this
+ * guard existed: no return after 30 seconds on 33 characters.
+ *
+ * The shape that does it is a quantified group whose body is itself unbounded —
+ * `(a+)+`, `(a*)*`, `([a-z]+)+`, `(\w+\s?)*` — or a quantified group with
+ * alternation that can match the same text two ways, `(a|a)*`. Detected by
+ * walking the groups rather than by another regex, because a regex that parses
+ * regexes is how this class of bug gets missed.
+ */
+export function looksCatastrophic(src: string): boolean {
+  for (let i = 0; i < src.length; i++) {
+    if (src[i] !== "(" || src[i - 1] === "\\") continue;
+    let depth = 0;
+    let j = i;
+    for (; j < src.length; j++) {
+      if (src[j] === "\\") {
+        j++;
+        continue;
+      }
+      if (src[j] === "(") depth++;
+      else if (src[j] === ")") {
+        depth--;
+        if (depth === 0) break;
+      }
+    }
+    if (j >= src.length) continue; // unbalanced; new RegExp will reject it
+    const body = src.slice(i + 1, j).replace(/\\./g, "");
+    const quantified = /^(?:[+*]|\{\d+,\}?)/.test(src.slice(j + 1));
+    if (!quantified) continue;
+    if (/[+*]|\{\d+,\}/.test(body)) return true; // nested unbounded quantifier
+    if (body.includes("|")) return true; // overlapping alternation
+  }
+  return false;
+}
+
+/** Longest text a user pattern is ever run against. Defence in depth. */
+const MAX_PATTERN_INPUT = 20_000;
+
 // Compile a "one-pattern-per-line" textarea into safe RegExps.
-// Patterns that fail to compile are skipped (logged to console once).
+// Patterns that fail to compile, or that could backtrack catastrophically, are
+// skipped (logged to console once).
 function compilePatterns(raw: string): RegExp[] {
   if (!raw.trim()) return [];
   const out: RegExp[] = [];
   for (const line of raw.split(/\r?\n/)) {
     const t = line.trim();
     if (!t) continue;
+    if (looksCatastrophic(t)) {
+      console.warn("[guardrails] pattern skipped — catastrophic backtracking risk:", t);
+      continue;
+    }
     try {
       out.push(new RegExp(t, "i"));
     } catch (e) {
@@ -530,8 +581,12 @@ export function evaluateInputGuardrails(input: string, g: Guardrails): InputDeci
   // 2. Blocked regex patterns (prompt-injection denylist).
   if (g.enableInputFilters) {
     const patterns = compilePatterns(g.blockedPatterns);
+    // Second layer under looksCatastrophic: even a well-formed pattern is
+    // superlinear on a long enough string, and maxInputLength is operator-set
+    // (it may be huge, or input filters may be on with no cap configured).
+    const probe = input.length > MAX_PATTERN_INPUT ? input.slice(0, MAX_PATTERN_INPUT) : input;
     for (const re of patterns) {
-      if (re.test(input)) {
+      if (re.test(probe)) {
         return {
           allowed: false,
           reason: "Input was blocked by a prompt-injection guardrail. Rephrase and try again.",

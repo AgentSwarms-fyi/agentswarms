@@ -229,7 +229,40 @@ export function isSkillSampleAgentDescription(desc: string | null | undefined): 
  *
  * Skips silently if the user is not authenticated.
  */
-export async function ensureSampleAgentsForUser(): Promise<number> {
+/**
+ * Collapses concurrent calls into one.
+ *
+ * The seed is a check-then-act: read the user's agents, work out which samples
+ * are missing, insert those. Idempotent when calls are SEQUENTIAL, and not when
+ * they overlap — both reads see the same "missing" set and both insert.
+ *
+ * That is not hypothetical. The account this was found on has two copies of
+ * "Sample · Graph RAG Explorer (Acme Corp)" carrying the same tag and the same
+ * created_at, to the second. React StrictMode double-invokes effects in dev,
+ * and the caller's sessionStorage guard is written AFTER its await, so the
+ * whole seeding duration is an open window.
+ *
+ * This closes it within one tab. Two tabs racing each other still needs a
+ * database constraint — see the note in ensureSampleAgents below.
+ */
+let seedInFlight: Promise<number> | null = null;
+
+export function ensureSampleAgentsForUser(): Promise<number> {
+  seedInFlight ??= ensureSampleAgents().finally(() => {
+    seedInFlight = null;
+  });
+  return seedInFlight;
+}
+
+/**
+ * The seed itself.
+ *
+ * NOT SAFE AGAINST TWO BROWSER TABS. The only complete fix is a uniqueness
+ * constraint in the database — the sample tag lives inside `description`, so
+ * that means either a unique index on the extracted tag or a real column for
+ * it. Worth doing; it needs a migration, so it is not done here.
+ */
+async function ensureSampleAgents(): Promise<number> {
   const { data: sess } = await supabase.auth.getSession();
   const userId = sess.session?.user?.id;
   if (!userId) return 0;

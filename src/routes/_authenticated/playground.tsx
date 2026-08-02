@@ -302,12 +302,17 @@ function PlaygroundPage() {
         const seedFlag = "skill-sample-agents-seeded";
         const already = typeof window !== "undefined" && sessionStorage.getItem(seedFlag) === "1";
         if (!already) {
-          await ensureSampleAgentsForUser();
+          // Claim the flag BEFORE awaiting. Written afterwards it guarded
+          // nothing: the whole seeding duration was an open window, and a
+          // second invocation in that window seeded again. ensureSampleAgents-
+          // ForUser is single-flight now too, so this is belt and braces —
+          // but a guard set after the work it guards is simply not a guard.
           try {
             sessionStorage.setItem(seedFlag, "1");
           } catch {
-            /* ignore */
+            /* private mode — the single-flight guard still applies */
           }
+          await ensureSampleAgentsForUser();
         }
       } catch (err) {
         console.warn("[playground] sample-agent seed failed:", err);
