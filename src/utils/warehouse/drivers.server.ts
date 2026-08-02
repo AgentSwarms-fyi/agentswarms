@@ -21,6 +21,7 @@
 // results to { columns, rows } with numeric coercion driven by column types.
 
 import { isBlockedAlways } from "@/utils/ssrfGuard.server";
+import { checkWarehouseReadOnlySql } from "@/lib/sqlSafety";
 import {
   GOOGLE_SCOPES,
   googleAccessToken as googleServiceAccountToken,
@@ -59,24 +60,20 @@ const POLL_TIMEOUT_MS = 60_000;
 
 /**
  * Read-only enforcement: one statement, starting with SELECT/WITH/SHOW/
- * DESCRIBE/EXPLAIN after comments are stripped. Warehouse-side permissions
- * remain the real boundary — connect read-only credentials.
+ * DESCRIBE/EXPLAIN and containing no mutating keyword outside a literal.
+ * Warehouse-side permissions remain the real boundary — connect read-only
+ * credentials.
+ *
+ * This was a SECOND, hand-rolled implementation that checked the leading verb
+ * and rejected stacked statements but had no mutation denylist, so
+ * `WITH d AS (DELETE FROM users RETURNING *) SELECT * FROM d` passed it. It now
+ * delegates to lib/sqlSafety, which the local engines already use, so the two
+ * cannot drift apart again.
  */
 export function assertReadOnlySql(sql: string): string {
-  const stripped = sql
-    .replace(/--[^\n]*/g, " ")
-    .replace(/\/\*[\s\S]*?\*\//g, " ")
-    .trim()
-    .replace(/;+\s*$/, "");
-  if (!stripped) throw new Error("Empty SQL statement");
-  if (stripped.includes(";")) {
-    throw new Error("Only a single SQL statement is allowed per query");
-  }
-  const first = stripped.split(/\s+/)[0]?.toUpperCase();
-  if (!["SELECT", "WITH", "SHOW", "DESCRIBE", "DESC", "EXPLAIN"].includes(first ?? "")) {
-    throw new Error("Only read-only queries (SELECT/WITH/SHOW/DESCRIBE/EXPLAIN) are allowed");
-  }
-  return stripped;
+  const verdict = checkWarehouseReadOnlySql(sql);
+  if (!verdict.ok) throw new Error(verdict.reason);
+  return verdict.sql;
 }
 
 function sleep(ms: number): Promise<void> {

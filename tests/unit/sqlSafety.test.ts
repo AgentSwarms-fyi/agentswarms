@@ -7,7 +7,11 @@
 // reverse. These tests pin both halves.
 import { describe, expect, it } from "vitest";
 
-import { checkLocalReadOnlySql, isLocalReadOnlySql } from "@/lib/sqlSafety";
+import {
+  checkLocalReadOnlySql,
+  checkWarehouseReadOnlySql,
+  isLocalReadOnlySql,
+} from "@/lib/sqlSafety";
 
 describe("accepts legitimate read-only queries", () => {
   for (const sql of [
@@ -117,5 +121,116 @@ describe("rejects nonsense", () => {
     const v = checkLocalReadOnlySql("DROP TABLE orders");
     expect(v.ok).toBe(false);
     if (!v.ok) expect(v.reason).toMatch(/read-only/i);
+  });
+});
+
+// ── The warehouse guard, and the drift between the two ──────────────────────
+//
+// utils/warehouse/drivers.server had its own hand-rolled copy of this check
+// for a long time. It had the leading-verb test and the stacked-statement
+// test but NO mutation denylist, and this file's own header said the two
+// should be kept "in sync in spirit" — which is not a mechanism.
+//
+// The gap was reachable and it wrote to production data: a DATA-MODIFYING CTE
+// begins with WITH and contains no semicolon, so a leading-verb check waves it
+// through. PostgreSQL and the five wire-compatible forks this project supports
+// (CockroachDB, TimescaleDB, AlloyDB, Greenplum, YugabyteDB) all run them, and
+// T-SQL's `WITH cte AS (SELECT …) DELETE FROM cte` covers SQL Server and Azure
+// SQL. It is reachable from the SQL workbench and from BI direct-query, and a
+// SHARED connection runs as its OWNER — so a grantee with read access could
+// have deleted from the granting tenant's warehouse.
+describe("the warehouse guard refuses what the local one refuses", () => {
+  const MUTATIONS = [
+    "WITH d AS (DELETE FROM users RETURNING *) SELECT * FROM d",
+    "WITH i AS (INSERT INTO t VALUES (1) RETURNING *) SELECT * FROM i",
+    "WITH u AS (UPDATE t SET x = 1 RETURNING *) SELECT * FROM u",
+    "WITH cte AS (SELECT * FROM t) DELETE FROM cte",
+    "SELECT 1; DROP TABLE users",
+    "DROP TABLE users",
+  ];
+
+  for (const sql of MUTATIONS) {
+    it(`refuses ${sql.slice(0, 46)}…`, () => {
+      expect(checkWarehouseReadOnlySql(sql).ok, "warehouse guard allowed it").toBe(false);
+      expect(checkLocalReadOnlySql(sql).ok, "local guard allowed it").toBe(false);
+    });
+  }
+
+  it("still allows the read-only verbs a warehouse needs", () => {
+    for (const sql of ["SHOW TABLES", "DESCRIBE orders", "EXPLAIN SELECT 1", "SELECT 1"]) {
+      expect(checkWarehouseReadOnlySql(sql).ok, sql).toBe(true);
+    }
+  });
+
+  it("differs from the local guard ONLY in the leading verb", () => {
+    // The one legitimate difference, pinned. If someone adds a second
+    // difference, that is drift, and drift here is how the denylist went
+    // missing from one copy for as long as it did.
+    const onlyWarehouse = ["SHOW TABLES", "DESCRIBE orders", "DESC orders", "EXPLAIN SELECT 1"];
+    for (const sql of onlyWarehouse) {
+      expect(checkWarehouseReadOnlySql(sql).ok, sql).toBe(true);
+      expect(checkLocalReadOnlySql(sql).ok, sql).toBe(false);
+    }
+    // Everything else must agree, in both directions.
+    const shared = [
+      "SELECT * FROM t",
+      "WITH a AS (SELECT 1) SELECT * FROM a",
+      "SELECT note FROM t WHERE note = 'please update me'",
+      "",
+      "   ",
+      "INSERT INTO t VALUES (1)",
+      "SELECT 1; SELECT 2",
+      ...MUTATIONS,
+    ];
+    for (const sql of shared) {
+      expect(checkWarehouseReadOnlySql(sql).ok, `guards disagree on ${JSON.stringify(sql)}`).toBe(
+        checkLocalReadOnlySql(sql).ok,
+      );
+    }
+  });
+});
+
+describe("a column named after a keyword is not a mutation", () => {
+  // Both guards refused these. A read-only query against a column called
+  // "update" is ordinary, and a false positive on a security check is what
+  // eventually persuades someone to weaken it.
+  for (const sql of [
+    'SELECT "update" FROM t',
+    "SELECT `delete` FROM t",
+    'SELECT t."drop" AS d FROM t WHERE t."create" > 1',
+  ]) {
+    it(`allows ${sql}`, () => {
+      expect(checkLocalReadOnlySql(sql).ok, "local").toBe(true);
+      expect(checkWarehouseReadOnlySql(sql).ok, "warehouse").toBe(true);
+    });
+  }
+
+  it("does not let a quoted identifier hide a real statement", () => {
+    // The stripping must not become a way to smuggle one past.
+    expect(checkLocalReadOnlySql('SELECT "a" ; DROP TABLE t').ok).toBe(false);
+    expect(checkWarehouseReadOnlySql('SELECT "a" ; DROP TABLE t').ok).toBe(false);
+  });
+});
+
+describe("the driver's own entry point enforces it", () => {
+  // The tests above exercise checkWarehouseReadOnlySql. The function the
+  // driver actually calls is assertReadOnlySql, and for a long time that was a
+  // separate implementation — so testing only the shared helper would pass
+  // happily while the driver kept its own denylist-free copy. Test the thing
+  // on the execution path.
+  it("refuses a data-modifying CTE at executeWarehouseQuery's guard", async () => {
+    const { assertReadOnlySql } = await import("@/utils/warehouse/drivers.server");
+    expect(() =>
+      assertReadOnlySql("WITH d AS (DELETE FROM users RETURNING *) SELECT * FROM d"),
+    ).toThrow(/read-only/i);
+    expect(() => assertReadOnlySql("WITH cte AS (SELECT * FROM t) DELETE FROM cte")).toThrow(
+      /read-only/i,
+    );
+  });
+
+  it("still returns the trimmed statement for a legitimate query", async () => {
+    const { assertReadOnlySql } = await import("@/utils/warehouse/drivers.server");
+    expect(assertReadOnlySql("SELECT 1;")).toBe("SELECT 1");
+    expect(assertReadOnlySql("SHOW TABLES")).toBe("SHOW TABLES");
   });
 });

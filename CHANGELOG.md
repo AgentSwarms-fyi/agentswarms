@@ -163,6 +163,34 @@ cut numbered releases; see [ROADMAP.md](./ROADMAP.md).
 
 ### Security & governance
 
+- **Fixed: the warehouse "read-only" guard allowed writes to a customer's
+  production database.** `assertReadOnlySql` was a second, hand-rolled copy of
+  the local guard that checked the leading verb and rejected stacked statements
+  but had **no mutation denylist**. A data-modifying CTE defeats a leading-verb
+  check completely:
+
+  ```sql
+  WITH d AS (DELETE FROM users RETURNING *) SELECT * FROM d
+  ```
+
+  It begins with `WITH`, contains no semicolon, and deletes rows. PostgreSQL
+  and all five wire-compatible forks here (CockroachDB, TimescaleDB, AlloyDB,
+  Greenplum, YugabyteDB) run data-modifying CTEs, and T-SQL's
+  `WITH cte AS (SELECT …) DELETE FROM cte` covers SQL Server and Azure SQL.
+  Reachable from the SQL workbench and BI direct-query — and because a **shared
+  connection runs as its owner**, a grantee with read access could have deleted
+  from the granting tenant's warehouse.
+
+  Both guards now share one implementation and differ only in which leading
+  verbs they permit (the warehouse also allows `SHOW`/`DESCRIBE`/`EXPLAIN`).
+  This file previously said the two copies should be kept "in sync in spirit";
+  they were not, and a test now pins that the only difference is the verb list.
+
+- **Fixed: a column named after a keyword was refused.** `SELECT "update" FROM t`
+  and ``SELECT `delete` FROM t`` were rejected by both guards, because only
+  string literals were stripped before the denylist ran, not quoted
+  identifiers. A false positive on a security check is what eventually
+  persuades someone to weaken it.
 - **Fixed: the embed BI widget ignored an agent's SQL table allow-list.**
   `/api/embed/chat` is anonymous by design — a stranger types a question and,
   with Visual BI on, the owner's model writes SQL over the owner's data. The
