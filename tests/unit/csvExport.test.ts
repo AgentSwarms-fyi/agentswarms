@@ -16,7 +16,7 @@
 // copy which had drifted three ways: it did not escape the HEADER row, its
 // test was /[",\n]/ so it missed a bare carriage return, and it had no formula
 // guard either. That route now calls the shared writer.
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { __csvEscape as esc } from "@/lib/exportData";
@@ -90,5 +90,57 @@ describe("there is one CSV writer", () => {
   it("the shared writer is the only place the escape rule is written", () => {
     const lib = readFileSync("src/lib/exportData.ts", "utf8");
     expect(lib).toMatch(/FORMULA_LEAD/);
+  });
+});
+
+describe("no fourth CSV escaper appears anywhere", () => {
+  // Three separate escapers existed. Two were orphans of the same shape:
+  //   - bi_.$dashboardId.tsx  (live, used by the widget download button)
+  //   - sqlEngine.resultToCsv (dead, no callers, deleted)
+  // Both skipped the header row, both tested /[",\n]/ and so missed a bare
+  // carriage return, and neither guarded against formula injection. The dead
+  // one is the more dangerous kind: a ready-made utility waiting to be reused.
+  //
+  // This walks the source rather than naming files, so a NEW copy in a file
+  // nobody has thought of yet is caught too.
+  const roots = ["src/lib", "src/components", "src/routes", "src/utils"];
+
+  function walk(dir: string): string[] {
+    const out: string[] = [];
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = `${dir}/${e.name}`;
+      if (e.isDirectory()) out.push(...walk(p));
+      else if (/\.tsx?$/.test(e.name)) out.push(p);
+    }
+    return out;
+  }
+
+  const files = roots.flatMap(walk);
+
+  it("finds the CSV quoting decision only in the shared writer", () => {
+    // The signature is the character class a CSV escaper tests to decide
+    // whether a field needs quoting: a double-quote AND a comma together.
+    //
+    // NOT `.replace(/"/g, '""')` on its own — a first version used that and
+    // flagged browserDuckdb, duckdb.server and drivers.server, which double a
+    // quote to escape a SQL IDENTIFIER. Same three characters, unrelated job.
+    const CSV_FIELD_TEST = /\/\[",/;
+    // COMMENTS STRIPPED FIRST. Both files that document the old broken regex
+    // in prose were flagged by a version of this test that scanned raw text —
+    // it matched the explanation of the bug rather than the bug. Same trap as
+    // asserting on a comment that says a thing is gone.
+    const codeOf = (f: string) =>
+      readFileSync(f, "utf8")
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/^\s*\/\/.*$/gm, "");
+    const offenders = files.filter(
+      (f) => f !== "src/lib/exportData.ts" && CSV_FIELD_TEST.test(codeOf(f)),
+    );
+    expect(offenders, `CSV escaper outside lib/exportData: ${offenders.join(", ")}`).toEqual([]);
+  });
+
+  it("resultToCsv stays deleted", () => {
+    const engine = readFileSync("src/lib/sqlEngine.ts", "utf8");
+    expect(engine).not.toMatch(/export function resultToCsv/);
   });
 });

@@ -381,20 +381,18 @@ export function prepTables(cfg: PrepFlowConfig): string[] {
 }
 
 /**
- * Sanitize a name into a safe SQL identifier. Mirrors sqlEngine.safeTableName
- * EXACTLY — duplicated here because this module is pure (no AlaSQL import), so
- * the server can use it without pulling the browser engine into SSR.
+ * Sanitize a name into a safe SQL identifier.
+ *
+ * Re-exported from lib/datasetParse rather than reimplemented. The copy that
+ * used to sit here said it "mirrors sqlEngine.safeTableName EXACTLY —
+ * duplicated here because this module is pure (no AlaSQL import), so the
+ * server can use it without pulling the browser engine into SSR". That reason
+ * has since expired: safeTableName lives in datasetParse, which has ZERO
+ * imports, so anything can use it. The two were still identical — but nothing
+ * checked that, and this codebase has already been bitten three times by a
+ * "mirror" that stopped mirroring.
  */
-export function safePrepTableName(raw: string): string {
-  const cleaned = raw
-    .toLowerCase()
-    .replace(/[^a-z0-9_]/g, "_")
-    .replace(/^_+/, "")
-    .replace(/_+/g, "_")
-    .replace(/_$/, "");
-  if (!cleaned || !/^[a-z]/.test(cleaned)) return `t_${cleaned || "table"}`;
-  return cleaned.slice(0, 48);
-}
+export { safeTableName as safePrepTableName } from "@/lib/datasetParse";
 
 /** Best-guess join key between two column sets (shared names, prefer *_id). */
 export function detectPrepJoinKey(

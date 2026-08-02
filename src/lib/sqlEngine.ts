@@ -407,18 +407,14 @@ export async function runQueryUnlimited(
   return { columns: result.columns, rows, total: result.rows.length, capped };
 }
 
-// Convert a query result to CSV text for the Export button.
-export function resultToCsv(result: QueryResult): string {
-  if (result.columns.length === 0) return "";
-  const escape = (v: unknown): string => {
-    if (v === null || v === undefined) return "";
-    const s = String(v);
-    if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-    return s;
-  };
-  const lines = [result.columns.join(",")];
-  for (const row of result.rows) {
-    lines.push(result.columns.map((c) => escape(row[c])).join(","));
-  }
-  return lines.join("\n");
-}
+// resultToCsv used to live here — "convert a query result to CSV text for the
+// Export button". The Export button uses downloadCsv in lib/exportData; this
+// had no callers left anywhere in src/ or tests/, and it carried the same
+// three faults as the other orphaned copy: it did not escape the HEADER row,
+// its test was /[",\n]/ so a bare carriage return broke the row structure, and
+// it had no guard against spreadsheet formula injection.
+//
+// Deleted rather than fixed. A dead helper that looks like a ready-made
+// utility is worse than no helper: the next person needing a CSV export finds
+// it and inherits every fault, which is precisely how the dashboard route
+// ended up with its own broken copy. Use downloadCsv.
