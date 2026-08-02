@@ -545,15 +545,42 @@ export function computeSnapshotChanges(before: WidgetJson[], after: WidgetJson[]
 // ── Alerts ───────────────────────────────────────────────────────────────
 
 /** Compute an alert's metric from a widget's snapshot rows. Pure. */
+/**
+ * SQL NULL, as it arrives in a JSON snapshot row.
+ *
+ * Not a general emptiness test: `false` and `0` are real values and stay.
+ * `[]` and `{}` are included because JS coerces both to 0 or NaN, and neither
+ * is a number a user put in a cell.
+ */
+function isBlank(v: unknown): boolean {
+  if (v === null || v === undefined) return true;
+  if (typeof v === "string") return v.trim() === "";
+  return typeof v === "object";
+}
+
 export function alertValue(
   rows: Record<string, unknown>[],
   columnName: string,
   aggregation: string,
 ): number | null {
   if (!columnName || aggregation === "count") return rows.length;
-  const nums = rows.map((r) => Number(r[columnName])).filter((n) => Number.isFinite(n));
+  // SQL aggregates IGNORE NULL, and so must these — an alert is compared
+  // against a number a human read off a dashboard.
+  //
+  // `Number(null)` is 0 and 0 is finite, so a blank cell used to survive the
+  // filter as a real zero. On a response-time column with one NULL row that
+  // made avg 97.5 instead of 130 and min 0 instead of 120, so "alert when
+  // min(ms) < 5" fired on a perfectly healthy service; on an all-negative
+  // column it made max 0 instead of the real maximum. `""`, `"   "`, `[]` and
+  // `false` coerce to 0 the same way.
+  const nums = rows
+    .filter((r) => !isBlank(r[columnName]))
+    .map((r) => Number(r[columnName]))
+    .filter((n) => Number.isFinite(n));
   if (aggregation === "first") {
-    const v = Number(rows[0]?.[columnName]);
+    const raw = rows[0]?.[columnName];
+    if (isBlank(raw)) return null;
+    const v = Number(raw);
     return Number.isFinite(v) ? v : null;
   }
   if (nums.length === 0) return null;

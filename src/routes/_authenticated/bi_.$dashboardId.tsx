@@ -893,21 +893,17 @@ function BiProjectPage() {
   }
 
   function downloadWidgetCsv(w: BiWidget) {
-    const cols = w.columns ?? [];
-    const dataRows = w.rows ?? [];
-    const esc = (v: unknown) => {
-      const s = v === null || v === undefined ? "" : String(v);
-      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-    };
-    const csv = [cols.join(","), ...dataRows.map((r) => cols.map((c) => esc(r[c])).join(","))].join(
-      "\n",
+    // Uses the shared writer in lib/exportData rather than a local one. The
+    // copy that used to live here had drifted three ways: it did not escape
+    // the HEADER row at all, its escape test was /[",\n]/ and so missed a bare
+    // carriage return, and it had no guard against spreadsheet formula
+    // injection. A second implementation of an escaper is a second set of
+    // holes, and this one had them.
+    downloadCsv(
+      w.columns ?? [],
+      w.rows ?? [],
+      `${w.title.replace(/[^\w-]+/g, "_") || "widget"}.csv`,
     );
-    const blob = new Blob([csv], { type: "text/csv" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `${w.title.replace(/[^\w-]+/g, "_") || "widget"}.csv`;
-    a.click();
-    URL.revokeObjectURL(a.href);
   }
 
   async function downloadWidgetPng(w: BiWidget) {

