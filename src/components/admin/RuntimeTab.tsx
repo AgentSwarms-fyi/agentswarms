@@ -14,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { normalizeEgressHost } from "@/utils/notebookRuntime/egress";
 import {
   Select,
   SelectContent,
@@ -66,6 +67,12 @@ export function RuntimeTab({ token }: { token: string }) {
   const [state, setState] = useState<NbRuntimeState | null>(null);
   const [form, setForm] = useState<NbRuntimeSettings | null>(null);
   const [egressText, setEgressText] = useState("");
+  // Lines the squid ACL renderer will drop. Uses the SAME function that does
+  // the dropping, so the warning cannot disagree with the behaviour.
+  const rejectedEgress = egressText
+    .split("\n")
+    .map((s) => s.trim())
+    .filter((s) => s && !s.startsWith("#") && normalizeEgressHost(s) === null);
   const [saving, setSaving] = useState(false);
   const [grantType, setGrantType] = useState<"user" | "group">("group");
   const [grantId, setGrantId] = useState("");
@@ -320,6 +327,23 @@ export function RuntimeTab({ token }: { token: string }) {
           rows={5}
           className="font-mono text-xs"
         />
+        {/*
+          SAY WHICH LINES WILL BE DISCARDED. The list is normalised into a squid
+          dstdomain ACL, and anything that is not a usable hostname is dropped —
+          IP addresses in particular, since dstdomain matches by DNS suffix and
+          could never match an address. Until now that happened silently: an
+          operator typed 10.0.0.1, watched it save, and believed egress to it
+          was permitted. It was not, and nothing said so. Rejecting an entry
+          correctly is only half the job on a security control; the other half
+          is telling the person who typed it.
+        */}
+        {rejectedEgress.length > 0 && (
+          <p className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-600 dark:text-amber-400">
+            Ignored — not a hostname the proxy can match:{" "}
+            <span className="font-mono">{rejectedEgress.join(", ")}</span>. An IP address cannot be
+            used here; the allow-list matches domains and their subdomains.
+          </p>
+        )}
         <label className="flex items-center gap-2 pt-1 text-xs">
           <Switch checked={form.pip_allowed} onCheckedChange={(v) => set("pip_allowed", v)} />
           Allow runtime <code>pip install</code>

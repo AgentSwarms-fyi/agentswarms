@@ -14,6 +14,7 @@
 // address — it sits in the file doing nothing while an operator believes they
 // allowed it. Fails closed, so it was never a hole; it was a control that
 // silently did not do what its configuration said.
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -113,5 +114,39 @@ describe("renderEgressAllowlist", () => {
   it("says where the file comes from, since it is overwritten", () => {
     // An operator who hand-edits this file loses the edit on the next save.
     expect(renderEgressAllowlist([])).toMatch(/overwritten/i);
+  });
+});
+
+describe("the admin UI says which entries it will discard", () => {
+  // Rejecting an entry correctly is half the job on a security control; the
+  // other half is telling the person who typed it. Until this, an operator
+  // could type 10.0.0.1, watch it save, and believe egress to it was
+  // permitted — the entry persisted in the textarea and simply never reached
+  // the squid ACL. Silent either way: inert before the parser was fixed,
+  // dropped after it.
+  const ui = readFileSync("src/components/admin/RuntimeTab.tsx", "utf8");
+
+  it("derives the rejected list with the SAME function that drops them", () => {
+    // A second copy of the rule here would be a warning that can disagree with
+    // the behaviour it is describing — which is the failure mode this codebase
+    // has hit three times over.
+    expect(ui).toMatch(/import \{ normalizeEgressHost \} from "@\/utils\/notebookRuntime\/egress"/);
+    expect(ui).toMatch(/normalizeEgressHost\(s\) === null/);
+  });
+
+  it("does not re-implement the hostname rule in the component", () => {
+    expect(ui, "a second hostname pattern is declared in the admin UI").not.toMatch(
+      /\[a-z0-9-\]\+\(\\.\[a-z0-9-\]\+\)\+/,
+    );
+  });
+
+  it("renders a warning only when something was rejected", () => {
+    expect(ui).toMatch(/rejectedEgress\.length > 0 &&/);
+    expect(ui).toMatch(/Ignored — not a hostname the proxy can match/);
+  });
+
+  it("ignores comment lines rather than reporting them as errors", () => {
+    // The renderer already skips them; flagging them would be a false alarm.
+    expect(ui).toMatch(/!s\.startsWith\("#"\)/);
   });
 });
