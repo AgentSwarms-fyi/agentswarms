@@ -1507,10 +1507,14 @@ export type Database = {
         Row: {
           config: Json;
           created_at: string;
+          credentials_rotated_at: string | null;
           id: string;
           is_active: boolean;
           last_sync_error: string | null;
           last_sync_status: string | null;
+          last_test_error: string | null;
+          last_test_status: string | null;
+          last_tested_at: string | null;
           last_synced_at: string | null;
           name: string;
           next_sync_at: string | null;
@@ -1523,10 +1527,14 @@ export type Database = {
         Insert: {
           config?: Json;
           created_at?: string;
+          credentials_rotated_at?: string | null;
           id?: string;
           is_active?: boolean;
           last_sync_error?: string | null;
           last_sync_status?: string | null;
+          last_test_error?: string | null;
+          last_test_status?: string | null;
+          last_tested_at?: string | null;
           last_synced_at?: string | null;
           name: string;
           next_sync_at?: string | null;
@@ -1539,10 +1547,14 @@ export type Database = {
         Update: {
           config?: Json;
           created_at?: string;
+          credentials_rotated_at?: string | null;
           id?: string;
           is_active?: boolean;
           last_sync_error?: string | null;
           last_sync_status?: string | null;
+          last_test_error?: string | null;
+          last_test_status?: string | null;
+          last_tested_at?: string | null;
           last_synced_at?: string | null;
           name?: string;
           next_sync_at?: string | null;
@@ -1558,6 +1570,7 @@ export type Database = {
         Row: {
           created_at: string;
           credentials: Json;
+          credentials_rotated_at: string | null;
           id: string;
           is_active: boolean;
           last_test_error: string | null;
@@ -1571,6 +1584,7 @@ export type Database = {
         Insert: {
           created_at?: string;
           credentials?: Json;
+          credentials_rotated_at?: string | null;
           id?: string;
           is_active?: boolean;
           last_test_error?: string | null;
@@ -1584,6 +1598,7 @@ export type Database = {
         Update: {
           created_at?: string;
           credentials?: Json;
+          credentials_rotated_at?: string | null;
           id?: string;
           is_active?: boolean;
           last_test_error?: string | null;

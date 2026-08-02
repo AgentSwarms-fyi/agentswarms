@@ -13,6 +13,7 @@
 
 import { flattenRecord } from "./flatten";
 import type { SaasConfig, SaasStream } from "./types";
+import { connectorFetch } from "@/utils/http/connectorFetch.server";
 
 /** Pinned so a Salesforce release cannot reshape a dataset under a dashboard. */
 const API_VERSION = "v61.0";
@@ -68,7 +69,7 @@ export function normaliseInstanceUrl(input: string): string {
  */
 async function authenticate(cfg: SalesforceCfg): Promise<{ token: string; instance: string }> {
   const base = normaliseInstanceUrl(cfg.instance_url);
-  const res = await fetch(`${base}/services/oauth2/token`, {
+  const res = await connectorFetch(`${base}/services/oauth2/token`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
@@ -99,7 +100,7 @@ async function sfGet<T>(instance: string, token: string, path: string): Promise<
   // `path` is either one we build or a nextRecordsUrl Salesforce handed back,
   // which is already absolute-from-root.
   const url = path.startsWith("http") ? path : `${instance}${path}`;
-  const res = await fetch(url, {
+  const res = await connectorFetch(url, {
     headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
     signal: AbortSignal.timeout(60_000),
   });

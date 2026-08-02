@@ -12,6 +12,7 @@
 
 import { GOOGLE_SCOPES, googleAccessToken } from "@/utils/google/serviceAccount.server";
 import type { SaasConfig, SaasStream } from "./types";
+import { connectorFetch } from "@/utils/http/connectorFetch.server";
 
 const API = "https://sheets.googleapis.com/v4/spreadsheets";
 
@@ -43,7 +44,7 @@ async function sheetsFetch<T>(
 ): Promise<T> {
   const url = new URL(`${API}/${path}`);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-  const res = await fetch(url.toString(), {
+  const res = await connectorFetch(url.toString(), {
     headers: { Authorization: `Bearer ${token}` },
     signal: AbortSignal.timeout(60_000),
   });

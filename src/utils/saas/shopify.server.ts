@@ -7,6 +7,7 @@
 
 import { flattenRecord } from "./flatten";
 import type { SaasConfig, SaasStream } from "./types";
+import { connectorFetch } from "@/utils/http/connectorFetch.server";
 
 /**
  * Pinned API version.
@@ -66,7 +67,7 @@ export function nextPageUrl(linkHeader: string | null): string | null {
 }
 
 async function shopifyFetch(cfg: ShopifyCfg, url: string): Promise<Response> {
-  const res = await fetch(url, {
+  const res = await connectorFetch(url, {
     headers: {
       "X-Shopify-Access-Token": cfg.access_token,
       Accept: "application/json",

@@ -41,6 +41,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { CredentialAgeBadge } from "@/components/integrations/ConnectionHealthBadges";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
@@ -708,13 +709,14 @@ export function WarehousesTab() {
                 {connections.map((c) => (
                   <TableRow key={c.id}>
                     <TableCell className="font-medium">
-                      <span className="flex items-center gap-2">
+                      <span className="flex flex-wrap items-center gap-2">
                         {c.name}
                         {c.shared && (
                           <Badge variant="outline" className="text-[10px] font-normal">
                             Shared
                           </Badge>
                         )}
+                        <CredentialAgeBadge rotatedAt={c.credentials_rotated_at} />
                       </span>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">

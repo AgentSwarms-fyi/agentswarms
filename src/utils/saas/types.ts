@@ -97,6 +97,18 @@ export type SaasConnectionSummary = {
   last_synced_at: string | null;
   created_at: string;
   /**
+   * Scheduled auth probe, kept separate from the SYNC result above.
+   *
+   * They answer different questions: a source can authenticate perfectly and
+   * have no sync scheduled, and a sync can fail for reasons that have nothing
+   * to do with the credential.
+   */
+  last_test_status?: string | null;
+  last_test_error?: string | null;
+  last_tested_at?: string | null;
+  /** When the stored credential was last entered — see the warehouse summary. */
+  credentials_rotated_at?: string | null;
+  /**
    * Reached through an IAM grant rather than owned.
    *
    * A grantee may see the source's health and trigger a sync; the sync runs as

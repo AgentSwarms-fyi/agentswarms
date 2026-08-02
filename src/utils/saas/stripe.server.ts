@@ -6,6 +6,7 @@
 
 import { flattenRecord, isoifyTimestamps } from "./flatten";
 import type { SaasConfig, SaasStream } from "./types";
+import { connectorFetch } from "@/utils/http/connectorFetch.server";
 
 const API = "https://api.stripe.com/v1";
 
@@ -83,7 +84,7 @@ type StripeList = {
 async function stripeFetch(cfg: StripeCfg, path: string, params: Record<string, string>) {
   const url = new URL(`${API}/${path}`);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-  const res = await fetch(url.toString(), {
+  const res = await connectorFetch(url.toString(), {
     headers: {
       Authorization: `Bearer ${cfg.api_key}`,
       // Pinning the version means Stripe changing its default cannot silently

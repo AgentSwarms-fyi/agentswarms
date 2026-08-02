@@ -348,6 +348,14 @@ export type WarehouseConnectionSummary = {
   last_tested_at: string | null;
   created_at: string;
   /**
+   * When the stored credential was last entered.
+   *
+   * NOT `updated_at`, which the scheduled health check and the Test button
+   * both bump — using that would report every credential as freshly rotated
+   * and hide precisely the stale ones this exists to surface.
+   */
+  credentials_rotated_at?: string | null;
+  /**
    * Reached through an IAM grant rather than owned.
    *
    * A shared connection is usable but NOT editable: its credential belongs to

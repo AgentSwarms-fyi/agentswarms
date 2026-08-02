@@ -1075,6 +1075,12 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
         await m.sweepPlaintextSecrets();
       })
       .catch((e) => console.warn("[integration-health] failed:", (e as Error).message));
+    // Data connections get the same treatment as LLM keys: a warehouse
+    // password expires on the customer's rotation policy, and without this the
+    // first sign is a dashboard erroring in front of someone.
+    await import("@/utils/integrations/connectionHealth.server")
+      .then((m) => m.checkConnectionHealth(force))
+      .catch((e) => console.warn("[connection-health] failed:", (e as Error).message));
     await import("@/utils/observability/retention.server")
       .then((m) => m.purgeTraces(force))
       .catch((e) => console.warn("[trace-retention] failed:", (e as Error).message));

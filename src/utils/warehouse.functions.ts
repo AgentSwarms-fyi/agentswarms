@@ -167,7 +167,7 @@ export const listWarehouseConnections = createServerFn({ method: "POST" })
         // Never selects `credentials` — a summary has no business shipping
         // ciphertext to a client, owned or shared.
         const COLS =
-          "id, provider, name, is_active, last_test_status, last_test_error, last_tested_at, created_at";
+          "id, provider, name, is_active, last_test_status, last_test_error, last_tested_at, created_at, credentials_rotated_at";
         const { data: rows, error } = await sb
           .from("data_warehouse_connections")
           .select(COLS)
@@ -231,6 +231,12 @@ export const saveWarehouseConnection = createServerFn({ method: "POST" })
             is_active: true,
             last_test_status: null,
             last_test_error: null,
+            // A save always writes freshly-entered credentials — they are
+            // never returned to the client, so there is nothing to resubmit
+            // unchanged. `updated_at` cannot serve this purpose: its trigger
+            // fires for health checks and Test-connection presses too, which
+            // would keep resetting the age of a credential nobody had touched.
+            credentials_rotated_at: new Date().toISOString(),
           },
           { onConflict: "user_id,name" },
         )

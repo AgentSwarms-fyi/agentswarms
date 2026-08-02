@@ -7,6 +7,8 @@
 // grant_type URN — that two copies would drift, and the failure mode of a
 // wrong signature is an opaque 401 from Google rather than anything local.
 
+import { connectorFetch } from "@/utils/http/connectorFetch.server";
+
 /** Strip the PEM armour and decode the base64 body into a key buffer. */
 function pemToArrayBuffer(pem: string): ArrayBuffer {
   const b64 = pem
@@ -89,7 +91,7 @@ export async function googleAccessToken(
     new TextEncoder().encode(`${header}.${claims}`),
   );
   const jwt = `${header}.${claims}.${b64url(new Uint8Array(sig))}`;
-  const res = await fetch(sa.token_uri, {
+  const res = await connectorFetch(sa.token_uri, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${encodeURIComponent(jwt)}`,

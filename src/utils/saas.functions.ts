@@ -119,8 +119,11 @@ export const listSaasConnections = createServerFn({ method: "POST" })
     const { sb, userId } = await requireUser(data.access_token);
     // `config` is deliberately NOT selected — a summary must not be able to
     // leak ciphertext, let alone anything decrypted from it.
+    // ONE STRING LITERAL, not a concatenation: supabase-js infers the row type
+    // from the literal, and `a + b` widens it to `string` and collapses the
+    // result to GenericStringError[].
     const COLS =
-      "id, provider, name, is_active, last_sync_status, last_sync_error, last_synced_at, created_at";
+      "id, provider, name, is_active, last_sync_status, last_sync_error, last_synced_at, created_at, last_test_status, last_test_error, last_tested_at, credentials_rotated_at";
     const { data: rows, error } = await sb
       .from("saas_connections")
       .select(COLS)
@@ -172,6 +175,10 @@ export const saveSaasConnection = createServerFn({ method: "POST" })
       streams:
         data.streams as unknown as Database["public"]["Tables"]["saas_connections"]["Insert"]["streams"],
       sync_schedule: data.sync_schedule,
+      // See the warehouse save for why this is not updated_at: the health pass
+      // and the sync writer both touch the row, and the trigger would keep
+      // reporting every credential as freshly rotated.
+      credentials_rotated_at: new Date().toISOString(),
       // Due immediately on save for a scheduled source, so the first run does
       // not wait a whole interval — and null for manual, which is what keeps
       // it out of the scheduler's index entirely.

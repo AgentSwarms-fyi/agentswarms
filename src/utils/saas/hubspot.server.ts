@@ -8,6 +8,7 @@
 
 import { flattenRecord } from "./flatten";
 import type { SaasConfig, SaasStream } from "./types";
+import { connectorFetch } from "@/utils/http/connectorFetch.server";
 
 const API = "https://api.hubapi.com";
 
@@ -39,7 +40,7 @@ const STREAMS: Record<string, { label: string; object: string }> = {
 
 async function hubspotFetch<T>(cfg: HubspotCfg, path: string, params: URLSearchParams): Promise<T> {
   const url = `${API}${path}${params.toString() ? `?${params}` : ""}`;
-  const res = await fetch(url, {
+  const res = await connectorFetch(url, {
     headers: { Authorization: `Bearer ${cfg.access_token}`, Accept: "application/json" },
     signal: AbortSignal.timeout(60_000),
   });
