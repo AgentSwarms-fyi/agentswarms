@@ -24,7 +24,14 @@ export type LoadedConnection = {
   name: string;
   provider: WarehouseProvider;
   config: WarehouseConfig;
+  /** Whose credential this is. Queries run against THEIR warehouse. */
+  ownerUserId: string;
+  /** True when reached through an IAM grant rather than ownership. */
+  shared: boolean;
 };
+
+/** Only a well-formed uuid is ever interpolated into a PostgREST filter. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function loadWarehouseConnection(
   sb: SupabaseClient<Database>,
@@ -35,14 +42,36 @@ export async function loadWarehouseConnection(
    * resolve any {{secret:NAME}} references in the stored config.
    */
   ownerUserId?: string,
+  opts?: {
+    /**
+     * Connection ids this caller may use through an IAM grant, resolved by the
+     * CALLER with resolveGrantedResourceIds. Widening the filter is the entire
+     * security decision in this function, so the grant is never looked up here
+     * — a caller must have gone and got it deliberately.
+     *
+     * A grantee may USE the connection: the owner's credential is decrypted
+     * server-side and the query runs against their warehouse. They never
+     * receive the credential, and nothing here lets them edit or delete it.
+     */
+    grantedIds?: Iterable<string>;
+  },
 ): Promise<LoadedConnection> {
   let query = sb
     .from("data_warehouse_connections")
-    .select("id, name, provider, credentials, is_active");
+    .select("id, name, provider, credentials, is_active, user_id");
   if (ref.connectionId) query = query.eq("id", ref.connectionId);
   else if (ref.name) query = query.eq("name", ref.name);
   else throw new Error("connection id or name is required");
-  if (ownerUserId) query = query.eq("user_id", ownerUserId);
+
+  if (ownerUserId) {
+    // Ids are re-validated even though they came from our own grant lookup:
+    // this string becomes a PostgREST filter, and `id.in.(…)` with an
+    // unvalidated value is an injection into the query, not just a bad match.
+    const granted = [...(opts?.grantedIds ?? [])].filter((x) => UUID_RE.test(x));
+    query = granted.length
+      ? query.or(`user_id.eq.${ownerUserId},id.in.(${granted.join(",")})`)
+      : query.eq("user_id", ownerUserId);
+  }
 
   const { data: row, error } = await query.maybeSingle();
   if (error) throw new Error(error.message);
@@ -54,9 +83,15 @@ export async function loadWarehouseConnection(
     throw new Error(`Warehouse connection "${row.name}" has no stored credentials`);
   }
   let config = await decryptJson<WarehouseConfig>(enc.ciphertext, enc.iv);
-  if (ownerUserId) {
+  // Secret references resolve as the connection's OWNER, not the caller.
+  // On a shared connection those two differ, and resolving as the caller
+  // would look up {{secret:PROD_PW}} in the GRANTEE's vault — finding either
+  // nothing, or worse, a different secret that happens to share the name.
+  // A shared connection runs as its owner; this is part of what that means.
+  const secretScope = row.user_id ?? ownerUserId;
+  if (secretScope) {
     config = (await resolveSecretRefsInObject(
-      ownerUserId,
+      secretScope,
       config as unknown as Record<string, unknown>,
     )) as unknown as WarehouseConfig;
   }
@@ -65,5 +100,8 @@ export async function loadWarehouseConnection(
     name: row.name,
     provider: row.provider as WarehouseProvider,
     config,
+    ownerUserId: row.user_id,
+    /** True when the caller is using this through a grant rather than owning it. */
+    shared: !!ownerUserId && row.user_id !== ownerUserId,
   };
 }

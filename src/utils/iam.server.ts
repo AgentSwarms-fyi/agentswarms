@@ -111,7 +111,9 @@ export async function resolveGrantedResourceIds(
     | "knowledge_base"
     | "semantic_model"
     | "integration"
-    | "provider_credential",
+    | "provider_credential"
+    | "warehouse_connection"
+    | "saas_connection",
 ): Promise<Set<string>> {
   const [{ data: memberships }, { data: grants }] = await Promise.all([
     sb.from("iam_group_members").select("group_id").eq("user_id", userId),
