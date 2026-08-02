@@ -8,7 +8,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   AreaChart,
-  BadgeCheck,
   BarChart2,
   BarChart3,
   BarChart4,
@@ -29,12 +28,10 @@ import {
   Hash,
   LayoutGrid,
   LineChart,
-  Loader2,
   Map as MapIcon,
   MapPin,
   Network,
   PieChart,
-  Play,
   Plus,
   ScatterChart,
   Send,
@@ -47,6 +44,14 @@ import {
 import { BiVizPicker, type ChartType } from "@/components/bi/BiVizPicker";
 import { BiAiTab, type KbDocOption } from "@/components/bi/BiAiTab";
 import { BiOntologyTab } from "@/components/bi/BiOntologyTab";
+import { BiTablePicker } from "@/components/bi/BiTablePicker";
+import { BiSqlEditor } from "@/components/bi/BiSqlEditor";
+import { BiCondFormatEditor } from "@/components/bi/BiCondFormatEditor";
+import {
+  BiDrillHierarchy,
+  BiRefLineOptions,
+  BiTimeSeriesOptions,
+} from "@/components/bi/BiChartOptions";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -61,7 +66,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 import { BiChatMessage } from "@/components/data-sql/BiChatMessage";
 import { BiChartRender, fmtBiValue } from "@/components/bi/BiChartRender";
 import { BiModelSelect } from "@/components/bi/BiModelSelect";
@@ -78,7 +82,6 @@ import {
   type ChartSpec,
 } from "@/lib/biAgent";
 import type { BiColumnFormat, SavedMetric } from "@/lib/biAgent";
-import { COND_COLORS } from "@/lib/biChartMath";
 import { snapshotRows, widgetFromBiTurn, type BiWidget } from "@/lib/biDashboards";
 import { isAggregatableChart } from "@/lib/biAggregate";
 import { buildOntology, type OntologyBuildStage, type OntologySpec } from "@/lib/biOntology";
@@ -1364,120 +1367,26 @@ export function BiBuilderPane({
                 {sourceSelect}
 
                 {/* Tables — above the SQL, multi-select for joins */}
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      Tables — select one or more to join
-                    </Label>
-                    {schemaLoading && (
-                      <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                        <Loader2 className="h-3 w-3 animate-spin" /> loading…
-                      </span>
-                    )}
-                  </div>
-                  <div className="max-h-44 space-y-0.5 overflow-y-auto rounded-md border border-border/60 p-1.5">
-                    {sourceTables.length === 0 && !schemaLoading && (
-                      <p className="px-1 py-2 text-[11px] text-muted-foreground">
-                        No tables available for this source.
-                      </p>
-                    )}
-                    {sourceTables.map((t) => {
-                      const checked = selectedTables.includes(t.name);
-                      return (
-                        <div key={t.name} className="rounded px-1 py-0.5 hover:bg-muted/60">
-                          <Label className="flex cursor-pointer items-center gap-2 py-0.5 font-mono text-[11px] font-normal">
-                            <Checkbox
-                              checked={checked}
-                              onCheckedChange={() => toggleTable(t.name)}
-                            />
-                            <span className="truncate">{t.name}</span>
-                            {ctx.preparedTables?.has(t.name) && (
-                              <Badge variant="secondary" className="shrink-0 px-1 text-[9px]">
-                                prep
-                              </Badge>
-                            )}
-                          </Label>
-                          {checked && (
-                            <p
-                              className="ml-6 truncate text-[9px] text-muted-foreground"
-                              title={t.cols.join(", ")}
-                            >
-                              {t.cols.slice(0, 8).join(" · ")}
-                              {t.cols.length > 8 ? ` · +${t.cols.length - 8} more` : ""}
-                            </p>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                  {selectedTables.length > 1 && (
-                    <p className="text-[10px] text-muted-foreground">
-                      A JOIN skeleton was written below — adjust the join keys if needed.
-                    </p>
-                  )}
-                </div>
+                <BiTablePicker
+                  sourceTables={sourceTables}
+                  selectedTables={selectedTables}
+                  schemaLoading={schemaLoading}
+                  preparedTables={ctx.preparedTables}
+                  toggleTable={toggleTable}
+                />
 
                 {/* SQL */}
-                <div className="space-y-1.5">
-                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    SQL (SELECT only)
-                  </Label>
-                  {sourceKey === "local" && ctx.metrics.length > 0 && (
-                    <div className="flex flex-wrap items-center gap-1 pb-0.5">
-                      <span
-                        className="flex items-center gap-1 text-[10px] text-muted-foreground"
-                        title="Certified metrics saved from Data & SQL — click to insert as a query"
-                      >
-                        <BadgeCheck className="h-3 w-3 text-primary" /> Metrics:
-                      </span>
-                      {ctx.metrics.slice(0, 8).map((m) => (
-                        <button
-                          key={m.id}
-                          type="button"
-                          title={`${m.sql_expression}${m.description ? ` — ${m.description}` : ""}`}
-                          onClick={() => insertMetric(m)}
-                          className="rounded-full border border-primary/30 bg-primary/5 px-2 py-0.5 text-[10px] font-medium text-primary transition-colors hover:bg-primary/10"
-                        >
-                          {m.name}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  <Textarea
-                    value={sql}
-                    onChange={(e) => setSql(e.target.value)}
-                    rows={5}
-                    className="font-mono text-xs"
-                    placeholder="Select tables above, or write your own query"
-                  />
-                  <div className="flex items-center gap-2">
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      className="h-7 gap-1.5 text-xs"
-                      onClick={() => void runPreview()}
-                      disabled={running || !sql.trim()}
-                    >
-                      {running ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      ) : (
-                        <Play className="h-3 w-3" />
-                      )}
-                      Run
-                    </Button>
-                    {preview && (
-                      <span className="text-[10px] text-muted-foreground">
-                        {preview.row_count} rows · {preview.columns.length} cols
-                        {preview.capped ? " (truncated)" : ""}
-                      </span>
-                    )}
-                  </div>
-                  {runError && (
-                    <p className="rounded border border-destructive/40 bg-destructive/10 px-2 py-1 text-[11px] text-destructive">
-                      {runError}
-                    </p>
-                  )}
-                </div>
+                <BiSqlEditor
+                  sql={sql}
+                  setSql={setSql}
+                  sourceKey={sourceKey}
+                  metrics={ctx.metrics}
+                  insertMetric={insertMetric}
+                  runPreview={() => void runPreview()}
+                  running={running}
+                  preview={preview}
+                  runError={runError}
+                />
 
                 {preview && (
                   <>
@@ -1598,166 +1507,14 @@ export function BiBuilderPane({
                             rowSubField,
                             setRowSubField,
                           )}
-                          <div className="col-span-2 space-y-1.5">
-                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                              Conditional formatting
-                            </Label>
-                            <Select value={matFmtMode} onValueChange={setMatFmtMode}>
-                              <SelectTrigger className="h-8 text-xs">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="none" className="text-xs">
-                                  None
-                                </SelectItem>
-                                <SelectItem value="scale" className="text-xs">
-                                  Colour scale (min → max)
-                                </SelectItem>
-                                <SelectItem value="rules" className="text-xs">
-                                  Rules (first match wins)
-                                </SelectItem>
-                              </SelectContent>
-                            </Select>
-                            {matFmtMode === "scale" && (
-                              <div className="flex items-center gap-1.5 pt-0.5">
-                                {Object.entries(COND_COLORS).map(([id, c]) => (
-                                  <button
-                                    key={id}
-                                    type="button"
-                                    title={c.label}
-                                    onClick={() => setMatScaleColor(id)}
-                                    className={`h-6 w-8 rounded-md border ${
-                                      matScaleColor === id
-                                        ? "border-foreground"
-                                        : "border-border/60"
-                                    }`}
-                                    style={{
-                                      background: `linear-gradient(to right, color-mix(in oklch, ${c.hex} 10%, transparent), ${c.hex})`,
-                                    }}
-                                  />
-                                ))}
-                              </div>
-                            )}
-                            {matFmtMode === "rules" && (
-                              <div className="space-y-1.5 pt-0.5">
-                                {matRules.map((r, i) => (
-                                  <div key={i} className="flex flex-wrap items-center gap-1">
-                                    <Select
-                                      value={r.op}
-                                      onValueChange={(v) =>
-                                        setMatRules((rs) =>
-                                          rs.map((x, j) =>
-                                            j === i ? { ...x, op: v as BiCondRule["op"] } : x,
-                                          ),
-                                        )
-                                      }
-                                    >
-                                      <SelectTrigger className="h-7 w-24 text-[11px]">
-                                        <SelectValue />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        {(
-                                          [
-                                            ["gt", "> above"],
-                                            ["gte", "≥ at least"],
-                                            ["lt", "< below"],
-                                            ["lte", "≤ at most"],
-                                            ["eq", "= equals"],
-                                            ["neq", "≠ not"],
-                                            ["between", "between"],
-                                          ] as const
-                                        ).map(([v, l]) => (
-                                          <SelectItem key={v} value={v} className="text-xs">
-                                            {l}
-                                          </SelectItem>
-                                        ))}
-                                      </SelectContent>
-                                    </Select>
-                                    <Input
-                                      value={Number.isFinite(r.value) ? String(r.value) : ""}
-                                      onChange={(e) =>
-                                        setMatRules((rs) =>
-                                          rs.map((x, j) =>
-                                            j === i ? { ...x, value: Number(e.target.value) } : x,
-                                          ),
-                                        )
-                                      }
-                                      inputMode="decimal"
-                                      placeholder="value"
-                                      className="h-7 w-20 text-[11px]"
-                                    />
-                                    {r.op === "between" && (
-                                      <Input
-                                        value={
-                                          r.value2 !== undefined && Number.isFinite(r.value2)
-                                            ? String(r.value2)
-                                            : ""
-                                        }
-                                        onChange={(e) =>
-                                          setMatRules((rs) =>
-                                            rs.map((x, j) =>
-                                              j === i
-                                                ? { ...x, value2: Number(e.target.value) }
-                                                : x,
-                                            ),
-                                          )
-                                        }
-                                        inputMode="decimal"
-                                        placeholder="and"
-                                        className="h-7 w-20 text-[11px]"
-                                      />
-                                    )}
-                                    <div className="flex gap-0.5">
-                                      {Object.entries(COND_COLORS).map(([id, c]) => (
-                                        <button
-                                          key={id}
-                                          type="button"
-                                          title={c.label}
-                                          onClick={() =>
-                                            setMatRules((rs) =>
-                                              rs.map((x, j) => (j === i ? { ...x, color: id } : x)),
-                                            )
-                                          }
-                                          className={`h-5 w-5 rounded border ${
-                                            r.color === id
-                                              ? "border-foreground"
-                                              : "border-border/60"
-                                          }`}
-                                          style={{ background: c.hex }}
-                                        />
-                                      ))}
-                                    </div>
-                                    <button
-                                      type="button"
-                                      className="ml-auto text-muted-foreground hover:text-destructive"
-                                      onClick={() =>
-                                        setMatRules((rs) => rs.filter((_, j) => j !== i))
-                                      }
-                                    >
-                                      <X className="h-3 w-3" />
-                                    </button>
-                                  </div>
-                                ))}
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-7 gap-1 text-[11px]"
-                                  onClick={() =>
-                                    setMatRules((rs) => [
-                                      ...rs,
-                                      { op: "gt", value: 0, color: "emerald" },
-                                    ])
-                                  }
-                                >
-                                  <Plus className="h-3 w-3" /> Add rule
-                                </Button>
-                                <p className="text-[9px] text-muted-foreground">
-                                  Rules are checked top-down; the first match colours the cell.
-                                  Totals stay uncoloured.
-                                </p>
-                              </div>
-                            )}
-                          </div>
+                          <BiCondFormatEditor
+                            matFmtMode={matFmtMode}
+                            setMatFmtMode={setMatFmtMode}
+                            matScaleColor={matScaleColor}
+                            setMatScaleColor={setMatScaleColor}
+                            matRules={matRules}
+                            setMatRules={setMatRules}
+                          />
                         </>
                       )}
                       {(chartType === "map" || chartType === "bubblemap") && (
@@ -1772,193 +1529,41 @@ export function BiBuilderPane({
                         chartType === "hbar" ||
                         chartType === "pie" ||
                         chartType === "treemap") && (
-                        <div className="col-span-2 space-y-1">
-                          <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                            Drill hierarchy (top → detail)
-                          </Label>
-                          <div className="flex flex-wrap items-center gap-1">
-                            {drillList.map((f, i) => (
-                              <Badge
-                                key={f}
-                                variant="secondary"
-                                className="gap-1 px-1.5 text-[10px]"
-                              >
-                                {i + 1}. {f}
-                                <button
-                                  type="button"
-                                  onClick={() => setDrillList(drillList.filter((x) => x !== f))}
-                                >
-                                  <X className="h-2.5 w-2.5" />
-                                </button>
-                              </Badge>
-                            ))}
-                            <Select
-                              key={drillList.length}
-                              onValueChange={(v) =>
-                                !drillList.includes(v) && setDrillList([...drillList, v])
-                              }
-                            >
-                              <SelectTrigger className="h-7 w-28 text-[10px]">
-                                <SelectValue placeholder="+ add level" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {(preview?.columns ?? [])
-                                  .filter((c) => !drillList.includes(c))
-                                  .map((c) => (
-                                    <SelectItem key={c} value={c} className="text-xs">
-                                      {c}
-                                    </SelectItem>
-                                  ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <p className="text-[9px] text-muted-foreground">
-                            Two or more levels enable click-to-drill (the query must include every
-                            level's column).
-                          </p>
-                        </div>
+                        <BiDrillHierarchy
+                          drillList={drillList}
+                          setDrillList={setDrillList}
+                          columns={preview?.columns ?? []}
+                        />
                       )}
 
                       {/* Time intelligence (line/area) */}
                       {(chartType === "line" || chartType === "area") && (
-                        <>
-                          <div className="space-y-1">
-                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                              Date grain
-                            </Label>
-                            <Select value={grainSel} onValueChange={setGrainSel}>
-                              <SelectTrigger className="h-8 text-xs">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {["auto", "day", "week", "month", "quarter", "year"].map((g) => (
-                                  <SelectItem key={g} value={g} className="text-xs">
-                                    {g}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          {/* Running total, comparison, trend and forecast are
-                              single-series calculations — hidden while a series
-                              split is active so we never offer a toggle that the
-                              renderer can't apply. Date grain works either way. */}
-                          {seriesField ? (
-                            <p className="col-span-2 text-[10px] text-muted-foreground">
-                              Running total, compare, trend and forecast apply to single-series
-                              charts. Clear “Split by series” to use them.
-                            </p>
-                          ) : (
-                            <>
-                              <div className="space-y-1">
-                                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                                  Compare
-                                </Label>
-                                <Select value={compareSel} onValueChange={setCompareSel}>
-                                  <SelectTrigger className="h-8 text-xs">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="none" className="text-xs">
-                                      None
-                                    </SelectItem>
-                                    <SelectItem value="prior_period" className="text-xs">
-                                      Prior period
-                                    </SelectItem>
-                                    <SelectItem value="prior_year" className="text-xs">
-                                      Prior year
-                                    </SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                              <div className="col-span-2 flex flex-wrap items-center gap-4">
-                                <Label className="flex cursor-pointer items-center gap-1.5 text-xs font-normal">
-                                  <Checkbox
-                                    checked={runningB}
-                                    onCheckedChange={(v) => setRunningB(Boolean(v))}
-                                  />
-                                  Running total
-                                </Label>
-                                {chartType === "line" && (
-                                  <Label className="flex cursor-pointer items-center gap-1.5 text-xs font-normal">
-                                    <Checkbox
-                                      checked={trendB}
-                                      onCheckedChange={(v) => setTrendB(Boolean(v))}
-                                    />
-                                    Trend line
-                                  </Label>
-                                )}
-                                {chartType === "line" && (
-                                  <span className="flex items-center gap-1.5 text-xs">
-                                    Forecast
-                                    <Input
-                                      value={forecastN}
-                                      onChange={(e) => setForecastN(e.target.value)}
-                                      className="h-7 w-14 text-xs"
-                                      placeholder="0"
-                                      inputMode="numeric"
-                                    />
-                                    periods
-                                  </span>
-                                )}
-                              </div>
-                            </>
-                          )}
-                        </>
+                        <BiTimeSeriesOptions
+                          chartType={chartType}
+                          seriesField={seriesField}
+                          grainSel={grainSel}
+                          setGrainSel={setGrainSel}
+                          compareSel={compareSel}
+                          setCompareSel={setCompareSel}
+                          runningB={runningB}
+                          setRunningB={setRunningB}
+                          trendB={trendB}
+                          setTrendB={setTrendB}
+                          forecastN={forecastN}
+                          setForecastN={setForecastN}
+                        />
                       )}
 
                       {/* Reference line (bar/line/area) */}
                       {(chartType === "bar" || chartType === "line" || chartType === "area") && (
-                        <>
-                          <div className="space-y-1">
-                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                              Reference line
-                            </Label>
-                            <Select value={refMode} onValueChange={setRefMode}>
-                              <SelectTrigger className="h-8 text-xs">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="none" className="text-xs">
-                                  None
-                                </SelectItem>
-                                <SelectItem value="avg" className="text-xs">
-                                  Average
-                                </SelectItem>
-                                <SelectItem value="value" className="text-xs">
-                                  Target value
-                                </SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          {refMode === "value" && (
-                            <div className="space-y-1">
-                              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                                Target
-                              </Label>
-                              <Input
-                                value={refValue}
-                                onChange={(e) => setRefValue(e.target.value)}
-                                className="h-8 text-xs"
-                                inputMode="decimal"
-                                placeholder="e.g. 10000"
-                              />
-                            </div>
-                          )}
-                          {refMode !== "none" && (
-                            <div className="space-y-1">
-                              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                                Line label
-                              </Label>
-                              <Input
-                                value={refLabel}
-                                onChange={(e) => setRefLabel(e.target.value)}
-                                className="h-8 text-xs"
-                                placeholder="target"
-                              />
-                            </div>
-                          )}
-                        </>
+                        <BiRefLineOptions
+                          refMode={refMode}
+                          setRefMode={setRefMode}
+                          refValue={refValue}
+                          setRefValue={setRefValue}
+                          refLabel={refLabel}
+                          setRefLabel={setRefLabel}
+                        />
                       )}
                       {chartType !== "table" &&
                         chartType !== "heatmap" &&

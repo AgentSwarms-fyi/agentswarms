@@ -73,20 +73,31 @@ Stated because you will find them anyway.
   workspace tiles, activity chart and recent runs above it are still your own
   rows only. Widening those means moving each to a server function with the
   same authorisation, which is worth doing and is not done.
-- **The BI builder pane is still 2,090 lines**, down from 2,664. The AI tab,
-  the ontology editor and the chart-type picker are now their own components;
-  the **standard chart editor is not**, and that is a decision rather than an
-  omission. It is 751 lines using **84** of the parent's values, so extracting
-  it means an 84-prop component — a worse artifact than the block it replaces.
-  Making it separable needs a reducer or a config object for the field state,
-  which is a design change, not a split.
-- **364 lint warnings** (0 errors), tracked as debt. Previously recorded here
+- **The BI builder pane is still 1,754 lines**, down from 2,664, across seven
+  components. What is left that could come out is the **field-slot mapping** —
+  ~132 lines deciding which field pickers each chart type needs. It touches
+  **35** of the parent's values, which is roughly fifteen field/setter pairs
+  that any extraction has to take together, so making it separable means a
+  reducer or a config object for the field state: a design change, not a split.
+
+  This entry previously said the whole 751-line chart editor was staying put
+  because it needed 84 of the parent's values. **That measurement was wrong**,
+  and the way it was wrong is worth keeping. The chart editor is a chain of
+  `chartType === …` tests that are mutually exclusive, so 84 was a union over
+  branches that never render together, not the coupling of anything in it.
+  Measured per region, the conditional-formatting editor buried inside needed
+  six, and four more regions were in the same position. A union over exclusive
+  branches is not a coupling measure. The rule that survives is lines-per-prop:
+  everything extracted carries **≥ 9**, what remains carries **3.8**, and
+  `tests/unit/biBuilderSplit.test.ts` enforces the floor.
+
+- **365 lint warnings** (0 errors), tracked as debt. Previously recorded here
   as "~360 `no-explicit-any`", which was wrong — that is one of three rules and
   not the largest:
-  - `react-refresh/only-export-components` — 208. Cosmetic: it costs
+  - `react-refresh/only-export-components` — 210. Cosmetic: it costs
     HMR granularity in dev, nothing at runtime. Mostly files that export a
     lookup table alongside their components.
-  - `@typescript-eslint/no-explicit-any` — 140. The real type debt.
+  - `@typescript-eslint/no-explicit-any` — 139. The real type debt.
   - `react-hooks/exhaustive-deps` — 16. The ones worth a human: mostly a
     `load()` deliberately omitted so an effect runs once, which is usually
     right, but each needs checking individually rather than a blanket fix that

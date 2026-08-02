@@ -111,18 +111,33 @@ cut numbered releases; see [ROADMAP.md](./ROADMAP.md).
 
 ### Internal
 
-- **Split the BI builder pane**, 2,664 lines → 2,090. The AI analyst tab, the
-  ontology editor and the chart-type picker are now their own components. Which
-  regions to extract was decided by **measuring how many of the parent's values
-  each one uses**, not by line count: the standard chart editor is the largest
-  block but needs 84 of them, so it stays — an 84-prop component is harder to
-  follow than the block it replaces.
+- **Split the BI builder pane**, 2,664 lines → 1,754, across seven components:
+  the AI analyst tab, the ontology editor, the chart-type picker, the table
+  multi-select, the SQL editor, the matrix conditional-formatting editor, and
+  the three chart option editors (drill hierarchy, time intelligence, reference
+  line). Which regions to extract was decided by **measuring how many of the
+  parent's values each one uses**, not by line count.
+
+  **The first measurement was wrong, and its shape is worth knowing.** Scanning
+  the whole 751-line chart editor gave 84 values and the conclusion "too coupled
+  to split". But that block is a chain of `chartType === …` tests that are
+  mutually exclusive, so 84 was a union over branches that never render
+  together — not the coupling of anything in it. Measured per region, the
+  conditional-formatting editor buried inside needed **six** of the parent's
+  values for 160 lines, the best ratio in the file. A union over exclusive
+  branches is not a coupling measure.
+
+  What remains un-extracted is the field-slot mapping: ~132 lines against 35
+  values, which really are fifteen-odd field/setter pairs that have to move
+  together. The rule that survives is lines-per-prop — everything extracted
+  carries ≥ 9, what stays carries 3.8 — and a test enforces the floor so a
+  six-prop component cannot quietly become a thirty-prop one.
 
   No hook moved. Every extracted component owns no state and receives values
   and setters, so hook order and effect timing are untouched — that is what
-  makes it a refactor. A test enforces that, along with "nothing was duplicated
-  on the way out": moving a constant but leaving the original behind gives two
-  definitions that agree by coincidence.
+  makes it a refactor. The JSX was copied by script and verified verbatim
+  against the original after both sides were run through the same formatter,
+  since a raw diff flags prettier's re-indentation and hides nothing.
 
 ### Security & governance
 
