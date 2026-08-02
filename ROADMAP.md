@@ -91,6 +91,14 @@ Stated because you will find them anyway.
   everything extracted carries **≥ 9**, what remains carries **3.8**, and
   `tests/unit/biBuilderSplit.test.ts` enforces the floor.
 
+- **There is no React error boundary anywhere in the app.** No
+  `componentDidCatch`, no `getDerivedStateFromError`, no router `errorElement`.
+  A throw inside any widget renderer therefore blanks the whole page rather
+  than the widget — and the same renderer serves the **published share page and
+  the embed**, so one bad stored spec takes a dashboard down for everyone
+  holding the link. The ontology renderer is now guarded specifically, but that
+  is one renderer; a boundary per widget is the general fix and is a design
+  change rather than a bug fix.
 - **44% of the data/BI library has no tests, and has not been audited.** Being
   specific rather than reassuring, because two audit passes over the parts that
   _were_ checked turned up four real bugs — three of them silent — so the
