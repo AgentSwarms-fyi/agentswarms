@@ -1167,24 +1167,43 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
           className="border-b border-slate-200 bg-slate-50 dark:border-border dark:bg-muted/40 flex flex-col"
           style={{ height: "45%" }}
         >
-          <div className="px-4 py-2.5 border-b border-slate-200 bg-white dark:border-border dark:bg-card flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="h-6 w-6 rounded-md bg-primary/10 border border-primary/20 flex items-center justify-center">
+          {/*
+            WRAPS RATHER THAN OVERFLOWING. A flex item defaults to
+            `min-width: auto`, so neither group below would shrink and this row
+            spilled past the editor column — 413px of toolbar in a 310px column
+            at a 1238px viewport. `overflow: visible` let it paint underneath
+            the AI panel, which sits later in the DOM and so painted on top:
+            RUN QUERY, the primary action of the workbench, was unclickable at
+            any viewport under about 1340px. That includes 1366x768.
+            `flex-wrap` lets the controls drop to a second line, `min-w-0` lets
+            the dataset badge truncate, and `shrink-0` keeps the buttons intact.
+          */}
+          <div className="px-4 py-2.5 border-b border-slate-200 bg-white dark:border-border dark:bg-card flex flex-wrap items-center justify-between gap-y-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="h-6 w-6 shrink-0 rounded-md bg-primary/10 border border-primary/20 flex items-center justify-center">
                 <Wand2 className="h-3 w-3 text-primary" />
               </div>
-              <span className="text-sm font-semibold text-slate-800 dark:text-foreground">
+              <span className="text-sm font-semibold text-slate-800 dark:text-foreground shrink-0">
                 SQL Editor
               </span>
               {activeDataset && (
                 <Badge
                   variant="outline"
-                  className="text-[10px] h-5 border-slate-200 bg-slate-50 text-slate-600 dark:border-border dark:bg-muted dark:text-foreground font-mono"
+                  className="text-[10px] h-5 max-w-[12rem] truncate border-slate-200 bg-slate-50 text-slate-600 dark:border-border dark:bg-muted dark:text-foreground font-mono"
                 >
                   {activeDataset.name}
                 </Badge>
               )}
             </div>
-            <div className="flex items-center gap-1.5">
+            {/*
+              This group wraps INTERNALLY. `shrink-0` here was what kept it at
+              its full 413px inside a 310px column: wrapping the toolbar alone
+              was not enough, because a single flex item cannot be split, so the
+              group still overflowed as one piece. The source select was 192px
+              of that 413 — over half the column on its own — so it is now
+              width-capped and allowed to shrink.
+            */}
+            <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
               {warehouses.length > 0 && (
                 <Select
                   value={dataSource}
@@ -1193,7 +1212,7 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
                     if (v !== "local") void loadWarehouseSchema(v);
                   }}
                 >
-                  <SelectTrigger className="h-8 w-48 text-xs">
+                  <SelectTrigger className="h-8 w-48 min-w-0 max-w-full shrink text-xs">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>

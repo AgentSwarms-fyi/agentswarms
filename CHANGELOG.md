@@ -112,6 +112,18 @@ cut numbered releases; see [ROADMAP.md](./ROADMAP.md).
 
 ### Query engine
 
+- **Fixed: Run Query was unclickable on a 1366x768 laptop.** The SQL editor's
+  toolbar is a `justify-between` flex row, and a flex item defaults to
+  `min-width: auto` — so the right-hand group (source select 192px + Format 94px
+  - Run Query 115px = 413px) kept its full width inside an editor column that is
+    only 310px at a 1238px viewport. With `overflow: visible` it painted past the
+    column and **underneath the AI panel**, which sits later in the DOM and so
+    painted on top. The workbench's primary action could not be clicked at any
+    width below roughly 1340px. The toolbar now wraps, the badge truncates and the
+    source select shrinks; verified at 1100, 1238, 1366 and 1700. Typechecks, the
+    full unit suite and a production build all passed throughout — only a browser
+    was ever going to find this one.
+
 - **One engine everywhere: the browser now runs DuckDB-Wasm.** Local datasets
   used to execute in AlaSQL in the browser and DuckDB on the server, and the
   two disagreed. Measured across the 61 NL-to-SQL reference queries, AlaSQL
