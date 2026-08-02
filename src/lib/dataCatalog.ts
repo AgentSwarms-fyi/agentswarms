@@ -411,15 +411,10 @@ export async function generateAssetDocs(
 }
 
 /**
- * Client-side mirror of the crawler's PII column-name heuristic — used to
- * badge local tables, which are cataloged in the browser without a crawl.
+ * Re-exported from lib/piiHeuristic, which the crawler imports too. This used
+ * to be a second copy of the regex labelled "client-side mirror".
  */
-const PII_RE =
-  /(^|[_\s-])(email|e[-_]?mail|phone|mobile|ssn|social[-_]?security|passport|dob|birth[-_]?date|birthday|address|street|zip[-_]?code|postal[-_]?code|salary|income|iban|swift|credit[-_]?card|card[-_]?number|cvv|tax[-_]?id|national[-_]?id|driver[-_]?license|first[-_]?name|last[-_]?name|full[-_]?name|surname|gender|ip[-_]?address)([_\s-]|$)/i;
-
-export function isPiiColumnName(name: string): boolean {
-  return PII_RE.test(name);
-}
+export { isPiiColumnName } from "@/lib/piiHeuristic";
 
 // ── Display helpers ──────────────────────────────────────────────────────
 

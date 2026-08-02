@@ -163,6 +163,35 @@ cut numbered releases; see [ROADMAP.md](./ROADMAP.md).
 
 ### Security & governance
 
+- **Fixed: the notebook egress allow-list silently accepted entries it could
+  never enforce.** The kernel's outbound policy is a squid `dstdomain` ACL, and
+  the hostname test allowed digits in every label, so **IP addresses passed**:
+  `10.0.0.1` was written as the entry `.10.0.0.1`, which cannot match a request
+  to that address. An operator who allow-listed an internal service believed
+  egress to it worked; it never did. Fails closed, so it was not a hole — it
+  was a security control that quietly did not do what its own configuration
+  said. Labels with a leading or trailing hyphen had the same problem. The
+  module's header said it was written pure "so the rules can be unit-tested";
+  it had no tests, and now has 14.
+- **Fixed: `date_of_birth` was not flagged as personal data.** The catalog's
+  PII heuristic knew `dob`, `birth_date` and `birthday` but not `birth`, so the
+  most common spelling of one of the most sensitive columns there is went
+  unmarked. camelCase was invisible too — the terms anchor on `_`/`-`/space
+  boundaries and `emailAddress` has none, so a database using that convention
+  got no PII detection at all.
+- **The PII heuristic had two copies**, in `lib/dataCatalog` and
+  `utils/catalog/crawler.server`, the second labelled "client-side mirror of
+  the crawler's heuristic". They were identical and nothing would have said so
+  if they were not — the same arrangement that let the warehouse read-only
+  guard lose its mutation denylist. Now one module, `lib/piiHeuristic`, with a
+  test that fails if a second copy appears.
+- **Row-level security is now tested.** RLS is on for **all 96 tables**, and
+  the seven with no policy are service-role-only infrastructure (locks,
+  cursors, the notebook runtime signing key) where deny-all is correct. Six
+  tables carry a blanket `USING (true)` read policy; every one is restricted to
+  `authenticated`, and they are pinned as an allow-list so a new one has to be
+  justified rather than merged quietly.
+
 - **Fixed: the warehouse "read-only" guard allowed writes to a customer's
   production database.** `assertReadOnlySql` was a second, hand-rolled copy of
   the local guard that checked the leading verb and rejected stacked statements

@@ -99,12 +99,11 @@ export type CrawlStats = {
 
 // ── PII classification (column-name heuristics) ──────────────────────────
 
-const PII_RE =
-  /(^|[_\s-])(email|e[-_]?mail|phone|mobile|ssn|social[-_]?security|passport|dob|birth[-_]?date|birthday|address|street|zip[-_]?code|postal[-_]?code|salary|income|iban|swift|credit[-_]?card|card[-_]?number|cvv|tax[-_]?id|national[-_]?id|driver[-_]?license|first[-_]?name|last[-_]?name|full[-_]?name|surname|gender|ip[-_]?address)([_\s-]|$)/i;
+// The heuristic itself lives in lib/piiHeuristic so the catalog UI and this
+// crawler cannot drift apart; this file used to carry its own copy.
+import { isPiiColumnName } from "@/lib/piiHeuristic";
 
-export function isPiiColumn(name: string): boolean {
-  return PII_RE.test(name);
-}
+export const isPiiColumn = isPiiColumnName;
 
 function classify(columns: { name: string; type: string; sample?: string }[]): {
   columns: CatalogColumn[];

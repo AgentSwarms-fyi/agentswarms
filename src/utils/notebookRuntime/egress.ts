@@ -35,9 +35,26 @@ export function normalizeEgressHost(raw: string): string | null {
   // Wildcards are written as a leading dot in squid, not as "*".
   h = h.replace(/^\*\./, "");
 
-  // Reject anything that isn't a plausible hostname (spaces, wildcards left
-  // over, IP-ish entries we don't want silently widening the list).
-  if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(h)) return null;
+  // Reject anything that isn't a plausible hostname.
+  //
+  // The previous test was /^[a-z0-9-]+(\.[a-z0-9-]+)+$/, which admits digits in
+  // every label and so accepted IP ADDRESSES — `10.0.0.1` became the ACL entry
+  // `.10.0.0.1`. squid matches dstdomain by DNS suffix, so that entry can never
+  // match a request to 10.0.0.1 and sits there doing nothing. An operator who
+  // allow-lists an internal address then believes egress to it is permitted
+  // when it is not, which is exactly the "written into the ACL where it would
+  // be inert" outcome this function's contract promises to prevent. It also
+  // accepted `-lead.com` and `trail-.com`, which are not valid hostnames.
+  if (h.length > 253) return null;
+  const labels = h.split(".");
+  if (labels.length < 2) return null;
+  // RFC 1123: a label is alphanumeric, may contain inner hyphens, max 63.
+  const LABEL = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
+  if (!labels.every((l) => l.length > 0 && l.length <= 63 && LABEL.test(l))) return null;
+  // An all-numeric final label means this is an address, not a domain: no real
+  // TLD is numeric. This is what rejects IPv4. (IPv6 never reaches here — the
+  // colon-stripping above mangles it and the label test then fails.)
+  if (/^\d+$/.test(labels[labels.length - 1])) return null;
 
   return "." + h;
 }
