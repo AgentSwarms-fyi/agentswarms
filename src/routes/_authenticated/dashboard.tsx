@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { SpendPanel } from "@/components/dashboard/SpendPanel";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -640,6 +641,13 @@ function DashboardPage() {
             </Button>
           </div>
         )}
+
+        {/* ───── Spend & usage (scoped, server-backed) ─────
+            Separate from the tiles above because those read the caller's own
+            traces under RLS; this one can answer "my team" and "the whole
+            organisation", which requires the server to authorise the scope
+            first. */}
+        <SpendPanel />
 
         {/* ───── Activity + Model mix ───── */}
         <div className="grid gap-4 lg:grid-cols-3">

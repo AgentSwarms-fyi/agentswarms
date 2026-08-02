@@ -47,10 +47,6 @@ Nothing here is a commitment or a delivery date. Items move.
 
 - **Scheduled sync for warehouse-backed datasets**, matching what SaaS sources
   now have.
-- **Cost attribution by team**, so spend can be charged back rather than only
-  totalled per user.
-- **A time-range selector on the dashboard.** Figures are month-to-date with no
-  way to change the window.
 - **OAuth connectors.** Everything today uses a pasted credential — a service
   account, an API key, a private app token — because a redirect flow needs a
   public callback URL a self-hosted deployment may not have. Sources that
@@ -72,8 +68,11 @@ Stated because you will find them anyway.
   warehouse's `max_connections`. A cluster-wide budget needs shared state.
 - **No numbered releases.** The project ships from `main`. Versioned releases
   and an upgrade guide are wanted, not yet done.
-- **Single-tenant dashboard view.** No org/workspace switcher — the dashboard
-  shows what your account can see, with no scope selector.
+- **The scope switcher covers SPEND, not the whole dashboard.** The Spend &
+  usage panel can be read as you / your teams / the organisation, but the
+  workspace tiles, activity chart and recent runs above it are still your own
+  rows only. Widening those means moving each to a server function with the
+  same authorisation, which is worth doing and is not done.
 - **The BI builder pane is a 2,660-line component.** Its pure logic has been
   extracted and tested; the component split itself is outstanding.
 - **364 lint warnings** (0 errors), tracked as debt. Previously recorded here

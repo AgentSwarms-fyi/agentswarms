@@ -124,6 +124,21 @@ cut numbered releases; see [ROADMAP.md](./ROADMAP.md).
 
 ### Site
 
+- **Cost attribution by person and team**, with a scope switcher and a time
+  range, on the dashboard's new **Spend & usage** panel. Spend can be charged
+  back rather than only totalled.
+
+  Scope is **authorised server-side, and refused rather than downgraded**:
+  "My teams" resolves the groups the caller actually belongs to (never groups
+  they name), "Whole organisation" is superadmin-only, and the picker offers
+  only what that caller may use. Showing someone their own $12.40 labelled
+  "Whole organisation" would be a lie the number itself cannot reveal.
+
+  Team totals **overlap on purpose** — someone in two teams counts in both, so
+  the rows do not sum to the total — and the UI says so. Cost reads the same
+  column the budget caps do, so a figure here cannot disagree with a budget
+  alert. Windows are half-open and UTC.
+
 - Public [Security](/security) and [Licensing & support](/license) pages.
 - Dashboard surfaces failed syncs, unreachable connections, failed scheduled
   runs, and budget used this month.

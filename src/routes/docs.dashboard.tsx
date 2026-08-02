@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import {
+  Callout,
   DocLink,
   DocsHeader,
   FieldList,
@@ -8,6 +9,7 @@ import {
   Note,
   P,
   Steps,
+  Table,
 } from "@/components/docs/DocsShell";
 
 export const Route = createFileRoute("/docs/dashboard")({
@@ -100,6 +102,49 @@ function DashboardDoc() {
         Five tiles count what you own — <strong>Agents</strong>, <strong>Swarms</strong>,{" "}
         <strong>Chats</strong>, <strong>Tools</strong>, and <strong>Knowledge</strong> bases. Each
         tile links to the corresponding library page.
+      </P>
+
+      <H2 id="spend">Spend &amp; usage — by person, team or organisation</H2>
+      <P>
+        The <strong>Spend &amp; usage</strong> panel attributes model cost, so it can be charged
+        back rather than only totalled. Two pickers control it.
+      </P>
+      <Table
+        headers={["Scope", "Who can pick it", "What it covers"]}
+        rows={[
+          ["Just me", "Everyone", "Your own runs. The default."],
+          [
+            "My teams",
+            "Anyone in at least one IAM group",
+            "Everyone in the groups you belong to — resolved from your membership, not chosen by you.",
+          ],
+          [
+            "Whole organisation",
+            "Superadmins only",
+            "Every user. Also the only scope that shows people outside your teams.",
+          ],
+        ]}
+      />
+      <P>
+        The picker offers <strong>only the scopes you may actually use</strong>. If you are in no
+        team, &ldquo;My teams&rdquo; is absent rather than present-and-broken — and a scope you are
+        not entitled to is <em>refused</em>, never quietly answered with your own numbers under
+        someone else&rsquo;s label.
+      </P>
+      <P>
+        The time range covers the last 24 hours through year to date. Windows are half-open and in
+        UTC, so a run landing exactly on a boundary is counted once and the same dashboard reads the
+        same from any timezone.
+      </P>
+      <Callout kind="why" title="Team totals overlap on purpose">
+        Someone in two teams contributes their spend to <em>both</em>, so the team rows do not add
+        up to the total. That is the right answer to &ldquo;what did this team cost&rdquo; — the
+        alternative is splitting one person's spend arbitrarily between teams, which is a worse lie
+        than an overlap you can see.
+      </Callout>
+      <P>
+        Cost comes from the same column the <DocLink to="/docs/budgets">budget caps</DocLink> read,
+        so a figure here and a budget alert can never disagree about what someone spent.
       </P>
 
       <H2 id="activity">Activity and model mix</H2>
