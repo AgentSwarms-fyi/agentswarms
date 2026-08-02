@@ -23,21 +23,23 @@ Nothing here is a commitment or a delivery date. Items move.
   `listStreams` + `fetchRows` pair rather than new architecture. Next
   candidates by demand: Google Analytics, Zendesk, Jira, NetSuite, QuickBooks,
   Xero, Klaviyo, Intercom.
-- **NL-to-SQL accuracy — no valid number currently exists.** The last figure,
-  88.9% (40/45, strict, three runs), was measured against AlaSQL; DuckDB has
-  been the default since, and the engine moves the score on its own. Do not
-  quote it.
+- **NL-to-SQL accuracy: 75.4% (46/61) on DuckDB, v3, single pass.** This
+  replaces the old 88.9%, which was AlaSQL against a 45-question set with no
+  joins and no window functions — the engine's limits had become the
+  measurement's limits. v3 adds 7 join and 6 window/CTE questions, with floors
+  in `tests/unit/nl2sqlEval.test.ts` so it cannot narrow again.
 
-  The question set has been rebuilt to make the next measurement worth having.
-  It was 45 questions with **zero joins and zero window functions** — the
-  engine's limits had become the measurement's limits, so the score said
-  nothing about the operations a BI tool is most asked for. v3 is 61 questions
-  including 7 joins and 6 window/CTE questions, with floors in
-  `tests/unit/nl2sqlEval.test.ts` so it cannot narrow again.
+  **Provisional until someone runs `EVAL_REPEATS=3`** — both v3 passes so far
+  are single runs, and the 1.6-point gap between them is inside the noise.
 
-  What remains is the run itself: it needs a live app, an access token and some
-  model spend. Expect the number to move in both directions at once — AlaSQL's
-  reserved-word failures disappear, and harder questions arrive.
+  Known work, in rough order of value:
+  - `ratio` (1/3) and `window` (3/6) are the weak categories. Two failures are
+    the same shape: an aggregate computed per-row then averaged, instead of
+    summed then divided.
+  - Two failures are harness defects, not model ones — see
+    [TESTING.md](./docs/TESTING.md#two-failures-that-are-the-harnesss-fault-not-the-models).
+  - DuckDB is stricter than AlaSQL about comparing a text column to a date;
+    the prompt does not mention casting, and one question fails on it.
 
 ## Next
 

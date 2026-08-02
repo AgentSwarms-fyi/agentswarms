@@ -349,7 +349,19 @@ function describeSchema(
 }
 
 export function describeColumn(c: ColumnDef, meta?: ColumnMeta): string {
-  const parts = [c.name, c.type];
+  // THE TYPE IS PARENTHESISED SO IT CANNOT BE READ AS PART OF THE NAME.
+  //
+  // This used to be `${name} ${type}`, which renders a column named `season`
+  // of type `number` as `season number` — indistinguishable from a column
+  // genuinely called "season number". The model duly wrote "season number",
+  // and the engine's own error ("a name containing a space must be quoted")
+  // reinforced the misreading rather than correcting it.
+  //
+  // It accounted for FIVE of sixteen failures in the first DuckDB eval run,
+  // across four different tables — every one of them a question about a
+  // `season` column. Not an edge case: any single-word column name that reads
+  // as a noun modifier collides with its own type.
+  const parts = [`${c.name} (${c.type})`];
   // The values a low-cardinality string column actually holds. Without these
   // the model has to guess a literal — `= 'Yes'` against data holding `Y` —
   // and the query silently returns nothing. "Match literals exactly as they

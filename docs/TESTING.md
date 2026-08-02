@@ -180,20 +180,46 @@ twenty-four on `saas_sales`.
 By category: aggregate 6/6, grouping 9/9, date 4/4, lookup 3/3, ambiguity 1/1,
 ranking 7/10, filter 6/9, ratio 2/3.
 
-> ### ⚠️ Every number above is on AlaSQL. There is currently NO valid score.
->
-> All of them were measured while AlaSQL was the default engine. **DuckDB is
-> the default now**, and both the reference query and the model's query run on
-> whatever `LOCAL_ENGINE` selects — so the engine change alone moves the
-> number, in an unknown direction, with no prompt or model change. AlaSQL's
-> reserved-word failures disappear (which should help); questions it could not
-> express are now in the set (which should hurt).
->
-> The question set is also **v3 (61 questions)** rather than v2.1, so it is not
-> comparable on two axes at once.
->
-> Re-measuring needs a running app, a token and some model spend, which is why
-> it has not been done here. Until it is, do not quote 88.9% — quote nothing.
+> **Every number above is on AlaSQL and is superseded.** They were measured
+> while AlaSQL was the default engine, against a 45-question set. Both the
+> engine and the set have changed, so they are not comparable to what follows —
+> do not quote 88.9%.
+
+### Baseline on DuckDB (v3, 61 questions)
+
+| Date       | Model                                       | Set              | Execution accuracy       | Failure mix                        |
+| ---------- | ------------------------------------------- | ---------------- | ------------------------ | ---------------------------------- |
+| 2026-08-02 | `anthropic/claude-haiku-4.5` via OpenRouter | 61 questions, v3 | **73.8% (45/61)**, 1 run | wrong 9 · **error 6** · refused 1  |
+| 2026-08-02 | same, after the schema-format fix           | 61 questions, v3 | **75.4% (46/61)**, 1 run | wrong 12 · **error 1** · refused 2 |
+
+**Read the failure mix, not just the headline.** The score moved 1.6 points,
+which is inside single-pass noise. What actually changed is that **engine
+errors went 6 → 1**: five questions had been failing because the prompt
+rendered a column named `season` of type `number` as `season number`, which
+the model read as a two-word column name — and DuckDB's own error ("a name
+containing a space must be quoted") reinforced the misreading. Three of those
+became passes, two became wrong answers. Queries that could not run now run.
+
+Both rows are **single passes and therefore provisional** by this file's own
+rule. `EVAL_REPEATS=3` has not been done on v3.
+
+By category (run 2): grouping 9/9, lookup 3/3, filter 8/9, ranking 8/10,
+aggregate 5/6, join 5/7, date 3/4, window 3/6, ratio 1/3, ambiguity 1/4.
+
+#### Two failures that are the harness's fault, not the model's
+
+Recorded rather than quietly fixed, because both change what a score means:
+
+- **`bottom-n` is graded on column ORDER.** The model returned
+  `(2012, Hornets, 10.6)` where the reference has `(Hornets, 2012, 10.6)` —
+  the same answer transposed. The grader matches columns by position, on
+  purpose, because matching by name made a rename look like a wrong answer.
+  Position is the lesser evil but it is not free, and this is the cost.
+- **`ambiguous-biggest-security-problem` answered `T1566.001` where the
+  reference names `Spearphishing Attachment`.** Those are the same technique
+  in two columns. The question is under-specified, which is what the
+  `ambiguity` category is for — but it means that question currently measures
+  a convention rather than correctness.
 
 ### v3: what changed and why
 
