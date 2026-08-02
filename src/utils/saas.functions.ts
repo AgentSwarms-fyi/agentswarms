@@ -67,17 +67,36 @@ const ConfigSchema = z.discriminatedUnion("provider", [
  * cannot read another tenant's service-account key by passing an id — the same
  * reasoning as loadWarehouseConnection's ownerUserId.
  */
+/** Connection ids `userId` may use through an IAM grant. */
+async function grantedConnectionIds(userId: string): Promise<Set<string>> {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { resolveGrantedResourceIds } = await import("@/utils/iam.server");
+  // Service role, and resolved fresh — same reasoning as warehouse
+  // connections: a cached grant survives revocation, and reading the grant
+  // tables under the asker's RLS would let the asker influence the answer.
+  return resolveGrantedResourceIds(supabaseAdmin, userId, "saas_connection");
+}
+
 async function loadConnection(
   sb: ReturnType<typeof userClient>,
   userId: string,
   id: string,
-): Promise<{ name: string; config: SaasConfig; streams: string[] }> {
-  const { data: row, error } = await sb
-    .from("saas_connections")
-    .select("name, config, streams, is_active")
-    .eq("id", id)
-    .eq("user_id", userId)
-    .maybeSingle();
+  opts: { allowShared?: boolean } = {},
+): Promise<{ name: string; config: SaasConfig; streams: string[]; ownerUserId: string }> {
+  const granted = opts.allowShared ? await grantedConnectionIds(userId) : new Set<string>();
+  const isShared = granted.has(id);
+  // A shared row is not readable under the grantee's RLS — by design, since it
+  // holds the credential — so it is fetched with the service role once a grant
+  // has been established, never before.
+  const client = isShared
+    ? (await import("@/integrations/supabase/client.server")).supabaseAdmin
+    : sb;
+
+  let q = client.from("saas_connections").select("name, config, streams, is_active, user_id");
+  q = q.eq("id", id);
+  if (!isShared) q = q.eq("user_id", userId);
+
+  const { data: row, error } = await q.maybeSingle();
   if (error) throw new Error(error.message);
   if (!row) throw new Error("Data source not found");
   if (!row.is_active) throw new Error(`Data source "${row.name}" is disabled`);
@@ -90,23 +109,41 @@ async function loadConnection(
     name: row.name,
     config: await decryptJson<SaasConfig>(enc.ciphertext, enc.iv),
     streams: Array.isArray(row.streams) ? (row.streams as string[]) : [],
+    ownerUserId: row.user_id,
   };
 }
 
 export const listSaasConnections = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(async ({ data }): Promise<SaasConnectionSummary[]> => {
-    const { sb } = await requireUser(data.access_token);
+    const { sb, userId } = await requireUser(data.access_token);
     // `config` is deliberately NOT selected — a summary must not be able to
     // leak ciphertext, let alone anything decrypted from it.
+    const COLS =
+      "id, provider, name, is_active, last_sync_status, last_sync_error, last_synced_at, created_at";
     const { data: rows, error } = await sb
       .from("saas_connections")
-      .select(
-        "id, provider, name, is_active, last_sync_status, last_sync_error, last_synced_at, created_at",
-      )
+      .select(COLS)
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
-    return (rows ?? []) as SaasConnectionSummary[];
+    const owned = (rows ?? []) as SaasConnectionSummary[];
+
+    // Sources shared via IAM. Fetched with the service role because those rows
+    // are deliberately not readable under the grantee's RLS.
+    const grantedIds = [...(await grantedConnectionIds(userId))];
+    if (grantedIds.length === 0) return owned;
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const ownedIds = new Set(owned.map((c) => c.id));
+    const { data: sharedRows } = await supabaseAdmin
+      .from("saas_connections")
+      .select(COLS)
+      .in("id", grantedIds);
+    return [
+      ...owned,
+      ...((sharedRows ?? []) as SaasConnectionSummary[])
+        .filter((c) => !ownedIds.has(c.id))
+        .map((c) => ({ ...c, shared: true })),
+    ];
   });
 
 export const saveSaasConnection = createServerFn({ method: "POST" })
@@ -211,7 +248,8 @@ export const discoverSaasStreams = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }): Promise<SaasStream[]> => {
     const { sb, userId } = await requireUser(data.access_token);
-    const config = data.config ?? (await loadConnection(sb, userId, data.id!)).config;
+    const config =
+      data.config ?? (await loadConnection(sb, userId, data.id!, { allowShared: true })).config;
     return listSaasStreams(config);
   });
 
@@ -228,18 +266,25 @@ export const syncSaasConnection = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     const { sb, userId } = await requireUser(data.access_token);
-    const conn = await loadConnection(sb, userId, data.id);
+    const conn = await loadConnection(sb, userId, data.id, { allowShared: true });
     const streamIds = data.streams?.length ? data.streams : conn.streams;
     if (streamIds.length === 0) {
       throw new Error("No streams selected for this data source.");
     }
 
-    // The SAME routine the scheduler runs, including how it records the
-    // outcome — a manual sync and a scheduled one must not be able to disagree
-    // about what counts as success.
-    const result = await runConnectionSync(sb, {
+    // A SYNC ALWAYS RUNS AS THE CONNECTION'S OWNER, even when a grantee
+    // triggered it. The datasets this source maintains belong to the owner and
+    // already exist under their account; running as the caller would create a
+    // parallel, half-populated copy under the grantee instead of refreshing
+    // the real one — and would sync the owner's data into a second place.
+    //
+    // The service role is used for the same reason: a grantee cannot write to
+    // the owner's row or datasets under their own RLS.
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const isShared = conn.ownerUserId !== userId;
+    const result = await runConnectionSync(isShared ? supabaseAdmin : sb, {
       id: data.id,
-      userId,
+      userId: conn.ownerUserId,
       name: conn.name,
       config: conn.config,
       streamIds,
@@ -255,6 +300,10 @@ export const syncSaasConnection = createServerFn({ method: "POST" })
         synced: result.synced.map((s) => s.tableName),
         rows: result.synced.reduce((n, s) => n + s.rowCount, 0),
         failed: result.failed.length,
+        // Recorded because the actor and the account whose data moved differ
+        // on a shared source. An audit entry that named only the trigger would
+        // not answer "whose datasets changed".
+        ...(isShared ? { triggered_by_grantee: true, owner_user_id: conn.ownerUserId } : {}),
       },
     });
     return result;

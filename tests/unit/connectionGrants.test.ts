@@ -160,6 +160,51 @@ describe("grants are resolved in exactly one place", () => {
   });
 });
 
+describe("shared app sources", () => {
+  const saas = readFileSync("src/utils/saas.functions.ts", "utf8");
+
+  it("resolves grants with the service role, fresh", () => {
+    expect(saas).toMatch(/resolveGrantedResourceIds\(\s*supabaseAdmin\s*,/);
+    expect(saas).toContain('"saas_connection"');
+  });
+
+  it("only widens when the caller asked for shared access", () => {
+    // Save and delete must stay owner-only, so the widening is opt-in per
+    // call site rather than a property of the loader.
+    expect(saas).toContain("opts.allowShared");
+    expect(saas).toContain('if (!isShared) q = q.eq("user_id", userId)');
+  });
+
+  it("SYNCS AS THE OWNER, not as the grantee who triggered it", () => {
+    // The datasets this source maintains already exist under the owner.
+    // Running as the caller would build a parallel, half-populated copy under
+    // the grantee instead of refreshing the real one.
+    expect(saas).toContain("userId: conn.ownerUserId");
+  });
+
+  it("syncs a shared source with the service role, an owned one without", () => {
+    // Naming the owner is not enough on its own: under the GRANTEE's client
+    // the writes to the owner's row and datasets are refused by RLS, so a
+    // shared sync would fail rather than run as claimed. The owned case stays
+    // on the caller's client so RLS still guards the ordinary path.
+    expect(saas).toMatch(/runConnectionSync\(\s*isShared \? supabaseAdmin : sb\s*,/);
+  });
+
+  it("records in the audit trail when a grantee triggered it", () => {
+    // Actor and affected account differ on a shared source; an entry naming
+    // only the trigger would not answer "whose datasets changed".
+    expect(saas).toContain("triggered_by_grantee");
+  });
+
+  it("never selects the credential when listing", () => {
+    const list = saas.slice(
+      saas.indexOf("export const listSaasConnections"),
+      saas.indexOf("export const saveSaasConnection"),
+    );
+    expect(list).not.toMatch(/select\([^)]*\bconfig\b/s);
+  });
+});
+
 describe("the connection list", () => {
   const fns = readFileSync("src/utils/warehouse.functions.ts", "utf8");
 

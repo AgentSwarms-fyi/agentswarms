@@ -414,7 +414,16 @@ export function SaasSourcesTab() {
               <TableBody>
                 {connections.map((c) => (
                   <TableRow key={c.id}>
-                    <TableCell className="font-medium">{c.name}</TableCell>
+                    <TableCell className="font-medium">
+                      <span className="flex items-center gap-2">
+                        {c.name}
+                        {c.shared && (
+                          <Badge variant="outline" className="text-[10px] font-normal">
+                            Shared
+                          </Badge>
+                        )}
+                      </span>
+                    </TableCell>
                     <TableCell className="text-muted-foreground">
                       {SAAS_LABELS[c.provider]}
                     </TableCell>
@@ -448,9 +457,15 @@ export function SaasSourcesTab() {
                           <RefreshCw className="h-3.5 w-3.5" />
                         )}
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={() => setConfirmRemove(c)}>
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
+                      {/* Shared sources belong to someone else. The server
+                          refuses regardless; a button that always errors is
+                          its own bug. Sync stays available — noticing stale
+                          data and re-running it is the point of sharing. */}
+                      {!c.shared && (
+                        <Button size="sm" variant="ghost" onClick={() => setConfirmRemove(c)}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

@@ -392,6 +392,36 @@ function DataPage() {
         ]}
       />
 
+      {/* ── SHARING ── */}
+      <H2 id="sharing">Sharing a connection with your team</H2>
+      <P>
+        A connection belongs to whoever created it. Rather than every analyst creating their own —
+        several copies of one credential, each rotated separately, each a place it can leak — a
+        superadmin can share it under <strong>Admin → IAM → Access</strong>, to a user or a group,
+        as either a <strong>Database / warehouse connection</strong> or an{" "}
+        <strong>App source</strong>.
+      </P>
+      <P>
+        <strong>A shared connection runs as its owner.</strong> The credential <em>is</em> the
+        connection — a grantee has none of their own — so the owner's credential is decrypted
+        server-side and the query runs against the owner's warehouse. A grantee can query it, test
+        it and see its health; they cannot see the credential, edit it or delete it.{" "}
+        <C>{`{{secret:NAME}}`}</C> references resolve as the owner, never against the grantee's own
+        vault.
+      </P>
+      <Callout kind="warn" title="Revocation takes effect on the next use">
+        Grants are resolved fresh on every call, including scheduled refreshes, so nothing keeps
+        working off a cached grant. Equally, a shared connection is a live dependency: revoking it
+        stops the grantee's dashboards refreshing.
+      </Callout>
+      <P>
+        A shared <strong>app source</strong> syncs as its owner, into the owner's datasets — so a
+        teammate who notices stale data can re-run it and refresh the real datasets rather than
+        building a parallel copy under their own account. The audit entry records both who triggered
+        it and whose data moved. Sharing the source lets someone keep it healthy; to let them read
+        the resulting data, share those datasets too.
+      </P>
+
       {/* ── APPS ── */}
       <H2 id="apps">Apps — SaaS sources</H2>
       <P>

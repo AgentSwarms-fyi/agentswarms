@@ -114,7 +114,13 @@ describe("manual and scheduled syncs cannot disagree", () => {
   it("both go through runConnectionSync", () => {
     // Two copies of "what counts as success" is how a source shows green in
     // the UI and red in the scheduler, or the reverse.
-    expect(functionsSrc).toContain("runConnectionSync(sb, {");
+    //
+    // Matched as a CALL rather than by exact argument text: the manual path now
+    // CHOOSES its client, because a shared source syncs with the service role
+    // as its owner. `[^{;]*` cannot cross into the object literal, so this
+    // still fails if the call is removed or inlined. Which client it picks is
+    // connectionGrants' business, not this file's.
+    expect(functionsSrc).toMatch(/runConnectionSync\([^{;]*,\s*\{/);
     expect(scheduleSrc).toContain("runConnectionSync(supabaseAdmin, {");
   });
 

@@ -43,6 +43,52 @@ the owning user, so you can rotate a password in one place and share a
 connection template without exposing the credential. Superadmins can share
 secrets with users/groups via **Admin → IAM**.
 
+## Sharing a connection with your team
+
+A connection is owned by whoever created it. Rather than every analyst creating
+their own — N copies of one credential, each rotated separately, each a place it
+can leak — a superadmin can share it under **Admin → IAM → Access**:
+
+- **🏢 Database / warehouse connection**
+- **🔌 App source** (Sheets, Stripe, CRM…)
+
+Grant to a user or a group, like any other resource.
+
+### What a grantee gets, and what they do not
+
+**A SHARED CONNECTION RUNS AS ITS OWNER.** The credential _is_ the connection —
+a grantee has none of their own — so the owner's credential is decrypted
+server-side and the query runs against the owner's warehouse.
+
+| Grantee can                                                             | Grantee cannot                  |
+| ----------------------------------------------------------------------- | ------------------------------- |
+| Query it from the workbench, BI, prep flows, agents and semantic models | See the credential, in any form |
+| Test it, and see its health                                             | Edit or delete it               |
+| Trigger a sync on a shared app source                                   | Change what it points at        |
+
+The grantee's rows are never readable directly: unlike other shared resources,
+connection rows carry the encrypted credential, so there is deliberately **no
+row-level policy** granting access to them. The grant is resolved server-side
+and the row loaded with the service role, so a grantee can _use_ a connection
+without ever receiving it.
+
+`{{secret:NAME}}` references resolve as the **owner**, not the caller — the
+grantee's own vault is never consulted.
+
+**Revocation takes effect on the next use.** Grants are resolved fresh on every
+call, including scheduled refreshes, so nothing keeps working off a cached
+grant.
+
+### App sources: who the sync belongs to
+
+A shared app source **syncs as its owner, into the owner's datasets.** If a
+grantee notices the data is stale and re-runs it, it refreshes the real
+datasets rather than building a parallel copy under their own account. The
+audit entry records both the person who triggered it and whose data moved.
+
+That means sharing the _source_ lets a teammate keep it healthy; to let them
+_read_ the resulting data, share those datasets too (**data table** grants).
+
 ## Runtime support
 
 The connectors split by how they reach the source:

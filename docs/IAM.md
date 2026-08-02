@@ -17,8 +17,13 @@ manage everything else:
   exact model id; the allowed set is the union of all applicable rules).
   Enforced server-side on every LLM call and reflected in the model pickers.
 - **Shares** — grant users or groups **read-only** access to any knowledge
-  base, SQL data table, secret, or BI dashboard; recipients' agents can
-  search/query them but never modify them. Dataset and dashboard grants also
+  base, SQL data table, secret, BI dashboard, semantic model, catalog source,
+  LLM key/credential, **database & warehouse connection** or **app source**;
+  recipients' agents can search/query them but never modify them. A shared
+  **connection** runs as its OWNER: the owner's credential is decrypted
+  server-side and the grantee's queries run against the owner's warehouse, so
+  a grantee gains the use of a connection without ever receiving its
+  credential — see [Data sources](./DATA_SOURCES.md#sharing-a-connection-with-your-team). Dataset and dashboard grants also
   take a **row filter** (only rows whose column matches the listed values) and
   a **column mask** (named columns are removed entirely, not blanked). Both
   are enforced **inside the database** — a grantee cannot read a shared

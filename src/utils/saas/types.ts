@@ -96,6 +96,14 @@ export type SaasConnectionSummary = {
   last_sync_error: string | null;
   last_synced_at: string | null;
   created_at: string;
+  /**
+   * Reached through an IAM grant rather than owned.
+   *
+   * A grantee may see the source's health and trigger a sync; the sync runs as
+   * the OWNER, into the owner's datasets. They cannot edit or delete it, and
+   * never see the credential.
+   */
+  shared?: boolean;
 };
 
 export type SaasSyncResult = {
