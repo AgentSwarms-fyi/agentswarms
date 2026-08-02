@@ -209,15 +209,21 @@ cp .env.example .env
 Open `.env` and fill in the values you collected in step 3.1 — every field
 is documented inline in the file. In short:
 
-- `SUPABASE_PROJECT_ID`, `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`,
-  `SUPABASE_SERVICE_ROLE_KEY` — from step 3.1. These are read by
-  server-side code (API routes, server functions).
-- `VITE_SUPABASE_PROJECT_ID`, `VITE_SUPABASE_URL`,
-  `VITE_SUPABASE_PUBLISHABLE_KEY` — **the same three public values again**,
-  just `VITE_`-prefixed. Vite only inlines `VITE_`-prefixed vars into the
-  browser bundle, so the client-side Supabase client needs its own copy.
-  (Never put the service role key behind a `VITE_` prefix — that would ship
-  a database-bypassing secret to every visitor's browser.)
+- `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SERVICE_ROLE_KEY` —
+  from step 3.1. These are read by server-side code (API routes, server
+  functions).
+- `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY` — **the same two
+  public values again**, just `VITE_`-prefixed. Vite only inlines
+  `VITE_`-prefixed vars into the browser bundle, so the client-side Supabase
+  client needs its own copy. (Never put the service role key behind a
+  `VITE_` prefix — that would ship a database-bypassing secret to every
+  visitor's browser.)
+
+  > The **Project ID** from step 3.1 is not an environment variable. It is
+  > passed straight to the CLI as `supabase link --project-ref <id>` in step
+  > 3.3, which records it under `supabase/.temp/`. Nothing at runtime reads
+  > it.
+
 - `OPENROUTER_API_KEY` — optional but recommended; makes the app usable
   with zero per-user setup. Get one at
   [openrouter.ai/keys](https://openrouter.ai/keys).

@@ -223,7 +223,13 @@ New migration `supabase/migrations/<ts>_notebook_runtime.sql`:
 - Optionally extend IAM: a `notebook_runtime` capability grantable per user/group (reuse the model-rules/grants machinery) so admins can gate _who_ may start server kernels.
 - Model calls continue to use `execution_traces` (no change).
 
-Operator defaults also settable via env (`NOTEBOOK_RUNTIME_BACKEND`, `NOTEBOOK_RUNTIME_IMAGE`, `NOTEBOOK_EGRESS_ALLOWLIST`, …); the settings row overrides env when present.
+Some operator defaults are also settable via env: `NOTEBOOK_RUNTIME_ENABLED`, `NOTEBOOK_RUNTIME_BACKEND` and `NOTEBOOK_RUNTIME_IMAGE`.
+
+**Env takes precedence over the settings row, not the other way round** (`process.env.NOTEBOOK_RUNTIME_BACKEND || data?.backend || "docker"`). An operator who sets the env var and then edits the admin UI will see the edit ignored, so pick one place per value.
+
+Everything else on `notebook_runtime_settings` — `egress_allowlist`, the session and resource limits — is **database-only** and has no env override; set those in **Admin → Notebook runtime**. In particular there is no `NOTEBOOK_EGRESS_ALLOWLIST` env var. (`NOTEBOOK_EGRESS_ALLOWLIST_PATH` is a different thing: the path the allowlist is written to _inside_ the egress sidecar.)
+
+`cell_timeout_seconds` is the one exception, and it is easy to trip over: the app reads it from the settings row, but the **websocket gateway enforces it from its own `NOTEBOOK_CELL_TIMEOUT_SECONDS`** (`services/notebook-gateway`, default `120`). They are separate values — change one in the admin UI and the gateway keeps using its own until you set the env var too.
 
 ---
 

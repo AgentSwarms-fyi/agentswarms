@@ -116,8 +116,6 @@ function SelfHostingPage() {
           ],
           [<C key="d">VITE_SUPABASE_URL</C>, "Same URL, inlined into the client bundle"],
           [<C key="e">VITE_SUPABASE_PUBLISHABLE_KEY</C>, "Same anon key, client side"],
-          [<C key="f">SUPABASE_PROJECT_ID</C>, "Project ref, used by the CLI for migrations"],
-          [<C key="g">VITE_SUPABASE_PROJECT_ID</C>, "Same, client side"],
           [<C key="h">ADMIN_EMAIL</C>, "Bootstrap superadmin account"],
           [<C key="i">VITE_ADMIN_EMAIL</C>, "Same address, for client-side admin affordances"],
           [
@@ -154,6 +152,56 @@ function SelfHostingPage() {
           ],
         ]}
       />
+
+      <H3 id="env-connections">Data connections</H3>
+      <P>
+        None of these are required — the defaults are the recommended settings. They exist for
+        tuning against a particular warehouse or network.
+      </P>
+      <Table
+        headers={["Variable", "Default", "Purpose"]}
+        rows={[
+          [<C key="a">WAREHOUSE_MAX_ROWS</C>, "1000", "Rows returned when a caller asks for none"],
+          [<C key="b">WAREHOUSE_ABS_MAX_ROWS</C>, "5000", "Hard ceiling no caller can exceed"],
+          [<C key="c">WAREHOUSE_QUERY_TIMEOUT_MS</C>, "60000", "Wall-clock budget for one query"],
+          [<C key="d">WAREHOUSE_MAX_CONCURRENT</C>, "8", "Queries in flight, per instance"],
+          [<C key="e">WAREHOUSE_MAX_CONCURRENT_PER_USER</C>, "3", "Per tenant"],
+          [
+            <C key="f">WAREHOUSE_POOL</C>,
+            "on",
+            <>
+              Connection pooling for PostgreSQL/MySQL-family sources. Set <C key="off">off</C> for a
+              connection per query.
+            </>,
+          ],
+          [
+            <C key="g">WAREHOUSE_POOL_MAX</C>,
+            "4",
+            "Sockets per credential set — see the sizing note below",
+          ],
+          [<C key="h">WAREHOUSE_POOL_MAX_KEYS</C>, "64", "Distinct credential sets held at once"],
+          [
+            <C key="i">HTTPS_PROXY</C>,
+            "—",
+            "Forward proxy for all outbound connector traffic. NO_PROXY takes a bypass list.",
+          ],
+          [<C key="j">CONNECTOR_MAX_RETRIES</C>, "2", "Retries on 429/503 and transport errors"],
+          [
+            <C key="k">CONNECTOR_RETRY_500</C>,
+            "off",
+            "Also retry 500s — only for providers that use 500 for throttling",
+          ],
+          [<C key="l">CONNECTION_HEALTH_HOURS</C>, "12", "Credential re-validation cadence"],
+          [<C key="m">CREDENTIAL_MAX_AGE_DAYS</C>, "90", "When a credential is badged as old"],
+        ]}
+      />
+      <Callout kind="warn" title="Size the pool against your database, not this page">
+        Sockets held is roughly <C>WAREHOUSE_POOL_MAX</C> &times; <C>WAREHOUSE_POOL_MAX_KEYS</C>{" "}
+        &times; your replica count, and each replica keeps its own pools. Check that product against
+        the database&rsquo;s <C>max_connections</C> before raising either number. Pooling is worth
+        having — it took a query from 30.7ms to 2.9ms in measurement — but an oversized pool
+        exhausts a warehouse&rsquo;s connection limit instead.
+      </Callout>
 
       <H3 id="env-email">Email delivery</H3>
       <P>

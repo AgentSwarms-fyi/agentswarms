@@ -170,7 +170,6 @@ its runtime secrets (service-role key, provider keys, `PROVIDER_CREDS_SECRET`,
 ```bash
 docker build \
   --build-arg VITE_SUPABASE_URL="$VITE_SUPABASE_URL" \
-  --build-arg VITE_SUPABASE_PROJECT_ID="$VITE_SUPABASE_PROJECT_ID" \
   --build-arg VITE_SUPABASE_PUBLISHABLE_KEY="$VITE_SUPABASE_PUBLISHABLE_KEY" \
   --build-arg VITE_ADMIN_EMAIL="$VITE_ADMIN_EMAIL" \
   -t <registry>/agentswarms:latest .
@@ -356,6 +355,83 @@ these are the knobs that decide what your warehouse is asked to do:
 These are **per process**, like the run limiter: behind a load balancer each
 instance enforces its own budget, so multiply by your replica count when sizing
 against a warehouse's connection limits.
+
+### Connection pooling
+
+PostgreSQL- and MySQL-family connections are **pooled**. Measured against a
+local Postgres, opening a connection cost 24.9ms of a 27.1ms `SELECT 1` — 92%
+of the query — and that is the best case, a loopback socket with no TLS. A
+managed database over the internet with `ssl=require` pays a TCP handshake, a
+TLS handshake and SCRAM auth before the first byte of SQL. End to end the
+driver went from **30.7ms to 2.9ms per query**. Reproduce it on your own
+database with `npx vite-node scripts/bench-pool.ts`.
+
+- `WAREHOUSE_POOL` (default on) — set `off` to go back to a connection per
+  query.
+- `WAREHOUSE_POOL_MAX` (default `4`) — sockets per distinct credential set.
+  **Multiply by `WAREHOUSE_POOL_MAX_KEYS` and by your replica count** when
+  sizing against a database's `max_connections`.
+- `WAREHOUSE_POOL_IDLE_MS` (default `30000`) — before an unused socket closes.
+- `WAREHOUSE_POOL_TTL_MS` (default `300000`) — before a whole unused pool is
+  dropped, releasing its cached credentials.
+- `WAREHOUSE_POOL_MAX_KEYS` (default `64`) — distinct credential sets held;
+  least-recently-used is evicted past this.
+
+Pools are keyed by a hash of **every** connection parameter including the
+password, so two tenants on the same database never share a session and
+rotating a password builds a fresh pool rather than reusing one authenticated
+with the old secret. HTTP-based warehouses (Snowflake, BigQuery, Databricks…)
+need none of this — `fetch` keeps sockets alive underneath.
+
+### Outbound HTTP: proxies and retries
+
+Every warehouse HTTP driver and app-source connector goes through one client.
+
+**Corporate proxy.** Many enterprises have no direct egress; if that is you,
+set the conventional variables and the connectors will use them:
+
+- `HTTPS_PROXY` / `HTTP_PROXY` (or `ALL_PROXY`) — lower-case spellings also
+  accepted.
+- `NO_PROXY` — comma-separated bypass list. `*` bypasses everything;
+  `internal.corp` matches that host and its subdomains; `db.corp:5432` matches
+  only that port.
+
+Without this the product cannot reach Snowflake or Stripe from inside such a
+network, and the failure looks like a timeout rather than a missing setting.
+
+**Retries.** Transient failures (`408`, `429`, `502`, `503`, `504`, and
+transport errors) are retried with exponential backoff and full jitter,
+honouring `Retry-After` when the server sends one.
+
+- `CONNECTOR_MAX_RETRIES` (default `2`, max `5`; `0` disables).
+- `CONNECTOR_RETRY_BASE_MS` (default `400`) and `CONNECTOR_RETRY_MAX_MS`
+  (default `8000`) — the backoff curve and the cap on any single wait,
+  including a server-supplied `Retry-After`.
+- `CONNECTOR_RETRY_500` (default off) — `500` is **not** retried by default
+  because it usually means the query reached the backend and failed there, so
+  a retry pays for the same scan twice. Enable it for a provider that returns
+  `500` for throttling.
+
+A retried request is always a read — every driver enforces read-only SQL — so
+a duplicate cannot corrupt anything. The cost of a double-send is money, which
+is why the default is deliberately low.
+
+### Data connection health and credential age
+
+The scheduled pass also re-validates **data connections** (warehouses and app
+sources), not just Integration Hub keys, using the product's own probes: a
+`SELECT 1` through the real driver, or the same stream listing the "test"
+button makes. A warehouse password expiring on the customer's rotation policy
+otherwise surfaces as a dashboard erroring in front of someone.
+
+- `CONNECTION_HEALTH_HOURS` (default `12`; `0` disables).
+- `CREDENTIAL_MAX_AGE_DAYS` (default `90`) — age at which a credential is
+  badged as old in the Integrations UI.
+
+Both are advisory. Nothing expires, nothing is auto-disabled, and a failing
+check notifies **once per transition** rather than on every pass. Credential
+age is measured from when the secret was last entered — re-saving a connection
+resets it; a health check does not.
 
 **Dataset uploads** are parsed on the server. CSV, TSV and NDJSON are streamed
 and written in batches, so peak memory is one batch rather than one file; JSON

@@ -136,18 +136,31 @@ are flattened into columns; arrays are stored as JSON with a count alongside.
 
 ## Providers
 
-| Provider                       | Key fields                                                                                         | Notes                                                                                                                            |
-| ------------------------------ | -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| **PostgreSQL**                 | host, port (5432), database, username, password, SSL                                               | Any Postgres — Supabase, RDS, Neon, self-hosted. `ssl=require` for managed hosts.                                                |
-| **MySQL / MariaDB**            | host, port (3306), database, username, password, SSL                                               | RDS, PlanetScale, self-hosted.                                                                                                   |
-| **Oracle**                     | ORDS base URL, database user, password, schema alias (optional)                                    | Autonomous Database or any ORDS-enabled Oracle — see below. HTTPS only; no wallet or client driver needed.                       |
-| **Amazon Redshift**            | region, access key, secret key, database, workgroup **or** cluster+DB user                         | Uses the Redshift Data API (serverless or provisioned). IAM needs `redshift-data:*` (+ `GetClusterCredentials` for provisioned). |
-| **Snowflake**                  | account, programmatic access token, warehouse, database, schema, role                              | SQL API v2 with a PAT (Snowsight → profile → Programmatic access tokens).                                                        |
-| **Databricks SQL**             | workspace URL, SQL warehouse ID, PAT, catalog, schema                                              | Statement Execution API.                                                                                                         |
-| **Google BigQuery**            | project ID, service-account JSON, location, dataset                                                | Needs BigQuery Job User + Data Viewer roles.                                                                                     |
-| **Azure Synapse**              | server, database, username, password                                                               | Dedicated SQL pool over TDS — **Node deployment only**.                                                                          |
-| **Trino / Starburst / Presto** | host, port, user, password **or** JWT/OAuth2, catalog, schema, TLS                                 | The usual way to query a raw Iceberg / Delta / Hive lakehouse.                                                                   |
-| **Amazon Athena**              | region, access key, secret key, (session token), database, workgroup, results S3 location, catalog | Serverless SQL over S3/Glue. IAM needs Athena + Glue read + `s3:GetObject/PutObject` on the results location.                    |
+| Provider                             | Key fields                                                                                         | Notes                                                                                                                                                                    |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **PostgreSQL**                       | host, port (5432), database, username, password, SSL                                               | Any Postgres — Supabase, RDS, Neon, self-hosted. `ssl=require` for managed hosts.                                                                                        |
+| **MySQL / MariaDB**                  | host, port (3306), database, username, password, SSL                                               | RDS, PlanetScale, self-hosted.                                                                                                                                           |
+| **Oracle**                           | ORDS base URL, database user, password, schema alias (optional)                                    | Autonomous Database or any ORDS-enabled Oracle — see below. HTTPS only; no wallet or client driver needed.                                                               |
+| **Amazon Redshift**                  | region, access key, secret key, database, workgroup **or** cluster+DB user                         | Uses the Redshift Data API (serverless or provisioned). IAM needs `redshift-data:*` (+ `GetClusterCredentials` for provisioned).                                         |
+| **Snowflake**                        | account, programmatic access token, warehouse, database, schema, role                              | SQL API v2 with a PAT (Snowsight → profile → Programmatic access tokens).                                                                                                |
+| **Databricks SQL**                   | workspace URL, SQL warehouse ID, PAT, catalog, schema                                              | Statement Execution API.                                                                                                                                                 |
+| **Google BigQuery**                  | project ID, service-account JSON, location, dataset                                                | Needs BigQuery Job User + Data Viewer roles.                                                                                                                             |
+| **Azure Synapse**                    | server, database, username, password                                                               | Dedicated SQL pool over TDS — **Node deployment only**.                                                                                                                  |
+| **Trino / Starburst / Presto**       | host, port, user, password **or** JWT/OAuth2, catalog, schema, TLS                                 | The usual way to query a raw Iceberg / Delta / Hive lakehouse.                                                                                                           |
+| **Amazon Athena**                    | region, access key, secret key, (session token), database, workgroup, results S3 location, catalog | Serverless SQL over S3/Glue. IAM needs Athena + Glue read + `s3:GetObject/PutObject` on the results location.                                                            |
+| **Microsoft SQL Server / Azure SQL** | host, port (1433), database, username, password, `instance_name`, `trust_server_certificate`       | TDS — **Node deployment only**. A named instance is mutually exclusive with a port. `trust_server_certificate` for on-prem self-signed certs; never needed on Azure SQL. |
+| **ClickHouse**                       | url (HTTP interface), username, password, database                                                 | e.g. `https://abc.clickhouse.cloud:8443`. Works on any deployment.                                                                                                       |
+
+The remaining ten take **exactly** the PostgreSQL or MySQL fields above,
+because that is the protocol they speak:
+
+| Same fields as | Providers                                                  |
+| -------------- | ---------------------------------------------------------- |
+| **PostgreSQL** | CockroachDB, TimescaleDB, AlloyDB, Greenplum, YugabyteDB   |
+| **MySQL**      | MariaDB, SingleStore, StarRocks, Apache Doris, PlanetScale |
+
+Each is still a first-class entry with its own label, default port and docs —
+pick the engine you actually run.
 
 ### Oracle (Autonomous Database / ORDS)
 
@@ -203,6 +216,37 @@ counts, flag likely-PII columns, and trace which dashboards/prep flows/metrics
 consume each table. Crawls can run on a daily/weekly schedule with
 schema-drift notifications. Object-storage and Iceberg credentials are
 encrypted with the same `PROVIDER_CREDS_SECRET` key.
+
+## Staying connected
+
+Three things run underneath every connection. All are tuned by the operator —
+see [deployment](./DEPLOYMENT.md#connection-pooling).
+
+- **Health checks.** Every connection is re-tested on a schedule (default 12
+  hours) with the same probe the **Test** button uses — a `SELECT 1` through
+  the real driver, or the same stream listing an app source's test makes. A
+  warehouse password expiring on your rotation policy is found here rather
+  than by a dashboard erroring in front of a customer. A failure shows a
+  badge, notifies **once** on the transition, and writes an audit event.
+  Nothing is ever auto-disabled.
+- **Credential age.** Measured from when the secret was last entered, so
+  re-saving a connection resets it and a health check does not. Past the
+  policy age (default 90 days) the connection is badged in the UI. Advisory
+  only — nothing expires.
+- **Retries.** Rate limits and brief provider outages (`429`, `503`, and
+  friends) are retried with backoff and jitter rather than failed. Every
+  retried request is a read, so nothing can be double-written.
+
+Connections to PostgreSQL- and MySQL-family databases are **pooled**, keyed by
+a hash of every credential, so two tenants never share a session and rotating
+a password builds a fresh pool. This is worth real time: opening a connection
+was 92% of a `SELECT 1` against a local Postgres, and pooling took the driver
+from 30.7ms to 2.9ms per query. Reproduce it on your own database with
+`npx vite-node scripts/bench-pool.ts`.
+
+If your network has no direct egress, set `HTTPS_PROXY` / `NO_PROXY` and every
+connector follows them — without it, reaching a cloud warehouse fails as a
+connection timeout rather than anything that names the cause.
 
 ## Security notes
 

@@ -21,7 +21,7 @@ export const Route = createFileRoute("/docs/data")({
       {
         name: "description",
         content:
-          "Upload tables and connect warehouses — the exact configuration fields for all ten connectors, the catalog, and the SQL workbench.",
+          "Upload tables and connect warehouses — the exact configuration fields for every connector, the catalog, and the SQL workbench.",
       },
       { property: "og:title", content: "Data Catalog & SQL — AgentSwarms Documentation" },
       {
@@ -67,7 +67,7 @@ function DataPage() {
       <DocsHeader
         eyebrow="Data & analytics"
         title="Data Catalog & SQL"
-        description="Everything tabular: uploaded files, ten kinds of external connection, the catalog that describes them, and the workbench that queries them."
+        description="Everything tabular: uploaded files, 22 databases and warehouses, 5 app sources, the catalog that describes them, and the workbench that queries them."
       />
 
       <P>
@@ -164,6 +164,77 @@ function DataPage() {
               Set to <C key="r">require</C> for TLS.
             </>,
           ],
+        ]}
+      />
+
+      <Callout kind="info" title="Nine more databases use exactly the fields above">
+        Most &ldquo;new databases&rdquo; are not new protocols. Each of these is a first-class entry
+        in the picker with its own name, logo and default port, but it speaks a wire protocol we
+        already support, so it takes the same fields and shares the same proven driver:
+        <UL>
+          <li>
+            <strong>PostgreSQL fields</strong> — CockroachDB, TimescaleDB, AlloyDB, Greenplum,
+            YugabyteDB
+          </li>
+          <li>
+            <strong>MySQL fields</strong> — MariaDB, SingleStore, StarRocks, Apache Doris,
+            PlanetScale
+          </li>
+        </UL>
+        Pick the one you actually run — the port default and the docs differ even where the driver
+        does not.
+      </Callout>
+
+      <Connector
+        id="c-sqlserver"
+        title="Microsoft SQL Server / Azure SQL"
+        where={
+          <>
+            Speaks TDS through the <C>tedious</C> driver, so it needs a{" "}
+            <strong>Node or Docker deployment</strong> — there is no REST SQL API to fall back on.
+          </>
+        }
+        rows={[
+          [<C key="a">host</C>, "Yes", "sql.example.com or acme.database.windows.net"],
+          [<C key="b">port</C>, "No", "Defaults to 1433. Leave blank if using a named instance."],
+          [<C key="c">database</C>, "Yes", "analytics"],
+          [<C key="d">username</C>, "Yes", "—"],
+          [<C key="e">password</C>, "Yes", "—"],
+          [
+            <C key="f">instance_name</C>,
+            "No",
+            <>
+              A named instance such as <C key="x">SQLEXPRESS</C>.{" "}
+              <strong>Mutually exclusive</strong> with a port — send both and the instance is
+              ignored, which silently connects you to the wrong server.
+            </>,
+          ],
+          [
+            <C key="g">trust_server_certificate</C>,
+            "No",
+            <>
+              Set <C key="y">true</C> for an on-prem server with a self-signed certificate. Leave
+              off for Azure SQL, which never needs it.
+            </>,
+          ],
+        ]}
+      />
+
+      <Connector
+        id="c-clickhouse"
+        title="ClickHouse"
+        where={<>Uses the HTTP interface, so it works on any deployment.</>}
+        rows={[
+          [
+            <C key="a">url</C>,
+            "Yes",
+            <>
+              Base URL of the HTTP interface, e.g. <C key="x">https://abc.clickhouse.cloud:8443</C>
+            </>,
+          ],
+          [<C key="b">username</C>, "Yes", "default"],
+          [<C key="c">password</C>, "Yes", "—"],
+          [<C key="d">database</C>, "No", "Scopes table browsing"],
         ]}
       />
 
@@ -472,6 +543,56 @@ function DataPage() {
         restorable version first, so a sync that pulls a truncated source is recoverable. Syncs run
         on demand or hourly / daily / weekly, and you are notified if one fails or comes back
         partial.
+      </Callout>
+
+      {/* ── RELIABILITY ── */}
+      <H2 id="reliability">Staying connected</H2>
+      <P>
+        Three things run underneath every connection without being asked for. All are tunable by
+        whoever runs the instance — see <DocLink to="/docs/self-hosting">self-hosting</DocLink>.
+      </P>
+      <Table
+        headers={["", "What happens", "What you see"]}
+        rows={[
+          [
+            <strong key="a">Health checks</strong>,
+            <>
+              Every connection is re-tested on a schedule with the same probe the{" "}
+              <strong>Test</strong> button uses. A warehouse password that expires on your
+              company&rsquo;s rotation policy is found by us, not by a dashboard erroring in front
+              of a customer.
+            </>,
+            <>
+              A <em>Failing</em> badge in Integrations, one notification when it breaks and one when
+              it recovers — not one per check.
+            </>,
+          ],
+          [
+            <strong key="b">Credential age</strong>,
+            <>
+              How long ago the stored secret was entered. Re-saving a connection resets it; a health
+              check does not.
+            </>,
+            <>
+              An <em>&ldquo;N d old&rdquo;</em> badge once it passes the policy age (90 days by
+              default). Advisory — <strong>nothing expires or stops working</strong>.
+            </>,
+          ],
+          [
+            <strong key="c">Retries</strong>,
+            <>
+              A rate limit or a brief outage from a provider is retried with backoff rather than
+              failed. Retries are always reads, so nothing can be double-written.
+            </>,
+            <>Nothing — that is the point. A tile that would have errored simply loads.</>,
+          ],
+        ]}
+      />
+      <Callout kind="info" title="Behind a corporate proxy?">
+        If your network has no direct route to the internet, the person running the instance sets{" "}
+        <C>HTTPS_PROXY</C> and <C>NO_PROXY</C> and every connector follows them. Without it,
+        reaching Snowflake or Stripe fails as a connection timeout rather than anything that names
+        the real cause — so it is worth checking first if a connector that should work does not.
       </Callout>
 
       {/* ── CATALOG ── */}
