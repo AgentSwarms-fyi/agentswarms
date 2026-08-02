@@ -145,15 +145,50 @@ function IamPage() {
 
       <H2 id="sharing">Resource sharing</H2>
       <P>
-        Grant a user or group <strong>read-only</strong> access to a resource owned by someone else.
-        Four resource types are grantable, enforced by a database constraint — <C>knowledge_base</C>
-        , <C>data_table</C>, <C>secret</C> and <C>bi_dashboard</C>. Recipients see a <em>Shared</em>{" "}
-        badge; edit and delete controls are hidden and writes are blocked by the database
-        regardless.
+        Grant a user or group <strong>read-only</strong> access to a resource owned by someone else,
+        under <strong>Admin → IAM → Access</strong>. Ten resource types are grantable, enforced by a
+        database constraint:
+      </P>
+      <Table
+        headers={["Type", "What the grantee gets"]}
+        rows={[
+          ["📚 Knowledge base", "Their agents can search it"],
+          ["🗄 SQL data table", "Queryable, subject to row filters and column masks"],
+          ["🔑 Secret", "Usable by reference; the value is never shown"],
+          ["📊 BI dashboard", "Viewable, subject to row filters and column masks"],
+          ["🧮 Semantic model", "Its metrics and dimensions become askable"],
+          ["🗂 Data catalog source", "Its crawled tables and profiles become browsable"],
+          ["🤖 LLM key / ☁️ LLM credential", "Calls bill to the owner's key"],
+          ["🏢 Database / warehouse connection", "Queryable — see below"],
+          ["🔌 App source", "Syncable — see below"],
+        ]}
+      />
+      <P>
+        Recipients see a <em>Shared</em> badge; edit and delete controls are hidden and writes are
+        blocked by the database regardless.
       </P>
       <P>
-        Because grants are enforced in row-level security, agent tools inherit them automatically —
-        a shared table becomes queryable by that user's agents with no extra wiring.
+        Because most grants are enforced in row-level security, agent tools inherit them
+        automatically — a shared table becomes queryable by that user's agents with no extra wiring.
+      </P>
+
+      <H3 id="shared-connections">Shared connections run as their owner</H3>
+      <P>
+        Connections are the exception to the row-level rule, because those rows carry an encrypted{" "}
+        <strong>credential</strong>. There is deliberately <strong>no</strong> row-level policy
+        granting a recipient access to them — that would let a grantee fetch the ciphertext straight
+        from the API with their own token. Instead the grant is resolved server-side and the row is
+        loaded with the service role, so a grantee gains the <em>use</em> of a connection without
+        ever receiving it. <C>{"{{secret:NAME}}"}</C> references resolve as the owner too, never
+        against the grantee's own vault.
+      </P>
+      <P>
+        A shared <strong>app source</strong> syncs as its owner, into the owner's datasets — so a
+        grantee re-running a stale sync refreshes the real datasets rather than building a parallel
+        copy under their own account. Sharing the source lets someone keep it healthy; to let them
+        read the resulting data, share those datasets too. Grants are resolved fresh on every call,
+        including scheduled runs, so revoking one takes effect on the next use.{" "}
+        <DocLink to="/docs/data#sharing">Full details in Data sources</DocLink>.
       </P>
       <P>
         BI dashboard grants can additionally carry a <strong>row filter</strong> (the grantee only

@@ -109,6 +109,74 @@ describe("resolveGrantedResourceIds accepts the new types", () => {
   });
 });
 
+describe("the grantable list does not drift from the database", () => {
+  // The list of grantable types was hand-maintained in four places and had
+  // silently drifted in three of them: the admin UI offered ten types while
+  // its own description named four, and both doc pages named four. Nothing
+  // failed — the feature worked and only the words were wrong, which is
+  // exactly the kind of rot no test was watching.
+  const adminSrc = readFileSync("src/routes/_authenticated/admin.iam.tsx", "utf8");
+
+  /**
+   * The CHECK constraint is the authority on what may be granted.
+   *
+   * Scoped to the IN list rather than the whole file — the migration's comments
+   * name several of these types in prose, and a file-wide match would pick
+   * those up and pass no matter what the constraint said.
+   */
+  const IN_LIST = "resource_type IN (";
+  const checkStart = migration.indexOf(IN_LIST);
+  const checkBody = migration.slice(
+    checkStart + IN_LIST.length,
+    migration.indexOf(")", checkStart),
+  );
+  const dbTypes = new Set([...checkBody.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]));
+
+  const pickerTypes = new Set(
+    [
+      ...adminSrc
+        .slice(
+          adminSrc.indexOf("const shareTypeOptions"),
+          adminSrc.indexOf("const shareableOfType"),
+        )
+        .matchAll(/value: "([a-z_]+)"/g),
+    ].map((m) => m[1]),
+  );
+
+  it("offers every type the database permits", () => {
+    // A type in the CHECK but not the picker is ungrantable in practice —
+    // the migration ran, and nobody can use what it added.
+    expect([...dbTypes].filter((t) => !pickerTypes.has(t))).toEqual([]);
+  });
+
+  it("offers nothing the database would reject", () => {
+    // The other direction fails at INSERT time with a constraint violation,
+    // surfacing to the admin as an opaque error.
+    expect([...pickerTypes].filter((t) => !dbTypes.has(t))).toEqual([]);
+  });
+
+  it("counts them correctly wherever the docs state a number", () => {
+    // The specific rot found: "Four resource types are grantable".
+    const docsSrc = readFileSync("src/routes/docs.iam.tsx", "utf8");
+    const stated = docsSrc.match(/(\w+) resource types are grantable/);
+    expect(stated, "the docs no longer state a count — drop this assertion").not.toBeNull();
+    const words = [
+      "zero",
+      "one",
+      "two",
+      "three",
+      "four",
+      "five",
+      "six",
+      "seven",
+      "eight",
+      "nine",
+      "ten",
+    ];
+    expect(stated![1].toLowerCase()).toBe(words[dbTypes.size]);
+  });
+});
+
 describe("grants are resolved in exactly one place", () => {
   it("every call site goes through loadWarehouseConnectionForUser", () => {
     // Nine call sites each resolving their own grants is nine chances to
