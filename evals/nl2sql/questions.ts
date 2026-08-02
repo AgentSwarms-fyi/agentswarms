@@ -709,12 +709,16 @@ export const QUESTIONS: EvalQuestion[] = [
     question: "What is our biggest security problem right now?",
     referenceSql:
       "SELECT technique_name, COUNT(*) AS n FROM siem_alerts " +
-      "WHERE status = 'NEW' GROUP BY technique_name ORDER BY n DESC LIMIT 1",
+      "WHERE status NOT IN ('CLOSED', 'BENIGN') GROUP BY technique_name ORDER BY n DESC LIMIT 1",
     category: "ambiguity",
     ordered: true,
     note:
       "'Right now' should narrow to unresolved alerts rather than all history. Tests " +
-      "whether the model reads the status column as meaningful instead of ignoring it.",
+      "whether the model reads the status column as meaningful instead of ignoring it. " +
+      "UNRESOLVED IS NOT status='NEW': the first version of this used that and produced a " +
+      "THREE-WAY TIE at 4, so the reference's own answer depended on which row the engine " +
+      "sorted first and the question was ungradeable. Excluding CLOSED and BENIGN is both " +
+      "the truer reading and gives a unique winner (16 against 13).",
   },
   {
     id: "ambiguous-healthiest-region",

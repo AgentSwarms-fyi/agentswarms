@@ -62,11 +62,18 @@ export async function runLocalSelect(
   const { duckdbEnabled } = await import("@/utils/data/duckdb.server");
 
   // Engine diagnostics are translated HERE, at the one entry point, so every
-  // surface that runs local SQL — the workbench, BI widgets, prep flows, the
-  // semantic runner, the agents' sql_query tool — reports a failure the same
-  // way. Doing it per caller would mean each one gets it right separately, and
-  // the raw text ("Scalar Function with name `__postfix does not exist!")
-  // reaching a user is what this is for.
+  // surface that runs local SQL SERVER-SIDE — scheduled BI refreshes, prep
+  // flows, the semantic runner, the agents' sql_query tool — reports a failure
+  // the same way. Doing it per caller would mean each one gets it right
+  // separately, and the raw text ("Scalar Function with name `__postfix does
+  // not exist!") reaching a user is what this is for.
+  //
+  // NOT the SQL workbench or the BI "Ask AI" turn: those execute local
+  // datasets in the BROWSER via lib/sqlEngine `runQuery`, which is AlaSQL and
+  // never reaches this file. An earlier version of this comment claimed the
+  // workbench came through here; it does not, and the difference is
+  // load-bearing — the two engines disagree on window functions. See
+  // docs/TESTING.md and `evals/nl2sql/engine-gap.ts`.
   if (duckdbEnabled()) {
     const { runLocalSqlDuckDB } = await import("@/utils/data/duckdb.server");
     try {

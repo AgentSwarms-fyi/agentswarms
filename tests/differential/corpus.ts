@@ -164,6 +164,56 @@ export const CORPUS: CorpusEntry[] = [
     sql: "SELECT k FROM loose WHERE n > 5",
     note: "string/number comparison, the classic silent-wrongness case",
   },
+
+  // ── Window functions and CTEs ────────────────────────────────────────
+  //
+  // THE CORPUS HAD NONE OF THESE, AND THAT IS WHY A DIVERGENCE SHIPPED. The
+  // engines disagree here more than anywhere else, and worse, AlaSQL accepts
+  // the syntax and returns a DIFFERENT ANSWER rather than refusing — the exact
+  // silent-wrongness this suite exists to surface. Found by running the
+  // NL-to-SQL reference queries on both engines, not by this harness, which
+  // could not see a shape it never ran.
+  //
+  // These matter because local datasets execute in two places: the workbench
+  // and the BI "Ask AI" turn run in the BROWSER on AlaSQL, while scheduled
+  // refreshes, prep flows, the semantic runner and the agents' sql_query tool
+  // run on the SERVER. "Share of total" is a question a BI tool is asked
+  // constantly.
+  {
+    id: "window-share-of-total",
+    sql: "SELECT region, SUM(amount) * 100.0 / SUM(SUM(amount)) OVER () AS pct FROM orders GROUP BY region",
+    note: "share of a grand total — an aggregate inside a window over the groups",
+  },
+  {
+    id: "window-row-number-partition",
+    sql:
+      "WITH ranked AS (SELECT region, customer_id, SUM(amount) AS amt, " +
+      "ROW_NUMBER() OVER (PARTITION BY region ORDER BY SUM(amount) DESC) AS rn " +
+      "FROM orders GROUP BY region, customer_id) " +
+      "SELECT region, customer_id, amt FROM ranked WHERE rn = 1",
+    note: "top-N-per-group, the canonical window question",
+  },
+  {
+    id: "window-running-total",
+    sql:
+      "WITH per_day AS (SELECT day, SUM(amount) AS amt FROM orders GROUP BY day) " +
+      "SELECT day, SUM(amt) OVER (ORDER BY day) AS cumulative FROM per_day",
+    ordered: true,
+    note: "ordered running total over an aggregate",
+  },
+  {
+    id: "window-rank",
+    sql: "SELECT region, RANK() OVER (ORDER BY amount DESC) AS rnk FROM orders",
+    ordered: true,
+    note: "RANK() — a named window function rather than an aggregate OVER ()",
+  },
+  {
+    id: "cte-self-reference",
+    sql:
+      "WITH per_region AS (SELECT region, SUM(amount) AS amt FROM orders GROUP BY region) " +
+      "SELECT region, amt FROM per_region WHERE amt > (SELECT AVG(amt) FROM per_region)",
+    note: "a CTE referenced twice — once in FROM and once in a subquery",
+  },
 ];
 
 /** Statements that must be REFUSED. A relaxation here is a security bug. */

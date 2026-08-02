@@ -32,6 +32,33 @@ const DUCKDB_DIFFERENCES: Record<string, string> = {
     "SUM over a column declared numeric but holding strings. DuckDB coerces and returns " +
     "15; AlaSQL counts only the real number and returns 3. Reachable only for uncoerced " +
     "legacy rows — ingest coerces on write.",
+
+  // ── Window functions: AlaSQL does not implement them ──────────────────
+  //
+  // These are NOT cosmetic, and two of them are silent. They matter beyond the
+  // LOCAL_ENGINE escape hatch because local datasets execute in two places:
+  // the SQL workbench and the BI "Ask AI" turn run in the BROWSER on AlaSQL
+  // (lib/sqlEngine `runQuery`), while scheduled refreshes, prep flows, the
+  // semantic runner and the agents' sql_query tool run on the SERVER.
+  //
+  // So the same question, on the same dataset, is answered correctly by a
+  // schedule and incorrectly by a person typing it in. Measured with
+  // `npx vite-node evals/nl2sql/engine-gap.ts`.
+  "window-share-of-total":
+    "SILENT. DuckDB returns the percentage; AlaSQL DROPS THE COMPUTED COLUMN ENTIRELY, " +
+    "returning {region} with no pct at all. A share-of-total chart renders with its " +
+    "measure missing rather than erroring.",
+  "window-running-total":
+    "SILENT AND WORSE. DuckDB returns 100, 350.5, 385.5…; AlaSQL returns 0 for EVERY row. " +
+    "A cumulative chart is a flat line at zero and nothing reports a failure.",
+  "window-row-number-partition":
+    "Top-N-per-group. The two engines return different row sets; DuckDB's ROW_NUMBER " +
+    "partitions as standard SQL requires.",
+  "window-rank":
+    "AlaSQL has no RANK(): 'alasql.fn.RANK is not a function'. At least this one is loud.",
+  "cte-self-reference":
+    "A CTE referenced inside a subquery. AlaSQL cannot see it — 'Table does not exist: " +
+    "per_region' — so the CTE is not in scope for the nested SELECT.",
 };
 
 describe("DuckDB runs everything the product emits", () => {
@@ -58,8 +85,23 @@ describe("DuckDB matches the incumbents, except where recorded", () => {
 
       const duckCanon = canonRows(duck.rows, ordered);
       const alasql = sync.alasql;
-      expect(alasql.ok, alasql.ok ? "" : `AlaSQL failed: ${alasql.error}`).toBe(true);
-      if (!alasql.ok) return;
+
+      // AN ENGINE THAT CANNOT RUN THE SHAPE AT ALL IS THE STRONGEST FORM OF
+      // DIVERGENCE, and this test could not express it: it asserted
+      // `alasql.ok` unconditionally, so adding a shape AlaSQL refuses failed
+      // the suite even with a reason recorded. That shape of divergence
+      // therefore could not be written down, which is a large part of why the
+      // window functions were never added to the corpus.
+      if (!alasql.ok) {
+        expect(
+          recorded,
+          `AlaSQL cannot run "${entry.sql}" (${alasql.error}), and there is no recorded ` +
+            `reason. If that is expected, add it to DUCKDB_DIFFERENCES; if not, this is a ` +
+            `shape the product emits that one engine cannot execute.`,
+        ).toBeTruthy();
+        return;
+      }
+
       const matches = canonRows(alasql.rows, ordered) === duckCanon;
 
       if (recorded) {

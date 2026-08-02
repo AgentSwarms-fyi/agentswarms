@@ -103,6 +103,49 @@ To see the differences rather than a pass/fail:
 npm run test:differential
 ```
 
+### Local datasets run on TWO engines, in two places
+
+This is the most surprising thing in the data layer and it is not a bug that
+was introduced — it is where the architecture currently sits:
+
+| Surface                                           | Engine                     |
+| ------------------------------------------------- | -------------------------- |
+| SQL workbench, local datasets                     | **AlaSQL, in the browser** |
+| BI Workspace "Ask AI", local datasets             | **AlaSQL, in the browser** |
+| Agent `sql_query` tool                            | Server — DuckDB            |
+| Scheduled BI refresh, prep flows, semantic runner | Server — DuckDB            |
+| Any warehouse connection                          | The warehouse              |
+
+`lib/sqlEngine.ts` is the browser engine (`runQuery` → AlaSQL);
+`utils/data/localEngine.server.ts` is the server one. `askBi` calls `runQuery`
+whenever no warehouse `execute` override is supplied, which is every local
+dataset.
+
+**Measure the gap, do not guess at it:**
+
+```bash
+npx vite-node evals/nl2sql/engine-gap.ts
+```
+
+It runs every NL-to-SQL reference query — known-good SQL — on both engines and
+compares results. As of the v3 question set: **56/61 on AlaSQL against 61/61 on
+DuckDB**, and all five failures are window functions. Two error loudly; **three
+return a different answer without complaining**, which is the dangerous half:
+
+- _share of total_ — AlaSQL drops the computed column entirely, so the chart
+  renders with no measure;
+- _running total_ — AlaSQL returns `0` for every row, so a cumulative chart is
+  a flat line at zero;
+- _top-N-per-group_ — a different row set.
+
+Every join in the set works identically on both. The divergence is confined to
+window functions and CTEs referenced from a subquery.
+
+Whether to unify the two (route browser SQL to the server, or ship a WASM
+DuckDB to the browser) is a product decision with real trade-offs — browser
+execution is instant and costs no server time. It is recorded here rather than
+quietly resolved.
+
 ### DuckDB, the default engine
 
 `tests/differential/duckdb.test.ts` measures DuckDB against AlaSQL. It runs

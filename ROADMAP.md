@@ -70,6 +70,20 @@ Stated because you will find them anyway.
   warehouse's `max_connections`. A cluster-wide budget needs shared state.
 - **No numbered releases.** The project ships from `main`. Versioned releases
   and an upgrade guide are wanted, not yet done.
+- **Local datasets run on two engines.** The SQL workbench and the BI
+  Workspace's "Ask AI" execute local datasets in the **browser on AlaSQL**;
+  scheduled refreshes, prep flows, the semantic runner and the agents'
+  `sql_query` tool run on the **server, DuckDB by default**. Measured with
+  `npx vite-node evals/nl2sql/engine-gap.ts`: **56/61 vs 61/61**, every failure
+  a window function, and three of the five return a wrong answer silently
+  rather than erroring — a running total comes back as `0` for every row.
+
+  All five are now in the differential corpus with recorded reasons, so the
+  gap cannot widen unnoticed. Closing it means either routing browser SQL to
+  the server (a network round trip per run) or shipping DuckDB-WASM to the
+  browser (a large bundle). Neither is obviously right, which is why it is
+  written down rather than decided.
+
 - **Single-tenant dashboard view.** No org/workspace switcher — the dashboard
   shows what your account can see, with no scope selector.
 - **The BI builder pane is a 2,660-line component.** Its pure logic has been

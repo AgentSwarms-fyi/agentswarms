@@ -61,6 +61,48 @@ describe("every reference query is answerable", () => {
   });
 });
 
+describe("a superlative must have exactly one right answer", () => {
+  // A `LIMIT 1` over a TIE has no deterministic answer: whichever row the
+  // engine happens to sort first wins, so the reference disagrees with itself
+  // between runs and the question grades the model on a coin toss.
+  //
+  // This is not hypothetical. `ambiguous-biggest-security-problem` asked for
+  // the top technique among status='NEW' alerts, where three techniques tie at
+  // 4. It passed the "reference runs and returns rows" check, and only
+  // surfaced when the same measurement was run three times and gave two
+  // different answers.
+  const superlatives = QUESTIONS.filter(
+    (q) => /\bLIMIT\s+1\b/i.test(q.referenceSql) && /\bORDER\s+BY\b/i.test(q.referenceSql),
+  );
+
+  it.each(superlatives.map((q) => [q.id, q] as const))("%s has a unique winner", async (_id, q) => {
+    // Re-run the reference WITHOUT its LIMIT, then compare the top two rows on
+    // the column being ordered by. Dropping only the trailing LIMIT keeps the
+    // ORDER BY, which is what decides the winner.
+    const unlimited = q.referenceSql.replace(/\s+LIMIT\s+1\s*$/i, "");
+    const rows = (await runLocalSelect(unlimited, q.tables.map(loadTable))).rows;
+    if (rows.length < 2) return; // only one candidate: nothing to tie with
+
+    // The ordered-by column is the last one in the SELECT for every reference
+    // here, but rather than parse SQL, compare on whichever values differ:
+    // if EVERY column of the top two rows is equal the answer is ambiguous.
+    const [first, second] = rows;
+    const sameOnEvery = Object.keys(first).every(
+      (k) => String(first[k] ?? "") === String(second[k] ?? ""),
+    );
+    expect(sameOnEvery, `${q.id}: the top two rows are identical — the winner is arbitrary`).toBe(
+      false,
+    );
+
+    // And the measure itself must differ, or ORDER BY cannot separate them.
+    const measure = Object.keys(first).at(-1)!;
+    expect(
+      String(first[measure] ?? ""),
+      `${q.id}: top two tie on "${measure}" (${first[measure]}), so LIMIT 1 is a coin toss`,
+    ).not.toBe(String(second[measure] ?? ""));
+  });
+});
+
 describe("the question set is coherent", () => {
   it("has unique ids", () => {
     const ids = QUESTIONS.map((q) => q.id);
