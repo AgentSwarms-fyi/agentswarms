@@ -61,6 +61,30 @@ the message and rendered inline. It survives reload and appears in embeds. It's
 best-effort: if there's no usable data or the result is table-only, no widget
 is shown and the text answer is never affected.
 
+### Which datasets it can read — read this before embedding
+
+The widget runs **as the agent's owner**, because an anonymous embed visitor
+has no data access of their own. So on a public embed, a stranger's question
+decides what SQL runs over your data.
+
+What bounds it:
+
+- **The agent's SQL table allow-list applies.** Set it in **Agent Builder** →
+  the `sql_query` tool → tables. The same list that limits the chat tool limits
+  the widget: the model is only told those tables exist, and a query naming any
+  other is refused. (This was not true before — the widget path ignored the
+  list on both counts. See `tests/unit/embedBiAllowList.test.ts`.)
+- **Read-only, single statement.** The same guard the workbench and the agent
+  tool use (`lib/sqlSafety`), so no writes and no stacked statements.
+- **Owner-scoped.** Own datasets, public samples, and IAM-granted tables only;
+  a shared dataset keeps its row filter and column mask.
+
+**With no allow-list set, the widget can read every dataset the owner has.**
+That is deliberate — the list is opt-in, exactly as it is for the chat tool, so
+turning it on cannot silently change what an existing agent can answer. But an
+opt-in default is a wide default on a page anyone can load, so **set the
+allow-list on any agent you embed publicly with Visual BI enabled.**
+
 ## Generating documents (PowerPoint / Word / Excel)
 
 The **PPT**, **Word** and **Excel** buttons under the composer generate a real,

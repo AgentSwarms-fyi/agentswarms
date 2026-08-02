@@ -106,7 +106,22 @@ type ResolvedConfig = {
   guardrails: Guardrails;
   /** Agent-only: generate a visual BI widget alongside the answer. */
   biVisuals: boolean;
+  /**
+   * The agent's `sql_query` table allow-list, carried here because the BI
+   * widget runs the owner's data for an ANONYMOUS visitor. Empty/absent means
+   * unrestricted, exactly as it does for the chat tool.
+   */
+  sqlTableNames: string[];
 };
+
+/** The saved shape is tools.toolConfigs.sql_query.table_names (see api/chat). */
+function readSqlTableNames(tools: unknown): string[] {
+  const cfg = (tools as { toolConfigs?: { sql_query?: { table_names?: unknown } } } | null)
+    ?.toolConfigs?.sql_query?.table_names;
+  return Array.isArray(cfg)
+    ? cfg.filter((s): s is string => typeof s === "string" && s.trim().length > 0)
+    : [];
+}
 
 /** Load the effective config for this embed call from the owner's rows. */
 async function resolveConfig(
@@ -152,6 +167,7 @@ async function resolveConfig(
             : undefined,
         guardrails: parseGuardrails(tools.guardrails),
         biVisuals: !!tools.biVisuals,
+        sqlTableNames: readSqlTableNames(agent.tools),
       },
     };
   }
@@ -238,6 +254,16 @@ async function resolveConfig(
           : undefined,
       guardrails: mergedGuardrails,
       biVisuals: false,
+      // Swarm nodes never generate a widget (biVisuals is false above), but the
+      // node's own allow-list is carried anyway so enabling it later cannot
+      // reintroduce the bypass by forgetting this line.
+      sqlTableNames: Array.isArray(
+        (d as { toolConfigs?: { sql_table_names?: unknown } }).toolConfigs?.sql_table_names,
+      )
+        ? (d as { toolConfigs: { sql_table_names: unknown[] } }).toolConfigs.sql_table_names.filter(
+            (s): s is string => typeof s === "string" && s.trim().length > 0,
+          )
+        : [],
     },
   };
 }
@@ -466,6 +492,7 @@ export const Route = createFileRoute("/api/embed/chat")({
               provider: cfg.provider,
               model: cfg.model,
               question: userText,
+              sqlTableNames: cfg.sqlTableNames,
             });
             if (widget) payload += `event: widget\ndata: ${JSON.stringify({ widget })}\n\n`;
           }
@@ -505,6 +532,7 @@ export const Route = createFileRoute("/api/embed/chat")({
                     provider: cfg.provider,
                     model: cfg.model,
                     question: userText,
+                    sqlTableNames: cfg.sqlTableNames,
                   });
                   if (widget) {
                     controller.enqueue(

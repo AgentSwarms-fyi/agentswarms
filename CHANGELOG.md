@@ -141,6 +141,30 @@ cut numbered releases; see [ROADMAP.md](./ROADMAP.md).
 
 ### Security & governance
 
+- **Fixed: the embed BI widget ignored an agent's SQL table allow-list.**
+  `/api/embed/chat` is anonymous by design — a stranger types a question and,
+  with Visual BI on, the owner's model writes SQL over the owner's data. The
+  chat path and the swarm path both applied the owner's `sql_query` allow-list;
+  **the widget path passed none**, so an agent restricted to one table still
+  had every dataset the owner owns described to the model and could return rows
+  from any of them. `describeUserTables` did not even accept an allow-list
+  parameter, which is the sharper half: restricting execution while still
+  naming the forbidden tables just tells the model what to ask for. Both are
+  now applied, and the agent's saved list is read at the route. Absent or empty
+  still means unrestricted, matching the chat tool — one surface quietly
+  applying a stricter rule than the other is how two paths that must agree stop
+  agreeing. [AGENT_CHAT.md](./docs/AGENT_CHAT.md#which-datasets-it-can-read--read-this-before-embedding)
+  now says plainly to set the list on any publicly embedded agent.
+- **Fixed: a numeric date column collapsed every row into 1970.** A `year`
+  column of 2024/2025/2026 was parsed as seconds since the epoch, so all three
+  landed ~34 minutes into 1 January 1970. `isMostlyDates` then reported "yes,
+  dates", the UI offered the date-grain toggle, and choosing a grain rendered
+  one bar where there should have been three — no error, no empty chart. The
+  string branch had rejected these values since it was written; the number
+  branch never did, so the same column bucketed differently depending on
+  whether the loader typed it as text. `lib/biChartMath` had no tests at all
+  and now has 29.
+
 - **Per-agent semantic model allow-list**, deny by default. Enabling the
   Semantic Metrics tool alone no longer grants an agent every model in the
   account; it is also enforced when the tool runs, not only in what the agent

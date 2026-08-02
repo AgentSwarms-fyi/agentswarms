@@ -80,6 +80,21 @@ export type DateGrain = "day" | "week" | "month" | "quarter" | "year";
 export function parseDateValue(v: unknown): Date | null {
   if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v;
   if (typeof v === "number") {
+    if (!Number.isFinite(v)) return null;
+    // A NUMERIC year is the year, exactly as the string branch reads "2026".
+    // The two branches must agree: the same column arrives as text or number
+    // depending on the loader, and a chart that buckets differently for the
+    // same data is worse than one that refuses.
+    if (Number.isInteger(v) && v >= 1000 && v <= 9999) return new Date(Date.UTC(v, 0, 1));
+    // Below 1000 an integer is a month, quarter, day-of-month or a plain
+    // count — never an epoch stamp, since that would be the first seconds of
+    // 1970. This guard is the whole point of the branch: without it a `year`
+    // or `month` column parsed as seconds-since-epoch, isMostlyDates then said
+    // "yes, dates" and offered the grain toggle, and bucketDate collapsed
+    // EVERY row into 1970 — a flat one-bar chart with nothing reporting an
+    // error. The string branch had rejected exactly these values since it was
+    // written; the number branch never did.
+    if (Number.isInteger(v) && Math.abs(v) < 1000) return null;
     const d = new Date(v > 10_000_000_000 ? v : v * 1000);
     return Number.isNaN(d.getTime()) ? null : d;
   }

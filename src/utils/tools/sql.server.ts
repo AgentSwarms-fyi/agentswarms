@@ -202,8 +202,16 @@ export async function runSqlQuery(
 
 // Convenience: short schema summary string for callers that want to inline the
 // list of tables into the tool description.
-export async function describeUserTables(ctx: AgentToolContext): Promise<string> {
-  const tables = await loadUserTables(ctx);
+//
+// `allowSet` is not optional decoration: this string is what tells a model
+// which tables exist, so a caller that restricts runSqlQuery but not this is
+// still naming the forbidden tables to the model. It took the embed BI widget
+// path leaking past an agent's allow-list for the parameter to exist at all.
+export async function describeUserTables(
+  ctx: AgentToolContext,
+  allowSet?: Set<string> | null,
+): Promise<string> {
+  const tables = await loadUserTables(ctx, allowSet);
   if (tables.length === 0) return "";
   return tables
     .map(

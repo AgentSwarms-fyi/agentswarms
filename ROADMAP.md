@@ -91,6 +91,14 @@ Stated because you will find them anyway.
   everything extracted carries **≥ 9**, what remains carries **3.8**, and
   `tests/unit/biBuilderSplit.test.ts` enforces the floor.
 
+- **Visual BI on a public embed defaults to every dataset the owner has.** The
+  agent's `sql_query` allow-list is now applied there (it was not, and that was
+  a bug), but an absent list still means unrestricted — deliberately, because
+  the list is opt-in for the chat tool and one surface being stricter than the
+  other is how they drift. An opt-in default is still a wide default on a page
+  anyone can load. Making it deny-by-default for embeds specifically is worth
+  considering and would be a behaviour change, so it is a decision rather than
+  a fix.
 - **365 lint warnings** (0 errors), tracked as debt. Previously recorded here
   as "~360 `no-explicit-any`", which was wrong — that is one of three rules and
   not the largest:

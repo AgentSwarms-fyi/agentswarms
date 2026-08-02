@@ -83,6 +83,22 @@ export async function generateEmbedWidget(opts: {
   provider: ProviderId;
   model: string;
   question: string;
+  /**
+   * The agent's `sql_query` table allow-list, when it has one.
+   *
+   * THIS IS A PUBLIC SURFACE. The question comes from an anonymous visitor and
+   * the SQL is written by a model that has been handed the schema, so an
+   * allow-list the owner set on the agent has to apply here exactly as it does
+   * in chat. It did not, for a while: this path called describeUserTables and
+   * runSqlQuery with no allow-list at all, so an agent restricted to one table
+   * would still describe every dataset the owner has to the model and return
+   * rows from any of them.
+   *
+   * Absent or empty means unrestricted, matching how the same list behaves for
+   * the chat tool — it is opt-in there, and one surface silently applying a
+   * stricter rule than the other is how the two drift apart.
+   */
+  sqlTableNames?: string[] | null;
 }): Promise<EmbedWidget | null> {
   try {
     // Service-role client, strictly scoped to the owner (tenant guard).
@@ -92,7 +108,10 @@ export async function generateEmbedWidget(opts: {
       scopeUserId: opts.ownerId,
     } as AgentToolContext;
 
-    const schema = await describeUserTables(ctx);
+    const allowed = (opts.sqlTableNames ?? []).map((s) => s.trim()).filter(Boolean);
+    const allowSet = allowed.length > 0 ? new Set(allowed) : null;
+
+    const schema = await describeUserTables(ctx, allowSet);
     if (!schema || /no data tables|no tables/i.test(schema)) return null;
 
     const plan = await llmJsonServer(
@@ -109,7 +128,7 @@ export async function generateEmbedWidget(opts: {
     const chart = plan?.chart as ChartSpec | undefined;
     if (!sql || !chart || !chart.type || chart.type === "table") return null;
 
-    const raw = JSON.parse(await runSqlQuery(ctx, { sql })) as {
+    const raw = JSON.parse(await runSqlQuery(ctx, { sql }, allowSet)) as {
       error?: string;
       columns?: string[];
       rows?: Record<string, unknown>[];
