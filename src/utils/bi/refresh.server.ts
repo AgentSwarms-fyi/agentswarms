@@ -194,8 +194,36 @@ export async function runLocalSqlForUser(
   userId: string,
   sql: string,
 ): Promise<{ columns: string[]; rows: Record<string, unknown>[] }> {
-  const safeSql = assertLocalReadOnlySql(sql);
+  return runLocalSqlOnTables(sql, await loadLocalTables(userId));
+}
+
+/**
+ * A runner that loads the caller's datasets ONCE and reuses them.
+ *
+ * For anything that issues several queries in a row. runLocalSqlForUser reloads
+ * every dataset the user can see on every call — every row of every table, or a
+ * parquet mirror read — which is right for a single query and quadratic for a
+ * batch.
+ *
+ * Semantic-model validation was the case that exposed it: it probes one query
+ * per dimension and per metric, sequentially, so a 19-field model meant
+ * NINETEEN full reloads of every dataset the user owns. In the browser that
+ * showed up as a Validate button stuck on "Validating…" indefinitely.
+ */
+export async function localSqlRunnerForUser(
+  userId: string,
+): Promise<(sql: string) => Promise<{ columns: string[]; rows: Record<string, unknown>[] }>> {
   const tables = await loadLocalTables(userId);
+  return (sql: string) => runLocalSqlOnTables(sql, tables);
+}
+
+async function runLocalSqlOnTables(
+  sql: string,
+  tables: LocalTable[],
+): Promise<{ columns: string[]; rows: Record<string, unknown>[] }> {
+  // Re-checked per statement, not per load: the tables are reusable, the
+  // guard is not — each SQL string is separately untrusted.
+  const safeSql = assertLocalReadOnlySql(sql);
 
   const { duckdbEnabled } = await import("@/utils/data/duckdb.server");
   if (duckdbEnabled()) {

@@ -64,6 +64,22 @@ cut numbered releases; see [ROADMAP.md](./ROADMAP.md).
 
 ### Semantic layer
 
+- **Fixed: validation was broken for every local semantic model.** The
+  compiler's dialect defaults to `alasql` and the warehouse branch overrode it;
+  the local branch never did. Once the local engine became DuckDB, validation
+  compiled AlaSQL-quoted SQL and ran it on DuckDB, so **every field failed** —
+  `SELECT 'Order ID' AS 'order_id' FROM saas_sales LIMIT 1`, where AlaSQL's
+  quoting makes a string literal out of a column name and a syntax error out of
+  the alias. 23 of 23 fields failed on the bundled sample model. The query path
+  had resolved this correctly all along; only validation was left behind.
+- **Fixed: validation reloaded every dataset once per field.** It probes one
+  query per dimension and per metric, sequentially, and each went through a
+  helper that reloads every dataset the caller can see — every row — on each
+  call. A 19-field model meant nineteen full reloads, and the Validate button
+  never returned. The datasets now load once for the whole probe loop; the
+  read-only guard still runs per statement, because the tables are reusable and
+  the guard is not.
+
 - **Fixed: `ORDER BY` silently dropped a field it did not recognise.** The
   compiler rejects every unknown name — metric, dimension, filter field, grain,
   comparison, source table — with one exception, which filtered unknown

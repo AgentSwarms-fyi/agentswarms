@@ -261,8 +261,26 @@ export const semanticValidateModel = createServerFn({ method: "POST" })
           };
         }
       } else {
-        const { runLocalSqlForUser } = await import("@/utils/bi/refresh.server");
-        exec = (sql) => runLocalSqlForUser(userId, sql);
+        // THE DIALECT MUST MATCH THE ENGINE THAT WILL RUN IT. `dialect` is
+        // initialised to "alasql" above and the warehouse branch overwrites
+        // it; this branch did not, so a local model was compiled as AlaSQL and
+        // executed on DuckDB. Every field failed with a parser error —
+        // `SELECT 'Order ID' AS 'order_id'`, where AlaSQL's quoting makes a
+        // string literal out of a column name and an invalid alias out of the
+        // rest. Validation of every local semantic model was broken from the
+        // moment the local engine became DuckDB. The query path
+        // (semantic/query.server) already resolved this correctly; only
+        // validation was left behind.
+        const { localEngineName } = await import("@/utils/data/localEngine.server");
+        dialect = await localEngineName();
+
+        // Loads the caller's datasets ONCE for the whole probe loop below.
+        // runLocalSqlForUser reloads every one of them per call, and this
+        // validates one query per dimension and per metric — so a 19-field
+        // model meant nineteen full reloads and a Validate button that never
+        // came back.
+        const { localSqlRunnerForUser } = await import("@/utils/bi/refresh.server");
+        exec = await localSqlRunnerForUser(userId);
       }
 
       let checked = 0;
