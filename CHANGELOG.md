@@ -109,6 +109,21 @@ cut numbered releases; see [ROADMAP.md](./ROADMAP.md).
   parameterised INSERT per row: a 5,000-row aggregate went from 2,152 ms to
   19.6 ms.
 
+### Internal
+
+- **Split the BI builder pane**, 2,664 lines → 2,090. The AI analyst tab, the
+  ontology editor and the chart-type picker are now their own components. Which
+  regions to extract was decided by **measuring how many of the parent's values
+  each one uses**, not by line count: the standard chart editor is the largest
+  block but needs 84 of them, so it stays — an 84-prop component is harder to
+  follow than the block it replaces.
+
+  No hook moved. Every extracted component owns no state and receives values
+  and setters, so hook order and effect timing are untouched — that is what
+  makes it a refactor. A test enforces that, along with "nothing was duplicated
+  on the way out": moving a constant but leaving the original behind gives two
+  definitions that agree by coincidence.
+
 ### Security & governance
 
 - **Per-agent semantic model allow-list**, deny by default. Enabling the

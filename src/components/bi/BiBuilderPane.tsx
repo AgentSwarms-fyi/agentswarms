@@ -44,7 +44,9 @@ import {
   X,
 } from "lucide-react";
 
-import { VIZ_REQUIREMENTS } from "@/lib/biVizMeta";
+import { BiVizPicker, type ChartType } from "@/components/bi/BiVizPicker";
+import { BiAiTab, type KbDocOption } from "@/components/bi/BiAiTab";
+import { BiOntologyTab } from "@/components/bi/BiOntologyTab";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -105,46 +107,7 @@ import { WAREHOUSE_LABELS } from "@/utils/warehouse/types";
 
 export type BuilderTab = "build" | "ai";
 
-type ChartType = ChartSpec["type"];
-
-const VIZ_TYPES: {
-  value: ChartType;
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-}[] = [
-  { value: "bar", label: "Column", icon: BarChart3 },
-  { value: "hbar", label: "Bar", icon: BarChartHorizontal },
-  { value: "scolumn", label: "Stacked column", icon: Layers },
-  { value: "shbar", label: "Stacked bar", icon: Rows3 },
-  { value: "barrace", label: "Bar race", icon: FastForward },
-  { value: "line", label: "Line", icon: LineChart },
-  { value: "area", label: "Area", icon: AreaChart },
-  { value: "combo", label: "Combo", icon: BarChart2 },
-  { value: "scatter", label: "Scatter", icon: ScatterChart },
-  { value: "pie", label: "Pie", icon: PieChart },
-  { value: "nightingale", label: "Nightingale", icon: Flower2 },
-  { value: "radar", label: "Radar", icon: Radar },
-  { value: "funnel", label: "Funnel", icon: Filter },
-  { value: "sankey", label: "Sankey", icon: Workflow },
-  { value: "treemap", label: "Treemap", icon: LayoutGrid },
-  { value: "wordcloud", label: "Word cloud", icon: Cloud },
-  { value: "heatmap", label: "Heatmap", icon: Flame },
-  { value: "boxplot", label: "Box plot", icon: CandlestickChart },
-  { value: "waterfall", label: "Waterfall", icon: BarChart4 },
-  { value: "kpi", label: "KPI", icon: Hash },
-  { value: "gauge", label: "Gauge", icon: Gauge },
-  { value: "matrix", label: "Matrix", icon: Grid3x3 },
-  { value: "map", label: "Map", icon: MapIcon },
-  { value: "bubblemap", label: "Bubbles", icon: MapPin },
-  { value: "table", label: "Table", icon: Table2 },
-  { value: "ontology", label: "Ontology", icon: Network },
-];
-
-const ONTO_STAGE_LABEL: Record<OntologyBuildStage, string> = {
-  scanning: "Scanning sources…",
-  detecting: "Detecting relationships…",
-  enriching: "AI is building the ontology…",
-};
+// ONTO_STAGE_LABEL moved to BiOntologyTab, the only place that renders it.
 
 // Source selection, join detection and seed SQL now live in lib/biBuilder —
 // pure, React-free, and tested. Re-exported so the (single) consumer of this
@@ -156,11 +119,10 @@ export { groupCheckState, selHas, toggleName, type SelOrAll, type SourceTable };
 
 type OntoKb = { id: string; name: string; docCount: number; docs: string[] };
 
-/** A knowledge-base document the analyst can pull unstructured context from. */
-type KbDocOption = { id: string; name: string; kbName: string };
-
-/** Per-question cap keeps the excerpt budget meaningful per document. */
-const MAX_AI_DOCS = 6;
+// KbDocOption and MAX_AI_DOCS moved to BiAiTab, which is the only place that
+// renders or enforces them. Re-declaring them here would be two definitions
+// agreeing by coincidence — the cap in particular is a number the tab's own
+// message quotes back to the user.
 
 export function BiBuilderPane({
   ctx,
@@ -1368,376 +1330,35 @@ export function BiBuilderPane({
               </Badge>
             )}
 
-            {/* Visualization — icon picker */}
-            <div className="space-y-1.5">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Visualisation
-              </Label>
-              <TooltipProvider>
-                <div className="grid grid-cols-3 gap-1.5">
-                  {VIZ_TYPES.map((v) => {
-                    const req = VIZ_REQUIREMENTS[v.value];
-                    const btn = (
-                      <button
-                        key={v.value}
-                        type="button"
-                        onClick={() => setChartType(v.value)}
-                        className={cn(
-                          "flex flex-col items-center gap-1 rounded-lg border px-2 py-2.5 text-[10px] font-medium transition",
-                          chartType === v.value
-                            ? "border-primary bg-primary/10 text-primary shadow-sm"
-                            : "border-border/60 text-muted-foreground hover:border-primary/40 hover:bg-muted/50 hover:text-foreground",
-                        )}
-                      >
-                        <v.icon className="h-5 w-5" />
-                        {v.label}
-                      </button>
-                    );
-                    if (!req) return btn;
-                    return (
-                      <Tooltip key={v.value} delayDuration={200}>
-                        <TooltipTrigger asChild>{btn}</TooltipTrigger>
-                        <TooltipContent
-                          side="top"
-                          className="max-w-[240px] border border-border bg-popover text-popover-foreground shadow-md"
-                        >
-                          <p className="text-xs font-semibold text-foreground">{v.label}</p>
-                          <p className="mt-0.5 text-xs text-foreground/90">{req.requires}</p>
-                          <p className="mt-1 text-xs text-muted-foreground">{req.how}</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    );
-                  })}
-                </div>
-              </TooltipProvider>
-            </div>
+            <BiVizPicker value={chartType} onChange={setChartType} />
 
             {chartType === "ontology" ? (
-              <div className="space-y-3">
-                <div className="rounded-lg border border-border/60 bg-muted/30 p-2.5 text-[11px] leading-snug text-muted-foreground">
-                  A high-level map of your whole data estate and how it relates. Expand a source to
-                  pick individual tables or knowledge bases; the AI classifies entities into
-                  business domains, labels each relationship and writes a summary.
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Sources to include
-                  </Label>
-                  <div className="max-h-72 space-y-0.5 overflow-y-auto rounded-md border border-border/60 p-1.5">
-                    {/* Local & prepared datasets */}
-                    <div>
-                      <div className="flex items-center gap-1 rounded px-1 py-1 hover:bg-muted/60">
-                        <button
-                          type="button"
-                          className="flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground"
-                          onClick={() => toggleOntoExpanded("local")}
-                          title="Choose tables"
-                        >
-                          <ChevronRight
-                            className={cn(
-                              "h-3 w-3 transition-transform",
-                              ontoExpanded.has("local") && "rotate-90",
-                            )}
-                          />
-                        </button>
-                        <Label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-[11px] font-normal">
-                          <Checkbox
-                            checked={groupCheckState(ontoLocalSel, localTableNames)}
-                            onCheckedChange={() =>
-                              setOntoLocalSel(
-                                groupCheckState(ontoLocalSel, localTableNames) === true
-                                  ? new Set()
-                                  : "all",
-                              )
-                            }
-                          />
-                          <span className="truncate">Local &amp; prepared datasets</span>
-                          <span className="ml-auto shrink-0 text-[9px] tabular-nums text-muted-foreground">
-                            {ctx.datasets.filter((d) => selHas(ontoLocalSel, d.name)).length}/
-                            {ctx.datasets.length} tables
-                          </span>
-                        </Label>
-                      </div>
-                      {ontoExpanded.has("local") && (
-                        <div className="ml-4 space-y-0.5 border-l border-border/40 pl-2">
-                          {ctx.datasets.length === 0 && (
-                            <p className="px-1 py-1 text-[10px] text-muted-foreground">
-                              No local datasets — upload data on the Data &amp; SQL page.
-                            </p>
-                          )}
-                          {ctx.datasets.map((d) => (
-                            <Label
-                              key={d.name}
-                              className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 font-mono text-[10px] font-normal hover:bg-muted/60"
-                            >
-                              <Checkbox
-                                checked={selHas(ontoLocalSel, d.name)}
-                                onCheckedChange={() =>
-                                  setOntoLocalSel((s) => toggleName(s, localTableNames, d.name))
-                                }
-                              />
-                              <span className="truncate">{d.name}</span>
-                              {ctx.preparedTables?.has(d.name) && (
-                                <Badge variant="secondary" className="shrink-0 px-1 text-[9px]">
-                                  prep
-                                </Badge>
-                              )}
-                            </Label>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Warehouses — schemas load on expand/select */}
-                    {ctx.warehouses.map((w) => {
-                      const t = ctx.whTables[w.id];
-                      const names = Array.isArray(t) ? t.map((x) => `${x.schema}.${x.name}`) : null;
-                      const sel = ontoWhSel[w.id];
-                      const st = groupCheckState(sel, names);
-                      return (
-                        <div key={w.id}>
-                          <div className="flex items-center gap-1 rounded px-1 py-1 hover:bg-muted/60">
-                            <button
-                              type="button"
-                              className="flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground"
-                              onClick={() => {
-                                ctx.ensureSchema(w.id);
-                                toggleOntoExpanded(w.id);
-                              }}
-                              title="Choose tables"
-                            >
-                              <ChevronRight
-                                className={cn(
-                                  "h-3 w-3 transition-transform",
-                                  ontoExpanded.has(w.id) && "rotate-90",
-                                )}
-                              />
-                            </button>
-                            <Label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-[11px] font-normal">
-                              <Checkbox
-                                checked={st}
-                                onCheckedChange={() => {
-                                  if (st === true) {
-                                    setOntoWhSel((prev) => {
-                                      const next = { ...prev };
-                                      delete next[w.id];
-                                      return next;
-                                    });
-                                  } else {
-                                    ctx.ensureSchema(w.id);
-                                    setOntoWhSel((prev) => ({ ...prev, [w.id]: "all" }));
-                                  }
-                                }}
-                              />
-                              <span className="truncate">
-                                {w.name} — {WAREHOUSE_LABELS[w.provider]}
-                              </span>
-                              {names && (
-                                <span className="ml-auto shrink-0 text-[9px] tabular-nums text-muted-foreground">
-                                  {names.filter((n) => (sel ? selHas(sel, n) : false)).length}/
-                                  {names.length} tables
-                                </span>
-                              )}
-                              {sel && (t === undefined || t === "loading") && (
-                                <Loader2 className="ml-auto h-3 w-3 shrink-0 animate-spin text-muted-foreground" />
-                              )}
-                            </Label>
-                          </div>
-                          {ontoExpanded.has(w.id) && (
-                            <div className="ml-4 space-y-0.5 border-l border-border/40 pl-2">
-                              {t === "error" && (
-                                <p className="px-1 py-1 text-[10px] text-destructive">
-                                  Couldn't load this warehouse's schema.
-                                </p>
-                              )}
-                              {(t === undefined || t === "loading") && (
-                                <p className="flex items-center gap-1.5 px-1 py-1 text-[10px] text-muted-foreground">
-                                  <Loader2 className="h-3 w-3 animate-spin" /> Loading schema…
-                                </p>
-                              )}
-                              {names?.map((n) => (
-                                <Label
-                                  key={n}
-                                  className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 font-mono text-[10px] font-normal hover:bg-muted/60"
-                                >
-                                  <Checkbox
-                                    checked={sel ? selHas(sel, n) : false}
-                                    onCheckedChange={() =>
-                                      setOntoWhSel((prev) => ({
-                                        ...prev,
-                                        [w.id]: toggleName(prev[w.id], names, n),
-                                      }))
-                                    }
-                                  />
-                                  <span className="truncate">{n}</span>
-                                </Label>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-
-                    {/* Knowledge bases */}
-                    <div>
-                      <div className="flex items-center gap-1 rounded px-1 py-1 hover:bg-muted/60">
-                        <button
-                          type="button"
-                          className="flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground"
-                          onClick={() => {
-                            void ensureOntoKbList().catch(() => {});
-                            toggleOntoExpanded("kb");
-                          }}
-                          title="Choose knowledge bases"
-                        >
-                          <ChevronRight
-                            className={cn(
-                              "h-3 w-3 transition-transform",
-                              ontoExpanded.has("kb") && "rotate-90",
-                            )}
-                          />
-                        </button>
-                        <Label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-[11px] font-normal">
-                          <Checkbox
-                            checked={groupCheckState(ontoKbSel, kbIds)}
-                            onCheckedChange={() =>
-                              setOntoKbSel(
-                                groupCheckState(ontoKbSel, kbIds) === true ? new Set() : "all",
-                              )
-                            }
-                          />
-                          <span className="truncate">Knowledge bases</span>
-                          {kbListArr && (
-                            <span className="ml-auto shrink-0 text-[9px] tabular-nums text-muted-foreground">
-                              {kbListArr.filter((k) => selHas(ontoKbSel, k.id)).length}/
-                              {kbListArr.length}
-                            </span>
-                          )}
-                        </Label>
-                      </div>
-                      {ontoExpanded.has("kb") && (
-                        <div className="ml-4 space-y-0.5 border-l border-border/40 pl-2">
-                          {ontoKbList === "loading" && (
-                            <p className="flex items-center gap-1.5 px-1 py-1 text-[10px] text-muted-foreground">
-                              <Loader2 className="h-3 w-3 animate-spin" /> Loading knowledge bases…
-                            </p>
-                          )}
-                          {ontoKbList === "error" && (
-                            <p className="px-1 py-1 text-[10px] text-destructive">
-                              Couldn't load your knowledge bases — collapse and expand to retry.
-                            </p>
-                          )}
-                          {kbListArr && kbListArr.length === 0 && (
-                            <p className="px-1 py-1 text-[10px] text-muted-foreground">
-                              No knowledge bases yet — create one on the Knowledge page.
-                            </p>
-                          )}
-                          {kbListArr?.map((k) => (
-                            <Label
-                              key={k.id}
-                              className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-[10px] font-normal hover:bg-muted/60"
-                            >
-                              <Checkbox
-                                checked={selHas(ontoKbSel, k.id)}
-                                onCheckedChange={() =>
-                                  setOntoKbSel((s) => toggleName(s, kbIds ?? [], k.id))
-                                }
-                              />
-                              <span className="truncate">{k.name}</span>
-                              <span className="ml-auto shrink-0 text-[9px] tabular-nums text-muted-foreground">
-                                {k.docCount} docs
-                              </span>
-                            </Label>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Data sample for the AI
-                  </Label>
-                  <div className="flex items-center gap-2">
-                    <Select value={ontoSampleRows} onValueChange={setOntoSampleRows}>
-                      <SelectTrigger className="h-8 w-40 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="0" className="text-xs">
-                          Schema only — no rows
-                        </SelectItem>
-                        {["5", "10", "25", "50", "100", "200"].map((n) => (
-                          <SelectItem key={n} value={n} className="text-xs">
-                            {n} rows per table
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <span className="text-[10px] leading-tight text-muted-foreground">
-                      Real values sent to the AI to find relationships
-                    </span>
-                  </div>
-                  <Textarea
-                    value={ontoSampleSql}
-                    onChange={(e) => setOntoSampleSql(e.target.value)}
-                    rows={2}
-                    className="font-mono text-xs"
-                    placeholder="Optional custom SQL — its result is given to the AI as extra signal (runs on local & prepared datasets)"
-                  />
-                </div>
-
-                {ctx.onModelChange && (
-                  <div className="space-y-1.5">
-                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      AI model
-                    </Label>
-                    <BiModelSelect
-                      value={ctx.model ?? null}
-                      onChange={ctx.onModelChange}
-                      className="w-full"
-                    />
-                  </div>
-                )}
-
-                <Button
-                  className="w-full gap-1.5"
-                  onClick={() => void buildOntologyNow()}
-                  disabled={Boolean(ontoBuilding) || !ontoHasSelection}
-                >
-                  {ontoBuilding ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Sparkles className="h-4 w-4" />
-                  )}
-                  {ontoBuilding
-                    ? ONTO_STAGE_LABEL[ontoBuilding]
-                    : ontoSpec
-                      ? "Rebuild ontology"
-                      : "Build ontology with AI"}
-                </Button>
-
-                {ontoSpec && (
-                  <>
-                    <div className="rounded-lg border border-border/60 bg-card p-2">
-                      <OntologyGraph spec={ontoSpec} />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                        Widget title
-                      </Label>
-                      <Input
-                        value={title}
-                        onChange={(e) => setTitle(e.target.value)}
-                        placeholder="Data ontology"
-                        className="h-8 text-xs"
-                      />
-                    </div>
-                  </>
-                )}
-              </div>
+              <BiOntologyTab
+                ctx={ctx}
+                title={title}
+                setTitle={setTitle}
+                localTableNames={localTableNames}
+                ontoLocalSel={ontoLocalSel}
+                setOntoLocalSel={setOntoLocalSel}
+                ontoWhSel={ontoWhSel}
+                setOntoWhSel={setOntoWhSel}
+                ontoKbSel={ontoKbSel}
+                setOntoKbSel={setOntoKbSel}
+                ontoKbList={ontoKbList}
+                ensureOntoKbList={ensureOntoKbList}
+                kbListArr={kbListArr}
+                kbIds={kbIds}
+                ontoExpanded={ontoExpanded}
+                toggleOntoExpanded={toggleOntoExpanded}
+                ontoHasSelection={ontoHasSelection}
+                ontoBuilding={ontoBuilding}
+                buildOntologyNow={buildOntologyNow}
+                ontoSpec={ontoSpec}
+                ontoSampleSql={ontoSampleSql}
+                setOntoSampleSql={setOntoSampleSql}
+                ontoSampleRows={ontoSampleRows}
+                setOntoSampleRows={setOntoSampleRows}
+              />
             ) : (
               <>
                 {sourceSelect}
@@ -2500,235 +2121,28 @@ export function BiBuilderPane({
           </div>
         </>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col">
-          <div className="space-y-2 p-3 pb-2">
-            {sourceSelect}
-            {ctx.onModelChange && (
-              <div className="space-y-1.5">
-                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  AI model
-                </Label>
-                <BiModelSelect
-                  value={ctx.model ?? null}
-                  onChange={ctx.onModelChange}
-                  className="w-full"
-                />
-              </div>
-            )}
-            <div className="space-y-1.5">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Tables to analyse
-              </Label>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 w-full justify-between gap-1.5 text-xs font-normal"
-                    title="Limit which tables the analyst may use"
-                  >
-                    <span className="truncate">
-                      {aiTables.length === 0
-                        ? "All tables"
-                        : aiTables.length === 1
-                          ? aiTables[0]
-                          : `${aiTables.length} tables selected`}
-                    </span>
-                    <ChevronsUpDown className="h-3 w-3 shrink-0 text-muted-foreground" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent align="start" className="w-72 p-2">
-                  <div className="max-h-56 space-y-0.5 overflow-y-auto">
-                    {sourceTables.length === 0 && (
-                      <p className="px-1 py-2 text-[11px] text-muted-foreground">
-                        {schemaLoading ? "Loading tables…" : "No tables for this source."}
-                      </p>
-                    )}
-                    {sourceTables.map((t) => {
-                      const checked = aiTables.includes(t.name);
-                      return (
-                        <Label
-                          key={t.name}
-                          className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 font-mono text-[11px] font-normal hover:bg-muted/60"
-                        >
-                          <Checkbox
-                            checked={checked}
-                            onCheckedChange={(on) =>
-                              setAiTables((prev) =>
-                                on ? [...prev, t.name] : prev.filter((x) => x !== t.name),
-                              )
-                            }
-                          />
-                          <span className="truncate">{t.name}</span>
-                        </Label>
-                      );
-                    })}
-                  </div>
-                  <div className="mt-1.5 flex items-center justify-between border-t border-border/50 pt-1.5">
-                    <p className="text-[10px] text-muted-foreground">Empty = analyse all tables</p>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-6 px-2 text-[10px]"
-                      onClick={() => setAiTables([])}
-                    >
-                      Clear
-                    </Button>
-                  </div>
-                </PopoverContent>
-              </Popover>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Knowledge documents
-              </Label>
-              <Popover onOpenChange={(open) => open && void loadKbDocs()}>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 w-full justify-between gap-1.5 text-xs font-normal"
-                    title="Blend unstructured context from your knowledge bases into the analysis"
-                  >
-                    <span className="truncate">
-                      {aiDocs.length === 0
-                        ? "None — structured data only"
-                        : aiDocs.length === 1
-                          ? ((Array.isArray(kbDocOptions)
-                              ? kbDocOptions.find((o) => o.id === aiDocs[0])?.name
-                              : undefined) ?? "1 document selected")
-                          : `${aiDocs.length} documents selected`}
-                    </span>
-                    <ChevronsUpDown className="h-3 w-3 shrink-0 text-muted-foreground" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent align="start" className="w-72 p-2">
-                  <div className="max-h-56 space-y-0.5 overflow-y-auto">
-                    {kbDocOptions === "loading" && (
-                      <p className="flex items-center gap-1.5 px-1 py-2 text-[11px] text-muted-foreground">
-                        <Loader2 className="h-3 w-3 animate-spin" /> Loading documents…
-                      </p>
-                    )}
-                    {kbDocOptions === "error" && (
-                      <p className="px-1 py-2 text-[11px] text-destructive">
-                        Couldn't load your knowledge documents — close and reopen to retry.
-                      </p>
-                    )}
-                    {Array.isArray(kbDocOptions) && kbDocOptions.length === 0 && (
-                      <p className="px-1 py-2 text-[11px] text-muted-foreground">
-                        No documents with text content — add some on the Knowledge page first.
-                      </p>
-                    )}
-                    {docGroups.map(([kb, docs]) => (
-                      <div key={kb}>
-                        <p className="px-1.5 pb-0.5 pt-1.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/80">
-                          {kb}
-                        </p>
-                        {docs.map((d) => {
-                          const checked = aiDocs.includes(d.id);
-                          return (
-                            <Label
-                              key={d.id}
-                              className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-[11px] font-normal hover:bg-muted/60"
-                            >
-                              <Checkbox
-                                checked={checked}
-                                onCheckedChange={(on) =>
-                                  setAiDocs((prev) => {
-                                    if (!on) return prev.filter((x) => x !== d.id);
-                                    if (prev.length >= MAX_AI_DOCS) {
-                                      toast.info(
-                                        `Up to ${MAX_AI_DOCS} documents per question — deselect one first.`,
-                                      );
-                                      return prev;
-                                    }
-                                    return [...prev, d.id];
-                                  })
-                                }
-                              />
-                              <span className="truncate">{d.name}</span>
-                            </Label>
-                          );
-                        })}
-                      </div>
-                    ))}
-                  </div>
-                  <div className="mt-1.5 flex items-center justify-between border-t border-border/50 pt-1.5">
-                    <p className="text-[10px] text-muted-foreground">
-                      The analyst cross-references docs with your data
-                    </p>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-6 px-2 text-[10px]"
-                      onClick={() => setAiDocs([])}
-                    >
-                      Clear
-                    </Button>
-                  </div>
-                </PopoverContent>
-              </Popover>
-            </div>
-            {schemaLoading && (
-              <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                <Loader2 className="h-3 w-3 animate-spin" /> loading schema…
-              </span>
-            )}
-          </div>
-          <div
-            ref={turnsScrollRef}
-            className="min-h-0 flex-1 space-y-3 overflow-y-auto border-t border-border/50 bg-muted/20 p-3"
-          >
-            {turns.length === 0 && (
-              <p className="py-10 text-center text-xs text-muted-foreground">
-                Ask a business question — the analyst writes and runs the SQL, picks a chart, and
-                explains the result. Select knowledge documents to blend unstructured context into
-                the insight. Insert any answer as a widget.
-              </p>
-            )}
-            {turns.map((t, i) => (
-              <div key={i} className="space-y-1.5">
-                <BiChatMessage turn={t} />
-                {t.status === "done" && t.result && (
-                  <div className="flex justify-end">
-                    <Button
-                      size="sm"
-                      className="h-7 gap-1 text-xs"
-                      variant={insertedIdx.has(i) ? "secondary" : "default"}
-                      onClick={() => insertTurn(t, i)}
-                    >
-                      <Plus className="h-3 w-3" />
-                      {insertedIdx.has(i) ? "Insert again" : "Insert into dashboard"}
-                    </Button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-          <div className="flex gap-1.5 border-t border-border p-3">
-            <input
-              value={question}
-              onChange={(e) => setQuestion(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  void sendQuestion();
-                }
-              }}
-              placeholder="Ask a business question…"
-              className="h-9 flex-1 rounded-md border border-border bg-background px-3 text-xs focus:border-primary focus:outline-none"
-              disabled={aiBusy}
-            />
-            <Button
-              size="icon"
-              className="h-9 w-9"
-              onClick={() => void sendQuestion()}
-              disabled={aiBusy || !question.trim() || schemaLoading}
-            >
-              {aiBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            </Button>
-          </div>
-        </div>
+        <BiAiTab
+          ctx={ctx}
+          title={title}
+          question={question}
+          setQuestion={setQuestion}
+          turns={turns}
+          turnsScrollRef={turnsScrollRef}
+          aiBusy={aiBusy}
+          aiTables={aiTables}
+          setAiTables={setAiTables}
+          aiDocs={aiDocs}
+          setAiDocs={setAiDocs}
+          docGroups={docGroups}
+          kbDocOptions={kbDocOptions}
+          loadKbDocs={loadKbDocs}
+          insertTurn={insertTurn}
+          insertedIdx={insertedIdx}
+          sendQuestion={sendQuestion}
+          sourceSelect={sourceSelect}
+          sourceTables={sourceTables}
+          schemaLoading={schemaLoading}
+        />
       )}
     </div>
   );

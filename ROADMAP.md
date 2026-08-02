@@ -73,8 +73,13 @@ Stated because you will find them anyway.
   workspace tiles, activity chart and recent runs above it are still your own
   rows only. Widening those means moving each to a server function with the
   same authorisation, which is worth doing and is not done.
-- **The BI builder pane is a 2,660-line component.** Its pure logic has been
-  extracted and tested; the component split itself is outstanding.
+- **The BI builder pane is still 2,090 lines**, down from 2,664. The AI tab,
+  the ontology editor and the chart-type picker are now their own components;
+  the **standard chart editor is not**, and that is a decision rather than an
+  omission. It is 751 lines using **84** of the parent's values, so extracting
+  it means an 84-prop component — a worse artifact than the block it replaces.
+  Making it separable needs a reducer or a config object for the field state,
+  which is a design change, not a split.
 - **364 lint warnings** (0 errors), tracked as debt. Previously recorded here
   as "~360 `no-explicit-any`", which was wrong — that is one of three rules and
   not the largest:
