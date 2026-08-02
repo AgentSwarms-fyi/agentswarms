@@ -854,12 +854,56 @@ export function compileSemanticQuery(
     return { sql: out, columns: cols };
   };
 
-  const limit = Math.max(1, Math.min(q.limit ?? DEFAULT_LIMIT, MAX_LIMIT));
+  // The clamp used to be Math.max(1, Math.min(q.limit ?? DEFAULT, MAX)), which
+  // passes NaN straight through — Math.min(NaN, x) is NaN and Math.max(1, NaN)
+  // is NaN — so a query whose limit did not parse reached the database as the
+  // literal `LIMIT NaN`. A fractional one reached it as `LIMIT 2.7`, which
+  // Postgres rejects. Both surfaced as a syntax error from the warehouse
+  // rather than as the caller mistake they are. Strings still coerce, because
+  // an AI-authored query may send "50" and that is unambiguous.
+  //
+  // Only a number, or a non-blank numeric string, is accepted. Passing the
+  // value through bare `Number()` is not enough: Number([]) and Number("") are
+  // both 0, so `limit: []` clamped to `LIMIT 1` and quietly returned a single
+  // row for a query that asked for a page of them.
+  // Typed `unknown`, not `number`: the declared type says number, but a
+  // SemanticQuery arrives as JSON from a model or an API caller, so the value
+  // here is whatever they sent. Narrowing off the declared type would make the
+  // string branch unreachable to the compiler and the guard a no-op.
+  const rawLimit: unknown = q.limit ?? DEFAULT_LIMIT;
+  const limitNum =
+    typeof rawLimit === "number"
+      ? rawLimit
+      : typeof rawLimit === "string" && rawLimit.trim() !== ""
+        ? Number(rawLimit)
+        : NaN;
+  if (!Number.isFinite(limitNum)) {
+    throw new Error(`Limit must be a finite number, got ${JSON.stringify(q.limit)}`);
+  }
+  const limit = Math.max(1, Math.min(Math.floor(limitNum), MAX_LIMIT));
 
-  /** ORDER BY … LIMIT …, appended once, over whatever columns exist. */
+  /** ORDER BY … LIMIT …, appended once, over the query's own output columns. */
   const tail = (available: string[]) => {
-    const order = (q.orderBy ?? []).filter((o) => available.includes(o.field));
-    const parts = order.map(
+    // REFUSE, DO NOT DEGRADE — the same rule this file already applies to an
+    // AlaSQL comparison below, and to every unknown metric, dimension, filter
+    // field and grain above.
+    //
+    // This used to `.filter()` unknown fields out, which is the one place the
+    // compiler quietly accepted a name it did not recognise. The result is the
+    // worst shape a bug can take here: "top 10 customers by revenue" with a
+    // mistyped or renamed order field drops the ORDER BY and returns an
+    // ARBITRARY ten rows, still labelled "top 10". Nothing errors, and the
+    // number on the dashboard is wrong in a way no one can see. An unknown
+    // filter field has always thrown; this is now consistent with it.
+    for (const o of q.orderBy ?? []) {
+      if (!available.includes(o.field)) {
+        throw new Error(
+          `Order references "${o.field}", which this query does not return ` +
+            `(available: ${available.join(", ")})`,
+        );
+      }
+    }
+    const parts = (q.orderBy ?? []).map(
       (o) => `${quoteIdent(o.field, dialect)} ${o.dir === "asc" ? "ASC" : "DESC"}`,
     );
     return `${parts.length ? ` ORDER BY ${parts.join(", ")}` : ""} LIMIT ${limit}`;

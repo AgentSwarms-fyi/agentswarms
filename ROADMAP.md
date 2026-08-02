@@ -91,6 +91,31 @@ Stated because you will find them anyway.
   everything extracted carries **≥ 9**, what remains carries **3.8**, and
   `tests/unit/biBuilderSplit.test.ts` enforces the floor.
 
+- **44% of the data/BI library has no tests, and has not been audited.** Being
+  specific rather than reassuring, because two audit passes over the parts that
+  _were_ checked turned up four real bugs — three of them silent — so the
+  untouched half should not be assumed clean. By line count, of 9,181 lines in
+  `src/lib`'s data/BI modules, 4,046 have no test file naming them:
+
+  | Module                                                                                                     | Lines | What it does                      |
+  | ---------------------------------------------------------------------------------------------------------- | ----- | --------------------------------- |
+  | `biAgent`                                                                                                  | 1,105 | the NL→SQL→chart agent loop       |
+  | `biOntology`                                                                                               | 808   | ontology inference and build      |
+  | `dataCatalog`                                                                                              | 441   | catalog model, PII classification |
+  | `sqlEngine`                                                                                                | 424   | browser query entry point         |
+  | `biWorkspaces`                                                                                             | 281   | workspace/dashboard organisation  |
+  | `biPdf`, `dataPrep`, `dataQuality`, `biVizMeta`, `exportData`, `warehouseClient`, `biFreshness`, `sqlRefs` | 987   |                                   |
+
+  Audited and covered so far: the read-only SQL guard, browser-engine quoting,
+  shared-dataset masking, server-function authorisation across the data/BI
+  space, the public share/embed sanitiser, the catalog crawler's SSRF guard,
+  chart analytics, and the semantic compiler's refusals and escaping.
+
+- **Nothing in the BI or data UI has been verified in a browser recently.**
+  Typechecks, 1,139 unit tests and a production build all pass, and the BI
+  component split moved no logic — but a rendering or wiring fault would not
+  show up in any of those. Claims about this codebase's UI should be treated as
+  unverified until someone clicks through it.
 - **Visual BI on a public embed defaults to every dataset the owner has.** The
   agent's `sql_query` allow-list is now applied there (it was not, and that was
   a bug), but an absent list still means unrestricted — deliberately, because

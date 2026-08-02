@@ -64,6 +64,28 @@ cut numbered releases; see [ROADMAP.md](./ROADMAP.md).
 
 ### Semantic layer
 
+- **Fixed: `ORDER BY` silently dropped a field it did not recognise.** The
+  compiler rejects every unknown name — metric, dimension, filter field, grain,
+  comparison, source table — with one exception, which filtered unknown
+  `orderBy` fields out instead. So "top 10 customers by revenue" with a
+  mistyped or since-renamed order field returned **an arbitrary ten rows, still
+  labelled top 10**: no error, and a number on a dashboard that is wrong in a
+  way nobody can see. It now refuses and names the columns the query does
+  return, so an AI caller can correct itself. This is a **behaviour change** —
+  a saved query carrying a stale order field now errors where it used to
+  quietly return unordered rows.
+- **Fixed: a malformed limit reached the database as `LIMIT NaN`.** The clamp
+  was `Math.max(1, Math.min(q.limit ?? DEFAULT, MAX))`, and both of those pass
+  NaN straight through, so a limit that did not parse produced invalid SQL and
+  a syntax error from the warehouse rather than a clear rejection. A fractional
+  limit produced `LIMIT 2.7`, which Postgres rejects outright. Limits are now
+  floored, range-clamped and refused when not finite; a numeric string still
+  works, because an AI-authored query may legitimately send `"50"`.
+- Injection was probed directly and held: filter values are quote-escaped
+  per dialect, `contains` escapes LIKE metacharacters with a dialect-neutral
+  `~`, IN-lists are escaped element-wise, and an unsafe source table is
+  rejected. `tests/unit/semanticRefusal.test.ts` pins all of it.
+
 - **Relative date filters**: `last_n_days`, `this_month`, `last_month`,
   `this_quarter`, `last_quarter`, `ytd`. Half-open UTC windows resolved at
   query time, so a dashboard does not need editing as time passes.
