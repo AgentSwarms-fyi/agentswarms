@@ -85,9 +85,17 @@ cut numbered releases; see [ROADMAP.md](./ROADMAP.md).
 
   The `.wasm` binaries are self-hosted (not fetched from a CDN, so an
   air-gapped deployment still works), emitted as separate assets, and loaded
-  lazily on the first query. Verify a deployment with **`/engine-check`**,
-  which runs the previously-broken queries in the actual browser and reports
-  which bundle it selected.
+  lazily. Verify a deployment with **`/engine-check`**, which runs the
+  previously-broken queries in the actual browser and reports which bundle it
+  selected.
+
+  The engine is ~8 MB, fetched once per browser and cached after. That wait is
+  **shown, not hidden**: loading begins when a data page opens rather than when
+  Run is pressed, and a **"Starting the SQL engine…" strip with a real progress
+  bar** (byte-level, from duckdb-wasm's own callback) appears until it is
+  ready — then disappears. If a Content-Security-Policy or proxy blocks
+  WebAssembly, it says so and points at `/engine-check` instead of leaving a
+  button that does nothing.
 
   Consequences worth knowing: every local query function is now `async`, and
   ~120 lines of hand-written JavaScript date shims are gone — DuckDB provides

@@ -23,6 +23,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 import { browserEngineBundle, registerBrowserTables, runBrowserSql } from "@/lib/browserDuckdb";
+import { SqlEngineStatus, useSqlEngineStatus } from "@/components/data/SqlEngineStatus";
 
 export const Route = createFileRoute("/engine-check")({ component: EngineCheck });
 
@@ -139,12 +140,35 @@ function EngineCheck() {
   }, []);
 
   const passed = checks.filter((c) => c.ok).length;
+  // Also exercises the status strip the workbench and BI show, so this page
+  // verifies the loading UX and not only the SQL.
+  const live = useSqlEngineStatus();
+
+  // Every phase this page observed, in order. A cold load should show
+  // loading (with bytes climbing) before ready; seeing only "ready" means the
+  // browser served the wasm from cache, which is the normal second visit.
+  const [seen, setSeen] = useState<string[]>([]);
+  useEffect(() => {
+    setSeen((prev) => {
+      const label =
+        live.phase === "loading" ? `loading ${live.bytesLoaded}/${live.bytesTotal}` : live.phase;
+      return prev[prev.length - 1] === label ? prev : [...prev, label];
+    });
+  }, [live]);
 
   return (
     <div style={{ padding: 24, fontFamily: "monospace", fontSize: 13 }}>
       <h1 id="heading">
         engine-check: {checks.length === 0 && !error ? "running…" : `${passed}/${checks.length}`}
       </h1>
+      <SqlEngineStatus className="my-3 max-w-2xl" />
+      <p id="phase">phase: {live.phase}</p>
+      <p id="transitions">
+        transitions:{" "}
+        {seen.length > 6
+          ? `${seen[0]} … ${seen.length} updates … ${seen.at(-1)}`
+          : seen.join(" → ")}
+      </p>
       <p id="bundle">bundle: {bundle ?? "?"}</p>
       {error && <p id="fatal">FATAL: {error}</p>}
       <ul>

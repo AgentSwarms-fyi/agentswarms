@@ -74,7 +74,12 @@ describe("the wasm is fetched, never bundled or CDN-loaded", () => {
 
   it("clears the cached promise when init fails, so a retry can work", () => {
     // A transient failure fetching 34 MB must not poison the tab for ever.
-    expect(browserEngine).toMatch(/handle\.catch\(\(\) => \{/);
+    // Matched on the ASSIGNMENT rather than the catch's signature: pinning
+    // `catch(() => {` broke the moment the handler took an error parameter to
+    // report it through status.
+    expect(browserEngine).toMatch(/handle\.catch\(/);
+    const onFail = browserEngine.slice(browserEngine.indexOf("handle.catch("));
+    expect(onFail.slice(0, 260)).toMatch(/handle = null/);
   });
 });
 
@@ -147,6 +152,62 @@ describe("browser-compiled SQL targets the browser's dialect", () => {
         /\\`\$\{[^}]+\}\\`/,
       );
     }
+  });
+});
+
+describe("the first-query wait is explained, not silent", () => {
+  const statusUi = readFileSync("src/components/data/SqlEngineStatus.tsx", "utf8");
+
+  it("reports real bytes rather than an indeterminate spinner", () => {
+    // duckdb-wasm's instantiate() takes a progress handler. ~8 MB with no
+    // number attached is indistinguishable from a hang.
+    expect(browserEngine).toMatch(/db\.instantiate\([^)]*\(p\) =>/s);
+    expect(browserEngine).toMatch(/bytesLoaded: p\.bytesLoaded/);
+    expect(browserEngine).toMatch(/bytesTotal: p\.bytesTotal/);
+  });
+
+  it("has all four phases, including a failure the UI can explain", () => {
+    for (const phase of ["idle", "loading", "ready", "error"]) {
+      expect(browserEngine, `EngineStatus is missing "${phase}"`).toContain(`"${phase}"`);
+    }
+    // A blocked CSP or a mangled .wasm must surface as an explained failure,
+    // not a Run button that does nothing.
+    //
+    // Whitespace-tolerant: prettier reflows this call across lines once the
+    // message argument makes it long enough, and an exact-string assertion
+    // broke the moment it did.
+    expect(browserEngine).toMatch(/setStatus\(\{\s*phase: "error"/);
+  });
+
+  it("pre-warms on hydration so the download overlaps the row fetch", () => {
+    // Every surface goes through hydrateFromSupabase, so doing it there covers
+    // the workbench, BI, catalog and prep flows without each remembering.
+    expect(sqlEngine).toMatch(/prewarmBrowserEngine\(\)/);
+    const hydrate = sqlEngine.slice(sqlEngine.indexOf("export async function hydrateFromSupabase"));
+    const beforeFirstAwait = hydrate.slice(0, hydrate.indexOf("await supabase"));
+    expect(
+      beforeFirstAwait,
+      "prewarm must start BEFORE the first Supabase round trip, or it does not overlap",
+    ).toContain("prewarmBrowserEngine()");
+  });
+
+  it("a failed prewarm cannot become an unhandled rejection", () => {
+    expect(browserEngine).toMatch(/prewarmBrowserEngine[\s\S]{0,220}\.catch\(/);
+  });
+
+  it("shows nothing once the engine is ready", () => {
+    // A permanent "engine: ok" badge is noise. The interesting states are the
+    // two the user cannot otherwise explain.
+    expect(statusUi).toMatch(/phase === "idle" \|\| status\.phase === "ready"\) return null/);
+  });
+
+  it("is announced to assistive technology", () => {
+    expect(statusUi).toContain('role="status"');
+    expect(statusUi).toContain('aria-live="polite"');
+  });
+
+  it("points at the diagnostic when loading fails", () => {
+    expect(statusUi).toContain("/engine-check");
   });
 });
 

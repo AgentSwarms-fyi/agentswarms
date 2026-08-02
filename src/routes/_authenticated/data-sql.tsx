@@ -65,6 +65,7 @@ import {
   type DatasetMeta,
   type QueryResult,
 } from "@/lib/sqlEngine";
+import { SqlEngineStatus } from "@/components/data/SqlEngineStatus";
 import { downloadCsv, downloadXlsx } from "@/lib/exportData";
 import { ensureSampleDataset, forceSeedSampleDataset, SAMPLE_TABLE_NAME } from "@/lib/sampleData";
 import { CsvUploadDialog } from "@/components/data-sql/CsvUploadDialog";
@@ -1324,6 +1325,10 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
               </>
             )}
           </div>
+          {/* Renders nothing once the engine is ready — it exists to explain
+              the one-off WebAssembly download, and to say so plainly if a CSP
+              or proxy blocked it rather than leaving Run looking broken. */}
+          <SqlEngineStatus className="mx-3 mb-2" />
           <div className="flex-1 min-w-0 w-full overflow-auto bg-slate-50/30 dark:bg-muted/30">
             {queryError ? (
               <div className="p-4">

@@ -82,6 +82,7 @@ import { isAggregatableChart } from "@/lib/biAggregate";
 import { buildOntology, type OntologyBuildStage, type OntologySpec } from "@/lib/biOntology";
 import { listPrepFlows, parsePrepConfig, prepTables } from "@/lib/dataPrep";
 import type { QueryResult } from "@/lib/sqlEngine";
+import { SqlEngineStatus } from "@/components/data/SqlEngineStatus";
 
 // Common ISO 4217 codes offered in format pickers (any code still works
 // via saved specs; Intl validates at render time with a safe fallback).
@@ -1352,6 +1353,11 @@ export function BiBuilderPane({
           <X className="h-4 w-4" />
         </Button>
       </div>
+
+      {/* Explains the one-off WebAssembly download; renders nothing once the
+          engine is ready. Above the tab content so it is visible whichever
+          tab is open — both build and Ask AI run local queries. */}
+      <SqlEngineStatus className="mx-3 mb-2" />
 
       {tab === "build" ? (
         <>

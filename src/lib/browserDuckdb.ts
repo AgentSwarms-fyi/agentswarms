@@ -89,12 +89,66 @@ const registered = new Set<string>();
 /** Which bundle the browser actually got — surfaced for diagnostics. */
 let activeBundle: string | null = null;
 
+// ── Status, so the UI can explain the wait ───────────────────────────────────
+//
+// The first query downloads roughly 8 MB of compressed WebAssembly. Without a
+// signal the UI has nothing to say and a "Run" button simply sits there, which
+// reads as a hang rather than a download. duckdb-wasm reports real bytes, so
+// this is a progress bar rather than an indeterminate spinner.
+
+export type EngineStatus =
+  | { phase: "idle" }
+  | { phase: "loading"; bytesLoaded: number; bytesTotal: number }
+  | { phase: "ready" }
+  | { phase: "error"; message: string };
+
+let status: EngineStatus = { phase: "idle" };
+const listeners = new Set<(s: EngineStatus) => void>();
+
+function setStatus(next: EngineStatus) {
+  status = next;
+  for (const fn of listeners) {
+    try {
+      fn(next);
+    } catch {
+      // A broken subscriber must not take the engine down with it.
+    }
+  }
+}
+
+export function browserEngineStatus(): EngineStatus {
+  return status;
+}
+
+/** Subscribe to engine status. Returns an unsubscribe function. */
+export function onBrowserEngineStatus(fn: (s: EngineStatus) => void): () => void {
+  listeners.add(fn);
+  // Fire immediately so a component mounting mid-download paints the right
+  // thing without waiting for the next progress event.
+  fn(status);
+  return () => listeners.delete(fn);
+}
+
 export function browserEngineBundle(): string | null {
   return activeBundle;
 }
 
 export function isBrowserEngineReady(): boolean {
-  return handle !== null;
+  return status.phase === "ready";
+}
+
+/**
+ * Begin loading the engine WITHOUT running a query.
+ *
+ * Called when a page that is likely to query mounts, so the download overlaps
+ * the user reading the screen and picking a table instead of starting when
+ * they press Run. Safe to call repeatedly — it joins the one shared promise.
+ */
+export function prewarmBrowserEngine(): void {
+  void init().catch(() => {
+    // Already reported through status; a rejected prewarm must not surface as
+    // an unhandled rejection in the console.
+  });
 }
 
 /**
@@ -107,6 +161,7 @@ export function isBrowserEngineReady(): boolean {
  */
 function init(): Promise<Handle> {
   if (handle) return handle;
+  setStatus({ phase: "loading", bytesLoaded: 0, bytesTotal: 0 });
   handle = (async () => {
     const dd = await import("@duckdb/duckdb-wasm");
     const bundle = await dd.selectBundle(BUNDLES);
@@ -116,16 +171,29 @@ function init(): Promise<Handle> {
     // user's console; a void logger keeps failures flowing through thrown
     // errors, which is where the app already reports them.
     const db = new dd.AsyncDuckDB(new dd.VoidLogger(), worker);
-    await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+    // Real bytes, reported by duckdb-wasm as it streams the module — so the UI
+    // shows a progress bar rather than an indeterminate spinner for ~8 MB.
+    await db.instantiate(bundle.mainModule, bundle.pthreadWorker, (p) => {
+      setStatus({
+        phase: "loading",
+        bytesLoaded: p.bytesLoaded,
+        bytesTotal: p.bytesTotal,
+      });
+    });
     const conn = await db.connect();
+    setStatus({ phase: "ready" });
     return { db, conn, worker };
   })();
   // A failed init must not poison every later attempt: clear the cached
   // promise so a retry can start again (a transient network failure fetching
   // the wasm is the common case).
-  handle.catch(() => {
+  handle.catch((e: unknown) => {
     handle = null;
     activeBundle = null;
+    setStatus({
+      phase: "error",
+      message: (e as Error)?.message ?? "the SQL engine failed to load",
+    });
   });
   return handle;
 }
@@ -248,6 +316,7 @@ export async function resetBrowserEngine(): Promise<void> {
   handle = null;
   activeBundle = null;
   registered.clear();
+  setStatus({ phase: "idle" });
   if (!current) return;
   try {
     const { conn, db, worker } = await current;

@@ -35,6 +35,7 @@ import { isLocalReadOnlySql } from "@/lib/sqlSafety";
 import {
   dropBrowserTable,
   isBrowserTableRegistered,
+  prewarmBrowserEngine,
   registerBrowserTables,
   runBrowserSql,
 } from "@/lib/browserDuckdb";
@@ -131,6 +132,13 @@ export function isTableRegistered(name: string): boolean {
 // Fetch the user's persisted datasets and materialise every row in the browser
 // DuckDB. Called once when the IDE mounts so all queries work immediately.
 export async function hydrateFromSupabase(): Promise<DatasetMeta[]> {
+  // Start fetching the WebAssembly engine BEFORE the rows, so the ~8 MB
+  // download overlaps the Supabase round trips instead of following them.
+  // Hydration needs the engine regardless — this only moves it earlier — and
+  // doing it here covers every surface (workbench, BI, catalog, prep flows)
+  // rather than relying on each to remember.
+  prewarmBrowserEngine();
+
   const { data: tables, error } = await supabase
     .from("user_data_tables")
     .select("id, name, source_filename, columns, is_sample, user_id")

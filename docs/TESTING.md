@@ -145,6 +145,24 @@ Those five queries are now in the differential corpus, so the gap cannot
 reopen. `engine-gap.ts` is kept — it is the check to run if the browser engine
 is ever changed again.
 
+#### The first-query cost, and what the user sees
+
+The engine is ~8 MB compressed, fetched once per browser and cached after. That
+is a real wait the first time, so it is **explained rather than hidden**:
+
+- loading starts on `hydrateFromSupabase` — i.e. when a data page opens, not
+  when Run is pressed — so it overlaps the Supabase round trips and the user
+  choosing a table;
+- `SqlEngineStatus` shows **"Starting the SQL engine…" with a real progress
+  bar**, driven by duckdb-wasm's byte-level `instantiate` callback rather than
+  an indeterminate spinner (measured: ~50 progress events per cold load);
+- it renders **nothing** once ready — a permanent "engine: ok" badge is noise;
+- a failure says so, names `/engine-check`, and points at CSP/proxy as the
+  usual cause, instead of leaving a Run button that does nothing.
+
+All initialisation shares **one promise**, so twelve widgets mounting together
+trigger one download. A failed init clears that promise so a retry can work.
+
 #### Verifying it in a real browser
 
 Unit tests and the bundler cannot tell you whether WebAssembly instantiates

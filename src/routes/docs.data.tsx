@@ -668,13 +668,33 @@ ORDER  BY 1;`}</Code>
         running total came back as zero for every row rather than erroring. Window functions, CTEs
         and correlated subqueries all work now, and they behave identically wherever they run.
       </Callout>
+      <H3 id="workbench-first-query">The first query in a session is slower</H3>
       <P>
-        The engine is WebAssembly, downloaded once on your first query and cached by the browser
-        afterwards. If a query fails immediately on a locked-down network, open{" "}
-        <DocLink to="/engine-check">/engine-check</DocLink> — it runs a handful of statements and
-        reports whether the engine loaded, which is usually enough to identify a
-        Content-Security-Policy or proxy that blocked it.
+        The engine is WebAssembly — roughly <strong>8 MB</strong>, fetched once and then cached by
+        your browser for every later visit. You will see{" "}
+        <strong>&ldquo;Starting the SQL engine…&rdquo;</strong> with a progress bar while that
+        happens.
       </P>
+      <UL>
+        <li>
+          It starts <strong>as soon as you open a data page</strong>, not when you press Run, so it
+          usually finishes while you are still choosing a table.
+        </li>
+        <li>
+          It downloads <strong>once per browser</strong>, not per query, per dataset or per tab.
+        </li>
+        <li>
+          It is served <strong>from your own deployment</strong>, never a CDN — so an air-gapped
+          install works, and no third party sees that you loaded it.
+        </li>
+      </UL>
+      <Callout kind="info" title="If it never finishes">
+        A Content-Security-Policy or corporate proxy that blocks WebAssembly or web workers will
+        stop it loading, and the strip says so rather than leaving Run looking broken. Open{" "}
+        <DocLink to="/engine-check">/engine-check</DocLink> — it reports which stage failed and
+        which build your browser selected, which is normally enough for whoever administers the
+        policy to fix it.
+      </Callout>
 
       {/* ── AGENTS ── */}
       <H2 id="agent-access">Giving an agent access</H2>
