@@ -23,10 +23,21 @@ Nothing here is a commitment or a delivery date. Items move.
   `listStreams` + `fetchRows` pair rather than new architecture. Next
   candidates by demand: Google Analytics, Zendesk, Jira, NetSuite, QuickBooks,
   Xero, Klaviyo, Intercom.
-- **NL-to-SQL accuracy.** Last measured 88.9% (40/45, strict, three runs) —
-  but that was against AlaSQL, and DuckDB is now the default engine, so the
-  number needs re-measuring before it means anything. The question set also
-  needs to grow past 45 with multi-table joins and genuine ambiguity.
+- **NL-to-SQL accuracy — no valid number currently exists.** The last figure,
+  88.9% (40/45, strict, three runs), was measured against AlaSQL; DuckDB has
+  been the default since, and the engine moves the score on its own. Do not
+  quote it.
+
+  The question set has been rebuilt to make the next measurement worth having.
+  It was 45 questions with **zero joins and zero window functions** — the
+  engine's limits had become the measurement's limits, so the score said
+  nothing about the operations a BI tool is most asked for. v3 is 61 questions
+  including 7 joins and 6 window/CTE questions, with floors in
+  `tests/unit/nl2sqlEval.test.ts` so it cannot narrow again.
+
+  What remains is the run itself: it needs a live app, an access token and some
+  model spend. Expect the number to move in both directions at once — AlaSQL's
+  reserved-word failures disappear, and harder questions arrive.
 
 ## Next
 

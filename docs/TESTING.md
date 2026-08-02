@@ -167,9 +167,9 @@ per-category breakdown, so a regression can be located rather than just felt.
 | 2026-07-31 | `anthropic/claude-haiku-4.5` via OpenRouter | 23 questions, v1 | 78.3% (18/23), 1 run      |
 | 2026-07-31 | same, after the result-shape prompt fix     | 23 questions, v1 | **82.6% (19/23), 3 runs** |
 
-**The v1 numbers above are not comparable to what follows.** The set is now 45
-questions (v2) across seven bundled datasets, instead of concentrating twelve
-of twenty-four on `saas_sales`.
+**The v1 numbers above are not comparable to what follows.** v2 grew the set to
+45 questions across seven bundled datasets, instead of concentrating twelve of
+twenty-four on `saas_sales`.
 
 | Date       | Model                                       | Question set       | Execution accuracy                     |
 | ---------- | ------------------------------------------- | ------------------ | -------------------------------------- |
@@ -178,9 +178,47 @@ of twenty-four on `saas_sales`.
 | 2026-08-01 | same, one ambiguous question corrected      | 45 questions, v2.1 | **88.9% (40/45)**, **3 runs (strict)** |
 
 By category: aggregate 6/6, grouping 9/9, date 4/4, lookup 3/3, ambiguity 1/1,
-ranking 7/10, filter 6/9, ratio 2/3. **This is a single pass — treat it as
-provisional until someone runs `EVAL_REPEATS=3`**, which scores a question as
-passing only if every attempt passes.
+ranking 7/10, filter 6/9, ratio 2/3.
+
+> ### ⚠️ Every number above is on AlaSQL. There is currently NO valid score.
+>
+> All of them were measured while AlaSQL was the default engine. **DuckDB is
+> the default now**, and both the reference query and the model's query run on
+> whatever `LOCAL_ENGINE` selects — so the engine change alone moves the
+> number, in an unknown direction, with no prompt or model change. AlaSQL's
+> reserved-word failures disappear (which should help); questions it could not
+> express are now in the set (which should hurt).
+>
+> The question set is also **v3 (61 questions)** rather than v2.1, so it is not
+> comparable on two axes at once.
+>
+> Re-measuring needs a running app, a token and some model spend, which is why
+> it has not been done here. Until it is, do not quote 88.9% — quote nothing.
+
+### v3: what changed and why
+
+The v2.1 set had **zero multi-table questions and zero window functions**. That
+was not an oversight so much as a shadow cast by the engine: it was authored
+against AlaSQL, which supports neither, so the limits of the engine had
+quietly become the limits of the measurement. An execution-accuracy score for a
+BI product that never joins two tables is not measuring the product.
+
+v3 adds 16 questions:
+
+| Added       | n   | What it covers                                                                                  |
+| ----------- | --- | ----------------------------------------------------------------------------------------------- |
+| `join`      | 7   | Composite keys, anti-joins, columns named differently on each side, filters on the joined table |
+| `window`    | 6   | Top-N-per-group, share of total, running totals, self-joins on consecutive periods              |
+| `ambiguity` | 3   | Was one question; now four                                                                      |
+
+The reference answers were checked against reality, not just for running:
+`window-biggest-improvement` returns **Celtics +42**, which is the real NBA
+record (2007-08, 24→66 wins), and `join-champ-double` (56) plus
+`join-champ-mismatch` (12) sum to the 68 constructor-champion seasons.
+
+`tests/unit/nl2sqlEval.test.ts` now enforces floors — at least 5 join, 5
+window and 3 ambiguity questions, and under half the set may be `LIMIT 1` — so
+the set cannot silently narrow back.
 
 The first v2 pass scored 80.0%, and reading the failures found two defects in
 the QUESTIONS rather than in the model: "which countries got more than half
@@ -298,9 +336,14 @@ what the question would catch if it broke. Writing the reference is the
 discipline that keeps this honest: a question you cannot answer unambiguously
 in SQL does not belong in a score.
 
-Avoid aliasing to `total` or `value` in reference queries — both are reserved
-words in AlaSQL. DuckDB (the default) accepts them, so a reference query using
-one would score differently on the two engines.
+Aliasing to `total` or `value` is safe on DuckDB, the default engine, and a
+parse error on AlaSQL. Questions written before the default flipped avoid both
+words; newer ones do not. If you run the eval with `LOCAL_ENGINE=alasql` expect
+those newer questions to fail on the reference query itself.
+
+New questions should be `join` or `window` shaped unless there is a specific
+gap elsewhere — those two categories were entirely absent until v3, and the
+floors in `nl2sqlEval.test.ts` exist to keep them from disappearing again.
 
 **A score is only comparable to another run on the SAME engine.** The eval
 inherits `LOCAL_ENGINE`, and both the reference query and the model's query run

@@ -11,13 +11,21 @@
 // Categories exist so a regression can be located: a drop concentrated in
 // `date` or `ranking` says something very different from a uniform drop.
 //
-// NOTE ON ALIASES: reference queries avoid `total` and `value`. Both are
-// reserved words in AlaSQL — the DEFAULT local engine — so `SUM(Sales) AS
-// total` is a parse error there while working fine in DuckDB. That is a real
-// product defect, not a quirk of this file: "total" is the most natural alias
-// a model will pick for "total sales", and today it fails. The eval scores
-// that honestly (the pipeline did fail to answer), but the REFERENCE has to
-// run in order to grade anything at all.
+// NOTE ON ALIASES: the older reference queries avoid `total` and `value`.
+// Both are reserved words in AlaSQL, which USED to be the default engine, so
+// `SUM(Sales) AS total` was a parse error there while working fine in DuckDB.
+// DuckDB is the default now and `AS total` executes correctly, so newer
+// questions do not observe that restriction. The old ones are left as they are
+// — rewriting them would change what a score means, and the whole point of
+// this file is that a number is only comparable to another number from the
+// same question set.
+//
+// THE ENGINE FLIP CHANGED WHAT CAN BE ASKED, not just what runs. DuckDB has
+// window functions, CTEs and correlated subqueries; AlaSQL had none of them.
+// A question set written against AlaSQL therefore could not test the top-N-per-
+// group, running-total or share-of-total questions that people actually ask a
+// BI tool, and its score said nothing about them. The `window` category exists
+// to cover that gap rather than leave it flattering.
 
 export type EvalCategory =
   | "lookup"
@@ -27,7 +35,11 @@ export type EvalCategory =
   | "ranking"
   | "date"
   | "ratio"
-  | "ambiguity";
+  | "ambiguity"
+  /** Two or more tables. The set had none of these at all until now. */
+  | "join"
+  /** Window functions, CTEs, correlated subqueries — impossible under AlaSQL. */
+  | "window";
 
 export type EvalQuestion = {
   id: string;
@@ -478,6 +490,244 @@ export const QUESTIONS: EvalQuestion[] = [
       "GROUP BY peril ORDER BY loss_usd DESC",
     category: "grouping",
     note: "Aliasing this 'total' would be a parse error in AlaSQL -- see the note at the top.",
+  },
+
+  // ── Joins ────────────────────────────────────────────────────────────────
+  // The set had ZERO multi-table questions before these. That is the single
+  // biggest thing an execution-accuracy score can be blind to: joining is the
+  // most common non-trivial operation in real BI work and the one where a
+  // model most often produces something that runs and is wrong — a missing
+  // condition silently fans out to a cross product and the totals inflate.
+  {
+    id: "join-champ-double",
+    tables: ["f1_world_champions", "f1_constructor_champions"],
+    question:
+      "In how many seasons did the drivers' champion drive for the team that won the constructors' championship?",
+    referenceSql:
+      "SELECT COUNT(*) AS n FROM f1_world_champions d " +
+      "JOIN f1_constructor_champions c ON d.season = c.season AND d.team = c.champion",
+    category: "join",
+    note:
+      "Two joined conditions, and the second one compares columns with DIFFERENT names " +
+      "(team vs champion) that mean the same thing. Joining on season alone gives 68 " +
+      "instead of 56 -- a plausible-looking number, which is what makes it worth scoring.",
+  },
+  {
+    id: "join-champ-mismatch",
+    tables: ["f1_world_champions", "f1_constructor_champions"],
+    question:
+      "List the seasons where the drivers' champion did not drive for the constructors' champion, with both champions named.",
+    referenceSql:
+      "SELECT d.season, d.champion AS driver_champion, c.champion AS constructor_champion " +
+      "FROM f1_world_champions d JOIN f1_constructor_champions c ON d.season = c.season " +
+      "WHERE d.team <> c.champion ORDER BY d.season",
+    category: "join",
+    ordered: true,
+    note: "Join plus an inequality filter, returning columns from both sides.",
+  },
+  {
+    id: "join-drivers-of-leader",
+    tables: ["f1_driver_standings", "f1_constructor_standings"],
+    question: "Which drivers race for the constructor at the top of the standings?",
+    referenceSql:
+      "SELECT d.driver FROM f1_driver_standings d " +
+      "JOIN f1_constructor_standings c ON d.team = c.team " +
+      "WHERE c.position = 1 ORDER BY d.position",
+    category: "join",
+    ordered: true,
+    note:
+      "The join key is a team NAME shared by both tables, and the filter applies to the " +
+      "joined side rather than the selected one.",
+  },
+  {
+    id: "join-health-renewables",
+    tables: ["global_electricity", "world_health_indicators"],
+    question:
+      "What is the average life expectancy in countries where renewables are more than half of electricity generation?",
+    referenceSql:
+      "SELECT AVG(h.life_expectancy) AS avg_life_expectancy " +
+      "FROM global_electricity e JOIN world_health_indicators h " +
+      "ON e.country = h.country AND e.year = h.year " +
+      "WHERE e.renewables_share_pct > 50",
+    category: "join",
+    note:
+      "A COMPOSITE key: country AND year. Joining on country alone multiplies every " +
+      "country by its number of years and quietly skews the average -- it still returns " +
+      "a number, so nothing looks broken.",
+  },
+  {
+    id: "join-renewables-by-region",
+    tables: ["global_electricity", "world_health_indicators"],
+    question: "In 2019, what was the average renewables share by region?",
+    referenceSql:
+      "SELECT h.region, AVG(e.renewables_share_pct) AS avg_renewables " +
+      "FROM global_electricity e JOIN world_health_indicators h " +
+      "ON e.country = h.country AND e.year = h.year " +
+      "WHERE e.year = 2019 GROUP BY h.region ORDER BY avg_renewables DESC",
+    category: "join",
+    ordered: true,
+    note:
+      "The grouping column lives in one table and the measure in the other -- the model " +
+      "has to work out that region is only available via the health table.",
+  },
+  {
+    id: "join-big-generators-life",
+    tables: ["global_electricity", "world_health_indicators"],
+    question:
+      "In 2019, what was the average life expectancy of countries that generated more than 500 TWh in total?",
+    referenceSql:
+      "SELECT AVG(h.life_expectancy) AS avg_life_expectancy " +
+      "FROM global_electricity e JOIN world_health_indicators h " +
+      "ON e.country = h.country AND e.year = h.year " +
+      "WHERE e.year = 2019 AND e.total_twh > 500",
+    category: "join",
+    note: "Filters on both sides of the join and on the shared year.",
+  },
+  {
+    id: "join-missing-health-record",
+    tables: ["global_electricity", "world_health_indicators"],
+    question: "Which countries have 2020 electricity data but no health record for that year?",
+    referenceSql:
+      "SELECT e.country FROM global_electricity e " +
+      "LEFT JOIN world_health_indicators h ON e.country = h.country AND e.year = h.year " +
+      "WHERE e.year = 2020 AND h.country IS NULL ORDER BY e.country",
+    category: "join",
+    ordered: true,
+    note:
+      "An ANTI-JOIN. Reaching for an inner join here returns the exact opposite set, and " +
+      "the answer still looks like a tidy list of countries.",
+  },
+
+  // ── Window functions, CTEs, correlated subqueries ────────────────────────
+  // None of these were expressible under AlaSQL, so no earlier score says
+  // anything about them. They are also the shape of question a BI tool gets
+  // asked constantly: best per group, share of total, running total.
+  {
+    id: "window-top-product-per-region",
+    tables: ["saas_sales"],
+    question: "What is the best-selling product by revenue in each region?",
+    referenceSql:
+      "WITH ranked AS (SELECT Region, Product, SUM(Sales) AS revenue, " +
+      "ROW_NUMBER() OVER (PARTITION BY Region ORDER BY SUM(Sales) DESC) AS rn " +
+      "FROM saas_sales GROUP BY Region, Product) " +
+      "SELECT Region, Product, revenue FROM ranked WHERE rn = 1 ORDER BY Region",
+    category: "window",
+    ordered: true,
+    note:
+      "Top-N-per-group, the canonical window-function question. A plain GROUP BY with " +
+      "ORDER BY and LIMIT returns the single best product overall, not one per region.",
+  },
+  {
+    id: "window-share-of-total",
+    tables: ["saas_sales"],
+    question: "What percentage of total sales does each region account for?",
+    referenceSql:
+      "SELECT Region, SUM(Sales) * 100.0 / SUM(SUM(Sales)) OVER () AS pct_of_total " +
+      "FROM saas_sales GROUP BY Region ORDER BY pct_of_total DESC",
+    category: "window",
+    ordered: true,
+    note:
+      "Share of a grand total computed alongside the grouping. Any correct route passes " +
+      "-- a subquery for the denominator is equally valid -- but it cannot be done in one " +
+      "pass without a window or a subquery.",
+  },
+  {
+    id: "window-running-total",
+    tables: ["global_electricity"],
+    question: "Show worldwide total generation by year as a running cumulative total.",
+    referenceSql:
+      "WITH yearly AS (SELECT year, SUM(total_twh) AS gen FROM global_electricity GROUP BY year) " +
+      "SELECT year, SUM(gen) OVER (ORDER BY year) AS cumulative FROM yearly ORDER BY year",
+    category: "window",
+    ordered: true,
+    note: "An ordered window over an aggregate -- two levels, and the order is the answer.",
+  },
+  {
+    id: "window-above-average-regions",
+    tables: ["saas_sales"],
+    question: "Which regions have total sales above the average region's total sales?",
+    referenceSql:
+      "WITH per_region AS (SELECT Region, SUM(Sales) AS revenue FROM saas_sales GROUP BY Region) " +
+      "SELECT Region, revenue FROM per_region " +
+      "WHERE revenue > (SELECT AVG(revenue) FROM per_region) ORDER BY revenue DESC",
+    category: "window",
+    ordered: true,
+    note:
+      "Compares each group against an aggregate OF the groups, not of the rows. Comparing " +
+      "to AVG(Sales) over the raw rows is the tempting misreading and gives a different set.",
+  },
+  {
+    id: "window-biggest-improvement",
+    tables: ["nba_team_seasons"],
+    question:
+      "Which franchise improved its win total the most from one season to the very next season, and by how many wins?",
+    referenceSql:
+      "SELECT b.franchise, b.wins - a.wins AS improvement FROM nba_team_seasons a " +
+      "JOIN nba_team_seasons b ON a.franchise = b.franchise AND b.season = a.season + 1 " +
+      "ORDER BY improvement DESC LIMIT 1",
+    category: "window",
+    ordered: true,
+    note:
+      "A SELF-JOIN on consecutive seasons (LAG is equally correct). Consecutiveness is the " +
+      "trap: comparing each season to the franchise's previous ROW rather than its previous " +
+      "YEAR gives a wrong answer wherever a season is missing.",
+  },
+  {
+    id: "window-rank-franchises",
+    tables: ["nba_team_seasons"],
+    question:
+      "Rank franchises by their total playoff wins, highest first, showing the top 5 with their rank.",
+    referenceSql:
+      "WITH totals AS (SELECT franchise, SUM(playoff_wins) AS pw FROM nba_team_seasons GROUP BY franchise) " +
+      "SELECT franchise, pw, RANK() OVER (ORDER BY pw DESC) AS rnk FROM totals ORDER BY pw DESC LIMIT 5",
+    category: "window",
+    ordered: true,
+    note: "An explicit rank column, which is not the same as row position.",
+  },
+
+  // ── Ambiguity ────────────────────────────────────────────────────────────
+  // There was exactly one of these. They are scored to notice when a
+  // convention DRIFTS, not because one answer is the only defensible one --
+  // the reference encodes the reading a competent analyst would default to.
+  {
+    id: "ambiguous-best-customer",
+    tables: ["saas_sales"],
+    question: "Who is our best customer?",
+    referenceSql:
+      "SELECT Customer, SUM(Sales) AS revenue FROM saas_sales " +
+      "GROUP BY Customer ORDER BY revenue DESC LIMIT 1",
+    category: "ambiguity",
+    ordered: true,
+    note:
+      "'Best' could be revenue, profit, or order count. Revenue is the usual default; " +
+      "profit is defensible and would score as wrong here, which is the cost of pinning a " +
+      "convention and is worth paying to see it move.",
+  },
+  {
+    id: "ambiguous-biggest-security-problem",
+    tables: ["siem_alerts"],
+    question: "What is our biggest security problem right now?",
+    referenceSql:
+      "SELECT technique_name, COUNT(*) AS n FROM siem_alerts " +
+      "WHERE status = 'NEW' GROUP BY technique_name ORDER BY n DESC LIMIT 1",
+    category: "ambiguity",
+    ordered: true,
+    note:
+      "'Right now' should narrow to unresolved alerts rather than all history. Tests " +
+      "whether the model reads the status column as meaningful instead of ignoring it.",
+  },
+  {
+    id: "ambiguous-healthiest-region",
+    tables: ["world_health_indicators"],
+    question: "Which region is the healthiest?",
+    referenceSql:
+      "SELECT region, AVG(life_expectancy) AS avg_life_expectancy FROM world_health_indicators " +
+      "WHERE year = 2019 GROUP BY region ORDER BY avg_life_expectancy DESC LIMIT 1",
+    category: "ambiguity",
+    ordered: true,
+    note:
+      "Two ambiguities at once: which measure means 'healthiest', and which year. " +
+      "Averaging every year together is the common mistake and changes the winner.",
   },
 ];
 

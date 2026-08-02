@@ -46,6 +46,18 @@ describe("every reference query is answerable", () => {
     // A reference that errors or returns nothing cannot grade anything — the
     // question would silently score every model as wrong, or as right.
     expect(res.rows.length, `"${q.question}" produced no rows`).toBeGreaterThan(0);
+
+    // A single row of nothing but nulls is the shape an aggregate takes when
+    // it silently found no data — SUM over a column the engine read as text,
+    // say. It passes the row-count check above while being just as
+    // ungradeable, because a broken candidate returns the same thing.
+    if (res.rows.length === 1) {
+      const values = Object.values(res.rows[0]);
+      expect(
+        values.length > 0 && values.every((v) => v === null || v === undefined),
+        `"${q.question}" returns one row of all nulls — the aggregate found nothing`,
+      ).toBe(false);
+    }
   });
 });
 
@@ -80,6 +92,45 @@ describe("the question set is coherent", () => {
     for (const q of QUESTIONS.filter((x) => x.category === "ranking")) {
       expect(q.ordered, `${q.id} is a ranking but not marked ordered`).toBe(true);
     }
+  });
+
+  it("only claims a question is ordered when its reference actually sorts", () => {
+    // The converse of the rule above, and the one that bites: `ordered: true`
+    // grades row order as part of the answer, so if the reference has no ORDER
+    // BY then the "correct" order is whatever the engine happened to emit.
+    // The candidate is then graded against an accident.
+    for (const q of QUESTIONS.filter((x) => x.ordered)) {
+      expect(
+        /order\s+by/i.test(q.referenceSql),
+        `${q.id} is graded on row order but its reference has no ORDER BY`,
+      ).toBe(true);
+    }
+  });
+
+  it("keeps covering the operations a BI tool is actually asked for", () => {
+    // FLOORS, not exact counts — the set should grow.
+    //
+    // These exist because the set had drifted to zero joins and zero window
+    // functions without anyone noticing: it was authored against AlaSQL, which
+    // supported neither, so the shape of the engine silently became the shape
+    // of the measurement. An accuracy number that excludes joins is not an
+    // accuracy number for a BI product.
+    const count = (c: string) => QUESTIONS.filter((q) => q.category === c).length;
+    expect(
+      QUESTIONS.filter((q) => q.tables.length > 1).length,
+      "no multi-table questions",
+    ).toBeGreaterThanOrEqual(5);
+    expect(count("join"), "no join questions").toBeGreaterThanOrEqual(5);
+    expect(count("window"), "no window/CTE questions").toBeGreaterThanOrEqual(5);
+    expect(count("ambiguity"), "too few ambiguous questions").toBeGreaterThanOrEqual(3);
+  });
+
+  it("is not mostly single-value answers", () => {
+    // A set dominated by scalars flatters the score: one number is the easiest
+    // thing to match by luck, and it tests almost nothing about shaping a
+    // result. Kept as a ratio so the set can grow without re-tuning it.
+    const scalarish = QUESTIONS.filter((q) => /LIMIT 1\b/i.test(q.referenceSql)).length;
+    expect(scalarish / QUESTIONS.length, "over half the questions are LIMIT 1").toBeLessThan(0.5);
   });
 });
 
