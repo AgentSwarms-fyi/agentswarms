@@ -802,7 +802,27 @@ export async function buildOntology(args: {
 }
 
 /** Runtime guard for specs loaded from stored widget JSON. */
+/**
+ * Is this a spec the graph renderer can actually draw?
+ *
+ * Checks every field computeLayout dereferences, not just the two it used to.
+ * The previous version tested `entities` and `relations` only — and
+ * computeLayout also reads `spec.domains.length`, so a spec without `domains`
+ * passed the guard and then threw inside render.
+ *
+ * That matters more than it looks: a spec lives inside a widget's chart JSON,
+ * `chart` is one of the fields sanitizePublicWidgets passes through to
+ * ANONYMOUS viewers, and there is no error boundary anywhere in this app. A
+ * throw during render does not blank one widget, it blanks the page — the
+ * public share page included. Anything this rejects gets a "cannot be
+ * displayed" panel instead.
+ *
+ * Deliberately shallow on the ELEMENTS: entities and relations are drawn
+ * defensively (a missing field renders as an empty label), so validating each
+ * one here would reject specs that draw fine.
+ */
 export function isOntologySpec(v: unknown): v is OntologySpec {
-  const s = v as OntologySpec | null;
-  return Boolean(s && Array.isArray(s.entities) && Array.isArray(s.relations));
+  if (!v || typeof v !== "object") return false;
+  const s = v as Partial<OntologySpec>;
+  return Array.isArray(s.entities) && Array.isArray(s.relations) && Array.isArray(s.domains);
 }

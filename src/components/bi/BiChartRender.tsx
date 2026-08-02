@@ -54,6 +54,7 @@ import {
 } from "@/components/bi/BiChartParts";
 import { BiGeoMap } from "@/components/bi/BiGeoMap";
 import { OntologyGraph } from "@/components/bi/OntologyGraph";
+import { isOntologySpec } from "@/lib/biOntology";
 import type { BiNumberFormat, BiRefLine, ChartSpec } from "@/lib/biAgent";
 import {
   bucketRowsX,
@@ -407,6 +408,19 @@ function BiChartRenderInner({
 
   if (chart.type === "ontology") {
     // Renders from the stored spec — rows are irrelevant for this visual.
+    //
+    // GUARDED because this file has no error boundary above it anywhere in the
+    // app: a throw inside computeLayout blanks the whole page rather than one
+    // widget, and this same component renders the PUBLIC share and embed
+    // pages. A spec stored by an older build, or half-written, would otherwise
+    // take the dashboard down for everyone holding the link.
+    if (!isOntologySpec(chart.spec)) {
+      return (
+        <div className="flex h-full items-center justify-center p-4 text-center text-xs text-muted-foreground">
+          This ontology cannot be displayed — rebuild it from the BI builder.
+        </div>
+      );
+    }
     return <OntologyGraph spec={chart.spec} large={large} fill={fill} />;
   }
 

@@ -163,6 +163,17 @@ cut numbered releases; see [ROADMAP.md](./ROADMAP.md).
 
 ### Security & governance
 
+- **Fixed: one malformed ontology could blank a whole published dashboard.**
+  An ontology spec is stored inside a widget's `chart` JSON, and `chart` is one
+  of the fields the public sanitiser passes through to anonymous viewers. The
+  graph renderer reads `spec.entities`, `spec.relations` **and `spec.domains`**;
+  the guard meant to vet it checked only the first two, so a spec without
+  `domains` passed and then threw inside render. **There is no error boundary
+  anywhere in this app**, so that does not blank one widget — it blanks the
+  page, for everyone holding the share link. The guard now checks every field
+  the renderer dereferences and actually gates the render, with a "cannot be
+  displayed" panel as the fallback. It previously had **zero callers**.
+
 - **Fixed: exported CSVs could carry spreadsheet formulas (CWE-1236).** Excel,
   LibreOffice and Sheets execute a cell starting with `=`, `+`, `-`, `@`, tab or
   carriage return, and RFC-4180 quoting does not stop it — the quotes are
