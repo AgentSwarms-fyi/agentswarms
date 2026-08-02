@@ -392,6 +392,58 @@ function DataPage() {
         ]}
       />
 
+      {/* ── APPS ── */}
+      <H2 id="apps">Apps — SaaS sources</H2>
+      <P>
+        Databases are <strong>queried in place</strong>. Apps have no query language, so they are{" "}
+        <strong>pulled into datasets</strong> instead: <strong>Integrations → Apps</strong> →
+        connect, discover what is in there, choose what to sync. Each stream becomes its own dataset
+        and is then indistinguishable from an uploaded CSV — same type inference, same version
+        history, same use in BI, prep flows and the semantic layer.
+      </P>
+      <Table
+        headers={["App", "Auth", "Streams"]}
+        rows={[
+          [
+            "Google Sheets",
+            "Service-account JSON",
+            "One dataset per worksheet. Share the sheet with the key's client_email, or Google returns 403 however valid the key is.",
+          ],
+          [
+            "Stripe",
+            "Secret or restricted key",
+            "Charges, customers, invoices, subscriptions, payment intents, products, prices, refunds, payouts, balance transactions",
+          ],
+          [
+            "Shopify",
+            "Admin API access token",
+            "Orders, customers, products, draft orders, price rules",
+          ],
+          [
+            "HubSpot",
+            "Private app token",
+            "Contacts, companies, deals, tickets, line items, products",
+          ],
+          [
+            "Salesforce",
+            "Connected app (client credentials)",
+            "Accounts, contacts, leads, opportunities, cases, campaigns, users",
+          ],
+        ]}
+      />
+      <P>
+        Auth is a pasted credential, never OAuth: a redirect flow needs a public callback URL that a
+        self-hosted deployment behind a firewall may not have, so each connector uses the vendor's
+        server-to-server credential instead.
+      </P>
+      <Callout kind="warn" title="A sync replaces its dataset">
+        That is the right semantic for a source whose rows are edited and deleted in place — an
+        append would resurrect deleted rows for ever. The previous contents are snapshotted as a
+        restorable version first, so a sync that pulls a truncated source is recoverable. Syncs run
+        on demand or hourly / daily / weekly, and you are notified if one fails or comes back
+        partial.
+      </Callout>
+
       {/* ── CATALOG ── */}
       <H2 id="catalog">The catalog</H2>
       <Table

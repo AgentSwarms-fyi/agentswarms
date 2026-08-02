@@ -141,8 +141,9 @@ function SemanticsPage() {
               Field type. A <C key="t2">time</C> dimension can be rolled up to a{" "}
               <strong>grain</strong> at query time (day/week/month/quarter/year) — the compiler
               emits the right truncation per warehouse dialect, so you write the raw column once and
-              get monthly or quarterly buckets on demand. Local (AlaSQL) datasets support every
-              grain except week.
+              get monthly or quarterly buckets on demand. Local datasets support every grain on
+              DuckDB, the default engine; on the <C key="t3">LOCAL_ENGINE=alasql</C> escape hatch,
+              every grain except week.
             </>,
           ],
         ]}

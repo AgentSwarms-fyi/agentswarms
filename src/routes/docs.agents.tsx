@@ -232,13 +232,16 @@ If the customer is angry, or asks for a refund above $500, reply only:
             <>
               Semantic Metrics <C key="f">metric_query</C>
             </>,
-            "Defined metrics",
+            "Chosen semantic models",
             <>
               Query governed metrics from the{" "}
               <DocLink key="s" to="/docs/semantics">
                 Semantic Layer
               </DocLink>
-              .
+              . <strong>Deny by default</strong> — pick the models this agent may read; enabling the
+              toggle alone gives it none, and the tool is not offered to the model at all until you
+              do. The catalogue of selected models goes into the prompt on every call, so narrowing
+              it is cheaper and more accurate as well as safer.
             </>,
           ],
           [

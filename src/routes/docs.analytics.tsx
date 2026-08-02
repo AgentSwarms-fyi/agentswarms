@@ -164,8 +164,11 @@ function AnalyticsDoc() {
       <Callout kind="warn" title="Traces are kept forever by default">
         <C>trace_retention_days</C> ships at 0, meaning nothing is ever purged. Combined with{" "}
         <C>PERSIST_PROMPT_BODIES</C>, that can mean full prompts and responses accumulating
-        indefinitely. If your prompts carry customer data, set a real retention window — see{" "}
-        <DocLink to="/docs/budgets">Budgets &amp; cost</DocLink>.
+        indefinitely — and on a busy instance <C>execution_traces</C> and <C>swarm_runs</C> are the
+        fastest-growing tables you have. Set a window in{" "}
+        <strong>Admin → IAM → Settings → Trace retention</strong>. The purge has always run on the
+        scheduled maintenance pass; until that field is non-zero it simply has nothing to do. See
+        also <DocLink to="/docs/budgets">Budgets &amp; cost</DocLink>.
       </Callout>
 
       <H2 id="export">Export</H2>
