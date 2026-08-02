@@ -707,14 +707,21 @@ export function WarehousesTab() {
               <TableBody>
                 {connections.map((c) => (
                   <TableRow key={c.id}>
-                    <TableCell className="font-medium">{c.name}</TableCell>
+                    <TableCell className="font-medium">
+                      <span className="flex items-center gap-2">
+                        {c.name}
+                        {c.shared && (
+                          <Badge variant="outline" className="text-[10px] font-normal">
+                            Shared
+                          </Badge>
+                        )}
+                      </span>
+                    </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       <span className="flex items-center gap-1.5">
-                        <img
-                          src={PROVIDER_LOGOS[c.provider]}
-                          alt=""
-                          className="h-4 w-4 object-contain"
-                        />
+                        <span className="flex h-4 w-4 items-center justify-center">
+                          <ProviderMark provider={c.provider} />
+                        </span>
                         {WAREHOUSE_LABELS[c.provider]}
                       </span>
                     </TableCell>
@@ -753,16 +760,21 @@ export function WarehousesTab() {
                             "Test"
                           )}
                         </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-                          onClick={() =>
-                            requestRemove([c.id], WAREHOUSE_LABELS[c.provider], [c.name])
-                          }
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
+                        {/* A shared connection belongs to someone else. The
+                            server refuses the delete regardless, but a button
+                            that always errors is its own bug. */}
+                        {!c.shared && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                            onClick={() =>
+                              requestRemove([c.id], WAREHOUSE_LABELS[c.provider], [c.name])
+                            }
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>

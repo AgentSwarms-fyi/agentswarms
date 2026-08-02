@@ -102,13 +102,13 @@ async function loadFlowTables(
   // (bounded, and reported when the bound bites) and the pipeline runs here.
   const wareTables = Object.entries(cfg?.sources ?? {}).filter(([name]) => needed.has(name));
   if (wareTables.length > 0) {
-    const { loadWarehouseConnection } = await import("@/utils/warehouse/connections.server");
+    const { loadWarehouseConnectionForUser } = await import("@/utils/warehouse/connections.server");
     const { executeWarehouseQuery } = await import("@/utils/warehouse/drivers.server");
-    const connCache = new Map<string, Awaited<ReturnType<typeof loadWarehouseConnection>>>();
+    const connCache = new Map<string, Awaited<ReturnType<typeof loadWarehouseConnectionForUser>>>();
     for (const [name, binding] of wareTables) {
       let conn = connCache.get(binding.connectionId);
       if (!conn) {
-        conn = await loadWarehouseConnection(
+        conn = await loadWarehouseConnectionForUser(
           supabaseAdmin,
           { connectionId: binding.connectionId },
           userId,
@@ -191,12 +191,12 @@ async function tryFoldToWarehouse(
   const binding = prepWarehouseBinding(cfg);
   if (!binding) return null; // local (or mixed) sources — nothing to fold
 
-  const { loadWarehouseConnection } = await import("@/utils/warehouse/connections.server");
+  const { loadWarehouseConnectionForUser } = await import("@/utils/warehouse/connections.server");
   const { executeWarehouseQuery } = await import("@/utils/warehouse/drivers.server");
 
-  let conn: Awaited<ReturnType<typeof loadWarehouseConnection>>;
+  let conn: Awaited<ReturnType<typeof loadWarehouseConnectionForUser>>;
   try {
-    conn = await loadWarehouseConnection(
+    conn = await loadWarehouseConnectionForUser(
       supabaseAdmin,
       { connectionId: binding.connectionId },
       userId,

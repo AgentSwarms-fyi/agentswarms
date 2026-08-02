@@ -5,7 +5,7 @@
 // for the owning user) and the owner is notified when the crawl detects
 // schema drift — new, removed or changed assets.
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { loadWarehouseConnection } from "@/utils/warehouse/connections.server";
+import { loadWarehouseConnectionForUser } from "@/utils/warehouse/connections.server";
 import {
   loadStorageConfig,
   runCrawl,
@@ -63,7 +63,7 @@ export async function processDueCatalogCrawls(force = false): Promise<number> {
           source.user_id,
           source,
           async (connectionId) =>
-            (await loadWarehouseConnection(supabaseAdmin, { connectionId }, source.user_id)).config,
+            (await loadWarehouseConnectionForUser(supabaseAdmin, { connectionId }, source.user_id)).config,
           async (src) => loadStorageConfig(source.user_id, src),
         );
         const { added, removed, changed } = stats.changes;

@@ -33,6 +33,40 @@ export type LoadedConnection = {
 /** Only a well-formed uuid is ever interpolated into a PostgREST filter. */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/**
+ * Load a connection `userId` may use — owned by them, or shared via IAM.
+ *
+ * THE ONE PLACE GRANTS ARE RESOLVED. Every caller should use this rather than
+ * assembling its own id list: nine call sites each resolving their own grants
+ * is nine chances to forget, and the failure mode of forgetting is not a
+ * visible error but a connection that silently stops working for a grantee.
+ *
+ * Grants are resolved FRESH on every call, deliberately. Caching them would
+ * mean a revoked grant kept working until the cache expired — and on the
+ * scheduled paths, that could be indefinitely. Revocation has to take effect
+ * on the next run, which is what re-resolving guarantees.
+ *
+ * Resolution uses the SERVICE ROLE even when the caller holds a user JWT. The
+ * grant tables are metadata, not secrets, and reading them under RLS would
+ * make the security outcome depend on the policies of a table the user can
+ * see — the answer to "may I use this connection" must not be something the
+ * asker can influence.
+ */
+export async function loadWarehouseConnectionForUser(
+  sb: SupabaseClient<Database>,
+  ref: { connectionId?: string; name?: string },
+  userId: string,
+): Promise<LoadedConnection> {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { resolveGrantedResourceIds } = await import("@/utils/iam.server");
+  const grantedIds = await resolveGrantedResourceIds(supabaseAdmin, userId, "warehouse_connection");
+  // A shared connection's row is not readable under the grantee's RLS — by
+  // design, since it holds the credential — so the row itself is fetched with
+  // the service role once a grant has been established.
+  const client = grantedIds.size > 0 ? supabaseAdmin : sb;
+  return loadWarehouseConnection(client, ref, userId, { grantedIds });
+}
+
 export async function loadWarehouseConnection(
   sb: SupabaseClient<Database>,
   ref: { connectionId?: string; name?: string },

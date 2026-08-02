@@ -50,7 +50,9 @@ export type IamGrantRow = {
     | "semantic_model"
     | "catalog_source"
     | "integration"
-    | "provider_credential";
+    | "provider_credential"
+    | "warehouse_connection"
+    | "saas_connection";
   resource_id: string;
   resource_name: string | null; // null = resource was deleted
   resource_owner_id: string | null;
@@ -71,7 +73,9 @@ export type IamResourceOption = {
     | "semantic_model"
     | "catalog_source"
     | "integration"
-    | "provider_credential";
+    | "provider_credential"
+    | "warehouse_connection"
+    | "saas_connection";
   id: string;
   name: string;
   owner_user_id: string | null;
@@ -597,6 +601,8 @@ export const iamListGrantableResources = createServerFn({ method: "POST" })
       { data: catalogSources },
       { data: llmIntegrations },
       { data: providerCreds },
+      { data: warehouses },
+      { data: saasSources },
     ] = await Promise.all([
       supabaseAdmin.from("knowledge_bases").select("id, name, user_id").order("name"),
       supabaseAdmin
@@ -618,6 +624,11 @@ export const iamListGrantableResources = createServerFn({ method: "POST" })
         .eq("is_active", true)
         .order("provider"),
       supabaseAdmin.from("provider_credentials").select("id, provider, label, user_id"),
+      supabaseAdmin
+        .from("data_warehouse_connections")
+        .select("id, name, provider, user_id")
+        .order("name"),
+      supabaseAdmin.from("saas_connections").select("id, name, provider, user_id").order("name"),
     ]);
     const resources: IamResourceOption[] = [
       ...(kbs ?? []).map((k) => ({
@@ -666,6 +677,21 @@ export const iamListGrantableResources = createServerFn({ method: "POST" })
         resource_type: "provider_credential" as const,
         id: c.id,
         name: `${c.provider}${c.label ? ` (${c.label})` : ""} credential`,
+        owner_user_id: c.user_id,
+      })),
+      // Sharing a connection shares its USE, never its credential: the
+      // grantee's queries run against the owner's warehouse with the owner's
+      // credential, decrypted server-side and never sent anywhere.
+      ...(warehouses ?? []).map((c) => ({
+        resource_type: "warehouse_connection" as const,
+        id: c.id,
+        name: `${c.name} (${c.provider})`,
+        owner_user_id: c.user_id,
+      })),
+      ...(saasSources ?? []).map((c) => ({
+        resource_type: "saas_connection" as const,
+        id: c.id,
+        name: `${c.name} (${c.provider})`,
         owner_user_id: c.user_id,
       })),
     ];
@@ -835,6 +861,8 @@ export const iamCreateGrant = createServerFn({ method: "POST" })
           "catalog_source",
           "integration",
           "provider_credential",
+          "warehouse_connection",
+          "saas_connection",
         ]),
         resource_id: z.string().uuid(),
         principal_type: z.enum(["user", "group"]),

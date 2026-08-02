@@ -29,9 +29,11 @@ describe("the grant is the only thing that widens access", () => {
     // Deliberate: the caller has to go and fetch the grant. A loader that
     // looked it up would silently widen every existing call site — including
     // the service-role ones, where RLS is off.
-    // Matches a CALL, not a mention: the doc comment names the function the
-    // caller is expected to use, and an over-broad check would flag that.
-    const fn = loaderSrc.slice(loaderSrc.indexOf("export async function loadWarehouseConnection"));
+    // Anchored on the LOW-LEVEL loader specifically — "loadWarehouseConnection"
+    // without the paren also matches loadWarehouseConnectionForUser, which
+    // appears earlier and legitimately does resolve. Matching a CALL rather
+    // than a mention, since the doc comment names the resolver on purpose.
+    const fn = loaderSrc.slice(loaderSrc.indexOf("export async function loadWarehouseConnection("));
     expect(fn).not.toMatch(/resolveGrantedResourceIds\s*\(/);
   });
 
@@ -54,7 +56,7 @@ describe("a grantee uses the connection without receiving it", () => {
     // {{secret:PROD_PW}} in the GRANTEE's vault — finding nothing, or worse a
     // different secret that happens to share the name.
     expect(loaderSrc).toContain("const secretScope = row.user_id ?? ownerUserId");
-    expect(loaderSrc).toContain("resolveSecretRefsInObject(\n      secretScope,");
+    expect(loaderSrc).toMatch(/resolveSecretRefsInObject\(\s*secretScope\s*,/);
   });
 
   it("reports whether the connection was reached by grant", () => {
@@ -104,5 +106,76 @@ describe("resolveGrantedResourceIds accepts the new types", () => {
   it("lists them in its resourceType union", () => {
     expect(iamSrc).toContain('| "warehouse_connection"');
     expect(iamSrc).toContain('| "saas_connection"');
+  });
+});
+
+describe("grants are resolved in exactly one place", () => {
+  it("every call site goes through loadWarehouseConnectionForUser", () => {
+    // Nine call sites each resolving their own grants is nine chances to
+    // forget, and forgetting does not raise an error — it silently stops a
+    // shared connection working for the grantee.
+    const callers = [
+      "src/utils/catalog.functions.ts",
+      "src/utils/catalog/schedule.server.ts",
+      "src/utils/bi/refresh.server.ts",
+      "src/utils/warehouse.functions.ts",
+      "src/utils/bi/prep.server.ts",
+      "src/utils/tools/registry.server.ts",
+      "src/utils/semantic.functions.ts",
+    ];
+    for (const f of callers) {
+      const src = readFileSync(f, "utf8");
+      // The bare loader must not be called directly any more. Matching on the
+      // call form, since the ForUser name contains the bare one.
+      expect(src, `${f} still calls the un-granted loader`).not.toMatch(
+        /loadWarehouseConnection\s*\(/,
+      );
+      expect(src, `${f} does not load connections at all`).toMatch(
+        /loadWarehouseConnectionForUser\s*\(/,
+      );
+    }
+  });
+
+  it("resolves grants FRESH on every call, never cached", () => {
+    // A cached grant keeps working after revocation — indefinitely on the
+    // scheduled paths, which is the worst place for it.
+    const fn = loaderSrc.slice(
+      loaderSrc.indexOf("export async function loadWarehouseConnectionForUser"),
+    );
+    expect(fn).toContain("await resolveGrantedResourceIds(");
+    expect(fn).not.toMatch(/cache|memo/i);
+  });
+
+  it("resolves grants with the SERVICE ROLE, not the caller's client", () => {
+    // The answer to "may I use this connection" must not depend on RLS
+    // policies over a table the asker can see.
+    const fn = loaderSrc.slice(
+      loaderSrc.indexOf("export async function loadWarehouseConnectionForUser"),
+      loaderSrc.indexOf("export async function loadWarehouseConnection("),
+    );
+    // Whitespace-tolerant: prettier reflows this call between one and several
+    // lines depending on its length, and an exact-string assertion broke the
+    // moment it did.
+    expect(fn).toMatch(/resolveGrantedResourceIds\(\s*supabaseAdmin\s*,/);
+  });
+});
+
+describe("the connection list", () => {
+  const fns = readFileSync("src/utils/warehouse.functions.ts", "utf8");
+
+  it("never selects the credential column, owned or shared", () => {
+    const list = fns.slice(
+      fns.indexOf("export const listWarehouseConnections"),
+      fns.indexOf("export const saveWarehouseConnection"),
+    );
+    expect(list).not.toMatch(/select\([^)]*credentials/s);
+  });
+
+  it("marks granted rows as shared", () => {
+    expect(fns).toContain("shared: true");
+  });
+
+  it("does not list a granted connection twice when you also own it", () => {
+    expect(fns).toContain("!ownedIds.has(c.id)");
   });
 });

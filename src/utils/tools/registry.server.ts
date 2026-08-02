@@ -19,7 +19,7 @@ import { metricQueryTool, runMetricQuery, semanticCatalogForCtx } from "./metric
 import { assertPublicUrl, safeFetch } from "@/utils/ssrfGuard.server";
 import { resolveMcpAuthToken } from "@/lib/mcp/auth.server";
 import { resolveIntegrationConfig } from "@/utils/providers/integrationConfig.server";
-import { loadWarehouseConnection } from "@/utils/warehouse/connections.server";
+import { loadWarehouseConnectionForUser } from "@/utils/warehouse/connections.server";
 import { executeWarehouseQuery, listWarehouseTables } from "@/utils/warehouse/drivers.server";
 import {
   memoryRememberTool,
@@ -1591,7 +1591,7 @@ export async function resolveAgentTools(
       );
       handlers.set("list_warehouse_tables", async (c, a) => {
         try {
-          const conn = await loadWarehouseConnection(
+          const conn = await loadWarehouseConnectionForUser(
             c.sb,
             { name: String(a.connection ?? "") },
             c.userId,
@@ -1611,7 +1611,7 @@ export async function resolveAgentTools(
       });
       handlers.set("warehouse_query", async (c, a) => {
         try {
-          const conn = await loadWarehouseConnection(
+          const conn = await loadWarehouseConnectionForUser(
             c.sb,
             { name: String(a.connection ?? "") },
             c.userId,

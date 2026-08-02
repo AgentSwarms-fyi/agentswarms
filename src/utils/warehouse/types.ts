@@ -347,4 +347,13 @@ export type WarehouseConnectionSummary = {
   last_test_error: string | null;
   last_tested_at: string | null;
   created_at: string;
+  /**
+   * Reached through an IAM grant rather than owned.
+   *
+   * A shared connection is usable but NOT editable: its credential belongs to
+   * someone else, and queries run against their warehouse. The UI must not
+   * offer edit or delete on one — the server refuses regardless, but a button
+   * that always errors is its own bug.
+   */
+  shared?: boolean;
 };

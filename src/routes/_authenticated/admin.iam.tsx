@@ -1096,7 +1096,9 @@ function AccessTab({
     | "semantic_model"
     | "catalog_source"
     | "integration"
-    | "provider_credential";
+    | "provider_credential"
+    | "warehouse_connection"
+    | "saas_connection";
   const [shareResourceType, setShareResourceType] = useState<ShareResourceType>("knowledge_base");
   const [shareResourceId, setShareResourceId] = useState("");
   const [sharePrincipalType, setSharePrincipalType] = useState<"group" | "user">("group");
@@ -1118,6 +1120,11 @@ function AccessTab({
     { value: "catalog_source", label: "🗂 Data catalog source" },
     { value: "integration", label: "🤖 LLM key (Integrations page)" },
     { value: "provider_credential", label: "☁️ LLM credential (Bedrock/Vertex/Azure/OCI…)" },
+    // Sharing a connection shares its USE, not its credential: the grantee's
+    // queries run against the owner's warehouse, and the credential is
+    // decrypted server-side and never sent anywhere.
+    { value: "warehouse_connection", label: "🏢 Database / warehouse connection" },
+    { value: "saas_connection", label: "🔌 App source (Sheets, Stripe, CRM…)" },
   ];
   const shareableOfType = resources.filter((r) => r.resource_type === shareResourceType);
 

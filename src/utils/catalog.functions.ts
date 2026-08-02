@@ -11,7 +11,7 @@ import { z } from "zod";
 import type { Database, Json } from "@/integrations/supabase/types";
 import { encryptJson } from "@/utils/providers/crypto.server";
 import { resolveSecretRefsInObject } from "@/utils/secrets.server";
-import { loadWarehouseConnection } from "@/utils/warehouse/connections.server";
+import { loadWarehouseConnectionForUser } from "@/utils/warehouse/connections.server";
 import {
   loadStorageConfig,
   runCrawl,
@@ -135,7 +135,7 @@ export const catalogCreateSource = createServerFn({ method: "POST" })
       if (data.kind === "warehouse") {
         if (!data.connection_id) return { ok: false, error: "Pick a warehouse connection" };
         // Validates ownership (RLS) + that credentials decrypt.
-        await loadWarehouseConnection(sb, { connectionId: data.connection_id }, userId);
+        await loadWarehouseConnectionForUser(sb, { connectionId: data.connection_id }, userId);
         connectionId = data.connection_id;
       } else if (data.kind === "iceberg_rest") {
         if (!data.iceberg) return { ok: false, error: "Iceberg catalog configuration is required" };
@@ -220,7 +220,7 @@ export const catalogCrawlSource = createServerFn({ method: "POST" })
         userId,
         source,
         async (connectionId) =>
-          (await loadWarehouseConnection(sb, { connectionId }, userId)).config,
+          (await loadWarehouseConnectionForUser(sb, { connectionId }, userId)).config,
         async (src) => loadStorageConfig(userId, src),
       );
       return { ok: true, stats };

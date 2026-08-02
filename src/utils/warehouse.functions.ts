@@ -8,7 +8,7 @@ import { z } from "zod";
 import type { Database } from "@/integrations/supabase/types";
 import { encryptJson } from "@/utils/providers/crypto.server";
 import { testWarehouseConnection } from "@/utils/warehouse/drivers.server";
-import { loadWarehouseConnection } from "@/utils/warehouse/connections.server";
+import { loadWarehouseConnectionForUser } from "@/utils/warehouse/connections.server";
 import { HOST_PORT_PROVIDERS } from "@/utils/warehouse/types";
 import type { WarehouseConfig, WarehouseConnectionSummary } from "@/utils/warehouse/types";
 import { auditEvent } from "@/utils/audit.server";
@@ -164,14 +164,38 @@ export const listWarehouseConnections = createServerFn({ method: "POST" })
     > => {
       try {
         const { sb, userId } = await requireUser(data.access_token);
+        // Never selects `credentials` — a summary has no business shipping
+        // ciphertext to a client, owned or shared.
+        const COLS =
+          "id, provider, name, is_active, last_test_status, last_test_error, last_tested_at, created_at";
         const { data: rows, error } = await sb
           .from("data_warehouse_connections")
-          .select(
-            "id, provider, name, is_active, last_test_status, last_test_error, last_tested_at, created_at",
-          )
+          .select(COLS)
           .order("created_at", { ascending: true });
         if (error) return { ok: false, error: error.message };
-        return { ok: true, connections: (rows ?? []) as WarehouseConnectionSummary[] };
+        const owned = (rows ?? []) as WarehouseConnectionSummary[];
+
+        // Connections shared with this user through IAM. Fetched separately
+        // with the service role because these rows are deliberately NOT
+        // readable under the grantee's RLS — they hold the credential.
+        const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+        const { resolveGrantedResourceIds } = await import("@/utils/iam.server");
+        const grantedIds = [
+          ...(await resolveGrantedResourceIds(supabaseAdmin, userId, "warehouse_connection")),
+        ];
+        if (grantedIds.length === 0) return { ok: true, connections: owned };
+
+        const ownedIds = new Set(owned.map((c) => c.id));
+        const { data: sharedRows } = await supabaseAdmin
+          .from("data_warehouse_connections")
+          .select(COLS)
+          .in("id", grantedIds);
+        const shared = ((sharedRows ?? []) as WarehouseConnectionSummary[])
+          // A grant to something you already own is not a second connection.
+          .filter((c) => !ownedIds.has(c.id))
+          .map((c) => ({ ...c, shared: true }));
+
+        return { ok: true, connections: [...owned, ...shared] };
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : "Failed" };
       }
@@ -258,7 +282,7 @@ export const testWarehouseConnectionFn = createServerFn({ method: "POST" })
     try {
       const ctx = await requireUser(data.access_token);
       sb = ctx.sb;
-      const conn = await loadWarehouseConnection(
+      const conn = await loadWarehouseConnectionForUser(
         sb,
         { connectionId: data.connection_id },
         ctx.userId,

@@ -30,7 +30,7 @@ import {
 } from "@/lib/biDashboards";
 import { fetchWidgetResultsAdmin, upsertWidgetResultsAdmin } from "@/utils/bi/results.server";
 import { sendMail } from "@/lib/email/mailer.server";
-import { loadWarehouseConnection } from "@/utils/warehouse/connections.server";
+import { loadWarehouseConnectionForUser } from "@/utils/warehouse/connections.server";
 import { executeWarehouseQuery } from "@/utils/warehouse/drivers.server";
 import { parsePrepConfig } from "@/lib/dataPrepCore";
 import { assertLocalReadOnlySql } from "@/lib/sqlSafety";
@@ -387,7 +387,7 @@ export async function refreshDashboardServer(dashboardId: string): Promise<{
         });
         result = { columns: r.columns, rows: r.rows };
       } else if (w.source?.kind === "warehouse" && w.source.connection_id) {
-        const conn = await loadWarehouseConnection(
+        const conn = await loadWarehouseConnectionForUser(
           supabaseAdmin,
           { connectionId: w.source.connection_id },
           dash.user_id,
