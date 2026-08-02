@@ -81,13 +81,23 @@ function describeTables(tables: LocalEngineTable[]): string {
     .join("\n\n");
 }
 
-async function generate(q: EvalQuestion, schema: string): Promise<string> {
+async function generate(q: EvalQuestion, schema: string, engine: string): Promise<string> {
   const { systemPrompt, userPrompt } = buildSqlPrompt({
     question: q.question,
     // The eval scores SQL generation, so the plan is fixed rather than being a
     // second model call whose variance would be attributed to the wrong stage.
     plan: { intent: q.question, tables: q.tables, steps: [] } as never,
     schema,
+    // THE PROMPT MUST NAME THE ENGINE THAT WILL EXECUTE. This runner grades by
+    // running the SQL through runLocalSelect — the SERVER engine, DuckDB by
+    // default — while the prompt's default describes the in-browser AlaSQL that
+    // runs the local path in the app.
+    //
+    // Left unset, every question needing a quoted identifier failed on
+    // `SELECT COUNT(*) FROM \`saas_sales\`` before the model had a chance to be
+    // wrong about anything, and the score measured a pairing the product never
+    // runs. Found the first time this was executed against DuckDB.
+    localEngine: engine === "duckdb" ? "duckdb" : "alasql",
   });
   // The endpoint takes provider and model as separate fields; handing it the
   // encoded "provider::model" choice is a 400.
@@ -109,13 +119,13 @@ async function generate(q: EvalQuestion, schema: string): Promise<string> {
   return sql;
 }
 
-async function runOne(q: EvalQuestion): Promise<Verdict> {
+async function runOne(q: EvalQuestion, engine: string): Promise<Verdict> {
   const tables = tablesFor(q.tables);
   const expected = await runLocalSelect(q.referenceSql, tables);
 
   let candidateSql: string;
   try {
-    candidateSql = await generate(q, describeTables(tables));
+    candidateSql = await generate(q, describeTables(tables), engine);
   } catch (e) {
     return { outcome: "error", error: `generation failed: ${(e as Error).message}` };
   }
@@ -148,8 +158,11 @@ async function main() {
   // a category went 4/4 to 3/4 and back to 4/4 with nothing altered. Averaging
   // repeats is the difference between a measurement and an anecdote.
   const repeats = Math.max(1, Number(process.env.EVAL_REPEATS ?? 1) || 1);
+  // Resolved once, up front: it decides both what executes the SQL and what
+  // the prompt tells the model about quoting. Those two must agree.
+  const engine = await localEngineName();
   console.log(
-    `\nNL→SQL evaluation · ${set.length} questions${repeats > 1 ? ` x${repeats}` : ""} · ${BASE}${MODEL ? ` · ${MODEL}` : ""}\n`,
+    `\nNL→SQL evaluation · ${set.length} questions${repeats > 1 ? ` x${repeats}` : ""} · ${BASE}${MODEL ? ` · ${MODEL}` : ""} · engine=${engine}\n`,
   );
 
   const results: { q: EvalQuestion; verdict: Verdict }[] = [];
@@ -158,7 +171,7 @@ async function main() {
     let verdict: Verdict = { outcome: "error", error: "not run" };
     let passes = 0;
     for (let i = 0; i < repeats; i++) {
-      const v = await runOne(q);
+      const v = await runOne(q, engine);
       if (v.outcome === "pass") passes++;
       // Keep a failing verdict to report; a pass is only shown if every
       // attempt passed, so flakiness is visible rather than averaged away.
@@ -214,7 +227,7 @@ async function main() {
   // comparable to anything, and the default changed once already.
   console.log(
     `\nA score is only comparable against another run with the SAME question set,\n` +
-      `model, prompt AND engine. This run: engine=${await localEngineName()}, ` +
+      `model, prompt AND engine. This run: engine=${engine}, ` +
       `questions=${QUESTIONS.length}, repeats=${repeats}.\n`,
   );
 }

@@ -530,13 +530,31 @@ export function buildSqlPrompt(args: {
   /** Pre-rendered schema description — see describeSchema. */
   schema: string;
   dialect?: string;
+  /**
+   * Which LOCAL engine will execute this, when no warehouse `dialect` is set.
+   *
+   * IDENTIFIER QUOTING IS NOT PORTABLE between the two, and getting it wrong
+   * fails every query that needs to quote anything: AlaSQL wants backticks,
+   * DuckDB rejects them and wants double quotes. `saas_sales` alone has
+   * `Order Date`, `Row ID` and `Customer ID`, so this is not an edge case.
+   *
+   * Defaults to `alasql` because that is what actually runs the local path in
+   * production — `runQuery` in lib/sqlEngine is an in-browser AlaSQL instance.
+   * The SERVER engine (utils/data/localEngine.server, DuckDB by default) is a
+   * different execution path, and anything generating SQL for it must say so.
+   */
+  localEngine?: "alasql" | "duckdb";
   repair?: { sql: string; error: string };
 }): { systemPrompt: string; userPrompt: string } {
   const engineLine = args.dialect
     ? `You are a SQL generation agent for ${args.dialect}. Use standard ANSI SQL for that warehouse; ` +
       "reference tables by their full schema-qualified names exactly as given, and quote unusual identifiers with double quotes. "
-    : "You are a SQL generation agent for an in-browser AlaSQL engine. " +
-      "Wrap identifiers with spaces or special chars in backticks. ";
+    : args.localEngine === "duckdb"
+      ? "You are a SQL generation agent for a DuckDB engine. " +
+        'Quote identifiers with spaces or special chars in DOUBLE QUOTES ("Order Date"). ' +
+        "Backticks are a syntax error in DuckDB — never use them. "
+      : "You are a SQL generation agent for an in-browser AlaSQL engine. " +
+        "Wrap identifiers with spaces or special chars in backticks. ";
   return {
     systemPrompt:
       engineLine +
