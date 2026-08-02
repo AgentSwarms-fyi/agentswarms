@@ -5,10 +5,15 @@
 // published share page and the embed. It is drawn by OntologyGraph, whose
 // computeLayout dereferences spec.entities, spec.relations AND spec.domains.
 //
-// THERE IS NO ERROR BOUNDARY ANYWHERE IN THIS APP. A throw during render does
-// not blank one widget — it blanks the page. So a spec stored by an older
-// build, or half-written, would take down a dashboard for everyone holding
-// the link.
+// THE ONLY BOUNDARY ABOVE IT IS THE ROUTER'S, AND IT IS PER ROUTE. router.tsx
+// sets defaultErrorComponent, so TanStack Router's CatchBoundary catches the
+// throw and the browser does not blank — an earlier version of this comment
+// claimed there was no boundary at all, which was wrong: that grep looked for
+// componentDidCatch / getDerivedStateFromError / errorElement and missed the
+// router's own idiom. What is true is the granularity. The boundary wraps the
+// ROUTE, so one malformed spec replaces the ENTIRE dashboard with a
+// full-screen error card, for everyone holding the share link, instead of
+// degrading a single tile.
 //
 // isOntologySpec used to check `entities` and `relations` only, which is two of
 // the three fields computeLayout reads: a spec without `domains` passed the

@@ -201,6 +201,9 @@ cut numbered releases; see [ROADMAP.md](./ROADMAP.md).
   page, for everyone holding the share link. The guard now checks every field
   the renderer dereferences and actually gates the render, with a "cannot be
   displayed" panel as the fallback. It previously had **zero callers**.
+  (Correction to the first version of this note: the app _does_ have an error
+  boundary — the router's, via `defaultErrorComponent`. It is per **route**, so
+  the throw cost the entire dashboard rather than the whole browser.)
 
 - **Fixed: exported CSVs could carry spreadsheet formulas (CWE-1236).** Excel,
   LibreOffice and Sheets execute a cell starting with `=`, `+`, `-`, `@`, tab or

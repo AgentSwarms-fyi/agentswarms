@@ -811,11 +811,13 @@ export async function buildOntology(args: {
  * passed the guard and then threw inside render.
  *
  * That matters more than it looks: a spec lives inside a widget's chart JSON,
- * `chart` is one of the fields sanitizePublicWidgets passes through to
- * ANONYMOUS viewers, and there is no error boundary anywhere in this app. A
- * throw during render does not blank one widget, it blanks the page — the
- * public share page included. Anything this rejects gets a "cannot be
- * displayed" panel instead.
+ * and `chart` is one of the fields sanitizePublicWidgets passes through to
+ * ANONYMOUS viewers. A throw during render is caught by the router's
+ * CatchBoundary (router.tsx sets defaultErrorComponent), so it does not blank
+ * the browser — but the boundary is per ROUTE, not per widget: one malformed
+ * spec replaces the ENTIRE dashboard with a full-screen error card, for
+ * everyone holding the share link. Anything this rejects gets a "cannot be
+ * displayed" panel in place of the single widget instead.
  *
  * Deliberately shallow on the ELEMENTS: entities and relations are drawn
  * defensively (a missing field renders as an empty label), so validating each

@@ -91,14 +91,21 @@ Stated because you will find them anyway.
   everything extracted carries **≥ 9**, what remains carries **3.8**, and
   `tests/unit/biBuilderSplit.test.ts` enforces the floor.
 
-- **There is no React error boundary anywhere in the app.** No
-  `componentDidCatch`, no `getDerivedStateFromError`, no router `errorElement`.
-  A throw inside any widget renderer therefore blanks the whole page rather
-  than the widget — and the same renderer serves the **published share page and
-  the embed**, so one bad stored spec takes a dashboard down for everyone
-  holding the link. The ontology renderer is now guarded specifically, but that
-  is one renderer; a boundary per widget is the general fix and is a design
-  change rather than a bug fix.
+- **Error boundaries are per ROUTE, not per widget.** `router.tsx` sets
+  `defaultErrorComponent`, so TanStack Router's `CatchBoundary` catches a throw
+  and shows a full-screen error card with a reset — the browser does not blank.
+  But the granularity means **one bad widget takes the whole dashboard with
+  it**, and the same renderer serves the published share page and the embed, so
+  a single malformed stored spec costs everyone holding the link the entire
+  dashboard rather than one tile. The ontology renderer is now guarded
+  specifically; a boundary per widget is the general fix and is a design change.
+
+  _(An earlier revision of this entry said there was no error boundary anywhere.
+  That was wrong — the grep behind it looked for `componentDidCatch`,
+  `getDerivedStateFromError` and `errorElement` and missed the router's own
+  idiom. Corrected after seeing `CatchBoundaryImpl` actually catch a throw in
+  the browser.)_
+
 - **44% of the data/BI library has no tests, and has not been audited.** Being
   specific rather than reassuring, because two audit passes over the parts that
   _were_ checked turned up four real bugs — three of them silent — so the
