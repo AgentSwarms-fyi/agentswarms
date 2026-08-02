@@ -15,6 +15,36 @@ cut numbered releases; see [ROADMAP.md](./ROADMAP.md).
 
 ### Data sources
 
+- **Connections can be shared through IAM** — databases/warehouses and app
+  sources are now grantable resource types, so an analyst uses a connection
+  without a second copy of the credential existing. A shared connection **runs
+  as its owner**: the credential is decrypted server-side and the query goes to
+  the owner's warehouse, so a grantee gains the _use_ of it without ever
+  receiving it. Unlike other shared resources these rows carry the encrypted
+  secret, so there is deliberately **no row-level policy** granting access —
+  the grant is resolved server-side and the row loaded with the service role.
+  A shared app source **syncs as its owner, into the owner's datasets**, so a
+  grantee re-running a stale sync refreshes the real data rather than building
+  a parallel copy under their own account.
+- **Connection pooling** for PostgreSQL- and MySQL-family sources. Opening a
+  connection was **92% of a `SELECT 1`** against a local Postgres (24.9 ms of
+  27.1 ms), and that is the best case — a loopback socket with no TLS. End to
+  end the driver went from **30.7 ms to 2.9 ms per query**, with identical
+  results; `scripts/bench-pool.ts` reproduces both numbers and asserts the
+  equality. Pools are keyed by a hash of every credential, so two tenants never
+  share a session and a rotated password never reuses the old one.
+- **Corporate proxy support and retries** on every outbound connector call.
+  `HTTPS_PROXY`/`NO_PROXY` are honoured — many enterprises have no direct
+  egress at all, and without this the product simply cannot reach Snowflake or
+  Stripe from inside such a network. Transient failures retry with exponential
+  backoff and full jitter. `500` is deliberately **not** retried by default: it
+  usually means the query ran and then failed, so a retry pays for the same
+  scan twice.
+- **Scheduled health checks and credential age** for data connections, using
+  the product's own probes rather than bespoke ones. A warehouse password
+  expiring on your rotation policy now surfaces as a badge and one
+  notification, instead of a dashboard erroring in front of a customer.
+  Advisory throughout — nothing is auto-disabled and nothing expires.
 - **SaaS connectors.** Google Sheets, Stripe, Shopify, HubSpot and Salesforce
   sync into datasets on a shared ingest path — the same type inference,
   staging and snapshot-then-swap a CSV upload uses, so a synced dataset
@@ -67,3 +97,21 @@ cut numbered releases; see [ROADMAP.md](./ROADMAP.md).
 - Public [Security](/security) and [Licensing & support](/license) pages.
 - Dashboard surfaces failed syncs, unreachable connections, failed scheduled
   runs, and budget used this month.
+
+### Documentation
+
+- **Fixed: the docs asked for a Supabase project id that nothing reads.**
+  `VITE_SUPABASE_PROJECT_ID` and `SUPABASE_PROJECT_ID` were in
+  `.env.example`'s _required_ block, the Dockerfile, compose build args and
+  three docs. The CLI takes the ref as `supabase link --project-ref`, a flag.
+  A required setup step that did nothing.
+- **Fixed: the notebook runtime's env/settings precedence was documented
+  backwards**, and it promised a `NOTEBOOK_EGRESS_ALLOWLIST` variable that does
+  not exist.
+- **Fixed: "all ten connectors"** — written when there were ten, and there are 22. Worse, only ten were _documented_: SQL Server and ClickHouse, which have
+  fields nothing else has, had no entry at all.
+- Twelve environment variables the code reads were documented nowhere,
+  including four rate limits with no other way to discover them.
+- `tests/unit/docsFreshness.test.ts` now fails CI on any of these: an env var
+  the code reads that no doc mentions, a setting the docs promise that no code
+  reads, or a stale connector count.

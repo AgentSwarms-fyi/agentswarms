@@ -67,6 +67,19 @@ function envVarsInCode(): Map<string, string> {
   return found;
 }
 
+/**
+ * Files that describe the PAST rather than the present.
+ *
+ * A changelog exists to say "this used to be ten, and is not any more" and to
+ * name the variable that was removed. Held to a docs-match-code rule it fails
+ * by doing its job, and the only way to make it pass is to stop recording
+ * history — so it is excluded on purpose, not worked around.
+ *
+ * It is excluded from BOTH directions: a variable mentioned only in a
+ * changelog entry announcing its removal is not documented either.
+ */
+const HISTORICAL = new Set(["CHANGELOG.md"]);
+
 function docText(): { file: string; text: string }[] {
   return [
     ...walk("docs", (p) => p.endsWith(".md")),
@@ -76,6 +89,7 @@ function docText(): { file: string; text: string }[] {
     "docker-compose.yml",
     "Dockerfile",
   ]
+    .filter((p) => !HISTORICAL.has(p))
     .filter((p) => {
       try {
         return statSync(p).isFile();

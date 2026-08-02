@@ -236,7 +236,8 @@ export const semanticValidateModel = createServerFn({ method: "POST" })
       let dialect: SqlDialect = "alasql";
       let exec: (sql: string) => Promise<unknown>;
       if (m.source_kind === "warehouse") {
-        const { loadWarehouseConnectionForUser } = await import("@/utils/warehouse/connections.server");
+        const { loadWarehouseConnectionForUser } =
+          await import("@/utils/warehouse/connections.server");
         const { executeWarehouseQuery } = await import("@/utils/warehouse/drivers.server");
         try {
           const conn = await loadWarehouseConnectionForUser(
