@@ -18,6 +18,8 @@ import {
   toSnapshot,
   type AgentConfigSnapshot,
 } from "@/lib/agentVersions";
+import { readFileSync } from "node:fs";
+
 import { graphHash, serializeGraph } from "@/lib/swarmVersions";
 
 const snap = (over: Partial<AgentConfigSnapshot> = {}): AgentConfigSnapshot => ({
@@ -199,5 +201,57 @@ describe("swarm snapshots ignore React Flow's UI state", () => {
     expect(cleanNodes[0].position).toEqual({ x: 10, y: 20 });
     expect(cleanNodes[0].data.label).toBe("Researcher");
     expect("selected" in cleanNodes[0]).toBe(false);
+  });
+});
+
+describe("opening a swarm is not an edit", () => {
+  // lastVersionHashRef was seeded on SAVE and on restore, never on LOAD. It
+  // starts null, and `hash !== null` is true for every graph, so the first Save
+  // of any session snapshotted a swarm nobody had touched. With MAX_VERSIONS at
+  // 30, open-and-save is enough to push out the history the feature exists for.
+  //
+  // The fix seeds the ref in applySwarmRow. What makes that correct is that the
+  // hash of a graph as LOADED equals the hash of the same graph as HELD IN
+  // STATE — and the two differ, because edges get default styling on the way
+  // in. These lock that down.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const node = (id: string): any => ({
+    id,
+    type: "agent",
+    position: { x: 0, y: 0 },
+    data: { label: id, status: "idle" },
+  });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const edge = (): any => ({ id: "e1", source: "a", target: "b" });
+
+  it("ignores the edge styling applied at load time", () => {
+    const styled = {
+      ...edge(),
+      style: { stroke: "#888", strokeWidth: 2 },
+      markerEnd: { type: "arrowclosed" },
+      animated: true,
+    };
+    expect(graphHash([node("a"), node("b")], [styled])).toBe(
+      graphHash([node("a"), node("b")], [edge()]),
+    );
+  });
+
+  it("still distinguishes a genuinely different edge", () => {
+    const rewired = { ...edge(), target: "c" };
+    expect(graphHash([node("a")], [rewired])).not.toBe(graphHash([node("a")], [edge()]));
+  });
+
+  it("keeps the handles that decide which port an edge leaves from", () => {
+    const onHandle = { ...edge(), sourceHandle: "yes" };
+    expect(graphHash([node("a")], [onHandle])).not.toBe(graphHash([node("a")], [edge()]));
+  });
+
+  it("seeds the hash when a swarm is loaded, not only when it is saved", () => {
+    // Wiring: the property above is worth nothing if applySwarmRow never sets
+    // the ref. A source assertion because the alternative is rendering a
+    // 2,000-line canvas component.
+    const src = readFileSync("src/routes/_authenticated/swarms.tsx", "utf8");
+    const apply = src.slice(src.indexOf("const applySwarmRow"), src.indexOf("useEffect(() => {"));
+    expect(apply).toContain("lastVersionHashRef.current = graphHash(");
   });
 });

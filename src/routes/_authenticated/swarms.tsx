@@ -887,6 +887,13 @@ function SwarmsCanvas({
       setActiveRunId(null);
       // Freshly loaded from DB → not dirty.
       dirtyRef.current = false;
+      // …and not a new version either. This ref was only ever seeded on SAVE
+      // and on restore, never on load, so it was null for a swarm you had just
+      // opened — and `hash !== null` is true for every graph. The first Save of
+      // any session therefore snapshotted a completely unchanged swarm. With
+      // MAX_VERSIONS at 30, opening and saving is enough to push out the
+      // history the feature exists to keep.
+      lastVersionHashRef.current = graphHash(loadedNodes, loadedEdges);
     },
     [setNodes, setEdges],
   );
