@@ -17,7 +17,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 
 import { buildDirectQuerySql } from "@/lib/biDirectQuery";
-import { applyColumnMask } from "@/lib/biDashboards";
+import { applyColumnMask, mergeGrantRowFilters } from "@/lib/biDashboards";
 
 const base = {
   baseSql: "SELECT region, dept, amount FROM sales",
@@ -133,18 +133,49 @@ describe("no row filters means no row restriction", () => {
 });
 
 describe("the route decides unrestricted the same way the dataset path does", () => {
-  // A source assertion: the alternative is standing up a warehouse connection
-  // and a Supabase client to observe one boolean. Both files must agree that a
-  // single unfiltered grant makes the others moot.
+  // This used to assert that both files contained the same `anyUnfiltered`
+  // block — which is how you pin a copy in place rather than remove it. There
+  // were four copies of this rule; the BI snapshot's disagreed with the other
+  // three and fed unfiltered rows to restricted grantees for as long as it
+  // existed. They now call one function, so the rule can be tested once and
+  // the files only have to be checked for NOT having grown a copy back.
   it("treats an unfiltered grant as admitting everything", async () => {
-    const { readFileSync } = await import("node:fs");
-    const route = readFileSync("src/routes/api/bi.direct-query.ts", "utf8");
-    const dataset = readFileSync("src/utils/data/sharedDatasets.server.ts", "utf8");
-    for (const src of [route, dataset]) {
-      expect(src).toContain("anyUnfiltered");
-      expect(src).toMatch(/typeof rf\.column !== "string" \|\| !Array\.isArray\(rf\.values\)/);
+    expect(mergeGrantRowFilters([{ row_filter: null }])).toBeNull();
+    expect(
+      mergeGrantRowFilters([
+        { row_filter: { column: "region", values: ["EMEA"] } as never },
+        { row_filter: null },
+      ]),
+      "a narrower grant survived alongside an unrestricted one",
+    ).toBeNull();
+  });
+
+  it("does not read a corrupt filter as an absent one", async () => {
+    // Widening on malformed data is the wrong direction to fail. An empty
+    // values list is the unsatisfiable filter both consumers reject.
+    for (const bad of [
+      { column: "", values: ["EMEA"] },
+      { column: "region", values: [] },
+      { column: "region" }, // values missing entirely
+      "not-an-object", // and a row_filter that is not a filter at all
+    ]) {
+      const merged = mergeGrantRowFilters([{ row_filter: bad as never }]);
+      expect(merged, "a malformed filter was read as unrestricted").not.toBeNull();
+      expect(merged![0].values).toEqual([]);
     }
-    expect(route).toContain("if (!anyUnfiltered)");
+  });
+
+  it("keeps the merge in one place", async () => {
+    const { readFileSync } = await import("node:fs");
+    for (const f of [
+      "src/routes/api/bi.direct-query.ts",
+      "src/utils/data/sharedDatasets.server.ts",
+      "src/utils/bi.functions.ts",
+    ]) {
+      const src = readFileSync(f, "utf8");
+      expect(src, `${f} grew its own copy of the merge`).not.toContain("anyUnfiltered");
+      expect(src).toContain("mergeGrantRowFilters");
+    }
   });
 });
 

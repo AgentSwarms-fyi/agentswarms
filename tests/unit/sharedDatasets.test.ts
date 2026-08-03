@@ -249,10 +249,19 @@ describe("restrictSharedDataset — row filters", () => {
     expect(out.rows).toHaveLength(3);
   });
 
-  it("treats a malformed row_filter as unfiltered rather than crashing", async () => {
+  it("treats a malformed row_filter as unsatisfiable rather than as absent", async () => {
     // Grants are data; a filter missing its `values` must not throw inside an
-    // access check, because the catch would fail the whole read closed and the
-    // grantee would silently lose access they were given.
+    // access check. This used to assert that it admitted all three rows, on the
+    // reasoning that not-throwing meant not-restricting — but those are two
+    // different decisions, and only one of them widens access on corrupt input.
+    //
+    // A restriction nobody can parse has not been satisfied. The module's own
+    // contract says so at the top of the file: any lookup error returns
+    // nothing. An empty table is visible to the grantee and fixable by the
+    // owner; a restricted grantee quietly seeing every row is neither.
+    //
+    // Unreachable via iamCreateGrant, which requires `values` with at least one
+    // entry — this is about not depending on that.
     const out = await run(
       fakeDb({
         grants: [
@@ -265,7 +274,26 @@ describe("restrictSharedDataset — row filters", () => {
         ],
       }),
     );
-    expect(out.rows).toHaveLength(3);
+    expect(out.rows).toEqual([]);
+  });
+
+  it("does not throw on a malformed row_filter", async () => {
+    // The guarantee the previous test was really protecting: a bad grant row
+    // must not blow up the read path.
+    await expect(
+      run(
+        fakeDb({
+          grants: [
+            {
+              principal_type: "user",
+              principal_id: VIEWER,
+              row_filter: "not-an-object" as unknown as { column: string; values: unknown[] },
+              column_mask: null,
+            },
+          ],
+        }),
+      ),
+    ).resolves.toBeDefined();
   });
 
   it('compares filter values as strings, so 1 matches "1"', async () => {

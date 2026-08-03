@@ -49,7 +49,8 @@ export async function restrictSharedDataset(
   rows: MaskableRow[],
 ): Promise<{ columns: MaskableColumn[]; rows: MaskableRow[] }> {
   try {
-    const { intersectColumnMasks } = await import("@/lib/biDashboards");
+    const { applyRowFilters, intersectColumnMasks, mergeGrantRowFilters } =
+      await import("@/lib/biDashboards");
     const [{ data: memberships }, { data: grants }] = await Promise.all([
       sb.from("iam_group_members").select("group_id").eq("user_id", viewerId),
       sb
@@ -69,19 +70,15 @@ export async function restrictSharedDataset(
     const mask = intersectColumnMasks(mine.map((g) => g.column_mask));
     const maskSet = new Set(mask.map((m) => m.toLowerCase()));
 
-    // Row filters: one unfiltered grant admits everything.
-    const anyUnfiltered = mine.some((g) => {
-      const rf = g.row_filter as { column?: unknown; values?: unknown } | null;
-      return !rf || typeof rf.column !== "string" || !Array.isArray(rf.values);
-    });
-    let keptRows = rows;
-    if (!anyUnfiltered) {
-      const filters = mine.map((g) => {
-        const rf = g.row_filter as { column: string; values: unknown[] };
-        return { column: rf.column, values: new Set(rf.values.map((v) => String(v))) };
-      });
-      keptRows = rows.filter((r) => filters.some((f) => f.values.has(String(r[f.column] ?? ""))));
-    }
+    // Row filters: one unfiltered grant admits everything (mergeGrantRowFilters
+    // returns null), and the surviving filters union.
+    //
+    // This used to merge and apply the filters here, with its own copy of the
+    // predicate. The copy was correct and the BI snapshot's was not — a row
+    // missing the filter column passed there and was dropped here, so the same
+    // grant admitted different rows depending on which surface you opened.
+    // Sharing the function is the only version of this that stays true.
+    const keptRows = applyRowFilters(rows, mergeGrantRowFilters(mine)) as MaskableRow[];
     if (maskSet.size === 0) return { columns, rows: keptRows };
     return {
       columns: columns.filter((c) => !maskSet.has(c.name.toLowerCase())),

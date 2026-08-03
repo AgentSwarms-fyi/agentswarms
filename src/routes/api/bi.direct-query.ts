@@ -36,7 +36,7 @@ import {
   type DirectRowFilter,
 } from "@/lib/biDirectQuery";
 import { aggregationPlan } from "@/lib/biAggregate";
-import { applyColumnMask, intersectColumnMasks } from "@/lib/biDashboards";
+import { applyColumnMask, intersectColumnMasks, mergeGrantRowFilters } from "@/lib/biDashboards";
 import type { ChartSpec } from "@/lib/biAgent";
 import type { SqlDialect } from "@/lib/semanticLayer";
 import { rateLimitedGlobal, envInt } from "@/utils/rateLimit.server";
@@ -154,20 +154,15 @@ export const Route = createFileRoute("/api/bi/direct-query")({
               (g.principal_type === "group" && groupIds.has(g.principal_id)),
           );
           // An unfiltered grant admits every row, so it makes the filtered ones
-          // irrelevant — the same rule sharedDatasets.server applies to
-          // datasets. This loop used to keep only the grants that HAD a filter
-          // and silently drop the unrestricted one, so a user granted full
-          // access through a group still saw a colleague's narrower slice.
-          const anyUnfiltered = mine.some((g) => {
-            const rf = g.row_filter as { column?: unknown; values?: unknown } | null;
-            return !rf || typeof rf.column !== "string" || !Array.isArray(rf.values);
-          });
-          if (!anyUnfiltered) {
-            for (const g of mine) {
-              const rf = g.row_filter as { column: string; values: unknown[] };
-              rowFilters.push({ column: rf.column, values: rf.values.map(String) });
-            }
-          }
+          // irrelevant. This loop used to keep only the grants that HAD a
+          // filter and silently drop the unrestricted one, so a user granted
+          // full access through a group still saw a colleague's narrower slice.
+          //
+          // The merge itself lives in mergeGrantRowFilters, which is what the
+          // dataset and snapshot paths call. Four private copies of one access
+          // rule is what let the snapshot path fail open for months while the
+          // other three failed closed.
+          rowFilters.push(...(mergeGrantRowFilters(mine) ?? []));
           maskedColumns = intersectColumnMasks(mine.map((g) => g.column_mask));
         }
 

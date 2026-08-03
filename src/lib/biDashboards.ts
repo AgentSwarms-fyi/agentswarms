@@ -377,12 +377,24 @@ export function mergeGrantRowFilters(grants: { row_filter: Json | null }[]): BiR
   const filters: BiRowFilter[] = [];
   for (const g of grants) {
     const rf = g.row_filter as { column?: unknown; values?: unknown } | null;
-    const column = typeof rf?.column === "string" ? rf.column.trim() : "";
-    const values = Array.isArray(rf?.values)
+    // No filter at all = a deliberately unrestricted grant, and one of those
+    // makes every narrower grant moot. ONLY null/undefined counts as absent:
+    // any other value is a filter that is present and unreadable, which falls
+    // through to the unsatisfiable case below. (`typeof null === "object"`, so
+    // the null check has to come first either way.)
+    if (rf == null) return null;
+    const column = typeof rf.column === "string" ? rf.column.trim() : "";
+    const values = Array.isArray(rf.values)
       ? rf.values.map((v) => String(v)).filter((s) => s !== "")
       : [];
-    if (!column || values.length === 0) return null;
-    filters.push({ column, values });
+    // A filter that is PRESENT but unusable is a different thing, and reading
+    // it as "unrestricted" would let a malformed row widen access. An empty
+    // values list is the unsatisfiable filter both consumers already fail
+    // closed on: applyRowFilters keeps no row, buildDirectQuerySql emits
+    // WHERE 1=0. Unreachable through iamCreateGrant, which requires a non-empty
+    // column and at least one value — but enforcement should not depend on the
+    // writer having been careful.
+    filters.push(column ? { column, values } : { column: "", values: [] });
   }
   return filters;
 }
@@ -452,19 +464,27 @@ export function maskWidgets(widgets: unknown, mask: string[]): unknown {
 
 /**
  * Apply mandatory grant row filters to a snapshot. A row passes when it
- * satisfies ANY grant's filter (union of scopes). A filter only constrains
- * rows that actually carry its column — widgets that never select the
- * column are left intact, mirroring how model-level RLS scopes only the
- * tables it is defined on.
+ * satisfies ANY grant's filter (union of scopes) — grants are additive, so
+ * holding two must never admit fewer rows than holding either alone.
+ *
+ * FAILS CLOSED on a row that does not carry the filter column. This used to
+ * pass such rows, reasoning that "a filter only constrains rows that actually
+ * carry its column". That is backwards: the typical widget aggregates the
+ * filter column away — `SELECT product, sum(revenue) FROM sales GROUP BY
+ * product` has no `region` in its output — so a grantee restricted to EMEA
+ * was handed the GLOBAL total, by the path that renders every public embed
+ * and share link. A filter that cannot be checked has not been satisfied.
+ *
+ * Matches buildDirectQuerySql, which answers the same case with `WHERE 1=0`.
+ * The remedy for an empty widget is to project the filter column, not to
+ * assume the rows were fine.
  */
 export function applyRowFilters(
   rows: Record<string, unknown>[],
   filters: BiRowFilter[] | null,
 ): Record<string, unknown>[] {
   if (!filters || filters.length === 0 || rows.length === 0) return rows;
-  return rows.filter((r) =>
-    filters.some((f) => !(f.column in r) || f.values.includes(String(r[f.column]))),
-  );
+  return rows.filter((r) => filters.some((f) => f.values.includes(String(r[f.column] ?? ""))));
 }
 
 // ── Layout math (pure, shared by editor + viewer) ────────────────────────
