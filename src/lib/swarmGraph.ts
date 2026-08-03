@@ -30,6 +30,33 @@ export const MAX_SUBSWARM_DEPTH = 3;
 /** Bounds on a node's retry policy. Shared so the two executors can't disagree. */
 export const MAX_RETRIES = 5;
 export const MAX_RETRY_DELAY_MS = 30_000;
+
+/**
+ * How many times a Loop node re-runs, and how many items a For-Each covers.
+ *
+ * Here for the same reason as MAX_RETRIES: both executors enforce these, and
+ * they were bare literals written out twice — `Math.min(maxIters ?? 3, 6)` in
+ * the canvas runtime and again in the server executor. They agreed when
+ * checked, which is the only reason this is a tidy-up rather than a bug
+ * report, but nothing made them agree and the two files are edited by
+ * different concerns. A loop that runs six times while you watch and three
+ * times when deployed is the kind of difference nobody thinks to look for.
+ *
+ * clampIters is the whole rule — floor of 1, the node's own value, the
+ * ceiling — so neither side can re-derive it slightly differently either.
+ */
+export const LOOP_DEFAULT_ITERS = 3;
+export const LOOP_MAX_ITERS = 6;
+export const FOREACH_DEFAULT_ITEMS = 25;
+export const FOREACH_MAX_ITEMS = 100;
+
+export function clampIters(
+  requested: number | undefined,
+  fallback: number,
+  ceiling: number,
+): number {
+  return Math.max(1, Math.min(requested ?? fallback, ceiling));
+}
 export const DEFAULT_RETRY_DELAY_MS = 1000;
 
 export type RetryPolicy = { retries: number; delayMs: number };

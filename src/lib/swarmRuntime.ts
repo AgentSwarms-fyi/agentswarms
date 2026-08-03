@@ -25,9 +25,14 @@ import { isImageModelId } from "@/lib/providerSupport";
 import {
   SkipTracker,
   canContinueOnError,
+  clampIters,
   indexEdges,
   retryPolicyOf,
   topoLevelIds,
+  FOREACH_DEFAULT_ITEMS,
+  FOREACH_MAX_ITEMS,
+  LOOP_DEFAULT_ITERS,
+  LOOP_MAX_ITERS,
 } from "@/lib/swarmGraph";
 
 // Match data URIs and common http(s) image URLs in arbitrary text. Used to
@@ -1323,7 +1328,7 @@ export async function runSwarm(
         }
 
         if (node.data.kind === "loop") {
-          const max = Math.max(1, Math.min(node.data.maxIters ?? 3, 6));
+          const max = clampIters(node.data.maxIters, LOOP_DEFAULT_ITERS, LOOP_MAX_ITERS);
           const loopInput = gatherInputs(node, ctx, lastOutput);
           const loopPrompt = interpolate(node.data.systemPrompt || "{{input}}", {
             ...ctx,
@@ -1535,7 +1540,7 @@ export async function runSwarm(
               .map((s) => s.trim())
               .filter(Boolean);
           }
-          const cap = Math.max(1, Math.min(node.data.maxIters ?? 25, 100));
+          const cap = clampIters(node.data.maxIters, FOREACH_DEFAULT_ITEMS, FOREACH_MAX_ITEMS);
           const itemVar = node.data.foreachItemVar?.trim() || "item";
           const total = Math.min(arr.length, cap);
           const results: unknown[] = [];

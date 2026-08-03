@@ -32,8 +32,13 @@ import {
 import {
   SkipTracker,
   canContinueOnError,
+  clampIters,
   indexEdges,
   retryPolicyOf,
+  FOREACH_DEFAULT_ITEMS,
+  FOREACH_MAX_ITEMS,
+  LOOP_DEFAULT_ITERS,
+  LOOP_MAX_ITERS,
   MAX_SUBSWARM_DEPTH,
 } from "@/lib/swarmGraph";
 import { captureCheckpoint, restoreTracker, type SwarmCheckpoint } from "@/lib/swarmCheckpoint";
@@ -561,7 +566,7 @@ export async function executeSwarmServer(opts: {
             return;
           }
           if (kind === "loop") {
-            const max = Math.max(1, Math.min(d.maxIters ?? 3, 6));
+            const max = clampIters(d.maxIters, LOOP_DEFAULT_ITERS, LOOP_MAX_ITERS);
             const loopInput = gatherInputs(node, ctx, lastOutput);
             const loopPrompt = interpolate(d.systemPrompt || "{{input}}", {
               ...ctx,
@@ -635,7 +640,7 @@ export async function executeSwarmServer(opts: {
                 .map((s) => s.trim())
                 .filter(Boolean);
             }
-            const cap = Math.max(1, Math.min(d.maxIters ?? 25, 100));
+            const cap = clampIters(d.maxIters, FOREACH_DEFAULT_ITEMS, FOREACH_MAX_ITEMS);
             const itemVar = d.foreachItemVar?.trim() || "item";
             const results: unknown[] = [];
             for (let i = 0; i < Math.min(arr.length, cap); i++) {
