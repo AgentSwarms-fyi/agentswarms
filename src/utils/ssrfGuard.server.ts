@@ -124,6 +124,7 @@ function blockPrivateNetworks(): boolean {
  */
 export async function assertPublicUrl(
   rawUrl: string,
+  opts: { blockPrivate?: boolean } = {},
 ): Promise<{ ok: true; url: URL } | { ok: false; error: string }> {
   let u: URL;
   try {
@@ -135,7 +136,12 @@ export async function assertPublicUrl(
     return { ok: false, error: "Only http(s) URLs are allowed" };
   }
 
-  const strict = blockPrivateNetworks();
+  // `blockPrivate` lets a CALLER be stricter than the deployment default, and
+  // only stricter — it is OR'd, never consulted to permit something the
+  // deployment refuses. /api/a2a uses it: it proxies a remote agent's response
+  // back to the browser, so a private-network fetch there is a read primitive
+  // rather than a self-hosted convenience.
+  const strict = opts.blockPrivate === true || blockPrivateNetworks();
   const classify = (host: string): string | null => {
     if (isBlockedAlways(host)) return `Refusing to fetch link-local/metadata address: ${host}`;
     if (strict && isPrivateNetwork(host)) {
@@ -166,12 +172,14 @@ export async function assertPublicUrl(
  */
 export async function safeFetch(
   rawUrl: string,
-  init: RequestInit & { maxRedirects?: number } = {},
+  init: RequestInit & { maxRedirects?: number; blockPrivate?: boolean } = {},
 ): Promise<Response> {
-  const { maxRedirects = 5, ...rest } = init;
+  const { maxRedirects = 5, blockPrivate, ...rest } = init;
   let current = rawUrl;
   for (let hop = 0; hop <= maxRedirects; hop++) {
-    const check = await assertPublicUrl(current);
+    // EVERY hop is re-validated, including the first. A public URL that 302s
+    // to 169.254.169.254 is the whole reason this loop exists.
+    const check = await assertPublicUrl(current, { blockPrivate });
     if (!check.ok) throw new Error(check.error);
     const res = await fetch(check.url, { ...rest, redirect: "manual" });
     const isRedirect = res.status >= 300 && res.status < 400 && res.headers.has("location");

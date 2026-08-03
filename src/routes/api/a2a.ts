@@ -14,6 +14,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import type { AgentCard, A2AMessage, Task } from "@/lib/a2aClient";
+import { assertPublicUrl, safeFetch } from "@/utils/ssrfGuard.server";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -45,51 +46,33 @@ async function getUserId(request: Request): Promise<string | null> {
 }
 
 // ───────────────────── SSRF guard ─────────────────────
-// Block private network ranges, link-local, loopback, and non-HTTP schemes.
-// This is a real safety check — we run server-side and could otherwise be
-// abused to scan the Worker's internal network or fetch cloud metadata.
-function isPrivateHostname(host: string): boolean {
-  const h = host.toLowerCase().replace(/^\[|\]$/g, "");
-  if (!h) return true;
-  if (h === "localhost" || h.endsWith(".localhost") || h.endsWith(".local")) return true;
+// Delegated to utils/ssrfGuard.server. This file used to carry its own
+// hostname check, and the copy had fallen behind the original in ways that
+// mattered:
+//
+//   * NO DNS RESOLUTION. It matched on the literal hostname, so a name whose
+//     A record points at 169.254.169.254 sailed through — and this endpoint
+//     RETURNS the upstream body to the caller, making that a read of cloud
+//     instance metadata, which hands out the host's IAM credentials.
+//   * NO REDIRECT VALIDATION. All three fetches followed redirects by default,
+//     so a public URL could 302 into the same place.
+//   * ::ffff:a9fe:a9fe — the compressed IPv4-mapped spelling of
+//     169.254.169.254 — was not recognised. The canonical guard documents this
+//     exact case as a bug it already found and fixed; the copy never got it.
+//   * Missing the unspecified address (::) and CGNAT (100.64.0.0/10).
+//
+// blockPrivate: true keeps THIS route's stricter policy. The shared guard
+// permits ordinary private networks by default because self-hosted model
+// servers and in-cluster MCP live there; a proxy that returns the response to
+// a browser is a different proposition, and refusing them here is what the
+// inline version did.
+const A2A_FETCH = { blockPrivate: true, maxRedirects: 3 } as const;
 
-  // IPv6 loopback / unique-local / link-local
-  if (h === "::1" || h === "0:0:0:0:0:0:0:1") return true;
-  if (h.startsWith("fc") || h.startsWith("fd")) return true; // ULA fc00::/7
-  if (h.startsWith("fe80:")) return true; // link-local
-
-  // IPv4 (or IPv4-in-IPv6 like ::ffff:192.168.1.1)
-  const v4Match = h.match(/(?:^|:)((?:\d{1,3}\.){3}\d{1,3})$/);
-  const v4 = v4Match ? v4Match[1] : /^\d{1,3}(\.\d{1,3}){3}$/.test(h) ? h : null;
-  if (v4) {
-    const parts = v4.split(".").map(Number);
-    if (parts.some((n) => Number.isNaN(n) || n < 0 || n > 255)) return true;
-    const [a, b] = parts;
-    if (a === 127) return true; // 127.0.0.0/8
-    if (a === 10) return true; // 10.0.0.0/8
-    if (a === 0) return true; // 0.0.0.0/8
-    if (a === 169 && b === 254) return true; // link-local + AWS/GCE metadata 169.254.169.254
-    if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
-    if (a === 192 && b === 168) return true; // 192.168.0.0/16
-    if (a >= 224) return true; // multicast / reserved
-  }
-  return false;
-}
-
-function validateRemoteUrl(rawUrl: string): { ok: true; url: URL } | { ok: false; error: string } {
-  let u: URL;
-  try {
-    u = new URL(rawUrl);
-  } catch {
-    return { ok: false, error: "Invalid endpoint URL" };
-  }
-  if (u.protocol !== "https:" && u.protocol !== "http:") {
-    return { ok: false, error: "Only http(s) endpoints are allowed" };
-  }
-  if (isPrivateHostname(u.hostname)) {
-    return { ok: false, error: `Refusing to call private/internal host: ${u.hostname}` };
-  }
-  return { ok: true, url: u };
+async function validateRemoteUrl(
+  rawUrl: string,
+): Promise<{ ok: true; url: URL } | { ok: false; error: string }> {
+  const r = await assertPublicUrl(rawUrl, { blockPrivate: true });
+  return r.ok ? r : { ok: false, error: r.error };
 }
 
 // ───────────────────── Discovery ─────────────────────
@@ -103,7 +86,7 @@ function looksLikeAgentCard(x: unknown): x is AgentCard {
 
 async function handleDiscover(payload: { endpoint?: string }): Promise<Response> {
   if (!payload.endpoint) return jsonResponse({ error: "endpoint is required" }, 400);
-  const v = validateRemoteUrl(payload.endpoint);
+  const v = await validateRemoteUrl(payload.endpoint);
   if (!v.ok) return jsonResponse({ error: v.error }, 400);
 
   // The card may live at one of several well-known paths. The current A2A spec
@@ -145,7 +128,8 @@ async function handleDiscover(payload: { endpoint?: string }): Promise<Response>
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 10_000);
     try {
-      const r = await fetch(candidate, {
+      const r = await safeFetch(candidate, {
+        ...A2A_FETCH,
         method: "GET",
         headers: { Accept: "application/json" },
         signal: ctrl.signal,
@@ -181,7 +165,7 @@ interface InvokePayload {
 async function resolveRpcUrl(
   rawEndpoint: string,
 ): Promise<{ ok: true; url: URL } | { ok: false; error: string }> {
-  const v = validateRemoteUrl(rawEndpoint);
+  const v = await validateRemoteUrl(rawEndpoint);
   if (!v.ok) return v;
 
   // If the user pasted the agent-card URL itself, fetch it and use its `url`
@@ -192,7 +176,8 @@ async function resolveRpcUrl(
   try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 10_000);
-    const r = await fetch(v.url.href, {
+    const r = await safeFetch(v.url.href, {
+      ...A2A_FETCH,
       headers: { Accept: "application/json" },
       signal: ctrl.signal,
     });
@@ -202,7 +187,7 @@ async function resolveRpcUrl(
     if (!card?.url || typeof card.url !== "string") {
       return { ok: false, error: "Agent card is missing a 'url' field for the RPC endpoint" };
     }
-    const v2 = validateRemoteUrl(card.url);
+    const v2 = await validateRemoteUrl(card.url);
     if (!v2.ok) return v2;
     return { ok: true, url: v2.url };
   } catch (e) {
@@ -251,7 +236,8 @@ async function handleInvoke(payload: InvokePayload): Promise<Response> {
 
   let upstream: Response;
   try {
-    upstream = await fetch(v.url.href, {
+    upstream = await safeFetch(v.url.href, {
+      ...A2A_FETCH,
       method: "POST",
       headers,
       body: JSON.stringify(rpcBody),
