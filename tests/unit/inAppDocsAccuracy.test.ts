@@ -244,6 +244,75 @@ describe("the configuration recipes are usable", () => {
   });
 });
 
+describe("the secrets page describes the resolver that exists", () => {
+  const page = readFileSync("src/routes/docs.secrets.tsx", "utf8");
+  const resolver = readFileSync("src/utils/secrets.server.ts", "utf8");
+
+  it("quotes the name rule the database enforces", () => {
+    // Two separate places agree on this pattern: the CHECK constraint on the
+    // table and the reference regex. The page states it once, so it has to
+    // match the constraint that actually rejects a bad name.
+    const migration = readFileSync(
+      "supabase/migrations/20260720400000_secrets_manager.sql",
+      "utf8",
+    );
+    expect(migration).toContain("^[A-Za-z][A-Za-z0-9_]*$");
+    expect(page, "the documented name pattern is not the enforced one").toContain(
+      "^[A-Za-z][A-Za-z0-9_]*$",
+    );
+    expect(migration).toContain("length(name) <= 64");
+    expect(page).toContain("64");
+  });
+
+  it("documents the precedence and ambiguity rules, which change how you name things", () => {
+    // Own-beats-shared and ambiguous-shared are both real branches, and both
+    // are invisible until they bite someone in a shared workspace.
+    expect(resolver).toContain("Own secret wins");
+    expect(resolver).toMatch(/is ambiguous — multiple shared secrets use that name/);
+    expect(page, "precedence is undocumented").toMatch(/own secret wins/i);
+    expect(page, "the ambiguity failure is undocumented").toMatch(/ambiguous/i);
+  });
+
+  it("does not claim a missing secret fails loudly everywhere", () => {
+    // It does on the HTTP node, connections and integrations — resolveSecretRefs
+    // throws. It does NOT for MCP env bindings, which catch and skip, leaving
+    // the variable absent. A page that states the general rule without the
+    // exception sends someone debugging the wrong layer.
+    const bundle = readFileSync("src/routes/api/notebook.runtime.source.ts", "utf8");
+    const loop = bundle.slice(
+      bundle.indexOf("for (const binding"),
+      bundle.indexOf("return json(200"),
+    );
+    expect(loop, "the binding loop no longer swallows a failed lookup").toContain("catch");
+    expect(page, "the MCP binding exception is not documented").toMatch(
+      /environment bindings are the exception/i,
+    );
+
+    expect(resolver, "resolveSecretRefs no longer throws on a missing secret").toMatch(
+      /throw new Error\(\s*`Secret "\$\{name\}" not found/,
+    );
+  });
+
+  it("lists a surface only if something resolves references there", () => {
+    // The page used to say "any templated field on a swarm node", which is not
+    // true of any node but the HTTP one.
+    const nodes = readFileSync("src/utils/swarmNodes.server.ts", "utf8");
+    expect(nodes).toContain("resolveSecretRefs(userId, p.url)");
+    expect(nodes).toContain("resolveSecretRefs(userId, h.value)");
+    expect(page, "the over-broad any-field claim came back").not.toMatch(
+      /any templated field on a[\s\S]{0,40}swarm node/,
+    );
+    for (const f of [
+      "src/utils/warehouse/connections.server.ts",
+      "src/utils/providers/integrationConfig.server.ts",
+    ]) {
+      expect(readFileSync(f, "utf8"), `${f} no longer resolves refs`).toContain(
+        "resolveSecretRefsInObject",
+      );
+    }
+  });
+});
+
 describe("the MCP page's code examples are the ones that actually deploy", () => {
   const mcp = readFileSync("src/routes/docs.mcp.tsx", "utf8");
   const templates = readFileSync("src/lib/mcpTemplates.ts", "utf8");

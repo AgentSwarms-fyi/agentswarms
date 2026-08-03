@@ -111,10 +111,10 @@ function SecretsPage() {
         ]}
       />
 
-      <H2 id="referencing">Referencing a secret in a swarm</H2>
+      <H2 id="referencing">Referencing a secret by name</H2>
       <P>
-        Beyond connector forms, any templated field on a{" "}
-        <DocLink to="/docs/swarms">swarm node</DocLink> can reference one:
+        Beyond connector forms, the reference syntax works wherever the server resolves it — most
+        visibly on a <DocLink to="/docs/swarms">swarm</DocLink> HTTP node:
       </P>
       <Code lang="HTTP node header">{`Authorization: Bearer {{secret:SUPPORT_API_TOKEN}}`}</Code>
       <Callout kind="why">
@@ -123,6 +123,113 @@ function SecretsPage() {
         a third-party API without the credential ever being sent to the browser or visible on the
         canvas — so someone who can edit the graph still cannot read the value.
       </Callout>
+
+      <H3 id="where-refs-resolve">Exactly which fields resolve</H3>
+      <P>
+        Worth being precise about, because a reference written anywhere else is passed through as
+        the literal text <C>{"{{secret:NAME}}"}</C> — which usually surfaces as an authentication
+        failure from the far end rather than as an error here.
+      </P>
+      <Table
+        headers={["Surface", "Fields resolved"]}
+        rows={[
+          [
+            <>
+              Swarm <strong>HTTP node</strong>
+            </>,
+            "The URL, every header VALUE, and the request body. Header names are not templated.",
+          ],
+          [
+            <>
+              <DocLink key="d" to="/docs/data">
+                Warehouse and database connections
+              </DocLink>
+            </>,
+            "Every string field of the connection config.",
+          ],
+          [
+            "Integration credentials",
+            "Every string field of the integration config — search providers, object stores, automation tools.",
+          ],
+          [
+            <>
+              <DocLink key="m" to="/docs/mcp">
+                MCP Builder
+              </DocLink>{" "}
+              environment bindings
+            </>,
+            <>
+              The value side of <C key="e">ENV_NAME={"{{secret:NAME}}"}</C>, resolved when the
+              container starts.
+            </>,
+          ],
+        ]}
+      />
+      <P>
+        Whitespace inside the braces is tolerated — <C>{"{{ secret:NAME }}"}</C> resolves the same
+        way. The name inside a reference must satisfy the same pattern as a stored name, so a secret
+        that could not be saved could not have been referenced either.
+      </P>
+
+      <H3 id="resolution-failures">When a reference cannot be resolved</H3>
+      <P>
+        On a swarm HTTP node, a connection or an integration it fails loudly: a missing secret, or
+        one you have not been granted, stops the call with an explicit error naming the secret. It
+        is never quietly replaced with an empty string, which would turn a credential problem into
+        an unauthenticated request that some APIs answer with a <C>200</C> and an empty result.
+      </P>
+      <Callout kind="warn" title="MCP environment bindings are the exception">
+        A binding whose secret is missing or revoked is <em>skipped</em> rather than raised, so the
+        container starts with that variable simply absent — and code written the idiomatic way,{" "}
+        <C>os.environ.get("API_TOKEN", "")</C>, then sends an empty token. The failure surfaces as
+        the remote API rejecting the call, one layer away from the cause. If a built server starts
+        failing to authenticate after a rotation, check that the binding still names a secret you
+        own or have been granted.
+      </Callout>
+      <Callout kind="warn" title="Your own secret wins, and two shared ones collide">
+        Names are resolved per user, in this order: a secret you own with that name is used first;
+        otherwise a secret shared with you. If <em>two different</em> shared secrets both carry the
+        name, the call fails as ambiguous rather than picking one.
+        <br />
+        <br />
+        This is the practical argument for qualifying names in a shared workspace —{" "}
+        <C>BILLING_STRIPE_KEY</C> and <C>SUPPORT_STRIPE_KEY</C> rather than two <C>STRIPE_KEY</C>{" "}
+        entries in different people's vaults. It also means a colleague can override a shared secret
+        for themselves simply by owning one of the same name, which is useful deliberately and
+        surprising accidentally.
+      </Callout>
+
+      <H3 id="rotating">Worked example — rotating a warehouse password</H3>
+      <Steps
+        items={[
+          {
+            title: "Rotate at the source first",
+            body: "Issue the new password in Snowflake, Postgres or wherever the account lives. The vault stores what you tell it; it cannot change the credential upstream.",
+          },
+          {
+            title: "Configure → Secrets → edit the value",
+            body: (
+              <>
+                Same secret, new value. Do <strong>not</strong> create{" "}
+                <C>SNOWFLAKE_ANALYTICS_RO_V2</C> — the entire benefit is that consumers point at a
+                name, and a new name means finding all of them again.
+              </>
+            ),
+          },
+          {
+            title: "Nothing to redeploy",
+            body: "Connections and integrations resolve the reference on their next call, so the change takes effect without touching them.",
+          },
+          {
+            title: "Restart any MCP server that binds it",
+            body: "The one exception: environment bindings are resolved at container start, so a running server keeps the old value until it restarts or scales to zero.",
+          },
+          {
+            title: "Revoke the old credential upstream",
+            body: "Until you do, the rotation has added a credential rather than replaced one.",
+          },
+        ]}
+      />
 
       <H2 id="where">Where secrets can be used</H2>
       <UL>
