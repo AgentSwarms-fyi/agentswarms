@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { UploadCloud, FileCheck2, X, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { parseImportedAgent } from "@/lib/agentExport";
+import { MAX_IMPORT_BYTES, parseImportedAgent } from "@/lib/agentExport";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -34,16 +34,28 @@ export function ImportAgentDialog({
   const onDrop = useCallback((files: File[]) => {
     const f = files[0];
     if (!f) return;
+    // Checked BEFORE reading, not after. readAsText pulls the whole file into
+    // memory, so a size check that runs on the result has already paid the
+    // cost it is meant to avoid.
+    if (f.size > MAX_IMPORT_BYTES) {
+      toast.error(
+        `That file is ${Math.round(f.size / 1024)} KB. Agent files are a few KB — the limit is ${MAX_IMPORT_BYTES / 1024} KB.`,
+      );
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
       try {
         const result = parseImportedAgent(reader.result as string, f.name);
         setParsed(result);
         setFilename(f.name);
-      } catch (err: any) {
-        toast.error(`Could not parse file: ${err.message}`);
+      } catch (err) {
+        toast.error(
+          `Could not parse file: ${err instanceof Error ? err.message : "unrecognised format"}`,
+        );
       }
     };
+    reader.onerror = () => toast.error("Could not read that file.");
     reader.readAsText(f);
   }, []);
 

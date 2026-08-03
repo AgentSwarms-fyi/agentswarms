@@ -1,4 +1,5 @@
 import yaml from "js-yaml";
+import { parseGuardrails } from "@/utils/guardrails";
 import type { Agent } from "@/components/agents/AgentForm";
 import { cleanModelId, MODEL_ID_WARNING } from "./swarmExportTools";
 
@@ -734,6 +735,57 @@ export function exportAgent(agent: Agent, format: ExportFormat) {
   }
 }
 
+// ── Import validation ───────────────────────────────────────────────────────
+//
+// AN IMPORTED AGENT FILE IS UNTRUSTED INPUT. It arrives by drag-and-drop from
+// wherever the user got it — a colleague, a gist, a vendor. Every field below
+// used to be taken at face value and written straight to the database:
+// `temperature: "hot"`, `max_tokens: 100000000` and a `name` that is an object
+// all imported cleanly. max_tokens is the sharp one, because it is sent to the
+// provider and drives spend directly.
+
+/** A string, or the fallback. Rejects objects and arrays, and caps length. */
+function str(v: unknown, fallback: string, max = 4000): string {
+  return typeof v === "string" && v.trim() ? v.slice(0, max) : fallback;
+}
+
+/** An optional string — undefined rather than a fallback when absent. */
+function optStr(v: unknown, max = 8000): string | undefined {
+  return typeof v === "string" && v.trim() ? v.slice(0, max) : undefined;
+}
+
+/**
+ * A finite number inside [min, max], or the fallback. Rejects "hot" and NaN.
+ *
+ * `null` and `undefined` are ABSENT, not zero. `Number(null)` is 0 and 0 is
+ * finite, so a bare coercion turned `"temperature": null` — which means "I did
+ * not set this" — into a fully deterministic 0 rather than the default. That
+ * exact coercion has now caused three separate bugs in this codebase: alert
+ * thresholds counting blank cells as zero, the PII phone detector, and this.
+ */
+function num(v: unknown, fallback: number, min: number, max: number): number {
+  if (v === null || v === undefined || v === "") return fallback;
+  const n = typeof v === "number" ? v : Number(v);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
+/** Built-in tool names: strings only, deduped, capped. */
+function toolFlags(v: unknown): { flags: Record<string, boolean>; count: number } {
+  // `built_in` was assumed to be an array — a string threw
+  // "builtIn.map is not a function" out of the parser instead of being
+  // reported as a malformed file.
+  const names = Array.isArray(v) ? v.filter((t): t is string => typeof t === "string") : [];
+  const unique = [...new Set(names)].slice(0, 64);
+  return { flags: Object.fromEntries(unique.map((t) => [t, true])), count: unique.length };
+}
+
+/** Largest max_tokens an imported file may request. */
+export const MAX_IMPORT_TOKENS = 200_000;
+
+/** Largest agent file we will read. */
+export const MAX_IMPORT_BYTES = 512 * 1024;
+
 export function parseImportedAgent(
   content: string,
   filename: string,
@@ -748,42 +800,62 @@ export function parseImportedAgent(
   tools?: any;
   toolCount: number;
 } {
+  if (content.length > MAX_IMPORT_BYTES) {
+    throw new Error(
+      `File is too large (${Math.round(content.length / 1024)} KB). Agent files are a few KB; the limit is ${MAX_IMPORT_BYTES / 1024} KB.`,
+    );
+  }
+
   const isYaml = filename.endsWith(".yaml") || filename.endsWith(".yml");
   let parsed: any;
   if (isYaml) {
+    // js-yaml v4 `load` uses the default schema, which cannot construct
+    // functions or arbitrary types — checked, `!!js/function` is rejected.
     parsed = yaml.load(content);
-    if (parsed?.agents) {
+    if (parsed?.agents && typeof parsed.agents === "object") {
       const key = Object.keys(parsed.agents)[0];
       const a = parsed.agents[key];
-      const [provider, ...modelParts] = (a.llm || "openrouter/openai/gpt-4o-mini").split("/");
+      if (!a || typeof a !== "object") throw new Error("No agent definition found in this file.");
+      const llm = str(a.llm, "openrouter/openai/gpt-4o-mini", 200);
+      const [provider, ...modelParts] = llm.split("/");
+      const { flags, count } = toolFlags(a.tools);
       return {
-        name: a.role || key,
-        description: a.goal,
-        system_prompt: a.backstory,
-        llm_provider: provider,
-        llm_model: modelParts.join("/"),
-        temperature: a.temperature ?? 0.7,
-        max_tokens: a.max_tokens ?? 4096,
-        tools: { builtInTools: Object.fromEntries((a.tools || []).map((t: string) => [t, true])) },
-        toolCount: (a.tools || []).length,
+        name: str(a.role, str(key, "Imported Agent", 200), 200),
+        description: optStr(a.goal),
+        system_prompt: optStr(a.backstory),
+        llm_provider: str(provider, "openrouter", 60),
+        llm_model: str(modelParts.join("/"), "openai/gpt-4o-mini", 200),
+        temperature: num(a.temperature, 0.7, 0, 2),
+        max_tokens: Math.round(num(a.max_tokens, 4096, 1, MAX_IMPORT_TOKENS)),
+        tools: { builtInTools: flags },
+        toolCount: count,
       };
     }
   } else {
     parsed = JSON.parse(content);
   }
-  const builtIn = parsed.tools?.built_in || [];
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error("This file does not contain an agent definition.");
+  }
+  const model = parsed.model && typeof parsed.model === "object" ? parsed.model : {};
+  const { flags, count } = toolFlags(parsed.tools?.built_in);
   return {
-    name: parsed.name || "Imported Agent",
-    description: parsed.description,
-    system_prompt: parsed.system_prompt,
-    llm_provider: parsed.model?.provider || "openrouter",
-    llm_model: parsed.model?.model || "google/gemini-3-flash-preview",
-    temperature: parsed.model?.temperature ?? 0.7,
-    max_tokens: parsed.model?.max_tokens ?? 4096,
+    name: str(parsed.name, "Imported Agent", 200),
+    description: optStr(parsed.description),
+    system_prompt: optStr(parsed.system_prompt),
+    llm_provider: str(model.provider, "openrouter", 60),
+    llm_model: str(model.model, "google/gemini-3-flash-preview", 200),
+    temperature: num(model.temperature, 0.7, 0, 2),
+    max_tokens: Math.round(num(model.max_tokens, 4096, 1, MAX_IMPORT_TOKENS)),
     tools: {
-      builtInTools: Object.fromEntries(builtIn.map((t: string) => [t, true])),
-      guardrails: parsed.guardrails,
+      builtInTools: flags,
+      // Normalised through the same parser the enforcer uses, so an imported
+      // file cannot plant a guardrail shape the rest of the app will not
+      // recognise — and cannot smuggle in a catastrophic `blockedPatterns`
+      // regex, which was a remote DoS by e-mailed agent file before
+      // looksCatastrophic existed.
+      guardrails: parseGuardrails(parsed.guardrails),
     },
-    toolCount: builtIn.length,
+    toolCount: count,
   };
 }
