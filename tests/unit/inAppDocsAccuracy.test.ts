@@ -147,6 +147,73 @@ describe("limits are described with the scope they actually have", () => {
   });
 });
 
+describe("every internal link goes somewhere", () => {
+  /**
+   * Routes that actually exist, from the filesystem router's own conventions.
+   *
+   * Three shapes matter and missing any of them invents findings: flat
+   * `docs.x.tsx`, nested `_authenticated/x.tsx`, and top-level `x.tsx`. A first
+   * pass handled only the flat ones and reported 14 broken links, 13 of which
+   * were real routes it could not see.
+   */
+  function existingRoutes(): Set<string> {
+    const out = new Set<string>(["/docs", "/"]);
+    const add = (p: string) => out.add(p.replace(/\/index$/, "") || "/");
+
+    for (const f of readdirSync("src/routes")) {
+      if (!f.endsWith(".tsx")) continue;
+      const base = f.replace(/\.tsx$/, "");
+      if (base.startsWith("docs.")) add("/docs/" + base.slice(5).replace(/^index$/, ""));
+      else if (!base.startsWith("_") && !base.startsWith("api.")) add("/" + base);
+    }
+    for (const dir of ["src/routes/_authenticated"]) {
+      let entries: string[];
+      try {
+        entries = readdirSync(dir);
+      } catch {
+        continue;
+      }
+      for (const f of entries) {
+        if (!f.endsWith(".tsx")) continue;
+        // A dot is a PATH SEPARATOR in this router, so admin.iam.tsx serves
+        // /admin/iam. Treating it literally reported that real page as a dead
+        // link — the detector's bug, not the docs'.
+        add(
+          "/" +
+            f
+              .replace(/\.tsx$/, "")
+              .replace(/_$/, "")
+              .replace(/\./g, "/"),
+        );
+      }
+    }
+    return out;
+  }
+
+  it("resolved a plausible set of routes", () => {
+    const routes = existingRoutes();
+    expect(routes.size).toBeGreaterThan(40);
+    expect(routes.has("/docs/self-hosting")).toBe(true);
+    expect(routes.has("/agents")).toBe(true);
+  });
+
+  it("links to no page that does not exist", () => {
+    // A dead link in the docs is a reader hitting a 404 at the moment they
+    // went looking for help. /docs/observability was one — the audit trail
+    // lives on the analytics page.
+    const routes = existingRoutes();
+    const broken: string[] = [];
+    for (const f of DOC_PAGES) {
+      for (const m of readFileSync(f, "utf8").matchAll(/to=["'](\/[^"']*)["']/g)) {
+        const target = m[1].split("#")[0].replace(/\/$/, "") || "/";
+        if (/[$:]/.test(target)) continue; // dynamic segment
+        if (!routes.has(target)) broken.push(`${f.replace("src/routes/", "")} → ${m[1]}`);
+      }
+    }
+    expect([...new Set(broken)], `dead links: ${broken.join(", ")}`).toEqual([]);
+  });
+});
+
 describe("the configuration recipes are usable", () => {
   const selfHosting = readFileSync("src/routes/docs.self-hosting.tsx", "utf8");
 

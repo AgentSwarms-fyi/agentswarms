@@ -218,8 +218,8 @@ function IntegrationsDoc() {
         </li>
         <li>
           Connecting, changing, or deleting any credential is recorded in the{" "}
-          <DocLink to="/docs/observability">audit trail</DocLink> — names, URLs and whether a secret
-          was rotated; never the secret itself.
+          <DocLink to="/docs/analytics#audit-timeline">audit trail</DocLink> — names, URLs and
+          whether a secret was rotated; never the secret itself.
         </li>
         <li>
           <strong>Disconnect</strong> asks for confirmation and tells you what depends on the
