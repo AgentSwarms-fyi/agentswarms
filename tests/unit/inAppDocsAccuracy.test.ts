@@ -243,3 +243,71 @@ describe("the configuration recipes are usable", () => {
     expect(recipe).toContain("BLOCK_PRIVATE_NETWORK_FETCH");
   });
 });
+
+describe("the MCP page's code examples are the ones that actually deploy", () => {
+  const mcp = readFileSync("src/routes/docs.mcp.tsx", "utf8");
+  const templates = readFileSync("src/lib/mcpTemplates.ts", "utf8");
+
+  it("shows the decorator form that works on every FastMCP version", () => {
+    // The page said `@mcp.tool`. The shipped templates use `@mcp.tool()` on
+    // purpose — bare needs 2.11+, and a reader copying the docs onto an older
+    // image gets a server that will not load.
+    expect(templates, "the templates changed form").toContain("@mcp.tool()");
+    // The sentence that TELLS you what to write, not merely a mention: the page
+    // also names the bare form once, to warn that it needs 2.11+.
+    expect(mcp, "the contract sentence recommends the version-fragile form").toContain(
+      "with <C>@mcp.tool()</C> functions",
+    );
+    const bare = [...mcp.matchAll(/@mcp\.tool(?!\()/g)];
+    expect(
+      bare,
+      `bare @mcp.tool appears ${bare.length}x — only the warning may use it`,
+    ).toHaveLength(1);
+  });
+
+  it("quotes the starter template rather than an invented server", () => {
+    // Every line the page shows as Python must exist in a template that the
+    // product itself ships and that survives a Deploy.
+    const shown = [...mcp.matchAll(/<Code lang="python">\{`([\s\S]*?)`\}<\/Code>/g)].map(
+      (m) => m[1],
+    );
+    expect(shown.length, "no python examples on the page").toBeGreaterThanOrEqual(2);
+    const body = shown.join("\n");
+    for (const line of ["def greet(name: str) -> str:", "def get_customer(customer_id: str)"]) {
+      expect(body, `example drifted from the template: ${line}`).toContain(line);
+      expect(templates, `template no longer has: ${line}`).toContain(line);
+    }
+  });
+
+  it("names the endpoint contract the edge route enforces", () => {
+    const proto = readFileSync("src/utils/mcpApps/protocol.ts", "utf8");
+    const route = readFileSync("src/routes/api/mcp.s.$slug.ts", "utf8");
+    const keys = readFileSync("src/utils/mcpApps/keys.ts", "utf8");
+
+    // Protocol revision, key prefix and POST-only are all quoted on the page.
+    const version = proto.match(/MCP_PROTOCOL_VERSION = "([^"]+)"/)?.[1];
+    expect(version).toBeTruthy();
+    expect(mcp, "the page quotes a stale protocol revision").toContain(version!);
+    expect(keys).toContain('MCP_KEY_PREFIX = "mcps_"');
+    expect(mcp).toContain("mcps_");
+    expect(route, "GET no longer answers 405").toContain("method_not_allowed");
+    expect(mcp).toContain("405");
+  });
+
+  it("lists every forwarded method, not just the tool ones", () => {
+    // The page named four of six. The two notification methods are forwarded
+    // too, and a client author needs to know that.
+    const proto = readFileSync("src/utils/mcpApps/protocol.ts", "utf8");
+    const forwarded = proto.slice(
+      proto.indexOf("FORWARDED_METHODS"),
+      proto.indexOf("]", proto.indexOf("FORWARDED_METHODS")),
+    );
+    const methods = [...forwarded.matchAll(/"([a-z/]+)"/g)].map((m) => m[1]);
+    expect(methods).toHaveLength(6);
+    for (const m of methods) {
+      // `notifications/initialized` is written as "initialized" in prose.
+      const shown = m.replace("notifications/", "");
+      expect(mcp, `the page omits the forwarded method ${m}`).toContain(shown);
+    }
+  });
+});

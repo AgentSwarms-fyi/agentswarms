@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
   C,
   Callout,
+  Code,
   DocLink,
   DocsHeader,
   FieldList,
@@ -198,27 +199,99 @@ function McpPage() {
       <H3 id="build-contract">What the runner expects</H3>
       <P>
         A module-level FastMCP instance named <C>mcp</C> (<C>server</C> and <C>app</C> also work),
-        with <C>@mcp.tool</C> functions. Do <strong>not</strong> call <C>mcp.run()</C> — the
-        platform serves the object for you, and calling it yourself deadlocks startup.
+        with <C>@mcp.tool()</C> functions. Do <strong>not</strong> call <C>mcp.run()</C> — the
+        platform serves the object for you, and calling it yourself deadlocks startup. This is a
+        complete server; it deploys as written:
+      </P>
+      <Code lang="python">{`from fastmcp import FastMCP
+
+mcp = FastMCP("my-server")
+
+
+@mcp.tool()
+def greet(name: str) -> str:
+    """Return a friendly greeting for the given name."""
+    return f"Hello, {name}!"
+
+
+@mcp.tool()
+def word_count(text: str) -> dict:
+    """Count words and characters in a block of text."""
+    words = text.split()
+    return {"words": len(words), "characters": len(text)}`}</Code>
+      <P>
+        That is the <strong>Hello world</strong> template, and the other two — wrap an HTTP API,
+        search a knowledge base — are equally complete. Start from one rather than an empty file.
       </P>
       <UL>
         <li>
           <strong>Type hints become the input schema</strong> and the docstring becomes the
           description the calling model reads. Both are worth writing carefully — they are how a
-          model decides whether your tool is the right one.
+          model decides whether your tool is the right one. <C>greet</C> above advertises one
+          required string argument called <C>name</C> purely because of its signature.
+        </li>
+        <li>
+          <strong>Write the decorator with parentheses.</strong> <C>@mcp.tool()</C> works on every
+          FastMCP version; bare <C>@mcp.tool</C> needs 2.11 or newer and fails to load on older
+          images.
+        </li>
+        <li>
+          <strong>Either SDK works.</strong> The image ships both <C>fastmcp</C> (the standalone 2.x
+          package most examples use) and <C>mcp</C>, the official SDK — whose{" "}
+          <C>mcp.server.fastmcp.FastMCP</C> is a different class with the same name. The runner
+          duck-types across them, so <C>from mcp.server.fastmcp import FastMCP</C> is equally valid.
         </li>
         <li>
           <strong>Extra packages</strong> go in the Deploy tab, one per line, and are installed at
           container start. <C>httpx</C>, <C>pydantic</C>, <C>pandas</C>, <C>numpy</C>,{" "}
-          <C>langchain</C>, <C>llama_index</C> and the <C>agentswarms</C> helper are already there.
-        </li>
-        <li>
-          <strong>Secrets</strong> are bound on the Deploy tab as{" "}
-          <C>ENV_NAME={"{{secret:NAME}}"}</C> and read with <C>os.environ</C>. They are resolved
-          only when the container starts and arrive over an authenticated call, so they never appear
-          in the container environment, the database, or the logs.
+          <C>langchain</C>, <C>langgraph</C>, <C>llama_index</C> and the <C>agentswarms</C> helper
+          are already there.
         </li>
       </UL>
+
+      <H3 id="build-secrets">Using a secret, and reaching a real API</H3>
+      <P>
+        Bind secrets on the Deploy tab as <C>ENV_NAME={"{{secret:NAME}}"}</C> and read them with{" "}
+        <C>os.environ</C>. They are resolved only when the container starts and arrive over an
+        authenticated call, so they never appear in the stored configuration, the database, or the
+        logs. The <strong>Wrap an HTTP API</strong> template is the shape:
+      </P>
+      <Code lang="python">{`import os
+
+import httpx
+from fastmcp import FastMCP
+
+mcp = FastMCP("http-api")
+
+BASE_URL = os.environ.get("API_BASE_URL", "https://api.example.com")
+API_TOKEN = os.environ.get("API_TOKEN", "")
+
+
+def _client() -> httpx.Client:
+    headers = {"Authorization": f"Bearer {API_TOKEN}"} if API_TOKEN else {}
+    return httpx.Client(base_url=BASE_URL, headers=headers, timeout=20, trust_env=True)
+
+
+@mcp.tool()
+def get_customer(customer_id: str) -> dict:
+    """Fetch one customer record by id."""
+    with _client() as c:
+        r = c.get(f"/customers/{customer_id}")
+        r.raise_for_status()
+        return r.json()`}</Code>
+      <P>
+        On the Deploy tab that server needs two bindings —{" "}
+        <C>API_BASE_URL=https://api.internal.example.com</C> and{" "}
+        <C>API_TOKEN={"{{secret:INTERNAL_API_TOKEN}}"}</C> — with <C>INTERNAL_API_TOKEN</C> stored
+        once in <DocLink to="/docs/secrets">Secrets</DocLink>. Rotating it later is one edit there
+        and a redeploy here.
+      </P>
+      <Callout kind="warn" title="Add the host to the egress allow-list first">
+        <C>trust_env=True</C> is what routes the request through the sandbox proxy. If{" "}
+        <C>api.internal.example.com</C> is not on the instance allow-list the call is refused by the
+        proxy, not by the remote server — so the error you see will not mention the remote host at
+        all. An administrator adds it under <strong>Admin → Developer runtime</strong>.
+      </Callout>
 
       <H3 id="build-lifecycle">Cold starts and keep-warm</H3>
       <P>
@@ -256,6 +329,67 @@ function McpPage() {
         difference.
       </P>
 
+      <H3 id="build-client">Pointing an external client at it</H3>
+      <P>
+        Once a server is exposed and you hold a key, it is an ordinary Streamable HTTP MCP endpoint.
+        Most clients take a URL and a header:
+      </P>
+      <Code lang="json">{`{
+  "mcpServers": {
+    "my-server": {
+      "type": "http",
+      "url": "https://your-instance.example.com/api/mcp/s/my-server-a1b2c3",
+      "headers": {
+        "Authorization": "Bearer mcps_xxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    }
+  }
+}`}</Code>
+      <P>
+        The slug carries a random suffix, so copy it from the server's page rather than assuming it
+        matches the name. To check a key without a client at all:
+      </P>
+      <Code lang="bash">{`curl -sS https://your-instance.example.com/api/mcp/s/my-server-a1b2c3 \\
+  -H 'Authorization: Bearer mcps_xxxxxxxxxxxxxxxxxxxxxxxx' \\
+  -H 'Content-Type: application/json' \\
+  -H 'Accept: application/json, text/event-stream' \\
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'`}</Code>
+      <Table
+        headers={["Detail", "Value"]}
+        rows={[
+          ["Transport", "Streamable HTTP, POST only"],
+          [
+            "GET",
+            <>
+              <C key="a">405</C> by design — there is no server-to-client stream, and clients fall
+              back to POST
+            </>,
+          ],
+          ["Protocol revision", "2025-06-18"],
+          [
+            "Session",
+            <>
+              <C key="b">Mcp-Session-Id</C> is returned on the response and echoed back on
+              subsequent calls
+            </>,
+          ],
+          [
+            "Ending a session",
+            <>
+              <C key="c">DELETE</C> to the same URL
+            </>,
+          ],
+          ["Key format", "mcps_ + 32 characters, shown once at creation"],
+        ]}
+      />
+      <Callout kind="info" title="A 404 is the answer to several different questions">
+        An unknown slug, a server that is not exposed publicly, and a session id that has expired
+        all return <C>404</C>. That is deliberate — probing should not be able to tell a private
+        server from one that does not exist — so when a client that used to work starts getting{" "}
+        <C>404</C>, check whether the key was revoked or public access was turned off before
+        suspecting the URL.
+      </Callout>
+
       <H3 id="build-security">How a built server is contained</H3>
       <UL>
         <li>
@@ -275,8 +409,11 @@ function McpPage() {
         </li>
         <li>
           <strong>Only tool methods are forwarded.</strong> <C>initialize</C>, <C>tools/list</C>,{" "}
-          <C>tools/call</C> and <C>ping</C>. Anything else is refused at the edge, so a future
-          protocol method cannot become reachable because a dependency was upgraded.
+          <C>tools/call</C>, <C>ping</C>, and the <C>initialized</C> and <C>cancelled</C>{" "}
+          notifications. Anything else is refused at the edge — an allow-list, not a deny-list,
+          because MCP keeps growing (resources, prompts, sampling, roots, elicitation) and several
+          of those let a server ask the <em>client</em> to do something. A future protocol method
+          cannot become reachable because a dependency was upgraded.
         </li>
         <li>
           <strong>Tool changes need re-approval.</strong> A redeploy that changes any tool name,
