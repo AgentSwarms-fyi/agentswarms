@@ -19,10 +19,25 @@ export function serializeGraph(nodes: Node<SwarmNodeData>[], edges: Edge[]) {
     sourceHandle: sourceHandle ?? null,
     targetHandle: targetHandle ?? null,
   }));
-  const cleanNodes = nodes.map((n) => ({
-    ...n,
-    data: { ...n.data, status: "idle", lastOutput: undefined },
-  }));
+  const cleanNodes = nodes.map((n) => {
+    // React Flow writes UI state back onto the node objects. `...n` carried all
+    // of it into the snapshot, and graphHash stringifies the result — so
+    // CLICKING a node set selected:true, changed the hash, and made the next
+    // Save record a "version" whose only difference from the last one was which
+    // node had focus. With MAX_VERSIONS at 30, that churn evicts real history.
+    //
+    // position is deliberately NOT stripped: moving a node is a real edit to
+    // the graph and should be versioned.
+    const { selected, dragging, resizing, measured, ...rest } = n as typeof n & {
+      resizing?: boolean;
+      measured?: { width?: number; height?: number };
+    };
+    void selected;
+    void dragging;
+    void resizing;
+    void measured;
+    return { ...rest, data: { ...n.data, status: "idle", lastOutput: undefined } };
+  });
   return { cleanNodes, cleanEdges };
 }
 

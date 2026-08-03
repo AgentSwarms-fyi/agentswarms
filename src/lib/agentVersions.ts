@@ -52,10 +52,43 @@ export function toSnapshot(agent: Record<string, unknown>): AgentConfigSnapshot 
   return out as AgentConfigSnapshot;
 }
 
-/** Stable fingerprint — used to skip snapshotting a save that changed nothing. */
+/**
+ * Sort object keys recursively, leaving arrays in place.
+ *
+ * Array order is meaningful and is never touched; only object keys are
+ * normalised, because those are what the storage layer reorders.
+ */
+function canonical(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value === null || typeof value !== "object") return value;
+  const obj = value as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const k of Object.keys(obj).sort()) out[k] = canonical(obj[k]);
+  return out;
+}
+
+/**
+ * Stable fingerprint — used to skip snapshotting a save that changed nothing.
+ *
+ * THE KEY SORT IS THE WHOLE POINT. The previous version reasoned "key order is
+ * fixed by FIELDS, so this is stable", which holds for the ten top-level
+ * fields and not for `tools`, the one field whose value is a nested object.
+ *
+ * `config` is a jsonb column, and jsonb does not preserve key order — it
+ * normalises keys by length then bytes. So the value read back from Postgres
+ * and the value the form just built in memory are the same configuration in
+ * two different orders, JSON.stringify produced two different strings, and the
+ * no-op check never once fired. Demonstrated with the real tools shape:
+ * insertion order builtInTools/activeWorkflows/toolConfigs/guardrails, jsonb
+ * order guardrails/toolConfigs/builtInTools/activeWorkflows.
+ *
+ * The effect is not a spurious row, it is the loss of the history. Every save
+ * wrote a version, MAX_VERSIONS is 30, and pruning keeps the newest — so
+ * thirty no-op saves silently evicted every snapshot a user actually wanted,
+ * while the code comment promised "history stays meaningful".
+ */
 export function configHash(cfg: AgentConfigSnapshot): string {
-  // Key order is fixed by FIELDS, so this is stable across calls.
-  return JSON.stringify(FIELDS.map((f) => cfg[f] ?? null));
+  return JSON.stringify(FIELDS.map((f) => canonical(cfg[f] ?? null)));
 }
 
 export async function snapshotAgentVersion(opts: {
@@ -85,7 +118,14 @@ export async function snapshotAgentVersion(opts: {
     kind: opts.kind,
     config: opts.config as unknown as Json,
   });
-  if (error) return; // versioning is best-effort; never block a save
+  if (error) {
+    // Best-effort by design — never block a save. But a version history that
+    // stops recording without saying so is worse than one that is absent: the
+    // user keeps editing believing they can roll back. Logged like the
+    // memory-config save right next to it.
+    console.warn("[agent_versions] snapshot failed:", error.message);
+    return;
+  }
 
   // Prune to the most recent MAX_VERSIONS for this agent.
   const { data: ids } = await supabase
@@ -115,6 +155,24 @@ export const FIELD_LABELS: Record<keyof AgentConfigSnapshot, string> = {
 
 export type FieldDiff = { field: keyof AgentConfigSnapshot; before: string; after: string };
 
+/**
+ * One field, as the diff view shows it.
+ *
+ * `typeof null === "object"`, so the previous `typeof a === "object" ?
+ * JSON.stringify(a) : String(a ?? "")` sent every null field down the JSON
+ * branch and rendered an unset Description as the literal text `null`. The
+ * `?? ""` that was meant to prevent exactly that sat in the branch nulls never
+ * reached.
+ *
+ * Objects are canonicalised so a key reorder — which is what a jsonb round
+ * trip does — is not displayed as a change to the whole tools blob.
+ */
+function renderField(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "object") return JSON.stringify(canonical(value), null, 2);
+  return String(value);
+}
+
 /** Field-level diff between two snapshots — only changed fields are returned. */
 export function diffSnapshots(
   before: AgentConfigSnapshot,
@@ -122,10 +180,8 @@ export function diffSnapshots(
 ): FieldDiff[] {
   const out: FieldDiff[] = [];
   for (const f of FIELDS) {
-    const a = before[f] ?? null;
-    const b = after[f] ?? null;
-    const sa = typeof a === "object" ? JSON.stringify(a, null, 2) : String(a ?? "");
-    const sb = typeof b === "object" ? JSON.stringify(b, null, 2) : String(b ?? "");
+    const sa = renderField(before[f]);
+    const sb = renderField(after[f]);
     if (sa !== sb) out.push({ field: f, before: sa, after: sb });
   }
   return out;
