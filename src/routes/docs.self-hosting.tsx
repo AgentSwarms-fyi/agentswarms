@@ -245,11 +245,22 @@ function SelfHostingPage() {
               .
             </>,
           ],
+          [
+            <C key="e">BUDGET_FAIL_CLOSED</C>,
+            <>
+              What to do when the spend <em key="i">lookup itself</em> fails, as opposed to coming
+              back under cap. Unset (the default) allows the call — governance should not be the
+              reason legitimate work breaks. Set <C key="t2">true</C> when the cap must hold even if
+              the figure cannot be established. Either way the failure is logged.
+            </>,
+          ],
         ]}
       />
       <Callout kind="info">
-        These limits are counted <strong>per application process</strong>. Behind a load balancer
-        with N instances the effective limit is N times the value.
+        These limits are counted <strong>in Postgres, shared by every instance</strong>, so the
+        number you set is the number you get however many copies of the app are running. If the
+        database is briefly unreachable each instance falls back to counting locally and logs that
+        it has done so — the limit degrades rather than disappearing.
       </Callout>
 
       <H3 id="env-network">Network egress</H3>
@@ -264,8 +275,25 @@ function SelfHostingPage() {
             <C key="b">ALLOW_PRIVATE_NETWORK_FETCH</C>,
             "The escape hatch, for when a warehouse or MCP server genuinely lives on a private network.",
           ],
+          [
+            <C key="c">TRUSTED_PROXY_HOPS</C>,
+            <>
+              How many reverse proxies of <em key="i">yours</em> sit in front of the app. Decides
+              which entry of <C key="x">X-Forwarded-For</C> is treated as the caller — the header is
+              appended to, so only the entries your own proxies added cannot be forged. Default{" "}
+              <C key="1">1</C> (a single reverse proxy); use <C key="2">2</C> behind a CDN in front
+              of that proxy. Only MCP key IP allow-lists depend on it.
+            </>,
+          ],
         ]}
       />
+      <Callout kind="warn">
+        Set <C>TRUSTED_PROXY_HOPS</C> to match your actual topology before relying on an MCP key's
+        IP allow-list. Too low reads your proxy's address instead of the caller's and the allow-list
+        never matches; too high reads a value the caller supplied, which is the bypass the setting
+        exists to close. It is clamped to the length of the chain, so it can never walk past the
+        end.
+      </Callout>
       <Callout kind="warn">
         Allowing private-network fetches means a URL chosen by a model — from <C>web_browse</C>, a
         swarm HTTP node, or a prompt-injected instruction — can reach inside your network. If you
@@ -332,6 +360,135 @@ function SelfHostingPage() {
         ]}
       />
 
+      <H2 id="recipes">Configuration by use case</H2>
+      <P>
+        The reference above lists every setting. These are the combinations that actually go
+        together, as complete blocks you can paste into <C>.env</C>. Each one names the risk it is
+        answering, because the defaults are chosen for a single trusted operator and stop being
+        right as soon as anyone else can reach the instance.
+      </P>
+
+      <H3 id="recipe-eval">Evaluating it on a laptop</H3>
+      <P>
+        Nothing is exposed, so nothing needs hardening. This is the default and you can ignore every
+        other recipe until someone else can reach the app.
+      </P>
+      <Code lang="bash">{`SUPABASE_URL="https://<project>.supabase.co"
+SUPABASE_SERVICE_ROLE_KEY="..."
+SUPABASE_PUBLISHABLE_KEY="..."
+VITE_SUPABASE_URL="https://<project>.supabase.co"
+VITE_SUPABASE_PUBLISHABLE_KEY="..."
+
+# One key and you can use everything; per-user keys can come later.
+OPENROUTER_API_KEY="sk-or-..."
+
+ADMIN_EMAIL="you@example.com"
+VITE_ADMIN_EMAIL="you@example.com"`}</Code>
+
+      <H3 id="recipe-team">An internal tool for one team</H3>
+      <P>
+        Reachable on your network or a private domain, no anonymous visitors. The work here is
+        closing signup and making sure a runaway agent cannot bill you indefinitely.
+      </P>
+      <Code lang="bash">{`SITE_URL="https://agents.internal.example.com"
+PUBLIC_APP_URL="https://agents.internal.example.com"
+
+# Encrypts stored warehouse/SaaS credentials. Set once — rotating it
+# invalidates everything already saved.  openssl rand -hex 32
+PROVIDER_CREDS_SECRET="..."
+
+# Caps stop being advisory.
+ENFORCE_BUDGET_CAP="true"
+
+# One reverse proxy in front (Caddy/nginx).
+TRUSTED_PROXY_HOPS="1"
+
+# Self-hosted Ollama or an in-cluster MCP server lives on a private address,
+# so leave private-network fetches allowed — cloud metadata stays blocked
+# either way.`}</Code>
+      <Callout kind="info">
+        Then turn on <strong>invite-only</strong> under Admin → IAM so the login page stops
+        accepting new signups. See <DocLink to="/docs/iam">Access control</DocLink>.
+      </Callout>
+
+      <H3 id="recipe-public">Public embeds on a marketing site</H3>
+      <P>
+        The hardest case, because anonymous visitors spend <em>your</em> credits and you cannot
+        authenticate them. Every setting here bounds what a stranger — or a leaked embed key — can
+        cost you.
+      </P>
+      <Code lang="bash">{`SITE_URL="https://www.example.com"
+PUBLIC_APP_URL="https://app.example.com"
+PROVIDER_CREDS_SECRET="..."
+
+# Refuse calls past the cap instead of emailing about them afterwards.
+ENFORCE_BUDGET_CAP="true"
+# If spend cannot be established, refuse rather than assume zero.
+BUDGET_FAIL_CLOSED="true"
+
+# A public embed has no reason to reach anything inside your network.
+BLOCK_PRIVATE_NETWORK_FETCH="true"
+
+TRUSTED_PROXY_HOPS="1"
+
+# Tighten the public surface below the defaults (30/min chat, 10/min ask).
+MCP_RATE_LIMIT_PER_MIN="30"
+SWARM_RUN_RATE_LIMIT_PER_MIN="10"
+SWARM_RUN_MAX_CONCURRENT="2"`}</Code>
+      <Callout kind="warn">
+        Give every embed key and swarm API key its own cap under{" "}
+        <DocLink to="/docs/budgets">Budgets</DocLink>. The per-user cap is not enough on its own: it
+        is what a leaked key drains, and a per-credential cap is what stops it.
+      </Callout>
+
+      <H3 id="recipe-regulated">Regulated or air-gapped</H3>
+      <P>
+        No outbound anything, evidence retained, and the audit trail shipped somewhere the app
+        cannot rewrite.
+      </P>
+      <Code lang="bash">{`BLOCK_PRIVATE_NETWORK_FETCH="true"
+ENFORCE_BUDGET_CAP="true"
+BUDGET_FAIL_CLOSED="true"
+
+# Traces to your own collector; nothing leaves for a vendor.
+OTEL_EXPORTER_OTLP_ENDPOINT="http://otel-collector.internal:4318"
+OTEL_SERVICE_NAME="agentswarms-prod"
+
+# Expiring audit rows are printed as NDJSON before deletion, so a log
+# shipper keeps them past the database's own retention.
+AUDIT_ARCHIVE_ON_PURGE="1"
+
+# No model prices are fetched at runtime; the table is vendored in the repo
+# and refreshed deliberately with:  npm run prices:refresh`}</Code>
+      <Callout kind="info">
+        Audit retention is set in the product, not the environment — Admin → IAM, default 365 days.
+        Deleting a user no longer deletes their trail: the row is kept with the actor's email so an
+        investigation still has something to read.
+      </Callout>
+
+      <H3 id="recipe-fleet">Autoscaled behind a load balancer</H3>
+      <P>
+        Several app instances against one Supabase project. Rate limits and concurrency slots are
+        counted in Postgres, so the numbers you set are the numbers you get — but two settings need
+        to match the topology.
+      </P>
+      <Code lang="bash">{`# MUST be set: instances resolve their own origin from this, never from the
+# request's Host header.
+PUBLIC_APP_URL="https://app.example.com"
+
+# A dedicated secret for server-to-server calls, so the database master key
+# stays out of outbound headers.  openssl rand -hex 32
+INTERNAL_RUN_SECRET="..."
+
+# CDN in front of the load balancer? Then two hops, not one.
+TRUSTED_PROXY_HOPS="2"
+
+# Alerts, refreshes and purges run in-process. A cross-instance lease stops
+# them double-firing, but the tidier arrangement on a fleet is to disable
+# them on the web tier and drive /api/bi/cron from one external scheduler.
+DISABLE_INPROCESS_SCHEDULER="true"
+BI_CRON_TOKEN="..."`}</Code>
+
       <H2 id="optional-services">Optional services</H2>
       <Table
         headers={["Service", "Profile", "What it adds"]}
@@ -390,9 +547,17 @@ function SelfHostingPage() {
           endpoint.
         </li>
         <li>
-          <strong>Per-process limits.</strong> Rate and concurrency limits are counted per process,
-          so N instances means N times the limit. Use{" "}
-          <DocLink to="/docs/budgets">budget caps</DocLink> for the ceiling that actually holds.
+          <strong>Limits hold across the fleet.</strong> Rate limits and concurrency slots are
+          counted in Postgres, so the number you configure is the number you get however many
+          instances are running. If the database is briefly unreachable an instance falls back to
+          counting locally and logs that it has — the limit weakens rather than vanishing. Budget
+          caps are the other ceiling, and they are counted the same way; see{" "}
+          <DocLink to="/docs/budgets">Budgets</DocLink>.
+        </li>
+        <li>
+          <strong>Set the proxy depth.</strong> <C>TRUSTED_PROXY_HOPS</C> must match how many
+          proxies of yours sit in front — <C>1</C> for a load balancer alone, <C>2</C> with a CDN in
+          front of it. MCP key IP allow-lists are checked against the address it selects.
         </li>
       </UL>
       <P>

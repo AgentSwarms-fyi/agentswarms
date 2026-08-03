@@ -262,10 +262,11 @@ function ApiPage() {
           ],
         ]}
       />
-      <Callout kind="warn" title="Rate and concurrency limits are per process">
-        If you run several app instances behind a load balancer, the effective limit is multiplied
-        by the instance count. Size accordingly, and use budget caps for the ceiling that actually
-        holds regardless of topology.
+      <Callout kind="info" title="These limits hold across every instance">
+        Rate limits and concurrency slots are counted in Postgres, not in each app process, so the
+        number configured is the number enforced however many instances sit behind your load
+        balancer. If the database is briefly unreachable an instance falls back to counting locally
+        and logs that it has — the limit weakens for that moment rather than disappearing.
       </Callout>
 
       {/* ── WEBHOOKS ── */}
