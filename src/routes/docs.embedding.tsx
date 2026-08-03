@@ -215,6 +215,44 @@ function EmbeddingPage() {
         server-side using the owner's data with the owner enforced as the tenant boundary.
       </P>
 
+      <H2 id="limits">What one visitor can consume</H2>
+      <P>
+        Worth knowing before you publish, because these are the numbers standing between a curious
+        visitor — or a bot that finds the widget — and your provider bill. They are enforced
+        server-side and counted in Postgres, so they hold across every app instance rather than per
+        process.
+      </P>
+      <Table
+        headers={["Limit", "Value", "Scope"]}
+        rows={[
+          ["Chat requests", "30 per minute → 429", "Per embed key"],
+          ["Dashboard “Ask AI” requests", "10 per minute → 429", "Per embed key"],
+          ["Resolve (widget load)", "60 per minute", "Per embed key"],
+          ["Messages in one conversation", "60", "Per request"],
+          ["Conversation size", "200,000 characters", "Per request"],
+          [
+            "Spend",
+            <>
+              Your cap → 402, when <C key="e">ENFORCE_BUDGET_CAP</C> is on
+            </>,
+            "Per embed key, and per user",
+          ],
+        ]}
+      />
+      <Callout kind="warn" title="Rate limits bound the pace, not the total">
+        Thirty chat requests a minute is roughly 43,000 a day if something hammers it continuously.
+        The rate limit stops a burst; only a{" "}
+        <DocLink to="/docs/budgets">budget cap on the key</DocLink> stops the month. Set both — and
+        set the cap before the embed is reachable, not after the first surprise.
+      </Callout>
+      <Callout kind="info" title="A swarm embed orchestrates in the visitor's browser">
+        The graph runs client-side, but each node's call carries only the node's <em>id</em> — the
+        server re-reads that node's real provider, model, prompt and tools from your stored swarm. A
+        visitor cannot select a more expensive model, change the prompt, or reach a node you did not
+        publish. Swarms containing a human-approval step are refused for embedding outright, since
+        no anonymous visitor can ever release the gate.
+      </Callout>
+
       <H2 id="checklist">Pre-publish checklist</H2>
       <UL>
         <li>Domains restricted to sites you control.</li>

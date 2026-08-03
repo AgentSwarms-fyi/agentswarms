@@ -172,6 +172,67 @@ function IamPage() {
         automatically — a shared table becomes queryable by that user's agents with no extra wiring.
       </P>
 
+      <H3 id="row-column-security">Narrowing a grant: row filters and column masks</H3>
+      <P>
+        Sharing a dataset or dashboard does not have to mean sharing all of it. Two optional
+        restrictions can be attached to a grant on a <strong>SQL data table</strong> or a{" "}
+        <strong>BI dashboard</strong> — the two types that serve rows. Neither applies to the other
+        eight, and the platform refuses to save them there.
+      </P>
+      <Table
+        headers={["Restriction", "Shape", "Effect on the grantee"]}
+        rows={[
+          [
+            "Row filter",
+            <>a column and a list of values</>,
+            "They see only rows where that column matches one of those values",
+          ],
+          [
+            "Column mask",
+            "a list of column names",
+            "Those columns are removed server-side — from the column list and from every row",
+          ],
+        ]}
+      />
+      <P>
+        A regional lead granted the sales table with a row filter of <C>region ∈ (EMEA)</C> and a
+        column mask of <C>salary</C> can query the table freely, see only EMEA rows, and never
+        receive the salary column in any answer.
+      </P>
+      <P>
+        Both are applied on the server, before the data leaves it — on stored dashboard snapshots,
+        on live warehouse queries, and on the rows an agent's SQL tool reads. There is no path that
+        applies one and not the others.
+      </P>
+
+      <Callout kind="info" title="Grants add up — they never subtract">
+        Holding two grants can only ever give you <em>more</em>, never less. Two row filters union:
+        a person granted EMEA by one team and APAC by another sees both. A grant carrying{" "}
+        <strong>no</strong> row filter admits every row, and a grant carrying <strong>no</strong>{" "}
+        column mask hides nothing — so an unrestricted grant makes the restricted ones moot. If you
+        need someone narrowed, narrow <em>every</em> grant that reaches them.
+      </Callout>
+      <Callout kind="warn" title="A masked column is also unfilterable">
+        Hiding a column is not enough on its own: if a viewer could still <em>filter</em> on it,
+        they could recover the values by narrowing the range and watching which rows come back.
+        Filters naming a masked column are therefore dropped before the query runs, and the response
+        says which ones were dropped rather than silently ignoring them.
+      </Callout>
+      <Callout kind="why" title="A restriction that cannot be checked returns nothing">
+        If a result does not carry the filter's column, the filter cannot be evaluated against it —
+        and an unevaluated filter counts as unsatisfied, so those rows are withheld. Skipping it
+        instead would <em>widen</em> access, which is the opposite of what the person setting it
+        asked for.
+      </Callout>
+      <Callout kind="warn" title="Aggregated widgets go empty for a filtered grantee">
+        This is the case you will actually meet. A widget reading{" "}
+        <C>SELECT product, sum(revenue) FROM sales GROUP BY product</C> has no <C>region</C> in its
+        output, so a grantee filtered to <C>region ∈ (EMEA)</C> sees an empty widget rather than a
+        global total that ignores their filter. The fix is to project the filter column — group by{" "}
+        <C>region, product</C> — so the rows can be vetted. An empty widget is the restriction
+        working, not a broken query.
+      </Callout>
+
       <H3 id="shared-connections">Shared connections run as their owner</H3>
       <P>
         Connections are the exception to the row-level rule, because those rows carry an encrypted{" "}
@@ -189,14 +250,6 @@ function IamPage() {
         read the resulting data, share those datasets too. Grants are resolved fresh on every call,
         including scheduled runs, so revoking one takes effect on the next use.{" "}
         <DocLink to="/docs/data#sharing">Full details in Data sources</DocLink>.
-      </P>
-      <P>
-        BI dashboard grants can additionally carry a <strong>row filter</strong> (the grantee only
-        sees rows where a column matches allowed values) and <strong>hidden columns</strong>{" "}
-        (removed from every result). Both are enforced server-side: a restricted grantee's data is
-        filtered and masked before it leaves the server, on stored snapshots and live queries alike.
-        Union semantics apply — one unrestricted grant makes the dashboard fully visible, and a
-        column is hidden only when every applicable grant hides it.
       </P>
 
       <H2 id="signup">Signup policy and SSO</H2>
