@@ -39,7 +39,7 @@ import { aggregationPlan } from "@/lib/biAggregate";
 import { applyColumnMask, intersectColumnMasks } from "@/lib/biDashboards";
 import type { ChartSpec } from "@/lib/biAgent";
 import type { SqlDialect } from "@/lib/semanticLayer";
-import { rateLimited, envInt } from "@/utils/rateLimit.server";
+import { rateLimitedGlobal, envInt } from "@/utils/rateLimit.server";
 import { auditEvent } from "@/utils/audit.server";
 
 function getServerSupabase(authToken: string) {
@@ -123,7 +123,12 @@ export const Route = createFileRoute("/api/bi/direct-query")({
 
         // Per-owner rate limit — a shared dashboard mustn't hammer the owner's
         // warehouse across many viewers.
-        if (rateLimited(`bi-direct:${ownerId}`, envInt("BI_DIRECT_QUERY_RATE_PER_MIN", 120))) {
+        if (
+          await rateLimitedGlobal(
+            `bi-direct:${ownerId}`,
+            envInt("BI_DIRECT_QUERY_RATE_PER_MIN", 120),
+          )
+        ) {
           return json(429, { error: "Too many live queries right now — try again shortly" });
         }
 

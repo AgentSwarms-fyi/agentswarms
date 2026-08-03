@@ -15,7 +15,8 @@
 
 import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { rateLimited, touchEmbedKey, validateEmbedKey } from "@/utils/embed.server";
+import { touchEmbedKey, validateEmbedKey } from "@/utils/embed.server";
+import { rateLimitedGlobal } from "@/utils/rateLimit.server";
 import { clientIp, clientUserAgent } from "@/utils/requestMeta.server";
 import { budgetMessage, getBudgetDecision } from "@/utils/budgetGuard.server";
 import { recordGatewayCall } from "@/utils/observability/recordGatewayUsage.server";
@@ -286,7 +287,7 @@ export const Route = createFileRoute("/api/embed/chat")({
         if (body.messages.length > 60 || JSON.stringify(body.messages).length > 200_000) {
           return json({ error: "Conversation too large for an embed." }, 413);
         }
-        if (rateLimited(`chat:${body.embedKey ?? "?"}`, 30)) {
+        if (await rateLimitedGlobal(`chat:${body.embedKey ?? "?"}`, 30)) {
           return json({ error: "Rate limited — please slow down." }, 429);
         }
 

@@ -15,7 +15,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { sanitizePublicPages, sanitizePublicWidgets } from "@/lib/biDashboards";
-import { rateLimited, touchEmbedKey, validateEmbedKey } from "@/utils/embed.server";
+import { touchEmbedKey, validateEmbedKey } from "@/utils/embed.server";
+import { rateLimitedGlobal } from "@/utils/rateLimit.server";
+import { budgetMessage, getBudgetDecision } from "@/utils/budgetGuard.server";
 import { clientIp, clientUserAgent } from "@/utils/requestMeta.server";
 import { recordGatewayCall, extractUsage } from "@/utils/observability/recordGatewayUsage.server";
 import {
@@ -83,7 +85,12 @@ export const Route = createFileRoute("/api/embed")({
         if (body.action !== "resolve" && body.action !== "ask") {
           return json({ error: "Unknown action" }, 400);
         }
-        if (rateLimited(`${body.action}:${body.key ?? "?"}`, body.action === "ask" ? 10 : 60)) {
+        if (
+          await rateLimitedGlobal(
+            `${body.action}:${body.key ?? "?"}`,
+            body.action === "ask" ? 10 : 60,
+          )
+        ) {
           return json({ error: "Rate limited — please slow down." }, 429);
         }
 
@@ -186,6 +193,20 @@ export const Route = createFileRoute("/api/embed")({
         }
         const question = (body.question ?? "").trim().slice(0, 2000);
         if (!question) return json({ error: "question required" }, 400);
+
+        // Budget gate. This action makes a real model call and bills the OWNER
+        // through recordGatewayCall with costScope { type: "embed_key" } — the
+        // same scope /api/embed/chat meters against — but it never asked
+        // whether that budget had anything left. So an owner who set a cap saw
+        // it enforced on embedded CHAT and silently not on embedded ASK, on the
+        // same key, spending from the same pot. Anonymous visitors are the ones
+        // spending, which is exactly where a per-credential cap is supposed to
+        // hold.
+        const budget = await getBudgetDecision(keyRow.user_id, {
+          type: "embed_key",
+          id: keyRow.id,
+        });
+        if (budget.over) return json({ error: budgetMessage(budget) }, 402);
 
         // Context comes from the STORED dashboard — never from the client.
         const { data: dash } = await supabaseAdmin

@@ -19,7 +19,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { detectFormat, safeTableName, UPLOAD_ACCEPT } from "@/lib/datasetParse";
 import { auditEvent } from "@/utils/audit.server";
-import { envInt, rateLimited } from "@/utils/rateLimit.server";
+import { envInt, rateLimitedGlobal } from "@/utils/rateLimit.server";
 import { ingestUpload, uploadMaxBytes, uploadMaxRows } from "@/utils/data/ingest.server";
 
 function json(status: number, body: unknown): Response {
@@ -36,7 +36,7 @@ async function handle(request: Request): Promise<Response> {
   const userId = auth.user?.id;
   if (!userId) return json(401, { error: "Unauthorized" });
 
-  if (rateLimited(`upload:${userId}`, envInt("UPLOAD_PER_MINUTE", 10))) {
+  if (await rateLimitedGlobal(`upload:${userId}`, envInt("UPLOAD_PER_MINUTE", 10))) {
     return json(429, { error: "Too many uploads — wait a minute and try again." });
   }
 

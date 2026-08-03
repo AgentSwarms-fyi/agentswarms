@@ -25,7 +25,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { auditEvent } from "@/utils/audit.server";
 import { requestOriginAllowed } from "@/utils/embedOrigin";
-import { acquireSlot, envInt, rateLimited, releaseSlot } from "@/utils/rateLimit.server";
+import { acquireSlot, envInt, rateLimitedGlobal, releaseSlot } from "@/utils/rateLimit.server";
 import { hashMcpApiKey, looksLikeMcpApiKey } from "@/utils/mcpApps/keys";
 import {
   FORWARDED_METHODS,
@@ -297,7 +297,7 @@ async function handlePost(request: Request): Promise<Response> {
 
   // Rate limit per key, concurrency per app: one noisy key must not be able to
   // pin every worker on a server other keys also use.
-  if (rateLimited(`mcp:${key.id}`, envInt("MCP_RATE_LIMIT_PER_MIN", 120))) {
+  if (await rateLimitedGlobal(`mcp:${key.id}`, envInt("MCP_RATE_LIMIT_PER_MIN", 120))) {
     return json({ error: "rate_limited", message: "Too many requests." }, 429, {
       ...cors,
       "Retry-After": "60",
