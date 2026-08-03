@@ -143,9 +143,18 @@ export const Route = createFileRoute("/api/bi/direct-query")({
               (g.principal_type === "user" && g.principal_id === userId) ||
               (g.principal_type === "group" && groupIds.has(g.principal_id)),
           );
-          for (const g of mine) {
+          // An unfiltered grant admits every row, so it makes the filtered ones
+          // irrelevant — the same rule sharedDatasets.server applies to
+          // datasets. This loop used to keep only the grants that HAD a filter
+          // and silently drop the unrestricted one, so a user granted full
+          // access through a group still saw a colleague's narrower slice.
+          const anyUnfiltered = mine.some((g) => {
             const rf = g.row_filter as { column?: unknown; values?: unknown } | null;
-            if (rf && typeof rf.column === "string" && Array.isArray(rf.values)) {
+            return !rf || typeof rf.column !== "string" || !Array.isArray(rf.values);
+          });
+          if (!anyUnfiltered) {
+            for (const g of mine) {
+              const rf = g.row_filter as { column: string; values: unknown[] };
               rowFilters.push({ column: rf.column, values: rf.values.map(String) });
             }
           }

@@ -73,14 +73,31 @@ export function buildDirectQuerySql(args: {
   const preds: string[] = [];
 
   // Row-level security first — fail closed if any can't be enforced.
+  //
+  // GRANTS ARE ADDITIVE, so the filters from several grants are OR'd. They used
+  // to be AND'd along with everything else, which made holding two grants admit
+  // FEWER rows than holding either one alone: a user in two groups, one granted
+  // `region IN ('EMEA')` and the other `region IN ('APAC')`, matched
+  // `region IN ('EMEA') AND region IN ('APAC')` and saw nothing at all, with no
+  // error to explain it. The dataset path (sharedDatasets.server) has always
+  // used a union — `filters.some(...)` — so the same person saw different data
+  // depending on which surface they opened.
+  //
+  // Fail-closed still applies to the WHOLE query, and matters more under OR
+  // than under AND: skipping a filter that cannot be enforced would WIDEN
+  // access here rather than narrow it.
+  const rlsPreds: string[] = [];
   for (const rf of args.rowFilters ?? []) {
     const id = safeIdent(rf.column);
     const vals = (rf.values ?? []).filter((v) => v != null);
     if (!id || !colSet.has(rf.column.toLowerCase()) || vals.length === 0) {
       return `SELECT * FROM (${base}) AS _dq WHERE 1=0`;
     }
-    preds.push(`${id} IN (${vals.map(quoteStr).join(", ")})`);
+    rlsPreds.push(`${id} IN (${vals.map(quoteStr).join(", ")})`);
   }
+  // Parenthesised, so a later AND cannot bind to the last OR branch alone.
+  if (rlsPreds.length === 1) preds.push(rlsPreds[0]);
+  else if (rlsPreds.length > 1) preds.push(`(${rlsPreds.join(" OR ")})`);
 
   // Global dashboard filters — best-effort (skip columns not in the result).
   for (const f of args.filters ?? []) {
