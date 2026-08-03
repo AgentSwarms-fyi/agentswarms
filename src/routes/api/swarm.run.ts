@@ -34,6 +34,7 @@ import { auditEvent } from "@/utils/audit.server";
 import { clientIp, clientUserAgent } from "@/utils/requestMeta.server";
 import { budgetMessage, getBudgetDecision } from "@/utils/budgetGuard.server";
 import { deliverRunCallback, hashBody } from "@/utils/swarmWebhook.server";
+import { idempotencyVerdict, type IdempotencyRow } from "@/utils/swarmIdempotency";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -158,44 +159,66 @@ export const Route = createFileRoute("/api/swarm/run")({
               .eq("api_key_id", key.id)
               .eq("idempotency_key", idemKey)
               .maybeSingle();
-            if (existing) {
-              // Same key, different body is a client bug — fail loudly rather
-              // than hand back an unrelated run's output.
-              if (existing.request_hash !== reqHash) {
+            const verdict = idempotencyVerdict(existing as IdempotencyRow | null, reqHash);
+            if (verdict.action === "mismatch") {
+              return json(
+                { error: "This Idempotency-Key was already used with a different request body." },
+                422,
+              );
+            }
+            if (verdict.action === "replay") {
+              return json(verdict.response as Record<string, unknown>);
+            }
+            if (verdict.action === "in_progress") {
+              return json(
+                {
+                  error: "A run with this Idempotency-Key is still in progress.",
+                  runId: verdict.runId,
+                },
+                409,
+              );
+            }
+
+            // CLAIM ATOMICALLY. This was an upsert, which SUCCEEDS FOR BOTH
+            // racers: two concurrent requests carrying the same key both read
+            // no row, both upserted, and both ran the swarm — double work and
+            // double billing, in exactly the situation idempotency exists for,
+            // because at-least-once queues and proxy retries are concurrent by
+            // nature.
+            //
+            // insert() leans on UNIQUE (api_key_id, idempotency_key), so only
+            // one racer can create the row.
+            const { error: claimErr } = await supabaseAdmin.from("swarm_run_idempotency").insert({
+              api_key_id: key.id,
+              idempotency_key: idemKey,
+              request_hash: reqHash,
+              status: "in_progress",
+            });
+            if (claimErr) {
+              // A row exists. Either a racer just created it, or an earlier
+              // attempt failed and this is a retry — and only ONE retrier may
+              // proceed, so the takeover is a conditional update that matches
+              // just the failed state. No match means somebody else owns it.
+              const { data: taken } = await supabaseAdmin
+                .from("swarm_run_idempotency")
+                .update({
+                  request_hash: reqHash,
+                  status: "in_progress",
+                  response: null,
+                  completed_at: null,
+                })
+                .eq("api_key_id", key.id)
+                .eq("idempotency_key", idemKey)
+                .eq("status", "failed")
+                .select("id")
+                .maybeSingle();
+              if (!taken) {
                 return json(
-                  {
-                    error: "This Idempotency-Key was already used with a different request body.",
-                  },
-                  422,
-                );
-              }
-              if (existing.status === "completed" && existing.response) {
-                return json(existing.response as Record<string, unknown>);
-              }
-              if (existing.status === "in_progress") {
-                return json(
-                  {
-                    error: "A run with this Idempotency-Key is still in progress.",
-                    runId: existing.run_id,
-                  },
+                  { error: "A run with this Idempotency-Key is already in progress." },
                   409,
                 );
               }
-              // A previously failed attempt may be retried: fall through and
-              // let the insert below refresh it.
             }
-            const { error: claimErr } = await supabaseAdmin.from("swarm_run_idempotency").upsert(
-              {
-                api_key_id: key.id,
-                idempotency_key: idemKey,
-                request_hash: reqHash,
-                status: "in_progress",
-                response: null,
-                completed_at: null,
-              },
-              { onConflict: "api_key_id,idempotency_key" },
-            );
-            if (claimErr) console.warn("[swarm-run] idempotency claim failed:", claimErr.message);
           }
 
           const input = typeof payload.input === "string" ? payload.input : "";
