@@ -16,6 +16,7 @@ import { render } from "@react-email/components";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { TEMPLATES } from "@/lib/email-templates/registry";
 import { sendMail } from "@/lib/email/mailer.server";
+import { monthStartIso, spendSince } from "@/utils/budgetSpend.server";
 
 // Self-hosted: the instance's public URL (used for links inside the email).
 const SITE_URL = process.env.SITE_URL || "http://localhost:8080";
@@ -148,19 +149,24 @@ export async function checkAndNotifyBudget(userId: string): Promise<void> {
     const cap = Number(budget.monthly_cap_usd ?? 0);
     if (cap <= 0) return;
 
-    // 2. Compute month-to-date spend.
-    const monthStartIso = new Date(
-      Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1),
-    ).toISOString();
-    const { data: traces } = await sb
-      .from("execution_traces")
-      .select("cost_usd")
-      .eq("user_id", userId)
-      .gte("created_at", monthStartIso);
-    const mtd = (traces ?? []).reduce(
-      (s: number, r: { cost_usd: number | null }) => s + Number(r.cost_usd ?? 0),
-      0,
-    );
+    // 2. Month-to-date spend, through the shared aggregate.
+    //
+    // This used to SELECT every trace row for the month and add cost_usd up
+    // here, reading the result as `traces ?? []`. A statement timeout — or any
+    // error — therefore produced an empty array, which sums to $0, which is
+    // 0% of the cap, which fires no alert and returns silently. The one path
+    // whose entire job is to warn you would go quiet exactly when spend was
+    // high enough to make the query slow.
+    //
+    // budgetGuard was fixed for this and the alert path was missed, which is
+    // its own lesson: the same wrong idiom existed in five places and fixing
+    // the one I was looking at did not fix the others.
+    const result = await spendSince({ userId, since: monthStartIso() });
+    if (!result.ok) {
+      console.warn(`[budget-alert] spend lookup failed for ${userId}: ${result.error}`);
+      return;
+    }
+    const mtd = result.spend;
     const pct = (mtd / cap) * 100;
 
     // 3. Reset per-period dedupe state if month rolled.

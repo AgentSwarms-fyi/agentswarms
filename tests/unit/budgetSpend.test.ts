@@ -116,6 +116,36 @@ describe("the guard acts on the difference", () => {
   });
 });
 
+describe("every server path that reads spend uses the aggregate", () => {
+  // THE FIRST FIX WAS INCOMPLETE, and this is what caught it. budgetGuard was
+  // corrected while budgetAlertTrigger kept the same `data ?? []` idiom — so a
+  // failed query still summed to $0, which is 0% of the cap, which fires no
+  // alert and returns silently. The one path whose entire job is to warn you
+  // went quiet exactly when spend was high enough to make the query slow.
+  //
+  // Listing the files rather than checking one keeps the next copy honest.
+  const SERVER_READERS = [
+    "src/utils/budgetGuard.server.ts",
+    "src/lib/email/budgetAlertTrigger.server.ts",
+  ];
+
+  for (const f of SERVER_READERS) {
+    it(`${f.split("/").pop()} goes through spendSince`, () => {
+      const src = readFileSync(f, "utf8");
+      expect(src, "does not use the shared aggregate").toContain("spendSince(");
+      expect(src, "still scans rows to sum them itself").not.toMatch(
+        /from\(["']execution_traces["']\)[\s\S]{0,60}\.select\(["']cost_usd["']\)/,
+      );
+    });
+  }
+
+  it("treats a failed lookup as unknown, not as nothing spent", () => {
+    const alert = readFileSync("src/lib/email/budgetAlertTrigger.server.ts", "utf8");
+    expect(alert).toMatch(/if \(!result\.ok\)/);
+    expect(alert).toMatch(/\[budget-alert\] spend lookup failed/);
+  });
+});
+
 describe("the migration the aggregate needs", () => {
   const sql = readFileSync("supabase/migrations/20260780000000_budget_spend_aggregate.sql", "utf8");
 
