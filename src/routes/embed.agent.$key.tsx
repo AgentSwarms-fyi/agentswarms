@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { MarkdownMessage } from "@/components/playground/MarkdownMessage";
 import { BiWidgetCard } from "@/components/bi/BiWidgetCard";
 import { parseWidgets, type BiWidget } from "@/lib/biDashboards";
+import { historyForModel, settleTurns, withNotice, type EmbedTurn } from "@/lib/embedTurns";
 import {
   resolveEmbed,
   streamEmbedChat,
@@ -26,7 +27,7 @@ export const Route = createFileRoute("/embed/agent/$key")({
   component: EmbedAgentPage,
 });
 
-type Turn = EmbedChatMessage & { citations?: Citation[]; widgets?: BiWidget[] };
+type Turn = EmbedTurn & { citations?: Citation[]; widgets?: BiWidget[] };
 
 export function EmbedErrorCard({ error }: { error: string }) {
   return (
@@ -80,8 +81,7 @@ function EmbedAgentPage() {
     if (!q || busy) return;
     setInput("");
     setBusy(true);
-    const history: EmbedChatMessage[] = [...turns.map(({ role, content }) => ({ role, content }))];
-    history.push({ role: "user", content: q });
+    const history = historyForModel(turns, q);
     setTurns((prev) => [...prev, { role: "user", content: q }, { role: "assistant", content: "" }]);
     try {
       let citations: Citation[] = [];
@@ -93,8 +93,15 @@ function EmbedAgentPage() {
         onCitations: (c) => {
           citations = c;
         },
+        // Accumulates. The server sends at most one widget per answer today
+        // (one generateEmbedWidget call on each of the two response paths), so
+        // replacing was not a live bug — but it made the handler depend on
+        // that, silently, from the other side of an SSE stream.
         onWidget: (w) => {
-          widgets = parseWidgets([w] as unknown as Parameters<typeof parseWidgets>[0]);
+          widgets = [
+            ...widgets,
+            ...parseWidgets([w] as unknown as Parameters<typeof parseWidgets>[0]),
+          ];
         },
         onToken: (t) =>
           setTurns((prev) => {
@@ -116,15 +123,12 @@ function EmbedAgentPage() {
         });
       }
     } catch (e) {
-      setTurns((prev) => {
-        const copy = [...prev];
-        copy[copy.length - 1] = {
-          role: "assistant",
-          content: `⚠️ ${(e as Error).message}`,
-        };
-        return copy;
-      });
+      setTurns((prev) => withNotice(prev, `⚠️ ${(e as Error).message}`));
     } finally {
+      // An answer that produced no tokens leaves an assistant turn with empty
+      // content, and empty content renders as a spinner — which would then
+      // spin forever with busy already false.
+      setTurns(settleTurns);
       setBusy(false);
     }
   }
