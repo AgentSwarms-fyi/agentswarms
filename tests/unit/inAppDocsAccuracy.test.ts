@@ -244,6 +244,93 @@ describe("the configuration recipes are usable", () => {
   });
 });
 
+describe("the quickstart sends people at things that exist", () => {
+  const page = readFileSync("src/routes/docs.quickstart.tsx", "utf8");
+  const templates = readFileSync("src/lib/swarmTemplates.ts", "utf8");
+
+  it("names a swarm template that ships", () => {
+    // It named "Product Support Assistant" — no such template. The first
+    // concrete instruction on the first page a new user opens pointed at
+    // something that was not there.
+    const titles = [...templates.matchAll(/^\s{4}title: "([^"]+)"/gm)].map((m) => m[1]);
+    expect(titles.length, "no templates found to check against").toBeGreaterThan(5);
+
+    // Flattened first: prettier reflows JSX across lines and inserts {" "},
+    // so a structural regex against the raw file matches nothing and the guard
+    // silently checks zero names.
+    const flat = page.replace(/\{" "\}/g, " ").replace(/\s+/g, " ");
+    const named = [...flat.matchAll(/<strong>([A-Z][A-Za-z ]{4,40})<\/strong> ?template/g)].map(
+      (m) => m[1].trim(),
+    );
+    expect(named.length, "the quickstart no longer names a template").toBeGreaterThan(0);
+    for (const n of named) {
+      expect(titles, `quickstart names a template that does not exist: ${n}`).toContain(n);
+    }
+  });
+
+  it("quotes the example question the template actually ships with", () => {
+    const support = templates.slice(templates.indexOf('id: "support-copilot"'));
+    const example = support.match(/exampleInput:\s*\n?\s*"([^"]+)"/)?.[1];
+    expect(example, "support-copilot has no exampleInput").toBeTruthy();
+    // The page wraps it across lines, so compare on words rather than shape.
+    const words = example!
+      .replace(/[^a-z ]/gi, " ")
+      .split(/\s+/)
+      .filter((w) => w.length > 5);
+    const flat = page.replace(/\s+/g, " ");
+    for (const w of words) {
+      expect(flat, `the quoted question drifted from the template: ${w}`).toContain(w);
+    }
+  });
+
+  it("points at a knowledge base that is really seeded", () => {
+    // The claim "needs no setup" rests entirely on this row existing.
+    const kbId = templates.match(/SAMPLE_KB_ID = "([0-9a-f-]+)"/)?.[1];
+    expect(kbId).toBeTruthy();
+    const seed = readFileSync(
+      "supabase/migrations/20260604135439_9ab0db3f-61dc-4cde-98cc-e4d84a45a5d8.sql",
+      "utf8",
+    );
+    expect(seed).toContain(kbId!);
+    expect(seed, "the sample KB is no longer readable by everyone").toContain("is_sample");
+    const name = seed.match(/'(Sample · [^']+)'/)?.[1];
+    expect(name, "the seeded sample KB has no name").toBeTruthy();
+    expect(page, "the quickstart names a different sample base").toContain(name!);
+  });
+
+  it("states a total that the sample CSV actually adds up to", () => {
+    // A page about not trusting a model's arithmetic cannot get its own
+    // arithmetic wrong. Computed from the CSV as printed.
+    const csv = page.match(/<Code lang="csv">\{`([\s\S]*?)`\}<\/Code>/)?.[1];
+    expect(csv, "the sample CSV is gone").toBeTruthy();
+    const rows = csv!
+      .trim()
+      .split("\n")
+      .slice(1)
+      .map((l) => l.split(","));
+    const march = rows.filter((r) => r[4].startsWith("2026-03"));
+    const total = march.reduce((s, r) => s + Number(r[3]), 0);
+    expect(page, `March total is ${total.toFixed(2)} across ${march.length} rows`).toContain(
+      total.toFixed(2),
+    );
+    expect(page).toMatch(
+      new RegExp(
+        `across ${["", "one", "two", "three", "four", "five", "six", "seven"][march.length]} rows`,
+      ),
+    );
+  });
+
+  it("tells a fresh instance how to get a model before step 1", () => {
+    // Every step needs a provider and .env.example ships the key empty, so a
+    // reader following this in order hits a wall on the first instruction.
+    expect(readFileSync(".env.example", "utf8")).toMatch(/^OPENROUTER_API_KEY=""$/m);
+    expect(page, "the provider prerequisite is missing").toContain("OPENROUTER_API_KEY");
+    expect(page.indexOf("OPENROUTER_API_KEY"), "the prerequisite comes after step 1").toBeLessThan(
+      page.indexOf('id="step-1"'),
+    );
+  });
+});
+
 describe("the secrets page describes the resolver that exists", () => {
   const page = readFileSync("src/routes/docs.secrets.tsx", "utf8");
   const resolver = readFileSync("src/utils/secrets.server.ts", "utf8");
