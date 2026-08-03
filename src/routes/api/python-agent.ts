@@ -15,6 +15,7 @@
 // and swarms they own.
 import { createFileRoute } from "@tanstack/react-router";
 import { resolvePythonCaller } from "@/utils/notebookRuntime/caller.server";
+import { resolveInternalOrigin } from "@/utils/internalOrigin.server";
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -23,14 +24,13 @@ function json(status: number, body: unknown): Response {
   });
 }
 
-/** Absolute origin for internal self-calls. Never derived from the request Host
- *  header — that is attacker-controlled and has leaked credentials before. */
-function internalOrigin(): string {
-  return (process.env.PUBLIC_APP_URL || process.env.SITE_URL || "http://localhost:8080").replace(
-    /\/+$/,
-    "",
-  );
-}
+// The origin comes from utils/internalOrigin.server, which every other headless
+// path already uses. This file had its own copy of that function, and the copy
+// had drifted: it fell back to localhost:8080 rather than 127.0.0.1:8080, and
+// it skipped the `^https?://` validation, so a PUBLIC_APP_URL of "example.com"
+// (no scheme) produced "example.com/api/chat" and a failed fetch instead of
+// falling back to loopback. Same reasoning about the Host header, one
+// implementation.
 
 export const Route = createFileRoute("/api/python-agent")({
   server: {
@@ -65,11 +65,13 @@ export const Route = createFileRoute("/api/python-agent")({
             caller.sb.from("agents").select("id, name, description").eq("user_id", ownerId),
             caller.sb.from("swarms").select("id, name, description").eq("user_id", ownerId),
           ]);
+          // Both failures are reported. Returning [] for a failed swarms query
+          // while 500-ing on a failed agents query told the notebook "you have
+          // no swarms" when the truth was "the query did not run" — and the
+          // caller's next line is usually a lookup by name against that list.
           if (agents.error) return json(500, { error: agents.error.message });
-          return json(200, {
-            agents: agents.data ?? [],
-            swarms: swarms.error ? [] : (swarms.data ?? []),
-          });
+          if (swarms.error) return json(500, { error: swarms.error.message });
+          return json(200, { agents: agents.data ?? [], swarms: swarms.data ?? [] });
         }
 
         // ── run_agent: one turn against a saved agent ──
@@ -90,7 +92,6 @@ export const Route = createFileRoute("/api/python-agent")({
           if (error) return json(500, { error: error.message });
           if (!agent) return json(404, { error: "Agent not found" });
 
-          const auth = request.headers.get("authorization") ?? "";
           const messages = [
             ...(Array.isArray(body.history)
               ? body.history
@@ -103,12 +104,48 @@ export const Route = createFileRoute("/api/python-agent")({
             { role: "user", content: prompt },
           ];
 
-          // Delegate to /api/chat so the agent runs with its real prompt, tools,
-          // knowledge, memory and guardrails — reimplementing any of that here
-          // would drift from what the same agent does everywhere else.
-          const resp = await fetch(`${internalOrigin()}/api/chat`, {
+          // KNOWN LIMITATION, stated rather than papered over.
+          //
+          // This delegates to /api/chat so the agent runs with its real prompt,
+          // tools, knowledge, memory and guardrails — reimplementing any of
+          // that here would drift from what the same agent does everywhere
+          // else. The delegation forwards the caller's Authorization header,
+          // which works for a Supabase JWT and cannot work for a notebook
+          // SESSION TOKEN: /api/chat verifies a JWT or the internal-run secret,
+          // and a session token is neither. So a server kernel got a bare
+          // "Agent run failed (401)" with nothing explaining why.
+          //
+          // The obvious repair — call the internal channel with
+          // x-internal-run-secret + internalUserId, the way scheduled and
+          // deployed swarm runs do — is WRONG here, and quietly so. In
+          // /api/chat every agent-aware branch is gated on `authToken`:
+          // the agent-config load, retrieveCitations, and the auto-RAG path all
+          // require a JWT. On the internal channel agentId is accepted and
+          // ignored, so the call would succeed and answer from a bare default
+          // model with no prompt, no tools and no knowledge base. Turning a
+          // visible 401 into a plausible-looking wrong answer is worse than the
+          // bug.
+          //
+          // Supporting it properly means teaching those branches to use the
+          // service-role client scoped to internalUserId (the idiom already
+          // used for iamSb a few lines up in chat.ts) — a change to an
+          // auth-sensitive path in a 2,000-line file, which is a decision, not
+          // a cleanup. Until then this fails immediately and says what is
+          // wrong. run_swarm is unaffected: it calls executeSwarmServer
+          // in-process and needs no HTTP hop.
+          if (caller.scopeUserId) {
+            return json(501, {
+              error:
+                "run_agent is not available from the server kernel yet — it needs a user JWT. " +
+                "Run the notebook with the browser (Pyodide) runtime, or use run_swarm.",
+            });
+          }
+          const resp = await fetch(`${resolveInternalOrigin()}/api/chat`, {
             method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: auth },
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: request.headers.get("authorization") ?? "",
+            },
             body: JSON.stringify({ agentId, messages, stream: false }),
           });
           const text = await resp.text();
@@ -153,7 +190,7 @@ export const Route = createFileRoute("/api/python-agent")({
             const result = await executeSwarmServer({
               swarm: full,
               userId: ownerId,
-              origin: internalOrigin(),
+              origin: resolveInternalOrigin(),
               input: String(input ?? ""),
               initialState,
               // A notebook is unattended for approval purposes: nobody is
@@ -179,8 +216,10 @@ export const Route = createFileRoute("/api/python-agent")({
   },
 });
 
-/** Pull the assistant text out of an OpenAI-style SSE transcript. */
-function collapseSse(raw: string): string {
+/** Pull the assistant text out of an OpenAI-style SSE transcript. Exported for
+ *  tests: it is the one piece of this route that is pure, and it decides what a
+ *  notebook cell prints. */
+export function collapseSse(raw: string): string {
   let out = "";
   for (const line of raw.split("\n")) {
     if (!line.startsWith("data: ")) continue;
@@ -197,6 +236,18 @@ function collapseSse(raw: string): string {
       /* keep-alive or a custom event frame — ignore */
     }
   }
-  // A non-SSE body (some providers answer plain JSON) falls through unchanged.
-  return out || raw;
+  // The fallback is for a body that is NOT SSE — some providers answer plain
+  // JSON — and it has to distinguish that from an SSE stream that simply
+  // carried no text. `out || raw` could not: an answer whose frames hold only
+  // citations, or a guardrail-blocked one, or an empty completion, printed the
+  // whole protocol transcript into the notebook cell:
+  //
+  //   : keep-alive
+  //   event: citations
+  //   data: {"citations":[{"index":1,"documentName":"policy.pdf"}]}
+  //   data: [DONE]
+  //
+  // An SSE body that produced no text is an empty answer, and says so.
+  if (out) return out;
+  return /^(?:data|event): /m.test(raw) ? "" : raw;
 }
