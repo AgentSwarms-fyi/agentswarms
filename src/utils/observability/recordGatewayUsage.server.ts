@@ -7,14 +7,8 @@
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { bodyJson, bodyText } from "@/utils/observability/redaction.server";
-import {
-  approxTokens,
-  estimateEmbeddingCost,
-  estimateImageCost,
-  estimateTextCost,
-  hasKnownPrice,
-  isImageModel,
-} from "./pricing";
+import { approxTokens, isImageModel } from "./pricing";
+import { priceCall } from "./priceResolver";
 
 export type GatewayCallSurface =
   | "BI Agent: Plan"
@@ -84,14 +78,20 @@ export async function recordGatewayCall(args: RecordGatewayCallArgs): Promise<vo
     const tokensOut = args.tokensOut ?? tokensFromText(args.responseText);
     const status = args.status ?? "success";
 
-    let costUsd = 0;
-    if (kind === "image") {
-      costUsd = estimateImageCost(args.model, args.imageCount ?? 1);
-    } else if (kind === "embedding") {
-      costUsd = estimateEmbeddingCost(args.model, tokensIn);
-    } else {
-      costUsd = estimateTextCost(args.model, tokensIn, tokensOut);
-    }
+    // Priced through the resolver so the PROVIDER counts. The trace has always
+    // recorded llm_provider and the price lookup ignored it, so the same model
+    // cost the same on Bedrock, on Anthropic direct and through OpenRouter's
+    // margin — three different numbers in reality.
+    const provider = args.provider ?? "openrouter";
+    const priced = priceCall({
+      provider,
+      model: args.model,
+      kind,
+      tokensIn,
+      tokensOut,
+      imageCount: args.imageCount,
+    });
+    const costUsd = priced.costUsd;
 
     const requestPayload: Record<string, unknown> = {
       surface: args.surface,
@@ -106,7 +106,8 @@ export async function recordGatewayCall(args: RecordGatewayCallArgs): Promise<vo
     // accumulates, the monthly total stays under the limit for ever and the
     // hard stop never fires. Marked on the trace so the spend figure can say it
     // is incomplete rather than quietly being wrong.
-    if (!hasKnownPrice(args.model, kind)) requestPayload.pricing_missing = true;
+    if (!priced.priced) requestPayload.pricing_missing = true;
+    else requestPayload.price_source = priced.source;
     if (args.parentTraceId) requestPayload.parent_trace_id = args.parentTraceId;
     if (typeof args.imageCount === "number") requestPayload.image_count = args.imageCount;
     if (args.requestPreview !== undefined) requestPayload.preview = args.requestPreview;
@@ -122,7 +123,7 @@ export async function recordGatewayCall(args: RecordGatewayCallArgs): Promise<vo
       // distributed trace, both by indexed lookup.
       parent_trace_id: args.parentTraceId ?? null,
       agent_name: args.surface,
-      llm_provider: args.provider ?? "openrouter",
+      llm_provider: provider,
       llm_model: args.model,
       prompt: bodyText(args.promptText ? args.promptText.slice(0, 4000) : null),
       tokens_in: tokensIn,

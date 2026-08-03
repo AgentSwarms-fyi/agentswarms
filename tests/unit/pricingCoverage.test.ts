@@ -81,9 +81,15 @@ describe("a price the app does NOT know is announced, not assumed", () => {
   it("is wired into the trace, so the gap is recorded", () => {
     // Knowing is worthless if nothing writes it down: a spend figure has to be
     // able to say it is incomplete.
+    //
+    // The recorder asks the RESOLVER now rather than calling hasKnownPrice
+    // directly — one question, one answer, so the cost and the "was it priced"
+    // flag can never come from two different lookups that disagree. This
+    // assertion caught that change, which is what it is for.
     const rec = readFileSync("src/utils/observability/recordGatewayUsage.server.ts", "utf8");
-    expect(rec).toContain("hasKnownPrice(args.model, kind)");
+    expect(rec).toContain("priceCall(");
     expect(rec).toContain("pricing_missing");
+    expect(rec, "the flag is derived from a second lookup").toContain("if (!priced.priced)");
   });
 });
 

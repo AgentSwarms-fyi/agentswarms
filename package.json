@@ -24,7 +24,8 @@
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:differential": "tsx tests/differential/report.ts",
-    "eval:nl2sql": "tsx evals/nl2sql/run.ts"
+    "eval:nl2sql": "tsx evals/nl2sql/run.ts",
+    "prices:refresh": "tsx scripts/refreshPrices.ts"
   },
   "dependencies": {
     "@codemirror/lang-javascript": "^6.2.5",
