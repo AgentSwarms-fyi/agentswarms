@@ -20,6 +20,44 @@ function bootstrapAdminEmail(): string {
   return (process.env.ADMIN_EMAIL || import.meta.env.ADMIN_EMAIL || "").toLowerCase();
 }
 
+/**
+ * May this account claim the ADMIN_EMAIL bootstrap superadmin role?
+ *
+ * The bootstrap grant is permanent and irrevocable — iamRevokeSuperadmin
+ * refuses to demote it — so it is worth being exact about who gets it.
+ *
+ * THE ADDRESS IS A CLAIM, NOT A CREDENTIAL. A fresh deploy has
+ * `allow_public_signup` defaulting to true (20260720000000_iam.sql), and
+ * DEPLOYMENT.md tells the operator to sign up with ADMIN_EMAIL *after*
+ * deploying and enable invite-only *after* that. Until they do, the address is
+ * unclaimed, and whoever registers it first is handed permanent superadmin over
+ * the instance. Guessing "admin@<their-domain>" is not a high bar.
+ *
+ * Requiring a CONFIRMED email closes that when the Supabase project verifies
+ * addresses: an attacker who does not control the mailbox never confirms, so
+ * never claims it.
+ *
+ * IT DOES NOT CLOSE IT UNDER AUTOCONFIRM. With email confirmations disabled
+ * (the Supabase local-dev default) Supabase stamps email_confirmed_at at signup
+ * for everyone, so this check passes for an attacker too — and there is no
+ * server-side way to tell them from the operator, because the two present
+ * exactly the same evidence: possession of a string. That configuration needs
+ * confirmations turned on, which is why the docs now say so rather than this
+ * function pretending to have solved it.
+ */
+export function bootstrapClaimAllowed(opts: {
+  email: string;
+  bootstrapEmail: string;
+  emailConfirmedAt: string | null | undefined;
+}): boolean {
+  const bootstrap = opts.bootstrapEmail.trim().toLowerCase();
+  // No ADMIN_EMAIL configured means there is no bootstrap account, not that
+  // every account is one.
+  if (!bootstrap) return false;
+  if (opts.email.trim().toLowerCase() !== bootstrap) return false;
+  return Boolean(opts.emailConfirmedAt);
+}
+
 export async function requireSuperadmin(accessToken: string | undefined): Promise<SuperadminGuard> {
   if (!accessToken) return { ok: false, error: "Missing access token" };
   try {
@@ -39,7 +77,13 @@ export async function requireSuperadmin(accessToken: string | undefined): Promis
     if (roleRow) return { ok: true, userId: user.id, email };
 
     const bootstrap = bootstrapAdminEmail();
-    if (bootstrap && email === bootstrap) {
+    if (
+      bootstrapClaimAllowed({
+        email,
+        bootstrapEmail: bootstrap,
+        emailConfirmedAt: (user as { email_confirmed_at?: string | null }).email_confirmed_at,
+      })
+    ) {
       await supabaseAdmin
         .from("user_roles")
         .upsert(
@@ -47,6 +91,18 @@ export async function requireSuperadmin(accessToken: string | undefined): Promis
           { onConflict: "user_id,role", ignoreDuplicates: true },
         );
       return { ok: true, userId: user.id, email };
+    }
+
+    // Distinct message for the near-miss, so an operator whose ADMIN_EMAIL
+    // account is unconfirmed is told what to do instead of staring at a
+    // generic 403.
+    if (bootstrap && email === bootstrap) {
+      return {
+        ok: false,
+        error:
+          "This is the ADMIN_EMAIL account, but its email address is not confirmed. " +
+          "Confirm it and sign in again.",
+      };
     }
 
     return { ok: false, error: "Forbidden: superadmin access only" };
@@ -58,12 +114,25 @@ export async function requireSuperadmin(accessToken: string | undefined): Promis
   }
 }
 
-/** True when the given user id is the env-bootstrapped ADMIN_EMAIL account. */
+/**
+ * True when the given user id is the env-bootstrapped ADMIN_EMAIL account.
+ *
+ * This is what makes the bootstrap account undemotable, so it uses the SAME
+ * rule as the claim itself. Matching on the address alone would hand
+ * demotion-immunity to an account that cannot actually use the bootstrap —
+ * an unconfirmed squatter on the address would be both locked out and
+ * unremovable, which is the worst of both.
+ */
 export async function isBootstrapAdmin(userId: string): Promise<boolean> {
   const bootstrap = bootstrapAdminEmail();
   if (!bootstrap) return false;
   const { data } = await supabaseAdmin.auth.admin.getUserById(userId);
-  return (data.user?.email ?? "").toLowerCase() === bootstrap;
+  return bootstrapClaimAllowed({
+    email: data.user?.email ?? "",
+    bootstrapEmail: bootstrap,
+    emailConfirmedAt: (data.user as { email_confirmed_at?: string | null } | null)
+      ?.email_confirmed_at,
+  });
 }
 
 export type ModelRule = { provider: string; model_pattern: string };

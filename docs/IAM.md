@@ -4,7 +4,19 @@
 
 The account whose email matches `ADMIN_EMAIL` is the instance's **bootstrap
 superadmin** — sign in with it and open **Admin → IAM** (`/admin/iam`) to
-manage everything else:
+manage everything else.
+
+> **Claim it before the instance is reachable.** The bootstrap account is
+> identified by an email address, and an address is a claim rather than a
+> credential. Public signup is on by default, so whoever registers that address
+> first becomes superadmin — and the IAM page then refuses to demote it. The
+> server requires the address to be **confirmed**, so make sure Supabase is
+> verifying email (Auth → Providers → Email → _Confirm email_); with
+> confirmations off, every address is marked confirmed at signup and that
+> defence does nothing. See
+> [DEPLOYMENT.md → Bootstrap the operator](./DEPLOYMENT.md#bootstrap-the-operator).
+
+It manages:
 
 - **Users** — invite by email (Supabase sends the invitation) or create
   accounts with a temporary password; ban/unban; delete; promote additional

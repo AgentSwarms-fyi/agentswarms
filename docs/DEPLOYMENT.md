@@ -222,10 +222,25 @@ won't resolve.
 
 ### Bootstrap the operator
 
-Sign up with the `ADMIN_EMAIL` account — it's the permanent bootstrap
-superadmin. Then under **Admin → IAM** create users/groups, set model rules and
-resource grants, and (for a private instance) enable **invite-only** to disable
-public signup at the database level.
+> **Do this before announcing the URL.** `ADMIN_EMAIL` names the permanent
+> bootstrap superadmin, and the account is identified by its email address —
+> which is a claim, not a credential. `allow_public_signup` defaults to `true`,
+> so between deploying and registering that address, **anyone who guesses it can
+> claim it** and receive superadmin that the IAM page then refuses to revoke.
+> `admin@your-domain.com` is not a hard guess.
+
+1. **Confirm that Supabase verifies email addresses** — Auth → Providers →
+   Email → _Confirm email_ **on**. The server refuses the bootstrap grant to an
+   unconfirmed address, so this is what actually stops someone who does not
+   control the mailbox from claiming it. With confirmations disabled Supabase
+   marks every address confirmed at signup, and the server has no way left to
+   tell the operator from a squatter.
+2. **Register the `ADMIN_EMAIL` account** and confirm the address.
+3. Under **Admin → IAM**, enable **invite-only** to disable public signup at the
+   database level, then create users/groups, model rules and resource grants.
+
+If you are deploying somewhere publicly reachable before step 2, set
+`allow_public_signup = false` in `iam_settings` first and invite yourself.
 
 ### Scheduling & background jobs
 
