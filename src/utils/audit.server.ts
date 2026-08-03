@@ -13,23 +13,67 @@ export type AuditEmit = {
   resourceName?: string;
   resourceId?: string;
   detail?: Record<string, unknown>;
+  /**
+   * The actor's email, when the caller already has it (requireSuperadmin
+   * returns one). Saves the lookup below; otherwise it is resolved lazily.
+   */
+  actorEmail?: string | null;
 };
 
-/** Insert one audit event. Never throws, never blocks the caller's path. */
+/**
+ * Cache of user id → email, for attribution that survives account deletion.
+ *
+ * Audit events are per-ACTION, not per-token, so a cached lookup is affordable
+ * where it would not be on the trace path. The TTL is long because an email
+ * rarely changes and a slightly stale one is still better attribution than a
+ * bare UUID that no longer resolves to anything.
+ */
+const emailCache = new Map<string, { at: number; email: string | null }>();
+const EMAIL_TTL_MS = 30 * 60 * 1000;
+
+async function actorEmailFor(userId: string): Promise<string | null> {
+  const hit = emailCache.get(userId);
+  if (hit && Date.now() - hit.at < EMAIL_TTL_MS) return hit.email;
+  try {
+    const { data } = await supabaseAdmin.auth.admin.getUserById(userId);
+    const email = data.user?.email ?? null;
+    emailCache.set(userId, { at: Date.now(), email });
+    if (emailCache.size > 2000) {
+      for (const [k, v] of emailCache) if (Date.now() - v.at > EMAIL_TTL_MS) emailCache.delete(k);
+    }
+    return email;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Insert one audit event. Never throws, never blocks the caller's path.
+ *
+ * ATTRIBUTION IS DENORMALISED ON PURPOSE. user_id used to be
+ * `REFERENCES auth.users(id) ON DELETE CASCADE`, so deleting an account
+ * deleted everything that account had ever done — "offboard the leaver" and
+ * "destroy the evidence" were the same button. The FK is SET NULL now
+ * (migration 20260781000000) and the email is copied in here, so an orphaned
+ * row still says who it was.
+ */
 export function auditEvent(args: AuditEmit): void {
-  void supabaseAdmin
-    .from("audit_events")
-    .insert({
+  void (async () => {
+    const email =
+      args.actorEmail !== undefined ? args.actorEmail : await actorEmailFor(args.userId);
+    const { error } = await supabaseAdmin.from("audit_events").insert({
       user_id: args.userId,
       action: args.action,
       resource_type: args.resourceType ?? null,
       resource_name: args.resourceName?.slice(0, 200) ?? null,
       resource_id: args.resourceId ?? null,
       detail: (args.detail ?? {}) as Json,
-    })
-    .then(({ error }) => {
-      if (error) console.warn("[audit] insert failed:", error.message);
+      // Cast: the generated types are rebuilt from a pushed schema, and this
+      // column ships in 20260781000000.
+      ...({ actor_email: email } as Record<string, unknown>),
     });
+    if (error) console.warn("[audit] insert failed:", error.message);
+  })();
 }
 
 const PURGE_INTERVAL_MS = 60 * 60 * 1000; // hourly is plenty for a purge
