@@ -134,8 +134,16 @@ describe("cost attribution", () => {
   it("sums the same column the budget guard does", () => {
     // Two definitions of "spend" is how a dashboard and a budget alert end up
     // disagreeing about whether someone is over.
+    //
+    // The guard no longer names the column itself — it delegates to
+    // budgetSpend.server, which prefers a database aggregate. So the check
+    // follows the delegation: there is now ONE definition rather than two that
+    // happen to match, which is a stronger version of the same property.
     const guard = readFileSync("src/utils/budgetGuard.server.ts", "utf8");
-    expect(guard).toContain("cost_usd");
+    const spend = readFileSync("src/utils/budgetSpend.server.ts", "utf8");
+    expect(guard, "the guard defines spend for itself again").toContain("spendSince(");
+    expect(spend).toContain("cost_usd");
+    expect(spend).toContain("execution_traces");
     expect(fnSrc).toContain("cost_usd");
     expect(fnSrc).toContain('.from("execution_traces")');
   });

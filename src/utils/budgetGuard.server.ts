@@ -9,9 +9,27 @@
 // refusing model calls on existing instances whose cap was never meant to bite.
 // Operators turn it on deliberately once their caps reflect reality.
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { monthStartIso, spendSince } from "@/utils/budgetSpend.server";
 
 export function budgetEnforcementEnabled(): boolean {
   return /^(1|true|yes)$/i.test(process.env.ENFORCE_BUDGET_CAP ?? "");
+}
+
+/**
+ * What to do when the spend LOOKUP fails, as opposed to coming back under cap.
+ *
+ * Default is to allow: a governance feature should not be the reason a
+ * legitimate call breaks. But that default used to be indistinguishable from
+ * "spent nothing" — every call site read the query as `data ?? []`, so a
+ * timeout summed to $0 and passed every cap, and the gate stopped enforcing
+ * exactly when there was most to enforce against.
+ *
+ * The difference is now expressible, so an operator who needs the cap to HOLD
+ * can set BUDGET_FAIL_CLOSED=true and have an unknown figure refuse the call
+ * instead of waving it through. Either way the failure is logged.
+ */
+export function budgetFailsClosed(): boolean {
+  return /^(1|true|yes)$/i.test(process.env.BUDGET_FAIL_CLOSED ?? "");
 }
 
 // Month-to-date spend is a sum over execution_traces, so cache it briefly —
@@ -45,19 +63,14 @@ export async function getBudgetStatus(userId: string): Promise<BudgetStatus> {
     const cap = Number(budget?.monthly_cap_usd ?? 0);
     if (!Number.isFinite(cap) || cap <= 0) return miss;
 
-    const now = new Date();
-    const monthStartIso = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
-    ).toISOString();
-    const { data: traces } = await supabaseAdmin
-      .from("execution_traces")
-      .select("cost_usd")
-      .eq("user_id", userId)
-      .gte("created_at", monthStartIso);
-    const spend = (traces ?? []).reduce(
-      (s: number, r: { cost_usd: number | null }) => s + Number(r.cost_usd ?? 0),
-      0,
-    );
+    const result = await spendSince({ userId, since: monthStartIso() });
+    if (!result.ok) {
+      // Unknown, not zero. Not cached either — a transient failure must not be
+      // remembered as "under cap" for the next minute.
+      console.warn(`[budget] spend lookup failed for ${userId}: ${result.error}`);
+      return budgetFailsClosed() ? { over: true, spend: 0, cap } : miss;
+    }
+    const spend = result.spend;
     const status: BudgetStatus = { over: spend >= cap, spend, cap };
     cache.set(userId, { at: Date.now(), ...status });
     if (cache.size > 5000) {
@@ -91,11 +104,6 @@ export type BudgetDecision = {
 
 const scopeCache = new Map<string, { at: number; d: BudgetDecision }>();
 
-function monthStartIso(): string {
-  const now = new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
-}
-
 async function capFor(scopeType: string, scopeId: string): Promise<number> {
   const { data } = await supabaseAdmin
     .from("budget_limits")
@@ -108,30 +116,39 @@ async function capFor(scopeType: string, scopeId: string): Promise<number> {
   return Number.isFinite(cap) && cap > 0 ? cap : 0;
 }
 
-function sumCost(rows: { cost_usd: number | null }[] | null): number {
-  return (rows ?? []).reduce((s, r) => s + Number(r.cost_usd ?? 0), 0);
+/**
+ * Month-to-date spend attributed to one credential.
+ *
+ * Returns null when the figure could not be established — the caller must not
+ * read that as zero, which is the bug this whole path existed to have.
+ */
+async function credentialSpend(scope: CostScope): Promise<number | null> {
+  const r = await spendSince({
+    userId: "",
+    since: monthStartIso(),
+    scope: { type: scope.type, id: scope.id },
+  });
+  if (!r.ok) {
+    console.warn(`[budget] credential spend lookup failed for ${scope.type}: ${r.error}`);
+    return null;
+  }
+  return r.spend;
 }
 
-/** Month-to-date spend attributed to one credential. */
-async function credentialSpend(scope: CostScope): Promise<number> {
-  const { data } = await supabaseAdmin
-    .from("execution_traces")
-    .select("cost_usd")
-    .eq("cost_scope_type", scope.type)
-    .eq("cost_scope_id", scope.id)
-    .gte("created_at", monthStartIso());
-  return sumCost(data);
-}
-
-/** Month-to-date spend across every member of a group. */
-async function groupSpend(memberIds: string[]): Promise<number> {
+/**
+ * Month-to-date spend across every member of a group.
+ *
+ * null means the figure could not be established — not that the team spent
+ * nothing, which is how the previous `data ?? []` read a failed query.
+ */
+async function groupSpend(memberIds: string[]): Promise<number | null> {
   if (memberIds.length === 0) return 0;
-  const { data } = await supabaseAdmin
-    .from("execution_traces")
-    .select("cost_usd")
-    .in("user_id", memberIds)
-    .gte("created_at", monthStartIso());
-  return sumCost(data);
+  const r = await spendSince({ userId: "", since: monthStartIso(), userIds: memberIds });
+  if (!r.ok) {
+    console.warn(`[budget] group spend lookup failed: ${r.error}`);
+    return null;
+  }
+  return r.spend;
 }
 
 /**
@@ -166,7 +183,11 @@ export async function getBudgetDecision(
       const cap = await capFor(scope.type, scope.id);
       if (cap > 0) {
         const spend = await credentialSpend(scope);
-        if (spend >= cap) decision = { over: true, scope: "credential", spend, cap };
+        if (spend === null) {
+          if (budgetFailsClosed()) decision = { over: true, scope: "credential", spend: 0, cap };
+        } else if (spend >= cap) {
+          decision = { over: true, scope: "credential", spend, cap };
+        }
       }
     }
 
@@ -184,6 +205,14 @@ export async function getBudgetDecision(
           .select("user_id")
           .eq("group_id", m.group_id);
         const spend = await groupSpend((members ?? []).map((x) => x.user_id));
+        if (spend === null) {
+          // Unknown, not zero. Same rule as the other two scopes.
+          if (budgetFailsClosed()) {
+            decision = { over: true, scope: "group", spend: 0, cap };
+            break;
+          }
+          continue;
+        }
         if (spend >= cap) {
           decision = { over: true, scope: "group", spend, cap };
           break;
