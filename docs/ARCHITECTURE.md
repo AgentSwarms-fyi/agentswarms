@@ -13,7 +13,7 @@
 | Swarm canvas | [XYFlow](https://xyflow.com)                                                                                                                                          |
 | BI & SQL     | Custom SVG chart renderers · in-browser SQL via [AlaSQL](https://github.com/AlaSQL/alasql)                                                                            |
 | Documents    | Client-side [pptxgenjs](https://gitbrent.github.io/PptxGenJS/) · [docx](https://docx.js.org) · [write-excel-file](https://gitlab.com/catamphetamine/write-excel-file) |
-| Notebooks    | In-browser Python via [Pyodide](https://pyodide.org) (+ optional server runtime)                                                                                      |
+| Notebooks    | Python on sandboxed server kernels (Docker or Kubernetes) — see [DEVELOPER_WORKSPACE_RUNTIME.md](./DEVELOPER_WORKSPACE_RUNTIME.md)                                    |
 | Deployment   | Docker (Node) · Kubernetes · installable PWA                                                                                                                          |
 
 ## Project structure

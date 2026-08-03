@@ -1,7 +1,16 @@
 // Resolves the caller of /api/python-chat and /api/python-kb from EITHER a
-// Supabase user JWT (the browser Pyodide runtime) OR a notebook-runtime session
-// token (a server-side kernel). Both resolve to a userId with identical
-// governance downstream; the difference is only how reads are scoped:
+// Supabase user JWT OR a notebook-runtime session token (a server-side kernel).
+//
+// The JWT branch predates the removal of the in-browser Pyodide runtime, which
+// is what used to present one — notebooks now run only on sandboxed server
+// kernels, so in practice every notebook call arrives on the session-token
+// branch. The JWT path is kept because it is the one a signed-in caller
+// (or a future in-page runtime) would use, and because narrowing it buys
+// nothing; but it is no longer the common case, and comments that described it
+// as "the browser runtime" were describing something that had been deleted.
+//
+// Both resolve to a userId with identical governance downstream; the difference
+// is only how reads are scoped:
 //   - JWT path      → a JWT-scoped client, RLS enforces access.
 //   - session token → the service-role client + an explicit scopeUserId, so we
 //                     replicate the RLS ownership check in code (own + samples +

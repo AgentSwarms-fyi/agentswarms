@@ -9,11 +9,11 @@ behind them.
 (MIT, Apache-2.0, ISC, BSD-2-Clause, MIT-0). There is **no strong copyleft**
 in the tree — **no GPL-only or AGPL** code — so AgentSwarms can be distributed
 under its own terms, the **source-available [Elastic License 2.0](./LICENSE)**.
-A few transitive dependencies carry weak or dual licenses, all compatible with
-that redistribution: **jszip** (`MIT OR GPL-3.0`, used under MIT), **lightningcss**
-(MPL-2.0 — a build-time CSS tool, weak per-file copyleft, not part of the shipped
-bundle), and **sharp**/libvips (LGPL-3.0 — a native image library used as a
-separate, dynamically-loaded npm module). Apache-2.0 dependencies require their
+A few transitive dependencies carry weak or dual licenses, both compatible with
+that redistribution: **jszip** (`MIT OR GPL-3.0`, used under MIT — reached via
+`docx`, `mammoth` and `pptxgenjs`) and **lightningcss** (MPL-2.0 — a build-time
+CSS tool reached via Vite, weak per-file copyleft, not part of the shipped
+bundle). Apache-2.0 dependencies require their
 license and notice files to travel with their source, which `npm install`
 preserves inside `node_modules`. To regenerate the full list at any time:
 
@@ -38,31 +38,31 @@ node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json
 
 ## Agents & AI
 
-| Project                                                                                                                                                                                | License | Used for                                                                   |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | -------------------------------------------------------------------------- |
-| [LangChain.js / LangGraph](https://github.com/langchain-ai/langchainjs)                                                                                                                | MIT     | Agent runtime, RAG pipelines, swarm export targets                         |
-| [XYFlow (React Flow)](https://github.com/xyflow/xyflow)                                                                                                                                | MIT     | The visual swarm canvas                                                    |
-| [Pyodide](https://github.com/pyodide/pyodide)                                                                                                                                          | MPL-2.0 | In-browser Python notebooks — loaded at runtime from jsDelivr, not bundled |
-| [CodeMirror](https://github.com/codemirror/dev)                                                                                                                                        | MIT     | Code editors (SQL, Python, Markdown)                                       |
-| [react-markdown](https://github.com/remarkjs/react-markdown) + [remark-gfm](https://github.com/remarkjs/remark-gfm) + [rehype-highlight](https://github.com/rehypejs/rehype-highlight) | MIT     | Markdown rendering with syntax highlighting                                |
+| Project                                                                                                                                                                                | License | Used for                                           |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | -------------------------------------------------- |
+| [LangChain.js / LangGraph](https://github.com/langchain-ai/langchainjs)                                                                                                                | MIT     | Agent runtime, RAG pipelines, swarm export targets |
+| [XYFlow (React Flow)](https://github.com/xyflow/xyflow)                                                                                                                                | MIT     | The visual swarm canvas                            |
+| [CodeMirror](https://github.com/codemirror/dev)                                                                                                                                        | MIT     | Code editors (SQL, Python, Markdown)               |
+| [react-markdown](https://github.com/remarkjs/react-markdown) + [remark-gfm](https://github.com/remarkjs/remark-gfm) + [rehype-highlight](https://github.com/rehypejs/rehype-highlight) | MIT     | Markdown rendering with syntax highlighting        |
 
 ## Business Intelligence & data
 
-| Project                                                                                                                 | License      | Used for                                                                                                 |
-| ----------------------------------------------------------------------------------------------------------------------- | ------------ | -------------------------------------------------------------------------------------------------------- |
-| [Recharts](https://github.com/recharts/recharts)                                                                        | MIT          | Chart rendering                                                                                          |
-| [AlaSQL](https://github.com/AlaSQL/alasql)                                                                              | MIT          | The in-browser (and server-side refresh) SQL engine for local datasets                                   |
-| [d3-force](https://github.com/d3/d3-force) / [d3-geo](https://github.com/d3/d3-geo)                                     | ISC          | Ontology graph layout, filled & bubble maps                                                              |
-| [topojson-client](https://github.com/topojson/topojson-client) + [world-atlas](https://github.com/topojson/world-atlas) | ISC          | Map geometry (derived from the public-domain [Natural Earth](https://www.naturalearthdata.com/) dataset) |
-| [pdf-lib](https://github.com/Hopding/pdf-lib)                                                                           | MIT          | Dashboard PDF export                                                                                     |
-| [html2canvas-pro](https://github.com/yorickshan/html2canvas-pro)                                                        | MIT          | Widget/dashboard rasterisation for PDF & PNG export                                                      |
-| [PptxGenJS](https://github.com/gitbrent/PptxGenJS)                                                                      | MIT          | AI-generated PowerPoint files (Agent Chat)                                                               |
-| [docx](https://github.com/dolanmiu/docx)                                                                                | MIT          | AI-generated Word documents (Agent Chat)                                                                 |
-| [write-excel-file](https://gitlab.com/catamphetamine/write-excel-file)                                                  | MIT          | AI-generated Excel workbooks with live formulas (Agent Chat)                                             |
-| [Papa Parse](https://github.com/mholt/PapaParse)                                                                        | MIT          | CSV parsing                                                                                              |
-| [node-sql-parser](https://github.com/taozhi8833998/node-sql-parser)                                                     | Apache-2.0   | SQL validation                                                                                           |
-| [pdfjs-dist](https://github.com/mozilla/pdf.js)                                                                         | Apache-2.0   | PDF text extraction for knowledge bases                                                                  |
-| [mammoth](https://github.com/mwilliamson/mammoth.js)                                                                    | BSD-2-Clause | DOCX text extraction for knowledge bases                                                                 |
+| Project                                                                                                                                                  | License      | Used for                                                                                                 |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ | -------------------------------------------------------------------------------------------------------- |
+| [Recharts](https://github.com/recharts/recharts)                                                                                                         | MIT          | Chart rendering                                                                                          |
+| [DuckDB](https://github.com/duckdb/duckdb) ([duckdb-wasm](https://github.com/duckdb/duckdb-wasm), [node-api](https://github.com/duckdb/duckdb-node-neo)) | MIT          | The default SQL engine for local datasets — in the browser via WASM, and server-side for refreshes       |
+| [AlaSQL](https://github.com/AlaSQL/alasql)                                                                                                               | MIT          | Fallback SQL engine for local datasets, selected with `LOCAL_ENGINE=alasql`                              |
+| [d3-force](https://github.com/d3/d3-force) / [d3-geo](https://github.com/d3/d3-geo)                                                                      | ISC          | Ontology graph layout, filled & bubble maps                                                              |
+| [topojson-client](https://github.com/topojson/topojson-client) + [world-atlas](https://github.com/topojson/world-atlas)                                  | ISC          | Map geometry (derived from the public-domain [Natural Earth](https://www.naturalearthdata.com/) dataset) |
+| [pdf-lib](https://github.com/Hopding/pdf-lib)                                                                                                            | MIT          | Dashboard PDF export                                                                                     |
+| [html2canvas-pro](https://github.com/yorickshan/html2canvas-pro)                                                                                         | MIT          | Widget/dashboard rasterisation for PDF & PNG export                                                      |
+| [PptxGenJS](https://github.com/gitbrent/PptxGenJS)                                                                                                       | MIT          | AI-generated PowerPoint files (Agent Chat)                                                               |
+| [docx](https://github.com/dolanmiu/docx)                                                                                                                 | MIT          | AI-generated Word documents (Agent Chat)                                                                 |
+| [write-excel-file](https://gitlab.com/catamphetamine/write-excel-file)                                                                                   | MIT          | AI-generated Excel workbooks with live formulas (Agent Chat)                                             |
+| [Papa Parse](https://github.com/mholt/PapaParse)                                                                                                         | MIT          | CSV parsing                                                                                              |
+| [node-sql-parser](https://github.com/taozhi8833998/node-sql-parser)                                                                                      | Apache-2.0   | SQL validation                                                                                           |
+| [pdfjs-dist](https://github.com/mozilla/pdf.js)                                                                                                          | Apache-2.0   | PDF text extraction for knowledge bases                                                                  |
+| [mammoth](https://github.com/mwilliamson/mammoth.js)                                                                                                     | BSD-2-Clause | DOCX text extraction for knowledge bases                                                                 |
 
 ### Bundled open datasets
 
@@ -122,6 +122,6 @@ lights, ISS aurora, SDO sun).
 
 ## Runtime services (not bundled)
 
-Pyodide and the pdf.js worker are fetched at runtime from
-[jsDelivr](https://www.jsdelivr.com/); fonts from Google Fonts. Self-hosters
-who need a fully offline build can vendor these locally.
+The pdf.js worker and the Simple Icons provider logos are fetched at runtime
+from [jsDelivr](https://www.jsdelivr.com/); fonts from Google Fonts.
+Self-hosters who need a fully offline build can vendor these locally.

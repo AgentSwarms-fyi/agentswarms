@@ -10,7 +10,7 @@
 // IAM model rules, budgets, guardrails and traces all apply because this
 // delegates to the same paths the rest of the platform uses.
 //
-// Auth accepts a Supabase user JWT (browser/Pyodide) or a notebook-runtime
+// Auth accepts a Supabase user JWT or a notebook-runtime
 // session token (server kernel); either way the caller may only reach agents
 // and swarms they own.
 import { createFileRoute } from "@tanstack/react-router";
@@ -112,8 +112,16 @@ export const Route = createFileRoute("/api/python-agent")({
           // else. The delegation forwards the caller's Authorization header,
           // which works for a Supabase JWT and cannot work for a notebook
           // SESSION TOKEN: /api/chat verifies a JWT or the internal-run secret,
-          // and a session token is neither. So a server kernel got a bare
+          // and a session token is neither. So a kernel got a bare
           // "Agent run failed (401)" with nothing explaining why.
+          //
+          // AND THE SESSION TOKEN IS THE ONLY CALLER. A first pass at this
+          // described the JWT path as the working one and pointed users at the
+          // in-browser runtime instead — but that runtime was removed (see
+          // routes/_authenticated/notebooks.tsx), and the sole caller of
+          // run_agent is docker/notebook-runtime/agentswarms_helper.py, which
+          // authenticates with AGENTSWARMS_TOKEN. So run_agent has never worked
+          // from a notebook at all; it is not a gap for one caller type.
           //
           // The obvious repair — call the internal channel with
           // x-internal-run-secret + internalUserId, the way scheduled and
@@ -136,8 +144,9 @@ export const Route = createFileRoute("/api/python-agent")({
           if (caller.scopeUserId) {
             return json(501, {
               error:
-                "run_agent is not available from the server kernel yet — it needs a user JWT. " +
-                "Run the notebook with the browser (Pyodide) runtime, or use run_swarm.",
+                "run_agent is not available from a notebook yet: the kernel authenticates with a " +
+                "runtime session token, and /api/chat accepts only a user JWT or the internal-run " +
+                "secret. Use run_swarm, which executes in-process and is unaffected.",
             });
           }
           const resp = await fetch(`${resolveInternalOrigin()}/api/chat`, {
