@@ -19,7 +19,28 @@
 //         · enableHallucinationFilter — flag unsupported claims when grounded
 //
 //  Anything not listed above is preserved for future enforcement but is
-//  currently inert. We surface that honestly via `inertFields`.
+//  currently INERT — saved on the agent, read by nothing:
+//
+//         · maxTurnsPerConversation
+//         · rateLimitPerMinute
+//         · requireApprovalAboveTokens
+//         · customFilterPrompt
+//
+//  That is disclosed to the operator in Agent Builder, under "Saved but not
+//  yet enforced". A governance control that silently does nothing is worse
+//  than an absent one, because it manufactures false assurance — so the
+//  disclosure is the feature, not an apology for a gap.
+//
+//  This comment used to say the state was surfaced "honestly via
+//  `inertFields`". There is no `inertFields`, and there never was: the
+//  disclosure is a paragraph of prose in AgentForm.tsx. Naming a symbol that
+//  does not exist sends the next reader looking for a mechanism instead of
+//  the paragraph they actually need to update.
+//
+//  tests/unit/guardrailsInert.test.ts holds both halves in place: it fails if
+//  one of these four starts being enforced while the paragraph still says it
+//  is not, AND if one of the enforced settings stops being read while the UI
+//  still advertises it.
 
 export type Guardrails = {
   enableInputFilters: boolean;
