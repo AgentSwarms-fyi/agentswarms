@@ -12,6 +12,7 @@ import {
   estimateEmbeddingCost,
   estimateImageCost,
   estimateTextCost,
+  hasKnownPrice,
   isImageModel,
 } from "./pricing";
 
@@ -99,6 +100,13 @@ export async function recordGatewayCall(args: RecordGatewayCallArgs): Promise<vo
     // Same measured-vs-estimated marker as the chat path: absent explicit
     // token counts mean the chars/4 fallback produced these numbers.
     if (args.tokensIn == null || args.tokensOut == null) requestPayload.tokens_estimated = true;
+    // A model with no entry in the price table costs 0, and 0 is
+    // indistinguishable from "cheap" once it reaches a report or a budget
+    // comparison. getBudgetDecision sums cost_usd, so an unpriced model never
+    // accumulates, the monthly total stays under the limit for ever and the
+    // hard stop never fires. Marked on the trace so the spend figure can say it
+    // is incomplete rather than quietly being wrong.
+    if (!hasKnownPrice(args.model, kind)) requestPayload.pricing_missing = true;
     if (args.parentTraceId) requestPayload.parent_trace_id = args.parentTraceId;
     if (typeof args.imageCount === "number") requestPayload.image_count = args.imageCount;
     if (args.requestPreview !== undefined) requestPayload.preview = args.requestPreview;
