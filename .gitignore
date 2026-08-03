@@ -30,3 +30,9 @@ connectors.json
 # Local Claude Code settings, launch config and worktrees — machine-specific,
 # not part of the project.
 .claude/
+
+# Scratch probes. A `probe-tmp.ts` has now been committed twice by accident
+# (d429442 removed one, 43c1668 added another), so this is a rule rather than a
+# reminder. Throwaway verification scripts belong outside the repo.
+probe-*.ts
+scratch-*.ts

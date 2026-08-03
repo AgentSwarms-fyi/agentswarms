@@ -88,6 +88,10 @@ export function safeUrl(url: string): string {
 
   // Strip characters a browser ignores when resolving a scheme, so
   // "java\nscript:" and "java\tscript:" cannot slip past the check below.
+  // no-control-regex is disabled deliberately: matching control characters is
+  // the entire point here. Narrowing the class to satisfy the rule would
+  // reopen the bypass it exists to close.
+  // eslint-disable-next-line no-control-regex
   const probe = raw.replace(/[\u0000-\u0020]/g, "").toLowerCase();
 
   // Base64 (or plain) image payloads — the exception this function exists for.

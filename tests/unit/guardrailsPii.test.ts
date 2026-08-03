@@ -202,7 +202,12 @@ describe("a blocked-pattern cannot take the server down", () => {
     blockedPatterns,
   });
 
-  const CATASTROPHIC = ["(a+)+$", "(a*)*$", "([a-z]+)+$", "(a|a)*$", "(\w+\s?)*$", "(x+x+)+y"];
+  // The backslashes are doubled because these are STRINGS, not regex literals.
+  // Written as "(\w+\s?)*$" the escapes are eaten by the string literal and the
+  // pattern silently becomes "(w+s?)*$" — still catastrophic, so the test kept
+  // passing, but not the pattern it claims to test. ESLint's no-useless-escape
+  // is what surfaced it.
+  const CATASTROPHIC = ["(a+)+$", "(a*)*$", "([a-z]+)+$", "(a|a)*$", "(\\w+\\s?)*$", "(x+x+)+y"];
 
   // ASSERT THE DETECTOR, NOT THE CONSEQUENCE. An earlier version of this ran
   // the pattern and asserted it returned quickly. That cannot work: a
