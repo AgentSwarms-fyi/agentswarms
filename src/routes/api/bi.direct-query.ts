@@ -15,6 +15,11 @@
 //   • A grantee's row-level-security filter (BI dashboard grant row_filter) is
 //     pushed into the query and FAILS CLOSED if it can't be enforced
 //     (buildDirectQuerySql). Filter/value interpolation is injection-safe.
+//   • A grantee's COLUMN MASK is applied to the result, and caller-supplied
+//     filters naming a masked column are dropped before the SQL is built.
+//     Without that second half the mask was only skin deep: the filter went
+//     into the WHERE, the column was stripped from the rows, and the value came
+//     back out by bisection — one yes/no answer per request.
 //   • Per-owner rate limit so a shared dashboard can't hammer the owner's
 //     warehouse. executeWarehouseQuery additionally enforces read-only SQL.
 import { createFileRoute } from "@tanstack/react-router";
@@ -161,6 +166,36 @@ export const Route = createFileRoute("/api/bi/direct-query")({
           maskedColumns = intersectColumnMasks(mine.map((g) => g.column_mask));
         }
 
+        // A COLUMN MASK IS NOT A MASK IF YOU CAN STILL FILTER ON IT.
+        //
+        // `filters` arrive in the request body, and the mask was applied only
+        // to the RESULT. So a grantee whose grant hides `salary` could send
+        //
+        //   filters: [{ kind: "numrange", column: "salary", min: 100000 }]
+        //
+        // and the server issued
+        //
+        //   SELECT * FROM (…) AS _dq WHERE salary >= 100000
+        //
+        // then stripped `salary` from the rows it returned. The value never
+        // appears in the payload and is recovered anyway: each request answers
+        // one yes/no question about it, and bisection does the rest — roughly
+        // 32 requests per row, under a rate limit of 120 a minute.
+        //
+        // Dropped rather than rejected, because a dashboard's own global filter
+        // may legitimately name a column masked for one particular viewer, and
+        // 400-ing would break their whole dashboard over someone else's config.
+        // Reported in the response, because a filter that silently does nothing
+        // is the other way to be wrong.
+        const maskSet = new Set(maskedColumns.map((c) => c.toLowerCase()));
+        const requestedFilters = body.filters ?? [];
+        const usableFilters = maskSet.size
+          ? requestedFilters.filter((f) => !maskSet.has(String(f?.column ?? "").toLowerCase()))
+          : requestedFilters;
+        const droppedFilters = requestedFilters
+          .filter((f) => !usableFilters.includes(f))
+          .map((f) => String(f?.column ?? ""));
+
         try {
           // Load the connection AS THE OWNER (hard user_id filter in the loader).
           const conn = await loadWarehouseConnection(
@@ -172,7 +207,7 @@ export const Route = createFileRoute("/api/bi/direct-query")({
           // in the WHERE, so they still narrow the rows BEFORE they are grouped.
           const aggPlan = widget.agg_pushdown
             ? aggregationPlan(widget.chart as ChartSpec | undefined, {
-                preserve: (body.filters ?? []).map((f) => f.column),
+                preserve: usableFilters.map((f) => f.column),
               })
             : null;
           // The driver clamps to the deployment's ceiling, so that — not the
@@ -181,7 +216,7 @@ export const Route = createFileRoute("/api/bi/direct-query")({
           const effectiveSql = buildDirectQuerySql({
             baseSql: widget.sql,
             columns: Array.isArray(widget.columns) ? (widget.columns as string[]) : [],
-            filters: body.filters ?? [],
+            filters: usableFilters,
             rowFilters,
             // Ask for no more than the driver will hand back. Requesting
             // 100k while the governor clamps to a few thousand made the
@@ -223,6 +258,7 @@ export const Route = createFileRoute("/api/bi/direct-query")({
               rows: masked.rows,
               row_count: result.row_count,
               truncated: result.truncated,
+              ...(droppedFilters.length ? { dropped_filters: droppedFilters } : {}),
             });
           }
           return json(200, {

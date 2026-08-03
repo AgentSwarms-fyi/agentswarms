@@ -14,7 +14,10 @@
 // error looks like missing data, not like a policy that cannot be satisfied.
 import { describe, expect, it } from "vitest";
 
+import { readFileSync } from "node:fs";
+
 import { buildDirectQuerySql } from "@/lib/biDirectQuery";
+import { applyColumnMask } from "@/lib/biDashboards";
 
 const base = {
   baseSql: "SELECT region, dept, amount FROM sales",
@@ -142,5 +145,94 @@ describe("the route decides unrestricted the same way the dataset path does", ()
       expect(src).toMatch(/typeof rf\.column !== "string" \|\| !Array\.isArray\(rf\.values\)/);
     }
     expect(route).toContain("if (!anyUnfiltered)");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Column masks, and the filter parameter that saw straight through them.
+//
+// A grant can hide columns from a grantee ("column_mask"). The mask was applied
+// to the RESULT. `filters` arrive in the request body and went into the WHERE.
+// So a grantee whose grant hides `salary` sent
+//
+//   filters: [{ kind: "numrange", column: "salary", min: 100000 }]
+//
+// the server issued `WHERE salary >= 100000`, stripped `salary` from the rows,
+// and returned them. The value never appeared in the payload and came back out
+// anyway: each request answers one yes/no question about it, and bisection does
+// the rest — about 32 requests per row against a 120/min limit.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("a column mask has to cover the filter parameter too", () => {
+  const src = readFileSync("src/routes/api/bi.direct-query.ts", "utf8");
+
+  it("filters the request's filters against the mask before building SQL", () => {
+    expect(src).toContain("const usableFilters");
+    expect(src).toContain('maskSet.has(String(f?.column ?? "").toLowerCase())');
+  });
+
+  it("passes the filtered list to the query builder, not the raw body", () => {
+    expect(src).toContain("filters: usableFilters,");
+    expect(src, "raw body filters reach buildDirectQuerySql again").not.toMatch(
+      /filters: body\.filters/,
+    );
+  });
+
+  it("keeps masked columns out of the aggregation plan as well", () => {
+    // preserve[] decides which columns survive a GROUP BY pushdown; a masked
+    // column preserved there is the same leak by another route.
+    expect(src).toContain("preserve: usableFilters.map((f) => f.column)");
+    expect(src).not.toMatch(/preserve: \(body\.filters/);
+  });
+
+  it("tells the caller a filter was dropped instead of ignoring it quietly", () => {
+    // A filter that silently does nothing is the other way to be wrong: the
+    // viewer reads the numbers as filtered when they are not.
+    expect(src).toContain("dropped_filters");
+  });
+
+  it("drops rather than rejects, so one viewer's mask cannot break the dashboard", () => {
+    // A dashboard's own global filter may name a column masked for a single
+    // viewer; 400-ing there would break their whole dashboard over someone
+    // else's configuration.
+    expect(src).not.toMatch(/masked column[\s\S]{0,120}return json\(400/);
+  });
+});
+
+describe("the mask itself still works on the result", () => {
+  it("removes the column and its values from every row", () => {
+    const out = applyColumnMask(
+      ["name", "dept", "salary"],
+      [
+        { name: "A", dept: "Eng", salary: 150000 },
+        { name: "B", dept: "Ops", salary: 90000 },
+      ],
+      ["salary"],
+    );
+    expect(out.columns).toEqual(["name", "dept"]);
+    expect(JSON.stringify(out.rows)).not.toContain("150000");
+    expect(out.rows.every((r) => !("salary" in r))).toBe(true);
+  });
+
+  it("matches case-insensitively on BOTH sides", () => {
+    // The mask is stored as the admin typed it; the warehouse decides the case
+    // it hands back. Both directions have to be covered — a first version only
+    // capitalised the COLUMN, which is lowercased on both sides regardless, so
+    // removing the normalisation from the MASK side changed nothing and the
+    // mutation survived. The mask-capitalised case is the one that leaks.
+    for (const [cols, rows, mask] of [
+      [["Salary"], [{ Salary: 1 }], ["salary"]],
+      [["salary"], [{ salary: 1 }], ["Salary"]],
+      [["SALARY"], [{ SALARY: 1 }], ["sAlArY"]],
+    ] as [string[], Record<string, unknown>[], string[]][]) {
+      const out = applyColumnMask(cols, rows, mask);
+      expect(out.columns, `${cols[0]} vs ${mask[0]}`).toEqual([]);
+      expect(out.rows, `${cols[0]} vs ${mask[0]}`).toEqual([{}]);
+    }
+  });
+
+  it("leaves everything alone when the mask is empty", () => {
+    const rows = [{ a: 1 }];
+    const out = applyColumnMask(["a"], rows, []);
+    expect(out.rows).toBe(rows);
   });
 });
