@@ -20,13 +20,23 @@
 //     ids — delivery is at-least-once and a collector can dedupe on
 //     (trace_id, span_id).
 //   • Only span METADATA is exported (model, tokens, cost, status, timing,
-//     node graph). Prompt/response bodies are never put on spans, so this path
-//     carries no user content regardless of PERSIST_PROMPT_BODIES.
+//     node graph). Prompt/response bodies are never put on spans — the SELECTs
+//     below do not fetch those columns at all, so there is nothing to leak
+//     regardless of PERSIST_PROMPT_BODIES.
+//
+//     ONE EXCEPTION, which this comment used to claim did not exist:
+//     error_message IS selected, on all three streams, and lands on the span
+//     status. Provider errors quote the input that upset them often enough
+//     ("Invalid content in messages[0].content: …", moderation refusals
+//     echoing the prompt) that it is a real content path to a third party. It
+//     is redacted and truncated — see safeStatusMessage — rather than
+//     dropped, because an error with no message is a span nobody can debug.
 //
 // The collector endpoint is operator-configured trust (like the internal
 // self-call origin), so it is intentionally NOT run through the SSRF guard —
 // collectors normally live on a private/in-cluster address (otel-collector:4318).
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { redactPII } from "@/utils/guardrails";
 
 const ZERO_UUID = "00000000-0000-0000-0000-000000000000";
 const BATCH_TRACES = 500; // execution_traces spans per tick
@@ -109,9 +119,43 @@ function nanos(ms: number): string {
 function statusCode(status: string): number {
   return status === "error" ? 2 : status === "success" ? 1 : 0; // 2 ERROR, 1 OK, 0 UNSET
 }
-function spanStatus(status: string, message: string | null): { code: number; message?: string } {
+/**
+ * Longest error text put on an exported span.
+ *
+ * Provider errors are not bounded by anything on our side — some echo the whole
+ * offending request back — and an unbounded status message both inflates the
+ * OTLP payload and can exceed a collector's own attribute limits, which
+ * silently drops the span rather than truncating it.
+ */
+const MAX_STATUS_MESSAGE = 500;
+
+/**
+ * The one place a span can carry text that came from outside.
+ *
+ * Every other field exported here is metadata by construction — the SELECTs
+ * never fetch prompt, request_payload or response_payload, so there is nothing
+ * to leak. `error_message` is the exception the header's claim did not cover:
+ * provider errors routinely quote the input that upset them ("Invalid content
+ * in messages[0].content: …", moderation refusals echoing the prompt), so it is
+ * the one path by which user content could reach a third-party collector.
+ *
+ * Run through the SAME redactor the guardrails use rather than a second copy —
+ * it masks emails, phone numbers, card and national-ID numbers, and the API-key
+ * shapes, which is exactly what tends to be quoted back in an error.
+ */
+export function safeStatusMessage(message: string | null): string {
+  const raw = (message ?? "").trim();
+  if (!raw) return "error";
+  const { text } = redactPII(raw.slice(0, MAX_STATUS_MESSAGE * 4));
+  return text.length > MAX_STATUS_MESSAGE ? `${text.slice(0, MAX_STATUS_MESSAGE)}…` : text;
+}
+
+export function spanStatus(
+  status: string,
+  message: string | null,
+): { code: number; message?: string } {
   const code = statusCode(status);
-  return code === 2 ? { code, message: message ?? "error" } : { code };
+  return code === 2 ? { code, message: safeStatusMessage(message) } : { code };
 }
 
 // ── row shapes (the columns we select) ─────────────────────────────────────
