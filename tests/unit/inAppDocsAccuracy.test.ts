@@ -244,6 +244,68 @@ describe("the configuration recipes are usable", () => {
   });
 });
 
+describe("the models page matches the provider schema", () => {
+  const page = readFileSync("src/routes/docs.models.tsx", "utf8");
+  const types = readFileSync("src/utils/providers/types.ts", "utf8");
+  const creds = readFileSync("src/utils/providers/credentials.functions.ts", "utf8");
+
+  it("lists every provider id, and no others", () => {
+    const union = types.slice(types.indexOf("export type ProviderId ="));
+    const ids = [...union.slice(0, union.indexOf(";")).matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
+    expect(ids.length, "the ProviderId union was not parsed").toBeGreaterThan(5);
+    expect(page, "the stated provider count is stale").toContain(`all ${ids.length}`);
+    for (const id of ids) {
+      expect(page, `provider ${id} is missing from the table`).toContain(`>${id}<`);
+    }
+  });
+
+  it("names the exact fields each cloud provider asks for", () => {
+    // Wrong field names here are a support ticket, so they are read from the
+    // save schema rather than remembered.
+    const schema = creds.slice(
+      creds.indexOf("const SaveSchema"),
+      creds.indexOf("export const save"),
+    );
+    for (const provider of ["bedrock", "vertex", "azure_openai", "oci_genai", "qwen"]) {
+      const start = schema.indexOf(`  ${provider}: z`);
+      expect(start, `${provider} is not in the save schema`).toBeGreaterThan(-1);
+      // Terminate on the z.object's own closing brace, NOT on ".optional()" —
+      // the inner fields carry .optional() too, so that cut the block short and
+      // a field added after the first optional one went unchecked. Caught by
+      // mutation: adding bedrock.roleArn left the guard green.
+      const block = schema.slice(start, schema.indexOf("\n    })", start));
+      const fields = [...block.matchAll(/^\s{6}([a-zA-Z]+): z\./gm)].map((m) => m[1]);
+      expect(fields.length, `no fields parsed for ${provider}`).toBeGreaterThan(0);
+      for (const f of fields) {
+        expect(page, `${provider}.${f} is undocumented`).toContain(`>${f}<`);
+      }
+    }
+  });
+
+  it("documents the Azure deployment-name trap with the real URL shape", () => {
+    const azure = readFileSync("src/utils/providers/adapters/azure.server.ts", "utf8");
+    expect(azure).toContain("/openai/deployments/");
+    expect(page).toContain("/openai/deployments/");
+    // And the default api-version, which the page quotes.
+    const version = azure.match(/config\.apiVersion \|\| "([^"]+)"/)?.[1];
+    expect(version).toBeTruthy();
+    expect(page, "the quoted Azure API version is stale").toContain(version!);
+  });
+
+  it("does not claim the private-network block covers provider calls", () => {
+    // It does not: the ollama/vllm adapters call fetch directly, deliberately,
+    // because a model server on a private address is the point of them. Saying
+    // otherwise sends someone to change a setting that will not help.
+    for (const f of [
+      "src/utils/providers/adapters/vllm.server.ts",
+      "src/utils/providers/adapters/openai-compat.server.ts",
+    ]) {
+      expect(readFileSync(f, "utf8"), `${f} now guards its fetch`).not.toContain("safeFetch");
+    }
+    expect(page).toMatch(/private-network block does not apply/i);
+  });
+});
+
 describe("the quickstart sends people at things that exist", () => {
   const page = readFileSync("src/routes/docs.quickstart.tsx", "utf8");
   const templates = readFileSync("src/lib/swarmTemplates.ts", "utf8");

@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
   C,
   Callout,
+  Code,
   DocLink,
   DocsHeader,
   FieldList,
@@ -113,6 +114,97 @@ function ModelsPage() {
         <DocLink to="/docs/secrets">Secrets</DocLink> and referencing them, so a rotation is one
         edit rather than a hunt through every connector.
       </P>
+
+      <H3 id="cloud-config">Configuring the cloud providers</H3>
+      <P>
+        Eight of the fourteen need nothing but an API key. These six ask for more, and the exact
+        fields are worth having in front of you — most failed connections are one of these values in
+        the wrong box.
+      </P>
+      <Table
+        headers={["Provider", "Fields", "Notes"]}
+        rows={[
+          [
+            <C key="a">bedrock</C>,
+            <>
+              <C key="b">region</C>, <C key="c">accessKeyId</C>, <C key="d">secretAccessKey</C>, and
+              optionally <C key="e">sessionToken</C>
+            </>,
+            "The session token is only for temporary STS credentials — leave it blank for a long-lived IAM user.",
+          ],
+          [
+            <C key="f">vertex</C>,
+            <>
+              <C key="g">projectId</C>, <C key="h">location</C>, <C key="i">serviceAccountJson</C>
+            </>,
+            "Paste the whole service-account JSON file. It is parsed on save, so a truncated paste fails immediately rather than at first use.",
+          ],
+          [
+            <C key="j">azure_openai</C>,
+            <>
+              <C key="k">endpoint</C>, <C key="l">apiKey</C>, and optionally{" "}
+              <C key="m">apiVersion</C>
+            </>,
+            <>
+              Endpoint is the resource root, e.g.{" "}
+              <C key="n">https://my-resource.openai.azure.com</C>. Defaults to API version{" "}
+              <C key="o">2024-08-01-preview</C>.
+            </>,
+          ],
+          [
+            <C key="p">oci_genai</C>,
+            <>
+              <C key="q">region</C>, <C key="r">compartmentId</C>, <C key="s">tenancyOcid</C>,{" "}
+              <C key="t">userOcid</C>, <C key="u">fingerprint</C>, <C key="v">privateKeyPem</C>
+            </>,
+            <>
+              Six fields, all from your OCI API-key config file. <C key="w">style</C> selects the
+              GENERIC or COHERE request shape.
+            </>,
+          ],
+          [
+            <C key="x">anthropic</C>,
+            <C key="y">apiKey</C>,
+            "Listed here because it also supports a stored cloud credential, not just a workspace key.",
+          ],
+          [
+            <C key="z">qwen</C>,
+            <>
+              <C key="aa">apiKey</C>, optional <C key="ab">baseUrl</C>
+            </>,
+            "Set the base URL if you are pointed at a regional or self-managed endpoint.",
+          ],
+        ]}
+      />
+      <Callout kind="warn" title="On Azure, the model name IS the deployment name">
+        There is no separate deployment field, and this catches nearly everyone. The request is
+        built as <C>{"<endpoint>/openai/deployments/<model>/chat/completions"}</C> — so whatever you
+        type as the model must be the name you gave the deployment in the Azure portal, not the
+        underlying model name. If you deployed <C>gpt-4o</C> under the name <C>prod-chat</C>, the
+        model is <C>prod-chat</C>. A wrong value here comes back as a 404 from Azure, which reads
+        like the endpoint is wrong.
+      </Callout>
+
+      <H3 id="local-config">Keeping inference on your own machines</H3>
+      <P>
+        <C>ollama</C> and <C>vllm</C> take a base URL and nothing else. Both are OpenAI-compatible,
+        so the model id is whatever the server itself reports.
+      </P>
+      <Code lang="text">{`ollama    http://localhost:11434
+vllm      http://vllm.internal:8000/v1`}</Code>
+      <Callout kind="warn" title="A local URL still has to be reachable from the app">
+        The app calls these, not your browser, so <C>localhost</C> means localhost{" "}
+        <em>on the server</em>. Running the app in Docker with Ollama on the host means{" "}
+        <C>http://host.docker.internal:11434</C>, not <C>http://localhost:11434</C> — the single
+        most common reason a local model "isn't found" when it is running perfectly well.
+      </Callout>
+      <Callout kind="info" title="The private-network block does not apply here">
+        <C>BLOCK_PRIVATE_NETWORK_FETCH</C> guards the places a URL can arrive from a{" "}
+        <em>user or a model</em> — MCP endpoints, swarm HTTP nodes, page fetching. Provider base
+        URLs are operator configuration and are called directly, because a model server on a private
+        address is the entire point of these two. Treat the base URL as trusted input: whoever can
+        set it can make the app call it.
+      </Callout>
 
       <H2 id="registry">Model registry</H2>
       <P>
