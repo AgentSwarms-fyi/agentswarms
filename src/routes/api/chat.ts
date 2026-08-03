@@ -621,6 +621,13 @@ type TraceContext = {
 // model the same way.
 import { bodyJson, bodyText } from "@/utils/observability/redaction.server";
 import {
+  MAX_BODY_CHARS,
+  MAX_MESSAGES,
+  isConversationTooLarge,
+  sanitizeTraceValue,
+} from "@/utils/observability/traceSanitize";
+
+import {
   approxTokens,
   estimateImageCost,
   estimateTextCost,
@@ -629,22 +636,6 @@ import {
 
 function estimateCost(model: string, tokensIn: number, tokensOut: number): number {
   return estimateTextCost(model, tokensIn, tokensOut);
-}
-
-function sanitizeTraceValue(value: unknown): unknown {
-  if (typeof value === "string") {
-    if (value.startsWith("data:image/") && value.length > 120) {
-      return `${value.slice(0, 80)}…[${value.length} chars]`;
-    }
-    return value.length > 4000 ? `${value.slice(0, 4000)}…[${value.length} chars]` : value;
-  }
-  if (Array.isArray(value)) return value.map(sanitizeTraceValue);
-  if (value && typeof value === "object") {
-    const out: Record<string, unknown> = {};
-    for (const [key, nested] of Object.entries(value)) out[key] = sanitizeTraceValue(nested);
-    return out;
-  }
-  return value;
 }
 
 async function recordTrace(opts: {
@@ -1146,6 +1137,22 @@ export const Route = createFileRoute("/api/chat")({
               status: 400,
               headers: { "Content-Type": "application/json", ...corsHeaders },
             });
+          }
+
+          // SAME CEILING THE PUBLIC EMBED ALREADY ENFORCED. /api/embed/chat has
+          // capped conversation size since it shipped; this endpoint — the one
+          // that spends the operator's provider credits — had no cap at all.
+          // The asymmetry was backwards: an embed visitor is anonymous but
+          // rate-limited and reading a fixed agent, while any signed-in account
+          // could post an unbounded body straight to the model.
+          if (isConversationTooLarge(body.messages)) {
+            return new Response(
+              JSON.stringify({
+                error: "conversation_too_large",
+                message: `Conversations are limited to ${MAX_MESSAGES} messages and ${MAX_BODY_CHARS / 1000}k characters. Start a new chat, or trim the history.`,
+              }),
+              { status: 413, headers: { "Content-Type": "application/json", ...corsHeaders } },
+            );
           }
 
           const provider = (body.provider || "openrouter") as ProviderId;
