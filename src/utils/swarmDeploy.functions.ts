@@ -91,6 +91,18 @@ export const createSwarmApiKey = createServerFn({ method: "POST" })
       const expires_at = data.expires_in_days
         ? new Date(Date.now() + data.expires_in_days * 86_400_000).toISOString()
         : null;
+      // Resolved ONCE and used by both the insert and the audit entry. These
+      // defaults were applied in each place independently, so changing one and
+      // not the other would have the audit log report a policy the key was
+      // never created with — an audit trail that quietly disagrees with the row
+      // it describes is worse than none, because it is the thing you check when
+      // you are trying to find out what happened.
+      //
+      // Fail closed on approvals: a headless run has no human to decide one, so
+      // unless the caller explicitly opts in we stop at the gate rather than
+      // silently bypassing the operator's oversight.
+      const rejectApprovals = data.reject_approvals ?? true;
+      const scopes = data.scopes ?? ["run"];
 
       const { data: row, error } = await supabaseAdmin
         .from("swarm_api_keys")
@@ -100,12 +112,9 @@ export const createSwarmApiKey = createServerFn({ method: "POST" })
           name: data.name,
           key_hash,
           key_prefix,
-          // Fail closed: a headless run has no human to decide an approval, so
-          // unless the caller explicitly opts into auto-approval we stop at the
-          // gate rather than silently bypassing the operator's oversight.
-          reject_approvals: data.reject_approvals ?? true,
+          reject_approvals: rejectApprovals,
           expires_at,
-          scopes: data.scopes ?? ["run"],
+          scopes,
           rotated_from: data.rotated_from ?? null,
           // Every key gets a signing secret so async runs can post a verifiable
           // callback without a second setup step.
@@ -122,9 +131,9 @@ export const createSwarmApiKey = createServerFn({ method: "POST" })
         resourceId: data.swarm_id,
         resourceName: data.name,
         detail: {
-          reject_approvals: data.reject_approvals ?? true,
+          reject_approvals: rejectApprovals,
           expires_at,
-          scopes: data.scopes ?? ["run"],
+          scopes,
           ...(data.rotated_from ? { rotated_from: data.rotated_from } : {}),
         },
       });
