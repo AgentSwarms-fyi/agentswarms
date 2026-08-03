@@ -237,13 +237,66 @@ type Detector = {
   validate?: (match: string) => boolean;
 };
 
+/**
+ * Does this look like a calendar date rather than a number?
+ *
+ * Used to keep the phone detector off dates. Accepts the separators people
+ * actually write (`-`, `/`, `.`) in both field orders, and checks the parts are
+ * in range so a genuine number like `1234-56-7890` is not excused as a date.
+ */
+function isDateShaped(raw: string): boolean {
+  const m = raw.trim().match(/^(\d{1,4})[-/.](\d{1,2})[-/.](\d{1,4})$/);
+  if (!m) return false;
+  const [a, b, c] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const inDay = (n: number) => n >= 1 && n <= 31;
+  const inMonth = (n: number) => n >= 1 && n <= 12;
+  const inYear = (n: number) => n >= 1000 && n <= 9999;
+  // yyyy-mm-dd, or dd-mm-yyyy / mm-dd-yyyy.
+  return (inYear(a) && inMonth(b) && inDay(c)) || (inDay(a) && inMonth(b) && inYear(c));
+}
+
 const PII_DETECTORS: Detector[] = [
   { name: "email", re: /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, mask: "[REDACTED_EMAIL]" },
   // Provider-shaped secrets. These leak far more often than people expect,
   // usually pasted into a prompt while debugging.
   {
     name: "api_key",
-    re: /\b(?:sk-[A-Za-z0-9_-]{16,}|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{20,}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})/g,
+    // Prefixed formats first, then the two-part ones. Extended after probing
+    // the original list against the keys people actually paste: it matched
+    // `sk-`, AWS ACCESS KEY IDs, classic GitHub PATs, Slack, Google and JWTs,
+    // and missed Stripe (`sk_live_` — an underscore, so the `sk-` branch never
+    // fired), AWS SECRET access keys, GitHub's fine-grained PATs, Groq,
+    // HuggingFace and Supabase service keys. A payment provider's live secret
+    // going through unredacted is the sharp one.
+    re: new RegExp(
+      [
+        "\\bsk-[A-Za-z0-9_-]{16,}", // OpenAI / Anthropic
+        "\\b(?:sk|rk|pk)_(?:live|test)_[A-Za-z0-9]{16,}", // Stripe
+        "\\bAKIA[0-9A-Z]{16}", // AWS access key id
+        "\\bASIA[0-9A-Z]{16}", // AWS temporary access key id
+        "\\bghp_[A-Za-z0-9]{20,}", // GitHub PAT (classic)
+        "\\bgithub_pat_[A-Za-z0-9_]{22,}", // GitHub PAT (fine-grained)
+        "\\bgh[opsu]_[A-Za-z0-9]{20,}", // other GitHub token kinds
+        "\\bxox[baprs]-[A-Za-z0-9-]{10,}", // Slack
+        "\\bAIza[0-9A-Za-z_-]{20,}", // Google
+        "\\bgsk_[A-Za-z0-9]{20,}", // Groq
+        "\\bhf_[A-Za-z0-9]{20,}", // HuggingFace
+        "\\bsb[pk]_[A-Za-z0-9]{20,}", // Supabase
+        "\\bglpat-[A-Za-z0-9_-]{16,}", // GitLab
+        "\\bdop_v1_[A-Za-z0-9]{32,}", // DigitalOcean
+        // JWT: three base64url segments.
+        "\\beyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}",
+      ].join("|"),
+      "g",
+    ),
+    mask: "[REDACTED_SECRET]",
+  },
+  // AWS SECRET access keys have no prefix — 40 base64-ish characters — so they
+  // can only be found next to a label. Unlabelled, they are indistinguishable
+  // from a hash and matching them blindly would redact half of every log.
+  {
+    name: "api_key",
+    re: /\b(?:aws_secret_access_key|secret_access_key|aws_secret)\b\s*[:=]\s*["']?([A-Za-z0-9/+=]{40})["']?/gi,
     mask: "[REDACTED_SECRET]",
   },
   // IBAN: 2-letter country + 2 check digits + up to 30 alphanumerics.
@@ -267,10 +320,38 @@ const PII_DETECTORS: Detector[] = [
   // years don't match.
   {
     name: "phone",
-    re: /(?:\+\d{1,3}[ -]?)?(?:\(\d{2,4}\)[ -]?|\b\d{2,4}[ -])\d{2,4}[ -]?\d{2,4}\b/g,
+    // ANCHORED TO THE WHOLE DIGIT RUN, both ends.
+    //
+    // The pattern captures at most three groups, so against a longer run it
+    // used to match a window and leave the remainder: `4111 1111 1111 1112`
+    // came back as `[REDACTED_PHONE] 1112`, corrupting the value while leaving
+    // part of it in place — worse than either redacting it or not. Backtracking
+    // then found the LAST three groups just as happily, so a trailing guard
+    // alone was not enough; both ends are needed.
+    //
+    // Lookbehind: not preceded by a digit, or by a digit and a separator.
+    // Lookahead: not followed by a digit, or by a separator and a digit.
+    re: /(?<!\d)(?<!\d[ -])(?:\+\d{1,3}[ -]?)?(?:\(\d{2,4}\)[ -]?|\b\d{2,4}[ -])\d{2,4}[ -]?\d{2,4}\b(?![ -]?\d)/g,
     mask: "[REDACTED_PHONE]",
-    // Reject anything with too few digits to be a real number.
-    validate: (m) => m.replace(/\D/g, "").length >= 7,
+    validate: (m) => {
+      const digits = m.replace(/\D/g, "");
+      // Too few digits to be a real number.
+      if (digits.length < 7) return false;
+      // No upper bound is checked here on purpose. E.164 caps a real number at
+      // fifteen digits, and the pattern above already cannot match more than
+      // that (+NNN NNNN NNNN NNNN = 15), so a `> 15` guard would be a branch
+      // that can never run — mutation testing caught it surviving, which is
+      // how a check that protects nothing announces itself. Longer digit runs
+      // are excluded by the run anchoring instead.
+      // A DATE IS NOT A PHONE NUMBER. `2024-01-15` is 4-2-2 digits with
+      // separators and eight digits total, so it satisfied both the pattern
+      // and the length check — every ISO date in a prompt or an answer was
+      // replaced with [REDACTED_PHONE] and counted as a phone in the trace.
+      // On a product whose primary dimension is time, that means an agent
+      // with PII redaction switched on cannot discuss a date.
+      if (isDateShaped(m)) return false;
+      return true;
+    },
   },
   {
     name: "ip",
