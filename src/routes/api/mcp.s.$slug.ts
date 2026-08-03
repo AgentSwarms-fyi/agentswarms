@@ -77,12 +77,49 @@ function slugOf(request: Request): string {
   return decodeURIComponent(parts[parts.length - 1] ?? "");
 }
 
-function clientIp(request: Request): string {
-  return (
-    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    request.headers.get("x-real-ip") ||
-    ""
-  );
+/**
+ * The caller's address, for the key's IP allow-list.
+ *
+ * THIS IS AN ACCESS-CONTROL INPUT, which is what makes the derivation matter.
+ * utils/requestMeta.server has a clientIp() that reads the LEFT-most entry of
+ * X-Forwarded-For, and its header says plainly that such values are "forensic
+ * hints — never an access-control input". Its three callers obey that and use
+ * it for audit stamps. This route had a private copy of the same left-most
+ * logic and fed it straight to `ips.includes(...)`.
+ *
+ * X-Forwarded-For is APPENDED to, not overwritten. A proxy receiving
+ *
+ *     X-Forwarded-For: 203.0.113.10          (sent by the caller)
+ *
+ * forwards
+ *
+ *     X-Forwarded-For: 203.0.113.10, 198.51.100.66
+ *
+ * where the second entry is the real peer. Reading `[0]` returned the value the
+ * caller chose, so anyone holding a leaked key defeated its allow-list with one
+ * header — the control existed only for callers who did not try.
+ *
+ * Counting from the RIGHT fixes it: our own proxies appended those entries, so
+ * they are the only ones we did not receive from the caller. How many to skip
+ * depends on deployment, hence TRUSTED_PROXY_HOPS — 1 for the single reverse
+ * proxy DEPLOYMENT.md describes, 2 behind a CDN in front of that proxy. Setting
+ * it too HIGH reads an entry the caller supplied, so it is clamped to the list.
+ *
+ * X-Real-IP is deliberately NOT consulted. nginx overwrites it, but Caddy — the
+ * proxy in our own deployment guide — does not set it at all, so a caller's own
+ * X-Real-IP would arrive untouched and reopen exactly this bypass.
+ *
+ * No X-Forwarded-For at all means no proxy, so nothing is verifiable and this
+ * returns "" — which no allow-list contains, so the request is refused.
+ */
+export function clientIp(request: Request): string {
+  const parts = (request.headers.get("x-forwarded-for") ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (parts.length === 0) return "";
+  const hops = Math.min(Math.max(1, envInt("TRUSTED_PROXY_HOPS", 1)), parts.length);
+  return (parts[parts.length - hops] ?? "").slice(0, 64);
 }
 
 type AppRow = McpAppRow;
