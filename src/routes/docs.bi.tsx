@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
   C,
   Callout,
+  Code,
   DocLink,
   DocsHeader,
   FieldList,
@@ -76,6 +77,96 @@ function BiPage() {
         You can also send a chart straight from the SQL workbench with{" "}
         <strong>Add to dashboard</strong> once a query returns something worth keeping.
       </P>
+
+      <H2 id="data-mode">How a widget gets its data</H2>
+      <P>
+        Every chart widget stores the SQL it ran and a <strong>snapshot</strong> of the rows that
+        came back. Which of those a viewer sees depends on the widget's data mode, and the
+        difference decides freshness, cost, and — in one case worth reading carefully — whether the
+        number is right.
+      </P>
+      <Table
+        headers={["Mode", "What happens at view time", "Use it when"]}
+        rows={[
+          [
+            <>
+              <strong key="i">Import</strong> (default)
+            </>,
+            "The stored snapshot renders. No query runs, nothing touches your warehouse, load is instant.",
+            "Almost always. Pair it with a refresh schedule.",
+          ],
+          [
+            <strong key="d">Direct</strong>,
+            "The widget's SQL re-runs against the warehouse on every view, for the current truth.",
+            "A number that must be live, on a dashboard few people open.",
+          ],
+        ]}
+      />
+      <Callout kind="info" title="Published and embedded dashboards always render the snapshot">
+        Direct mode applies to the editor and to signed-in viewers. A{" "}
+        <DocLink to="/docs/embedding">public share or embed</DocLink> renders the stored snapshot
+        whatever the widget's mode says — otherwise every anonymous visitor would be a live query
+        against your warehouse. So on a published dashboard, the refresh schedule <em>is</em> the
+        freshness, and each widget shows when it was last computed.
+      </Callout>
+
+      <H3 id="row-cap">The row cap, and the totals it can quietly break</H3>
+      <P>
+        A snapshot holds at most <strong>500 rows</strong>. That is fine for a chart of twelve
+        months or twenty regions, and it is a problem for a chart built over raw rows — because the
+        browser is what sums duplicate categories together.
+      </P>
+      <Callout kind="warn" title="A capped snapshot sums a subset and calls it the total">
+        Chart <C>sum(amount)</C> by region over a 50,000-row table and the snapshot keeps the first
+        500. The renderer then adds up the regions <em>it can see</em>, and draws a bar chart that
+        looks entirely normal and is wrong — no error, just a smaller number. Widgets in this state
+        carry a <strong>Partial</strong> badge, and the fix is the next section.
+      </Callout>
+
+      <H3 id="pushdown">Aggregate in SQL</H3>
+      <P>
+        Turning on <strong>Aggregate in SQL</strong> compiles the chart into a <C>GROUP BY</C> and
+        makes the database do the adding. One row comes back per category instead of thousands of
+        raw rows, so the totals are complete and the cap stops mattering:
+      </P>
+      <Code lang="sql">{`-- what the widget stores
+SELECT region, amount FROM sales
+
+-- what actually runs with "Aggregate in SQL" on
+SELECT region, SUM(amount) AS amount
+FROM (SELECT region, amount FROM sales) AS _dq
+GROUP BY region`}</Code>
+      <P>
+        Supported aggregates are <C>sum</C> (the default), <C>avg</C>, <C>min</C>, <C>max</C>,{" "}
+        <C>count</C> and <C>count_distinct</C>. Wrapping SQL that already aggregates is harmless —
+        grouping rows whose key is already unique returns them unchanged.
+      </P>
+      <Callout kind="why" title="Why it isn't just switched on everywhere">
+        New widgets get it by default. Existing ones deliberately do <strong>not</strong>, because
+        switching it on can change a number someone is already reporting — the old number was a
+        partial sum, and correcting it silently would be its own kind of dishonesty. They surface
+        the <strong>Partial</strong> badge instead, so the owner sees the problem and makes the
+        change themselves.
+      </Callout>
+
+      <H3 id="incremental">Incremental refresh</H3>
+      <P>
+        For a large table where only recent rows change, a widget can re-query just a recent window
+        on a chosen date column and keep the previous snapshot's older rows. A refresh then reads a
+        week instead of three years. Bind it in the builder: pick the date column, then{" "}
+        <strong>Full re-query</strong> or a window of <strong>7</strong>, <strong>30</strong>,{" "}
+        <strong>90</strong> or <strong>365</strong> days.
+      </P>
+      <Callout kind="warn" title="It assumes history does not change">
+        Whole time buckets are recomputed rather than partial aggregates merged — which is what
+        keeps <C>avg</C> and <C>count_distinct</C> correct, since those cannot be combined from
+        partials. The trade you are accepting is the usual one:{" "}
+        <strong>
+          a late-arriving edit to a row outside the window will not appear until a full refresh.
+        </strong>{" "}
+        If your source back-dates corrections, either widen the window past your correction lag or
+        leave incremental off.
+      </Callout>
 
       <H2 id="charts">Chart types — all 27, with required fields</H2>
       <P>
@@ -362,11 +453,9 @@ function BiPage() {
           isn't stale.
         </li>
         <li>
-          <strong>Incremental refresh</strong> — bind a date column and a window (7–365 days) in the
-          builder, and each refresh re-queries only the window while keeping older rows from the
-          last snapshot. Whole time buckets are recomputed, which is what keeps averages and
-          distinct counts correct. The assumption you sign up for: history outside the window no
-          longer changes — pick full re-query if old rows get edited.
+          <strong>Incremental refresh</strong> — re-query only a recent window instead of the whole
+          table. Covered in <DocLink to="/docs/bi#incremental">how a widget gets its data</DocLink>,
+          along with the assumption it commits you to.
         </li>
         <li>
           <strong>Scheduled reports</strong> — email a digest of the dashboard on a schedule.
@@ -438,7 +527,18 @@ function BiPage() {
       <H3 id="performance">If a dashboard is slow</H3>
       <UL>
         <li>
-          Switch heavy widgets from direct query to imported snapshots with a refresh schedule.
+          Switch heavy widgets from{" "}
+          <DocLink to="/docs/bi#data-mode">direct query to imported snapshots</DocLink> with a
+          refresh schedule. This is usually the whole fix.
+        </li>
+        <li>
+          Turn on <DocLink to="/docs/bi#pushdown">Aggregate in SQL</DocLink>. It returns one row per
+          category instead of thousands, so it makes the dashboard faster and the totals correct at
+          the same time.
+        </li>
+        <li>
+          Use <DocLink to="/docs/bi#incremental">incremental refresh</DocLink> if the refresh itself
+          is what's slow rather than the view.
         </li>
         <li>
           Aggregate in a <DocLink to="/docs/data-prep">prepared table</DocLink> rather than charting

@@ -244,6 +244,60 @@ describe("the configuration recipes are usable", () => {
   });
 });
 
+describe("the BI page states the numbers that decide whether a chart is right", () => {
+  const page = readFileSync("src/routes/docs.bi.tsx", "utf8");
+  const dash = readFileSync("src/lib/biDashboards.ts", "utf8");
+  const agg = readFileSync("src/lib/biAggregate.ts", "utf8");
+
+  it("quotes the real snapshot row cap", () => {
+    // The cap is the reason a chart can show a partial total, so a stale
+    // number here misleads about exactly the case that matters.
+    const cap = dash.match(/WIDGET_ROW_CAP = (\d+)/)?.[1];
+    expect(cap).toBeTruthy();
+    expect(page, "the documented row cap is stale").toContain(cap!);
+  });
+
+  it("lists every aggregate the pushdown can emit", () => {
+    const union = agg.match(/export type MeasureAgg =([^;]+);/)?.[1];
+    expect(union).toBeTruthy();
+    const fns = [...union!.matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
+    expect(fns.length).toBeGreaterThan(3);
+    for (const f of fns) {
+      expect(page, `aggregate ${f} is undocumented`).toContain(`>${f}<`);
+    }
+  });
+
+  it("offers the incremental windows the builder actually offers", () => {
+    // Was documented as "7-365 days", which reads as a free range. It is four
+    // fixed choices, and someone typing 14 finds no such option.
+    const builder = readFileSync("src/components/bi/BiBuilderPane.tsx", "utf8");
+    const opts = [
+      ...builder.matchAll(/<SelectItem value="(\d+)">Last \d+ days only<\/SelectItem>/g),
+    ].map((m) => m[1]);
+    expect(opts.length, "the incremental window options were not found").toBeGreaterThan(2);
+    const section = page.slice(page.indexOf('id="incremental"'), page.indexOf('id="charts"'));
+    for (const o of opts) {
+      expect(section, `incremental window ${o} is undocumented`).toContain(`>${o}<`);
+    }
+    expect(page, "still describes a continuous range").not.toContain("7–365 days");
+  });
+
+  it("warns that a capped snapshot shows a partial total", () => {
+    // The UI shows a "Partial" badge for exactly this; the page has to explain
+    // what it means, because the badge alone does not say the number is wrong.
+    const card = readFileSync("src/components/bi/BiWidgetCard.tsx", "utf8");
+    expect(card).toContain("truncated && !widget.agg_pushdown");
+    expect(card).toContain("Partial");
+    expect(page, "the Partial badge is unexplained").toContain("Partial");
+    expect(page).toMatch(/sums a subset|part of it|arbitrary subset/i);
+  });
+
+  it("says public dashboards render the snapshot whatever the mode", () => {
+    expect(dash).toMatch(/Public embeds\/shares always render the snapshot/);
+    expect(page).toMatch(/always render the snapshot/i);
+  });
+});
+
 describe("the models page matches the provider schema", () => {
   const page = readFileSync("src/routes/docs.models.tsx", "utf8");
   const types = readFileSync("src/utils/providers/types.ts", "utf8");
