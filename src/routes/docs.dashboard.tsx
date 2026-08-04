@@ -91,10 +91,36 @@ function DashboardDoc() {
 
       <H2 id="featured-swarms">Featured swarms</H2>
       <P>
-        A curated row of multi-agent templates — currently the Earnings Call Analyst Desk, the Stock
-        Investment CIO swarm, SOC Alert Triage, and the Graph RAG Researcher — that open directly on
-        the canvas. These are chosen for being visually interesting graphs that demonstrate routing,
-        parallel fan-out, and approval gates without any setup.
+        A curated row of four multi-agent templates that open directly on the canvas. They are
+        chosen for being graphs worth reading — routing, parallel fan-out, retrieval and approval
+        gates — and they need no setup, because their retrieval nodes point at the sample knowledge
+        base bundled with the platform.
+      </P>
+      <Table
+        headers={["Template", "What it demonstrates"]}
+        rows={[
+          [
+            <strong key="a">Support Copilot</strong>,
+            "Router → KB retrieval with reranking → grounded answer → LLM judge → human approval. The most complete of the four.",
+          ],
+          [
+            <strong key="b">Revenue Ops Analyst</strong>,
+            "Querying your own data and turning the result into an answer.",
+          ],
+          [
+            <strong key="c">Market Research Desk</strong>,
+            "Parallel fan-out across sources, then a synthesis step.",
+          ],
+          [
+            <strong key="d">Incident Response Triage</strong>,
+            "Classification and branching, where the branch decides what happens next.",
+          ],
+        ]}
+      />
+      <P>
+        There are more in the full template gallery on the{" "}
+        <DocLink to="/docs/swarms">Swarm Canvas</DocLink> — these four are simply the ones surfaced
+        on the dashboard.
       </P>
 
       <H2 id="stats">Workspace stats</H2>

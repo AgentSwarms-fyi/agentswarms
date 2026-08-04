@@ -244,6 +244,54 @@ describe("the configuration recipes are usable", () => {
   });
 });
 
+describe("the dashboard page lists the swarms the dashboard actually features", () => {
+  // All four names on this page were wrong. Two were templates that do not
+  // exist at all ("Stock Investment CIO", "Graph RAG Researcher"), one existed
+  // but was not featured, and one was a wrong name for a real featured
+  // template. It is the second fabricated list found on these pages, so it is
+  // read from the source of truth from now on.
+  const page = readFileSync("src/routes/docs.dashboard.tsx", "utf8");
+  const dashboard = readFileSync("src/routes/_authenticated/dashboard.tsx", "utf8");
+  const templates = readFileSync("src/lib/swarmTemplates.ts", "utf8");
+
+  const featuredIds = (() => {
+    const block = dashboard.slice(
+      dashboard.indexOf("const FEATURED_SWARM_IDS = ["),
+      dashboard.indexOf("]", dashboard.indexOf("const FEATURED_SWARM_IDS = [")),
+    );
+    return [...block.matchAll(/"([a-z-]+)"/g)].map((m) => m[1]);
+  })();
+
+  const titleFor = (id: string) => {
+    const at = templates.indexOf(`id: "${id}"`);
+    return at === -1 ? null : (templates.slice(at).match(/title: "([^"]+)"/)?.[1] ?? null);
+  };
+
+  it("found the featured list to check against", () => {
+    expect(featuredIds.length).toBeGreaterThan(2);
+  });
+
+  it("names every featured template, by its real title", () => {
+    for (const id of featuredIds) {
+      const title = titleFor(id);
+      expect(title, `template ${id} is featured but has no title`).toBeTruthy();
+      expect(page, `featured swarm "${title}" is missing from the page`).toContain(title!);
+    }
+  });
+
+  it("names no template that is not featured", () => {
+    // The page said "Earnings Call Analyst Desk", which is a real template and
+    // is not on the dashboard — a reader would look for it and not find it.
+    const featuredTitles = new Set(featuredIds.map(titleFor).filter(Boolean) as string[]);
+    const section = page.slice(page.indexOf('id="featured-swarms"'), page.indexOf('id="stats"'));
+    const allTitles = [...templates.matchAll(/^\s{4}title: "([^"]+)"/gm)].map((m) => m[1]);
+    const wrong = allTitles.filter((t) => !featuredTitles.has(t) && section.includes(t));
+    expect(wrong, `named in the featured section but not featured: ${wrong.join(", ")}`).toEqual(
+      [],
+    );
+  });
+});
+
 describe("the data-prep page documents the expression language that exists", () => {
   const page = readFileSync("src/routes/docs.data-prep.tsx", "utf8");
   const core = readFileSync("src/lib/dataPrepCore.ts", "utf8");
