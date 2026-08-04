@@ -70,6 +70,94 @@ import {
 } from "@/lib/biChartMath";
 import { cn } from "@/lib/utils";
 
+/** Longest label we will print before truncating with an ellipsis. */
+const MAX_TICK_CHARS = 18;
+
+/**
+ * XAxis props for a CATEGORY axis, so labels are never silently dropped.
+ *
+ * Recharts defaults to `interval="preserveEnd"`, which hides ticks that would
+ * overlap. On a chart of eight return reasons that rendered SIX labels and two
+ * unlabelled bars — and nothing on screen said a label was missing, so the
+ * reader cannot tell which bar is which and has no reason to suspect it.
+ * Crowding is a visible problem; a dropped label is an invisible one.
+ *
+ * So `interval={0}` always, and when the labels cannot fit flat, angle them
+ * and give the axis the height to hold them. Truncation is the last resort —
+ * the full value is still in the tooltip.
+ *
+ * Exported for tests: the thresholds are the whole behaviour, and they are not
+ * observable from a rendered chart without measuring pixels.
+ */
+export function categoryAxis(
+  values: unknown[],
+  tickSize: number,
+): {
+  interval: 0;
+  angle?: number;
+  textAnchor?: "end";
+  height?: number;
+  tickFormatter?: (v: unknown) => string;
+  /**
+   * Extra left margin the CHART needs, in px — not an XAxis prop.
+   *
+   * An angled label is anchored at its end and runs up and to the LEFT, so the
+   * first one overhangs the plot area. With margin.left of 0 it was clipped:
+   * measured 12px of "Wrong item shipped" cut off, which rendered as
+   * "rong item shipped" — a label that is present, wrong, and looks
+   * deliberate. Spread the axis props onto XAxis and pass this to the chart's
+   * margin.
+   */
+  leftMargin: number;
+} {
+  const labels = values.map((v) => (v == null ? "" : String(v)));
+  const longest = labels.reduce((m, l) => Math.max(m, l.length), 0);
+  // Rough advance width for the tick font — enough to decide "does this fit",
+  // which is all that is needed. Measuring text properly would mean a canvas
+  // and a layout pass for a decision with two outcomes.
+  const approxCharPx = tickSize * 0.62;
+  // Recharts gives each category an equal slice; a label fits flat when it is
+  // narrower than its slice. 640px is the typical widget width — deliberately
+  // pessimistic, because guessing "it fits" is what produced the bug.
+  const sliceWidth = 640 / Math.max(1, labels.length);
+  const fitsFlat = longest * approxCharPx <= sliceWidth;
+
+  const truncate =
+    longest > MAX_TICK_CHARS
+      ? (v: unknown) => {
+          const s = v == null ? "" : String(v);
+          return s.length > MAX_TICK_CHARS ? `${s.slice(0, MAX_TICK_CHARS - 1)}…` : s;
+        }
+      : undefined;
+
+  if (fitsFlat)
+    return { interval: 0, leftMargin: 0, ...(truncate ? { tickFormatter: truncate } : {}) };
+
+  // Angled. Height has to cover the label's vertical extent at 35°, or the
+  // axis clips them instead — which is the same invisible failure in a new
+  // costume.
+  const shown = Math.min(longest, MAX_TICK_CHARS);
+  const labelPx = shown * approxCharPx;
+  const height = Math.min(110, Math.round(labelPx * Math.sin(Math.PI / 5)) + 24);
+
+  // How far the FIRST label reaches left of its tick, minus the room already
+  // there: the Y axis (48px) plus half a category slice. Derived rather than
+  // guessed — with eight categories this yields 12px, which is exactly what
+  // was measured as clipped.
+  const reach = labelPx * Math.cos(Math.PI / 5);
+  const roomBeforeFirstTick = 48 + sliceWidth / 2;
+  const leftMargin = Math.min(48, Math.max(0, Math.round(reach - roomBeforeFirstTick)));
+
+  return {
+    interval: 0,
+    angle: -35,
+    textAnchor: "end",
+    height,
+    leftMargin,
+    ...(truncate ? { tickFormatter: truncate } : {}),
+  };
+}
+
 /** Y position for a configured reference line (null = don't draw). For an
  *  "avg" line we average across every value key, so a multi-series (pivoted)
  *  chart — whose rows hold one column per series, not the raw yField — still
@@ -385,6 +473,16 @@ function BiChartRenderInner({
   const gradientId = useId();
   const heightClass = fill ? "h-full" : large ? "h-[60vh]" : "h-56";
   const tickSize = large ? 12 : 11;
+  /** Category-axis props for this chart's own labels — see categoryAxis. */
+  const catAxis = (rows: Record<string, unknown>[], key: string) => {
+    // leftMargin is for the CHART, not the axis — spreading it onto XAxis would
+    // put an unknown attribute on an SVG element.
+    const { leftMargin, ...axis } = categoryAxis(
+      rows.map((r) => r?.[key]),
+      tickSize,
+    );
+    return { axis, leftMargin };
+  };
   const labelSize = large ? 12 : 11;
   // NOTE: design tokens in this project are raw oklch() values, not HSL
   // channels — so wrap with var() directly, never hsl(var(--token)).
@@ -546,6 +644,7 @@ function BiChartRenderInner({
     const stacked = chart.type === "scolumn" ? true : chart.stacked;
     const pivoted = seriesField ? pivotSeries(rows, chart.xField, chart.yField, seriesField) : null;
     const barData = pivoted ? pivoted.data : aggregateByField(rows, chart.xField, [chart.yField]);
+    const barCat = catAxis(barData, chart.xField);
     const handleClick = onElementClick
       ? (data: { payload?: Record<string, unknown> } | Record<string, unknown>) => {
           const payload =
@@ -558,9 +657,21 @@ function BiChartRenderInner({
     return (
       <div className={`${heightClass} w-full`}>
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={barData} margin={{ top: 12, right: 12, left: 0, bottom: 4 }}>
+          <BarChart
+            data={barData}
+            margin={{ top: 12, right: 12, left: barCat.leftMargin, bottom: 4 }}
+          >
             <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
-            <XAxis dataKey={chart.xField} tick={tick} axisLine={false} tickLine={false} />
+            {/* Every bar is a discrete category, so every bar needs its label —
+                see categoryAxis. A line or area axis is different and is left
+                to thin its own ticks. */}
+            <XAxis
+              dataKey={chart.xField}
+              tick={tick}
+              axisLine={false}
+              tickLine={false}
+              {...barCat.axis}
+            />
             <YAxis tick={tick} axisLine={false} tickLine={false} tickFormatter={fmt} width={48} />
             <Tooltip
               contentStyle={tooltipStyle}
@@ -1071,6 +1182,10 @@ function BiChartRenderInner({
   }
 
   if (chart.type === "combo") {
+    // Hoisted so the axis can size itself from the SAME rows the bars use —
+    // computing it twice would let the labels and the bars disagree.
+    const comboData = aggregateByField(rows, chart.xField, [chart.barField, chart.lineField]);
+    const comboCat = catAxis(comboData, chart.xField);
     const comboClick = onElementClick
       ? (state: { activeLabel?: string | number } | null) => {
           if (state && state.activeLabel !== undefined && state.activeLabel !== null) {
@@ -1085,12 +1200,18 @@ function BiChartRenderInner({
       >
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart
-            data={aggregateByField(rows, chart.xField, [chart.barField, chart.lineField])}
-            margin={{ top: 12, right: 8, left: 0, bottom: 4 }}
+            data={comboData}
+            margin={{ top: 12, right: 8, left: comboCat.leftMargin, bottom: 4 }}
             onClick={comboClick}
           >
             <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
-            <XAxis dataKey={chart.xField} tick={tick} axisLine={false} tickLine={false} />
+            <XAxis
+              dataKey={chart.xField}
+              tick={tick}
+              axisLine={false}
+              tickLine={false}
+              {...comboCat.axis}
+            />
             <YAxis
               yAxisId="left"
               tick={tick}
