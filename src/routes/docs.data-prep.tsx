@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
   C,
   Callout,
+  Code,
   Diagram,
   DocLink,
   DocsHeader,
@@ -216,6 +217,46 @@ customers┘                          status=       margin =
           ],
         ]}
       />
+
+      <H3 id="calc-expressions">Writing a calculated field</H3>
+      <P>
+        The expression is <strong>SQL</strong>, not a spreadsheet formula language. It is dropped
+        into a <C>SELECT</C> as <C>{"(your expression) AS your_column_name"}</C>, so anything valid
+        in a SQL select list works — arithmetic, functions, <C>CASE</C>, references to any column
+        available at that point in the flow.
+      </P>
+      <Code lang="sql">{`-- arithmetic across columns
+revenue - cost
+
+-- a rate, guarding the divide-by-zero that would otherwise produce nulls
+CASE WHEN visits > 0 THEN conversions * 1.0 / visits ELSE 0 END
+
+-- bucketing, for grouping later in the flow
+CASE
+  WHEN amount >= 10000 THEN 'enterprise'
+  WHEN amount >= 1000  THEN 'mid-market'
+  ELSE 'smb'
+END
+
+-- text tidying
+lower(trim(email))
+
+-- a month key to summarise by
+date_trunc('month', ordered_at)`}</Code>
+      <Callout kind="info" title="The dialect is DuckDB, everywhere">
+        Local datasets run on DuckDB both in the browser preview and on the server for scheduled
+        refreshes — deliberately the same engine, so what you see in the preview is what the
+        schedule produces. That means DuckDB's function library is available to you:{" "}
+        <C>date_trunc</C>, <C>strftime</C>, <C>regexp_extract</C>, <C>list_aggregate</C>, window
+        functions, and the rest.
+      </Callout>
+      <Callout kind="warn" title="Order matters, and so does naming">
+        Steps run in sequence, so a calculated field can only reference columns that exist{" "}
+        <em>above</em> it — including earlier calculated fields, which is the intended way to build
+        something up in readable pieces. Give each one a name you would be happy to see on a chart
+        axis: it becomes a real column that dashboards, metrics and agents all address by that name,
+        and renaming it later breaks whatever already points at it.
+      </Callout>
 
       <H3 id="filter-ops">Filter operators</H3>
       <P>

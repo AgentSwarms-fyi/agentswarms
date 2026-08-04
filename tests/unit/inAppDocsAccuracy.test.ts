@@ -244,6 +244,27 @@ describe("the configuration recipes are usable", () => {
   });
 });
 
+describe("the data-prep page documents the expression language that exists", () => {
+  const page = readFileSync("src/routes/docs.data-prep.tsx", "utf8");
+  const core = readFileSync("src/lib/dataPrepCore.ts", "utf8");
+
+  it("says a calculated field is SQL, because that is what it compiles to", () => {
+    // The step's `expr` goes straight into a select list. The page previously
+    // said "expression" and left the reader to guess whether that meant a
+    // spreadsheet formula.
+    expect(core).toMatch(/SELECT \*, \(\$\{step\.expr\.trim\(\)\}\) AS/);
+    expect(page).toMatch(/expression is <strong>SQL<\/strong>/);
+  });
+
+  it("names the dialect the engine actually is", () => {
+    // Both surfaces run DuckDB deliberately, so the function library the page
+    // points at has to be DuckDB's.
+    const engine = readFileSync("src/lib/sqlEngine.ts", "utf8");
+    expect(engine).toMatch(/backed by DuckDB compiled to WebAssembly/);
+    expect(page).toContain("DuckDB");
+  });
+});
+
 describe("the cost figures are described as the estimates they are", () => {
   const analytics = readFileSync("src/routes/docs.analytics.tsx", "utf8");
   const rec = readFileSync("src/utils/observability/recordGatewayUsage.server.ts", "utf8");
