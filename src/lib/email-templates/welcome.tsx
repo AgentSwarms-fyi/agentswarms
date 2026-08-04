@@ -26,7 +26,12 @@ export const WelcomeEmail = ({
   recipient = "there",
 }: WelcomeEmailProps) => {
   const dashboardUrl = `${siteUrl}/dashboard`;
-  const learnUrl = `${siteUrl}/learn`;
+  // The in-app documentation, NOT `${siteUrl}/learn`. /learn is a page on the
+  // hosted project site; on a self-hosted instance siteUrl is that operator's
+  // own domain, so the welcome email — the first thing a new user receives —
+  // linked them to a 404 on their own deployment. /docs ships with the app and
+  // is correct on every instance.
+  const learnUrl = `${siteUrl}/docs`;
   const playgroundUrl = `${siteUrl}/playground`;
   const swarmsUrl = `${siteUrl}/swarms`;
 
@@ -53,10 +58,10 @@ export const WelcomeEmail = ({
           <Section style={featureRow}>
             <Text style={featureTitle}>🎓 Learn the fundamentals</Text>
             <Text style={featureText}>
-              Bite-sized lessons covering prompts, tools, RAG, guardrails, evals, and multi-agent
-              patterns.{" "}
+              Core concepts, a guided quickstart, and reference for every module — agents, swarms,
+              retrieval, guardrails and budgets.{" "}
               <Link href={learnUrl} style={link}>
-                Open the Learn hub →
+                Open the documentation →
               </Link>
             </Text>
           </Section>
