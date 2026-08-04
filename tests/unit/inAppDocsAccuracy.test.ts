@@ -244,6 +244,30 @@ describe("the configuration recipes are usable", () => {
   });
 });
 
+describe("the guardrails page lists every PII detector", () => {
+  // Verified correct during the count sweep — eight entities, eight rows, same
+  // names. Pinned because a detector added without a docs row is a redaction
+  // someone does not know they can turn on, and one removed without a row
+  // deleted is protection they think they have.
+  it("matches PII_ENTITIES exactly", () => {
+    const code = readFileSync("src/utils/guardrails.ts", "utf8");
+    const block = code.slice(code.indexOf("export const PII_ENTITIES = ["));
+    const entities = [...block.slice(0, block.indexOf("] as const")).matchAll(/"([a-z_]+)"/g)].map(
+      (m) => m[1],
+    );
+    expect(entities.length).toBeGreaterThan(4);
+
+    const page = readFileSync("src/routes/docs.guardrails.tsx", "utf8");
+    for (const e of entities) {
+      expect(page, `detector ${e} is undocumented`).toMatch(new RegExp(`<C key="[^"]*">${e}</C>`));
+    }
+    const WORDS = ["", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
+    expect(page, `should say "The ${WORDS[entities.length]} detectors"`).toContain(
+      `The ${WORDS[entities.length]} detectors`,
+    );
+  });
+});
+
 describe("the swarms page documents every node kind, and counts them right", () => {
   const page = readFileSync("src/routes/docs.swarms.tsx", "utf8");
   const runtime = readFileSync("src/lib/swarmRuntime.ts", "utf8");
