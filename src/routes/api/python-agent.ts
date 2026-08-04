@@ -126,27 +126,52 @@ export const Route = createFileRoute("/api/python-agent")({
           // The obvious repair — call the internal channel with
           // x-internal-run-secret + internalUserId, the way scheduled and
           // deployed swarm runs do — is WRONG here, and quietly so. In
-          // /api/chat every agent-aware branch is gated on `authToken`:
-          // the agent-config load, retrieveCitations, and the auto-RAG path all
-          // require a JWT. On the internal channel agentId is accepted and
+          // /api/chat the agent-config load is gated on `authToken`
+          // (`if (body.agentId && authToken)`), so on the internal channel the
+          // agent's name, tools, guardrails and skills are never read. An
+          // earlier version of this note also cited retrieveCitations and the
+          // auto-RAG path; retrieveCitations was dead code and has since been
+          // deleted, and auto-RAG runs through retrieveCitationsServer, which
+          // takes an explicit scope. One blocker, not three — the conclusion
+          // is unchanged, because it is the load-bearing one.
+          // On the internal channel agentId is accepted and
           // ignored, so the call would succeed and answer from a bare default
           // model with no prompt, no tools and no knowledge base. Turning a
           // visible 401 into a plausible-looking wrong answer is worse than the
           // bug.
           //
-          // Supporting it properly means teaching those branches to use the
+          // Supporting it properly means teaching that branch to use the
           // service-role client scoped to internalUserId (the idiom already
-          // used for iamSb a few lines up in chat.ts) — a change to an
-          // auth-sensitive path in a 2,000-line file, which is a decision, not
-          // a cleanup. Until then this fails immediately and says what is
-          // wrong. run_swarm is unaffected: it calls executeSwarmServer
-          // in-process and needs no HTTP hop.
+          // used for iamSb in chat.ts) — a change to an auth-sensitive path,
+          // where every converted query loses its RLS narrowing and needs an
+          // explicit user_id filter instead. Miss one and it is a cross-tenant
+          // read in the busiest route in the app.
+          //
+          // WEIGHED AND DECLINED, rather than left as an open TODO:
+          //
+          //   * It has never worked from a notebook, so nothing regressed and
+          //     nobody is waiting on a restoration.
+          //   * run_swarm covers the use case. A one-node swarm runs a saved
+          //     agent with its real prompt, tools and knowledge, because the
+          //     builder SNAPSHOTS an imported agent into the node rather than
+          //     referencing it (see importFromLibrary in NodeInspector) — so
+          //     the wrapper is a faithful copy, not an approximation.
+          //   * What is genuinely lost is liveness: a snapshot does not follow
+          //     later edits to the agent. That is the whole delta, and it does
+          //     not justify touching this path.
+          //
+          // Revisit if "always the current agent, from a notebook" becomes a
+          // real requirement. Until then this fails immediately and points at
+          // the thing that works.
           if (caller.scopeUserId) {
             return json(501, {
               error:
-                "run_agent is not available from a notebook yet: the kernel authenticates with a " +
+                "run_agent is not available from a notebook: the kernel authenticates with a " +
                 "runtime session token, and /api/chat accepts only a user JWT or the internal-run " +
-                "secret. Use run_swarm, which executes in-process and is unaffected.",
+                "secret. Use run_swarm instead — it executes in-process. To run one saved agent, " +
+                "wrap it in a single-node swarm: importing an agent onto a node copies its prompt, " +
+                "model, tools and knowledge base, so the run is faithful to the agent as it was " +
+                "when you imported it.",
             });
           }
           const resp = await fetch(`${resolveInternalOrigin()}/api/chat`, {
