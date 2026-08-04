@@ -590,7 +590,37 @@ export function buildSqlPrompt(args: {
       "columns, and no id columns unless the question asks for them. " +
       "If the question asks for a single best/worst/largest/top item, return exactly " +
       "one row with LIMIT 1. " +
-      "Match string literals EXACTLY as they appear in the schema, including case." +
+      "Match string literals EXACTLY as they appear in the schema, including case. " +
+      // Added for the same reason as the three lines above: the eval measured
+      // it. Window scored 3/6, and all three failures were ONE mistake —
+      // aggregating and windowing at the same SELECT level:
+      //
+      //   biggest-improvement  MAX(wins - LAG(wins) OVER (...))
+      //                        -> "aggregate function calls cannot contain
+      //                            window function calls"
+      //   running-total        SUM(total_twh) OVER (ORDER BY year) alongside
+      //                        a GROUP BY -> "column total_twh must appear in
+      //                        the GROUP BY clause"
+      //   top-product-per-region  no ranking at all, so two rows came back for
+      //                        the same region
+      //
+      // A FIRST DRAFT OF THIS BANNED ALL THREE AT ONCE — "never combine an
+      // aggregate and a window at the same SELECT level" — which is false, and
+      // would have pushed the model AWAY from the expected answer for
+      // top-product-per-region, whose reference SQL is exactly that:
+      // ROW_NUMBER() OVER (ORDER BY SUM(Sales) DESC) alongside GROUP BY.
+      // Windows evaluate AFTER grouping, so a window may reference an
+      // aggregate. Caught by checking the rule against the reference queries
+      // before spending a run on it.
+      "Window functions run AFTER GROUP BY, so a window may reference an aggregate — " +
+      "ROW_NUMBER() OVER (ORDER BY SUM(x) DESC) with GROUP BY is correct. But an " +
+      "aggregate may never CONTAIN a window: MAX(x - LAG(x) OVER (...)) is invalid — " +
+      "compute the windowed column in a WITH clause and aggregate it outside. And when " +
+      "GROUP BY is present, a window's own argument must be aggregated too: write " +
+      "SUM(SUM(x)) OVER (ORDER BY ...), or pre-aggregate in a WITH clause. " +
+      "A window result cannot be used in WHERE, so for the best/top row PER GROUP, rank " +
+      "with ROW_NUMBER() OVER (PARTITION BY <group> ORDER BY <measure> DESC) inside a " +
+      "WITH clause and filter to rank 1 outside — several rows for one group is wrong." +
       (args.repair
         ? " The previous statement FAILED. Return a corrected single statement that runs. " +
           "Check every table and column name against the schema — a name that is not listed " +

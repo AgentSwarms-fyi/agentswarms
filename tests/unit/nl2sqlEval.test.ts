@@ -329,3 +329,67 @@ describe("the eval runner can still be loaded by the tool that runs it", () => {
     }
   }, 150_000);
 });
+
+describe("the window-function guidance agrees with the reference answers", () => {
+  // Window scored 3/6, and all three failures were shapes the prompt said
+  // nothing about. Guidance was added — and a FIRST DRAFT OF IT WAS WRONG in a
+  // way that would have made the score worse: it banned combining an aggregate
+  // and a window at the same SELECT level, which is legal (windows evaluate
+  // after GROUP BY) and is exactly what the top-product-per-region reference
+  // does. A prompt rule that contradicts an expected answer costs a whole run
+  // to discover, so it is checked here instead — no token, no model call.
+  const prompt = readFileSync("src/lib/biAgent.ts", "utf8");
+  const questions = readFileSync("evals/nl2sql/questions.ts", "utf8");
+
+  const windowRefs = questions
+    .split(/\n {2}\{\n/)
+    .filter((b) => b.includes('category: "window"'))
+    .map((b) => ({
+      id: (b.match(/id: "([^"]+)"/) || [])[1] ?? "?",
+      sql: (b.match(/referenceSql:\s*([\s\S]*?),\n\s+category:/) || ["", ""])[1]
+        .replace(/"\s*\+\s*\n?\s*"/g, "")
+        .replace(/^\s*"|"\s*$/g, "")
+        .replace(/\s+/g, " "),
+    }));
+
+  it("found the window references", () => {
+    expect(windowRefs.length).toBeGreaterThan(3);
+    expect(windowRefs.every((r) => r.sql.length > 20)).toBe(true);
+  });
+
+  it("states the rules the failures needed", () => {
+    expect(prompt, "the aggregate-contains-window ban is gone").toMatch(
+      /aggregate may never CONTAIN a window/,
+    );
+    expect(prompt, "the top-N-per-group recipe is gone").toMatch(
+      /ROW_NUMBER\(\) OVER \(PARTITION BY/,
+    );
+    expect(prompt, "the GROUP BY window-argument rule is gone").toMatch(/SUM\(SUM\(x\)\) OVER/);
+  });
+
+  it("does not forbid what a reference answer actually does", () => {
+    // The rule bans an aggregate CONTAINING a window. No reference may do that,
+    // or the prompt is telling the model not to produce the expected answer.
+    const violating = windowRefs.filter((r) =>
+      /\b(MAX|MIN|SUM|AVG|COUNT)\s*\([^()]*\bOVER\b/i.test(r.sql),
+    );
+    expect(
+      violating.map((v) => v.id),
+      "a reference answer nests a window inside an aggregate, which the prompt forbids",
+    ).toEqual([]);
+  });
+
+  it("permits a window over an aggregate, which one reference relies on", () => {
+    // The specific shape the first draft would have banned.
+    const sameLevel = windowRefs.filter((r) =>
+      /OVER\s*\([^)]*\b(SUM|AVG|COUNT|MAX|MIN)\s*\(/i.test(r.sql),
+    );
+    expect(
+      sameLevel.length,
+      "no reference uses a window over an aggregate any more",
+    ).toBeGreaterThan(0);
+    expect(prompt, "the prompt must explicitly allow this").toMatch(
+      /a window may reference an aggregate/i,
+    );
+  });
+});
