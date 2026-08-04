@@ -5,7 +5,8 @@
 //
 //   1. PLAN — LLM reads the question + semantic layer → structured intent
 //   2. SQL  — LLM writes a single SELECT constrained to known columns
-//   3. EXEC — runs SQL through the existing browser AlaSQL engine (runQuery)
+//   3. EXEC — runs SQL through the in-browser DuckDB-Wasm engine (runQuery),
+//      or an injected `execute` for warehouses and server-side callers
 //   4. CHART — LLM picks chart type + axis fields
 //   5. NARRATIVE — LLM writes a 2–3 sentence answer
 //
@@ -524,8 +525,10 @@ export async function generateSql(args: {
   datasets: DatasetMeta[];
   semantics: Map<string, SemanticEntry>;
   metrics: SavedMetric[];
-  /** e.g. "Snowflake" — switches the prompt from AlaSQL to warehouse SQL. */
+  /** e.g. "Snowflake" — switches the prompt from the local engine to warehouse SQL. */
   dialect?: string;
+  /** Which local engine will run this, when no warehouse `dialect` is set. */
+  localEngine?: "alasql" | "duckdb";
   model?: string;
   /**
    * A previous attempt and the engine error it produced. Given these, the model
@@ -563,10 +566,21 @@ export function buildSqlPrompt(args: {
    * DuckDB rejects them and wants double quotes. `saas_sales` alone has
    * `Order Date`, `Row ID` and `Customer ID`, so this is not an edge case.
    *
-   * Defaults to `alasql` because that is what actually runs the local path in
-   * production — `runQuery` in lib/sqlEngine is an in-browser AlaSQL instance.
-   * The SERVER engine (utils/data/localEngine.server, DuckDB by default) is a
-   * different execution path, and anything generating SQL for it must say so.
+   * Defaults to `duckdb`, which is what actually runs BOTH local paths:
+   * lib/sqlEngine has been DuckDB-Wasm in the browser since 92686b1, and
+   * utils/data/localEngine.server is DuckDB by default too.
+   *
+   * It defaulted to `alasql` for three days after that commit, with a comment
+   * asserting AlaSQL was what ran in production. The engine had been swapped
+   * and this had not, so the prompt told the model to quote identifiers in
+   * backticks and DuckDB rejected every query that quoted anything —
+   * "Scalar Function with name `__postfix does not exist". Visual BI in chat
+   * produced no chart at all for any question over a column with a space in
+   * its name, and fell through to the plain agent, silently. The stale comment
+   * is what made the wrong default look deliberate.
+   *
+   * AlaSQL remains selectable because localEngineName() can still return it
+   * server-side, but nothing should assume it.
    */
   localEngine?: "alasql" | "duckdb";
   repair?: { sql: string; error: string };
@@ -574,12 +588,12 @@ export function buildSqlPrompt(args: {
   const engineLine = args.dialect
     ? `You are a SQL generation agent for ${args.dialect}. Use standard ANSI SQL for that warehouse; ` +
       "reference tables by their full schema-qualified names exactly as given, and quote unusual identifiers with double quotes. "
-    : args.localEngine === "duckdb"
-      ? "You are a SQL generation agent for a DuckDB engine. " +
+    : args.localEngine === "alasql"
+      ? "You are a SQL generation agent for an in-browser AlaSQL engine. " +
+        "Wrap identifiers with spaces or special chars in backticks. "
+      : "You are a SQL generation agent for a DuckDB engine. " +
         'Quote identifiers with spaces or special chars in DOUBLE QUOTES ("Order Date"). ' +
-        "Backticks are a syntax error in DuckDB — never use them. "
-      : "You are a SQL generation agent for an in-browser AlaSQL engine. " +
-        "Wrap identifiers with spaces or special chars in backticks. ";
+        "Backticks are a syntax error in DuckDB — never use them. ";
   return {
     systemPrompt:
       engineLine +
@@ -904,6 +918,11 @@ export async function runBiTurn(args: {
   execute?: (sql: string) => Promise<QueryResult>;
   /** Human name of the SQL engine when `execute` is provided. */
   dialect?: string;
+  /**
+   * Local engine behind an injected `execute`, when it is not a warehouse.
+   * Ignored without `execute` — the built-in path is always DuckDB.
+   */
+  localEngine?: "alasql" | "duckdb";
   /** OpenRouter model id for every LLM step (server default when omitted). */
   model?: string;
   /** Chart type the dashboard planner proposed (honored when the shape allows). */
@@ -937,6 +956,11 @@ export async function runBiTurn(args: {
       semantics: args.semantics,
       metrics: args.metrics,
       dialect: args.dialect,
+      // Name the engine that is ACTUALLY about to run this, keyed off the same
+      // `args.execute` test the executor below uses. Injecting an executor and
+      // generating SQL for a different engine is how this broke: the browser
+      // path swapped to DuckDB while the prompt still described AlaSQL.
+      localEngine: args.execute ? args.localEngine : "duckdb",
       model: args.model,
     });
     turn.status = "executing";
