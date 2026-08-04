@@ -42,6 +42,8 @@ async function enqueueBudgetEmail(args: {
   spentUsd: number;
   percentUsed: number;
   kind: "threshold" | "exceeded";
+  /** Group name when this is a team cap; absent for a personal one. */
+  scopeLabel?: string;
 }) {
   const sb = supabaseAdmin;
   const normalized = args.email.toLowerCase();
@@ -91,6 +93,7 @@ async function enqueueBudgetEmail(args: {
     spentUsd: args.spentUsd,
     percentUsed: args.percentUsed,
     kind: args.kind,
+    ...(args.scopeLabel ? { scopeLabel: args.scopeLabel } : {}),
   };
   const element = React.createElement(entry.component, data);
   const html = await render(element);
@@ -243,4 +246,174 @@ export async function checkAndNotifyBudget(userId: string): Promise<void> {
   } catch (e) {
     console.error("[checkAndNotifyBudget] failed:", e);
   }
+}
+
+/**
+ * Group budget alerts — the team equivalent of checkAndNotifyBudget.
+ *
+ * Group caps were ENFORCEABLE BUT SILENT: budget_limits carried a cap and an
+ * on/off flag, so a team went from 0% to blocked with nobody told. The
+ * personal path has warned at 50/75/90 since the beginning.
+ *
+ * WHO IS EMAILED, and why it is not the group's members: a group cap is set by
+ * a superadmin under Admin → IAM → Budgets and only a superadmin can raise it,
+ * so they are the people who can act. Mailing every member would also publish
+ * the team's total spend to the whole team, which is a disclosure decision
+ * nobody made. Per-member notification is a deliberate non-default; if it is
+ * wanted it should be opt-in on the group, not assumed here.
+ *
+ * Idempotency is the per-period array from budget_settings, reused exactly:
+ * this runs after EVERY traced call, so "notify on crossing" must mean once.
+ *
+ * Never throws — the caller is fire-and-forget on the hot path.
+ */
+export async function checkAndNotifyGroupBudgets(userId: string): Promise<void> {
+  if (!userId) return;
+  try {
+    const sb = supabaseAdmin;
+
+    // Only the groups this caller belongs to. A call can only move the spend
+    // of their own teams, so checking every group in the workspace on every
+    // call would be work that cannot change an answer.
+    const { data: memberships } = await sb
+      .from("iam_group_members")
+      .select("group_id")
+      .eq("user_id", userId);
+    const groupIds = (memberships ?? []).map((m) => m.group_id);
+    if (groupIds.length === 0) return;
+
+    // Cast for the reason budgetSpend.server casts its RPC: types.ts is
+    // generated from the DEPLOYED schema and the alert columns ship in
+    // migration 20260782000000. Regenerating types after applying it removes
+    // the need for this.
+    type GroupLimit = {
+      id: string;
+      scope_id: string;
+      monthly_cap_usd: number | null;
+      is_active: boolean;
+      alerts_enabled: boolean;
+      alert_thresholds: number[] | null;
+      notified_thresholds: number[] | null;
+      notified_period: string | null;
+      cap_exceeded_notified_period: string | null;
+    };
+    const { data: rawLimits } = await sb
+      .from("budget_limits")
+      .select(
+        "id, scope_id, monthly_cap_usd, is_active, alerts_enabled, alert_thresholds, " +
+          "notified_thresholds, notified_period, cap_exceeded_notified_period",
+      )
+      .eq("scope_type", "group")
+      .in("scope_id", groupIds);
+    const limits = (rawLimits ?? []) as unknown as GroupLimit[];
+    if (limits.length === 0) return;
+
+    const period = firstOfMonth();
+
+    for (const limit of limits) {
+      if (!limit.is_active || !limit.alerts_enabled) continue;
+      const cap = Number(limit.monthly_cap_usd ?? 0);
+      if (cap <= 0) continue;
+
+      // Every member's spend, not just this caller's — a TEAM cap is a sum
+      // across the team.
+      const { data: members } = await sb
+        .from("iam_group_members")
+        .select("user_id")
+        .eq("group_id", limit.scope_id);
+      const memberIds = (members ?? []).map((m) => m.user_id);
+      if (memberIds.length === 0) continue;
+
+      const result = await spendSince({
+        userId,
+        since: monthStartIso(),
+        userIds: memberIds,
+      });
+      if (!result.ok) {
+        // Unknown is not zero. Treating a failed lookup as no spend would
+        // silence the alert exactly when the query is slow because the month
+        // has been busy.
+        console.warn(
+          `[budget-alert] group spend lookup failed for ${limit.scope_id}: ${result.error}`,
+        );
+        continue;
+      }
+      const mtd = result.spend;
+      const pct = (mtd / cap) * 100;
+
+      const samePeriod = limit.notified_period === period;
+      const notified: number[] = samePeriod
+        ? ((limit.notified_thresholds as number[] | null) ?? [])
+        : [];
+      const exceededSent = limit.cap_exceeded_notified_period === period;
+
+      const toFire = [...((limit.alert_thresholds as number[] | null) ?? [])]
+        .filter((t) => typeof t === "number" && t > 0 && t < 100)
+        .sort((a, b) => a - b)
+        .filter((t) => pct >= t && !notified.includes(t));
+      const fireExceeded = pct >= 100 && !exceededSent;
+      if (toFire.length === 0 && !fireExceeded) continue;
+
+      const { data: group } = await sb
+        .from("iam_groups")
+        .select("name")
+        .eq("id", limit.scope_id)
+        .maybeSingle();
+      const groupName = (group?.name as string | null) ?? "A group";
+
+      const recipients = await superadminRecipients(sb);
+      if (recipients.length === 0) continue;
+
+      for (const r of recipients) {
+        await enqueueBudgetEmail({
+          userId: r.id,
+          email: r.email,
+          displayName: r.displayName,
+          monthlyCapUsd: cap,
+          spentUsd: mtd,
+          percentUsed: pct,
+          kind: fireExceeded ? "exceeded" : "threshold",
+          scopeLabel: groupName,
+        });
+      }
+
+      // Record AFTER sending. Marking first would lose the alert entirely if
+      // the send failed, and a duplicate email is a smaller harm than a
+      // missing one.
+      const patch: Record<string, unknown> = {};
+      if (toFire.length > 0) {
+        patch.notified_thresholds = Array.from(new Set([...notified, ...toFire]));
+        patch.notified_period = period;
+      }
+      if (fireExceeded) patch.cap_exceeded_notified_period = period;
+      // Same generated-types gap as the select above.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (sb.from("budget_limits").update as any)(patch).eq("id", limit.id);
+    }
+  } catch (e) {
+    console.error("[checkAndNotifyGroupBudgets] failed:", e);
+  }
+}
+
+/** Superadmins with a resolvable email — the people who can raise a cap. */
+async function superadminRecipients(
+  sb: typeof supabaseAdmin,
+): Promise<{ id: string; email: string; displayName: string | null }[]> {
+  const { data: roles } = await sb.from("user_roles").select("user_id").eq("role", "superadmin");
+  const ids = (roles ?? []).map((r) => r.user_id);
+  if (ids.length === 0) return [];
+
+  const { data: profiles } = await sb
+    .from("profiles")
+    .select("user_id, display_name")
+    .in("user_id", ids);
+  const nameById = new Map((profiles ?? []).map((p) => [p.user_id, p.display_name]));
+
+  const out: { id: string; email: string; displayName: string | null }[] = [];
+  for (const id of ids) {
+    const { data: authUser } = await sb.auth.admin.getUserById(id);
+    const email = authUser?.user?.email;
+    if (email) out.push({ id, email, displayName: (nameById.get(id) as string | null) ?? null });
+  }
+  return out;
 }

@@ -356,10 +356,42 @@ function BudgetsPage() {
 
       <H3 id="alerts">Alerts</H3>
       <P>
-        A budget can notify at a threshold before it stops anything — a warning at 80% is more
-        useful than a hard stop at 100% with no warning. Notifications appear in-app and by email
-        where email is configured.
+        A budget warns before it stops anything — a hard stop at 100% with no warning is how a team
+        finds out by being blocked. Thresholds default to <strong>50%, 75% and 90%</strong>, and
+        each one emails once per month: the check runs after every model call, so "notify on
+        crossing" has to mean once. Crossing 100% sends its own message, tracked separately so a 90%
+        warning cannot suppress it.
       </P>
+      <Table
+        headers={["Scope", "Who is emailed", "Default"]}
+        rows={[
+          [
+            "Personal cap",
+            "The person whose budget it is",
+            <>
+              On — see <strong key="a">Observe → Budgets</strong>
+            </>,
+          ],
+          [
+            "Group cap",
+            "Superadmins — the people who can raise it",
+            <>
+              <strong key="b">Off</strong> — enable per group under Admin → IAM → Budgets
+            </>,
+          ],
+        ]}
+      />
+      <Callout kind="why" title="A team alert goes to admins, not to the team">
+        Only a superadmin can raise a group cap, so they are the people who can act on the warning.
+        Mailing every member would also publish the team's total spend to the whole team, which is a
+        disclosure decision nobody made when they set a budget. If you want members notified, that
+        should be a deliberate choice rather than a side effect of capping them.
+      </Callout>
+      <Callout kind="info" title="Alerting and enforcing are separate switches">
+        A group can be warned without being blocked, and blocked without being warned. That is what
+        makes it safe to introduce a cap: turn alerts on first, watch a month of real spend against
+        the number you guessed, and enable enforcement once you know the guess was right.
+      </Callout>
 
       <H3 id="attribution">Attribution</H3>
       <P>

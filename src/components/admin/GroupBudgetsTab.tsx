@@ -31,6 +31,8 @@ type GroupOption = { id: string; name: string };
 type BudgetLimitRow = {
   id: string;
   scope_type: string;
+  alerts_enabled?: boolean;
+  alert_thresholds?: number[] | null;
   scope_id: string;
   monthly_cap_usd: number;
   is_active: boolean;
@@ -51,9 +53,15 @@ export function GroupBudgetsTab({ groups }: { groups: GroupOption[] }) {
   const load = useCallback(async () => {
     const { data } = await supabase
       .from("budget_limits")
-      .select("id, scope_type, scope_id, monthly_cap_usd, is_active")
+      .select(
+        "id, scope_type, scope_id, monthly_cap_usd, is_active, alerts_enabled, alert_thresholds",
+      )
       .eq("scope_type", "group");
-    setLimits((data ?? []) as BudgetLimitRow[]);
+    // Via unknown: types.ts is generated from the DEPLOYED schema and the
+    // alert columns ship in migration 20260782000000, so the generated row
+    // type does not know them yet. Regenerating types after applying it
+    // removes this.
+    setLimits((data ?? []) as unknown as BudgetLimitRow[]);
 
     // Month-to-date spend per group = sum over its members' traces. Done
     // client-side over the admin's readable rows; the enforcement path
@@ -132,6 +140,23 @@ export function GroupBudgetsTab({ groups }: { groups: GroupOption[] }) {
     await load();
   }
 
+  /**
+   * Warning emails for this group cap, sent to superadmins at each threshold.
+   *
+   * Separate from "Enforced": a team can be warned without being blocked, and
+   * blocked without being warned. Collapsing them into one switch would remove
+   * the only safe way to introduce a cap — watch first, enforce later.
+   */
+  async function toggleAlerts(row: BudgetLimitRow) {
+    const { error } = await supabase
+      .from("budget_limits")
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .update({ alerts_enabled: !row.alerts_enabled } as any)
+      .eq("id", row.id);
+    if (error) return toast.error("Could not update alerts");
+    await load();
+  }
+
   return (
     <Card className="border-border/50">
       <CardHeader>
@@ -160,6 +185,7 @@ export function GroupBudgetsTab({ groups }: { groups: GroupOption[] }) {
                 <TableHead className="w-40">Monthly cap (USD)</TableHead>
                 <TableHead className="w-40">Spent this month</TableHead>
                 <TableHead className="w-24">Enforced</TableHead>
+                <TableHead className="w-28">Alerts</TableHead>
                 <TableHead className="w-20" />
               </TableRow>
             </TableHeader>
@@ -205,6 +231,25 @@ export function GroupBudgetsTab({ groups }: { groups: GroupOption[] }) {
                           checked={row.is_active}
                           onCheckedChange={() => void toggleActive(row)}
                         />
+                      ) : (
+                        <Badge variant="outline" className="text-[10px]">
+                          none
+                        </Badge>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {row ? (
+                        <div className="flex items-center gap-1.5">
+                          <Switch
+                            checked={Boolean(row.alerts_enabled)}
+                            onCheckedChange={() => void toggleAlerts(row)}
+                          />
+                          {row.alerts_enabled && (
+                            <span className="text-[10px] text-muted-foreground">
+                              {(row.alert_thresholds ?? [50, 75, 90]).join("/")}%
+                            </span>
+                          )}
+                        </div>
                       ) : (
                         <Badge variant="outline" className="text-[10px]">
                           none

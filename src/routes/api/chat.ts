@@ -632,8 +632,14 @@ async function recordTrace(opts: {
   // Fire-and-forget: alert the user by email if they've crossed an alert
   // threshold or hit their monthly spend cap. Never throws.
   try {
-    const { checkAndNotifyBudget } = await import("@/lib/email/budgetAlertTrigger.server");
+    const { checkAndNotifyBudget, checkAndNotifyGroupBudgets } =
+      await import("@/lib/email/budgetAlertTrigger.server");
     void checkAndNotifyBudget(userId);
+    // BOTH call sites, deliberately. There are two places that fire budget
+    // alerts — here and recordGatewayUsage — and wiring only one is the exact
+    // mistake made when the fail-open spend bug was fixed in budgetGuard and
+    // left in this file.
+    void checkAndNotifyGroupBudgets(userId);
   } catch (e) {
     console.error("[trace] budget alert check failed to load:", e);
   }

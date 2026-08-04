@@ -148,8 +148,13 @@ export async function recordGatewayCall(args: RecordGatewayCallArgs): Promise<vo
     // them if they've crossed an alert threshold or hit the hard cap.
     // Must never block or throw — runs after every traced call.
     try {
-      const { checkAndNotifyBudget } = await import("@/lib/email/budgetAlertTrigger.server");
+      const { checkAndNotifyBudget, checkAndNotifyGroupBudgets } =
+        await import("@/lib/email/budgetAlertTrigger.server");
       void checkAndNotifyBudget(args.userId);
+      // Team caps warn on the same path. Enforcement for groups already
+      // existed; only the warning did not, so a team went from 0% to blocked
+      // with nobody told.
+      void checkAndNotifyGroupBudgets(args.userId);
     } catch (e) {
       console.error("[recordGatewayCall] budget alert check failed to load:", e);
     }
