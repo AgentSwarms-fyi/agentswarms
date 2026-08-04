@@ -23,6 +23,7 @@ import {
   resolveOpenAICompatTransport,
 } from "@/utils/providers/credentials.server";
 import { isBiCompatProvider } from "@/utils/providers/modelChoice";
+import { describeJsonFault, repairDuplicatedKey } from "@/utils/jsonFault";
 import type { ProviderId } from "@/utils/providers/types";
 
 const DEFAULT_MODEL = "google/gemini-2.5-flash";
@@ -166,48 +167,102 @@ export const Route = createFileRoute("/api/bi")({
           16000,
         );
         const upstreamMs = Math.min(240_000, 60_000 + completionCap * 8);
-        const upstreamCtrl = new AbortController();
-        const upstreamTimer = setTimeout(() => upstreamCtrl.abort(), upstreamMs);
+        // A TOTAL budget across attempts, not a per-attempt one: a retry must
+        // never push this handler past the client's own (slightly longer)
+        // deadline, or the client aborts first and the specific server-side
+        // error never reaches anyone.
+        const deadlineAt = startedAt + upstreamMs;
 
-        let r: Response;
-        // Read inside the same try as the fetch: see the note on clearTimeout below.
-        let payload = "";
-        try {
-          r = await fetch(transport.endpointUrl, {
-            method: "POST",
-            signal: upstreamCtrl.signal,
-            headers: {
-              "Content-Type": "application/json",
-              ...(transport.apiKey ? { Authorization: `Bearer ${transport.apiKey}` } : {}),
-              ...(transport.extraHeaders ?? {}),
-            },
-            body: JSON.stringify({
-              model,
-              messages: [
+        // Why retry at all: a malformed-JSON reply here is a STOCHASTIC model
+        // glitch, not a deterministic fault. Measured on this endpoint, ~1 in 6
+        // of these document plans came back as a complete, well-formed-looking
+        // document containing a single stuttered token — `"type": "type":
+        // "table"` — at some random offset. With no retry, that one glitch
+        // discarded a 55-second, 6000-token generation and told the user to go
+        // change their model, which is why doc generation read as simply broken.
+        const MAX_ATTEMPTS = 2;
+        // Carried out of the loop so the final response describes the LAST
+        // attempt rather than degrading to a generic message.
+        let lastCleaned = "";
+        let lastUsage: ReturnType<typeof extractUsage> = null;
+
+        for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+          const upstreamCtrl = new AbortController();
+          const upstreamTimer = setTimeout(
+            () => upstreamCtrl.abort(),
+            Math.max(1_000, deadlineAt - Date.now()),
+          );
+
+          let r: Response;
+          // Read inside the same try as the fetch: see the note on clearTimeout below.
+          let payload = "";
+          try {
+            r = await fetch(transport.endpointUrl, {
+              method: "POST",
+              signal: upstreamCtrl.signal,
+              headers: {
+                "Content-Type": "application/json",
+                ...(transport.apiKey ? { Authorization: `Bearer ${transport.apiKey}` } : {}),
+                ...(transport.extraHeaders ?? {}),
+              },
+              body: JSON.stringify({
+                model,
+                messages: [
+                  {
+                    role: "system",
+                    content:
+                      (body.systemPrompt || "You are a helpful assistant.") +
+                      "\n\nYou MUST respond with a single valid JSON object. No prose, no markdown, no commentary.",
+                  },
+                  { role: "user", content: body.userPrompt },
+                ],
+                response_format: { type: "json_object" },
+                temperature: typeof body.temperature === "number" ? body.temperature : 0.1,
+                // Larger structured outputs (e.g. a 20-slide deck plan) need a
+                // higher completion cap or they truncate into invalid JSON.
+                ...(completionCap > 0 ? { max_tokens: completionCap } : {}),
+              }),
+            });
+            // Read the body here, still under the abort signal. fetch() resolves
+            // as soon as the response HEADERS arrive, and a gateway sends those
+            // immediately while the model is still generating — so the entire
+            // wait happens during this read, not during fetch().
+            payload = await r.text();
+          } catch (e) {
+            if ((e as Error).name === "AbortError") {
+              // Record it. This path used to return without a trace, so a timed-out
+              // Deep deck left no evidence anywhere — the run simply vanished.
+              void recordGatewayCall({
+                userId: user.id,
+                surface,
+                model: gatewayModelLabel,
+                promptText: body.userPrompt,
+                latencyMs: Date.now() - startedAt,
+                status: "error",
+                errorMessage: `Timed out after ${Math.round(upstreamMs / 1000)}s (max_tokens ${completionCap})`,
+              });
+              return json(
                 {
-                  role: "system",
-                  content:
-                    (body.systemPrompt || "You are a helpful assistant.") +
-                    "\n\nYou MUST respond with a single valid JSON object. No prose, no markdown, no commentary.",
+                  error:
+                    `${gatewayModelLabel} did not finish within ${Math.round(upstreamMs / 1000)}s. ` +
+                    (completionCap >= 12000
+                      ? "This is a large document plan — a faster model usually finishes it, or use Browser (Fast) mode."
+                      : "Try again, or pick a different model."),
                 },
-                { role: "user", content: body.userPrompt },
-              ],
-              response_format: { type: "json_object" },
-              temperature: typeof body.temperature === "number" ? body.temperature : 0.1,
-              // Larger structured outputs (e.g. a 20-slide deck plan) need a
-              // higher completion cap or they truncate into invalid JSON.
-              ...(completionCap > 0 ? { max_tokens: completionCap } : {}),
-            }),
-          });
-          // Read the body here, still under the abort signal. fetch() resolves
-          // as soon as the response HEADERS arrive, and a gateway sends those
-          // immediately while the model is still generating — so the entire
-          // wait happens during this read, not during fetch().
-          payload = await r.text();
-        } catch (e) {
-          if ((e as Error).name === "AbortError") {
-            // Record it. This path used to return without a trace, so a timed-out
-            // Deep deck left no evidence anywhere — the run simply vanished.
+                504,
+              );
+            }
+            throw e;
+          } finally {
+            // Cleared only now — after the body. Clearing it when fetch() resolved
+            // disarmed the deadline at the exact moment the long wait began, so
+            // the request then hung with no timeout at all and the client's own
+            // (less informative) abort was what eventually fired.
+            clearTimeout(upstreamTimer);
+          }
+
+          if (!r.ok) {
+            const errText = payload;
             void recordGatewayCall({
               userId: user.id,
               surface,
@@ -215,30 +270,113 @@ export const Route = createFileRoute("/api/bi")({
               promptText: body.userPrompt,
               latencyMs: Date.now() - startedAt,
               status: "error",
-              errorMessage: `Timed out after ${Math.round(upstreamMs / 1000)}s (max_tokens ${completionCap})`,
+              errorMessage: `Gateway ${r.status}: ${errText.slice(0, 200)}`,
             });
-            return json(
-              {
-                error:
-                  `${gatewayModelLabel} did not finish within ${Math.round(upstreamMs / 1000)}s. ` +
-                  (completionCap >= 12000
-                    ? "This is a large document plan — a faster model usually finishes it, or use Browser (Fast) mode."
-                    : "Try again, or pick a different model."),
-              },
-              504,
-            );
+            // Name the model. This surface can run on a different model from the
+            // one the caller thinks they picked (explicit choice → integration
+            // default → instance default), and a bare "credits exhausted" sends
+            // people to check the wrong account.
+            if (r.status === 429) {
+              return json(
+                { error: `Rate limited on ${gatewayModelLabel}. Please retry shortly.` },
+                429,
+              );
+            }
+            if (r.status === 402) {
+              return json(
+                {
+                  error:
+                    `No credits for ${gatewayModelLabel} on ${provider}. ` +
+                    "Add credit, or pick a model your account can use.",
+                },
+                402,
+              );
+            }
+            return json({ error: `Gateway error ${r.status}: ${errText.slice(0, 200)}` }, r.status);
           }
-          throw e;
-        } finally {
-          // Cleared only now — after the body. Clearing it when fetch() resolved
-          // disarmed the deadline at the exact moment the long wait began, so
-          // the request then hung with no timeout at all and the client's own
-          // (less informative) abort was what eventually fired.
-          clearTimeout(upstreamTimer);
-        }
 
-        if (!r.ok) {
-          const errText = payload;
+          // Already read above, under the deadline — parse rather than re-read.
+          let data: { choices?: Array<{ message?: { content?: string } }> };
+          try {
+            data = JSON.parse(payload || "{}");
+          } catch {
+            return json({ error: `${gatewayModelLabel} returned a malformed response body.` }, 502);
+          }
+          const text = data.choices?.[0]?.message?.content ?? "{}";
+          const usage = extractUsage(data);
+
+          void recordGatewayCall({
+            userId: user.id,
+            surface,
+            model: gatewayModelLabel,
+            promptText: body.userPrompt,
+            responseText: text,
+            tokensIn: usage?.tokensIn,
+            tokensOut: usage?.tokensOut,
+            latencyMs: Date.now() - startedAt,
+            status: "success",
+            responsePreview: text.slice(0, 800),
+          });
+
+          // The gateway with response_format: json_object should return clean
+          // JSON, but be defensive: models that ignore the flag wrap it in a
+          // fence, prefix it with prose, or both.
+          const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
+          const cleaned = (fenced ? fenced[1] : text).trim();
+          const candidates = [cleaned];
+          // Object or array — a plan is an object, but some stages legitimately
+          // return an array, and the old regex only ever looked for {...}.
+          for (const re of [/\{[\s\S]*\}/, /\[[\s\S]*\]/]) {
+            const m = cleaned.match(re);
+            if (m) candidates.push(m[0]);
+          }
+          // Keep the FIRST failure: candidates[0] is the fence-stripped payload,
+          // which is the one the model actually meant to send. The later
+          // brace/bracket slices are salvage attempts, and their errors describe
+          // the salvage, not the real fault.
+          let firstErr: unknown;
+          for (const c of candidates) {
+            try {
+              return json({ result: JSON.parse(c) });
+            } catch (e) {
+              if (firstErr === undefined) firstErr = e;
+            }
+          }
+          // Strict parsing failed. Before spending another 50 seconds and
+          // another 7k tokens on a retry, try the one repair that is known to
+          // apply here — and record it, because a repair that happens silently
+          // hides an upstream defect that will otherwise never get fixed.
+          const repaired = repairDuplicatedKey(cleaned);
+          if (repaired !== null) {
+            try {
+              const result = JSON.parse(repaired);
+              void recordGatewayCall({
+                userId: user.id,
+                surface,
+                model: gatewayModelLabel,
+                promptText: body.userPrompt,
+                latencyMs: Date.now() - startedAt,
+                status: "success",
+                errorMessage:
+                  `Repaired a duplicated JSON key from ${gatewayModelLabel} ` +
+                  `(attempt ${attempt}/${MAX_ATTEMPTS}). ${describeJsonFault(cleaned, firstErr)}`,
+              });
+              return json({ result });
+            } catch {
+              /* the repair did not produce valid JSON either — fall through */
+            }
+          }
+
+          lastCleaned = cleaned;
+          lastUsage = usage;
+
+          // Record WHY, pointing AT the fault: a truncated response looks
+          // completely different from a prose preamble, and the trace previously
+          // said "success" with no hint that parsing had failed afterwards.
+          //
+          // The window comes from describeJsonFault rather than HEAD/TAIL, which
+          // could not explain the common case — a long document that is valid at
+          // both ends and malformed in the middle.
           void recordGatewayCall({
             userId: user.id,
             surface,
@@ -246,95 +384,40 @@ export const Route = createFileRoute("/api/bi")({
             promptText: body.userPrompt,
             latencyMs: Date.now() - startedAt,
             status: "error",
-            errorMessage: `Gateway ${r.status}: ${errText.slice(0, 200)}`,
+            errorMessage:
+              `Unparseable JSON (attempt ${attempt}/${MAX_ATTEMPTS}, ${text.length} chars, ` +
+              `${usage?.tokensOut ?? "?"} tokens out${fenced ? ", fenced" : ""}). ` +
+              describeJsonFault(cleaned, firstErr),
           });
-          // Name the model. This surface can run on a different model from the
-          // one the caller thinks they picked (explicit choice → integration
-          // default → instance default), and a bare "credits exhausted" sends
-          // people to check the wrong account.
-          if (r.status === 429) {
-            return json(
-              { error: `Rate limited on ${gatewayModelLabel}. Please retry shortly.` },
-              429,
-            );
-          }
-          if (r.status === 402) {
-            return json(
-              {
-                error:
-                  `No credits for ${gatewayModelLabel} on ${provider}. ` +
-                  "Add credit, or pick a model your account can use.",
-              },
-              402,
-            );
-          }
-          return json({ error: `Gateway error ${r.status}: ${errText.slice(0, 200)}` }, r.status);
+
+          // Retry only if a second attempt of comparable length still fits the
+          // total budget. Starting one with barely any clock left just burns the
+          // caller's tokens and then times out, which is strictly worse than
+          // returning the (now specific) error while there's time to show it.
+          const spent = Date.now() - startedAt;
+          if (attempt < MAX_ATTEMPTS && spent * 2 + 5_000 <= upstreamMs) continue;
+          break;
         }
 
-        // Already read above, under the deadline — parse rather than re-read.
-        let data: { choices?: Array<{ message?: { content?: string } }> };
-        try {
-          data = JSON.parse(payload || "{}");
-        } catch {
-          return json({ error: `${gatewayModelLabel} returned a malformed response body.` }, 502);
-        }
-        const text = data.choices?.[0]?.message?.content ?? "{}";
-        const usage = extractUsage(data);
-
-        void recordGatewayCall({
-          userId: user.id,
-          surface,
-          model: gatewayModelLabel,
-          promptText: body.userPrompt,
-          responseText: text,
-          tokensIn: usage?.tokensIn,
-          tokensOut: usage?.tokensOut,
-          latencyMs: Date.now() - startedAt,
-          status: "success",
-          responsePreview: text.slice(0, 800),
-        });
-
-        // The gateway with response_format: json_object should return clean
-        // JSON, but be defensive: models that ignore the flag wrap it in a
-        // fence, prefix it with prose, or both.
-        const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
-        const cleaned = (fenced ? fenced[1] : text).trim();
-        const candidates = [cleaned];
-        // Object or array — a plan is an object, but some stages legitimately
-        // return an array, and the old regex only ever looked for {...}.
-        for (const re of [/\{[\s\S]*\}/, /\[[\s\S]*\]/]) {
-          const m = cleaned.match(re);
-          if (m) candidates.push(m[0]);
-        }
-        for (const c of candidates) {
-          try {
-            return json({ result: JSON.parse(c) });
-          } catch {
-            /* try the next shape */
-          }
-        }
-        // Record WHY, with both ends of the payload: a truncated response looks
-        // completely different from a prose preamble, and the trace previously
-        // said "success" with no hint that parsing had failed afterwards.
-        void recordGatewayCall({
-          userId: user.id,
-          surface,
-          model: gatewayModelLabel,
-          promptText: body.userPrompt,
-          latencyMs: Date.now() - startedAt,
-          status: "error",
-          errorMessage:
-            `Unparseable JSON (${text.length} chars, ${usage?.tokensOut ?? "?"} tokens out). ` +
-            `HEAD: ${text.slice(0, 160)} … TAIL: ${text.slice(-160)}`,
-        });
+        // Name the RIGHT failure. The old message asserted "the model ignored
+        // the JSON-only instruction" whenever tokensOut sat below the cap —
+        // and `usage` is often absent, so `?? 0` quietly made every failure
+        // look like that one. It sent people to change the prompt when the
+        // real payload was a complete document with a syntax error buried in
+        // its prose. These are three different problems with three fixes.
+        const truncated =
+          completionCap > 0 && lastUsage != null && lastUsage.tokensOut >= completionCap - 8;
+        const looksComplete = /^[[{]/.test(lastCleaned) && /[\]}]$/.test(lastCleaned);
         return json(
           {
             error:
               `${gatewayModelLabel} did not return valid JSON. ` +
-              (completionCap > 0 && (usage?.tokensOut ?? 0) >= completionCap - 8
+              (truncated
                 ? "It hit the output limit mid-document — try Browser (Fast) mode or a model with a larger output budget."
-                : "This usually means the model ignored the JSON-only instruction; a different model normally fixes it."),
-            raw: cleaned.slice(0, 400),
+                : looksComplete
+                  ? "It returned a complete document whose JSON is malformed inside — a stray token in a long field. Retrying it once already failed too; a larger model normally gets this right."
+                  : "The reply wasn't JSON at all — the model ignored the JSON-only instruction; a different model normally fixes it."),
+            raw: lastCleaned.slice(0, 400),
           },
           502,
         );
