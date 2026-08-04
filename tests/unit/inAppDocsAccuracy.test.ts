@@ -244,6 +244,36 @@ describe("the configuration recipes are usable", () => {
   });
 });
 
+describe("the integrations page is honest about the gateway", () => {
+  const page = readFileSync("src/routes/docs.integrations.tsx", "utf8");
+  const creds = readFileSync("src/utils/providers/credentials.server.ts", "utf8");
+
+  it("says route-all falls back to the provider rather than failing", () => {
+    // Someone treating "route all" as the control that guarantees no traffic
+    // reaches a provider directly would be wrong, and would find out from an
+    // audit rather than from us.
+    // Fragment chosen to sit inside one line: the comment wraps with " * "
+    // prefixes, so a phrase spanning the break never matches.
+    expect(creds).toContain("not egress enforcement");
+    const callout = page.slice(page.indexOf('title="Route all is routing'));
+    expect(callout.length, "the route-all caveat is gone").toBeGreaterThan(100);
+    expect(callout.slice(0, callout.indexOf("</Callout>"))).toMatch(/direct to the provider/i);
+  });
+
+  it("gets the credential precedence the right way round", () => {
+    // Own key first. Documenting it backwards would have a team believing the
+    // shared credential pays when their own is being billed.
+    expect(creds).toMatch(/own[- ]key[- ]first|own connection always wins/i);
+    const order = page.slice(page.indexOf('id="resolution"'), page.indexOf('id="notifications"'));
+    const own = order.search(/caller's own connection/i);
+    const granted = order.search(/granted to you/i);
+    const envDefault = order.search(/environment default/i);
+    expect(own, "own-key step missing").toBeGreaterThan(-1);
+    expect(granted, "granted-credential step missing").toBeGreaterThan(own);
+    expect(envDefault, "operator-default step missing").toBeGreaterThan(granted);
+  });
+});
+
 describe("the debugging page describes the retention controls correctly", () => {
   const page = readFileSync("src/routes/docs.debugging.tsx", "utf8");
   const redaction = readFileSync("src/utils/observability/redaction.server.ts", "utf8");

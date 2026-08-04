@@ -1,12 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
 import {
+  C,
   Callout,
   DocLink,
   DocsHeader,
   H2,
+  H3,
   NextPrev,
   Note,
   P,
+  Steps,
   Table,
   UL,
 } from "@/components/docs/DocsShell";
@@ -84,28 +87,79 @@ function IntegrationsDoc() {
 
       <H2 id="gateway">LLM Gateway</H2>
       <P>
-        The <em>LLM Gateway</em> tab points the platform at your own OpenAI-compatible gateway
-        (LiteLLM and similar): base URL, key, and two routing modes. <strong>Per-agent</strong>:
-        agents that enable &ldquo;Route through gateway&rdquo; in their tool settings use it, and
-        everything else talks to providers directly. <strong>Route all</strong>: every LLM call on
-        the account — chat, swarms, BI answers, embeds, skill generation, notebooks, model listings,
-        embeddings — goes through the gateway, which is the one-gateway-one-bill enterprise pattern
-        for real. Enabling either mode runs a live validation against the gateway first (auth
-        failures block activation; a gateway that doesn&apos;t expose <code>/models</code> is
-        tolerated).
+        The <em>LLM Gateway</em> tab points the platform at your own OpenAI-compatible gateway —
+        LiteLLM and similar. You give it a base URL and a key, and choose one of two routing modes.
       </P>
+      <Table
+        headers={["Mode", "What routes through it", "Use it for"]}
+        rows={[
+          [
+            <strong key="a">Per-agent</strong>,
+            <>
+              Only agents that switch on <em key="b">Route through gateway</em> in their tool
+              settings. Everything else talks to providers directly.
+            </>,
+            "Trying the gateway on one workload before committing to it.",
+          ],
+          [
+            <strong key="c">Route all</strong>,
+            "Every LLM call on the account: chat, swarms, BI answers, embeds, skill generation, notebooks, model listings and embeddings.",
+            "The one-gateway-one-bill pattern — central rate limits, central spend, one audit trail.",
+          ],
+        ]}
+      />
+      <P>
+        Enabling either mode validates against the gateway first, so a wrong key fails at
+        configuration time rather than on someone's next question. An auth failure blocks
+        activation; a gateway that does not expose <C>/models</C> is tolerated, since not all of
+        them do.
+      </P>
+      <Callout kind="warn" title="Route all is routing, not an egress boundary">
+        If the gateway integration cannot be read at call time — a database blip, a config that
+        failed to resolve — the call goes <strong>direct to the provider</strong> rather than
+        failing. That is deliberate: a transient lookup problem taking down every model call on the
+        instance would be worse. But it means <em>route all</em> is not something to rely on as the
+        control that guarantees no traffic ever reaches a provider directly. If you need that
+        guarantee, enforce it at the network, and use this for billing and observability.
+      </Callout>
 
       <H2 id="shared">Shared credentials (teams)</H2>
       <P>
         A superadmin can grant one user&apos;s LLM credential to other users or groups under{" "}
         <DocLink to="/admin/iam">Admin → IAM</DocLink> (resource types &ldquo;LLM key&rdquo; and
-        &ldquo;LLM credential&rdquo;) — the enterprise pattern of one provisioned Bedrock/OpenAI
-        credential for a whole team. Resolution is own-key-first: a grantee&apos;s own connection
-        always wins, then a granted credential, then the operator&apos;s env default. Grantees can{" "}
-        <em>use</em> a shared credential — it resolves server-side at call time and shows as
-        &ldquo;Shared with you&rdquo; on the Integrations page — but can never read it, and every
-        call still runs under the caller&apos;s own model rules, budgets and traces.
+        &ldquo;LLM credential&rdquo;) — the enterprise pattern of one provisioned Bedrock or OpenAI
+        credential for a whole team.
       </P>
+
+      <H3 id="resolution">Which key actually pays</H3>
+      <P>
+        Worth knowing precisely, because it decides which account gets the bill. The first match
+        wins:
+      </P>
+      <Steps
+        items={[
+          {
+            title: "The caller's own connection",
+            body: "If you have connected that provider yourself, your key is used — always. A grant never displaces your own credential.",
+          },
+          {
+            title: "A credential granted to you",
+            body: "Resolved server-side at call time and shown as “Shared with you” on the Integrations page. You can use it; you can never read it.",
+          },
+          {
+            title: "The operator's environment default",
+            body: "The shared key the instance was configured with, if there is one. This is what makes a brand-new account work before anything is connected.",
+          },
+        ]}
+      />
+      <Callout kind="info" title="Sharing a key does not share anything else">
+        A grantee&apos;s calls still run under their <em>own</em>{" "}
+        <DocLink to="/docs/iam">model rules</DocLink>, their own{" "}
+        <DocLink to="/docs/budgets">budget caps</DocLink>, and their own traces. What changes is
+        whose provider account the tokens are billed to — so the spend lands on the credential owner
+        while the governance stays with the caller. Cap the credential itself if you need to bound
+        what a shared key can cost.
+      </Callout>
 
       <H2 id="notifications">Notification channels</H2>
       <P>
@@ -133,8 +187,8 @@ function IntegrationsDoc() {
       </P>
 
       <Note>
-        Treat every key you connect as spend authorization: pair bring-your-own-key providers with
-        the caps at <DocLink to="/docs/account">/budgets</DocLink>, and per-agent limits in the{" "}
+        Treat every key you connect as spend authorization: pair bring-your-own-key providers with{" "}
+        <DocLink to="/docs/budgets">budget caps</DocLink>, and per-agent limits in the{" "}
         <DocLink to="/docs/agents">guardrails section</DocLink>.
       </Note>
 
