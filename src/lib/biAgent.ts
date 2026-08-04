@@ -595,6 +595,16 @@ export function buildSqlPrompt(args: {
       "columns, and no id columns unless the question asks for them. " +
       "If the question asks for a single best/worst/largest/top item, return exactly " +
       "one row with LIMIT 1. " +
+      // Measured against a real Snowflake warehouse. "Which promotion has the
+      // highest cost?" produced `ORDER BY p_cost DESC LIMIT 1`, which is
+      // correct on DuckDB and returns an EMPTY ROW on Snowflake: 28 of 2,500
+      // costs are null and Snowflake sorts nulls FIRST on DESC. Same question,
+      // same prompt, same plausible SQL, different answer per warehouse — and
+      // silent, because a row does come back.
+      "When ORDER BY picks a top or bottom row, exclude nulls explicitly — warehouses " +
+      "disagree on where nulls sort by default (Snowflake places them FIRST on DESC), so " +
+      "ORDER BY x DESC LIMIT 1 can return an empty row. Write WHERE x IS NOT NULL, or " +
+      "ORDER BY x DESC NULLS LAST. " +
       "Match string literals EXACTLY as they appear in the schema, including case. " +
       // Added for the same reason as the three lines above: the eval measured
       // it. Window scored 3/6, and all three failures were ONE mistake —
