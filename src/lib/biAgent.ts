@@ -12,7 +12,15 @@
 // We keep the LLM calls small and JSON-only so they're fast and cheap.
 
 import { supabase } from "@/integrations/supabase/client";
-import { runQuery, type ColumnDef, type DatasetMeta, type QueryResult } from "@/lib/sqlEngine";
+// TYPE-ONLY, deliberately. sqlEngine pulls in lib/browserDuckdb, which imports
+// `duckdb-mvp.wasm?url` — a Vite-only specifier. A value import here made this
+// module unloadable outside a Vite build, and biAgent is mostly PROMPT
+// CONSTRUCTION, which has no business needing a SQL engine to load.
+//
+// It broke the NL-to-SQL eval: it imports buildSqlPrompt from here, and Node
+// resolved the .wasm as a package and died on its internal `env` import before
+// a single question ran. The engine itself is reached dynamically below.
+import type { ColumnDef, DatasetMeta, QueryResult } from "@/lib/sqlEngine";
 import type { OntologySpec } from "@/lib/biOntology";
 import { metricExpression, type SemanticDimension, type SemanticMetric } from "@/lib/semanticLayer";
 import { parseModelChoice } from "@/utils/providers/modelChoice";
@@ -787,7 +795,12 @@ export async function runBiTurn(args: {
     turn.status = "executing";
     args.onUpdate({ ...turn });
 
-    turn.result = args.execute ? await args.execute(turn.sql) : await runQuery(turn.sql);
+    // Dynamic so the browser engine is loaded only when it is actually used.
+    // Callers that inject `execute` — the eval, and anything server-side —
+    // never touch it, which is what keeps this module importable under Node.
+    turn.result = args.execute
+      ? await args.execute(turn.sql)
+      : await (await import("@/lib/sqlEngine")).runQuery(turn.sql);
     turn.status = "charting";
     args.onUpdate({ ...turn });
 
