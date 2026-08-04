@@ -43,6 +43,14 @@ export type McpAppSummary = {
   tools: { name: string; description?: string; inputSchema?: Record<string, any> }[];
   tools_changed_at: string | null;
   tools_approved_at: string | null;
+  /**
+   * Fingerprint of the tool list currently deployed.
+   *
+   * Surfaced so the review UI can send back the fingerprint it actually
+   * rendered — approving by app id alone would bless whatever the tools became
+   * between opening the diff and clicking the button.
+   */
+  tools_hash: string | null;
   registered_server_id: string | null;
   last_deployed_at: string | null;
   updated_at: string;
@@ -51,7 +59,7 @@ export type McpAppSummary = {
 const LIST_COLUMNS =
   "id, name, slug, description, status, deploy_error, keep_warm, idle_ttl_minutes, is_public, " +
   "allowed_origins, secret_refs, requested_egress_hosts, requirements, tools, tools_changed_at, " +
-  "tools_approved_at, registered_server_id, last_deployed_at, updated_at";
+  "tools_approved_at, tools_hash, registered_server_id, last_deployed_at, updated_at";
 
 /** Fetch one app under the caller's own RLS, so a foreign id simply isn't found. */
 async function ownedApp(
@@ -254,16 +262,51 @@ export const mcpAppLogs = createServerFn({ method: "POST" })
   });
 
 /** Re-approve the tool list after a change, unblocking agent calls. */
+/**
+ * Approve the CURRENT tool list, binding the approval to the list reviewed.
+ *
+ * The gate at the edge is a timestamp comparison — calls are blocked while
+ * `tools_changed_at > tools_approved_at`. Approving therefore used to mean
+ * "stamp now", which approves whatever the tools happen to be at that instant,
+ * not what the owner was looking at:
+ *
+ *   1. owner opens the diff and sees tool list A
+ *   2. a deploy lands, tools become list B, tools_changed_at moves
+ *   3. owner clicks Approve — tools_approved_at is now LATER than the change
+ *   4. list B is approved and nobody ever read it
+ *
+ * The whole point of the control is that a human sees the new descriptions,
+ * because a tool description is an instruction the calling model obeys. An
+ * approval that can attach to an unseen list is not that control.
+ *
+ * `tools_hash` is the fingerprint the review dialog rendered. Requiring it
+ * closes the window: if the fingerprint moved between render and click, the
+ * approval is refused and the owner re-reads the diff. Optional so an older
+ * client keeps working, but a supplied-and-stale hash is always rejected.
+ */
 export const mcpAppApproveTools = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
+  .inputValidator((input: unknown) =>
+    z.object({ id: z.string().uuid(), tools_hash: z.string().max(200).optional() }).parse(input),
+  )
   .handler(async ({ data, context }): Promise<Fail | { ok: true }> => {
     const owned = await ownedApp(context.supabase, data.id);
     if (!owned.ok) return owned;
+    if (data.tools_hash && owned.app.tools_hash !== data.tools_hash) {
+      return {
+        ok: false,
+        error:
+          "The tool list changed while you were reviewing it. Reload and read the new one before approving.",
+      };
+    }
     const { error } = await context.supabase
       .from("mcp_apps")
       .update({ tools_approved_at: new Date().toISOString() })
-      .eq("id", data.id);
+      .eq("id", data.id)
+      // Belt and braces: the row must still carry the fingerprint we checked,
+      // so a deploy landing between the check and this write loses the race
+      // rather than winning it silently.
+      .eq("tools_hash", owned.app.tools_hash ?? "");
     if (error) return { ok: false, error: error.message };
     auditEvent({
       userId: context.userId,
@@ -271,6 +314,7 @@ export const mcpAppApproveTools = createServerFn({ method: "POST" })
       resourceType: "mcp_app",
       resourceId: data.id,
       resourceName: owned.app.name,
+      detail: { tools_hash: owned.app.tools_hash ?? null },
     });
     return { ok: true };
   });

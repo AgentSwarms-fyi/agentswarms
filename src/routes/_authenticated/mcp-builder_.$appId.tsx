@@ -329,7 +329,12 @@ function McpAppEditor() {
             variant="secondary"
             className="h-7"
             onClick={async () => {
-              const res = await approveFn({ data: { id: appId } });
+              // Send the fingerprint THIS view rendered. If a deploy landed
+              // while the diff was open, the server refuses rather than
+              // approving a tool list nobody read.
+              const res = await approveFn({
+                data: { id: appId, tools_hash: app?.tools_hash ?? undefined },
+              });
               if (res.ok) {
                 toast.success("Tools approved");
                 void reload();
