@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
+import { mySpendSince } from "@/lib/budgetSpendClient";
 import { supabase } from "@/integrations/supabase/client";
 import { SpendPanel } from "@/components/dashboard/SpendPanel";
 import { Button } from "@/components/ui/button";
@@ -201,10 +202,12 @@ function DashboardPage() {
           .select("id", { count: "exact", head: true })
           .eq("last_run_status", "error"),
         supabase.from("budget_settings").select("monthly_cap_usd").limit(1).maybeSingle(),
-        supabase
-          .from("execution_traces")
-          .select("cost_usd")
-          .gte("created_at", monthStart.toISOString()),
+        // Aggregated in the database. This used to select every trace row for
+        // the month and sum cost_usd in the browser, so a truncated result set
+        // — or a failed query's empty array — rendered as the month's total.
+        u.data.user?.id
+          ? mySpendSince(u.data.user.id, monthStart.toISOString())
+          : Promise.resolve({ ok: false as const, error: "not signed in" }),
       ]);
       setHealth({
         syncs: sy.count ?? 0,
@@ -212,12 +215,11 @@ function DashboardPage() {
         schedules: sc.count ?? 0,
       });
       const capUsd = Number(cap.data?.monthly_cap_usd ?? 0);
-      if (capUsd > 0) {
-        const used = (spend.data ?? []).reduce(
-          (acc: number, r: { cost_usd: number | null }) => acc + Number(r.cost_usd ?? 0),
-          0,
-        );
-        setBudget({ spend: used, cap: capUsd });
+      // Only show the badge when the figure is known. A failed lookup used to
+      // sum to zero and render as "0% of cap used", which is the most
+      // reassuring possible way to display "we have no idea".
+      if (capUsd > 0 && spend.ok) {
+        setBudget({ spend: spend.spend, cap: capUsd });
       }
       const meta = u.data.user?.user_metadata as { full_name?: string; name?: string } | undefined;
       const fullName = meta?.full_name ?? meta?.name ?? "";

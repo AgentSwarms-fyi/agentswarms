@@ -55,7 +55,18 @@ const SELF_HOSTED = new Set(["ollama", "vllm", "local"]);
 /**
  * Prices an operator set by hand, keyed `provider:model`.
  *
- * Populated from the database at startup / on refresh — see setPriceOverrides.
+ * NOTHING POPULATES THIS IN PRODUCTION. This comment used to say it was
+ * "populated from the database at startup / on refresh", which was never true:
+ * there is no overrides table, no loader, and no admin surface for one. The
+ * layer itself works and is covered by tests — it is the highest-priority entry
+ * in the resolution chain — but in a running instance the map is always empty,
+ * so every price comes from the vendored catalog or the bundled fallback.
+ *
+ * Wiring it up means a table, a loader that calls setPriceOverrides after the
+ * database is reachable, and somewhere for an operator to type a number. Until
+ * then, an operator whose negotiated rate differs from the public sheet cannot
+ * correct it, and the docs deliberately promise no such thing.
+ *
  * Held in a module-level map because resolvePrice runs on EVERY call and must
  * never touch the network or the database on that path.
  */
@@ -72,7 +83,14 @@ let overrides = new Map<string, TokenPrice>();
  */
 let catalog = new Map<string, TokenPrice>(Object.entries(GENERATED_PRICE_TABLE));
 
-/** Replace the operator overrides. Call after loading them from the database. */
+/**
+ * Replace the operator overrides.
+ *
+ * Currently called only by tests — see the note on `overrides`. Kept because
+ * the precedence chain it sits at the top of is real and tested, and because
+ * deleting it would mean rebuilding the same seam the day someone adds the
+ * table.
+ */
 export function setPriceOverrides(rows: Record<string, TokenPrice>): void {
   overrides = new Map(Object.entries(rows));
 }

@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Bell, AlertTriangle, DollarSign } from "lucide-react";
-import { startOfMonth } from "date-fns";
+import { monthStartIso, mySpendSince } from "@/lib/budgetSpendClient";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "sonner";
@@ -59,7 +59,9 @@ function BudgetsPage() {
   const [budget, setBudget] = useState<Budget | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [limits, setLimits] = useState<Record<string, AgentLimit>>({});
-  const [mtdSpend, setMtdSpend] = useState(0);
+  // null = the figure could not be computed. Deliberately distinct from 0,
+  // which would otherwise render "spent nothing" when the query failed.
+  const [mtdSpend, setMtdSpend] = useState<number | null>(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -91,14 +93,12 @@ function BudgetsPage() {
       });
       setLimits(map);
 
-      // MTD spend
-      const monthStart = startOfMonth(new Date()).toISOString();
-      const { data: traceData } = await supabase
-        .from("execution_traces")
-        .select("cost_usd")
-        .gte("created_at", monthStart);
-      const total = (traceData ?? []).reduce((acc: number, t: any) => acc + Number(t.cost_usd), 0);
-      setMtdSpend(total);
+      // MTD spend, aggregated in the database. This used to select every trace
+      // row for the month and add cost_usd up here, which silently rendered a
+      // truncated prefix — or a failed query's empty array — as the month's
+      // total. See src/lib/budgetSpendClient.ts.
+      const spend = await mySpendSince(user.id, monthStartIso());
+      setMtdSpend(spend.ok ? spend.spend : null);
 
       setLoading(false);
     })();
@@ -140,7 +140,7 @@ function BudgetsPage() {
   }
 
   const cap = Number(budget.monthly_cap_usd);
-  const pct = cap > 0 ? Math.min(100, (mtdSpend / cap) * 100) : 0;
+  const pct = cap > 0 && mtdSpend != null ? Math.min(100, (mtdSpend / cap) * 100) : 0;
   const isOver = pct >= 100;
   const isWarn = pct >= 75;
 
@@ -194,7 +194,7 @@ function BudgetsPage() {
               <span className="text-muted-foreground">
                 Month-to-date spend:{" "}
                 <span className="font-mono font-semibold text-foreground">
-                  ${mtdSpend.toFixed(2)}
+                  {mtdSpend == null ? "unavailable" : `$${mtdSpend.toFixed(2)}`}
                 </span>{" "}
                 / ${cap.toFixed(2)}
               </span>
