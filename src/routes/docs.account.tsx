@@ -87,7 +87,7 @@ function AccountDoc() {
 
       <H2 id="budgets">Budgets</H2>
       <P>
-        Spend controls live at <DocLink to="/docs/analytics">/budgets</DocLink> (linked from the
+        Spend controls live at <DocLink to="/docs/budgets">Budgets</DocLink> (linked from the
         sidebar), not on the account page:
       </P>
       <FieldList

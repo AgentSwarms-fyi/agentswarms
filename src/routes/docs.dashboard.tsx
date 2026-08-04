@@ -159,8 +159,8 @@ function DashboardDoc() {
       <P>
         The last six executions across your workspace, each with the agent name, model, latency,
         cost, and a success/error indicator. <em>View all</em> opens the full run history at{" "}
-        <DocLink to="/docs/debugging">/traces</DocLink>, where every run can be expanded into its
-        complete trace.
+        <DocLink to="/traces">/traces</DocLink>, where every run can be expanded into its complete
+        trace — see <DocLink to="/docs/debugging">Logs &amp; traces</DocLink> for how to read one.
       </P>
 
       <Note>

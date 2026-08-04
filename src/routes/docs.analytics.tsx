@@ -73,9 +73,23 @@ function AnalyticsDoc() {
         </li>
       </UL>
       <P>
-        Spend caps and alerts live at <DocLink to="/docs/account">/budgets</DocLink>; per-run detail
+        Spend caps and alerts live in <DocLink to="/docs/budgets">Budgets</DocLink>; per-run detail
         lives in <DocLink to="/docs/debugging">traces</DocLink>.
       </P>
+      <Callout kind="info" title="These are estimates, and they can be undercounts">
+        Cost is computed per call from token counts and a stored price for that model — not read
+        back from your provider's invoice, so it will not tie out exactly against a bill that
+        applies its own rounding, discounts and minimums. Use these charts to find the expensive
+        agent; use the invoice to settle the amount.
+        <br />
+        <br />
+        The sharper caveat: a model the price table does not know is recorded at{" "}
+        <strong>zero</strong>, and zero is indistinguishable from cheap once it reaches a chart.
+        Those calls are marked <C>pricing_missing</C> on the trace, and calls whose token counts
+        were estimated rather than reported by the provider are marked <C>tokens_estimated</C> — so
+        a total that looks too low can be checked rather than guessed at. See{" "}
+        <DocLink to="/docs/budgets#how-cost-is-computed">how cost is computed</DocLink>.
+      </Callout>
 
       <H2 id="swarm-observability">Swarm observability</H2>
       <P>

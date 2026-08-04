@@ -244,6 +244,55 @@ describe("the configuration recipes are usable", () => {
   });
 });
 
+describe("the cost figures are described as the estimates they are", () => {
+  const analytics = readFileSync("src/routes/docs.analytics.tsx", "utf8");
+  const rec = readFileSync("src/utils/observability/recordGatewayUsage.server.ts", "utf8");
+
+  it("names the markers that reveal an incomplete total", () => {
+    // An unpriced model records zero, which reads as "cheap" on a chart. The
+    // markers are the only way a reader can tell an undercount from a low
+    // number, so the page has to name them.
+    expect(rec).toContain("requestPayload.pricing_missing = true");
+    expect(rec).toContain("requestPayload.tokens_estimated = true");
+    expect(analytics, "pricing_missing is not documented").toContain("pricing_missing");
+    expect(analytics, "tokens_estimated is not documented").toContain("tokens_estimated");
+  });
+
+  it("says an unpriced call contributes zero rather than an approximation", () => {
+    expect(rec).toMatch(/no entry in the price table costs 0/);
+    expect(analytics).toMatch(/recorded at\s*\{?"?\s*<strong>zero<\/strong>|zero/i);
+  });
+});
+
+describe("a link labelled with a path goes to that path", () => {
+  // The existing link check only asks whether a target EXISTS. These three all
+  // pointed somewhere real and somewhere else than they said:
+  //
+  //   docs.account    "/budgets" -> /docs/analytics
+  //   docs.analytics  "/budgets" -> /docs/account
+  //   docs.dashboard  "/traces"  -> /docs/debugging
+  //
+  // The first two pointed at each other while /docs/budgets existed all along,
+  // so a reader chasing spend controls was sent in a circle.
+  it("has no link whose text is a path it does not lead to", () => {
+    const bad: string[] = [];
+    for (const f of DOC_PAGES) {
+      const flat = readFileSync(f, "utf8")
+        .replace(/\{" "\}/g, " ")
+        .replace(/\s+/g, " ");
+      for (const m of flat.matchAll(/<DocLink to="([^"]+)">([^<]+)<\/DocLink>/g)) {
+        const to = m[1];
+        const text = m[2].trim();
+        // Only link text that IS a bare path — prose labels are free to differ.
+        if (!/^\/[a-z-]+$/.test(text)) continue;
+        if (to === text || to.endsWith(text)) continue;
+        bad.push(`${f.replace("src/routes/", "")}: "${text}" -> ${to}`);
+      }
+    }
+    expect(bad, `link text disagrees with target: ${bad.join("; ")}`).toEqual([]);
+  });
+});
+
 describe("the integrations page is honest about the gateway", () => {
   const page = readFileSync("src/routes/docs.integrations.tsx", "utf8");
   const creds = readFileSync("src/utils/providers/credentials.server.ts", "utf8");
