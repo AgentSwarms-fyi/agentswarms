@@ -244,6 +244,79 @@ describe("the configuration recipes are usable", () => {
   });
 });
 
+describe("the swarms page documents every node kind, and counts them right", () => {
+  const page = readFileSync("src/routes/docs.swarms.tsx", "utf8");
+  const runtime = readFileSync("src/lib/swarmRuntime.ts", "utf8");
+
+  const kinds = (() => {
+    const block = runtime.slice(runtime.indexOf("export type SwarmNodeKind ="));
+    const body = block.slice(0, block.indexOf(";", block.indexOf('"subswarm"')) + 1);
+    return [...body.matchAll(/"([a-z_0-9]+)"/g)].map((m) => m[1]);
+  })();
+
+  const WORDS = [
+    "",
+    "one",
+    "two",
+    "three",
+    "four",
+    "five",
+    "six",
+    "seven",
+    "eight",
+    "nine",
+    "ten",
+    "eleven",
+    "twelve",
+    "thirteen",
+    "fourteen",
+    "fifteen",
+    "sixteen",
+    "seventeen",
+    "eighteen",
+    "nineteen",
+    "twenty",
+  ];
+
+  it("parsed the union", () => {
+    expect(kinds.length).toBeGreaterThan(10);
+  });
+
+  it("states the real number, in digits and in words", () => {
+    // The page claimed twenty in three places — the meta description, the page
+    // description and the section heading — while eighteen exist. A count is
+    // the one claim a reader cannot check without the source.
+    const n = kinds.length;
+    expect(page, `should say ${n} swarm node kinds`).toContain(`all ${n} swarm node kinds`);
+    expect(page, `should say "all ${WORDS[n]} node kinds"`).toContain(`all ${WORDS[n]} node kinds`);
+    for (const wrong of WORDS.slice(2).filter((w) => w && w !== WORDS[n])) {
+      expect(page, `still claims ${wrong} node kinds`).not.toContain(`${wrong} node kinds`);
+    }
+  });
+
+  it("gives every kind its own section", () => {
+    // Section ids are not mechanically derived from the kind — set_var lives
+    // at n-set-var and a2a_remote at n-a2a — so match on the heading TEXT,
+    // which is the kind. An id-shaped regex missed set_var entirely and would
+    // have reported a documented node as undocumented.
+    for (const k of kinds) {
+      expect(page, `node kind ${k} has no section`).toMatch(
+        new RegExp(`<H3 id="n-[a-z0-9-]+">${k}</H3>`),
+      );
+    }
+  });
+
+  it("documents no kind that does not exist", () => {
+    const documented = [...page.matchAll(/<H3 id="n-[a-z0-9-]+">([a-z_0-9]+)<\/H3>/g)].map(
+      (m) => m[1],
+    );
+    expect(documented.length).toBe(kinds.length);
+    for (const d of documented) {
+      expect(kinds, `page documents a node kind that is not in the union: ${d}`).toContain(d);
+    }
+  });
+});
+
 describe("the account page's deletion promise matches the schema", () => {
   const page = readFileSync("src/routes/docs.account.tsx", "utf8");
 

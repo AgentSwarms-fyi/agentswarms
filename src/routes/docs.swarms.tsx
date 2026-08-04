@@ -22,7 +22,7 @@ export const Route = createFileRoute("/docs/swarms")({
       {
         name: "description",
         content:
-          "Complete reference for all 20 swarm node kinds, their configuration fields, flow state and templating, error handling, running and exporting.",
+          "Complete reference for all 18 swarm node kinds, their configuration fields, flow state and templating, error handling, running and exporting.",
       },
       { property: "og:title", content: "Swarm Canvas — AgentSwarms Documentation" },
       {
@@ -44,7 +44,7 @@ function SwarmsPage() {
       <DocsHeader
         eyebrow="Build"
         title="Swarm Canvas"
-        description="A swarm is a directed graph of nodes. Output flows along the edges, shared state flows through all of them. This page documents all twenty node kinds and every field on each."
+        description="A swarm is a directed graph of nodes. Output flows along the edges, shared state flows through all of them. This page documents all eighteen node kinds and every field on each."
       />
 
       <P>
@@ -100,7 +100,7 @@ function SwarmsPage() {
       </Callout>
 
       {/* ── NODE REFERENCE ── */}
-      <H2 id="nodes">All twenty node kinds</H2>
+      <H2 id="nodes">All eighteen node kinds</H2>
 
       <H3 id="n-input">input</H3>
       <P>
