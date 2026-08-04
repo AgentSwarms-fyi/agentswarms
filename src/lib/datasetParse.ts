@@ -108,6 +108,16 @@ export function inferType(value: unknown): ColumnType {
     // ISO date / common date formats
     if (/^\d{4}-\d{2}-\d{2}/.test(value)) return "date";
     if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(value)) return "date";
+    // A LEADING ZERO FOLLOWED BY A DIGIT IS AN IDENTIFIER, NOT A QUANTITY.
+    // Number("00123") is 123 and Number("01002") is 1002, so SKUs, ZIP codes,
+    // account numbers and phone extensions silently lost their zeros and
+    // became integers — the Excel bug people complain about, reproduced here.
+    // It is not cosmetic: the value no longer joins against its source, and
+    // "01002" displayed as 1002 is a different postcode.
+    //
+    // Narrow on purpose. "0" is a number, and so is "0.5" — only a zero with
+    // another DIGIT after it is treated as an identifier.
+    if (/^0\d/.test(value.trim())) return "string";
     const n = Number(value.replace(/,/g, ""));
     if (!Number.isNaN(n) && value.trim() !== "") return "number";
   }
