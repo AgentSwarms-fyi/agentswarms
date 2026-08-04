@@ -88,7 +88,11 @@ type Field = {
 /**
  * Bundled logos. PARTIAL ON PURPOSE — a provider without one falls back to a
  * lettered tile, so adding a connector never blocks on sourcing a trademarked
- * image we may not have the right to redistribute in an MIT repo.
+ * image this project may not have the right to redistribute.
+ *
+ * (This used to name MIT as the project's licence. It is Elastic License 2.0 —
+ * and a comment about redistribution rights is the last place to get that
+ * wrong. docsFactCheck now fails on a self-reference to the old licence.)
  */
 const PROVIDER_LOGOS: Partial<Record<WarehouseProvider, string>> = {
   redshift: redshiftLogo,

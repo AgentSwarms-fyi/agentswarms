@@ -34,6 +34,32 @@ describe("the licence the project actually ships under", () => {
     expect(readme).toMatch(/Elastic License 2\.0/);
   });
 
+  it("is not called MIT anywhere in the source either", () => {
+    // The project was relicensed, and a stale MIT reference survived in a
+    // comment explaining why trademarked logos are not bundled — "we may not
+    // have the right to redistribute in an MIT repo". A comment about
+    // redistribution rights is the last place to name the wrong licence.
+    //
+    // Scoped to SELF-references. Describing a dependency as MIT is ordinary
+    // and correct: Activepieces genuinely is MIT, and a blanket search for
+    // "MIT" would flag that as a finding.
+    const SELF = /\b(this|an|our|the)\s+MIT\s+(repo|repository|project|codebase)\b/i;
+    const offenders: string[] = [];
+    const walk = (dir: string) => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const p = `${dir}/${e.name}`;
+        if (e.isDirectory()) {
+          if (["node_modules", ".git", "dist", ".output"].includes(e.name)) continue;
+          walk(p);
+        } else if (/\.(ts|tsx|md)$/.test(e.name)) {
+          if (SELF.test(readFileSync(p, "utf8"))) offenders.push(p);
+        }
+      }
+    };
+    walk("src");
+    expect(offenders, `calls this project MIT: ${offenders.join(", ")}`).toEqual([]);
+  });
+
   it("does not describe itself as open source", () => {
     // ELv2 is source-available: it forbids offering the software as a hosted
     // service. Calling it open source would be wrong in a way that matters.
