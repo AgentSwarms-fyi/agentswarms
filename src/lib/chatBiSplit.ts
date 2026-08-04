@@ -76,6 +76,40 @@ export function wantsMultipleVisuals(question: string): boolean {
   return new RegExp(`\\b${VISUAL_NOUN}\\b`, "i").test(question) && additional.test(question);
 }
 
+/**
+ * Whether the question only makes sense with the conversation in front of it.
+ *
+ * The BI analyst is stateless: it gets ONE question string and the dataset
+ * schemas. A follow-up like "show me this as a bar chart" therefore names no
+ * dataset, no dimension and no measure, so the planner cannot write SQL for it,
+ * the turn produces nothing, and Visual BI silently falls through to the plain
+ * agent — which then answers with prose telling the user to go and build the
+ * chart by hand on /data-sql. The data was right there; only the referent was
+ * missing.
+ *
+ * Two ways in, because the failure has two shapes:
+ *  - a referring expression ("this", "that result", "the query above")
+ *  - a bare restyle request ("as a bar chart", "make it a pie") that carries a
+ *    visual noun but no subject at all
+ *
+ * A false positive costs one small LLM call and returns the question unchanged;
+ * a false negative costs the whole visual. Erring wide is the cheaper mistake.
+ */
+export function needsConversationContext(question: string): boolean {
+  const q = question.trim();
+  if (!q) return false;
+  // "this", "that", "it", "those", "the above", "the previous query", "same".
+  const referring =
+    /\b(?:this|that|these|those|it|them|the\s+(?:above|previous|last|first|former|latter)|above|earlier|same)\b/i;
+  if (referring.test(q)) return true;
+  // A visual noun with no subject: "as a bar chart", "show me a pie chart".
+  // A question naming its own subject ("sales by region as a bar chart") has
+  // more than the restyle verb, so require the whole question to be short.
+  const bareRestyle =
+    /^(?:now\s+|and\s+|ok\s+|please\s+)*(?:show|give|make|draw|plot|render|display|turn|convert)?\s*(?:me|it)?\s*(?:as|into|in|using|with|to)?\s*(?:a|an|the)?\s*\w*\s*(?:chart|graph|plot|visual|visualisation|visualization)\b/i;
+  return bareRestyle.test(q) && q.split(/\s+/).length <= 10;
+}
+
 /** Clamp and de-duplicate the sub-questions a split produced. */
 export function normalizeSubQuestions(raw: unknown, limit: number): string[] {
   if (!Array.isArray(raw)) return [];

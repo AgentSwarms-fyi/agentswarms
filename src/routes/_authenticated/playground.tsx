@@ -55,7 +55,7 @@ import { MarkdownMessage } from "@/components/playground/MarkdownMessage";
 import { ExcelIcon, PptIcon, WordIcon } from "@/components/playground/FileTypeIcons";
 import { DocGenBar } from "@/components/playground/DocGenBar";
 import { BiWidgetCard } from "@/components/bi/BiWidgetCard";
-import { generateChatWidget } from "@/lib/chatBi";
+import { BI_FELL_THROUGH_NOTE, generateChatWidget } from "@/lib/chatBi";
 import { parseWidgets } from "@/lib/biDashboards";
 import { useServerFn } from "@tanstack/react-start";
 import { DOC_FORMAT_LABEL } from "@/lib/docGen/types";
@@ -550,12 +550,29 @@ function PlaygroundPage() {
             // /api/bi's fallback, so Visual BI could fail on a model the user
             // never chose while the chat around it worked fine.
             model: docGenModelChoice(),
+            // Everything BEFORE this question, so a follow-up can be resolved
+            // into a standalone one. Without it "show me this as a bar chart"
+            // reached a stateless analyst with no subject, produced nothing,
+            // and fell through to the agent — which replied by explaining how
+            // to draw the chart manually on /data-sql.
+            history: opts.historySnapshot
+              .filter((m) => m !== lastUserMsg && typeof m.content === "string" && m.content.trim())
+              .map((m) => ({
+                role: m.role === "assistant" ? ("assistant" as const) : ("user" as const),
+                content: m.content,
+              })),
           });
           if (bi.narrative?.trim() || bi.widgets.length > 0) {
             const content = bi.narrative?.trim() || "Here's what your data shows.";
             // The analyst answers from the user's data, so it carries no KB
-            // citations — only the chart widgets.
-            const meta = bi.widgets.length > 0 ? { widgets: bi.widgets } : {};
+            // citations — but it does cite the TABLE it read and the SELECT it
+            // ran, the same way the agent's sql_query tool does. Without that
+            // a chart and a confident sentence arrived with no provenance at
+            // all, while the identical question answered by the tool showed
+            // both.
+            const meta: Record<string, unknown> = {};
+            if (bi.widgets.length > 0) meta.widgets = bi.widgets;
+            if (bi.sources.length > 0) meta.sources = bi.sources;
             setMessages((prev) => [
               ...prev,
               {
@@ -596,6 +613,12 @@ function PlaygroundPage() {
             }
             return { ok: true };
           }
+          // BI ran and produced nothing, so the agent answers instead. Tell it
+          // that, or it recommends building the chart by hand on another page
+          // while the Visual BI toggle sits lit in front of the user.
+          requestBody.systemPrompt = requestBody.systemPrompt
+            ? `${requestBody.systemPrompt}\n\n${BI_FELL_THROUGH_NOTE}`
+            : BI_FELL_THROUGH_NOTE;
         }
       }
 

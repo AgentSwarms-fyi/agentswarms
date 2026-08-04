@@ -96,6 +96,35 @@ export function tablesInSql(sql: string): string[] {
   return [...names];
 }
 
+/**
+ * Cite a SELECT: one source per table it read, carrying the statement itself.
+ *
+ * Shared by the agent's `sql_query` tool and the Visual BI analyst, which
+ * answer the same kind of question by different routes and were showing the
+ * user different things — the tool cited `saas_sales` and its SQL, while a BI
+ * chart arrived with no provenance at all. One builder, so "which table, and
+ * what query" reads the same however the answer was produced.
+ */
+export function sqlTableSources(
+  sql: string | undefined,
+  rowCount: number | null,
+  tool: string,
+): RawSource[] {
+  if (!sql || !sql.trim()) return [];
+  const tables = tablesInSql(sql);
+  const label = rowCount === null ? undefined : `${rowCount} row${rowCount === 1 ? "" : "s"}`;
+  if (tables.length === 0) {
+    return [{ kind: "table", title: "Query result", detail: label, snippet: clip(sql), tool }];
+  }
+  return tables.slice(0, MAX_PER_TOOL).map((t) => ({
+    kind: "table" as const,
+    title: t,
+    detail: label,
+    snippet: clip(sql),
+    tool,
+  }));
+}
+
 function webSources(result: Record<string, unknown>, tool: string): RawSource[] {
   const provider = str(result.provider) || undefined;
   const out: RawSource[] = [];
@@ -186,20 +215,7 @@ export function extractToolSources(name: string, args: string, result: string): 
     case "sql_query": {
       const sql = str(res.sql) || str(a.sql);
       const rowCount = typeof res.row_count === "number" ? res.row_count : null;
-      const tables = tablesInSql(sql);
-      const label = rowCount === null ? undefined : `${rowCount} row${rowCount === 1 ? "" : "s"}`;
-      if (tables.length === 0) {
-        return [
-          { kind: "table", title: "Query result", detail: label, snippet: clip(sql), tool: name },
-        ];
-      }
-      return tables.slice(0, MAX_PER_TOOL).map((t) => ({
-        kind: "table" as const,
-        title: t,
-        detail: label,
-        snippet: clip(sql),
-        tool: name,
-      }));
+      return sqlTableSources(sql, rowCount, name);
     }
 
     case "metric_query": {
