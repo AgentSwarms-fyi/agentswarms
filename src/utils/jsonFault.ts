@@ -17,28 +17,45 @@
 const WINDOW = 140;
 
 /**
- * Repair the one malformation this endpoint actually produces.
+ * Repair the malformations this endpoint actually produces.
  *
- * Measured, not guessed: every observed failure of the document planner was the
- * same shape, at a different offset each time —
+ * The bar for adding a rule here is deliberately high: the rewrite must be
+ * UNAMBIGUOUS — exactly one thing the model could have meant — and it only ever
+ * runs on a payload that has ALREADY failed a strict parse, so it cannot turn
+ * good JSON into something else. The caller must still parse the result, and
+ * must record that a repair happened; a silent repair hides an upstream defect
+ * that will otherwise never get fixed. Anything requiring a guess (truncation,
+ * an unescaped quote mid-sentence) is left alone and fails visibly instead.
  *
- *   { "type": "type": "table", "table": { "columns": [...] } }
+ * Both rules below come from observed traces, not from imagination.
  *
- * and always immediately before a table block. The cause is a collision in the
- * schema itself: `{ "type": "table", "table": {...} }` is the only block whose
- * type VALUE repeats as the very next KEY, and the model duplicates the key
- * when it meets that. Slide plans carry the same hazard for chart/table/diagram.
+ * 1. A duplicated key:
  *
- * The rewrite is narrow — a key immediately followed by itself as a quoted
- * value and another colon — and it only ever runs on a payload that has ALREADY
- * failed a strict parse, so it cannot turn good JSON into something else. The
- * caller must still parse the result and must record that a repair happened;
- * a silent repair would hide a real upstream defect.
+ *      { "type": "type": "table", "table": { ... } }
  *
- * Returns null when there was nothing of this shape to fix.
+ *    Five consecutive failures, five different offsets, always immediately
+ *    before a table. The cause is a collision in our own schema — `{ "type":
+ *    "table", "table": {...} }` is the only block whose type VALUE repeats as
+ *    the very next KEY, and the model duplicates the key when it meets that.
+ *    Deck plans carry the same hazard on layout/chart/diagram. Only rewritten
+ *    when the two keys genuinely match, so `"type": "heading": "table"` is
+ *    left alone rather than resolved into content nobody wrote.
+ *
+ * 2. A stray statement terminator:
+ *
+ *      "text": "...the widest margin variance.";
+ *      }
+ *
+ *    JSON has no semicolons outside strings, so one sitting between a closing
+ *    quote and a `}`/`]`/`,` has exactly one reading. The lookbehind keeps an
+ *    escaped quote inside a string from being read as a terminator.
+ *
+ * Returns null when there was nothing of either shape to fix.
  */
-export function repairDuplicatedKey(text: string): string | null {
-  const fixed = text.replace(/("(\w+)"\s*:\s*)"\2"\s*:\s*/g, "$1");
+export function repairJsonGlitches(text: string): string | null {
+  const fixed = text
+    .replace(/("(\w+)"\s*:\s*)"\2"\s*:\s*/g, "$1")
+    .replace(/(?<!\\)("\s*);(?=\s*[},\]])/g, "$1");
   return fixed === text ? null : fixed;
 }
 

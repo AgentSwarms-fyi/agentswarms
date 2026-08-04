@@ -23,7 +23,7 @@ import {
   resolveOpenAICompatTransport,
 } from "@/utils/providers/credentials.server";
 import { isBiCompatProvider } from "@/utils/providers/modelChoice";
-import { describeJsonFault, repairDuplicatedKey } from "@/utils/jsonFault";
+import { describeJsonFault, repairJsonGlitches } from "@/utils/jsonFault";
 import type { ProviderId } from "@/utils/providers/types";
 
 const DEFAULT_MODEL = "google/gemini-2.5-flash";
@@ -185,8 +185,14 @@ export const Route = createFileRoute("/api/bi")({
         // attempt rather than degrading to a generic message.
         let lastCleaned = "";
         let lastUsage: ReturnType<typeof extractUsage> = null;
+        // How many attempts were actually MADE. The budget check below can skip
+        // the retry, and the failure message must not claim a retry that never
+        // ran — that is the same species of untrue-but-plausible advice this
+        // endpoint already sent once.
+        let attemptsMade = 0;
 
         for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+          attemptsMade = attempt;
           const upstreamCtrl = new AbortController();
           const upstreamTimer = setTimeout(
             () => upstreamCtrl.abort(),
@@ -346,7 +352,7 @@ export const Route = createFileRoute("/api/bi")({
           // another 7k tokens on a retry, try the one repair that is known to
           // apply here — and record it, because a repair that happens silently
           // hides an upstream defect that will otherwise never get fixed.
-          const repaired = repairDuplicatedKey(cleaned);
+          const repaired = repairJsonGlitches(cleaned);
           if (repaired !== null) {
             try {
               const result = JSON.parse(repaired);
@@ -415,7 +421,10 @@ export const Route = createFileRoute("/api/bi")({
               (truncated
                 ? "It hit the output limit mid-document — try Browser (Fast) mode or a model with a larger output budget."
                 : looksComplete
-                  ? "It returned a complete document whose JSON is malformed inside — a stray token in a long field. Retrying it once already failed too; a larger model normally gets this right."
+                  ? "It returned a complete document whose JSON is malformed inside — a stray token in a long field. " +
+                    (attemptsMade > 1
+                      ? "Retrying it once failed the same way; a larger model normally gets this right."
+                      : "There wasn't time in the budget to retry — try again, or use Browser (Fast) mode.")
                   : "The reply wasn't JSON at all — the model ignored the JSON-only instruction; a different model normally fixes it."),
             raw: lastCleaned.slice(0, 400),
           },

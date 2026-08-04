@@ -47,6 +47,17 @@ export type DocContext = {
    * main content of the top results when a Firecrawl key is available.
    */
   web?: { title: string | null; url: string | null; content: string }[];
+  /**
+   * Whether the prompt ASKED for web research, regardless of what came back.
+   *
+   * Without this, "no research was needed" and "research ran and found nothing"
+   * are the same empty array, and the planner cannot tell them apart either. It
+   * fills the gap from memory — a BoQ asking for live OCI pricing came back
+   * with invented unit prices AND a "Sources (cite when presenting)" sheet
+   * listing oracle.com URLs, because a search that returns nothing looks
+   * exactly like a request that never needed one.
+   */
+  webAttempted?: boolean;
 };
 
 const MAX_TABLES = 8;
@@ -154,7 +165,8 @@ export const gatherDocContext = createServerFn({ method: "POST" })
         // tools (Firecrawl → DuckDuckGo fallback), in parallel with nothing
         // else here so the tables read below stays cheap.
         let web: DocContext["web"];
-        if (WEB_CUE.test(data.prompt)) {
+        const webAttempted = WEB_CUE.test(data.prompt);
+        if (webAttempted) {
           const toolCtx: AgentToolContext = {
             userId,
             agentId: data.agent_id,
@@ -279,7 +291,7 @@ export const gatherDocContext = createServerFn({ method: "POST" })
           });
         }
 
-        return { ok: true, context: { kb, tables, web } };
+        return { ok: true, context: { kb, tables, web, webAttempted } };
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : "Failed" };
       }

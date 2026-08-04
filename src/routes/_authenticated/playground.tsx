@@ -1000,6 +1000,18 @@ function PlaygroundPage() {
         data: { access_token: token, prompt, agent_id: selectedAgent || undefined },
       });
       if (!ctx.ok) throw new Error(ctx.error);
+      // The prompt asked for live figures and the search came back empty. The
+      // document itself is told not to fabricate sources, but the person who
+      // asked has to hear it too — a BoQ of unverified prices is exactly the
+      // kind of file that gets forwarded to a customer.
+      if (ctx.context.webAttempted && !ctx.context.web?.length) {
+        toast.warning("Web research found nothing — figures won't be sourced", {
+          description:
+            "No search provider is configured, or the search returned no usable results. " +
+            "Treat any prices or external facts in this document as unverified.",
+          duration: 12000,
+        });
+      }
       setDocPhase("planning");
       const plan = await planDocument(format, {
         prompt,

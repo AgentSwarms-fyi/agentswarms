@@ -18,7 +18,7 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-import { describeJsonFault, repairDuplicatedKey } from "@/utils/jsonFault";
+import { describeJsonFault, repairJsonGlitches } from "@/utils/jsonFault";
 
 const BI_ROUTE = readFileSync("src/routes/api/bi.ts", "utf8");
 
@@ -116,7 +116,7 @@ describe("describeJsonFault points at the fault, not the ends", () => {
   });
 });
 
-describe("repairDuplicatedKey fixes the shape actually observed", () => {
+describe("repairJsonGlitches fixes the shape actually observed", () => {
   // Five consecutive failures, five different offsets, one shape — always the
   // block immediately before a table. Reproduced verbatim from the traces.
   const REAL = `{
@@ -131,7 +131,7 @@ describe("repairDuplicatedKey fixes the shape actually observed", () => {
   it("turns the real failing payload into the plan the model meant", () => {
     expect(() => JSON.parse(REAL)).toThrow();
 
-    const fixed = repairDuplicatedKey(REAL);
+    const fixed = repairJsonGlitches(REAL);
     expect(fixed).not.toBeNull();
 
     const plan = JSON.parse(fixed!);
@@ -147,7 +147,7 @@ describe("repairDuplicatedKey fixes the shape actually observed", () => {
     // `"type": "table"` legitimately precedes a `"table"` KEY. Rewriting that
     // would break every well-formed plan.
     const good = '{"type": "table", "table": {"columns": ["A"], "rows": [[1]]}}';
-    expect(repairDuplicatedKey(good)).toBeNull();
+    expect(repairJsonGlitches(good)).toBeNull();
     expect(JSON.parse(good).table.columns).toEqual(["A"]);
   });
 
@@ -156,28 +156,69 @@ describe("repairDuplicatedKey fixes the shape actually observed", () => {
     // is unknowable. A rewrite that matched any key/value pair would silently
     // resolve it to `{"type": "table"}` — valid JSON carrying invented content,
     // which is worse than the visible failure it replaced.
-    expect(repairDuplicatedKey('{"type": "heading": "table"}')).toBeNull();
-    expect(repairDuplicatedKey('{"level": "1": "text"}')).toBeNull();
+    expect(repairJsonGlitches('{"type": "heading": "table"}')).toBeNull();
+    expect(repairJsonGlitches('{"level": "1": "text"}')).toBeNull();
   });
 
   it("reports nothing to do when the fault is a different shape", () => {
     // Truncation, unescaped quotes, raw newlines — none are this bug, and
     // claiming a repair for them would mask them.
-    expect(repairDuplicatedKey('{"text": "the "flagship" product"}')).toBeNull();
-    expect(repairDuplicatedKey('{"blocks": [{"text": "cut off')).toBeNull();
-    expect(repairDuplicatedKey('{"a": 1, "b": 2}')).toBeNull();
+    expect(repairJsonGlitches('{"text": "the "flagship" product"}')).toBeNull();
+    expect(repairJsonGlitches('{"blocks": [{"text": "cut off')).toBeNull();
+    expect(repairJsonGlitches('{"a": 1, "b": 2}')).toBeNull();
+  });
+
+  it("removes a stray statement terminator, the second shape seen in traces", () => {
+    // Observed on sonnet: the model closed a string value and then wrote a
+    // semicolon, as if it were finishing a statement.
+    const withSemicolon = `{
+  "blocks": [
+    { "type": "paragraph", "text": "...the widest margin variance.";
+    },
+    { "type": "paragraph", "text": "Key priorities for the coming quarter." }
+  ]
+}`;
+    expect(() => JSON.parse(withSemicolon)).toThrow();
+
+    const plan = JSON.parse(repairJsonGlitches(withSemicolon)!);
+    expect(plan.blocks[0].text).toBe("...the widest margin variance.");
+    expect(plan.blocks[1].text).toContain("Key priorities");
+  });
+
+  it("leaves semicolons that are genuinely inside prose alone", () => {
+    // A semicolon is ordinary punctuation. Only one sitting between a closing
+    // quote and a closing bracket has a single possible reading.
+    const prose = '{"text": "first clause; second clause", "n": 1}';
+    expect(repairJsonGlitches(prose)).toBeNull();
+    expect(JSON.parse(prose).text).toBe("first clause; second clause");
+  });
+
+  it("does not treat an escaped quote as the end of a value", () => {
+    // The hostile case: prose that ends with a quoted word, a semicolon and a
+    // brace — `he said "go"; }` — reproduces the exact byte sequence the rule
+    // looks for, while every one of those characters is inside the string.
+    // Without the lookbehind this parses fine but quietly loses the semicolon
+    // from the user's text.
+    const escaped = '{"text": "he said \\"go\\"; }", "n": 1}';
+    expect(repairJsonGlitches(escaped)).toBeNull();
+    expect(JSON.parse(escaped).text).toBe('he said "go"; }');
+
+    // ...and the ordinary case, where the semicolon is just punctuation.
+    const plain = '{"text": "he said \\"go\\"; then left", "n": 1}';
+    expect(repairJsonGlitches(plain)).toBeNull();
+    expect(JSON.parse(plain).text).toBe('he said "go"; then left');
   });
 
   it("fixes every occurrence, not just the first", () => {
     const twice = '{"blocks":[{"type": "type": "table"},{"type": "type": "table"}]}';
-    const plan = JSON.parse(repairDuplicatedKey(twice)!);
+    const plan = JSON.parse(repairJsonGlitches(twice)!);
     expect(plan.blocks.map((b: { type: string }) => b.type)).toEqual(["table", "table"]);
   });
 
   it("handles the same collision on a slide plan's layout key", () => {
     // Deck plans carry the identical hazard: layout/chart/table/diagram.
     const slide = '{"slides":[{"layout": "layout": "chart", "chart": {"type": "column"}}]}';
-    const plan = JSON.parse(repairDuplicatedKey(slide)!);
+    const plan = JSON.parse(repairJsonGlitches(slide)!);
     expect(plan.slides[0].layout).toBe("chart");
     expect(plan.slides[0].chart.type).toBe("column");
   });
@@ -185,7 +226,7 @@ describe("repairDuplicatedKey fixes the shape actually observed", () => {
 
 describe("the BI endpoint uses it, and retries the glitch", () => {
   it("tries the repair before spending a whole retry", () => {
-    expect(BI_ROUTE).toContain("repairDuplicatedKey(cleaned)");
+    expect(BI_ROUTE).toContain("repairJsonGlitches(cleaned)");
   });
 
   it("never repairs silently", () => {
@@ -221,6 +262,15 @@ describe("the BI endpoint uses it, and retries the glitch", () => {
 
   it("does not start an attempt that cannot finish in the remaining budget", () => {
     expect(BI_ROUTE).toContain("spent * 2 + 5_000 <= upstreamMs");
+  });
+
+  it("never claims a retry it did not actually run", () => {
+    // The budget check can skip the retry. A message asserting "retrying it
+    // once failed too" would then be exactly the untrue-but-plausible advice
+    // this whole change exists to remove.
+    expect(BI_ROUTE).toContain("attemptsMade");
+    expect(BI_ROUTE).toContain("attemptsMade > 1");
+    expect(BI_ROUTE).not.toContain("Retrying it once already failed too");
   });
 
   it("no longer blames the JSON-only instruction when usage is simply absent", () => {

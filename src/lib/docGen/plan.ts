@@ -10,7 +10,8 @@ import type { DocFormat, DocGenMode, DocScope, DocxPlan, PptxPlan, XlsxPlan } fr
 /** A trimmed slice of the chat so the document reflects the conversation. */
 export type PlanConversationTurn = { role: "user" | "assistant"; content: string };
 
-function contextBlock(ctx: DocContext): string {
+/** Exported for tests — the planner prompt's CONTEXT section, verbatim. */
+export function contextBlock(ctx: DocContext): string {
   const parts: string[] = [];
   if (ctx.tables.length) {
     parts.push("DATA TABLES (SQL name — columns; then sample rows as JSON):");
@@ -33,6 +34,24 @@ function contextBlock(ctx: DocContext): string {
       parts.push(`- ${w.title ?? w.url ?? "result"}${w.url ? ` <${w.url}>` : ""}`);
       if (w.content) parts.push(`  ${w.content.slice(0, 2000)}`);
     }
+  }
+  // Research was asked for and produced nothing. Say so, loudly. Staying quiet
+  // here is what turned a request for live OCI pricing into a workbook of
+  // invented unit prices with a "Sources (cite when presenting)" sheet full of
+  // oracle.com links — the document read as researched, and nothing in it or
+  // around it admitted otherwise.
+  if (ctx.webAttempted && !ctx.web?.length) {
+    parts.push(
+      "",
+      "WEB RESEARCH: ATTEMPTED AND RETURNED NOTHING. No search provider is " +
+        "configured, or the search found no usable results. You therefore have NO " +
+        "live figures for this request. Do NOT present remembered or estimated " +
+        "numbers as sourced, and do NOT cite URLs you did not receive above. " +
+        "Use clearly-labelled placeholders or illustrative values, state in the " +
+        "document that the figures are unverified and must be confirmed against " +
+        "the vendor's current published pricing, and keep any formulas intact so " +
+        "the reader can drop in real numbers.",
+    );
   }
   if (!parts.length) parts.push("(No connected data — rely on the prompt and general knowledge.)");
   return parts.join("\n").slice(0, 18000);
