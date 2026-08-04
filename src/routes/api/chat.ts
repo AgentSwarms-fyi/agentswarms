@@ -124,24 +124,9 @@ function citationSources(citations: Citation[]): Source[] {
   }));
 }
 
-function buildGroundingPrompt(citations: Citation[], userSystemPrompt?: string): string {
-  const header = userSystemPrompt?.trim() ? userSystemPrompt.trim() + "\n\n" : "";
-  if (citations.length === 0) return userSystemPrompt || "";
-  const sources = citations
-    .map((c) => `[${c.index}] ${c.documentName} (collection: ${c.knowledgeBaseName})\n${c.snippet}`)
-    .join("\n\n");
-  return (
-    header +
-    "You have access to the following retrieved knowledge base sources. " +
-    "Ground your answer in these sources. " +
-    "When you use information from a source, cite it inline using bracketed numbers like [1] or [2,3] " +
-    "matching the source numbers below. " +
-    "If the sources do not contain the answer, say so explicitly and do not fabricate citations.\n\n" +
-    "=== SOURCES ===\n" +
-    sources +
-    "\n=== END SOURCES ==="
-  );
-}
+// buildGroundingPrompt is shared with the embed widget — see kb.server.ts. It
+// defangs SOURCES delimiters out of retrieved text, which a local copy here
+// did not do.
 
 // Emit the answer's SOURCES as a TRAILING event, once the text is known.
 //
@@ -1469,7 +1454,8 @@ export const Route = createFileRoute("/api/chat")({
               try {
                 const sbAuto = getServerSupabase(authToken);
                 if (sbAuto) {
-                  const { retrieveCitationsServer } = await import("@/utils/tools/kb.server");
+                  const { retrieveCitationsServer, buildGroundingPrompt } =
+                    await import("@/utils/tools/kb.server");
                   citations = await retrieveCitationsServer({
                     sb: sbAuto,
                     agentId: body.agentId,

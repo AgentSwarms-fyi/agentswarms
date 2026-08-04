@@ -22,7 +22,11 @@ import { budgetMessage, getBudgetDecision } from "@/utils/budgetGuard.server";
 import { recordGatewayCall } from "@/utils/observability/recordGatewayUsage.server";
 import { resolveOpenAICompatTransport } from "@/utils/providers/credentials.server";
 import type { ProviderId } from "@/utils/providers/types";
-import { retrieveCitationsServer, type Citation } from "@/utils/tools/kb.server";
+import {
+  buildGroundingPrompt,
+  retrieveCitationsServer,
+  type Citation,
+} from "@/utils/tools/kb.server";
 import { generateEmbedWidget } from "@/utils/embedBi.server";
 import {
   applyOutputGuardrails,
@@ -76,24 +80,9 @@ function sseOnce(text: string, status = 200): Response {
   });
 }
 
-function buildGroundingPrompt(citations: Citation[], baseSystemPrompt: string): string {
-  if (citations.length === 0) return baseSystemPrompt;
-  const header = baseSystemPrompt.trim() ? baseSystemPrompt.trim() + "\n\n" : "";
-  const sources = citations
-    .map((c) => `[${c.index}] ${c.documentName} (collection: ${c.knowledgeBaseName})\n${c.snippet}`)
-    .join("\n\n");
-  return (
-    header +
-    "You have access to the following retrieved knowledge base sources. " +
-    "Ground your answer in these sources. " +
-    "When you use information from a source, cite it inline using bracketed numbers like [1] or [2,3] " +
-    "matching the source numbers below. " +
-    "If the sources do not contain the answer, say so explicitly and do not fabricate citations.\n\n" +
-    "=== SOURCES ===\n" +
-    sources +
-    "\n=== END SOURCES ==="
-  );
-}
+// buildGroundingPrompt is shared with /api/chat — see kb.server.ts. A local
+// copy here dropped retrieved text into the system prompt without defanging
+// the SOURCES delimiters, and this route is the public, unauthenticated one.
 
 type ResolvedConfig = {
   label: string;
