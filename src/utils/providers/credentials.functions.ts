@@ -227,83 +227,20 @@ export const deleteProviderCredential = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-const TestSchema = z.object({ provider: providerEnum });
-export const testProviderCredential = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => TestSchema.parse(input))
-  .handler(async ({ data, context }) => {
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { decryptJson } = await import("./crypto.server");
-    const { loadCredentialRow } = await import("./credentials.server");
-    const { userId } = context;
-    const row = await loadCredentialRow(userId, data.provider);
-    if (!row) throw new Error("No credentials saved for this provider");
-
-    const decrypted = await decryptJson<Record<string, unknown>>(
-      (row.credentials as any).ciphertext,
-      (row.credentials as any).iv,
-    );
-    const config = row.config as Record<string, unknown>;
-
-    let status: "ok" | "error" = "ok";
-    let errorMessage: string | null = null;
-    try {
-      switch (data.provider) {
-        case "bedrock":
-          if (
-            !(decrypted as BedrockCreds).accessKeyId ||
-            !(decrypted as BedrockCreds).secretAccessKey
-          )
-            throw new Error("Missing access key id / secret");
-          if (!(config as BedrockConfig).region) throw new Error("Missing region");
-          break;
-        case "vertex": {
-          const sa = JSON.parse((decrypted as VertexCreds).serviceAccountJson);
-          if (!sa.client_email || !sa.private_key)
-            throw new Error("Service account JSON missing client_email/private_key");
-          if (!(config as VertexConfig).projectId) throw new Error("Missing projectId");
-          break;
-        }
-        case "anthropic":
-          if (!(decrypted as AnthropicCreds).apiKey) throw new Error("Missing API key");
-          break;
-        case "azure_openai":
-          if (!(decrypted as AzureCreds).apiKey) throw new Error("Missing API key");
-          if (!(config as AzureConfig).endpoint) throw new Error("Missing endpoint URL");
-          break;
-        case "oci_genai": {
-          const c = decrypted as OCICreds;
-          if (!c.tenancyOcid?.startsWith("ocid1.tenancy.")) throw new Error("Invalid tenancyOcid");
-          if (!c.userOcid?.startsWith("ocid1.user.")) throw new Error("Invalid userOcid");
-          if (!c.fingerprint?.includes(":")) throw new Error("Invalid fingerprint");
-          if (!c.privateKeyPem?.includes("PRIVATE KEY")) throw new Error("Missing PEM private key");
-          const cfg = config as OCIConfig;
-          if (!cfg.region) throw new Error("Missing region");
-          if (
-            !cfg.compartmentId?.startsWith("ocid1.compartment.") &&
-            !cfg.compartmentId?.startsWith("ocid1.tenancy.")
-          )
-            throw new Error("Invalid compartmentId");
-          break;
-        }
-        case "qwen":
-          if (!(decrypted as QwenCreds).apiKey) throw new Error("Missing API key");
-          break;
-      }
-    } catch (e) {
-      status = "error";
-      errorMessage = e instanceof Error ? e.message : "Unknown error";
-    }
-
-    await supabaseAdmin
-      .from("provider_credentials")
-      .update({
-        last_test_status: status,
-        last_test_error: errorMessage,
-        last_tested_at: new Date().toISOString(),
-      })
-      .eq("user_id", userId)
-      .eq("provider", data.provider);
-
-    return { status, error: errorMessage };
-  });
+// A `testProviderCredential` server function used to live here. It was never
+// called by anything, and it did not test a credential: it checked that the
+// saved fields were non-empty and shaped plausibly — an OCID starting with
+// "ocid1.tenancy.", a PEM containing "PRIVATE KEY" — and then wrote
+// last_test_status = "ok" to provider_credentials.
+//
+// A wrong-but-well-formed API key passed. Wiring that to a "Test" button, which
+// is the obvious next thing for someone to do with a function of that name,
+// would have produced a green tick that means nothing. Removed rather than
+// left as a trap.
+//
+// The integrations table has real tests (testIntegrationKey -> testAdapters
+// .server.ts) that make an actual authenticated roundtrip before the
+// "Connected" badge appears. Cloud provider credentials — bedrock, vertex,
+// azure_openai, oci_genai, anthropic, qwen — have no equivalent. Building one
+// means a minimal real call through each existing chat adapter; it is a
+// feature, not a repair, so it is not being invented here.
