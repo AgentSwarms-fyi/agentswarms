@@ -129,9 +129,39 @@ export function isTableRegistered(name: string): boolean {
   return isBrowserTableRegistered(name);
 }
 
+/**
+ * The hydration currently in flight, shared by every concurrent caller.
+ *
+ * DuckDB-Wasm's database lives for the whole TAB, and several surfaces
+ * hydrate independently — the catalog, the workbench, Visual BI in chat — so
+ * two of them mounting together ran two hydrations over one database. Each
+ * materialise() is `DROP TABLE IF EXISTS` then `CREATE TABLE`, which is
+ * idempotent alone but not against a second copy of itself: A's CREATE lands
+ * between B's DROP and CREATE and DuckDB answers
+ *   Catalog Error: Table with name "f1_world_champions" already exists!
+ * That aborts the losing hydration midway, so tables after the collision are
+ * never created — the catalog's own error was `saas_sales does not exist`
+ * moments later. The Workbench looked fine because it had hydrated first and
+ * won; the agent looked fine because it queries server-side.
+ *
+ * AlaSQL had no persistent per-tab database, so this could not happen before
+ * 92686b1. Sharing the promise makes a concurrent call wait for the first
+ * rather than fight it.
+ */
+let hydrationInFlight: Promise<DatasetMeta[]> | null = null;
+
 // Fetch the user's persisted datasets and materialise every row in the browser
-// DuckDB. Called once when the IDE mounts so all queries work immediately.
+// DuckDB. Safe to call from several surfaces at once — concurrent callers
+// share one hydration.
 export async function hydrateFromSupabase(): Promise<DatasetMeta[]> {
+  if (hydrationInFlight) return hydrationInFlight;
+  hydrationInFlight = hydrateFromSupabaseUncoordinated().finally(() => {
+    hydrationInFlight = null;
+  });
+  return hydrationInFlight;
+}
+
+async function hydrateFromSupabaseUncoordinated(): Promise<DatasetMeta[]> {
   // Start fetching the WebAssembly engine BEFORE the rows, so the ~8 MB
   // download overlaps the Supabase round trips instead of following them.
   // Hydration needs the engine regardless — this only moves it earlier — and

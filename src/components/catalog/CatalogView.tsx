@@ -211,7 +211,12 @@ export function CatalogView({
             };
           }),
         );
-      } catch {
+      } catch (e) {
+        // Local tables disappearing from the catalog while the Workbench and
+        // the agent can still query the same dataset is a hydration failure,
+        // not an empty account. Bare, this catch reported the two as the same
+        // thing: an empty "Local tables" filter and no way to tell which.
+        console.warn("[Catalog] local table hydration failed", e);
         setLocalAssets([]);
       }
       setLoading(false);
