@@ -133,6 +133,27 @@ function AccountDoc() {
         collections or dashboards matter, transfer or duplicate them first — or <strong>ban</strong>{" "}
         the account instead, which blocks sign-in while preserving everything.
       </Callout>
+      <P>Ban is almost always the right first move when someone leaves:</P>
+      <Table
+        headers={["", "Ban", "Delete"]}
+        rows={[
+          ["Can sign in", "No", "No"],
+          ["Their agents, collections, dashboards", "Kept", "Deleted with them"],
+          ["Grants they held", "Inert while banned", "Removed"],
+          ["Reversible", "Yes — unban", "No"],
+        ]}
+      />
+      <Callout kind="info" title="The audit trail outlives the account">
+        Deletion does not erase the record of what the person did. Audit events keep their
+        attribution: the link to the account is cleared, and the email captured at the time of the
+        action remains on the row — so a leaver cannot be used to launder the history of an action,
+        and a compliance question about a departed employee is still answerable. Everything else
+        they owned is genuinely gone.
+      </Callout>
+      <P>
+        Retention for that trail is set separately — see{" "}
+        <DocLink to="/docs/analytics#retention">Analytics</DocLink>.
+      </P>
 
       <NextPrev current="/docs/account" />
     </>

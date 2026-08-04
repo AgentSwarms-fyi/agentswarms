@@ -244,6 +244,25 @@ describe("the configuration recipes are usable", () => {
   });
 });
 
+describe("the account page's deletion promise matches the schema", () => {
+  const page = readFileSync("src/routes/docs.account.tsx", "utf8");
+
+  it("only claims the audit trail survives because the FK says so", () => {
+    // NOTE FOR WHOEVER READS THIS NEXT: this is true of the repo, and true of
+    // any instance that has applied 20260781000000. It was NOT true before
+    // that migration, when audit_events.user_id was ON DELETE CASCADE and a
+    // deleted account took its own history with it. If the migration is ever
+    // reverted, this claim has to come off the page in the same change.
+    const mig = readFileSync("supabase/migrations/20260781000000_audit_integrity.sql", "utf8");
+    expect(mig).toContain("ON DELETE SET NULL");
+    expect(mig).toContain("actor_email");
+    expect(page).toMatch(/audit trail outlives the account/i);
+    expect(page, "the page promises attribution the schema does not keep").toMatch(
+      /email captured at the time/i,
+    );
+  });
+});
+
 describe("the dashboard page lists the swarms the dashboard actually features", () => {
   // All four names on this page were wrong. Two were templates that do not
   // exist at all ("Stock Investment CIO", "Graph RAG Researcher"), one existed
