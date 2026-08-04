@@ -526,6 +526,26 @@ describe("the BI page states the numbers that decide whether a chart is right", 
   const dash = readFileSync("src/lib/biDashboards.ts", "utf8");
   const agg = readFileSync("src/lib/biAggregate.ts", "utf8");
 
+  it("counts the chart types, and documents each one", () => {
+    // The page said 27; ChartSpec has 26, and the reference listed all 26. A
+    // count is the claim a reader cannot check without the source.
+    //
+    // The regex allows the member to be spread over lines. An earlier version
+    // required `{ type: "x"` on one line and reported `matrix` as missing from
+    // the union — it is simply the one member with enough fields to wrap, and
+    // the page was right about it.
+    const agent = readFileSync("src/lib/biAgent.ts", "utf8");
+    const spec = agent.slice(agent.indexOf("export type ChartSpec"));
+    const body = spec.slice(0, spec.indexOf("\n\n", spec.indexOf("| {")));
+    const types = [...new Set([...body.matchAll(/\btype:\s*"([a-z_0-9]+)"/g)].map((m) => m[1]))];
+    expect(types.length, "the ChartSpec union was not parsed").toBeGreaterThan(15);
+    expect(page, `should say all ${types.length}`).toContain(`all ${types.length}`);
+
+    const section = page.slice(page.indexOf('id="charts"'), page.indexOf('id="formatting"'));
+    const missing = types.filter((t) => !new RegExp(`<C key="[^"]*">${t}</C>`).test(section));
+    expect(missing, `chart types with no entry: ${missing.join(", ")}`).toEqual([]);
+  });
+
   it("quotes the real snapshot row cap", () => {
     // The cap is the reason a chart can show a partial total, so a stale
     // number here misleads about exactly the case that matters.

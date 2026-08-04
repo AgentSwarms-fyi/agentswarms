@@ -168,7 +168,7 @@ GROUP BY region`}</Code>
         leave incremental off.
       </Callout>
 
-      <H2 id="charts">Chart types — all 27, with required fields</H2>
+      <H2 id="charts">Chart types — all 26, with required fields</H2>
       <P>
         Each chart declares which fields it needs. The builder only offers types your selected
         columns can satisfy, so a chart missing a required field cannot be created.
