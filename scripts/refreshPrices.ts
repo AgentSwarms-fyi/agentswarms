@@ -254,7 +254,20 @@ async function main() {
     console.log(`\n--dry: would write ${rows.length} rows to ${OUT} (previously ${prev})`);
     return;
   }
-  writeFileSync(OUT, out, "utf8");
+  // Format before writing. The generated file is linted like any other source
+  // file, and hand-rolled emission produced long float literals that prettier
+  // wanted wrapped — 12 lint errors that arrived with the first generated
+  // table and had nothing to do with the prices being right. Formatting here
+  // keeps the committed file clean without carving out an ignore rule.
+  let formatted = out;
+  try {
+    const prettier = await import("prettier");
+    const config = await prettier.resolveConfig(OUT);
+    formatted = await prettier.format(out, { ...config, filepath: OUT });
+  } catch (e) {
+    console.warn(`could not format ${OUT} (${String(e)}) — run prettier --write on it`);
+  }
+  writeFileSync(OUT, formatted, "utf8");
   console.log(`\nwrote ${OUT} — ${rows.length} rows (previously ${prev})`);
   console.log("REVIEW THE DIFF before committing: this moves budgets.");
 }
