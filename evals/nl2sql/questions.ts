@@ -39,7 +39,18 @@ export type EvalCategory =
   /** Two or more tables. The set had none of these at all until now. */
   | "join"
   /** Window functions, CTEs, correlated subqueries — impossible under AlaSQL. */
-  | "window";
+  | "window"
+  /**
+   * Data that is not tidy: identifiers with leading zeros, a column name with
+   * a space, the same status written three ways, blank cells, thousands
+   * separators, non-ASCII names.
+   *
+   * The other fourteen samples are clean, so every score before this one was
+   * measured on data no customer has. These questions are answerable — the
+   * mess is incidental to the analysis, exactly as it is in a real export —
+   * but each has a specific way to get it wrong.
+   */
+  | "dirty";
 
 export type EvalQuestion = {
   id: string;
@@ -732,6 +743,75 @@ export const QUESTIONS: EvalQuestion[] = [
     note:
       "Two ambiguities at once: which measure means 'healthiest', and which year. " +
       "Averaging every year together is the common mistake and changes the winner.",
+  },
+
+  // ── dirty data ────────────────────────────────────────────────────────────
+  // messy_orders is the only sample that looks like a real export.
+  {
+    id: "dirty-status-casing",
+    tables: ["messy_orders"],
+    question: "How many orders are in each status?",
+    referenceSql:
+      "SELECT LOWER(Status) AS status, COUNT(*) AS orders FROM messy_orders " +
+      "GROUP BY LOWER(Status) ORDER BY orders DESC, status",
+    category: "dirty",
+    // NOT `ordered`. cancelled and pending both count 3, so the second and
+    // third rows are a tie and whichever the engine emits first is arbitrary —
+    // the same coin-toss flaw the ambiguity questions already carry. Graded as
+    // a SET, which is what the question actually asks for: "how many orders in
+    // each status" has no inherent order. The reference keeps its ORDER BY only
+    // so its own output is stable to read.
+    note:
+      "Status is written three ways — Shipped, shipped, SHIPPED. Grouping on the raw " +
+      "column returns nine rows instead of three and every count is wrong. Nothing in " +
+      "the question hints at it; the schema sample is the only clue.",
+  },
+  {
+    id: "dirty-leading-zero-lookup",
+    tables: ["messy_orders"],
+    question: "What is the amount for order 00104?",
+    referenceSql: `SELECT Amount FROM messy_orders WHERE "Order ID" = '00104'`,
+    category: "dirty",
+    note:
+      "The id is text with leading zeros. Matching it as a number (= 104) finds nothing, " +
+      "and the column name needs quoting because of the space.",
+  },
+  {
+    id: "dirty-spaced-column-earliest",
+    tables: ["messy_orders"],
+    question: "Which order was placed earliest?",
+    referenceSql: `SELECT "Order ID", "Order Date" FROM messy_orders ORDER BY "Order Date" LIMIT 1`,
+    category: "dirty",
+    ordered: true,
+    note: "Both columns needed here contain a space; unquoted they are a syntax error.",
+  },
+  {
+    id: "dirty-total-by-region",
+    tables: ["messy_orders"],
+    question: "What is the total order amount for each region that has one recorded?",
+    referenceSql:
+      "SELECT Region, SUM(Amount) AS total FROM messy_orders " +
+      "WHERE Region IS NOT NULL AND Region <> '' GROUP BY Region ORDER BY total DESC",
+    category: "dirty",
+    ordered: true,
+    note:
+      "Three rows have a blank region. The question asks only for regions that have one, " +
+      "so the blank group must be excluded rather than reported as its own region. " +
+      "Amounts carry thousands separators, so a column read as text sums to nothing.",
+  },
+  {
+    id: "dirty-top-customer",
+    tables: ["messy_orders"],
+    question: "Which customer has spent the most in total?",
+    referenceSql:
+      "SELECT Customer, SUM(Amount) AS total FROM messy_orders " +
+      "GROUP BY Customer ORDER BY total DESC LIMIT 1",
+    category: "dirty",
+    ordered: true,
+    note:
+      "Customer names include non-ASCII (Café Rouge, Björn Industries, 日本テック). The " +
+      "winner is ASCII, so a query that mangles encoding still looks plausible — it just " +
+      "returns the wrong name.",
   },
 ];
 

@@ -375,6 +375,11 @@ export function describeColumn(c: ColumnDef, meta?: ColumnMeta): string {
   // and the query silently returns nothing. "Match literals exactly as they
   // appear in the schema" is only actionable once they appear in the schema.
   if (c.values?.length) parts.push(`values=[${c.values.join("|")}]`);
+  // Blanks are invisible otherwise. `Region (string) values=[AMER|APAC|EMEA]`
+  // reads as "every row has one of three regions" whether or not three rows
+  // are empty — so asked for "each region that has one recorded", the model
+  // had nothing to filter on and reported the blank group as a fourth region.
+  if (c.hasBlanks) parts.push("has_blanks");
   if (meta?.semantic_type) parts.push(`semantic=${meta.semantic_type}`);
   if (meta?.alias) parts.push(`alias="${meta.alias}"`);
   if (meta?.unit) parts.push(`unit=${meta.unit}`);
@@ -620,7 +625,22 @@ export function buildSqlPrompt(args: {
       "SUM(SUM(x)) OVER (ORDER BY ...), or pre-aggregate in a WITH clause. " +
       "A window result cannot be used in WHERE, so for the best/top row PER GROUP, rank " +
       "with ROW_NUMBER() OVER (PARTITION BY <group> ORDER BY <measure> DESC) inside a " +
-      "WITH clause and filter to rank 1 outside — several rows for one group is wrong." +
+      "WITH clause and filter to rank 1 outside — several rows for one group is wrong. " +
+      // Both measured on the dirty-data questions, which scored 3/5 while the
+      // clean set scored 80%. The model could SEE the seven Status variants in
+      // the schema and grouped on the raw column anyway, returning nine groups
+      // for three real statuses. The blank-region case was the opposite — the
+      // schema showed values=[AMER|APAC|EMEA] and said nothing about blanks,
+      // so `has_blanks` was added to describeColumn to give this rule
+      // something to act on.
+      "If a column's listed values contain THE SAME WORD spelled two ways (Shipped, " +
+      "shipped, SHIPPED), they are one category: group and filter on LOWER(column), or " +
+      "the counts split across spellings and every one is wrong. Apply this ONLY to such " +
+      "a column — never to one whose values are already distinct (AMER, APAC, EMEA), " +
+      "because lowercasing those changes the labels in the answer. " +
+      "A column marked has_blanks contains empty cells. When the question asks about rows " +
+      "that HAVE a value recorded, exclude them with IS NOT NULL AND <> '' — a blank is not " +
+      "a category and must not appear as its own group." +
       (args.repair
         ? " The previous statement FAILED. Return a corrected single statement that runs. " +
           "Check every table and column name against the schema — a name that is not listed " +

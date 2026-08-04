@@ -23,6 +23,20 @@ export type ColumnDef = {
    * are worth putting in a prompt.
    */
   values?: string[];
+  /**
+   * True when the column has at least one empty or null cell.
+   *
+   * Same reason `values` exists: the model can only reason about what the
+   * schema shows it. A Region column holding three regions and three blanks
+   * was rendered `Region (string) values=[AMER|APAC|EMEA]` — indistinguishable
+   * from a column where every row has a region. Asked for "each region that
+   * has one recorded", the model had no reason to exclude anything, and
+   * reported the blank group as a region of its own.
+   *
+   * Deliberately a flag, not a count: the exact number changes on every
+   * refresh and would make an otherwise-stable schema string churn.
+   */
+  hasBlanks?: boolean;
 };
 
 /** Most distinct values worth listing; beyond this a column is free-form. */
@@ -156,13 +170,22 @@ export function inferColumns(rows: Record<string, unknown>[]): ColumnDef[] {
       seen++;
       if (seen >= TYPE_SAMPLE_ROWS) break;
     }
+    // Whether ANY cell is empty. Scanned over the whole column rather than the
+    // type sample, because a column can be dense at the top and sparse later —
+    // which is exactly the shape that misleads anyone reading a preview.
+    const hasBlanks = rows.some((r) => {
+      const v = r[name];
+      return v === null || v === undefined || v === "";
+    });
+    const blank = hasBlanks ? { hasBlanks: true as const } : {};
+
     const winner: ColumnType =
       counts.number > counts.string && counts.number >= counts.date
         ? "number"
         : counts.date > counts.string
           ? "date"
           : "string";
-    if (winner !== "string") return { name, type: winner };
+    if (winner !== "string") return { name, type: winner, ...blank };
 
     // Scan the WHOLE column, not the type sample: a category that appears only
     // late is exactly the literal a model would otherwise invent. Bail as soon
@@ -172,12 +195,12 @@ export function inferColumns(rows: Record<string, unknown>[]): ColumnDef[] {
       const v = r[name];
       if (v === null || v === undefined || v === "") continue;
       const str = String(v);
-      if (str.length > MAX_ENUM_VALUE_LEN) return { name, type: winner };
+      if (str.length > MAX_ENUM_VALUE_LEN) return { name, type: winner, ...blank };
       distinct.add(str);
-      if (distinct.size > MAX_ENUM_VALUES) return { name, type: winner };
+      if (distinct.size > MAX_ENUM_VALUES) return { name, type: winner, ...blank };
     }
-    if (distinct.size === 0) return { name, type: winner };
-    return { name, type: winner, values: [...distinct].sort() };
+    if (distinct.size === 0) return { name, type: winner, ...blank };
+    return { name, type: winner, values: [...distinct].sort(), ...blank };
   });
 }
 

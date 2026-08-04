@@ -1,0 +1,16 @@
+Order ID,Order Date,Customer,Region,Status,Amount,Qty
+00101,2024-01-15,Café Rouge,EMEA,Shipped,"1,240.50",3
+00102,2024-01-18,Björn Industries,EMEA,shipped,"890.00",2
+00103,2024-02-02,Acme Corp,AMER,SHIPPED,"2,150.75",5
+00104,2024-02-11,日本テック,APAC,Pending,"430.20",1
+00105,2024-02-19,Acme Corp,AMER,pending,"1,999.99",4
+00106,2024-03-03,Café Rouge,EMEA,Cancelled,"310.00",1
+00107,2024-03-12,Globex,,Shipped,"725.40",2
+00108,2024-03-21,Björn Industries,EMEA,SHIPPED,"1,080.10",3
+00109,2024-04-05,Globex,,cancelled,"260.00",1
+00110,2024-04-14,Acme Corp,AMER,Shipped,"3,400.00",8
+00111,2024-04-22,日本テック,APAC,shipped,"640.60",2
+00112,2024-05-06,Initech,AMER,Pending,"155.25",1
+00113,2024-05-17,Café Rouge,EMEA,Shipped,"2,780.90",6
+00114,2024-05-29,Globex,,SHIPPED,"495.00",1
+00115,2024-06-08,Initech,AMER,Cancelled,"1,320.45",3
