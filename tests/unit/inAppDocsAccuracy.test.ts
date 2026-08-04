@@ -244,6 +244,62 @@ describe("the configuration recipes are usable", () => {
   });
 });
 
+describe("the semantic layer's vocabulary matches the code", () => {
+  // Every one of these is a string a user TYPES into a metric query, so a
+  // documented name that does not exist is a query that silently returns
+  // nothing useful. All verified correct; pinned because the lists are
+  // exported constants that will grow.
+  const page = readFileSync("src/routes/docs.semantics.tsx", "utf8");
+  const lib = readFileSync("src/lib/semanticLayer.ts", "utf8");
+
+  const listOf = (name: string) => {
+    const at = lib.indexOf(`export const ${name} = [`);
+    if (at === -1) return [];
+    return [...lib.slice(at, lib.indexOf("] as const", at)).matchAll(/"([a-z_]+)"/g)].map(
+      (m) => m[1],
+    );
+  };
+
+  for (const name of ["RELATIVE_DATE_OPS", "COMPARE_PERIODS", "COMPARE_SUFFIXES"]) {
+    it(`documents every ${name} member`, () => {
+      const members = listOf(name);
+      expect(members.length, `${name} was not parsed`).toBeGreaterThan(1);
+      for (const m of members) {
+        expect(page, `${name} member ${m} is undocumented`).toMatch(new RegExp(`<C[^>]*>${m}</C>`));
+      }
+    });
+  }
+});
+
+describe("the knowledge and API pages quote real values", () => {
+  it("the snippet radius matches the retriever", () => {
+    const kb = readFileSync("src/utils/tools/kb.server.ts", "utf8");
+    const radius = kb.match(/const SNIPPET_RADIUS = (\d+)/)?.[1];
+    expect(radius).toBeTruthy();
+    expect(readFileSync("src/routes/docs.knowledge.tsx", "utf8")).toContain(`${radius} characters`);
+  });
+
+  it("the API key scopes are the ones the route accepts", () => {
+    const deploy = readFileSync("src/utils/swarmDeploy.functions.ts", "utf8");
+    const at = deploy.indexOf("SWARM_KEY_SCOPES = [");
+    const scopes = [...deploy.slice(at, deploy.indexOf("]", at)).matchAll(/"([a-z_]+)"/g)].map(
+      (m) => m[1],
+    );
+    expect(scopes.length).toBeGreaterThan(1);
+    const page = readFileSync("src/routes/docs.api.tsx", "utf8");
+    for (const s of scopes) {
+      expect(page, `scope ${s} is undocumented`).toMatch(new RegExp(`<C[^>]*>${s}</C>`));
+    }
+  });
+
+  it("the webhook event name is the one actually sent", () => {
+    const hook = readFileSync("src/utils/swarmWebhook.server.ts", "utf8");
+    const event = hook.match(/"X-AgentSwarms-Event": "([a-z.]+)"/)?.[1];
+    expect(event).toBeTruthy();
+    expect(readFileSync("src/routes/docs.api.tsx", "utf8")).toContain(event!);
+  });
+});
+
 describe("the notebooks page does not demonstrate a call that always fails", () => {
   const page = readFileSync("src/routes/docs.notebooks.tsx", "utf8");
   const api = readFileSync("src/routes/api/python-agent.ts", "utf8");
