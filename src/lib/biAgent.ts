@@ -721,6 +721,74 @@ export async function suggestChart(args: {
   return out;
 }
 
+/**
+ * Totals, extremes and the row that holds each extreme — computed in code.
+ *
+ * The narrative model used to derive these from a ten-row sample and state
+ * them as fact. It got a total wrong by a factor of two and named the wrong
+ * top product; both read as confident prose under a correct chart. Arithmetic
+ * is not something to ask a language model for when the rows are right here.
+ *
+ * Computed over every row the result carries, and says so when that is itself
+ * a truncated set — an honest "of the rows shown" beats a total presented as
+ * complete.
+ */
+export function describeResultFacts(result: QueryResult): string {
+  const rows = result.rows ?? [];
+  if (rows.length === 0) return "";
+
+  const numeric: string[] = [];
+  const labels: string[] = [];
+  for (const c of result.columns) {
+    const vals = rows.map((r) => r[c]).filter((v) => v !== null && v !== undefined);
+    if (vals.length && vals.every((v) => typeof v === "number" || !Number.isNaN(Number(v)))) {
+      numeric.push(c);
+    } else if (vals.length) {
+      labels.push(c);
+    }
+  }
+  const labelCol = labels[0];
+
+  const lines: string[] = [];
+  for (const c of numeric) {
+    let sum = 0;
+    let max = -Infinity;
+    let min = Infinity;
+    let maxLabel = "";
+    let minLabel = "";
+    for (const r of rows) {
+      const raw = r[c];
+      // Number(null) is 0 and Number("") is 0, both finite — so a finiteness
+      // check alone counts every blank as a zero, dragging min to 0 and
+      // labelling it with whichever row happened to be empty. Skip first.
+      if (raw === null || raw === undefined || raw === "") continue;
+      const n = Number(raw);
+      if (!Number.isFinite(n)) continue;
+      sum += n;
+      if (n > max) {
+        max = n;
+        maxLabel = labelCol ? String(r[labelCol] ?? "") : "";
+      }
+      if (n < min) {
+        min = n;
+        minLabel = labelCol ? String(r[labelCol] ?? "") : "";
+      }
+    }
+    if (!Number.isFinite(max)) continue;
+    const round = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(2));
+    lines.push(
+      `${c}: total=${round(sum)} max=${round(max)}${maxLabel ? ` (${maxLabel})` : ""} ` +
+        `min=${round(min)}${minLabel ? ` (${minLabel})` : ""}`,
+    );
+  }
+  if (lines.length === 0) return "";
+
+  const scope = result.capped
+    ? `computed over the ${rows.length} rows returned, which are TRUNCATED — describe them as "of the rows shown", never as a complete total`
+    : `computed over all ${rows.length} rows`;
+  return `\nCOMPUTED FACTS (authoritative — ${scope}):\n${lines.join("\n")}`;
+}
+
 export async function summarizeResult(args: {
   question: string;
   result: QueryResult;
@@ -731,6 +799,16 @@ export async function summarizeResult(args: {
   const hasDocs = Boolean(args.docs?.length);
   if (args.result.row_count === 0 && !hasDocs) return "The query returned no rows.";
   const sample = args.result.rows.slice(0, 10);
+  // Arithmetic done HERE, not by the model. Measured: given five products it
+  // reported "approximately $1.4M" against a true total of $704,186 — double —
+  // and named the wrong product as top by units. Both stated flatly, in prose,
+  // under a chart that was correct.
+  //
+  // It could hardly do better: it was shown a TEN-ROW SAMPLE and the total row
+  // count, and asked to "lead with the headline number". Any total it produced
+  // was either invented or extrapolated from a prefix — the same shape as the
+  // snapshot-cap bug, in words instead of a bar.
+  const facts = describeResultFacts(args.result);
   const docBlock = hasDocs ? `\n\n${describeDocs(args.docs!)}` : "";
   const out = await llmJson<{ summary: string }>({
     model: args.model,
@@ -747,7 +825,16 @@ export async function summarizeResult(args: {
       : "You summarize SQL query results in 2–3 short sentences for a business user. " +
         "Lead with the headline number. Round large numbers (e.g. $1.2M, 3.4k). " +
         "Do NOT show SQL or column names verbatim — speak naturally.",
-    userPrompt: `QUESTION: ${args.question}\nROWS (sample): ${JSON.stringify(sample)}\nTOTAL ROWS: ${args.result.row_count}${args.result.capped ? " (truncated)" : ""}${docBlock}\n\nReturn JSON: { "summary": "..." }`,
+    // COMPUTED FACTS is the only source for a total or a superlative. The rows
+    // are a SAMPLE, so anything derived from them is derived from a prefix.
+    userPrompt:
+      `QUESTION: ${args.question}\nROWS (sample): ${JSON.stringify(sample)}\n` +
+      `TOTAL ROWS: ${args.result.row_count}${args.result.capped ? " (truncated)" : ""}` +
+      `${facts}${docBlock}\n\n` +
+      `Use the COMPUTED FACTS for every total, maximum and minimum, and for which row holds ` +
+      `them — do NOT add up the sample rows yourself, they are only a sample. If a figure you ` +
+      `want is not in COMPUTED FACTS, describe the data without it rather than estimating.\n\n` +
+      `Return JSON: { "summary": "..." }`,
   });
   return out.summary;
 }
