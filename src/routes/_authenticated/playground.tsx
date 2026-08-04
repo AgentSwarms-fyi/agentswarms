@@ -1679,7 +1679,14 @@ function PlaygroundPage() {
             <DocGenBar
               armed={armedDoc}
               onPick={(f) => {
-                setArmedDoc((cur) => (cur === f ? null : f));
+                const next = armedDoc === f ? null : f;
+                setArmedDoc(next);
+                // One output per turn. Visual BI answers a data question by
+                // returning BEFORE the agent runs, so with a format also armed
+                // the turn produced a chart and silently dropped the document
+                // that was asked for in the same breath — no file, and no
+                // mention that none was made.
+                if (next) setBiVisuals(false);
                 if (armedDoc !== f) textareaRef.current?.focus();
               }}
               busy={docPhase !== "idle"}
@@ -1689,7 +1696,18 @@ function PlaygroundPage() {
               onModeChange={setDocMode}
               deepAvailable={deepStatus.available}
               deepReason={deepStatus.reason}
-              biControl={selectedAgent ? { enabled: biVisuals, onToggle: setBiVisuals } : undefined}
+              biControl={
+                selectedAgent
+                  ? {
+                      enabled: biVisuals,
+                      onToggle: (next) => {
+                        setBiVisuals(next);
+                        // The other half of the same rule — see onPick above.
+                        if (next) setArmedDoc(null);
+                      },
+                    }
+                  : undefined
+              }
             />
           </div>
         </div>
