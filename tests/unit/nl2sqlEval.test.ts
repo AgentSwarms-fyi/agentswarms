@@ -251,3 +251,81 @@ describe("the summary", () => {
     expect(summarize([]).accuracy).toBe(0);
   });
 });
+
+describe("the eval runner can still be loaded by the tool that runs it", () => {
+  // THIS FILE ALREADY EXISTED AND DID NOT CATCH THE BREAK. The eval was
+  // unrunnable for 82 commits: biAgent imported lib/sqlEngine -> lib/
+  // browserDuckdb -> `import mvpWasm from "…/duckdb-mvp.wasm?url"`, a
+  // Vite-only specifier. Under Node the .wasm resolved as a package and died
+  // on its internal `env` import before a single question ran.
+  //
+  // The tests above cover the eval's QUESTIONS and its GRADING, neither of
+  // which touches the runner's dependency graph — so they stayed green.
+  //
+  // A FIRST ATTEMPT AT THIS GUARD WAS WORTHLESS, and mutation testing is the
+  // only reason that was noticed: it did `await import("@/lib/biAgent")`
+  // inside vitest, restoring the exact broken import left it GREEN, because
+  // VITEST IS A VITE ENVIRONMENT and resolves `?url` happily. No test running
+  // under vitest can ever catch this class of bug.
+  //
+  // So it has to run under the same tool the eval does. `npm run eval:nl2sql`
+  // is `tsx evals/nl2sql/run.ts`, and run.ts ends in `await main()` — it would
+  // execute the eval and spend money — so a child `tsx` process imports the
+  // runner's dependencies instead. Slow (a real process), and the only version
+  // of this that tests anything.
+  const RUNNER = "evals/nl2sql/run.ts";
+
+  // Multiline-aware: run.ts imports localEngine.server across four lines, and
+  // a single-line regex silently skipped it — leaving the guard checking a
+  // subset of the runner's graph while looking complete.
+  const specifiers = [
+    ...readFileSync(RUNNER, "utf8").matchAll(/^import\s+[\s\S]*?from\s+"([^"]+)";/gm),
+  ]
+    .map((m) => m[1])
+    .filter((s) => s.startsWith("@/"));
+
+  it("found the runner's aliased imports", () => {
+    expect(specifiers.length, "no imports parsed — the regex or the file changed").toBeGreaterThan(
+      1,
+    );
+    expect(specifiers, "biAgent is the one that broke; it must stay covered").toContain(
+      "@/lib/biAgent",
+    );
+  });
+
+  it("loads every one of them under plain tsx, as the eval does", async () => {
+    const { spawnSync } = await import("node:child_process");
+    const { writeFileSync, mkdirSync, rmSync } = await import("node:fs");
+
+    // The probe goes in a FILE, at a relative path with no spaces, rather
+    // than into `tsx -e`. Windows needs shell:true to launch npx at all, and
+    // shell:true concatenates arguments instead of escaping them — passing a
+    // multi-line program containing quotes through that is the escaping trap
+    // that has cost this repo real time. A bare relative path has no
+    // quoting hazard, and the repo's own path contains a space.
+    // Inside the project, so tsconfig path aliases ("@/…") resolve. tsx
+    // resolves them relative to the IMPORTING file, so a probe in
+    // node_modules/.cache fails every @/ import for a reason that has nothing
+    // to do with what is being tested — which is how the first version of this
+    // "failed" while the code was fine.
+    const dir = "evals";
+    const probe = `${dir}/.import-probe.mts`;
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(probe, specifiers.map((s) => `await import(${JSON.stringify(s)});`).join("\n"));
+
+    try {
+      const res = spawnSync("npx", ["tsx", probe], {
+        encoding: "utf8",
+        timeout: 120_000,
+        shell: true,
+      });
+      const output = `${res.stdout ?? ""}${res.stderr ?? ""}`;
+      expect(
+        res.status,
+        `the eval's imports no longer load under tsx:\n${output.slice(0, 700)}`,
+      ).toBe(0);
+    } finally {
+      rmSync(probe, { force: true });
+    }
+  }, 150_000);
+});

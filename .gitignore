@@ -36,3 +36,6 @@ connectors.json
 # reminder. Throwaway verification scripts belong outside the repo.
 probe-*.ts
 scratch-*.ts
+
+# Scratch file written by the eval-loadability test.
+evals/.import-probe.mts
