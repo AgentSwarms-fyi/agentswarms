@@ -244,6 +244,46 @@ describe("the configuration recipes are usable", () => {
   });
 });
 
+describe("the notebooks page does not demonstrate a call that always fails", () => {
+  const page = readFileSync("src/routes/docs.notebooks.tsx", "utf8");
+  const api = readFileSync("src/routes/api/python-agent.ts", "utf8");
+  const helper = readFileSync("docker/notebook-runtime/agentswarms_helper.py", "utf8");
+
+  it("only calls helpers that exist", () => {
+    const called = [...new Set([...page.matchAll(/agentswarms\.([a-z_]+)/g)].map((m) => m[1]))];
+    expect(called.length).toBeGreaterThan(3);
+    for (const fn of called) {
+      // Attribute access, so __all__ membership is not the test — definition is.
+      expect(helper, `agentswarms.${fn} is not defined in the helper`).toMatch(
+        new RegExp(`^(async )?def ${fn}\\(`, "m"),
+      );
+    }
+  });
+
+  it("labels run_agent as unavailable for as long as it returns 501", () => {
+    // The page used to present it as working, with a copyable example and a
+    // rationale for preferring it — for a call that has never succeeded from a
+    // notebook. Whichever way this is resolved, the two must agree.
+    const returns501 = /run_agent is not available from a notebook/.test(api);
+    if (returns501) {
+      expect(page, "the page still presents run_agent as working").toMatch(/501/);
+      expect(page, "no worked alternative is offered").toMatch(/single-node swarm/i);
+      // And the runnable example must not be the broken call.
+      const examples = [...page.matchAll(/<Code lang="python">\{`([\s\S]*?)`\}<\/Code>/g)].map(
+        (m) => m[1],
+      );
+      for (const ex of examples) {
+        expect(ex, "a python example calls run_agent, which 501s").not.toContain(
+          "agentswarms.run_agent(",
+        );
+      }
+    } else {
+      // If someone implements it, this branch fires and the caveat must go.
+      expect(page, "run_agent works now — remove the 501 caveat").not.toMatch(/returns 501/);
+    }
+  });
+});
+
 describe("the guardrails page lists every PII detector", () => {
   // Verified correct during the count sweep — eight entities, eight rows, same
   // names. Pinned because a detector added without a docs row is a redaction

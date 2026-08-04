@@ -248,29 +248,45 @@ function NotebooksDoc() {
           [<C key="b">await agentswarms.kb_search(query)</C>, "Knowledge base hits"],
           [<C key="c">await agentswarms.list_knowledge_bases()</C>, "Collections you can read"],
           [
-            <C key="d">await agentswarms.run_agent(agent_id, prompt)</C>,
-            "A saved agent's reply — its real prompt, tools, knowledge, memory and guardrails",
-          ],
-          [
             <C key="e">await agentswarms.run_swarm(swarm_id, input)</C>,
             "A saved swarm's final output",
           ],
           [<C key="f">await agentswarms.list_agents()</C>, "Your agents and swarms, with ids"],
+          [
+            <C key="d">await agentswarms.run_agent(agent_id, prompt)</C>,
+            <>
+              <strong key="x">Not available</strong> — returns 501. See below.
+            </>,
+          ],
         ]}
       />
       <Code lang="python">{`import agentswarms
 
 catalog = await agentswarms.list_agents()
-agent_id = catalog["agents"][0]["id"]
+swarm_id = catalog["swarms"][0]["id"]
 
-reply = await agentswarms.run_agent(agent_id, "Summarise ticket 48213")
-print(reply)`}</Code>
+result = await agentswarms.run_swarm(swarm_id, "Summarise ticket 48213")
+print(result)`}</Code>
       <Callout kind="why">
-        <C>run_agent</C> is not <C>chat</C> with extra steps. It runs the agent exactly as
-        configured in the Agent Builder, so a notebook gets the same behaviour as the playground and
-        the embed instead of a Python re-implementation that drifts from it. Provider keys never
-        enter the sandbox — the call is brokered by the platform and stays governed by IAM model
-        rules, budgets and traces.
+        <C>run_swarm</C> is not <C>chat</C> with extra steps. It runs what you built exactly as
+        configured, so a notebook gets the same behaviour as the canvas instead of a Python
+        re-implementation that drifts from it. Provider keys never enter the sandbox — the call is
+        brokered by the platform and stays governed by IAM model rules, budgets and traces.
+      </Callout>
+      <Callout kind="warn" title="run_agent returns 501, and always has">
+        The kernel authenticates with a runtime session token; the chat route accepts only a user
+        JWT or the internal-run secret, so this call has never succeeded from a notebook. It is
+        listed here because the function exists in the helper and you will find it — not because it
+        works.
+        <br />
+        <br />
+        <strong>
+          To run one saved agent from a notebook, wrap it in a single-node swarm.
+        </strong>{" "}
+        Importing an agent onto a swarm node copies its prompt, model, tools and knowledge base onto
+        that node, so the run is faithful to the agent. The one difference worth knowing: the copy
+        is a <em>snapshot</em>, so later edits to the agent do not reach a swarm built from it —
+        re-import the node to pick them up.
       </Callout>
       <Callout kind="warn" title="Approval nodes are rejected, not awaited">
         A notebook cell is unattended, so a swarm that reaches a human approval gate fails fast
