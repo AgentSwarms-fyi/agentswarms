@@ -257,6 +257,107 @@ function ConceptsPage() {
         first and forming a theory second.
       </P>
 
+      <H2 id="choosing">Which one do I actually want?</H2>
+      <P>
+        The concepts above overlap enough that the common question is not "what is retrieval" but
+        "is this a retrieval problem or a data problem". This is the mapping that resolves most of
+        them:
+      </P>
+      <Table
+        headers={["What you want", "Reach for", "Not"]}
+        rows={[
+          [
+            "Answers quoted faithfully from documents",
+            <>
+              A{" "}
+              <DocLink key="a" to="/docs/knowledge">
+                knowledge base
+              </DocLink>
+            </>,
+            "A long system prompt containing the documents — it costs the same tokens every turn and still cannot cite",
+          ],
+          [
+            "A number that has to be arithmetically right",
+            <>
+              A table and <C key="b">sql_query</C> —{" "}
+              <DocLink key="c" to="/docs/data">
+                Data Catalog
+              </DocLink>
+            </>,
+            "Retrieval. A model reading a figure out of prose is guessing, confidently",
+          ],
+          [
+            "A definition everyone must compute the same way",
+            <>
+              A{" "}
+              <DocLink key="d" to="/docs/semantics">
+                semantic metric
+              </DocLink>
+            </>,
+            "Repeating the SQL in each dashboard, where the four copies drift",
+          ],
+          [
+            "A reusable transformation of your own data",
+            <>
+              A{" "}
+              <DocLink key="e" to="/docs/data-prep">
+                prepared table
+              </DocLink>
+            </>,
+            "A calculated field in each chart that needs it",
+          ],
+          [
+            "Steps that must happen in a fixed order, with a human check",
+            <>
+              A{" "}
+              <DocLink key="f" to="/docs/swarms">
+                swarm
+              </DocLink>{" "}
+              with an approval node
+            </>,
+            "One agent and a prompt telling it to ask first — a prompt is guidance, a gate is a gate",
+          ],
+          [
+            "The agent to remember something between conversations",
+            <>
+              Long-term{" "}
+              <DocLink key="g" to="/docs/agents">
+                memory
+              </DocLink>
+              , opt-in per agent
+            </>,
+            "A larger context window, which forgets everything the moment the conversation ends",
+          ],
+          [
+            "Something it must never say or leak",
+            <>
+              A{" "}
+              <DocLink key="h" to="/docs/guardrails">
+                guardrail
+              </DocLink>
+              , which runs outside the model
+            </>,
+            "An instruction in the system prompt, which is exactly what a manipulated prompt talks it out of",
+          ],
+          [
+            "To stop one team spending the whole budget",
+            <>
+              A{" "}
+              <DocLink key="i" to="/docs/budgets">
+                cap
+              </DocLink>{" "}
+              on the group or credential
+            </>,
+            "Watching the analytics page and intervening — by then it is spent",
+          ],
+        ]}
+      />
+      <Callout kind="why">
+        Nearly every "the model isn't good enough" report is one of these choices made the other
+        way. A bigger model does not make prose arithmetically correct, does not make a prompt into
+        an enforced gate, and does not remember anything after the conversation ends.
+      </Callout>
+
       <H3 id="glossary">Quick glossary</H3>
       <Table
         headers={["Term", "Meaning"]}
