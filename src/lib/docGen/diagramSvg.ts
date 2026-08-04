@@ -16,8 +16,24 @@ export type DiagramColors = {
   accent: string;
 };
 
+/**
+ * Normalise a colour to `#rrggbb`, falling back rather than trusting input.
+ *
+ * Colours land in SVG attributes unescaped — `fill="${color}"` — so a value
+ * carrying a quote would close the attribute and open another. Today every
+ * caller passes either a module constant or a value already through
+ * build.ts's normalizeHex, so nothing reaches here unvalidated. This function
+ * used to rely on that: it prefixed a `#` and returned whatever it was given.
+ *
+ * That made the safety of the SVG a property of the CALLER, in an exported
+ * function that takes colours as an argument. Validating here instead means
+ * the next caller cannot get it wrong, and costs one regex.
+ */
 function hx(c: string): string {
-  return "#" + String(c ?? "").replace(/^#/, "");
+  const h = String(c ?? "")
+    .replace(/^#/, "")
+    .trim();
+  return /^[0-9a-fA-F]{6}$/.test(h) ? `#${h}` : "#000000";
 }
 
 /** Darken a #hex toward black by amt (0..1) — for gradient stops. */
