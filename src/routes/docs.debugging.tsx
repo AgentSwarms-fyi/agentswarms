@@ -67,11 +67,11 @@ function DebuggingDoc() {
         items={[
           {
             name: "Metrics",
-            body: "Latency, tokens in, tokens out, and cost computed from model pricing.",
+            body: "Latency, tokens in, tokens out, and cost computed from model pricing — attributed to the user, agent and credential that caused it.",
           },
           {
-            name: "Prompt",
-            body: "The prompt for the run, with the agent and model that handled it.",
+            name: "Resolved system prompt",
+            body: "What the model was ACTUALLY told, after retrieval, memory and routing guidance were folded in — not the template you configured. Usually the most surprising part of the record, and the first thing to read.",
           },
           {
             name: "Tool calls",
@@ -97,7 +97,13 @@ function DebuggingDoc() {
         <DocLink to="/docs/analytics">observability view</DocLink> adds the per-node timeline.
       </P>
 
-      <H2 id="method">A debugging method that works</H2>
+      <Callout kind="why">
+        An agent's explanation of its own reasoning is generated text — it is a plausible story
+        about what happened, not a record of it. The trace is the record. When the two disagree, the
+        trace is right. Debug in that order and you will stop chasing phantom problems.
+      </Callout>
+
+      <H2 id="method">Three habits</H2>
       <UL>
         <li>
           <strong>Reproduce, then read.</strong> Re-run the failing input, open the trace, and read
@@ -121,31 +127,57 @@ function DebuggingDoc() {
         exactly this skill: it produces a broken trace and asks you to find the cause.
       </Note>
 
-      <H2 id="what-a-trace-holds">What a trace records</H2>
+      <H2 id="symptoms">Symptom to cause</H2>
+      <P>
+        The same handful of failures account for most of them, and each has a signature in the trace
+        that identifies it in seconds. Read the row that matches what you saw:
+      </P>
       <Table
-        headers={["Field", "Why it matters"]}
+        headers={["What you saw", "What the trace shows", "Cause"]}
         rows={[
           [
-            "Resolved system prompt",
-            "What the model was ACTUALLY told, after retrieval, memory and routing guidance were folded in. Usually not what you think you configured.",
+            "A confident answer that is simply untrue",
+            "The resolved system prompt contains no retrieved context, or a retrieval block with zero passages",
+            "Retrieval matched nothing and the model answered from training. Fix the collection or the prompt's refusal rule — not the model.",
           ],
           [
-            "Each tool call",
-            "Name, arguments and the raw result — including errors the model then papered over.",
+            "It ignored a tool you know it has",
+            "The request payload's tool list does not contain it",
+            "Not enabled on this agent, or not allow-listed. If it IS in the list, the description is too vague to match the question.",
           ],
           [
-            "Tokens in / out",
-            "Where the cost went; a huge input usually means retrieval or history, not the question.",
+            "A number that is wrong but plausible",
+            <>
+              No <C key="a">sql_query</C> call — the answer came from a document
+            </>,
+            "It read a figure out of prose instead of counting. Attach the table and enable the tool.",
           ],
-          ["Latency", "Per call, so you can see which step is slow."],
-          ["Cost", "Attributed to the user, agent and credential that caused it."],
-          ["Status", "completed / error, with the error message."],
+          [
+            "The answer stops mid-sentence",
+            "Tokens out sits exactly at the configured maximum",
+            "max_tokens truncation. Common cause of JSON that will not parse.",
+          ],
+          [
+            "One run cost 20× its neighbours",
+            "Tokens in is enormous while the question is short",
+            "Retrieval or conversation history is dominating the prompt — and being paid for every turn.",
+          ],
+          [
+            "It says it did something it did not do",
+            "No tool call for the action it described",
+            "The model narrated an intention. Only a tool call in the trace is evidence that anything happened.",
+          ],
+          [
+            "It worked yesterday, fails today",
+            "A tool call returning an error the answer never mentioned",
+            "An upstream change. Models rarely announce a failed tool; they answer around it.",
+          ],
         ]}
       />
-      <Callout kind="why">
-        An agent's explanation of its own reasoning is generated text — it is a plausible story
-        about what happened, not a record of it. The trace is the record. When the two disagree, the
-        trace is right. Debug in that order and you will stop chasing phantom problems.
+      <Callout kind="warn" title="An empty result and a failed call look identical in the answer">
+        Both produce a fluent reply with no sign anything went wrong, which is why the tool-call
+        result — not the answer — is the thing to read. This is the single highest-yield habit on
+        the page.
       </Callout>
 
       <H2 id="reading">A debugging order that works</H2>
@@ -178,13 +210,44 @@ function DebuggingDoc() {
         them.
       </P>
 
-      <H2 id="prompt-bodies">Prompt bodies</H2>
+      <H2 id="prompt-bodies">Retention, and what a regulated tenant can turn off</H2>
       <P>
-        Whether full prompt and response bodies are stored is controlled by{" "}
-        <C>PERSIST_PROMPT_BODIES</C>. Storing them makes debugging far easier and makes the trace
-        store larger and more sensitive — it will contain whatever your users typed. Decide it
-        deliberately, and pair it with a trace retention window.
+        Everything on this page rests on storing what people typed and what models replied. That is
+        what makes debugging good and what makes the trace store sensitive. Two controls, and they
+        do different jobs:
       </P>
+      <Table
+        headers={["Control", "Where", "Effect"]}
+        rows={[
+          [
+            <C key="a">PERSIST_PROMPT_BODIES</C>,
+            "Environment (default ON)",
+            <>
+              Set it to <C key="b">false</C> and free text is never written: prompts, model
+              responses, node inputs and outputs, chain-of-thought.
+            </>,
+          ],
+          [
+            <>
+              Trace retention (<C key="c">trace_retention_days</C>)
+            </>,
+            "Admin → IAM → Settings",
+            "Deletes traces older than the window. 0 keeps them indefinitely.",
+          ],
+        ]}
+      />
+      <Callout kind="info" title="Turning bodies off keeps the skeleton">
+        You do not lose observability — model, provider, tokens, cost, latency, status, the node
+        graph and the <em>shape</em> of each tool call are all still recorded. What you lose is the
+        text inside them. That is usually enough to spot a loop, a cost blow-up or a failing tool,
+        and not enough to see what the user actually asked.
+      </Callout>
+      <Callout kind="warn" title="It is not retroactive">
+        The setting drops bodies at <strong>write</strong> time. Turning it off today does nothing
+        about what was captured yesterday — that is what the retention window is for. If you are
+        switching it off for a compliance reason, set a retention window in the same change, or the
+        existing rows sit there indefinitely.
+      </Callout>
 
       <NextPrev current="/docs/debugging" />
     </>

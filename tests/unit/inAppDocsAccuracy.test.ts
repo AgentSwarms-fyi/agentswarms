@@ -244,6 +244,43 @@ describe("the configuration recipes are usable", () => {
   });
 });
 
+describe("the debugging page describes the retention controls correctly", () => {
+  const page = readFileSync("src/routes/docs.debugging.tsx", "utf8");
+  const redaction = readFileSync("src/utils/observability/redaction.server.ts", "utf8");
+
+  it("gets the default the right way round", () => {
+    // Default ON: the check is a NEGATED match, so `undefined` means persist.
+    // A page saying "off unless you enable it" would have operators believing
+    // no user text is stored when all of it is.
+    expect(redaction).toContain('!/^(0|false|no)$/i.test(process.env.PERSIST_PROMPT_BODIES ?? "")');
+    expect(page).toMatch(/default ON/i);
+  });
+
+  it("says it is not retroactive, and pairs it with retention", () => {
+    // Straight from the module's own warning. Switching it off for compliance
+    // without a retention window leaves everything already captured in place.
+    expect(redaction).toMatch(/drops bodies at WRITE time; it is not retroactive/);
+    expect(page).toMatch(/not retroactive/i);
+    expect(page).toContain("trace_retention_days");
+  });
+
+  it("does not claim turning it off blinds the trace entirely", () => {
+    // The operational skeleton survives; only the free text goes. Overstating
+    // the loss talks a regulated tenant out of a setting that would suit them.
+    expect(redaction).toMatch(/keep the full operational skeleton/);
+    // Anchored on the callout BODY. A loose page-wide alternation including
+    // "skeleton" passed while the body was mutated to say the opposite —
+    // because "skeleton" was still sitting in the callout's title.
+    const start = page.indexOf('title="Turning bodies off keeps the skeleton"');
+    expect(start, "the skeleton callout is gone").toBeGreaterThan(-1);
+    const body = page.slice(start, page.indexOf("</Callout>", start));
+    expect(body, "the page says observability is lost entirely").toMatch(
+      /still (recorded|stored|there)/i,
+    );
+    expect(body).toMatch(/do not lose observability/i);
+  });
+});
+
 describe("the BI page states the numbers that decide whether a chart is right", () => {
   const page = readFileSync("src/routes/docs.bi.tsx", "utf8");
   const dash = readFileSync("src/lib/biDashboards.ts", "utf8");
