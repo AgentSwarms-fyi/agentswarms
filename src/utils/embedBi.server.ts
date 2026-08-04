@@ -5,6 +5,7 @@
 // read-only SELECT + a chart spec, the query runs through the same worker-safe
 // SQL executor the agent SQL tool uses, and the result becomes a chart widget.
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { extractUsage, recordGatewayCall } from "@/utils/observability/recordGatewayUsage.server";
 import { resolveOpenAICompatTransport } from "@/utils/providers/credentials.server";
 import type { ProviderId } from "@/utils/providers/types";
 import { describeUserTables, runSqlQuery } from "@/utils/tools/sql.server";
@@ -39,6 +40,7 @@ async function llmJsonServer(
   if (!transport || (!transport.apiKey && provider !== "ollama")) return null;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 60_000);
+  const startedAt = Date.now();
   try {
     const res = await fetch(transport.endpointUrl, {
       method: "POST",
@@ -64,6 +66,30 @@ async function llmJsonServer(
       choices?: { message?: { content?: string } }[];
     };
     const content = data.choices?.[0]?.message?.content;
+
+    // Bill the OWNER for the planning call.
+    //
+    // This ran untraced. Month-to-date spend is a SUM over execution_traces
+    // (see budgetGuard.server.ts), so a call that never inserts a row can
+    // never accumulate: the widget was real money that the monthly cap could
+    // not see, on a surface where the question comes from an anonymous
+    // visitor. The budget was checked before generating and then not charged
+    // for what generating cost — so the cap was always evaluated against an
+    // undercount that permanently excluded every widget ever drawn.
+    const usage = extractUsage(data);
+    await recordGatewayCall({
+      userId: ownerId,
+      surface: "Embed BI: Plan",
+      provider,
+      model,
+      tokensIn: usage?.tokensIn,
+      tokensOut: usage?.tokensOut,
+      promptText: usage ? undefined : `${system}\n\n${user}`,
+      responseText: usage ? undefined : (content ?? ""),
+      latencyMs: Date.now() - startedAt,
+      status: content ? "success" : "error",
+    });
+
     if (!content) return null;
     return JSON.parse(stripFences(content)) as Record<string, unknown>;
   } catch {

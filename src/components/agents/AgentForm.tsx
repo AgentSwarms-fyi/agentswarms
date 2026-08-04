@@ -672,8 +672,14 @@ export function AgentForm({
   const [routeThroughGateway, setRouteThroughGateway] = useState<boolean>(
     !!existingTools.routeThroughGateway,
   );
-  // Visual BI answers: when on, chat answers include an auto-generated data
-  // widget (saved under tools.biVisuals so embeds inherit it).
+  // Visual BI answers: when on, answers include an auto-generated data widget
+  // (saved under tools.biVisuals so embeds inherit it).
+  //
+  // Two independent implementations, which is why grepping for one misses the
+  // other: in-app, playground.tsx calls generateChatWidget (src/lib/chatBi.ts)
+  // against /api/bi and renders BiWidgetCard from message.metadata.widgets;
+  // in embeds, /api/embed/chat calls generateEmbedWidget server-side and emits
+  // an SSE `event: widget` that only src/lib/embedClient consumes.
   const [biVisuals, setBiVisuals] = useState<boolean>(!!existingTools.biVisuals);
   const [gatewayConnected, setGatewayConnected] = useState<{
     connected: boolean;
@@ -1195,7 +1201,9 @@ export function AgentForm({
           </div>
 
           {/* Visual BI answers — saved under tools.biVisuals so the chat
-              playground AND embeds render a data widget alongside answers. */}
+              playground AND embeds render a data widget alongside answers.
+              The two surfaces use different code paths; see the note by the
+              biVisuals state above before assuming one of them is dead. */}
           <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-xs">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
@@ -1204,7 +1212,8 @@ export function AgentForm({
                 </Label>
                 <p className="text-muted-foreground mt-0.5">
                   When on, answers include an auto-generated chart from your connected data (shown
-                  in chat and in embeds of this agent).
+                  in chat and in embeds of this agent). Charts use your model and count towards your
+                  budget.
                 </p>
               </div>
               <Switch checked={biVisuals} onCheckedChange={setBiVisuals} />
