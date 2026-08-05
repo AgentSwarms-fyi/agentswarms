@@ -1456,6 +1456,17 @@ export const Route = createFileRoute("/api/chat")({
                 if (sbAuto) {
                   const { retrieveCitationsServer, buildGroundingPrompt } =
                     await import("@/utils/tools/kb.server");
+                  // The asker's email, for matching provider-mirrored ACLs on
+                  // connector documents (source_acl scope). Absent claim →
+                  // restricted docs stay owner-only, which is the safe side.
+                  let principalEmail: string | null = null;
+                  try {
+                    const { data: claimsRes } = await sbAuto.auth.getClaims(authToken);
+                    principalEmail =
+                      (claimsRes?.claims as { email?: string } | undefined)?.email ?? null;
+                  } catch {
+                    principalEmail = null;
+                  }
                   citations = await retrieveCitationsServer({
                     sb: sbAuto,
                     agentId: body.agentId,
@@ -1464,6 +1475,7 @@ export const Route = createFileRoute("/api/chat")({
                     topK: 5,
                     userId,
                     reranker: bodyReranker,
+                    principal: { email: principalEmail },
                   });
                   if (citations.length > 0) {
                     effectiveSystemPrompt = buildGroundingPrompt(citations, body.systemPrompt);

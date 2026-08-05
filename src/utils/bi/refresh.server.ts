@@ -1145,6 +1145,11 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
     await import("@/utils/saas/schedule.server")
       .then((m) => m.processDueSaasSyncs(force))
       .catch((e) => console.warn("[saas-sync] processing failed:", (e as Error).message));
+    // KB connector sources (Drive / Notion / SharePoint / Dropbox) on the same
+    // cadence and claim discipline as SaaS data sources.
+    await import("@/utils/kb/schedule.server")
+      .then((m) => m.processDueKbSyncs(force))
+      .catch((e) => console.warn("[kb-sync] processing failed:", (e as Error).message));
     const swarm_schedules = await import("@/utils/swarmSchedules.server")
       .then((m) => m.processDueSwarmSchedules(force))
       .catch((e) => {

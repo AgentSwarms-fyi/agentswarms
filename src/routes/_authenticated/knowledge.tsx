@@ -47,10 +47,14 @@ import {
   Edit3,
   Eye,
   Download,
+  Cloud,
+  Clock,
+  Lock,
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { AddSourceDialog } from "@/components/knowledge/AddSourceDialog";
+import { ConnectSourceDialog } from "@/components/knowledge/ConnectSourceDialog";
 import { KnowledgeGraphTab } from "@/components/knowledge/KnowledgeGraphTab";
 import {
   embedKbDocuments,
@@ -87,14 +91,35 @@ type KnowledgeDoc = {
 type KbSource = {
   id: string;
   knowledge_base_id: string;
-  kind: "manual" | "pdf" | "csv" | "url" | "github" | string;
+  kind: "manual" | "pdf" | "csv" | "url" | "github" | ConnectorKind | string;
   label: string | null;
-  status: "idle" | "syncing" | "ok" | "error" | string;
+  status: "idle" | "syncing" | "ok" | "error" | "embedding_failed" | string;
   config: Record<string, unknown>;
   last_synced_at: string | null;
   error: string | null;
   is_sample: boolean;
   created_at: string;
+  sync_schedule: string;
+  next_sync_at: string | null;
+  access_scope: string;
+  last_sync_stats: {
+    listed?: number;
+    added?: number;
+    updated?: number;
+    unchanged?: number;
+    removed?: number;
+    skipped?: { name: string; reason: string }[];
+    acl_unavailable?: number;
+  } | null;
+};
+
+type ConnectorKind = "gdrive" | "notion" | "sharepoint" | "dropbox";
+const CONNECTOR_KINDS = new Set<string>(["gdrive", "notion", "sharepoint", "dropbox"]);
+const CONNECTOR_LABELS: Record<ConnectorKind, string> = {
+  gdrive: "Google Drive",
+  notion: "Notion",
+  sharepoint: "SharePoint",
+  dropbox: "Dropbox",
 };
 
 // Vector store providers. The built-in store uses pgvector (1536-dim
@@ -211,6 +236,8 @@ function KnowledgePage() {
   const [docOpen, setDocOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [addSourceOpen, setAddSourceOpen] = useState(false);
+  const [connectOpen, setConnectOpen] = useState(false);
+  const [editingConnector, setEditingConnector] = useState<KbSource | null>(null);
   const [resyncingId, setResyncingId] = useState<string | null>(null);
   const [viewDoc, setViewDoc] = useState<KnowledgeDoc | null>(null);
   // Per-document indexing status, derived from kb_chunks. Map docId → chunk count.
@@ -364,19 +391,58 @@ function KnowledgePage() {
   }
 
   async function loadSources(kbId: string) {
+    // Explicit columns — the row also carries encrypted connector credentials,
+    // which have no business in a browser even ciphertext-form.
     const { data } = await supabase
       .from("kb_sources")
-      .select("*")
+      .select(
+        "id, knowledge_base_id, kind, label, status, config, last_synced_at, error, is_sample, created_at, sync_schedule, next_sync_at, access_scope, last_sync_stats",
+      )
       .eq("knowledge_base_id", kbId)
       .order("created_at", { ascending: false });
     if (data) setSources(data as KbSource[]);
   }
 
   // Re-sync a URL or GitHub source via the same ingest endpoint with the
-  // existing source_id, so it replaces the stored docs in place.
+  // existing source_id, so it replaces the stored docs in place. Connector
+  // sources (Drive/Notion/SharePoint/Dropbox) go through the sync engine,
+  // which skips unchanged items instead of replacing everything.
   async function resyncSource(src: KbSource) {
+    if (CONNECTOR_KINDS.has(src.kind)) {
+      setResyncingId(src.id);
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData.session?.access_token;
+        const res = await fetch("/api/kb/sources/sync", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ source_id: src.id }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok && res.status !== 207) {
+          toast.error(json.error || `Sync failed (${res.status})`);
+        } else {
+          const s = json.stats ?? {};
+          toast.success(
+            `Synced — ${s.added ?? 0} added, ${s.updated ?? 0} updated, ` +
+              `${s.unchanged ?? 0} unchanged, ${s.removed ?? 0} removed` +
+              (json.error ? ` · ${json.error}` : ""),
+          );
+        }
+        if (selectedBase) {
+          loadDocs(selectedBase.id);
+          loadSources(selectedBase.id);
+        }
+      } finally {
+        setResyncingId(null);
+      }
+      return;
+    }
     if (src.kind !== "url" && src.kind !== "github") {
-      toast.error("Only URL and GitHub sources can be re-synced");
+      toast.error("Only URL, GitHub and connector sources can be re-synced");
       return;
     }
     setResyncingId(src.id);
@@ -1047,6 +1113,16 @@ function KnowledgePage() {
                       <Button size="sm" variant="outline" onClick={() => setAddSourceOpen(true)}>
                         <Plus className="h-3 w-3 mr-1" /> Add Source
                       </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setEditingConnector(null);
+                          setConnectOpen(true);
+                        }}
+                      >
+                        <Cloud className="h-3 w-3 mr-1" /> Connect
+                      </Button>
                       <Dialog open={docOpen} onOpenChange={setDocOpen}>
                         <DialogTrigger asChild>
                           <Button size="sm">
@@ -1305,42 +1381,72 @@ function KnowledgePage() {
                     {sources.length === 0 ? (
                       <div className="text-center py-8 space-y-3">
                         <p className="text-sm text-muted-foreground">
-                          No sources yet — add a URL, GitHub repo, or upload a file.
+                          No sources yet — add a URL or GitHub repo, upload a file, or connect
+                          Google Drive, Notion, SharePoint or Dropbox.
                         </p>
                         {!selectedBase.is_sample && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => setAddSourceOpen(true)}
-                          >
-                            <Plus className="h-3 w-3 mr-1" /> Add your first source
-                          </Button>
+                          <div className="flex items-center justify-center gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setAddSourceOpen(true)}
+                            >
+                              <Plus className="h-3 w-3 mr-1" /> Add your first source
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setEditingConnector(null);
+                                setConnectOpen(true);
+                              }}
+                            >
+                              <Cloud className="h-3 w-3 mr-1" /> Connect a service
+                            </Button>
+                          </div>
                         )}
                       </div>
                     ) : (
                       <div className="space-y-2">
                         {sources.map((src) => {
+                          const isConnector = CONNECTOR_KINDS.has(src.kind);
                           const Icon =
                             src.kind === "url"
                               ? Globe
                               : src.kind === "github"
                                 ? GitBranch
-                                : src.kind === "pdf" || src.kind === "csv"
-                                  ? FileText
-                                  : Edit3;
+                                : isConnector
+                                  ? Cloud
+                                  : src.kind === "pdf" || src.kind === "csv"
+                                    ? FileText
+                                    : Edit3;
                           const cfg = src.config as {
                             url?: string;
                             repo?: string;
                             branch?: string;
+                            folder_id?: string;
+                            path?: string;
+                            folder_path?: string;
+                            site_id?: string;
+                            page_ids?: string[];
+                            database_ids?: string[];
                           };
                           const subtitle =
                             src.kind === "url"
                               ? cfg.url
                               : src.kind === "github"
                                 ? `${cfg.repo}${cfg.branch ? `@${cfg.branch}` : ""}`
-                                : src.kind === "pdf" || src.kind === "csv"
-                                  ? "Uploaded file"
-                                  : "Manual paste";
+                                : src.kind === "gdrive"
+                                  ? `Folder ${cfg.folder_id ?? "?"}`
+                                  : src.kind === "notion"
+                                    ? `${(cfg.page_ids?.length ?? 0) + (cfg.database_ids?.length ?? 0)} page/database id(s)`
+                                    : src.kind === "sharepoint"
+                                      ? cfg.folder_path || cfg.site_id || "Document library"
+                                      : src.kind === "dropbox"
+                                        ? cfg.path || "Entire Dropbox"
+                                        : src.kind === "pdf" || src.kind === "csv"
+                                          ? "Uploaded file"
+                                          : "Manual paste";
                           const docCount = docs.filter((d) => d.source_id === src.id).length;
                           return (
                             <Card key={src.id} className="border-border/50">
@@ -1356,8 +1462,40 @@ function KnowledgePage() {
                                         variant="outline"
                                         className="text-[10px] px-1 py-0 uppercase"
                                       >
-                                        {src.kind}
+                                        {isConnector
+                                          ? CONNECTOR_LABELS[src.kind as ConnectorKind]
+                                          : src.kind}
                                       </Badge>
+                                      {isConnector && src.sync_schedule !== "manual" && (
+                                        <Badge
+                                          variant="outline"
+                                          className="text-[10px] px-1 py-0 gap-0.5"
+                                          title={
+                                            src.next_sync_at
+                                              ? `Next sync ${formatDistanceToNow(new Date(src.next_sync_at), { addSuffix: true })}`
+                                              : undefined
+                                          }
+                                        >
+                                          <Clock className="h-2.5 w-2.5" />
+                                          {src.sync_schedule}
+                                        </Badge>
+                                      )}
+                                      {isConnector && src.access_scope !== "inherit" && (
+                                        <Badge
+                                          variant="outline"
+                                          className="text-[10px] px-1 py-0 gap-0.5 border-sky-500/40 text-sky-600 dark:text-sky-400"
+                                          title={
+                                            src.access_scope === "private"
+                                              ? "Only you can retrieve these documents"
+                                              : "Visibility mirrors the provider's sharing settings"
+                                          }
+                                        >
+                                          <Lock className="h-2.5 w-2.5" />
+                                          {src.access_scope === "private"
+                                            ? "private"
+                                            : "source ACL"}
+                                        </Badge>
+                                      )}
                                       {src.status === "ok" && (
                                         <Badge
                                           variant="outline"
@@ -1403,7 +1541,31 @@ function KnowledgePage() {
                                       {src.last_synced_at
                                         ? ` · synced ${formatDistanceToNow(new Date(src.last_synced_at), { addSuffix: true })}`
                                         : ""}
+                                      {isConnector && src.last_sync_stats
+                                        ? ` · +${src.last_sync_stats.added ?? 0} ~${src.last_sync_stats.updated ?? 0} =${src.last_sync_stats.unchanged ?? 0} −${src.last_sync_stats.removed ?? 0}` +
+                                          ((src.last_sync_stats.skipped?.length ?? 0) > 0
+                                            ? ` · ${src.last_sync_stats.skipped!.length} skipped`
+                                            : "")
+                                        : ""}
                                     </p>
+                                    {isConnector &&
+                                      (src.last_sync_stats?.skipped?.length ?? 0) > 0 && (
+                                        <p
+                                          className="text-[10px] text-muted-foreground mt-0.5 line-clamp-1"
+                                          title={src
+                                            .last_sync_stats!.skipped!.map(
+                                              (s) => `${s.name}: ${s.reason}`,
+                                            )
+                                            .join("\n")}
+                                        >
+                                          Skipped:{" "}
+                                          {src
+                                            .last_sync_stats!.skipped!.slice(0, 3)
+                                            .map((s) => s.name)
+                                            .join(", ")}
+                                          {src.last_sync_stats!.skipped!.length > 3 ? "…" : ""}
+                                        </p>
+                                      )}
                                     {src.error && (
                                       <p className="text-[10px] text-destructive mt-0.5 line-clamp-2">
                                         {src.error}
@@ -1412,13 +1574,15 @@ function KnowledgePage() {
                                   </div>
                                 </div>
                                 <div className="flex items-center gap-1 shrink-0">
-                                  {(src.kind === "url" || src.kind === "github") &&
+                                  {(src.kind === "url" ||
+                                    src.kind === "github" ||
+                                    CONNECTOR_KINDS.has(src.kind)) &&
                                     !src.is_sample && (
                                       <Button
                                         variant="ghost"
                                         size="sm"
                                         className="h-7 w-7 p-0"
-                                        title="Re-sync"
+                                        title="Sync now"
                                         disabled={resyncingId === src.id}
                                         onClick={() => resyncSource(src)}
                                       >
@@ -1429,6 +1593,20 @@ function KnowledgePage() {
                                         )}
                                       </Button>
                                     )}
+                                  {CONNECTOR_KINDS.has(src.kind) && !src.is_sample && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-7 w-7 p-0"
+                                      title="Edit connection"
+                                      onClick={() => {
+                                        setEditingConnector(src);
+                                        setConnectOpen(true);
+                                      }}
+                                    >
+                                      <Edit3 className="h-3 w-3" />
+                                    </Button>
+                                  )}
                                   {!src.is_sample && (
                                     <Button
                                       variant="ghost"
@@ -1473,6 +1651,32 @@ function KnowledgePage() {
           knowledgeBaseId={selectedBase.id}
           userId={user.id}
           onAdded={() => {
+            loadDocs(selectedBase.id);
+            loadSources(selectedBase.id);
+          }}
+        />
+      )}
+      {selectedBase && user && (
+        <ConnectSourceDialog
+          open={connectOpen}
+          onOpenChange={(o) => {
+            setConnectOpen(o);
+            if (!o) setEditingConnector(null);
+          }}
+          knowledgeBaseId={selectedBase.id}
+          editing={
+            editingConnector
+              ? {
+                  id: editingConnector.id,
+                  kind: editingConnector.kind,
+                  label: editingConnector.label,
+                  config: editingConnector.config,
+                  sync_schedule: editingConnector.sync_schedule,
+                  access_scope: editingConnector.access_scope,
+                }
+              : null
+          }
+          onSaved={() => {
             loadDocs(selectedBase.id);
             loadSources(selectedBase.id);
           }}

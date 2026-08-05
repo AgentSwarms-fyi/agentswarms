@@ -84,6 +84,65 @@ export function buildGroundingPrompt(citations: Citation[], userSystemPrompt?: s
   );
 }
 
+/**
+ * Who is asking, for source-based access control.
+ *
+ * Distinct from `userId`, because the two answer different questions. The
+ * embed widget resolves embedding credentials AS THE OWNER (`userId` is the
+ * key owner) while the person asking is an anonymous visitor — conflating the
+ * two would show private connector documents to anyone who finds the embed.
+ */
+export type RetrievalPrincipal = {
+  /** Lowercased email for matching provider-ACL entries. */
+  email?: string | null;
+  /** True on public surfaces (embeds): no identity, however creds resolve. */
+  anonymous?: boolean;
+};
+
+type DocAclRow = {
+  id: string;
+  source_id: string | null;
+  acl_principals: string[] | null;
+  source: { access_scope: string; user_id: string | null } | null;
+};
+
+/**
+ * Source-based visibility for one candidate document. Pure — this is the rule
+ * the ACL tests mutate to prove they can see it.
+ *
+ *   no source / 'inherit'  — visible to whoever can see the KB (the pre-ACL
+ *                            behaviour; every legacy document is here)
+ *   'private'              — the connecting user only
+ *   'source_acl'           — principals mirrored from the provider: exact
+ *                            email, 'domain:x.y', '*' (public link). 'org'
+ *                            entries deliberately do NOT match non-owners —
+ *                            we cannot verify tenant membership, and a deny is
+ *                            recoverable while a leak is not. Documents whose
+ *                            provider exposed no ACL are owner-only.
+ */
+export function isDocVisibleToPrincipal(
+  doc: DocAclRow,
+  principalUserId: string | null,
+  principalEmail: string | null,
+): boolean {
+  if (!doc.source_id || !doc.source) return true;
+  const scope = doc.source.access_scope;
+  if (scope === "inherit") return true;
+  const owner = doc.source.user_id;
+  if (owner && principalUserId && principalUserId === owner) return true;
+  if (scope === "private") return false;
+  // source_acl
+  const acl = doc.acl_principals;
+  if (!acl || acl.length === 0) return false;
+  if (acl.includes("*")) return true;
+  const email = (principalEmail ?? "").toLowerCase();
+  if (!email) return false;
+  if (acl.includes(email)) return true;
+  const at = email.lastIndexOf("@");
+  const domain = at === -1 ? "" : email.slice(at + 1);
+  return domain !== "" && acl.includes(`domain:${domain}`);
+}
+
 const STOP = new Set([
   "the",
   "a",
@@ -163,6 +222,12 @@ export async function retrieveCitationsServer(opts: {
   // resolved KB ids are then restricted to this owner's own KBs + public
   // samples, so a swarm can't point a node at another tenant's KB id.
   scopeUserId?: string;
+  /**
+   * Who is actually asking (see RetrievalPrincipal). Omitted = the userId is
+   * the asker with no email known: restricted documents then stay owner-only,
+   * which errs toward deny — never toward a leak.
+   */
+  principal?: RetrievalPrincipal;
 }): Promise<Citation[]> {
   const { sb } = opts;
   const topK = Math.max(1, Math.min(opts.topK ?? 5, 8));
@@ -408,13 +473,65 @@ export async function retrieveCitationsServer(opts: {
 
   // 4) Merge — vector first (semantic priority), then keyword. Dedupe by doc.
   const seen = new Set<string>();
-  const merged: Citation[] = [];
+  let merged: Citation[] = [];
   const mergeCap = reranker ? Math.min(topK * 3, 20) : topK;
   for (const c of [...vectorCits, ...keywordCits]) {
     if (seen.has(c.documentId)) continue;
     seen.add(c.documentId);
     merged.push({ ...c, index: merged.length + 1 });
     if (merged.length >= mergeCap) break;
+  }
+
+  // 4b) Source-based access control. One query joins each candidate document
+  // to its source's scope; the pure rule above decides visibility. Runs before
+  // the re-ranker so restricted text never reaches a ranking model either.
+  if (merged.length > 0) {
+    const principalUserId = opts.principal?.anonymous
+      ? null
+      : (opts.scopeUserId ?? opts.userId ?? null);
+    const principalEmail = opts.principal?.anonymous ? null : (opts.principal?.email ?? null);
+    try {
+      const { data: aclRows, error: aclErr } = await sb
+        .from("knowledge_documents")
+        .select("id, source_id, acl_principals, source:kb_sources(access_scope, user_id)")
+        .in(
+          "id",
+          merged.map((c) => c.documentId),
+        );
+      if (aclErr) throw new Error(aclErr.message);
+      const byId = new Map(
+        (aclRows ?? []).map((r) => {
+          const src = Array.isArray(r.source) ? (r.source[0] ?? null) : (r.source ?? null);
+          return [
+            r.id,
+            {
+              id: r.id,
+              source_id: r.source_id,
+              acl_principals: r.acl_principals,
+              source: src as { access_scope: string; user_id: string | null } | null,
+            },
+          ];
+        }),
+      );
+      merged = merged
+        .filter((c) => {
+          const row = byId.get(c.documentId);
+          // A candidate the ACL query didn't return cannot be judged — drop it.
+          if (!row) return false;
+          return isDocVisibleToPrincipal(row, principalUserId, principalEmail);
+        })
+        .map((c, i) => ({ ...c, index: i + 1 }));
+    } catch (err) {
+      // Availability guard for ONE state only: an instance whose database
+      // predates the connector migration (acl columns missing → the select
+      // errors). In that state no source can have a restrictive scope, so
+      // keeping the candidates IS the correct pre-migration behaviour. Once
+      // migrated, the query succeeds and enforcement is unconditional.
+      console.warn(
+        "[kb.server] ACL filter unavailable (pre-migration schema?) — applying legacy visibility:",
+        err instanceof Error ? err.message : err,
+      );
+    }
   }
 
   // 5) Optional re-rank: a cross-encoder scores query/snippet pairs and

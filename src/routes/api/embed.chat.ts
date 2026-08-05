@@ -331,6 +331,11 @@ export const Route = createFileRoute("/api/embed/chat")({
               topK: 5,
               userId: keyRow.user_id,
               reranker: cfg.reranker,
+              // userId above is the KEY OWNER (it resolves embedding
+              // credentials); the person asking is an anonymous visitor.
+              // Without this flag, connector documents scoped 'private' or
+              // 'source_acl' would be retrievable by anyone with the embed URL.
+              principal: { anonymous: true },
             });
           } catch (e) {
             console.warn("[embed chat] RAG failed:", (e as Error).message);

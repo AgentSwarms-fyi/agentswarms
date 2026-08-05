@@ -2018,44 +2018,59 @@ export type Database = {
       };
       kb_sources: {
         Row: {
+          access_scope: string;
           config: Json;
           created_at: string;
+          credentials: Json | null;
           error: string | null;
           id: string;
           is_sample: boolean;
           kind: string;
           knowledge_base_id: string;
           label: string | null;
+          last_sync_stats: Json | null;
           last_synced_at: string | null;
+          next_sync_at: string | null;
           status: string;
+          sync_schedule: string;
           updated_at: string;
           user_id: string | null;
         };
         Insert: {
+          access_scope?: string;
           config?: Json;
           created_at?: string;
+          credentials?: Json | null;
           error?: string | null;
           id?: string;
           is_sample?: boolean;
           kind: string;
           knowledge_base_id: string;
           label?: string | null;
+          last_sync_stats?: Json | null;
           last_synced_at?: string | null;
+          next_sync_at?: string | null;
           status?: string;
+          sync_schedule?: string;
           updated_at?: string;
           user_id?: string | null;
         };
         Update: {
+          access_scope?: string;
           config?: Json;
           created_at?: string;
+          credentials?: Json | null;
           error?: string | null;
           id?: string;
           is_sample?: boolean;
           kind?: string;
           knowledge_base_id?: string;
           label?: string | null;
+          last_sync_stats?: Json | null;
           last_synced_at?: string | null;
+          next_sync_at?: string | null;
           status?: string;
+          sync_schedule?: string;
           updated_at?: string;
           user_id?: string | null;
         };
@@ -2110,8 +2125,11 @@ export type Database = {
       };
       knowledge_documents: {
         Row: {
+          acl_principals: string[] | null;
           content: string | null;
+          content_hash: string | null;
           created_at: string;
+          external_id: string | null;
           file_url: string | null;
           id: string;
           is_sample: boolean;
@@ -2122,8 +2140,11 @@ export type Database = {
           user_id: string | null;
         };
         Insert: {
+          acl_principals?: string[] | null;
           content?: string | null;
+          content_hash?: string | null;
           created_at?: string;
+          external_id?: string | null;
           file_url?: string | null;
           id?: string;
           is_sample?: boolean;
@@ -2134,8 +2155,11 @@ export type Database = {
           user_id?: string | null;
         };
         Update: {
+          acl_principals?: string[] | null;
           content?: string | null;
+          content_hash?: string | null;
           created_at?: string;
+          external_id?: string | null;
           file_url?: string | null;
           id?: string;
           is_sample?: boolean;
