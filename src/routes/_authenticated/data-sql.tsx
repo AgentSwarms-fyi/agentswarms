@@ -255,6 +255,11 @@ const SQL_FUNCS = new Set([
   "now",
 ]);
 
+// The run handler accepts Ctrl and Cmd alike; the hint should name the one
+// this keyboard actually has.
+const IS_MAC =
+  typeof navigator !== "undefined" && /Mac|iP(hone|ad|od)/.test(navigator.platform || "");
+
 function highlightSql(src: string): string {
   // Escape HTML first
   const esc = src.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -1293,7 +1298,7 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
               </div>
             </div>
             <div className="absolute bottom-2 right-3 text-[10px] text-slate-400 dark:text-muted-foreground font-mono pointer-events-none bg-white/80 dark:bg-card/80 px-1.5 py-0.5 rounded">
-              ⌘ + ↵ to run
+              {IS_MAC ? "⌘" : "Ctrl"} + ↵ to run
             </div>
           </div>
         </div>
