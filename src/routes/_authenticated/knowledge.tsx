@@ -1654,6 +1654,10 @@ function KnowledgePage() {
             loadDocs(selectedBase.id);
             loadSources(selectedBase.id);
           }}
+          onConnectInstead={() => {
+            setAddSourceOpen(false);
+            setConnectOpen(true);
+          }}
         />
       )}
       {selectedBase && user && (

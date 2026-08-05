@@ -29,9 +29,20 @@ type Props = {
   knowledgeBaseId: string;
   userId: string;
   onAdded: () => void;
+  // Hands off to the Connect dialog. Cloud connectors live behind a separate
+  // button, and a person looking for Google Drive lands here first — without
+  // a pointer they conclude connectors don't exist.
+  onConnectInstead?: () => void;
 };
 
-export function AddSourceDialog({ open, onOpenChange, knowledgeBaseId, userId, onAdded }: Props) {
+export function AddSourceDialog({
+  open,
+  onOpenChange,
+  knowledgeBaseId,
+  userId,
+  onAdded,
+  onConnectInstead,
+}: Props) {
   const [tab, setTab] = useState<"file" | "url" | "github" | "manual">("file");
   const [busy, setBusy] = useState(false);
   const embedFn = useServerFn(embedKbDocuments);
@@ -446,6 +457,19 @@ export function AddSourceDialog({ open, onOpenChange, knowledgeBaseId, userId, o
             "Add source"
           )}
         </Button>
+        {onConnectInstead && (
+          <p className="mt-3 text-center text-xs text-muted-foreground">
+            Google Drive, Notion, SharePoint or Dropbox?{" "}
+            <button
+              type="button"
+              onClick={onConnectInstead}
+              className="font-medium text-primary underline-offset-4 hover:underline"
+            >
+              Connect a source
+            </button>{" "}
+            instead.
+          </p>
+        )}
       </DialogContent>
     </Dialog>
   );
