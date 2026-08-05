@@ -374,7 +374,7 @@ function BiWorkspacePage() {
             {/* Main: the dashboard grid for the current scope + folder */}
             <div className="min-w-0 flex-1">
               {dashboards === null ? (
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(230px,1fr))] gap-3">
                   {[0, 1, 2].map((i) => (
                     <Skeleton key={i} className="h-40 rounded-xl" />
                   ))}
@@ -403,7 +403,7 @@ function BiWorkspacePage() {
                   </CardContent>
                 </Card>
               ) : (
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(230px,1fr))] gap-3">
                   {visibleDashboards.map((d) => {
                     const mine = d.user_id === user?.id;
                     const widgets = parseWidgets(d.widgets);
