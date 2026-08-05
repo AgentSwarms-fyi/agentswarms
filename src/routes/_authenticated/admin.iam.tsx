@@ -298,6 +298,7 @@ function AdminIamPage() {
         <TabsContent value="access" className="mt-4">
           <AccessTab
             token={token!}
+            modelAccessDefault={settings?.model_access_default ?? "allow"}
             users={users}
             groups={groups}
             rules={rules}
@@ -441,7 +442,9 @@ function UsersTab({
                 <TableRow key={u.user_id}>
                   <TableCell>
                     <div className="font-medium">{u.email ?? "—"}</div>
-                    {u.display_name ? (
+                    {/* Profiles default display_name to the email; repeating
+                        it as a subtitle is noise, so only a real name shows. */}
+                    {u.display_name && u.display_name !== u.email ? (
                       <div className="text-xs text-muted-foreground">{u.display_name}</div>
                     ) : null}
                   </TableCell>
@@ -1042,6 +1045,7 @@ const PROVIDER_IDS = Object.keys(PROVIDER_LABELS) as ProviderId[];
 
 function AccessTab({
   token,
+  modelAccessDefault,
   users,
   groups,
   rules,
@@ -1052,6 +1056,7 @@ function AccessTab({
   reload,
 }: {
   token: string;
+  modelAccessDefault: "allow" | "deny";
   users: IamUserRow[];
   groups: IamGroupRow[];
   rules: IamModelRuleRow[];
@@ -1141,10 +1146,12 @@ function AccessTab({
         <CardHeader>
           <CardTitle className="text-base">Model access</CardTitle>
           <CardDescription>
-            By default everyone can use every model. Add rules to a user or group to restrict them
-            to an allow-list — their allowed set is the union of their own rules and all their
-            groups' rules. Patterns: <code className="text-xs">*</code> (all models of a provider),{" "}
-            <code className="text-xs">openai/*</code> (prefix), or an exact model id.
+            {modelAccessDefault === "deny"
+              ? "The default is deny: only superadmins can use models until a rule allows them. Rules grant an allow-list to a user or group — the allowed set is the union of their own rules and all their groups' rules."
+              : "By default everyone can use every model. Add rules to a user or group to restrict them to an allow-list — their allowed set is the union of their own rules and all their groups' rules."}{" "}
+            Patterns: <code className="text-xs">*</code> (all models of a provider),{" "}
+            <code className="text-xs">openai/*</code> (prefix), or an exact model id. The default
+            itself is set under Settings.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
