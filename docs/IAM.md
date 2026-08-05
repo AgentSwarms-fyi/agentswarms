@@ -24,10 +24,21 @@ It manages:
   superadmin is protected.
 - **Groups** — organize users; model rules and resource shares can target a
   whole group at once.
-- **Model access** — by default every user may call every model. Add allow
-  rules to a user or group to restrict them (patterns: `*`, `openai/*`, or an
-  exact model id; the allowed set is the union of all applicable rules).
-  Enforced server-side on every LLM call and reflected in the model pickers.
+- **Model access** — allow rules on a user or group define what they may call
+  (patterns: `*`, `openai/*`, or an exact model id; the allowed set is the
+  union of all applicable rules). What **no rules** means is an instance
+  policy, set under Settings → **Default model access**:
+  - **Allow by default** (the default) — a user with no rules is unrestricted.
+  - **Deny by default** — a user with no rules can call **no models** until a
+    rule allow-lists them. Superadmins bypass deny mode, so the people who
+    administer the allow-lists cannot lock themselves out. Flipping the
+    toggle changes nothing for anyone who already has rules.
+
+  Enforced server-side on every LLM call — playground, saved agents, swarm
+  nodes, the API, and **public embeds**, which run their owner's stored model
+  for anonymous visitors and are checked against the owner's effective rules
+  on every request — and reflected in the model pickers.
+
 - **Shares** — grant users or groups **read-only** access to any knowledge
   base, SQL data table, secret, BI dashboard, semantic model, catalog source,
   LLM key/credential, **database & warehouse connection** or **app source**;
@@ -46,6 +57,22 @@ It manages:
   row filters combine (any allowing grant admits the row) and column masks
   intersect (a column is hidden only when _every_ grant hides it), so holding
   two grants never leaves someone with less access than one alone.
+
+  One deliberate exception to "grants only add": knowledge-base documents
+  synced from a connected service (Google Drive, Notion, SharePoint, Dropbox)
+  can carry a per-source **access scope** — _Only me_, or _Match source
+  permissions_ (sharing mirrored per document from the provider). That scope
+  filters retrieval **inside** a granted knowledge base and belongs to the
+  source's owner, not to the grant. See
+  [Knowledge bases](./KNOWLEDGE_BASES.md#access-control).
+
+  Everything above is **deny-by-default**: every resource table is owner-only
+  under row-level security, grants are strictly additive read-only SELECT
+  policies, and the headless execution paths (swarms, schedulers, embeds)
+  re-derive the same grant set explicitly rather than trusting the caller.
+  The deliberate exceptions are the public demo samples and public metadata
+  (profiles, the model registry).
+
 - **Settings** — flip the instance to **invite-only**: public self-signup
   (including OAuth) is rejected at the database level, while invited,
   admin-created, and SSO-provisioned users still get in.

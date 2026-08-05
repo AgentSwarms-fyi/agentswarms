@@ -22,7 +22,7 @@ export const Route = createFileRoute("/docs/knowledge")({
       {
         name: "description",
         content:
-          "Ingest documents, pages and repositories; how chunking, embedding, retrieval and reranking work; graph search; sharing; and how to debug a bad answer.",
+          "Ingest documents, pages, repositories and connected services (Google Drive, Notion, SharePoint, Dropbox); scheduled sync without re-indexing; chunking, embedding, retrieval and reranking; source-based access control; and how to debug a bad answer.",
       },
       { property: "og:title", content: "Knowledge Base — AgentSwarms Documentation" },
       {
@@ -55,7 +55,9 @@ function KnowledgePage() {
       {/* ── INGESTION ── */}
       <H2 id="sources">Adding sources</H2>
       <P>
-        <strong>Add source</strong> offers three kinds:
+        <strong>Add source</strong> covers one-shot ingestion — files, a web page, a repository.{" "}
+        <strong>Connect</strong> links an external service that is synced on a schedule and kept
+        deduplicated. Both land documents in the same collection and the same retrieval pipeline.
       </P>
 
       <H3 id="s-file">File upload</H3>
@@ -80,6 +82,104 @@ function KnowledgePage() {
       <P>
         Ingests source and docs from a repository so an agent can answer questions about a codebase.
       </P>
+
+      <H3 id="s-connectors">Connected services — Drive, Notion, SharePoint, Dropbox</H3>
+      <P>
+        <strong>Connect</strong> opens a wizard for four providers. Credentials are pasted tokens
+        (the platform's BYOK pattern — no OAuth consent screens to register), validated against the
+        provider at save time, <strong>encrypted at rest</strong>, and never sent back to the
+        browser: editing a source shows empty credential fields, and leaving them empty keeps what
+        is stored.
+      </P>
+      <Table
+        headers={["Provider", "Credentials", "What syncs", "Mirrors sharing?"]}
+        rows={[
+          [
+            "Google Drive",
+            "Access token, or refresh token + OAuth client pair for unattended syncs",
+            "A folder (subfolders to depth 5): Google Docs/Sheets/Slides exported as text, plus text-format files",
+            "Yes — per-file permissions",
+          ],
+          [
+            "Notion",
+            "Internal-integration secret; share the pages with the integration",
+            "Listed page IDs and every page of listed databases",
+            "No — the API exposes none",
+          ],
+          [
+            "SharePoint",
+            "Entra app registration: tenant + client ID + secret (Files.Read.All, admin-consented)",
+            "A document library or folder path, text-format files",
+            "Yes — per-item permissions",
+          ],
+          [
+            "Dropbox",
+            "Access token, or refresh token + app key/secret for unattended syncs",
+            "A folder path (or everything); native content hashes make change detection exact",
+            "Yes — file members, best-effort",
+          ],
+        ]}
+      />
+      <P>
+        Per source, listings cap at <strong>500 items</strong> and each item's text at{" "}
+        <strong>400k characters</strong>. Anything the connector saw but did not ingest — an
+        unsupported binary, a too-deep folder, the cap — is listed on the source card{" "}
+        <strong>with its reason</strong>, never silently dropped.
+      </P>
+      <Callout kind="warn" title="Short-lived tokens and schedules don't mix">
+        A pasted access token is fine for a first manual sync, but Google's expire in about an hour
+        and Dropbox's eventually rotate — a scheduled sync running at 3am needs the refresh-token
+        form. The wizard says which fields serve which purpose.
+      </Callout>
+
+      {/* ── SCHEDULED SYNC ── */}
+      <H2 id="scheduled-sync">Scheduled sync — indexing without duplicates</H2>
+      <P>
+        Each connected source has a schedule: <strong>manual, hourly, daily or weekly</strong>.
+        Scheduled syncs run on the platform's maintenance pass (the same engine that refreshes BI
+        and SaaS data), and a claim on the source's next-run time guarantees that multiple app
+        instances never sync the same source twice.
+      </P>
+      <P>Change detection is two-level, and both levels exist to make an hourly schedule cheap:</P>
+      <Steps
+        items={[
+          {
+            title: "Version skip — unchanged files are not downloaded",
+            body: (
+              <>
+                The provider's change marker (modified time, revision, native hash) is stamped on
+                each document. Unchanged marker ⇒ the item is skipped{" "}
+                <em>without being downloaded</em> — a 400-file folder re-syncs for the price of a
+                listing.
+              </>
+            ),
+          },
+          {
+            title: "Content skip — unchanged text is not re-embedded",
+            body: (
+              <>
+                Providers bump modified times on moves, permission edits and comments. Downloaded
+                text is hashed (sha256); if it matches what is stored, the marker is refreshed and
+                the document is <em>not re-chunked or re-embedded</em>. Embedding spend follows
+                actual content change, nothing else.
+              </>
+            ),
+          },
+        ]}
+      />
+      <P>
+        Files deleted at the provider delete their documents (and chunks) here. The source card
+        shows each sync's outcome as <C>+added ~updated =unchanged −removed</C>, and a database
+        uniqueness constraint on (source, remote item) makes duplicate documents impossible even if
+        everything above were wrong.
+      </P>
+      <Callout kind="info" title="Sync statuses">
+        <C>ok</C> is a clean pass. <C>error</C> names the provider's refusal verbatim — a revoked
+        token reads "Dropbox 401: invalid_access_token", not "0 documents". <C>embed failed</C>{" "}
+        means documents were saved but semantic indexing didn't finish: retrieval falls back to
+        keyword search for them until a re-sync succeeds, and the owner gets a notification either
+        way.
+      </Callout>
 
       {/* ── PIPELINE ── */}
       <H2 id="pipeline">What happens on ingest</H2>
@@ -262,6 +362,49 @@ Never fill a gap with general knowledge.`}</Code>
         Because the grant is enforced in the database, an agent's retrieval inherits it
         automatically — there is no second permission to keep in sync.
       </P>
+
+      <H3 id="access-scopes">Per-source access scopes</H3>
+      <P>
+        Connected sources add a second, finer layer: <em>within</em> a collection someone can
+        already see, which of its synced documents may they retrieve? Each connected source picks
+        one of three scopes, enforced at retrieval — vector and keyword paths alike, before any
+        reranking model sees the text:
+      </P>
+      <Table
+        headers={["Scope", "Who retrieves the documents"]}
+        rows={[
+          [
+            "Everyone with this KB",
+            "Default. Documents behave exactly like uploads — collection visibility decides. Every pre-existing document works this way.",
+          ],
+          [
+            "Only me",
+            "The connecting user, full stop — even when the collection itself is shared or granted.",
+          ],
+          [
+            "Match source permissions",
+            "Sharing is mirrored from the provider per document: people shared on the original file (by email or domain, at Drive/SharePoint/Dropbox) retrieve it here; everyone else doesn't. A publicly-linked file stays public.",
+          ],
+        ]}
+      />
+      <UL>
+        <li>
+          <strong>Owner always retrieves their own documents</strong>, whatever the scope — a
+          restriction you configured cannot lock you out of your own data.
+        </li>
+        <li>
+          <strong>Fails toward deny.</strong> A provider that exposes no sharing info (Notion's API
+          does not; a Dropbox plan without member listing) leaves documents owner-only, and the sync
+          stats count them so the choice is visible. Tenant-wide links ("anyone in the
+          organisation") match nobody but the owner — tenant membership can't be verified from here,
+          and a wrong deny is recoverable where a wrong allow is not.
+        </li>
+        <li>
+          <strong>Public embeds are anonymous.</strong> An embedded assistant retrieves only
+          default-scope documents (and provider-public ones) — never "Only me" or ACL-restricted
+          material, even though the embed runs under its owner's account.
+        </li>
+      </UL>
 
       {/* ── DEBUGGING ── */}
       <H2 id="debugging">When an answer is wrong</H2>

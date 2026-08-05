@@ -68,7 +68,10 @@ function IamPage() {
               </DocLink>
             </>,
           ],
-          ["Settings", "Public-signup toggle and the current superadmin list"],
+          [
+            "Settings",
+            "Public-signup toggle, the default model-access policy (allow vs deny), trace retention, and the current superadmin list",
+          ],
           ["SSO", "SAML identity provider configuration"],
         ]}
       />
@@ -110,17 +113,32 @@ function IamPage() {
 
       <H2 id="model-rules">Model rules</H2>
       <P>
-        Control which models a person may run. The semantics are <strong>default-allow</strong>:
+        Control which models a person may run. What "no rules" means is an instance choice —{" "}
+        <strong>Settings → Default model access</strong>:
       </P>
       <Table
-        headers={["Situation", "Result"]}
+        headers={["Situation", "Allow by default (the default)", "Deny by default"]}
         rows={[
-          ["User has no rules, and no group with rules", "Unrestricted — every model available"],
-          ["Rules apply (their own or a group's)", "Allowed = the union of those rules"],
+          [
+            "User has no rules, and no group with rules",
+            "Unrestricted — every model available",
+            "No models at all, until a rule allow-lists them",
+          ],
+          [
+            "Rules apply (their own or a group's)",
+            "Allowed = the union of those rules",
+            "Allowed = the union of those rules (identical)",
+          ],
+          [
+            "Superadmin",
+            "Rules apply to them like anyone else",
+            "Bypasses entirely — the lock's administrator can't be locked out",
+          ],
           [
             <>
               Rule is <C key="p">openai</C> + <C key="m">*</C>
             </>,
+            "Every model from that provider",
             "Every model from that provider",
           ],
           [
@@ -128,9 +146,16 @@ function IamPage() {
               Rule is <C key="p2">openrouter</C> + <C key="m2">openai/*</C>
             </>,
             "Prefix match — those models only",
+            "Prefix match — those models only",
           ],
         ]}
       />
+      <Callout kind="info" title="Flipping to deny is safe to stage">
+        The toggle changes nothing for anyone who already has rules, and superadmins are never
+        affected — so the sensible order is: write the allow-lists under this tab, spot-check a
+        non-admin account, then flip. Users denied by the default get a clear "not permitted by the
+        workspace's policy" error, not a hang.
+      </Callout>
       <Callout kind="why">
         Union, not intersection. Someone in two groups gets what either allows — because groups are
         additive grants of capability, and an intersection would mean adding a group could take
@@ -138,9 +163,11 @@ function IamPage() {
       </Callout>
       <P>
         Enforcement is server-side at the point every chat request is dispatched, so it covers the
-        playground, saved agents, swarm nodes and API runs alike. Pickers also filter to allowed
-        models, but that's convenience — the check that matters happens on the request. Disallowed
-        models return a clear error rather than failing obscurely.
+        playground, saved agents, swarm nodes, API runs — and <strong>public embeds</strong>, which
+        execute their owner's stored model for anonymous visitors and are checked against the
+        owner's effective rules on every request. Pickers also filter to allowed models, but that's
+        convenience — the check that matters happens on the request. Disallowed models return a
+        clear error rather than failing obscurely.
       </P>
 
       <H2 id="sharing">Resource sharing</H2>
@@ -210,7 +237,11 @@ function IamPage() {
         a person granted EMEA by one team and APAC by another sees both. A grant carrying{" "}
         <strong>no</strong> row filter admits every row, and a grant carrying <strong>no</strong>{" "}
         column mask hides nothing — so an unrestricted grant makes the restricted ones moot. If you
-        need someone narrowed, narrow <em>every</em> grant that reaches them.
+        need someone narrowed, narrow <em>every</em> grant that reaches them. One deliberate
+        exception: documents synced from a connected service can carry a{" "}
+        <DocLink to="/docs/knowledge">per-source access scope</DocLink> — "Only me" or "Match source
+        permissions" — which filters retrieval <em>inside</em> a granted knowledge base. That
+        restriction belongs to the source's owner, not to the grant.
       </Callout>
       <Callout kind="warn" title="A masked column is also unfilterable">
         Hiding a column is not enough on its own: if a viewer could still <em>filter</em> on it,
