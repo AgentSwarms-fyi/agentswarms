@@ -8,6 +8,7 @@ import { z } from "zod";
 
 import type { Database } from "@/integrations/supabase/types";
 import { retrieveCitationsServer } from "@/utils/tools/kb.server";
+import { relevantExcerpt, searchQueryFromPrompt } from "@/utils/webResearch";
 import {
   runWebSearch,
   runWebBrowse,
@@ -82,6 +83,10 @@ const TABLE_CANDIDATES = 60;
 const SAMPLE_ROWS = 15;
 const WEB_RESULTS = 6;
 const WEB_PAGES = 2; // top results scraped in full (Firecrawl only)
+// Per scraped page. Only WEB_PAGES of them are ever this long — the rest are
+// ~150-char search snippets — so the planner's 18k CONTEXT budget is not at
+// risk, and contextBlock must not re-truncate below this or the excerpt chosen
+// here is discarded again.
 const WEB_PAGE_CHARS = 3500;
 
 // Run web research only when the prompt actually points at the web — every
@@ -121,11 +126,13 @@ async function gatherWebResearch(
   cfg?: { search?: ToolConfigs["web_search"]; browse?: ToolConfigs["web_browse"] },
 ): Promise<{ items: DocContext["web"]; note?: string }> {
   try {
-    const raw = await runWebSearch(
-      ctx,
-      { query: prompt.slice(0, 300), limit: WEB_RESULTS },
-      cfg?.search,
-    );
+    // The SUBJECT, not the whole instruction. Searching the full request —
+    // "…pricing for AMD E5 compute instances, then build a bill of quantities
+    // for an example on-prem to OCI sizing exercise: line items with…" —
+    // returned a YouTube video and a GPU-pricing blog; the same search for just
+    // the subject returns Oracle's own E5 announcement.
+    const query = searchQueryFromPrompt(prompt);
+    const raw = await runWebSearch(ctx, { query, limit: WEB_RESULTS }, cfg?.search);
     const parsed = JSON.parse(raw) as {
       provider?: string;
       results?: { title?: string | null; url?: string | null; snippet?: string | null }[];
@@ -168,7 +175,11 @@ async function gatherWebResearch(
           error?: string;
         };
         const body = (page.markdown || page.text || "").trim();
-        if (body) r.content = body.slice(0, WEB_PAGE_CHARS);
+        // Keep the passage that answers the question, not the first N
+        // characters. A vendor page opens with navigation and marketing and
+        // puts the rate table near the end, so head-truncation delivered the
+        // Oracle blog post to the planner with no currency figure in it at all.
+        if (body) r.content = relevantExcerpt(body, query, WEB_PAGE_CHARS);
         // Keep the FIRST scrape failure. Search snippets rarely carry the
         // figures a priced document needs, so falling back to them silently is
         // how a BoQ ends up sourced from a page nobody actually read.

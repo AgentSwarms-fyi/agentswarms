@@ -32,8 +32,28 @@ export function contextBlock(ctx: DocContext): string {
     );
     for (const w of ctx.web) {
       parts.push(`- ${w.title ?? w.url ?? "result"}${w.url ? ` <${w.url}>` : ""}`);
-      if (w.content) parts.push(`  ${w.content.slice(0, 2000)}`);
+      // 3500, matching the scrape budget. At 2000 this re-truncated the excerpt
+      // the fetcher had already chosen for containing the figures, from the
+      // front — so a page fetched precisely because it held a rate table
+      // arrived here without it.
+      if (w.content) parts.push(`  ${w.content.slice(0, 3500)}`);
     }
+    // Retrieval is not verification. Oracle's price list renders its rate cells
+    // client-side, so the scrape carries the table with every price blank — and
+    // the first workbook built from a SUCCESSFUL search still quoted $0.025 per
+    // OCPU-hour "per current OCI Price List Compute table", a page it really
+    // did read and which really does not contain that number.
+    parts.push(
+      "",
+      "USING THE WEB RESEARCH — a figure is SOURCED only if it appears in the " +
+        "text above. Quote it and name the result you took it from. If a number " +
+        "you need is NOT in that text, you may still use a reasonable value, but " +
+        "you MUST label it unverified/illustrative and MUST NOT attribute it to " +
+        "any of these pages. Never cite a source for a figure it does not state. " +
+        "Some pages render their prices in the browser and arrive here with the " +
+        "table present and the cells empty — that is a missing figure, not a " +
+        "reason to supply one from memory.",
+    );
   }
   // Research was asked for and produced nothing. Say so, loudly. Staying quiet
   // here is what turned a request for live OCI pricing into a workbook of

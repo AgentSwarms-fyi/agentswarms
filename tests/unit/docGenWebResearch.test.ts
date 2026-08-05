@@ -128,6 +128,59 @@ describe("doc-gen runs the web tools with the agent's own configuration", () => 
   });
 });
 
+describe("retrieval is not treated as verification", () => {
+  const withResearch = {
+    ...base,
+    webAttempted: true,
+    web: [
+      { title: "OCI Price List", url: "https://www.oracle.com/cloud/price-list/", content: "x" },
+    ],
+  };
+
+  it("forbids citing a source for a figure it does not state", () => {
+    // The failure this exists for: the price list renders its rate cells in the
+    // browser, so the scrape holds the table with every price blank — and the
+    // workbook quoted $0.025/OCPU-hour "per current OCI Price List Compute
+    // table" anyway.
+    const out = contextBlock(withResearch);
+    expect(out).toContain("a figure is SOURCED only if it appears in the text above");
+    expect(out).toMatch(/MUST NOT attribute it to any of these pages/i);
+    expect(out).toMatch(/Never cite a source for a figure it does not state/i);
+    expect(out).toMatch(/table present and the cells empty/i);
+  });
+
+  it("says none of that when there was no research to misattribute", () => {
+    expect(contextBlock(base)).not.toContain("a figure is SOURCED only if");
+    expect(contextBlock({ ...base, webAttempted: true, web: [] })).not.toContain(
+      "a figure is SOURCED only if",
+    );
+  });
+
+  it("stops re-truncating the excerpt the fetcher already chose", () => {
+    // The fetcher picks a 3500-char passage BECAUSE it holds the figures.
+    // Cutting it to 2000 here, from the front, threw that away.
+    const long = "A".repeat(3000) + "$0.03 per OCPU-hour" + "B".repeat(400);
+    const out = contextBlock({
+      ...base,
+      webAttempted: true,
+      web: [{ title: "p", url: "u", content: long }],
+    });
+    expect(out).toContain("$0.03 per OCPU-hour");
+  });
+});
+
+describe("doc-gen searches for the subject and keeps the part that answers it", () => {
+  it("does not send the whole instruction as the search query", () => {
+    expect(GATHER).toContain("searchQueryFromPrompt(prompt)");
+    expect(GATHER).not.toContain("query: prompt.slice(0, 300)");
+  });
+
+  it("selects the relevant passage instead of the first N characters", () => {
+    expect(GATHER).toContain("relevantExcerpt(body, query, WEB_PAGE_CHARS)");
+    expect(GATHER).not.toContain("body.slice(0, WEB_PAGE_CHARS)");
+  });
+});
+
 describe("the flag is set where the search decision is made", () => {
   it("records that research was attempted, not just what it returned", () => {
     expect(GATHER).toContain("const webAttempted = WEB_CUE.test(data.prompt);");
