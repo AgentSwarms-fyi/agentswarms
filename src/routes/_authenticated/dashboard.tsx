@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { formatMs } from "@/lib/format";
 import { useEffect, useMemo, useState } from "react";
 import { mySpendSince } from "@/lib/budgetSpendClient";
 import { supabase } from "@/integrations/supabase/client";
@@ -128,14 +129,6 @@ const FEATURES = [
     color: "text-teal-600 bg-teal-50 dark:text-teal-300 dark:bg-teal-500/15",
   },
 ];
-
-// A swarm turn can run half a minute; "20383ms" makes the reader count
-// digits. Milliseconds stay for sub-second calls where they're the honest
-// unit.
-function formatMs(ms: number): string {
-  if (!Number.isFinite(ms) || ms < 1000) return `${Math.round(ms)}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
-}
 
 // Time-only stamps read as "today". Runs older than that get the date.
 function formatRunTime(iso: string): string {

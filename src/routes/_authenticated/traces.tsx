@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
+import { formatMs } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -369,7 +370,7 @@ function TracesPage() {
                   {t.llm_model}
                 </TableCell>
                 <TableCell className="text-right text-xs font-mono tabular-nums">
-                  {t.latency_ms}ms
+                  {formatMs(t.latency_ms)}
                 </TableCell>
                 <TableCell
                   className="text-right text-xs font-mono tabular-nums"
@@ -497,7 +498,7 @@ function TracesPage() {
                 <div className="p-4 space-y-4 min-w-0">
                   {/* Metrics row */}
                   <div className="grid grid-cols-4 gap-2">
-                    <Metric label="Latency" value={`${selected.latency_ms}ms`} />
+                    <Metric label="Latency" value={formatMs(selected.latency_ms)} />
                     <Metric label="Tokens In" value={selected.tokens_in.toLocaleString()} />
                     <Metric label="Tokens Out" value={selected.tokens_out.toLocaleString()} />
                     <Metric
