@@ -129,6 +129,23 @@ const FEATURES = [
   },
 ];
 
+// A swarm turn can run half a minute; "20383ms" makes the reader count
+// digits. Milliseconds stay for sub-second calls where they're the honest
+// unit.
+function formatMs(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 1000) return `${Math.round(ms)}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+// Time-only stamps read as "today". Runs older than that get the date.
+function formatRunTime(iso: string): string {
+  const d = new Date(iso);
+  const sameDay = d.toDateString() === new Date().toDateString();
+  return sameDay
+    ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : d.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
 function DashboardPage() {
   const [stats, setStats] = useState({
     agents: 0,
@@ -692,7 +709,7 @@ function DashboardPage() {
               <div>
                 <div className="text-muted-foreground">Avg latency</div>
                 <div className="mt-0.5 flex items-center gap-1 font-semibold text-foreground">
-                  <Clock className="h-3 w-3 text-sky-500" /> {metrics.avgLatency}ms
+                  <Clock className="h-3 w-3 text-sky-500" /> {formatMs(metrics.avgLatency)}
                 </div>
               </div>
               <div>
@@ -773,14 +790,11 @@ function DashboardPage() {
                     <div className="truncate text-xs text-muted-foreground">{r.llm_model}</div>
                   </div>
                   <div className="hidden text-right text-xs text-muted-foreground sm:block">
-                    <div className="tabular-nums">{r.latency_ms}ms</div>
+                    <div className="tabular-nums">{formatMs(r.latency_ms)}</div>
                     <div className="tabular-nums">${(r.cost_usd || 0).toFixed(4)}</div>
                   </div>
                   <Badge variant="outline" className="shrink-0 text-[10px]">
-                    {new Date(r.created_at).toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
+                    {formatRunTime(r.created_at)}
                   </Badge>
                 </div>
               ))}

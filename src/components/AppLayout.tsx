@@ -15,7 +15,11 @@ export function AppLayout() {
       <div className="flex min-h-screen w-full">
         <AppSidebar />
         <div className="flex flex-1 flex-col min-w-0">
-          <header className="flex h-12 items-center justify-between border-b border-border px-4">
+          {/* Sticky: on window-scrolling pages (dashboard, lists) the create/
+              approvals/alerts controls otherwise leave the screen one scroll
+              in. Canvas-style routes pin their own height and never scroll
+              the window, so this changes nothing for them. */}
+          <header className="sticky top-0 z-40 flex h-12 items-center justify-between border-b border-border bg-background/80 px-4 backdrop-blur-md">
             <SidebarTrigger />
             <div className="flex items-center gap-2">
               <GlobalCreateMenu />

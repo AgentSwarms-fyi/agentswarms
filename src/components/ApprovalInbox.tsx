@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { resumeApprovedSwarmRun } from "@/utils/swarmResume.functions";
 import {
-  Bell,
+  Inbox,
   CheckCircle2,
   XCircle,
   AlertTriangle,
@@ -214,8 +214,19 @@ export function ApprovalInbox() {
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <Button variant="ghost" size="sm" className="relative h-9 w-9 p-0">
-          <Bell className={`h-4 w-4 ${pulse ? "animate-bounce text-primary" : ""}`} />
+        {/* Inbox, not Bell: the alerts button beside this one is already a
+            bell, and two bells left this one unnameable (it also had no
+            accessible label at all). */}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="relative h-9 w-9 p-0"
+          aria-label={
+            approvals.length > 0 ? `Pending approvals (${approvals.length})` : "Pending approvals"
+          }
+          title="Pending approvals"
+        >
+          <Inbox className={`h-4 w-4 ${pulse ? "animate-bounce text-primary" : ""}`} />
           {approvals.length > 0 && (
             <>
               {pulse && (
