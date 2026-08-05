@@ -1150,6 +1150,12 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
     await import("@/utils/kb/schedule.server")
       .then((m) => m.processDueKbSyncs(force))
       .catch((e) => console.warn("[kb-sync] processing failed:", (e as Error).message));
+    // Traces recorded before their model had a known price re-resolve here —
+    // an alias mapping or a price refresh corrects history, not just the
+    // future, so budgets stop summing real spend as $0.
+    await import("@/utils/observability/reprice.server")
+      .then((m) => m.repriceUnpricedTraces(force))
+      .catch((e) => console.warn("[trace-reprice] failed:", (e as Error).message));
     const swarm_schedules = await import("@/utils/swarmSchedules.server")
       .then((m) => m.processDueSwarmSchedules(force))
       .catch((e) => {

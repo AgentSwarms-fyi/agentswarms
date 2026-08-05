@@ -445,15 +445,28 @@ import {
   sanitizeTraceValue,
 } from "@/utils/observability/traceSanitize";
 
-import {
-  approxTokens,
-  estimateImageCost,
-  estimateTextCost,
-  isImageModel,
-} from "@/utils/observability/pricing";
+import { approxTokens, estimateImageCost, isImageModel } from "@/utils/observability/pricing";
+import { priceCall } from "@/utils/observability/priceResolver";
 
-function estimateCost(model: string, tokensIn: number, tokensOut: number): number {
-  return estimateTextCost(model, tokensIn, tokensOut);
+function estimateCost(
+  provider: string,
+  model: string,
+  tokensIn: number,
+  tokensOut: number,
+): number {
+  // The full resolver, not the small bundled table: this writer produces most
+  // execution_traces rows, and the table-only estimateTextCost silently wrote
+  // $0 for anything it didn't list — gateway-decorated ids
+  // (~anthropic/claude-haiku-latest), "-latest" aliases, every gemini model —
+  // with no pricing_missing marker, so the reprice sweep couldn't find them
+  // and budgets summed real spend as free.
+  const priced = priceCall({ provider, model, kind: "text", tokensIn, tokensOut });
+  return priced.costUsd;
+}
+
+/** True when nothing knows this model's rate — recorded so $0 is explainable. */
+function costUnpriced(provider: string, model: string): boolean {
+  return !priceCall({ provider, model, kind: "text", tokensIn: 0, tokensOut: 0 }).priced;
 }
 
 async function recordTrace(opts: {
@@ -510,7 +523,7 @@ async function recordTrace(opts: {
     ? 0
     : isImg
       ? estimateImageCost(trace.model, Math.max(1, opts.imageCount ?? 1))
-      : estimateCost(trace.model, tokensIn, tokensOut);
+      : estimateCost(trace.provider, trace.model, tokensIn, tokensOut);
 
   // Build request_payload defensively. Some keys (like full message arrays)
   // can be very large — truncate per-message content so we don't blow up
@@ -520,6 +533,12 @@ async function recordTrace(opts: {
   const safePayload = sanitizeTraceValue(rawPayload) as Record<string, unknown>;
   if (tokensEstimated) safePayload.tokens_estimated = true;
   if (opts.replayedFinal) safePayload.replayed_final = true;
+  // Same marker recordGatewayCall stamps: a $0 that means "no known rate" must
+  // be distinguishable from a real zero, and the reprice sweep finds rows by
+  // exactly this flag once a rate exists. Replayed finals are $0 by design.
+  if (!opts.replayedFinal && !isImg && costUnpriced(trace.provider, trace.model)) {
+    safePayload.pricing_missing = true;
+  }
   // Whole-turn totals (this row + the tool-round children), for display.
   const loopIn = opts.loopUsage?.tokensIn ?? 0;
   const loopOut = opts.loopUsage?.tokensOut ?? 0;
@@ -527,7 +546,7 @@ async function recordTrace(opts: {
     safePayload.turn_tokens_in = tokensIn + loopIn;
     safePayload.turn_tokens_out = tokensOut + loopOut;
     safePayload.turn_cost_usd = Number(
-      (costUsd + estimateCost(trace.model, loopIn, loopOut)).toFixed(6),
+      (costUsd + estimateCost(trace.provider, trace.model, loopIn, loopOut)).toFixed(6),
     );
   }
   if (Array.isArray(safePayload.messages)) {
@@ -726,8 +745,8 @@ function withTraceTap(
           const tOut = loopOut + finalOut;
           const cUsd = isImg
             ? estimateImageCost(trace.model, Math.max(1, imageCount)) +
-              estimateCost(trace.model, loopIn, loopOut)
-            : estimateCost(trace.model, tIn, tOut);
+              estimateCost(trace.provider, trace.model, loopIn, loopOut)
+            : estimateCost(trace.provider, trace.model, tIn, tOut);
           controller.enqueue(
             new TextEncoder().encode(
               `event: cost\ndata: ${JSON.stringify({ model: trace.model, costUsd: cUsd, tokensIn: tIn, tokensOut: tOut })}\n\n`,

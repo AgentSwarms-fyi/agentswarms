@@ -27,10 +27,18 @@ export type ExecutionTraceRow = {
   tool_calls?: any;
   error_message: string | null;
   created_at: string;
+  /** 'true' when the model had no known price at record time (cost_usd is 0
+   *  because nothing knew the rate, not because the call was free). Projected
+   *  from request_payload by the list query; the reprice sweep clears it. */
+  pricing_missing?: string | null;
 };
 
+// pricing_missing is projected out of the jsonb payload rather than selecting
+// the whole payload: the list pulls 2000 rows and request_payload carries
+// prompt/response previews. A $0.0000 with this flag set is money nothing knew
+// how to price — the UI must not render it as if the call were free.
 const TRACE_LIST_COLUMNS =
-  "id, agent_name, llm_provider, llm_model, latency_ms, tokens_in, tokens_out, cost_usd, status, prompt, error_message, created_at, parent_trace_id";
+  "id, agent_name, llm_provider, llm_model, latency_ms, tokens_in, tokens_out, cost_usd, status, prompt, error_message, created_at, parent_trace_id, pricing_missing:request_payload->>pricing_missing";
 
 export const getExecutionTraces = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => TraceLogInput.parse(input))
@@ -86,6 +94,17 @@ export const getExecutionTraceDetail = createServerFn({ method: "POST" })
         .maybeSingle();
 
       if (error) return { ok: false, error: error.message };
-      return { ok: true, trace: (row ?? null) as ExecutionTraceRow | null };
+      if (!row) return { ok: true, trace: null };
+      // The list projects pricing_missing out of the payload; the detail row
+      // replaces the list row in the UI, so it must carry the same field or
+      // an "unpriced" cost would flip back to $0.0000 the moment the panel
+      // finishes loading.
+      const payload = (row as { request_payload?: { pricing_missing?: unknown } }).request_payload;
+      const trace = {
+        ...(row as object),
+        pricing_missing:
+          payload?.pricing_missing === true || payload?.pricing_missing === "true" ? "true" : null,
+      };
+      return { ok: true, trace: trace as ExecutionTraceRow };
     },
   );

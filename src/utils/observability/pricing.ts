@@ -46,6 +46,16 @@ export const TEXT_COST_TABLE: Record<string, TokenPrice> = {
   "anthropic/claude-3.5-sonnet": { in: 0.003, out: 0.015 },
   "anthropic/claude-3.5-haiku": { in: 0.0008, out: 0.004 },
   "anthropic/claude-sonnet-4": { in: 0.003, out: 0.015 },
+  // Rolling aliases, priced at their current targets (see MODEL_ALIASES).
+  // Bundled entries so vendor-prefixed alias ids resolve under ANY provider,
+  // not only ones whose catalog section carries the concrete target.
+  "anthropic/claude-haiku-latest": { in: 0.001, out: 0.005 },
+  "anthropic/claude-sonnet-latest": { in: 0.003, out: 0.015 },
+  "anthropic/claude-opus-latest": { in: 0.005, out: 0.025 },
+  // Bare key on purpose: the live traces carry gemini/models/gemini-flash-latest
+  // under provider "openrouter", whose catalog section has no gemini rows —
+  // only a provider-agnostic entry can price the alias's resolved tail.
+  "gemini-2.5-flash": { in: 0.0003, out: 0.0025 },
   "meta-llama/llama-3.3-70b-instruct": { in: 0.00012, out: 0.0003 },
   "meta-llama/Meta-Llama-3.1-70B-Instruct": { in: 0.00012, out: 0.0003 },
   "meta-llama/Meta-Llama-3.1-8B-Instruct": { in: 0.00002, out: 0.00005 },
@@ -61,6 +71,34 @@ export const TEXT_COST_TABLE: Record<string, TokenPrice> = {
   "Qwen/Qwen2.5-7B-Instruct": { in: 0.00005, out: 0.0001 },
   "x-ai/grok-2-1212": { in: 0.002, out: 0.01 },
   "google/gemma-3-27b-it": { in: 0.0001, out: 0.0002 },
+};
+
+/**
+ * Rolling-alias model ids → the concrete id whose price applies today.
+ *
+ * Gateways expose "-latest" aliases so configurations do not chase version
+ * bumps; the price tables key concrete ids only. Without this map every call
+ * made through an alias resolved to NO price — on this very instance,
+ * `~anthropic/claude-haiku-latest` accumulated ~680k tokens across 156 traces
+ * in a fortnight, every one recorded at $0.0000 with pricing_missing, all of
+ * it invisible to the budget caps.
+ *
+ * Deliberately explicit, one entry per alias, exact keys only: mapping is a
+ * pricing DECISION reviewed in git alongside the numbers, not a similarity
+ * guess at runtime. Refresh these targets when scripts/refreshPrices runs —
+ * an alias pointing at a superseded id prices at the superseded rate, which
+ * hasKnownPrice will not flag.
+ */
+export const MODEL_ALIASES: Record<string, string> = {
+  // Targets use the DOT spelling because that is how the generated catalog
+  // keys OpenRouter's rows — the aliases' own tests resolve each target, so a
+  // refresh that renames keys fails loudly here instead of re-zeroing costs.
+  "claude-haiku-latest": "claude-haiku-4.5",
+  "claude-sonnet-latest": "claude-sonnet-4.6",
+  "claude-opus-latest": "claude-opus-4.7",
+  // Google's rolling alias, seen in live traces as
+  // gemini/models/gemini-flash-latest (the models/ prefix is part of their id).
+  "gemini-flash-latest": "gemini-2.5-flash",
 };
 
 // Embedding models — cost per 1K input tokens (no output side). Called

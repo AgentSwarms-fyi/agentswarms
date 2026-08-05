@@ -26,7 +26,13 @@
 // 0, and 0 is indistinguishable from cheap once it reaches a budget:
 // getBudgetDecision sums cost_usd, so those calls never accumulated and the cap
 // never fired. Returning null instead of 0 makes the difference expressible.
-import { EMBED_COST_TABLE, IMAGE_COST_TABLE, TEXT_COST_TABLE, type TokenPrice } from "./pricing";
+import {
+  EMBED_COST_TABLE,
+  IMAGE_COST_TABLE,
+  MODEL_ALIASES,
+  TEXT_COST_TABLE,
+  type TokenPrice,
+} from "./pricing";
 import { GENERATED_PRICE_TABLE } from "./priceTable.generated";
 
 export type PriceKind = "text" | "embedding" | "image";
@@ -106,6 +112,20 @@ function norm(s: string | undefined | null): string {
 }
 
 /**
+ * Strip gateway decoration from a model id before lookup.
+ *
+ * Custom OpenAI-compatible gateways prefix vendor segments with `~`
+ * (`~anthropic/claude-haiku-latest`) to mark ids they alias-resolve
+ * themselves. The decoration carries no pricing information, but it defeated
+ * every exact-key candidate, so each such call priced to nothing. Only the
+ * `~` is removed — the id is otherwise untouched, keeping the exact-key
+ * discipline intact.
+ */
+function stripGatewayDecoration(model: string): string {
+  return model.replace(/(^|\/)~/g, "$1");
+}
+
+/**
  * The keys to try, most specific first.
  *
  * `provider:model` distinguishes the same model served by different backends —
@@ -122,9 +142,14 @@ function norm(s: string | undefined | null): string {
  */
 function candidates(provider: string, model: string): string[] {
   const p = norm(provider);
-  const m = norm(model);
+  const m = stripGatewayDecoration(norm(model));
   if (!m) return [];
   const tail = m.includes("/") ? m.slice(m.lastIndexOf("/") + 1) : "";
+  // Rolling aliases ("claude-haiku-latest") resolve to the concrete id whose
+  // price applies today — an explicit, git-reviewed map, not a fuzzy match.
+  // The alias's own keys are still tried FIRST, so a table that one day
+  // carries a real entry for the alias outranks the mapping.
+  const aliased = MODEL_ALIASES[tail || m];
   const keys = [
     // Both provider-qualified spellings, because the model id may or may not
     // carry its vendor. refreshPrices STRIPS the vendor when it builds keys
@@ -136,6 +161,7 @@ function candidates(provider: string, model: string): string[] {
     p && tail ? `${p}:${tail}` : "",
     m,
     tail,
+    ...(aliased ? [p ? `${p}:${aliased}` : "", aliased] : []),
   ].filter(Boolean);
   return [...new Set(keys)];
 }

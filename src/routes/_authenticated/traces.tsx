@@ -87,7 +87,7 @@ function TracesPage() {
       const { data, error } = await supabase
         .from("execution_traces")
         .select(
-          "id, agent_name, llm_provider, llm_model, latency_ms, tokens_in, tokens_out, cost_usd, status, prompt, error_message, created_at, parent_trace_id",
+          "id, agent_name, llm_provider, llm_model, latency_ms, tokens_in, tokens_out, cost_usd, status, prompt, error_message, created_at, parent_trace_id, pricing_missing:request_payload->>pricing_missing",
         )
         .gte("created_at", since)
         .order("created_at", { ascending: false })
@@ -171,8 +171,15 @@ function TracesPage() {
     }
     const out: (Trace & {
       isChild?: boolean;
-      rollup?: { tokens_in: number; tokens_out: number; cost_usd: number; rounds: number };
+      rollup?: {
+        tokens_in: number;
+        tokens_out: number;
+        cost_usd: number;
+        rounds: number;
+        unpriced: boolean;
+      };
     })[] = [];
+    const isUnpriced = (row: Trace) => row.pricing_missing === "true";
     for (const t of traces) {
       const pid = (t as Trace & { parent_trace_id?: string | null }).parent_trace_id;
       if (pid && loadedIds.has(pid)) continue; // rendered under its parent
@@ -192,6 +199,9 @@ function TracesPage() {
             cost_usd:
               Number(t.cost_usd || 0) + kids.reduce((s, k) => s + Number(k.cost_usd || 0), 0),
             rounds: kids.length,
+            // A turn containing any unpriced round has a PARTIAL total — say
+            // so rather than presenting the sum as complete.
+            unpriced: isUnpriced(t) || kids.some(isUnpriced),
           },
         });
       } else {
@@ -391,10 +401,36 @@ function TracesPage() {
                   </span>
                 </TableCell>
                 <TableCell className="text-right text-xs font-mono tabular-nums">
-                  $
-                  {Number(
-                    (t as { rollup?: { cost_usd: number } }).rollup?.cost_usd ?? t.cost_usd,
-                  ).toFixed(4)}
+                  {(() => {
+                    const rollup = (t as { rollup?: { cost_usd: number; unpriced: boolean } })
+                      .rollup;
+                    const unpriced = rollup ? rollup.unpriced : t.pricing_missing === "true";
+                    const amount = Number(rollup?.cost_usd ?? t.cost_usd);
+                    // $0.0000 for a call nothing knew how to price reads as
+                    // "free", and budgets summed exactly that. Label the gap.
+                    if (unpriced && amount === 0) {
+                      return (
+                        <span
+                          className="text-amber-600 dark:text-amber-400"
+                          title="No price is known for this model — the amount is missing, not zero. The maintenance pass re-prices it once a rate is known."
+                        >
+                          unpriced
+                        </span>
+                      );
+                    }
+                    return (
+                      <span
+                        title={
+                          unpriced
+                            ? "Partial: this turn includes calls whose model has no known price."
+                            : undefined
+                        }
+                      >
+                        ${amount.toFixed(4)}
+                        {unpriced ? "+?" : ""}
+                      </span>
+                    );
+                  })()}
                 </TableCell>
               </TableRow>
             ))}
@@ -464,7 +500,14 @@ function TracesPage() {
                     <Metric label="Latency" value={`${selected.latency_ms}ms`} />
                     <Metric label="Tokens In" value={selected.tokens_in.toLocaleString()} />
                     <Metric label="Tokens Out" value={selected.tokens_out.toLocaleString()} />
-                    <Metric label="Cost" value={`$${Number(selected.cost_usd).toFixed(4)}`} />
+                    <Metric
+                      label="Cost"
+                      value={
+                        selected.pricing_missing === "true" && Number(selected.cost_usd) === 0
+                          ? "unpriced"
+                          : `$${Number(selected.cost_usd).toFixed(4)}`
+                      }
+                    />
                   </div>
 
                   {selected.error_message && (
