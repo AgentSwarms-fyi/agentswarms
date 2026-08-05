@@ -71,3 +71,35 @@ export function allowedProviders(rules: ModelRuleLike[] | null | undefined): Set
   if (rules == null) return null;
   return new Set(rules.map((r) => r.provider));
 }
+
+/** Instance-wide default for users with NO applicable model rules. */
+export type ModelAccessDefault = "allow" | "deny";
+
+/**
+ * Collapse instance policy + role + applicable rules into the one value
+ * isModelAllowed understands: `null` (unrestricted), a real allow-list, or
+ * `[]` (deny everything — see the fail-closed note above).
+ *
+ * One function, used by the server loader AND the browser hook, because the
+ * whole point of a default-deny mode is lost if the two disagree about what
+ * "no rules" means.
+ *
+ *   allow mode — exactly the historical behaviour: no rules ⇒ null.
+ *   deny mode  — no rules ⇒ [] for regular users: nothing is callable until
+ *                an admin grants it. Superadmins collapse to null — they
+ *                administer the allow-lists, so rules never lock THEM out —
+ *                and that bypass applies in deny mode only: in allow mode a
+ *                rule written against an admin still applies, as it always
+ *                has.
+ */
+export function collapseModelPolicy(opts: {
+  mode: ModelAccessDefault;
+  isSuperadmin: boolean;
+  applicable: ModelRuleLike[];
+}): ModelRuleLike[] | null {
+  if (opts.mode === "deny") {
+    if (opts.isSuperadmin) return null;
+    return opts.applicable.length > 0 ? opts.applicable : [];
+  }
+  return opts.applicable.length > 0 ? opts.applicable : null;
+}

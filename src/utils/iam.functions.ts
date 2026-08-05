@@ -951,6 +951,13 @@ export type IamSettings = {
    * retention policy nobody has.
    */
   trace_retention_days: number;
+  /**
+   * What "no applicable model rules" means for a user: 'allow' (historical —
+   * unrestricted) or 'deny' (nothing callable until an admin allow-lists it;
+   * superadmins bypass). Resource access is unaffected — it is already
+   * deny-by-default via owner-only RLS plus additive grants.
+   */
+  model_access_default: "allow" | "deny";
 };
 
 /** Refuse a value that would silently delete more than intended. */
@@ -963,7 +970,9 @@ export const iamGetSettings = createServerFn({ method: "POST" })
     if (!guard.ok) return guard;
     const { data: row, error } = await supabaseAdmin
       .from("iam_settings")
-      .select("allow_public_signup, sso_enabled, sso_enforced, trace_retention_days")
+      .select(
+        "allow_public_signup, sso_enabled, sso_enforced, trace_retention_days, model_access_default",
+      )
       .eq("id", true)
       .maybeSingle();
     if (error) return { ok: false, error: error.message };
@@ -973,6 +982,7 @@ export const iamGetSettings = createServerFn({ method: "POST" })
       sso_enabled: row?.sso_enabled ?? false,
       sso_enforced: row?.sso_enforced ?? false,
       trace_retention_days: Number(row?.trace_retention_days ?? 0),
+      model_access_default: row?.model_access_default === "deny" ? "deny" : "allow",
     };
   });
 
@@ -987,6 +997,7 @@ export const iamUpdateSettings = createServerFn({ method: "POST" })
         // Validated here rather than trusted from the form: this number
         // decides what gets permanently deleted on the next scheduler pass.
         trace_retention_days: z.number().int().min(0).max(MAX_RETENTION_DAYS).optional(),
+        model_access_default: z.enum(["allow", "deny"]).optional(),
       })
       .parse(input),
   )
@@ -999,6 +1010,7 @@ export const iamUpdateSettings = createServerFn({ method: "POST" })
       sso_enabled?: boolean;
       sso_enforced?: boolean;
       trace_retention_days?: number;
+      model_access_default?: "allow" | "deny";
     } = { updated_at: new Date().toISOString() };
     if (typeof data.allow_public_signup === "boolean")
       patch.allow_public_signup = data.allow_public_signup;
@@ -1006,6 +1018,7 @@ export const iamUpdateSettings = createServerFn({ method: "POST" })
     if (typeof data.sso_enforced === "boolean") patch.sso_enforced = data.sso_enforced;
     if (typeof data.trace_retention_days === "number")
       patch.trace_retention_days = data.trace_retention_days;
+    if (data.model_access_default) patch.model_access_default = data.model_access_default;
     const { error } = await supabaseAdmin.from("iam_settings").update(patch).eq("id", true);
     if (error) return { ok: false, error: error.message };
     auditEvent({
@@ -1017,6 +1030,7 @@ export const iamUpdateSettings = createServerFn({ method: "POST" })
         sso_enabled: data.sso_enabled,
         sso_enforced: data.sso_enforced,
         trace_retention_days: data.trace_retention_days,
+        model_access_default: data.model_access_default,
       },
     });
     return { ok: true };

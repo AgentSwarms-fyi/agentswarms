@@ -1736,6 +1736,7 @@ export type Database = {
       iam_settings: {
         Row: {
           allow_public_signup: boolean;
+          model_access_default: string;
           audit_retention_days: number;
           trace_retention_days: number;
           id: boolean;
@@ -1745,6 +1746,7 @@ export type Database = {
         };
         Insert: {
           allow_public_signup?: boolean;
+          model_access_default?: string;
           audit_retention_days?: number;
           trace_retention_days?: number;
           id?: boolean;
@@ -1754,6 +1756,7 @@ export type Database = {
         };
         Update: {
           allow_public_signup?: boolean;
+          model_access_default?: string;
           audit_retention_days?: number;
           trace_retention_days?: number;
           id?: boolean;

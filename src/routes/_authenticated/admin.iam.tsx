@@ -192,6 +192,7 @@ function AdminIamPage() {
           sso_enabled: st.sso_enabled,
           sso_enforced: st.sso_enforced,
           trace_retention_days: st.trace_retention_days,
+          model_access_default: st.model_access_default,
         });
         // SSO provider listing is non-fatal: SAML may simply not be enabled
         // on the Supabase project yet.
@@ -1591,6 +1592,41 @@ function SettingsTab({
               }}
             />
             Allow anyone to sign up
+          </label>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Default model access</CardTitle>
+          <CardDescription>
+            What happens for a user with <strong>no model rules</strong>. Historically they were
+            unrestricted; in deny mode they can call <strong>no models at all</strong> until a rule
+            in the Model access tab allow-lists them (directly or via a group). Superadmins always
+            bypass deny mode, so you cannot lock yourself out. Resource access — knowledge bases,
+            datasets, secrets, dashboards, connections — is unaffected: those are already owner-only
+            plus explicit grants.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <label className="flex items-center gap-3 text-sm">
+            <Switch
+              checked={(settings?.model_access_default ?? "allow") === "deny"}
+              onCheckedChange={async (checked) => {
+                const mode = checked ? ("deny" as const) : ("allow" as const);
+                const res = await updateSettings({
+                  data: { access_token: token, model_access_default: mode },
+                });
+                if (!res.ok) return toast.error(res.error);
+                if (settings) setSettings({ ...settings, model_access_default: mode });
+                toast.success(
+                  mode === "deny"
+                    ? "Deny by default — users without rules can call no models"
+                    : "Allow by default — users without rules are unrestricted",
+                );
+              }}
+            />
+            Deny by default (allow-list only)
           </label>
         </CardContent>
       </Card>

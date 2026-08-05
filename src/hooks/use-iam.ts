@@ -8,6 +8,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { collapseModelPolicy } from "@/lib/iamRules";
 
 const ADMIN_EMAIL = (import.meta.env.VITE_ADMIN_EMAIL ?? "").toLowerCase();
 
@@ -19,13 +20,15 @@ type IamState = { isSuperadmin: boolean; modelRules: MyModelRule[] | null };
 let cache: { userId: string; promise: Promise<IamState> } | null = null;
 
 async function loadIamState(userId: string): Promise<IamState> {
-  const [{ data: roles }, { data: memberships }, { data: rules }] = await Promise.all([
-    supabase.from("user_roles").select("role").eq("user_id", userId),
-    supabase.from("iam_group_members").select("group_id").eq("user_id", userId),
-    supabase
-      .from("iam_model_rules")
-      .select("principal_type, principal_id, provider, model_pattern"),
-  ]);
+  const [{ data: roles }, { data: memberships }, { data: rules }, { data: settings }] =
+    await Promise.all([
+      supabase.from("user_roles").select("role").eq("user_id", userId),
+      supabase.from("iam_group_members").select("group_id").eq("user_id", userId),
+      supabase
+        .from("iam_model_rules")
+        .select("principal_type, principal_id, provider, model_pattern"),
+      supabase.from("iam_settings").select("model_access_default").eq("id", true).maybeSingle(),
+    ]);
   const isSuperadmin = (roles ?? []).some((r) => r.role === "superadmin");
   const groupIds = new Set((memberships ?? []).map((m) => m.group_id));
   // Superadmins can read every rule via RLS, so re-filter to the ones that
@@ -35,11 +38,19 @@ async function loadIamState(userId: string): Promise<IamState> {
       (r.principal_type === "user" && r.principal_id === userId) ||
       (r.principal_type === "group" && groupIds.has(r.principal_id)),
   );
+  // The same collapse the server runs (see getEffectiveModelRules): pickers
+  // and the API must agree about what "no rules" means, or deny mode shows
+  // models the server then refuses.
   return {
     isSuperadmin,
-    modelRules: applicable.length
-      ? applicable.map((r) => ({ provider: r.provider, model_pattern: r.model_pattern }))
-      : null,
+    modelRules: collapseModelPolicy({
+      mode: settings?.model_access_default === "deny" ? "deny" : "allow",
+      isSuperadmin,
+      applicable: applicable.map((r) => ({
+        provider: r.provider,
+        model_pattern: r.model_pattern,
+      })),
+    }),
   };
 }
 

@@ -140,7 +140,14 @@ export type ModelRule = { provider: string; model_pattern: string };
 /**
  * Load the model rules that apply to a user, querying under the CALLER's
  * JWT-scoped client (RLS exposes exactly the applicable rules to regular
- * users). Returns null when the user is unrestricted.
+ * users). Returns null when the user is unrestricted, and `[]` when the
+ * instance policy denies by default and nothing grants this user access —
+ * isModelAllowed fails closed on the empty list.
+ *
+ * The instance's model_access_default decides what "no applicable rules"
+ * means (allow = historical unrestricted; deny = nothing until granted), and
+ * superadmins bypass deny mode — collapseModelPolicy is the single shared
+ * rule for this, used identically by the browser hook.
  *
  * Note: for superadmin callers RLS returns every rule, so results are
  * re-filtered against the user's own id + group memberships here.
@@ -149,23 +156,33 @@ export async function getEffectiveModelRules(
   sb: SupabaseClient<Database>,
   userId: string,
 ): Promise<ModelRule[] | null> {
-  const [{ data: memberships }, { data: rules }] = await Promise.all([
-    sb.from("iam_group_members").select("group_id").eq("user_id", userId),
-    sb.from("iam_model_rules").select("principal_type, principal_id, provider, model_pattern"),
-  ]);
+  const [{ data: memberships }, { data: rules }, { data: roles }, { data: settings }] =
+    await Promise.all([
+      sb.from("iam_group_members").select("group_id").eq("user_id", userId),
+      sb.from("iam_model_rules").select("principal_type, principal_id, provider, model_pattern"),
+      sb.from("user_roles").select("role").eq("user_id", userId),
+      sb.from("iam_settings").select("model_access_default").eq("id", true).maybeSingle(),
+    ]);
   const groupIds = new Set((memberships ?? []).map((m) => m.group_id));
   const applicable = (rules ?? []).filter(
     (r) =>
       (r.principal_type === "user" && r.principal_id === userId) ||
       (r.principal_type === "group" && groupIds.has(r.principal_id)),
   );
-  if (applicable.length === 0) return null;
-  return applicable.map((r) => ({ provider: r.provider, model_pattern: r.model_pattern }));
+  // A missing settings row (pre-migration schema) reads as 'allow' — the
+  // historical behaviour, which is also what the column defaults to.
+  const mode = settings?.model_access_default === "deny" ? ("deny" as const) : ("allow" as const);
+  return collapseModelPolicy({
+    mode,
+    isSuperadmin: (roles ?? []).some((r) => r.role === "superadmin"),
+    applicable: applicable.map((r) => ({ provider: r.provider, model_pattern: r.model_pattern })),
+  });
 }
 
 // Re-exported from the shared matcher so the server and the browser cannot
 // disagree about who may call which model. See src/lib/iamRules.ts.
 export { isModelAllowed } from "@/lib/iamRules";
+import { collapseModelPolicy } from "@/lib/iamRules";
 
 // Resource ids of `resourceType` the user may read via an IAM grant — directly
 // or through any group they belong to. Mirrors the `has_resource_access` RLS

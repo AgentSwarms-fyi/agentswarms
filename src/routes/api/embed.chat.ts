@@ -298,6 +298,25 @@ export const Route = createFileRoute("/api/embed/chat")({
         if (!resolved.ok) return json({ error: resolved.error }, resolved.status);
         const cfg = resolved.cfg;
 
+        // Model governance applies to embeds too. This surface executes the
+        // OWNER's stored model on behalf of anonymous strangers, and it was
+        // the one LLM gateway with no rules check at all — so an owner whose
+        // access an admin had revoked (or who never had any, under deny-by-
+        // default) kept a public endpoint running that model indefinitely.
+        {
+          const { getEffectiveModelRules, isModelAllowed } = await import("@/utils/iam.server");
+          const rules = await getEffectiveModelRules(supabaseAdmin, keyRow.user_id);
+          if (!isModelAllowed(rules, cfg.provider, cfg.model)) {
+            return json(
+              {
+                error:
+                  "This assistant is temporarily unavailable — its model is not permitted by the workspace's policy.",
+              },
+              403,
+            );
+          }
+        }
+
         // Visitors keep only user/assistant roles — system is server-owned.
         const history: ChatMessage[] = body.messages.filter(
           (m) => m && (m.role === "user" || m.role === "assistant"),
