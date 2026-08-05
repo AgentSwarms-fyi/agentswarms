@@ -44,6 +44,36 @@ function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [appleLoading, setAppleLoading] = useState(false);
+  // Which social providers the auth server will actually accept. GoTrue
+  // publishes this at /auth/v1/settings; a provider left unconfigured in
+  // Supabase (Authentication → Providers) rejects the OAuth redirect with a
+  // raw JSON "provider is not enabled" page — so a button for it is a dead
+  // end by construction. null = not known yet (or the probe failed): render
+  // the buttons as before, because hiding working sign-in paths on a
+  // transient fetch failure would be worse than the JSON page.
+  const [socialEnabled, setSocialEnabled] = useState<{
+    google: boolean;
+    apple: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    const url = import.meta.env.VITE_SUPABASE_URL;
+    const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+    if (!url || !key) return;
+    fetch(`${url}/auth/v1/settings`, { headers: { apikey: key } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { external?: { google?: boolean; apple?: boolean } } | null) => {
+        if (j?.external) {
+          setSocialEnabled({
+            google: j.external.google === true,
+            apple: j.external.apple === true,
+          });
+        }
+      })
+      .catch(() => {
+        /* fail open — see the note above */
+      });
+  }, []);
 
   // Instance SSO configuration (set by superadmins under /admin/iam → SSO).
   const [ssoConfig, setSsoConfig] = useState<{ enabled: boolean; enforced: boolean } | null>(null);
@@ -237,42 +267,53 @@ function LoginPage() {
             </p>
           )}
 
-          {showNative && mode !== "forgot" && (
-            <>
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full gap-2"
-                onClick={handleGoogleSignIn}
-                disabled={googleLoading || loading}
-              >
-                <svg className="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true">
-                  <path
-                    fill="#EA4335"
-                    d="M12 11v3.2h5.5c-.24 1.4-1.7 4.1-5.5 4.1A6.3 6.3 0 1 1 12 5.7a5.7 5.7 0 0 1 4 1.55l2.18-2.1A9 9 0 1 0 12 21c5.2 0 8.7-3.65 8.7-8.8 0-.6-.06-1.06-.14-1.5H12z"
-                  />
-                </svg>
-                {googleLoading ? "Redirecting…" : "Continue with Google"}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="mt-2 w-full gap-2"
-                onClick={handleAppleSignIn}
-                disabled={appleLoading || googleLoading || loading}
-              >
-                <svg className="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor">
-                  <path d="M16.365 1.43c0 1.14-.49 2.27-1.27 3.08-.84.86-2.2 1.52-3.32 1.43-.14-1.1.42-2.27 1.18-3.05.86-.87 2.32-1.5 3.41-1.46zM20.5 17.07c-.55 1.28-.82 1.85-1.53 2.99-.99 1.6-2.39 3.58-4.12 3.6-1.54.02-1.94-.99-4.03-.98-2.09.01-2.53 1-4.07.98-1.73-.02-3.06-1.81-4.05-3.4C-.07 16.79-.32 11.6 1.6 8.93c1.37-1.9 3.52-3.02 5.55-3.02 2.06 0 3.36 1.12 5.07 1.12 1.66 0 2.67-1.12 5.05-1.12 1.8 0 3.7.98 5.06 2.67-4.45 2.44-3.73 8.81-1.83 8.49z" />
-                </svg>
-                {appleLoading ? "Redirecting…" : "Continue with Apple"}
-              </Button>
-              <div className="my-4 flex items-center gap-3 text-[11px] uppercase tracking-wider text-muted-foreground">
-                <span className="h-px flex-1 bg-border" />
-                <span>or</span>
-                <span className="h-px flex-1 bg-border" />
-              </div>
-            </>
-          )}
+          {showNative &&
+            mode !== "forgot" &&
+            (socialEnabled === null || socialEnabled.google || socialEnabled.apple) && (
+              <>
+                {(socialEnabled === null || socialEnabled.google) && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full gap-2"
+                    onClick={handleGoogleSignIn}
+                    disabled={googleLoading || loading}
+                  >
+                    <svg className="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true">
+                      <path
+                        fill="#EA4335"
+                        d="M12 11v3.2h5.5c-.24 1.4-1.7 4.1-5.5 4.1A6.3 6.3 0 1 1 12 5.7a5.7 5.7 0 0 1 4 1.55l2.18-2.1A9 9 0 1 0 12 21c5.2 0 8.7-3.65 8.7-8.8 0-.6-.06-1.06-.14-1.5H12z"
+                      />
+                    </svg>
+                    {googleLoading ? "Redirecting…" : "Continue with Google"}
+                  </Button>
+                )}
+                {(socialEnabled === null || socialEnabled.apple) && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="mt-2 w-full gap-2"
+                    onClick={handleAppleSignIn}
+                    disabled={appleLoading || googleLoading || loading}
+                  >
+                    <svg
+                      className="h-4 w-4"
+                      viewBox="0 0 24 24"
+                      aria-hidden="true"
+                      fill="currentColor"
+                    >
+                      <path d="M16.365 1.43c0 1.14-.49 2.27-1.27 3.08-.84.86-2.2 1.52-3.32 1.43-.14-1.1.42-2.27 1.18-3.05.86-.87 2.32-1.5 3.41-1.46zM20.5 17.07c-.55 1.28-.82 1.85-1.53 2.99-.99 1.6-2.39 3.58-4.12 3.6-1.54.02-1.94-.99-4.03-.98-2.09.01-2.53 1-4.07.98-1.73-.02-3.06-1.81-4.05-3.4C-.07 16.79-.32 11.6 1.6 8.93c1.37-1.9 3.52-3.02 5.55-3.02 2.06 0 3.36 1.12 5.07 1.12 1.66 0 2.67-1.12 5.05-1.12 1.8 0 3.7.98 5.06 2.67-4.45 2.44-3.73 8.81-1.83 8.49z" />
+                    </svg>
+                    {appleLoading ? "Redirecting…" : "Continue with Apple"}
+                  </Button>
+                )}
+                <div className="my-4 flex items-center gap-3 text-[11px] uppercase tracking-wider text-muted-foreground">
+                  <span className="h-px flex-1 bg-border" />
+                  <span>or</span>
+                  <span className="h-px flex-1 bg-border" />
+                </div>
+              </>
+            )}
 
           {showNative && (
             <form onSubmit={handleSubmit} className="space-y-4">
