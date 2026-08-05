@@ -174,8 +174,12 @@ export function DocsSidebar({ current }: { current: string }) {
           </div>
         )}
       </div>
-      {/* Desktop: always-visible grouped rail */}
-      <div className="hidden rounded-xl border border-border/50 bg-card/40 p-3 lg:block">
+      {/* Desktop: always-visible grouped rail. Scrolls inside itself — the
+          rail is ~1100px tall and sticky, so without this the last groups sit
+          below the fold for the whole read on long pages (measured: on
+          /docs/agents at mid-scroll the last item was 480px past the
+          viewport, unreachable until the article ended). */}
+      <div className="hidden rounded-xl border border-border/50 bg-card/40 p-3 lg:block lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto">
         <SidebarLinks current={current} />
       </div>
     </nav>

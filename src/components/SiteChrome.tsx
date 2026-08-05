@@ -5,6 +5,7 @@
 import { Link } from "@tanstack/react-router";
 import { Mail, LayoutDashboard } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import agentSwarmsLogo from "@/assets/agentswarms-logo.jpg";
 
 function XIcon({ className }: { className?: string }) {
@@ -171,6 +172,9 @@ export function SiteHeader() {
           <Link to="/contact" className="hidden hover:text-foreground md:inline">
             Contact
           </Link>
+          {/* Same toggle the landing page offers — docs are read at length,
+              so the reader gets to pick their theme without leaving the page. */}
+          <ThemeToggle variant="ghost" className="h-8 w-8 text-muted-foreground" />
           {/* Reserve a fixed slot so the Sign in / Lab swap after Supabase
               resolves the session doesn't cause a visible flash on first paint. */}
           {loading ? (
