@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Zap, ArrowLeft, Building2 } from "lucide-react";
+import { Zap, ArrowLeft, Building2, Check } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { toast } from "sonner";
 import agentSwarmsLogo from "@/assets/agentswarms-logo.jpg";
@@ -191,218 +191,295 @@ function LoginPage() {
         : "Sign in to your account";
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4">
-      <div className="bg-grid-faint pointer-events-none absolute inset-0 [mask-image:radial-gradient(ellipse_60%_60%_at_50%_40%,black,transparent)]" />
-      <div className="bg-hero-glow pointer-events-none absolute inset-0" />
-      <div className="absolute right-4 top-4">
-        <ThemeToggle variant="outline" />
-      </div>
-      <Card className="w-full max-w-md border-border/50 bg-card/80 backdrop-blur">
-        <CardHeader className="text-center">
-          <Link
-            to="/"
-            className="mx-auto mb-4 block h-12 w-12 overflow-hidden rounded-xl shadow-lg shadow-primary/25"
-            title="Back to home"
-          >
+    <div className="flex min-h-screen bg-background">
+      {/* Brand panel — wrapped in `dark` so it stays the product's dark
+          surface in both themes, exactly like the landing hero. Sign-in is a
+          brand moment: say what this is and why it's trustworthy, instead of
+          floating an anonymous card in an empty viewport. */}
+      <div className="dark relative hidden w-[44%] flex-col justify-between overflow-hidden bg-[oklch(0.135_0.005_250)] p-10 text-foreground lg:flex xl:p-14">
+        <div className="bg-grid-faint pointer-events-none absolute inset-0 [mask-image:radial-gradient(ellipse_70%_70%_at_40%_40%,black,transparent)]" />
+        <div className="bg-hero-glow pointer-events-none absolute inset-0" />
+        <Link to="/" className="relative flex items-center gap-3" title="Back to home">
+          <span className="block h-10 w-10 overflow-hidden rounded-xl shadow-lg shadow-primary/25">
             <img
               src={agentSwarmsLogo}
-              alt="AgentSwarms AI School logo"
+              alt="AgentSwarms logo"
               className="h-full w-full object-cover"
             />
-          </Link>
-          <CardTitle className="text-2xl font-bold">AgentSwarms</CardTitle>
-          <CardDescription>{headerCopy}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {showSso && (
-            <div className="mb-2">
-              {ssoOpen ? (
-                <form onSubmit={handleSsoSignIn} className="space-y-2">
-                  <Label htmlFor="sso-email">Work email</Label>
-                  <Input
-                    id="sso-email"
-                    type="email"
-                    placeholder="you@company.com"
-                    value={ssoEmail}
-                    onChange={(e) => setSsoEmail(e.target.value)}
-                    autoComplete="email"
-                    autoFocus
-                    required
-                  />
-                  <Button type="submit" className="w-full gap-2" disabled={ssoLoading}>
-                    <Building2 className="h-4 w-4" />
-                    {ssoLoading ? "Redirecting…" : "Continue with SSO"}
-                  </Button>
-                  <button
-                    type="button"
-                    onClick={() => setSsoOpen(false)}
-                    className="mx-auto block text-xs text-muted-foreground underline-offset-4 hover:underline"
-                  >
-                    Cancel
-                  </button>
-                </form>
-              ) : (
-                <Button
-                  type="button"
-                  variant={showNative ? "outline" : "default"}
-                  className="w-full gap-2"
-                  onClick={() => setSsoOpen(true)}
-                >
-                  <Building2 className="h-4 w-4" /> Continue with single sign-on (SSO)
-                </Button>
-              )}
-              {showNative && (
-                <div className="my-4 flex items-center gap-3 text-[11px] uppercase tracking-wider text-muted-foreground">
-                  <span className="h-px flex-1 bg-border" />
-                  <span>or</span>
-                  <span className="h-px flex-1 bg-border" />
-                </div>
-              )}
-            </div>
-          )}
+          </span>
+          <span>
+            <span className="block text-base font-bold leading-tight">AgentSwarms</span>
+            <span className="block text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+              Unified agentic AI &amp; business intelligence
+            </span>
+          </span>
+        </Link>
+        <div className="relative max-w-md">
+          <h1 className="font-display text-3xl font-semibold leading-[1.15] tracking-tight xl:text-4xl">
+            Your agents.
+            <br />
+            Your infrastructure.
+          </h1>
+          <ul className="mt-8 space-y-4 text-sm text-muted-foreground">
+            <li className="flex items-start gap-3">
+              <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              Self-hosted — your database, your model keys, your data
+            </li>
+            <li className="flex items-start gap-3">
+              <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              Agents, multi-agent swarms, RAG and a full BI suite in one platform
+            </li>
+            <li className="flex items-start gap-3">
+              <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              Every call traced, budgeted and governed by IAM
+            </li>
+          </ul>
+        </div>
+        <p className="relative text-xs text-muted-foreground">
+          Source-available · Elastic License 2.0
+        </p>
+      </div>
 
-          {!showNative && !showSso && ssoConfig !== null && (
-            <p className="text-center text-sm text-muted-foreground">
-              Sign-in is managed by your administrator.
-            </p>
-          )}
-
-          {showNative &&
-            mode !== "forgot" &&
-            (socialEnabled === null || socialEnabled.google || socialEnabled.apple) && (
-              <>
-                {(socialEnabled === null || socialEnabled.google) && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="w-full gap-2"
-                    onClick={handleGoogleSignIn}
-                    disabled={googleLoading || loading}
-                  >
-                    <svg className="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true">
-                      <path
-                        fill="#EA4335"
-                        d="M12 11v3.2h5.5c-.24 1.4-1.7 4.1-5.5 4.1A6.3 6.3 0 1 1 12 5.7a5.7 5.7 0 0 1 4 1.55l2.18-2.1A9 9 0 1 0 12 21c5.2 0 8.7-3.65 8.7-8.8 0-.6-.06-1.06-.14-1.5H12z"
-                      />
-                    </svg>
-                    {googleLoading ? "Redirecting…" : "Continue with Google"}
-                  </Button>
-                )}
-                {(socialEnabled === null || socialEnabled.apple) && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="mt-2 w-full gap-2"
-                    onClick={handleAppleSignIn}
-                    disabled={appleLoading || googleLoading || loading}
-                  >
-                    <svg
-                      className="h-4 w-4"
-                      viewBox="0 0 24 24"
-                      aria-hidden="true"
-                      fill="currentColor"
-                    >
-                      <path d="M16.365 1.43c0 1.14-.49 2.27-1.27 3.08-.84.86-2.2 1.52-3.32 1.43-.14-1.1.42-2.27 1.18-3.05.86-.87 2.32-1.5 3.41-1.46zM20.5 17.07c-.55 1.28-.82 1.85-1.53 2.99-.99 1.6-2.39 3.58-4.12 3.6-1.54.02-1.94-.99-4.03-.98-2.09.01-2.53 1-4.07.98-1.73-.02-3.06-1.81-4.05-3.4C-.07 16.79-.32 11.6 1.6 8.93c1.37-1.9 3.52-3.02 5.55-3.02 2.06 0 3.36 1.12 5.07 1.12 1.66 0 2.67-1.12 5.05-1.12 1.8 0 3.7.98 5.06 2.67-4.45 2.44-3.73 8.81-1.83 8.49z" />
-                    </svg>
-                    {appleLoading ? "Redirecting…" : "Continue with Apple"}
-                  </Button>
-                )}
-                <div className="my-4 flex items-center gap-3 text-[11px] uppercase tracking-wider text-muted-foreground">
-                  <span className="h-px flex-1 bg-border" />
-                  <span>or</span>
-                  <span className="h-px flex-1 bg-border" />
-                </div>
-              </>
-            )}
-
-          {showNative && (
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  autoComplete="email"
+      {/* Form panel */}
+      <div className="relative flex flex-1 items-center justify-center overflow-hidden px-4 py-10">
+        <div className="bg-grid-faint pointer-events-none absolute inset-0 [mask-image:radial-gradient(ellipse_60%_60%_at_50%_40%,black,transparent)] lg:hidden" />
+        <div className="bg-hero-glow pointer-events-none absolute inset-0 lg:hidden" />
+        <div className="absolute right-4 top-4">
+          <ThemeToggle variant="outline" />
+        </div>
+        <div className="w-full max-w-md">
+          <Card className="w-full border-border/50 bg-card/80 backdrop-blur lg:border-0 lg:bg-transparent lg:shadow-none lg:backdrop-blur-0">
+            <CardHeader className="text-center lg:text-left">
+              <Link
+                to="/"
+                className="mx-auto mb-4 block h-12 w-12 overflow-hidden rounded-xl shadow-lg shadow-primary/25 lg:hidden"
+                title="Back to home"
+              >
+                <img
+                  src={agentSwarmsLogo}
+                  alt="AgentSwarms AI School logo"
+                  className="h-full w-full object-cover"
                 />
-              </div>
-
-              {mode !== "forgot" && (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="password">Password</Label>
-                    {mode === "signin" && (
+              </Link>
+              <CardTitle className="text-2xl font-bold lg:hidden">AgentSwarms</CardTitle>
+              <CardTitle className="hidden font-display text-[1.6rem] font-semibold tracking-tight lg:block">
+                {headerCopy}
+              </CardTitle>
+              <CardDescription className="lg:hidden">{headerCopy}</CardDescription>
+              <CardDescription className="hidden lg:block">
+                {mode === "signup"
+                  ? "Free to start — agents and sample data are seeded on first sign-in."
+                  : mode === "forgot"
+                    ? "We'll email you a link to choose a new password."
+                    : "Welcome back."}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {showSso && (
+                <div className="mb-2">
+                  {ssoOpen ? (
+                    <form onSubmit={handleSsoSignIn} className="space-y-2">
+                      <Label htmlFor="sso-email">Work email</Label>
+                      <Input
+                        id="sso-email"
+                        type="email"
+                        placeholder="you@company.com"
+                        value={ssoEmail}
+                        onChange={(e) => setSsoEmail(e.target.value)}
+                        autoComplete="email"
+                        autoFocus
+                        required
+                      />
+                      <Button type="submit" className="w-full gap-2" disabled={ssoLoading}>
+                        <Building2 className="h-4 w-4" />
+                        {ssoLoading ? "Redirecting…" : "Continue with SSO"}
+                      </Button>
                       <button
                         type="button"
-                        onClick={() => setMode("forgot")}
-                        className="text-xs text-primary underline-offset-4 hover:underline"
+                        onClick={() => setSsoOpen(false)}
+                        className="mx-auto block text-xs text-muted-foreground underline-offset-4 hover:underline"
                       >
-                        Forgot password?
+                        Cancel
                       </button>
-                    )}
-                  </div>
-                  <Input
-                    id="password"
-                    type="password"
-                    placeholder="••••••••"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    minLength={6}
-                    autoComplete={mode === "signup" ? "new-password" : "current-password"}
-                  />
+                    </form>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant={showNative ? "outline" : "default"}
+                      className="w-full gap-2"
+                      onClick={() => setSsoOpen(true)}
+                    >
+                      <Building2 className="h-4 w-4" /> Continue with single sign-on (SSO)
+                    </Button>
+                  )}
+                  {showNative && (
+                    <div className="my-4 flex items-center gap-3 text-[11px] uppercase tracking-wider text-muted-foreground">
+                      <span className="h-px flex-1 bg-border" />
+                      <span>or</span>
+                      <span className="h-px flex-1 bg-border" />
+                    </div>
+                  )}
                 </div>
               )}
 
-              <Button type="submit" className="w-full" disabled={loading}>
-                {loading
-                  ? "Loading..."
-                  : mode === "signup"
-                    ? "Create Account"
-                    : mode === "forgot"
-                      ? "Send reset link"
-                      : "Sign In"}
-              </Button>
-            </form>
-          )}
-
-          {showNative && (
-            <div className="mt-4 text-center text-sm text-muted-foreground">
-              {mode === "forgot" ? (
-                <button
-                  onClick={() => setMode("signin")}
-                  className="inline-flex items-center gap-1 text-primary underline-offset-4 hover:underline"
-                >
-                  <ArrowLeft className="h-3.5 w-3.5" /> Back to sign in
-                </button>
-              ) : mode === "signup" ? (
-                <>
-                  Already have an account?{" "}
-                  <button
-                    onClick={() => setMode("signin")}
-                    className="text-primary underline-offset-4 hover:underline"
-                  >
-                    Sign in
-                  </button>
-                </>
-              ) : (
-                <>
-                  Don't have an account?{" "}
-                  <button
-                    onClick={() => setMode("signup")}
-                    className="text-primary underline-offset-4 hover:underline"
-                  >
-                    Sign up
-                  </button>
-                </>
+              {!showNative && !showSso && ssoConfig !== null && (
+                <p className="text-center text-sm text-muted-foreground">
+                  Sign-in is managed by your administrator.
+                </p>
               )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+
+              {showNative &&
+                mode !== "forgot" &&
+                (socialEnabled === null || socialEnabled.google || socialEnabled.apple) && (
+                  <>
+                    {(socialEnabled === null || socialEnabled.google) && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full gap-2"
+                        onClick={handleGoogleSignIn}
+                        disabled={googleLoading || loading}
+                      >
+                        <svg className="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true">
+                          <path
+                            fill="#EA4335"
+                            d="M12 11v3.2h5.5c-.24 1.4-1.7 4.1-5.5 4.1A6.3 6.3 0 1 1 12 5.7a5.7 5.7 0 0 1 4 1.55l2.18-2.1A9 9 0 1 0 12 21c5.2 0 8.7-3.65 8.7-8.8 0-.6-.06-1.06-.14-1.5H12z"
+                          />
+                        </svg>
+                        {googleLoading ? "Redirecting…" : "Continue with Google"}
+                      </Button>
+                    )}
+                    {(socialEnabled === null || socialEnabled.apple) && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="mt-2 w-full gap-2"
+                        onClick={handleAppleSignIn}
+                        disabled={appleLoading || googleLoading || loading}
+                      >
+                        <svg
+                          className="h-4 w-4"
+                          viewBox="0 0 24 24"
+                          aria-hidden="true"
+                          fill="currentColor"
+                        >
+                          <path d="M16.365 1.43c0 1.14-.49 2.27-1.27 3.08-.84.86-2.2 1.52-3.32 1.43-.14-1.1.42-2.27 1.18-3.05.86-.87 2.32-1.5 3.41-1.46zM20.5 17.07c-.55 1.28-.82 1.85-1.53 2.99-.99 1.6-2.39 3.58-4.12 3.6-1.54.02-1.94-.99-4.03-.98-2.09.01-2.53 1-4.07.98-1.73-.02-3.06-1.81-4.05-3.4C-.07 16.79-.32 11.6 1.6 8.93c1.37-1.9 3.52-3.02 5.55-3.02 2.06 0 3.36 1.12 5.07 1.12 1.66 0 2.67-1.12 5.05-1.12 1.8 0 3.7.98 5.06 2.67-4.45 2.44-3.73 8.81-1.83 8.49z" />
+                        </svg>
+                        {appleLoading ? "Redirecting…" : "Continue with Apple"}
+                      </Button>
+                    )}
+                    <div className="my-4 flex items-center gap-3 text-[11px] uppercase tracking-wider text-muted-foreground">
+                      <span className="h-px flex-1 bg-border" />
+                      <span>or</span>
+                      <span className="h-px flex-1 bg-border" />
+                    </div>
+                  </>
+                )}
+
+              {showNative && (
+                <form onSubmit={handleSubmit} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="email">Email</Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      placeholder="you@example.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      required
+                      autoComplete="email"
+                    />
+                  </div>
+
+                  {mode !== "forgot" && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="password">Password</Label>
+                        {mode === "signin" && (
+                          <button
+                            type="button"
+                            onClick={() => setMode("forgot")}
+                            className="text-xs text-primary underline-offset-4 hover:underline"
+                          >
+                            Forgot password?
+                          </button>
+                        )}
+                      </div>
+                      <Input
+                        id="password"
+                        type="password"
+                        placeholder="••••••••"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        required
+                        minLength={6}
+                        autoComplete={mode === "signup" ? "new-password" : "current-password"}
+                      />
+                    </div>
+                  )}
+
+                  <Button type="submit" className="w-full" disabled={loading}>
+                    {loading
+                      ? "Loading..."
+                      : mode === "signup"
+                        ? "Create Account"
+                        : mode === "forgot"
+                          ? "Send reset link"
+                          : "Sign In"}
+                  </Button>
+                </form>
+              )}
+
+              {showNative && (
+                <div className="mt-4 text-center text-sm text-muted-foreground">
+                  {mode === "forgot" ? (
+                    <button
+                      onClick={() => setMode("signin")}
+                      className="inline-flex items-center gap-1 text-primary underline-offset-4 hover:underline"
+                    >
+                      <ArrowLeft className="h-3.5 w-3.5" /> Back to sign in
+                    </button>
+                  ) : mode === "signup" ? (
+                    <>
+                      Already have an account?{" "}
+                      <button
+                        onClick={() => setMode("signin")}
+                        className="text-primary underline-offset-4 hover:underline"
+                      >
+                        Sign in
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      Don't have an account?{" "}
+                      <button
+                        onClick={() => setMode("signup")}
+                        className="text-primary underline-offset-4 hover:underline"
+                      >
+                        Sign up
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+          <p className="mt-6 text-center text-xs text-muted-foreground">
+            By continuing you agree to the{" "}
+            <Link to="/terms" className="underline-offset-4 hover:text-foreground hover:underline">
+              Terms of Use
+            </Link>{" "}
+            and{" "}
+            <Link
+              to="/privacy"
+              className="underline-offset-4 hover:text-foreground hover:underline"
+            >
+              Privacy Policy
+            </Link>
+            .
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
