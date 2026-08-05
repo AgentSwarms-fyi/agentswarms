@@ -51,6 +51,7 @@ export function DocGenBar({
       onClick={() => onPick(f)}
       disabled={busy}
       title={title}
+      aria-pressed={armed === f}
     >
       <Icon className="h-4 w-4" /> {label}
     </Button>
@@ -67,6 +68,7 @@ export function DocGenBar({
           disabled={biControl.disabled}
           onClick={() => biControl.onToggle(!biControl.enabled)}
           title="Show a data visualization alongside answers"
+          aria-pressed={biControl.enabled}
         >
           <BarChart3 className="h-3.5 w-3.5" /> Visual BI
         </Button>
@@ -81,6 +83,7 @@ export function DocGenBar({
               key={s}
               type="button"
               onClick={() => onScopeChange(s)}
+              aria-pressed={scope === s}
               className={cn(
                 "rounded px-2 py-0.5 text-[11px] font-medium transition-colors",
                 scope === s
@@ -103,6 +106,7 @@ export function DocGenBar({
                 type="button"
                 disabled={disabled}
                 onClick={() => !disabled && onModeChange(m)}
+                aria-pressed={!disabled && mode === m}
                 title={
                   disabled
                     ? `Deep mode is unavailable — ${deepReason ?? "the doc-gen service isn't reachable"}. Documents would be built in the browser anyway, so this is the same as Fast.`
