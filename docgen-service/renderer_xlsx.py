@@ -47,7 +47,27 @@ def _sheet_name(raw: str, used: set[str]) -> str:
 
 
 def _write_cell(ws, r: int, c: int, value: Any) -> int:
-    """Write one cell; return its display length for column-width sizing."""
+    """Write one cell; return its display length for column-width sizing.
+
+    A cell with no value is not written AT ALL — not even for its border.
+
+    openpyxl was previously asked to materialise every blank as a styled,
+    value-less cell (`<c r="B4" s="5"/>`). Written that way the file is
+    correct, but the LibreOffice recalc round-trip below then collapses a run
+    of value-less cells and drags the next formula left into the gap. Measured
+    on a totals row `["Total", None x6, SUM(H2:H3), SUM(I2:I3)]`:
+
+        openpyxl only          H4 =SUM(H2:H3)     correct
+        after LibreOffice      B4 =SUM(H2:H3)     moved to the first blank
+
+    which lands a column's total under an unrelated heading and empties the
+    cell every roll-up sheet references. Padding with "" behaves identically;
+    padding with 0 keeps the position, which is what identified value-less
+    cells as the trigger. Omitting them entirely is the fix, at the cost of no
+    grid border on genuinely empty cells.
+    """
+    if value is None:
+        return 0
     cell = ws.cell(row=r, column=c)
     cell.border = BORDER
     if isinstance(value, dict) and "formula" in value:
@@ -57,9 +77,6 @@ def _write_cell(ws, r: int, c: int, value: Any) -> int:
         if fmt:
             cell.number_format = str(fmt)
         return min(len(formula) + 2, 24)
-    if value is None:
-        cell.value = None
-        return 0
     if isinstance(value, bool):
         cell.value = value
         return 5

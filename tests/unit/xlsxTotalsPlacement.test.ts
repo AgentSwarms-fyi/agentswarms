@@ -171,6 +171,31 @@ describe("the builder applies it, and does not do it silently", () => {
   });
 });
 
+describe("the Deep renderer does not hand LibreOffice value-less cells", () => {
+  // The client plan can be perfect and the file still come out wrong. openpyxl
+  // wrote the totals row correctly; the LibreOffice recalc round-trip then
+  // collapsed the run of styled-but-empty cells and dragged the next formula
+  // left. Measured in the container, same plan, recalc on vs off:
+  //
+  //   recalc=False   H4 =SUM(H2:H3)      recalc=True   B4 =SUM(H2:H3)
+  //
+  // Not writing a cell that has no value fixes it. There is no pytest harness
+  // in this repo, so this guards the line from a revert.
+  const RENDERER = readFileSync("docgen-service/renderer_xlsx.py", "utf8");
+
+  it("returns before materialising a cell with no value", () => {
+    const guard = RENDERER.indexOf("if value is None:\n        return 0");
+    const create = RENDERER.indexOf("cell = ws.cell(row=r, column=c)");
+    expect(guard).toBeGreaterThan(-1);
+    expect(create).toBeGreaterThan(-1);
+    expect(guard).toBeLessThan(create);
+  });
+
+  it("no longer writes an explicit None value", () => {
+    expect(RENDERER).not.toContain("cell.value = None");
+  });
+});
+
 describe("the planner is told both rules", () => {
   it("requires a total to sit in the column it sums", () => {
     expect(PLAN).toContain("SAME COLUMN as the values it sums");
