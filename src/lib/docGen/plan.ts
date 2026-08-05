@@ -43,8 +43,9 @@ export function contextBlock(ctx: DocContext): string {
   if (ctx.webAttempted && !ctx.web?.length) {
     parts.push(
       "",
-      "WEB RESEARCH: ATTEMPTED AND RETURNED NOTHING. No search provider is " +
-        "configured, or the search found no usable results. You therefore have NO " +
+      "WEB RESEARCH: ATTEMPTED AND RETURNED NOTHING." +
+        (ctx.webNote ? ` Reason: ${ctx.webNote}` : "") +
+        " You therefore have NO " +
         "live figures for this request. Do NOT present remembered or estimated " +
         "numbers as sourced, and do NOT cite URLs you did not receive above. " +
         "Use clearly-labelled placeholders or illustrative values, state in the " +

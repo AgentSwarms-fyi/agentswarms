@@ -8,7 +8,12 @@ import { z } from "zod";
 
 import type { Database } from "@/integrations/supabase/types";
 import { retrieveCitationsServer } from "@/utils/tools/kb.server";
-import { runWebSearch, runWebBrowse, type AgentToolContext } from "@/utils/tools/registry.server";
+import {
+  runWebSearch,
+  runWebBrowse,
+  type AgentToolContext,
+  type ToolConfigs,
+} from "@/utils/tools/registry.server";
 
 function userClient(accessToken: string) {
   const url = process.env.SUPABASE_URL;
@@ -58,6 +63,16 @@ export type DocContext = {
    * exactly like a request that never needed one.
    */
   webAttempted?: boolean;
+  /**
+   * Why research came back empty (or thin), in the provider's own words —
+   * e.g. "DuckDuckGo returned no summary. For richer results, link the
+   * Firecrawl connector in Integrations."
+   *
+   * The stack was already producing this. gatherWebResearch parsed only
+   * `results`/`abstract`/`related` and dropped `note` and `error`, so the one
+   * honest signal about a failed search never left the function.
+   */
+  webNote?: string;
 };
 
 const MAX_TABLES = 8;
@@ -75,13 +90,42 @@ const WEB_PAGE_CHARS = 3500;
 const WEB_CUE =
   /\b(web|internet|online|www|latest|current|today|recent|news|market|price|prices|pricing|cost of|quote|rates?|research|look\s*up|search)\b/i;
 
-/** Best-effort web research for the planner. Never throws. */
+/**
+ * The agent's tool configuration AS STORED on `agents.tools.toolConfigs`.
+ *
+ * Deliberately not `ToolConfigs` from the registry: that is the MAPPED shape
+ * the chat route passes to resolveAgentTools, and the two disagree on SQL —
+ * stored is `sql_query.table_names`, mapped is `sql_table_names`. The web keys
+ * are identical in both, which is why they can be forwarded straight through.
+ */
+type StoredToolConfigs = {
+  web_search?: ToolConfigs["web_search"];
+  web_browse?: ToolConfigs["web_browse"];
+  sql_query?: { table_names?: unknown };
+};
+
+/**
+ * Best-effort web research for the planner. Never throws.
+ *
+ * `cfg` is the AGENT's saved tool configuration and is not optional in
+ * practice: without it runWebSearch defaults provider to "firecrawl_builtin",
+ * which makes its `provider === "firecrawl_custom"` test false, so an agent's
+ * own Firecrawl key is never passed and resolution falls through to the
+ * workspace env var and the user's Firecrawl integration. An agent configured
+ * with nothing but a custom key therefore searched via the DuckDuckGo fallback
+ * and found nothing — see the note handling below.
+ */
 async function gatherWebResearch(
   ctx: AgentToolContext,
   prompt: string,
-): Promise<DocContext["web"]> {
+  cfg?: { search?: ToolConfigs["web_search"]; browse?: ToolConfigs["web_browse"] },
+): Promise<{ items: DocContext["web"]; note?: string }> {
   try {
-    const raw = await runWebSearch(ctx, { query: prompt.slice(0, 300), limit: WEB_RESULTS });
+    const raw = await runWebSearch(
+      ctx,
+      { query: prompt.slice(0, 300), limit: WEB_RESULTS },
+      cfg?.search,
+    );
     const parsed = JSON.parse(raw) as {
       provider?: string;
       results?: { title?: string | null; url?: string | null; snippet?: string | null }[];
@@ -90,6 +134,10 @@ async function gatherWebResearch(
       abstract?: string | null;
       abstract_url?: string | null;
       related?: { text?: string; url?: string }[];
+      // Why it came back empty. Both were previously parsed away and lost —
+      // the one honest signal the stack produced never left this function.
+      note?: string | null;
+      error?: string | null;
     };
     const out: NonNullable<DocContext["web"]> = [];
     for (const r of parsed.results ?? []) {
@@ -111,22 +159,38 @@ async function gatherWebResearch(
     // the actual figures a BoQ/pricing document needs). Firecrawl-only; the
     // browse tool degrades to a JSON error we simply skip.
     const toScrape = out.filter((r) => r.url).slice(0, WEB_PAGES);
+    let scrapeError: string | undefined;
     for (const r of toScrape) {
       try {
-        const page = JSON.parse(await runWebBrowse(ctx, { url: r.url! })) as {
+        const page = JSON.parse(await runWebBrowse(ctx, { url: r.url! }, cfg?.browse)) as {
           markdown?: string;
           text?: string;
           error?: string;
         };
         const body = (page.markdown || page.text || "").trim();
         if (body) r.content = body.slice(0, WEB_PAGE_CHARS);
+        // Keep the FIRST scrape failure. Search snippets rarely carry the
+        // figures a priced document needs, so falling back to them silently is
+        // how a BoQ ends up sourced from a page nobody actually read.
+        else if (page.error && !scrapeError) scrapeError = page.error;
       } catch {
         /* keep the snippet */
       }
     }
-    return out.slice(0, WEB_RESULTS);
-  } catch {
-    return undefined;
+    const items = out.slice(0, WEB_RESULTS);
+    // Carry the reason out. An empty result and a result nobody could explain
+    // are different problems, and the caller has to be able to say which.
+    const note =
+      items.length === 0
+        ? parsed.error ||
+          parsed.note ||
+          `No results from ${parsed.provider ?? "the search provider"}.`
+        : scrapeError
+          ? `Search returned ${items.length} result(s) but the page scrape failed: ${scrapeError}`
+          : undefined;
+    return { items, note: note ?? undefined };
+  } catch (e) {
+    return { items: undefined, note: `Web research failed: ${(e as Error).message}` };
   }
 }
 
@@ -160,11 +224,33 @@ export const gatherDocContext = createServerFn({ method: "POST" })
           /* KB context is optional */
         }
 
+        // The agent's saved tool configuration, read ONCE and used for every
+        // tool doc-gen runs on the agent's behalf.
+        //
+        // This load used to sit below, serving only the SQL allow-list, so the
+        // web tools ran with no configuration at all: runWebSearch defaulted
+        // provider to "firecrawl_builtin", its "firecrawl_custom" branch never
+        // fired, and an agent whose Firecrawl key lives here — not in the
+        // workspace env or the Integrations page — silently searched via the
+        // DuckDuckGo fallback. Doc-gen was the only caller dropping this;
+        // /api/chat and swarm tool nodes have always passed it.
+        let agentToolConfigs: StoredToolConfigs | null = null;
+        if (data.agent_id) {
+          const { data: agent } = await sb
+            .from("agents")
+            .select("tools")
+            .eq("id", data.agent_id)
+            .maybeSingle();
+          agentToolConfigs =
+            (agent?.tools as { toolConfigs?: StoredToolConfigs } | null)?.toolConfigs ?? null;
+        }
+
         // Web research — when the prompt points at the web ("from web search",
         // pricing, latest …). Uses the same search/scrape stack as the agent
         // tools (Firecrawl → DuckDuckGo fallback), in parallel with nothing
         // else here so the tables read below stays cheap.
         let web: DocContext["web"];
+        let webNote: string | undefined;
         const webAttempted = WEB_CUE.test(data.prompt);
         if (webAttempted) {
           const toolCtx: AgentToolContext = {
@@ -173,7 +259,12 @@ export const gatherDocContext = createServerFn({ method: "POST" })
             authToken: data.access_token,
             sb,
           };
-          web = await gatherWebResearch(toolCtx, data.prompt);
+          const res = await gatherWebResearch(toolCtx, data.prompt, {
+            search: agentToolConfigs?.web_search,
+            browse: agentToolConfigs?.web_browse,
+          });
+          web = res.items;
+          webNote = res.note;
         }
 
         // The agent's SQL allow-list, saved under
@@ -183,16 +274,8 @@ export const gatherDocContext = createServerFn({ method: "POST" })
         // agent's own configuration, and the deck is built on data the agent
         // itself is not allowed to read.
         let allowedTableNames: string[] | null = null;
-        if (data.agent_id) {
-          const { data: agent } = await sb
-            .from("agents")
-            .select("tools")
-            .eq("id", data.agent_id)
-            .maybeSingle();
-          const sqlCfg = (
-            agent?.tools as { toolConfigs?: { sql_query?: { table_names?: unknown } } } | null
-          )?.toolConfigs?.sql_query;
-          const raw = sqlCfg?.table_names;
+        {
+          const raw = agentToolConfigs?.sql_query?.table_names;
           if (Array.isArray(raw)) {
             const names = raw.filter(
               (s): s is string => typeof s === "string" && s.trim().length > 0,
@@ -291,7 +374,7 @@ export const gatherDocContext = createServerFn({ method: "POST" })
           });
         }
 
-        return { ok: true, context: { kb, tables, web, webAttempted } };
+        return { ok: true, context: { kb, tables, web, webAttempted, webNote } };
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : "Failed" };
       }

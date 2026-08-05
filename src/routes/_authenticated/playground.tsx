@@ -1007,8 +1007,8 @@ function PlaygroundPage() {
       if (ctx.context.webAttempted && !ctx.context.web?.length) {
         toast.warning("Web research found nothing — figures won't be sourced", {
           description:
-            "No search provider is configured, or the search returned no usable results. " +
-            "Treat any prices or external facts in this document as unverified.",
+            (ctx.context.webNote ?? "The search returned no usable results.") +
+            " Treat any prices or external facts in this document as unverified.",
           duration: 12000,
         });
       }
