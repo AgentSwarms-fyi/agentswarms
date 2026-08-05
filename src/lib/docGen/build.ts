@@ -27,6 +27,7 @@ import type {
   XlsxTotalsRow,
 } from "./types";
 import { isXlsxDataSheet } from "./types";
+import { alignColumnAggregates } from "./xlsxRepair";
 
 function withExt(name: string, ext: string): string {
   const base = (name || "document").trim() || "document";
@@ -985,7 +986,17 @@ export async function materializeXlsxPlan(
     }
   }
 
-  return { sheets };
+  // Put each column's total under that column. Data sheets already place totals
+  // by header name, so this is a no-op for them; literal sheets are authored
+  // positionally and the totals row lands in column B whatever it sums.
+  const repairs: string[] = [];
+  const aligned = sheets.map((s) => {
+    const { sheet, moves } = alignColumnAggregates(s);
+    for (const m of moves) repairs.push(`${sheet.name}: moved ${m}`);
+    return sheet;
+  });
+
+  return { sheets: aligned, repairs };
 }
 
 // ── Excel (write-excel-file) — real cells + live formulas ─────────────────────

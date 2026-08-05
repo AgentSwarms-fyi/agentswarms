@@ -231,7 +231,15 @@ export type XlsxSheet = XlsxLiteralSheet | XlsxDataSheet;
 export type XlsxPlan = { sheets: XlsxSheet[] };
 
 /** After materialization every sheet is literal (formula cells preserved). */
-export type MaterializedXlsxPlan = { sheets: XlsxLiteralSheet[] };
+export type MaterializedXlsxPlan = {
+  sheets: XlsxLiteralSheet[];
+  /**
+   * Layout problems corrected during materialization, e.g. a column's total
+   * written under a different column. Reported so a repair is visible rather
+   * than silent — see alignColumnAggregates.
+   */
+  repairs?: string[];
+};
 
 export function isXlsxDataSheet(s: XlsxSheet): s is XlsxDataSheet {
   return typeof (s as XlsxDataSheet).sourceSql === "string";

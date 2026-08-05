@@ -233,6 +233,19 @@ export async function planXlsx(args: PlanArgs): Promise<XlsxPlan> {
       `NEVER invent a table name. If the subject (e.g. an external vendor's pricing) is not covered by any listed ` +
       `table, build LITERAL sheets from WEB RESEARCH / the conversation instead — a working literal workbook beats ` +
       `a broken query.\n` +
+      `LAYOUT RULES FOR LITERAL SHEETS — these decide whether the workbook still ` +
+      `works after somebody edits it:\n` +
+      `- A totals row must put each total in the SAME COLUMN as the values it sums. ` +
+      `Pad the row with nulls to get there: a row labelled "Total" whose line-total ` +
+      `column is G looks like ["Total", null, null, null, null, null, {"formula":"SUM(G2:G8)"}]. ` +
+      `Writing that formula in column B instead puts the number under an unrelated ` +
+      `heading and leaves G empty for anything that references it.\n` +
+      `- A summary or roll-up sheet must REFERENCE the detail sheet, never restate ` +
+      `its numbers: {"formula":"'Bill of Quantities'!K2"} or ` +
+      `{"formula":"SUM('Bill of Quantities'!K2:K8)"}, not the literal 537.28. ` +
+      `Copied numbers stop agreeing with the line items the moment a quantity changes, ` +
+      `and a roll-up that silently disagrees with its own detail sheet is worse than ` +
+      `no roll-up. Quote the sheet name exactly as you named it.\n` +
       `SCHEMA: { "sheets": [ <data-bound or literal sheet> ] }\n` +
       `Design a genuinely useful workbook: e.g. a bill of materials = a line-items sheet (sourceSql over the pricing ` +
       `table, computed line totals) plus a summary sheet with monthly/annual roll-ups. Use multiple sheets when it helps.`,

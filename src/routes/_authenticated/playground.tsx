@@ -1039,6 +1039,14 @@ function PlaygroundPage() {
         built = await buildDocxDoc(plan as DocxPlan, fileBase, token, docMode);
       else {
         const materialized = await materializeXlsxPlan(plan as XlsxPlan, dataScope);
+        // A silent repair hides a defect nobody will ever fix, and the person
+        // about to send this workbook on deserves to know a cell moved.
+        if (materialized.repairs?.length) {
+          toast.info("Fixed the layout of a totals row", {
+            description: `${materialized.repairs.join("; ")}. A column total had been written under a different column.`,
+            duration: 9000,
+          });
+        }
         built = await buildXlsxDoc(materialized, fileBase, token, docMode);
       }
       // Show the result as a preview card in chat (thumbnail + download button)
