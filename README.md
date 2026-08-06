@@ -180,7 +180,7 @@ to report it responsibly instead of opening a public issue.
 
 ## License
 
-AgentSwarms is **source-available** under the **[Elastic License 2.0](./LICENSE)** (ELv2).
+AgentSwarms is **source-available** under the **[Elastic License 2.0](./LICENSE.md)** (ELv2).
 In plain terms: you may freely **use, self-host, modify, and redistribute** it —
 but you may **not offer it to third parties as a hosted or managed service**, and
 you may not remove the licensing/copyright notices. A separate **commercial

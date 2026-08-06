@@ -128,7 +128,17 @@ export function TeamSpend() {
                 {users.slice(0, 12).map((u) => (
                   <TableRow key={u.user_id}>
                     <TableCell className="max-w-52 truncate text-xs">
-                      {u.email ?? u.user_id.slice(0, 8)}
+                      {/* No email means the account is gone; its traces are
+                          kept for accounting. A bare UUID prefix reads like a
+                          rendering bug, so say what it is. */}
+                      {u.email ?? (
+                        <span
+                          className="text-muted-foreground"
+                          title={`Deleted account · id ${u.user_id}`}
+                        >
+                          {u.user_id.slice(0, 8)} · deleted user
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell className="text-right text-xs tabular-nums">
                       {u.calls.toLocaleString()}

@@ -27,10 +27,13 @@ const acknowledgements = readFileSync("ACKNOWLEDGEMENTS.md", "utf8");
 const readme = readFileSync("README.md", "utf8");
 
 describe("the licence the project actually ships under", () => {
-  it("agrees between package.json, LICENSE and the README", () => {
+  it("agrees between package.json, LICENSE.md and the README", () => {
     // Three places state this and a mismatch is a legal question, not a typo.
+    // The file is LICENSE.md (not bare LICENSE): on case-insensitive
+    // filesystems vite's dev server matched the /license ROUTE to the bare
+    // file and served licence text as a JS module, 500ing the page.
     expect(pkg.license).toBe("Elastic-2.0");
-    expect(readFileSync("LICENSE", "utf8")).toMatch(/Elastic License 2\.0/);
+    expect(readFileSync("LICENSE.md", "utf8")).toMatch(/Elastic License 2\.0/);
     expect(readme).toMatch(/Elastic License 2\.0/);
   });
 

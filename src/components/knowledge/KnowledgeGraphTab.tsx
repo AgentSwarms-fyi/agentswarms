@@ -212,7 +212,9 @@ export function KnowledgeGraphTab({ knowledgeBaseId, isSample }: Props) {
           <div className="flex items-center gap-3 min-w-0">
             <Network className="h-5 w-5 text-primary shrink-0" />
             <div className="min-w-0">
-              <p className="text-sm font-medium flex items-center gap-2 flex-wrap">
+              {/* div, not p: Badge renders a <div>, and a div inside a p is
+                  invalid HTML — React flags it as a hydration error. */}
+              <div className="text-sm font-medium flex items-center gap-2 flex-wrap">
                 Knowledge Graph
                 {status === "ready" && (
                   <Badge
@@ -243,7 +245,7 @@ export function KnowledgeGraphTab({ knowledgeBaseId, isSample }: Props) {
                     Not built
                   </Badge>
                 )}
-              </p>
+              </div>
               <p className="text-xs text-muted-foreground">
                 {hasGraph
                   ? `${entities.length} entities · ${relations.length} relations`

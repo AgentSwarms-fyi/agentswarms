@@ -316,7 +316,7 @@ const LLM_PROVIDERS = [
     id: "openai",
     name: "OpenAI",
     icon: Brain,
-    description: "GPT-4o, GPT-4 Turbo, o1, Whisper, DALL-E, and more.",
+    description: "The GPT-5 and GPT-4o families, o-series reasoning, Whisper and image models.",
     fields: [
       { key: "api_key", label: "API Key", type: "password", placeholder: "sk-..." },
       {
@@ -337,7 +337,7 @@ const LLM_PROVIDERS = [
     id: "anthropic",
     name: "Anthropic",
     icon: Brain,
-    description: "Claude 4 Sonnet, Claude 3.5 Haiku, Claude 3 Opus.",
+    description: "The Claude Opus, Sonnet and Haiku families via your Anthropic API key.",
     fields: [
       { key: "api_key", label: "API Key", type: "password", placeholder: "sk-ant-..." },
       {
@@ -368,7 +368,7 @@ const LLM_PROVIDERS = [
     id: "grok",
     name: "Grok (xAI)",
     icon: Brain,
-    description: "Grok-3 and Grok-3 Mini from xAI.",
+    description: "The Grok family from xAI, full-size and Mini.",
     fields: [
       { key: "api_key", label: "API Key", type: "password", placeholder: "xai-..." },
       { key: "base_url", label: "API Base URL", type: "text", placeholder: "https://api.x.ai/v1" },
