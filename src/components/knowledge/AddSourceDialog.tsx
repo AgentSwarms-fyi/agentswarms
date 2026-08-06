@@ -334,8 +334,17 @@ export function AddSourceDialog({
               )}
             >
               <input {...(getInputProps() as React.InputHTMLAttributes<HTMLInputElement>)} />
-              <UploadCloud className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
-              <p className="text-sm font-medium">Drop files here or click to browse</p>
+              <div
+                className={cn(
+                  "mx-auto mb-2.5 grid h-11 w-11 place-items-center rounded-xl transition-colors",
+                  isDragActive ? "bg-primary/20 text-primary" : "bg-primary/10 text-primary",
+                )}
+              >
+                <UploadCloud className="h-5 w-5" />
+              </div>
+              <p className="text-sm font-medium">
+                {isDragActive ? "Drop to add" : "Drop files here or click to browse"}
+              </p>
               <p className="text-xs text-muted-foreground mt-1">
                 PDF, DOCX, TXT, MD, CSV, JSON, HTML — up to 50MB each
               </p>

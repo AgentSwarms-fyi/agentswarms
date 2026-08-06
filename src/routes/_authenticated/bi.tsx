@@ -1,4 +1,5 @@
 // BI Workspace — the list of BI projects (editable dashboards/reports).
+import { identityHue } from "@/lib/identityHue";
 // Own projects open in the editor; projects shared via IAM group grants open
 // read-only. Published projects expose a public read-only link.
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
@@ -428,8 +429,10 @@ function BiWorkspacePage() {
                         <CardContent className="flex flex-1 flex-col gap-2.5 p-3.5">
                           <div className="flex items-start justify-between gap-2">
                             <div className="flex min-w-0 items-start gap-2">
-                              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-                                <LayoutDashboard className="h-4 w-4 text-primary" />
+                              <div
+                                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br text-white shadow-sm ${identityHue(d.name)}`}
+                              >
+                                <LayoutDashboard className="h-4 w-4" />
                               </div>
                               <div className="min-w-0">
                                 <p className="truncate font-semibold">{d.name}</p>

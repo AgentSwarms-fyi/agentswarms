@@ -640,26 +640,30 @@ export function CatalogView({
           ) : (
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead className="text-xs">Asset</TableHead>
-                  <TableHead className="text-xs">Source</TableHead>
-                  <TableHead className="text-xs">Type</TableHead>
-                  <TableHead className="text-right text-xs">Columns</TableHead>
-                  <TableHead className="text-right text-xs">Rows</TableHead>
-                  <TableHead className="text-right text-xs">Size</TableHead>
+                <TableRow className="bg-muted/40 hover:bg-muted/40 [&_th]:h-9 [&_th]:text-[11px] [&_th]:font-semibold [&_th]:uppercase [&_th]:tracking-wider [&_th]:text-muted-foreground">
+                  <TableHead>Asset</TableHead>
+                  <TableHead>Source</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead className="text-right">Columns</TableHead>
+                  <TableHead className="text-right">Rows</TableHead>
+                  <TableHead className="text-right">Size</TableHead>
                   <TableHead
-                    className="text-right text-xs"
+                    className="text-right"
                     title="Dashboards, prep flows and metrics built on this asset"
                   >
                     Used by
                   </TableHead>
-                  <TableHead className="text-xs">Tags</TableHead>
-                  <TableHead className="w-24 text-xs" />
+                  <TableHead>Tags</TableHead>
+                  <TableHead className="w-24" />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filtered.slice(0, 500).map((a) => (
-                  <TableRow key={a.id} className="cursor-pointer" onClick={() => setSelected(a)}>
+                  <TableRow
+                    key={a.id}
+                    className="group cursor-pointer border-b border-border/40 transition-colors hover:bg-primary/5"
+                    onClick={() => setSelected(a)}
+                  >
                     <TableCell className="max-w-72">
                       <div className="flex items-center gap-2">
                         {typeIcon(a.asset_type)}
@@ -754,7 +758,7 @@ export function CatalogView({
                           <Button
                             size="sm"
                             variant="outline"
-                            className="h-6 gap-1 px-2 text-[10px]"
+                            className="h-6 gap-1 px-2 text-[10px] opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
                             title={`Run SELECT * FROM ${a.local ? a.name : a.fqn} LIMIT 10 in the Workbench`}
                             onClick={(e) => {
                               e.stopPropagation();

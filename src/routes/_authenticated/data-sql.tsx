@@ -42,6 +42,7 @@ import {
   BarChart3,
   Plus,
   Server,
+  Table2,
 } from "lucide-react";
 import { useServerFn } from "@tanstack/react-start";
 import {
@@ -156,11 +157,6 @@ function DataCatalogRoute() {
           {switchBtn("catalog", <BookOpen className="h-3.5 w-3.5" />, "Catalog")}
           {switchBtn("workbench", <Wrench className="h-3.5 w-3.5" />, "Workbench")}
         </div>
-        <p className="ml-auto hidden text-[11px] text-muted-foreground lg:block">
-          {view === "catalog"
-            ? "Connect sources, crawl schemas, browse and govern every data asset"
-            : "Database explorer · SQL editor · BI agent & SQL chat"}
-        </p>
       </div>
       <div className="min-h-0 flex-1">
         <div className={view === "catalog" ? "h-full" : "hidden"}>
@@ -1362,12 +1358,17 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
                 </Card>
               </div>
             ) : !result ? (
-              <div className="h-full flex items-center justify-center text-xs text-slate-400 dark:text-muted-foreground">
-                Press{" "}
-                <kbd className="mx-1 px-1.5 py-0.5 bg-white border border-slate-300 rounded text-slate-600 shadow-sm dark:bg-accent dark:border-border dark:text-foreground">
-                  Run Query
-                </kbd>{" "}
-                to see results
+              <div className="flex h-full flex-col items-center justify-center gap-2 text-xs text-muted-foreground">
+                <div className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary">
+                  <Table2 className="h-5 w-5" />
+                </div>
+                <div>
+                  Press{" "}
+                  <kbd className="mx-1 rounded border border-border bg-accent px-1.5 py-0.5 text-foreground shadow-sm">
+                    Run Query
+                  </kbd>{" "}
+                  or ask the BI agent →
+                </div>
               </div>
             ) : result.row_count === 0 ? (
               <div className="h-full flex items-center justify-center text-xs text-slate-500 dark:text-muted-foreground">

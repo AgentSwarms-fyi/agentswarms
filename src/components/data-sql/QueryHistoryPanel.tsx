@@ -86,10 +86,8 @@ export function QueryHistoryPanel({
             <div
               key={e.id}
               className={cn(
-                "group/hist cursor-pointer rounded-md border px-2 py-1.5 transition-colors",
-                e.error
-                  ? "border-red-500/30 bg-red-500/5 hover:border-red-500/60"
-                  : "border-border/60 bg-muted/30 hover:border-primary/50",
+                "group/hist cursor-pointer rounded-md border border-border/60 bg-muted/30 px-2 py-1.5 transition-colors hover:border-primary/50",
+                e.error && "border-l-2 border-l-destructive/60",
               )}
               onClick={() => onPick(e)}
               title={e.sql}
@@ -97,7 +95,7 @@ export function QueryHistoryPanel({
               <p className="truncate font-mono text-[11px]">{previewSql(e.sql)}</p>
               <div className="mt-0.5 flex items-center gap-1.5 text-[9px] text-muted-foreground">
                 {e.error ? (
-                  <span className="flex items-center gap-0.5 text-red-600 dark:text-red-400">
+                  <span className="flex items-center gap-0.5 text-destructive/80">
                     <AlertCircle className="h-2.5 w-2.5" /> failed
                   </span>
                 ) : (

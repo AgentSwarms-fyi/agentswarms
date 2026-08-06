@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { identityHue } from "@/lib/identityHue";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -132,24 +133,6 @@ function AgentsPage() {
     }
   }
 
-  // Stable identity colour per agent (hash of the name): the grid gets the
-  // at-a-glance variety of project icons without asking anyone to pick one.
-  const AVATAR_HUES = [
-    "from-teal-500/80 to-cyan-600/80",
-    "from-violet-500/80 to-purple-600/80",
-    "from-sky-500/80 to-blue-600/80",
-    "from-emerald-500/80 to-teal-600/80",
-    "from-fuchsia-500/80 to-pink-600/80",
-    "from-amber-500/80 to-orange-600/80",
-    "from-indigo-500/80 to-violet-600/80",
-    "from-rose-500/80 to-red-600/80",
-  ] as const;
-  function agentHue(name: string): string {
-    let h = 0;
-    for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
-    return AVATAR_HUES[h % AVATAR_HUES.length];
-  }
-
   function hasGuardrails(agent: Agent): boolean {
     const tools = agent.tools as any;
     if (!tools?.guardrails) return false;
@@ -263,7 +246,7 @@ function AgentsPage() {
                   <CardHeader className="p-4 pb-2.5">
                     <div className="flex items-start gap-2.5">
                       <div
-                        className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-gradient-to-br text-white shadow-sm ${agentHue(agent.name)}`}
+                        className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-gradient-to-br text-white shadow-sm ${identityHue(agent.name)}`}
                       >
                         <Bot className="h-4 w-4" strokeWidth={1.8} />
                       </div>

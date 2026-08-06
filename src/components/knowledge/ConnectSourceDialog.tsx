@@ -350,9 +350,11 @@ export function ConnectSourceDialog({
                 key={p.kind}
                 type="button"
                 onClick={() => setKind(p.kind)}
-                className="rounded-lg border border-border p-3 text-left transition-colors hover:border-primary/50 hover:bg-muted/50"
+                className="glow-card rounded-xl border border-border bg-card p-3.5 text-left"
               >
-                <p.icon className="mb-2 h-5 w-5 text-muted-foreground" />
+                <div className="mb-2.5 grid h-9 w-9 place-items-center rounded-lg bg-primary/10 text-primary ring-1 ring-inset ring-border/50">
+                  <p.icon className="h-4.5 w-4.5" />
+                </div>
                 <p className="text-sm font-medium">{p.name}</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">{p.blurb}</p>
               </button>

@@ -1303,10 +1303,25 @@ function KnowledgePage() {
                                     ? "CSV"
                                     : "Manual";
                           return (
-                            <Card key={doc.id} className="border-border/50">
-                              <CardContent className="flex items-center justify-between p-4">
+                            <Card
+                              key={doc.id}
+                              className="border-border/50 transition-colors hover:border-primary/30"
+                            >
+                              <CardContent className="flex items-center justify-between p-3.5">
                                 <div className="flex items-center gap-3 min-w-0 flex-1">
-                                  <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+                                  <div
+                                    className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ring-1 ring-inset ring-border/50 ${
+                                      sourceBadge === "PDF"
+                                        ? "bg-rose-500/10 text-rose-500 dark:text-rose-400"
+                                        : sourceBadge === "CSV"
+                                          ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                                          : sourceBadge === "URL"
+                                            ? "bg-sky-500/10 text-sky-600 dark:text-sky-400"
+                                            : "bg-muted text-muted-foreground"
+                                    }`}
+                                  >
+                                    <FileText className="h-4 w-4" />
+                                  </div>
                                   <div className="min-w-0 flex-1">
                                     <p className="text-sm font-medium truncate">{doc.name}</p>
                                     <p className="text-xs text-muted-foreground line-clamp-1">
