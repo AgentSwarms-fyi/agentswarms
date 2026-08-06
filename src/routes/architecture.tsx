@@ -215,6 +215,25 @@ const EGRESS: Note[] = [
   },
 ];
 
+const SCALE: Note[] = [
+  {
+    title: "Aggregation runs in your warehouse",
+    body: "Semantic-layer queries and linked warehouse tables compile to SQL that executes where the data lives, so a billion-row GROUP BY is your warehouse's work and only the grouped result travels. Result sets are capped (1,000 rows by default, 5,000 hard ceiling, 60s timeout) — that bounds what comes back, never the table.",
+  },
+  {
+    title: "Prep folds into the warehouse when it can",
+    body: "When every source in a flow is on one connection and every step is expressible in that dialect, the whole pipeline becomes one SQL statement run inside the warehouse — and the fold is proved against the real warehouse before it is trusted, so a refusal costs speed, never correctness. Mixed or non-foldable flows run locally instead, and the UI says which.",
+  },
+  {
+    title: "Local datasets are laptop-scale, on purpose",
+    body: "Uploaded and synced datasets are DuckDB tables capped at 500,000 rows and 100 MB by default. They exist for CSVs, samples and SaaS syncs. Past a few million rows, link the warehouse table rather than importing it.",
+  },
+  {
+    title: "Dashboards default to a cached snapshot",
+    body: "A warehouse-backed widget stores at most 500 rows so shared links render instantly. A chart that sums raw rows in the browser therefore shows a partial total if the refresh hit that cap — it is marked truncated rather than shown as confident. Aggregate pushdown (GROUP BY in SQL) or direct query mode gives the complete number.",
+  },
+];
+
 const STATE: Note[] = [
   {
     title: "Everything durable is in Postgres",
@@ -272,14 +291,20 @@ function ArchitecturePage() {
           items={EGRESS}
         />
         <Section
+          title="Scale"
+          blurb="What is bounded, and by what. Full numbers and the environment variables that change them are in docs/SCALE_AND_LIMITS.md."
+          items={SCALE}
+        />
+        <Section
           title="State and backup"
           blurb="What has to survive, and what is safe to lose."
           items={STATE}
         />
 
         <p className="mt-10 text-xs text-muted-foreground">
-          Full deployment options, environment variables and scaling notes are in{" "}
-          <span className="font-mono">docs/DEPLOYMENT.md</span>. See also{" "}
+          Full deployment options and environment variables are in{" "}
+          <span className="font-mono">docs/DEPLOYMENT.md</span>; every row, timeout and concurrency
+          cap is in <span className="font-mono">docs/SCALE_AND_LIMITS.md</span>. See also{" "}
           <Link to="/security" className="underline hover:text-foreground">
             Security
           </Link>{" "}

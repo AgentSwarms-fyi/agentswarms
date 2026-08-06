@@ -147,6 +147,13 @@ dashboard clicks and a troubleshooting section for the errors people
 actually hit. Wondering what hardware you need (spoiler: a 2 vCPU / 4 GB VM,
 no GPU)? See **[System requirements & sizing](./docs/SYSTEM_REQUIREMENTS.md)**.
 
+**"Does it handle billions of rows?"** Aggregate queries compile to SQL that
+runs **inside your warehouse**, so table size is your warehouse's problem and
+only the grouped result travels. Anything that materialises locally is capped —
+local datasets at 500k rows, dashboard snapshots at 500 rows, warehouse result
+sets at 1,000 (5,000 hard ceiling). Every number, and the environment variable
+that changes it, is in **[Scale and limits](./docs/SCALE_AND_LIMITS.md)**.
+
 ## Documentation
 
 The docs live in [`docs/`](./docs), one focused guide per topic:
@@ -155,6 +162,7 @@ The docs live in [`docs/`](./docs), one focused guide per topic:
 | ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **[Installation](./docs/INSTALL.md)**                                    | Complete local setup on macOS / Linux / Windows: prerequisites, Supabase project, environment variables, first run, and troubleshooting.                                                                                                                                                        |
 | **[System requirements & sizing](./docs/SYSTEM_REQUIREMENTS.md)**        | Minimum hardware (a 2 vCPU / 4 GB VM — no GPU), sizing scenarios from a solo pilot to 1,000 users, token budgets by model tier, GPU sizing for self-hosted models, and monthly cost tables for AWS / GCP / Azure / OCI across US, Europe, Middle East, India and APJC regions.                  |
+| **[Scale and limits](./docs/SCALE_AND_LIMITS.md)**                       | What is bounded and by what: aggregation pushes down into your warehouse, local datasets cap at 500k rows, dashboards default to a 500-row snapshot. Every row/timeout/concurrency cap with the env var that changes it.                                                                        |
 | **[Production deployment](./docs/DEPLOYMENT.md)**                        | Every path: local desktop, a single cloud VM (OCI/AWS/GCP), autoscaled VMs behind a load balancer, and Kubernetes — plus TLS, scheduling/cron, health checks, backups, and PWA install.                                                                                                         |
 | **[Testing](./docs/TESTING.md)**                                         | Running the suite, the differential SQL-engine harness, and what CI does and does not gate.                                                                                                                                                                                                     |
 | **[Agent Chat & document generation](./docs/AGENT_CHAT.md)**             | Chatting with a saved agent, per-agent **Visual BI** answers, and generating fully-editable **PowerPoint / Word / Excel** from your prompt (with Sample vs. full-data scope and live Excel formulas) — plus embedding an agent on your own site.                                                |

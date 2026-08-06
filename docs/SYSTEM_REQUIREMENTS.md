@@ -15,6 +15,11 @@ across US, Europe, Middle East, India and APJC regions.
 
 ---
 
+> **Sizing the machine is not the same question as sizing the data.** This page
+> covers CPU, memory, storage and cost. For how much data each module can
+> handle — what pushes down into your warehouse and what is capped locally —
+> see **[Scale and limits](./SCALE_AND_LIMITS.md)**.
+
 ## 1. What actually consumes resources
 
 AgentSwarms is deliberately light to host. Understanding _why_ makes every

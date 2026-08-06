@@ -2,6 +2,10 @@
 
 > Part of the [AgentSwarms docs](../README.md#documentation).
 
+See also **[Scale and limits](./SCALE_AND_LIMITS.md)** for where each module's
+work executes (warehouse pushdown vs. local DuckDB) and every row, timeout and
+concurrency cap.
+
 ## Tech stack
 
 | Layer        | Tech                                                                                                                                                                  |
