@@ -9,7 +9,8 @@
 // into something that reads like it exists. A security page that overstates is
 // worse than none — it is the first thing a serious reviewer checks, and being
 // caught out on one line discredits the rest.
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
+import { SiteFooter, SiteHeader } from "@/components/SiteChrome";
 
 export const Route = createFileRoute("/security")({
   head: () => ({
@@ -137,66 +138,66 @@ function Section({ title, blurb, items }: { title: string; blurb?: string; items
 
 function SecurityPage() {
   return (
-    <main className="mx-auto max-w-5xl px-6 py-16">
-      <Link to="/" className="text-sm text-muted-foreground hover:text-foreground">
-        ← Back
-      </Link>
-
-      <h1 className="mt-6 font-display text-4xl font-semibold tracking-tight text-foreground">
-        Security
-      </h1>
-      <p className="mt-3 max-w-3xl text-base leading-relaxed text-muted-foreground">
-        AgentSwarms is self-hosted. The short version of our security model is that we are not in
-        the path: your data stays in your Supabase project, your prompts go straight to the model
-        provider you chose with the key you supplied, and there is no vendor-side copy of anything.
-        What follows is what the software does about the parts you cannot see.
-      </p>
-
-      <Section
-        title="Architecture"
-        blurb="Where your data is, and who can reach it."
-        items={ARCHITECTURE}
-      />
-      <Section
-        title="Credential handling"
-        blurb="What happens to the keys and tokens you paste in."
-        items={CREDENTIALS}
-      />
-      <Section
-        title="Tenant isolation"
-        blurb="How one account's data is kept away from another's."
-        items={ISOLATION}
-      />
-      <Section
-        title="Governance and auditability"
-        blurb="What you can prove after the fact."
-        items={GOVERNANCE}
-      />
-      <Section
-        title="What we do not claim"
-        blurb="The gaps, stated plainly. A security page that overstates is worse than none — this section is here so your reviewer finds the limits from us rather than from a surprise."
-        items={NOT_CLAIMED}
-      />
-
-      <section className="mt-14 rounded-xl bg-card p-6 ring-1 ring-border">
-        <h2 className="text-lg font-semibold tracking-tight text-foreground">
-          Reporting a vulnerability
-        </h2>
-        <p className="mt-2 max-w-3xl text-sm leading-relaxed text-muted-foreground">
-          Please report suspected vulnerabilities privately rather than opening a public issue. Use
-          GitHub&rsquo;s private security advisory on the repository, or the security contact in{" "}
-          <span className="font-mono text-xs">SECURITY.md</span>. Tell us what you did, what you
-          expected and what happened; a proof of concept helps. We will acknowledge, keep you
-          updated while we investigate, and credit you when a fix ships unless you would rather we
-          did not.
+    <div className="min-h-screen bg-background text-foreground">
+      <SiteHeader />
+      <main className="mx-auto max-w-5xl px-6 py-16">
+        <h1 className="mt-6 font-display text-4xl font-semibold tracking-tight text-foreground">
+          Security
+        </h1>
+        <p className="mt-3 max-w-3xl text-base leading-relaxed text-muted-foreground">
+          AgentSwarms is self-hosted. The short version of our security model is that we are not in
+          the path: your data stays in your Supabase project, your prompts go straight to the model
+          provider you chose with the key you supplied, and there is no vendor-side copy of
+          anything. What follows is what the software does about the parts you cannot see.
         </p>
-      </section>
 
-      <p className="mt-10 text-xs text-muted-foreground">
-        Self-hosting means most of these controls are ones you operate rather than ones we run for
-        you. Deployment guidance, including the environment variables referenced here, is in{" "}
-        <span className="font-mono">docs/DEPLOYMENT.md</span>.
-      </p>
-    </main>
+        <Section
+          title="Architecture"
+          blurb="Where your data is, and who can reach it."
+          items={ARCHITECTURE}
+        />
+        <Section
+          title="Credential handling"
+          blurb="What happens to the keys and tokens you paste in."
+          items={CREDENTIALS}
+        />
+        <Section
+          title="Tenant isolation"
+          blurb="How one account's data is kept away from another's."
+          items={ISOLATION}
+        />
+        <Section
+          title="Governance and auditability"
+          blurb="What you can prove after the fact."
+          items={GOVERNANCE}
+        />
+        <Section
+          title="What we do not claim"
+          blurb="The gaps, stated plainly. A security page that overstates is worse than none — this section is here so your reviewer finds the limits from us rather than from a surprise."
+          items={NOT_CLAIMED}
+        />
+
+        <section className="mt-14 rounded-xl bg-card p-6 ring-1 ring-border">
+          <h2 className="text-lg font-semibold tracking-tight text-foreground">
+            Reporting a vulnerability
+          </h2>
+          <p className="mt-2 max-w-3xl text-sm leading-relaxed text-muted-foreground">
+            Please report suspected vulnerabilities privately rather than opening a public issue.
+            Use GitHub&rsquo;s private security advisory on the repository, or the security contact
+            in <span className="font-mono text-xs">SECURITY.md</span>. Tell us what you did, what
+            you expected and what happened; a proof of concept helps. We will acknowledge, keep you
+            updated while we investigate, and credit you when a fix ships unless you would rather we
+            did not.
+          </p>
+        </section>
+
+        <p className="mt-10 text-xs text-muted-foreground">
+          Self-hosting means most of these controls are ones you operate rather than ones we run for
+          you. Deployment guidance, including the environment variables referenced here, is in{" "}
+          <span className="font-mono">docs/DEPLOYMENT.md</span>.
+        </p>
+      </main>
+      <SiteFooter />
+    </div>
   );
 }

@@ -170,6 +170,92 @@ describe("the acknowledgements credit things that are actually here", () => {
   });
 });
 
+describe("the trust pages describe the software that exists", () => {
+  const architecture = readFileSync("src/routes/architecture.tsx", "utf8");
+  const security = readFileSync("src/routes/security.tsx", "utf8");
+  const licensePage = readFileSync("src/routes/license.tsx", "utf8");
+
+  it("the connector count is the registry's length, everywhere it is claimed", async () => {
+    // about.tsx said "Ten database & warehouse connectors" for months after
+    // the registry reached 22. Every page that states the number must state
+    // the number the code exports — PARSED from the claim itself: a bare
+    // toContain("22 ") matched SVG path coordinates and let a wrong count
+    // survive its own mutation test.
+    const { WAREHOUSE_PROVIDERS } = await import("@/utils/warehouse/types");
+    const n = WAREHOUSE_PROVIDERS.length;
+    expect(n).toBe(22);
+    for (const [page, claim] of [
+      ["src/routes/architecture.tsx", /(\d+) warehouse connectors/],
+      ["src/routes/about.tsx", /(\d+) database & warehouse connectors/],
+      ["src/routes/docs.integrations.tsx", /(\d+) database\/warehouse connectors/],
+    ] as const) {
+      const m = readFileSync(page, "utf8").match(claim);
+      expect(m, `${page} no longer states the connector count`).not.toBeNull();
+      expect(Number(m![1]), `${page} states a stale count`).toBe(n);
+    }
+  });
+
+  it("'no telemetry' is true: no measurement id is baked into the build", () => {
+    // The consent banner used to hardcode the project author's GA/GTM ids, so
+    // a self-hosted deployment that clicked Accept sent ITS users' analytics
+    // to the vendor — while /architecture, /security and /license all said
+    // "no telemetry, no call-home". Analytics now require the operator's own
+    // VITE_GA_ID / VITE_GTM_ID; nothing may reintroduce a literal id.
+    const consent = readFileSync("src/components/CookieConsent.tsx", "utf8");
+    expect(consent).not.toMatch(/G-[A-Z0-9]{6,}/);
+    expect(consent).not.toMatch(/GTM-[A-Z0-9]{4,}/);
+    expect(consent).toContain("VITE_GA_ID");
+    expect(consent).toContain("VITE_GTM_ID");
+    expect(readFileSync(".env.example", "utf8")).toContain("VITE_GA_ID");
+  });
+
+  it("the security page's crypto claims match the implementation", () => {
+    // AES-256-GCM with a fresh random 96-bit IV per record is a checkable
+    // statement, and the page stakes its credibility on being checkable.
+    const crypto = readFileSync("src/utils/providers/crypto.server.ts", "utf8");
+    expect(security).toContain("AES-256-GCM");
+    expect(security).toContain("96-bit IV");
+    expect(crypto).toContain('"AES-GCM"');
+    expect(crypto).toContain("Uint8Array(12)"); // 12 bytes = the claimed 96 bits
+    expect(crypto).toContain("PROVIDER_CREDS_SECRET");
+  });
+
+  it("the read-only verb list on the page is the driver's list", () => {
+    const drivers = readFileSync("src/utils/warehouse/drivers.server.ts", "utf8");
+    expect(security).toContain("SELECT/WITH/SHOW/DESCRIBE/EXPLAIN");
+    expect(drivers).toContain("SELECT/WITH/SHOW/");
+    expect(drivers).toContain("DESCRIBE/EXPLAIN");
+  });
+
+  it("the licence page names the file that exists", () => {
+    expect(licensePage).toContain("LICENSE.md");
+    expect(existsSync("LICENSE.md")).toBe(true);
+  });
+
+  it("every trust page is reachable from a desktop", () => {
+    // They were in the landing page's MOBILE menu only — written for
+    // procurement reviewers, who are on desktops, with no desktop link
+    // anywhere. Both the desktop More menu and the site-wide footer must
+    // carry all three.
+    const landing = readFileSync("src/routes/index.tsx", "utf8");
+    const chrome = readFileSync("src/components/SiteChrome.tsx", "utf8");
+    for (const path of ["/architecture", "/security", "/license"]) {
+      const link = new RegExp(`to: "${path}"|to="${path}"`);
+      expect(landing, `More menu misses ${path}`).toMatch(link);
+      expect(chrome, `footer misses ${path}`).toMatch(link);
+    }
+    // …and they carry the shared chrome rather than a bare back-link.
+    for (const [name, text] of [
+      ["architecture", architecture],
+      ["security", security],
+      ["license", licensePage],
+    ] as const) {
+      expect(text, `${name} page lost the site header`).toContain("<SiteHeader />");
+      expect(text, `${name} page lost the site footer`).toContain("<SiteFooter />");
+    }
+  });
+});
+
 describe("no document promises the removed in-browser runtime", () => {
   function docs(dir: string, out: string[] = []): string[] {
     for (const e of readdirSync(dir, { withFileTypes: true })) {

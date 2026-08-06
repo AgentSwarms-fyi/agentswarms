@@ -62,7 +62,13 @@ function Github({ className }: { className?: string }) {
 function HoverMoreMenu() {
   // Docs deliberately absent: it has its own top-level link in the header, and
   // listing it here too showed the same destination twice on sm+ widths.
+  // Architecture/Security/Licensing were in the MOBILE menu only, which left
+  // the pages written for desktop procurement reviewers with no desktop link
+  // anywhere on the site.
   const items = [
+    { to: "/architecture", label: "Architecture" },
+    { to: "/security", label: "Security" },
+    { to: "/license", label: "Licensing" },
     { to: "/about", label: "About" },
     { to: "/contact", label: "Contact" },
   ] as const;

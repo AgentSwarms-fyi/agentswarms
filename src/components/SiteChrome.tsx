@@ -80,10 +80,28 @@ export function SiteFooter() {
             </ul>
           </div>
 
-          {/* Product */}
+          {/* Product. The trust pages (architecture/security/licensing) are
+              listed here because the footer is the one surface present on
+              every public page — before this they were reachable only from
+              the landing page's mobile menu. */}
           <div>
             <h4 className="text-sm font-semibold text-foreground">Product</h4>
             <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
+              <li>
+                <Link to="/architecture" className="hover:text-foreground">
+                  Architecture
+                </Link>
+              </li>
+              <li>
+                <Link to="/security" className="hover:text-foreground">
+                  Security
+                </Link>
+              </li>
+              <li>
+                <Link to="/license" className="hover:text-foreground">
+                  Licensing
+                </Link>
+              </li>
               <li>
                 <Link to="/about" className="hover:text-foreground">
                   About

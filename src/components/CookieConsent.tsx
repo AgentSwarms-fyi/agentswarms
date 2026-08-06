@@ -4,8 +4,15 @@ import { Link } from "@tanstack/react-router";
 import { Cookie } from "lucide-react";
 
 const STORAGE_KEY = "agentswarms.cookie-consent.v1";
-const GA_ID = "G-TS8S1W2BGQ";
-const GTM_ID = "GTM-NMJH5KMD";
+
+// Analytics are the OPERATOR'S, or they do not exist. The trust pages promise
+// "no telemetry, no call-home", and a hardcoded vendor measurement ID made
+// that false: a self-hosted deployment that clicked Accept sent its users'
+// page analytics to the project author's Google Analytics property. With no
+// IDs configured — the default — there is no banner, no consent to give and
+// no external request to make.
+const GA_ID = (import.meta.env.VITE_GA_ID as string | undefined) || undefined;
+const GTM_ID = (import.meta.env.VITE_GTM_ID as string | undefined) || undefined;
 
 type Consent = "accepted" | "declined";
 
@@ -18,28 +25,31 @@ function loadAnalytics() {
   if (w.__agentswarmsAnalyticsLoaded) return;
   w.__agentswarmsAnalyticsLoaded = true;
 
-  // GTM
-  const gtm = document.createElement("script");
-  gtm.async = true;
-  gtm.src = `https://www.googletagmanager.com/gtm.js?id=${GTM_ID}`;
-  document.head.appendChild(gtm);
-  w.dataLayer = w.dataLayer || [];
-  w.dataLayer.push({ "gtm.start": Date.now(), event: "gtm.js" });
+  if (GTM_ID) {
+    const gtm = document.createElement("script");
+    gtm.async = true;
+    gtm.src = `https://www.googletagmanager.com/gtm.js?id=${GTM_ID}`;
+    document.head.appendChild(gtm);
+    w.dataLayer = w.dataLayer || [];
+    w.dataLayer.push({ "gtm.start": Date.now(), event: "gtm.js" });
+  }
 
-  // gtag
-  const ga = document.createElement("script");
-  ga.async = true;
-  ga.src = `https://www.googletagmanager.com/gtag/js?id=${GA_ID}`;
-  document.head.appendChild(ga);
-  const inline = document.createElement("script");
-  inline.text = `window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','${GA_ID}');`;
-  document.head.appendChild(inline);
+  if (GA_ID) {
+    const ga = document.createElement("script");
+    ga.async = true;
+    ga.src = `https://www.googletagmanager.com/gtag/js?id=${GA_ID}`;
+    document.head.appendChild(ga);
+    const inline = document.createElement("script");
+    inline.text = `window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','${GA_ID}');`;
+    document.head.appendChild(inline);
+  }
 }
 
 export function CookieConsent() {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
+    if (!GA_ID && !GTM_ID) return;
     try {
       const v = window.localStorage.getItem(STORAGE_KEY) as Consent | null;
       if (v === "accepted") {
@@ -70,8 +80,8 @@ export function CookieConsent() {
         <div className="flex items-start gap-3 sm:flex-1">
           <Cookie className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
           <p className="text-sm text-muted-foreground">
-            We use only essential cookies to keep you signed in. Optional analytics cookies (Google
-            Analytics) help us improve AgentSwarms — they only load if you accept. See our{" "}
+            We use only essential cookies to keep you signed in. Optional analytics cookies
+            (configured by the operator of this deployment) load only if you accept. See our{" "}
             <Link to="/privacy" className="text-primary hover:underline">
               Privacy Policy
             </Link>

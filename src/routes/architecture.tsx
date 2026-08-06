@@ -6,6 +6,7 @@
 // rather than an image so it stays legible at any zoom, works in both themes
 // via currentColor, and cannot rot into a screenshot of an older topology.
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { SiteFooter, SiteHeader } from "@/components/SiteChrome";
 
 export const Route = createFileRoute("/architecture")({
   head: () => ({
@@ -210,7 +211,7 @@ const EGRESS: Note[] = [
   },
   {
     title: "No call-home",
-    body: "No telemetry, no licence check, no usage reporting. An air-gapped deployment reaching only your own model endpoint is a supported configuration.",
+    body: "No telemetry, no licence check, no usage reporting. Nothing is baked in: the cookie banner's optional analytics exist only if you configure your own VITE_GA_ID, and with it unset no banner is shown at all. An air-gapped deployment reaching only your own model endpoint is a supported configuration.",
   },
 ];
 
@@ -248,48 +249,48 @@ function Section({ title, blurb, items }: { title: string; blurb?: string; items
 
 function ArchitecturePage() {
   return (
-    <main className="mx-auto max-w-5xl px-6 py-16">
-      <Link to="/" className="text-sm text-muted-foreground hover:text-foreground">
-        ← Back
-      </Link>
+    <div className="min-h-screen bg-background text-foreground">
+      <SiteHeader />
+      <main className="mx-auto max-w-5xl px-6 py-16">
+        <h1 className="mt-6 font-display text-4xl font-semibold tracking-tight text-foreground">
+          Architecture
+        </h1>
+        <p className="mt-3 max-w-3xl text-base leading-relaxed text-muted-foreground">
+          What this puts on your network, and what it talks to. The whole platform is one stateless
+          container and one Supabase project; everything else is an outbound call to somewhere you
+          already trust.
+        </p>
 
-      <h1 className="mt-6 font-display text-4xl font-semibold tracking-tight text-foreground">
-        Architecture
-      </h1>
-      <p className="mt-3 max-w-3xl text-base leading-relaxed text-muted-foreground">
-        What this puts on your network, and what it talks to. The whole platform is one stateless
-        container and one Supabase project; everything else is an outbound call to somewhere you
-        already trust.
-      </p>
+        <div className="mt-10 rounded-xl bg-card p-6 ring-1 ring-border">
+          <Topology />
+        </div>
 
-      <div className="mt-10 rounded-xl bg-card p-6 ring-1 ring-border">
-        <Topology />
-      </div>
+        <Section title="Deployment" items={DEPLOY} />
+        <Section
+          title="Egress"
+          blurb="Every outbound destination, and nothing else. Useful if you are writing firewall rules."
+          items={EGRESS}
+        />
+        <Section
+          title="State and backup"
+          blurb="What has to survive, and what is safe to lose."
+          items={STATE}
+        />
 
-      <Section title="Deployment" items={DEPLOY} />
-      <Section
-        title="Egress"
-        blurb="Every outbound destination, and nothing else. Useful if you are writing firewall rules."
-        items={EGRESS}
-      />
-      <Section
-        title="State and backup"
-        blurb="What has to survive, and what is safe to lose."
-        items={STATE}
-      />
-
-      <p className="mt-10 text-xs text-muted-foreground">
-        Full deployment options, environment variables and scaling notes are in{" "}
-        <span className="font-mono">docs/DEPLOYMENT.md</span>. See also{" "}
-        <Link to="/security" className="underline hover:text-foreground">
-          Security
-        </Link>{" "}
-        and{" "}
-        <Link to="/license" className="underline hover:text-foreground">
-          Licensing
-        </Link>
-        .
-      </p>
-    </main>
+        <p className="mt-10 text-xs text-muted-foreground">
+          Full deployment options, environment variables and scaling notes are in{" "}
+          <span className="font-mono">docs/DEPLOYMENT.md</span>. See also{" "}
+          <Link to="/security" className="underline hover:text-foreground">
+            Security
+          </Link>{" "}
+          and{" "}
+          <Link to="/license" className="underline hover:text-foreground">
+            Licensing
+          </Link>
+          .
+        </p>
+      </main>
+      <SiteFooter />
+    </div>
   );
 }

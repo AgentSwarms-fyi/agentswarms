@@ -89,10 +89,11 @@ function PrivacyPage() {
                 , we store your name, email, and message so we can reply.
               </li>
               <li>
-                <strong className="text-foreground">Optional analytics:</strong> anonymous,
-                aggregate page analytics that load <strong className="text-foreground">only</strong>{" "}
-                after you click "Accept all" in the cookie banner. Decline, and no analytics scripts
-                or cookies are used.
+                <strong className="text-foreground">Optional analytics:</strong> none by default. A
+                deployment's operator can configure their own analytics ID, in which case anonymous,
+                aggregate page analytics load <strong className="text-foreground">only</strong>{" "}
+                after you click "Accept all" in the cookie banner. With no ID configured there is no
+                banner and no analytics at all; decline, and nothing loads either way.
               </li>
               <li>
                 <strong className="text-foreground">Essential cookies:</strong> only what's needed

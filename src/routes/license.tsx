@@ -5,9 +5,10 @@
 // distinction legal teams care about a great deal and that a badge does not
 // convey.
 //
-// Everything here restates LICENSE and README rather than adding to them. If
-// the two ever disagree, LICENSE governs, and this page is the bug.
+// Everything here restates LICENSE.md and README rather than adding to them. If
+// the two ever disagree, LICENSE.md governs, and this page is the bug.
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { SiteFooter, SiteHeader } from "@/components/SiteChrome";
 
 export const Route = createFileRoute("/license")({
   head: () => ({
@@ -134,97 +135,97 @@ const SUPPORT: Tier[] = [
 
 function LicensePage() {
   return (
-    <main className="mx-auto max-w-5xl px-6 py-16">
-      <Link to="/" className="text-sm text-muted-foreground hover:text-foreground">
-        ← Back
-      </Link>
-
-      <h1 className="mt-6 font-display text-4xl font-semibold tracking-tight text-foreground">
-        Licensing &amp; support
-      </h1>
-      <p className="mt-3 max-w-3xl text-base leading-relaxed text-muted-foreground">
-        AgentSwarms is <strong className="text-foreground">source-available</strong> under the
-        Elastic License 2.0 — not open source, and the difference matters to a legal team. In one
-        sentence: use it, change it, run it for yourself and your clients freely; do not turn it
-        into a hosted service you sell. Everything below restates the{" "}
-        <span className="font-mono text-xs">LICENSE</span> file rather than adding to it — if the
-        two disagree, the licence governs.
-      </p>
-
-      <section className="mt-12">
-        <h2 className="text-xl font-semibold tracking-tight text-foreground">
-          The questions you are going to be asked
-        </h2>
-        <div className="mt-5 space-y-3">
-          {SCENARIOS.map((s) => (
-            <div key={s.q} className="rounded-xl bg-card p-5 ring-1 ring-border">
-              <div className="flex flex-wrap items-center gap-3">
-                <span
-                  className={`inline-flex shrink-0 rounded-md px-2 py-0.5 text-xs font-semibold ring-1 ${VERDICT[s.a].cls}`}
-                >
-                  {VERDICT[s.a].label}
-                </span>
-                <h3 className="text-sm font-semibold text-foreground">{s.q}</h3>
-              </div>
-              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{s.body}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="mt-14">
-        <h2 className="text-xl font-semibold tracking-tight text-foreground">Support</h2>
-        <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-          Self-hosting means you operate it. These are the options for when you would rather not do
-          that entirely alone.
+    <div className="min-h-screen bg-background text-foreground">
+      <SiteHeader />
+      <main className="mx-auto max-w-5xl px-6 py-16">
+        <h1 className="mt-6 font-display text-4xl font-semibold tracking-tight text-foreground">
+          Licensing &amp; support
+        </h1>
+        <p className="mt-3 max-w-3xl text-base leading-relaxed text-muted-foreground">
+          AgentSwarms is <strong className="text-foreground">source-available</strong> under the
+          Elastic License 2.0 — not open source, and the difference matters to a legal team. In one
+          sentence: use it, change it, run it for yourself and your clients freely; do not turn it
+          into a hosted service you sell. Everything below restates the{" "}
+          <span className="font-mono text-xs">LICENSE.md</span> file rather than adding to it — if
+          the two disagree, the licence governs.
         </p>
-        <div className="mt-5 grid gap-4 sm:grid-cols-2">
-          {SUPPORT.map((t) => (
-            <div key={t.name} className="rounded-xl bg-card p-6 ring-1 ring-border">
-              <div className="flex items-baseline justify-between gap-3">
-                <h3 className="text-base font-semibold text-foreground">{t.name}</h3>
-                <span className="text-sm font-medium text-muted-foreground">{t.price}</span>
-              </div>
-              <p className="mt-1.5 text-sm text-muted-foreground">{t.body}</p>
-              <ul className="mt-4 space-y-2">
-                {t.items.map((i) => (
-                  <li key={i} className="flex gap-2 text-sm text-muted-foreground">
-                    <span
-                      aria-hidden
-                      className="mt-[7px] h-1 w-1 shrink-0 rounded-full bg-primary"
-                    />
-                    {i}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </div>
-      </section>
 
-      <section className="mt-14 rounded-xl bg-card p-6 ring-1 ring-border">
-        <h2 className="text-lg font-semibold tracking-tight text-foreground">
-          Still not sure which side of the line you are on?
-        </h2>
-        <p className="mt-2 max-w-3xl text-sm leading-relaxed text-muted-foreground">
-          The dividing question is almost always: are third parties paying you for access to
-          AgentSwarms itself, or are they paying you for something else that happens to use it? The
-          second is fine. If you are genuinely unsure,{" "}
-          <Link to="/contact" className="font-medium text-primary hover:underline">
-            ask
+        <section className="mt-12">
+          <h2 className="text-xl font-semibold tracking-tight text-foreground">
+            The questions you are going to be asked
+          </h2>
+          <div className="mt-5 space-y-3">
+            {SCENARIOS.map((s) => (
+              <div key={s.q} className="rounded-xl bg-card p-5 ring-1 ring-border">
+                <div className="flex flex-wrap items-center gap-3">
+                  <span
+                    className={`inline-flex shrink-0 rounded-md px-2 py-0.5 text-xs font-semibold ring-1 ${VERDICT[s.a].cls}`}
+                  >
+                    {VERDICT[s.a].label}
+                  </span>
+                  <h3 className="text-sm font-semibold text-foreground">{s.q}</h3>
+                </div>
+                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{s.body}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="mt-14">
+          <h2 className="text-xl font-semibold tracking-tight text-foreground">Support</h2>
+          <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
+            Self-hosting means you operate it. These are the options for when you would rather not
+            do that entirely alone.
+          </p>
+          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+            {SUPPORT.map((t) => (
+              <div key={t.name} className="rounded-xl bg-card p-6 ring-1 ring-border">
+                <div className="flex items-baseline justify-between gap-3">
+                  <h3 className="text-base font-semibold text-foreground">{t.name}</h3>
+                  <span className="text-sm font-medium text-muted-foreground">{t.price}</span>
+                </div>
+                <p className="mt-1.5 text-sm text-muted-foreground">{t.body}</p>
+                <ul className="mt-4 space-y-2">
+                  {t.items.map((i) => (
+                    <li key={i} className="flex gap-2 text-sm text-muted-foreground">
+                      <span
+                        aria-hidden
+                        className="mt-[7px] h-1 w-1 shrink-0 rounded-full bg-primary"
+                      />
+                      {i}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="mt-14 rounded-xl bg-card p-6 ring-1 ring-border">
+          <h2 className="text-lg font-semibold tracking-tight text-foreground">
+            Still not sure which side of the line you are on?
+          </h2>
+          <p className="mt-2 max-w-3xl text-sm leading-relaxed text-muted-foreground">
+            The dividing question is almost always: are third parties paying you for access to
+            AgentSwarms itself, or are they paying you for something else that happens to use it?
+            The second is fine. If you are genuinely unsure,{" "}
+            <Link to="/contact" className="font-medium text-primary hover:underline">
+              ask
+            </Link>{" "}
+            — a commercial licence exists precisely so the answer does not have to be no.
+          </p>
+        </section>
+
+        <p className="mt-10 text-xs text-muted-foreground">
+          See also{" "}
+          <Link to="/security" className="underline hover:text-foreground">
+            Security
           </Link>{" "}
-          — a commercial licence exists precisely so the answer does not have to be no.
+          for the posture your reviewer will want, and{" "}
+          <span className="font-mono">ACKNOWLEDGEMENTS.md</span> for the dependency licence audit.
         </p>
-      </section>
-
-      <p className="mt-10 text-xs text-muted-foreground">
-        See also{" "}
-        <Link to="/security" className="underline hover:text-foreground">
-          Security
-        </Link>{" "}
-        for the posture your reviewer will want, and{" "}
-        <span className="font-mono">ACKNOWLEDGEMENTS.md</span> for the dependency licence audit.
-      </p>
-    </main>
+      </main>
+      <SiteFooter />
+    </div>
   );
 }
