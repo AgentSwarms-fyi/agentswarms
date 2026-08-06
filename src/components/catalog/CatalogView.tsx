@@ -758,7 +758,7 @@ export function CatalogView({
                           <Button
                             size="sm"
                             variant="outline"
-                            className="h-6 gap-1 px-2 text-[10px] opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
+                            className="h-6 gap-1 px-2 text-[10px]"
                             title={`Run SELECT * FROM ${a.local ? a.name : a.fqn} LIMIT 10 in the Workbench`}
                             onClick={(e) => {
                               e.stopPropagation();
