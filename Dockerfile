@@ -18,12 +18,24 @@ RUN npm ci
 COPY . .
 
 # Client-side (build-time) configuration.
+# EVERY VITE_* the code reads must be listed here. Vite substitutes them by
+# literal text at BUILD time, so a missing one does not error — it resolves to
+# undefined and the setting silently does nothing in the shipped image while
+# working perfectly in `npm run dev`. tests/unit/viteBuildArgs pins this.
 ARG VITE_SUPABASE_URL
 ARG VITE_SUPABASE_PUBLISHABLE_KEY
 ARG VITE_ADMIN_EMAIL
+ARG VITE_BI_SNAPSHOT_ROWS_CAP
+ARG VITE_GA_ID
+ARG VITE_GTM_ID
+ARG VITE_NOTEBOOK_GATEWAY_PORT
 ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL \
     VITE_SUPABASE_PUBLISHABLE_KEY=$VITE_SUPABASE_PUBLISHABLE_KEY \
     VITE_ADMIN_EMAIL=$VITE_ADMIN_EMAIL \
+    VITE_BI_SNAPSHOT_ROWS_CAP=$VITE_BI_SNAPSHOT_ROWS_CAP \
+    VITE_GA_ID=$VITE_GA_ID \
+    VITE_GTM_ID=$VITE_GTM_ID \
+    VITE_NOTEBOOK_GATEWAY_PORT=$VITE_NOTEBOOK_GATEWAY_PORT \
     NODE_ENV=production
 
 # Produces a Node SSR build — the only build target (see vite.config.ts).

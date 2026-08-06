@@ -124,9 +124,11 @@ what you want for real volume.
 >
 > The cap itself is configurable — `VITE_BI_SNAPSHOT_ROWS_CAP`, one value read
 > by both the browser (which creates snapshots) and the server (which refreshes
-> them). It is `VITE_`-prefixed and therefore baked at build like the rest of
-> the public config, so set it as a build arg rather than at runtime. Raising it
-> grows every dashboard record, which is the cost being traded.
+> them). Set it in `.env`; `docker compose` passes it through as a build arg
+> automatically, because `VITE_` values are inlined at **build** time rather
+> than read at runtime — so changing it means rebuilding the image, not
+> restarting it. Raising it grows every dashboard record, which is the cost
+> being traded.
 >
 > A widget whose last refresh filled the cap sets `truncated`, and the UI says
 > so rather than showing a confident wrong total. Public embeds and share links
