@@ -1024,6 +1024,13 @@ export function AgentForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {/* The docs say it, the form should too: nothing here blocks saving
+          except a name and a model. Everything else ships with defaults. */}
+      <p className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+        Only <span className="font-medium text-foreground">Name</span> and{" "}
+        <span className="font-medium text-foreground">Model</span> are required — every other field
+        has a working default you can refine later.
+      </p>
       <Tabs defaultValue="general">
         <TabsList className="w-full flex-wrap h-auto">
           <TabsTrigger value="general" className="flex-1">
@@ -2475,9 +2482,13 @@ export function AgentForm({
         </TabsContent>
       </Tabs>
 
-      <Button type="submit" className="w-full" disabled={loading}>
-        {loading ? "Saving..." : agent ? "Update Agent" : "Create Agent"}
-      </Button>
+      {/* Sticky inside the dialog's scroll container: a six-tab form should
+          never make anyone scroll to find out how to save it. */}
+      <div className="sticky bottom-0 -mx-6 -mb-6 border-t border-border/60 bg-background/95 px-6 py-3 backdrop-blur">
+        <Button type="submit" className="w-full" disabled={loading}>
+          {loading ? "Saving..." : agent ? "Update Agent" : "Create Agent"}
+        </Button>
+      </div>
     </form>
   );
 }

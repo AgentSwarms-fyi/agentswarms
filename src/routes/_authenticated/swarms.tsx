@@ -1953,6 +1953,24 @@ function SwarmsCanvas({
                 nodeBorderRadius={6}
               />
             </ReactFlow>
+            {/* Blank-canvas onboarding: pointer-events-none so the canvas
+                still pans/drops underneath — the hint is scenery, not a wall. */}
+            {nodes.length === 0 && (
+              <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center">
+                <div className="flex max-w-sm flex-col items-center gap-3 rounded-2xl border border-dashed border-border/70 bg-background/80 px-8 py-8 text-center backdrop-blur-sm">
+                  <div className="grid h-12 w-12 place-items-center rounded-xl bg-primary/10 text-primary">
+                    <Network className="h-6 w-6" />
+                  </div>
+                  <p className="text-sm font-medium text-foreground">Start wiring your swarm</p>
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    Drag a node in from the palette on the left — begin with an{" "}
+                    <span className="font-medium text-foreground">Input</span>, add an{" "}
+                    <span className="font-medium text-foreground">Agent</span>, connect them, and
+                    press Run. Or open the Gallery for a ready-made template.
+                  </p>
+                </div>
+              </div>
+            )}
             {tourOpen && tourSteps.length > 0 && (
               <SwarmTour
                 steps={tourSteps}

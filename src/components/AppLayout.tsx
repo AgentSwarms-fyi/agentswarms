@@ -7,9 +7,13 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { OnboardingDialog } from "@/components/OnboardingDialog";
 import { MobileLabNotice } from "@/components/MobileLabNotice";
 import { GlobalCreateMenu } from "@/components/GlobalCreateMenu";
-import { Outlet } from "@tanstack/react-router";
+import { Outlet, useLocation } from "@tanstack/react-router";
 
 export function AppLayout() {
+  // Keying the routed content by pathname replays the entrance animation on
+  // every navigation. Routes are distinct components anyway, so the remount
+  // is the one that was already happening.
+  const { pathname } = useLocation();
   return (
     <SidebarProvider>
       <div className="flex min-h-screen w-full">
@@ -30,7 +34,9 @@ export function AppLayout() {
             </div>
           </header>
           <main className="flex-1 min-w-0 overflow-hidden">
-            <Outlet />
+            <div key={pathname} className="animate-page-in h-full min-w-0">
+              <Outlet />
+            </div>
           </main>
         </div>
       </div>

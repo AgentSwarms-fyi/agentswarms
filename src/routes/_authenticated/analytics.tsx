@@ -93,13 +93,15 @@ const PROVIDER_LABELS: Record<string, string> = {
   openrouter: "OpenRouter",
 };
 
+// Theme chart ramp (resolves per-theme; provider colours above stay semantic
+// because a provider's identity colour carries meaning a ramp would erase).
 const AGENT_COLORS = [
-  "hsl(217 91% 60%)",
-  "hsl(280 65% 60%)",
-  "hsl(142 71% 45%)",
-  "hsl(25 95% 55%)",
-  "hsl(340 82% 60%)",
-  "hsl(190 90% 50%)",
+  "var(--chart-1)",
+  "var(--chart-4)",
+  "var(--chart-2)",
+  "var(--chart-3)",
+  "var(--chart-5)",
+  "var(--nexus-glow)",
 ];
 
 const tooltipStyle = {

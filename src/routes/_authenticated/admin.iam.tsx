@@ -444,12 +444,23 @@ function UsersTab({
               {filtered.map((u) => (
                 <TableRow key={u.user_id}>
                   <TableCell>
-                    <div className="font-medium">{u.email ?? "—"}</div>
-                    {/* Profiles default display_name to the email; repeating
-                        it as a subtitle is noise, so only a real name shows. */}
-                    {u.display_name && u.display_name !== u.email ? (
-                      <div className="text-xs text-muted-foreground">{u.display_name}</div>
-                    ) : null}
+                    <div className="flex items-center gap-2.5">
+                      {/* Initials chip: rows become scannable by shape and
+                          letter, not by reading every address. */}
+                      <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-primary/10 text-[11px] font-semibold uppercase text-primary ring-1 ring-inset ring-primary/15">
+                        {(u.display_name || u.email || "?").slice(0, 2)}
+                      </span>
+                      <div className="min-w-0">
+                        <div className="truncate font-medium">{u.email ?? "—"}</div>
+                        {/* Profiles default display_name to the email; repeating
+                            it as a subtitle is noise, so only a real name shows. */}
+                        {u.display_name && u.display_name !== u.email ? (
+                          <div className="truncate text-xs text-muted-foreground">
+                            {u.display_name}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1">
