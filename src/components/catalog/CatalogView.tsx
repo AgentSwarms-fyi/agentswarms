@@ -1,4 +1,5 @@
 // Data Catalog browser: a sources rail, a searchable/filterable asset
+import { Skeleton } from "@/components/ui/skeleton";
 // inventory, and a detail sheet with column-level metadata, PII flags
 // and user curation (description + tags, which survive re-crawls).
 // Local CSV tables appear automatically as a built-in source; warehouse
@@ -608,8 +609,19 @@ export function CatalogView({
 
         <ScrollArea className="min-h-0 flex-1">
           {loading ? (
-            <div className="flex items-center gap-2 p-6 text-xs text-muted-foreground">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading catalog…
+            <div className="space-y-0 p-3" aria-label="Loading catalog">
+              {Array.from({ length: 10 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="flex items-center gap-3 border-b border-border/30 px-2 py-3"
+                >
+                  <Skeleton className="h-4 w-4 rounded" />
+                  <Skeleton className="h-3.5 flex-1 max-w-56" />
+                  <Skeleton className="h-3 w-20" />
+                  <Skeleton className="h-3 w-12" />
+                  <Skeleton className="ml-auto h-6 w-24 rounded-md" />
+                </div>
+              ))}
             </div>
           ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center gap-3 p-16 text-center">

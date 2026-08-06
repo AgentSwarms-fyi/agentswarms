@@ -6,6 +6,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -310,8 +311,25 @@ function ModelRegistryPage() {
         </Card>
 
         {loading ? (
-          <div className="flex items-center gap-2 text-muted-foreground p-6">
-            <Loader2 className="h-4 w-4 animate-spin" /> Loading model catalog…
+          /* Skeleton in the grid's own shape: the page loads looking like
+             itself, and nothing jumps when the data lands. */
+          <div
+            className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
+            aria-label="Loading model catalog"
+          >
+            {Array.from({ length: 9 }).map((_, i) => (
+              <div key={i} className="space-y-3 rounded-xl border border-border/50 bg-card p-4">
+                <div className="flex items-center gap-2">
+                  <Skeleton className="h-8 w-8 rounded-md" />
+                  <div className="flex-1 space-y-1.5">
+                    <Skeleton className="h-3.5 w-2/3" />
+                    <Skeleton className="h-3 w-1/3" />
+                  </div>
+                </div>
+                <Skeleton className="h-3 w-1/2" />
+                <Skeleton className="h-8 w-full rounded-md" />
+              </div>
+            ))}
           </div>
         ) : filtered.length === 0 ? (
           <Card className="border-dashed border-2 border-border/50">

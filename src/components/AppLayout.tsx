@@ -7,6 +7,8 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { OnboardingDialog } from "@/components/OnboardingDialog";
 import { MobileLabNotice } from "@/components/MobileLabNotice";
 import { GlobalCreateMenu } from "@/components/GlobalCreateMenu";
+import { CommandPalette, useCommandPalette } from "@/components/CommandPalette";
+import { Search } from "lucide-react";
 import { Outlet, useLocation } from "@tanstack/react-router";
 
 export function AppLayout() {
@@ -14,6 +16,9 @@ export function AppLayout() {
   // every navigation. Routes are distinct components anyway, so the remount
   // is the one that was already happening.
   const { pathname } = useLocation();
+  const palette = useCommandPalette();
+  const isMac =
+    typeof navigator !== "undefined" && /Mac|iP(hone|ad|od)/.test(navigator.platform || "");
   return (
     <SidebarProvider>
       <div className="flex min-h-screen w-full">
@@ -26,6 +31,19 @@ export function AppLayout() {
           <header className="sticky top-0 z-40 flex h-12 items-center justify-between border-b border-border bg-background/80 px-4 backdrop-blur-md">
             <SidebarTrigger />
             <div className="flex items-center gap-2">
+              {/* Search-field-shaped trigger: the affordance teaches the
+                  shortcut, and the shortcut makes the affordance optional. */}
+              <button
+                type="button"
+                onClick={() => palette.setOpen(true)}
+                className="hidden h-8 items-center gap-2 rounded-md border border-border/60 bg-card/60 px-3 text-xs text-muted-foreground transition hover:border-primary/40 hover:text-foreground sm:inline-flex"
+              >
+                <Search className="h-3.5 w-3.5" />
+                Search
+                <kbd className="rounded border border-border/60 bg-muted px-1 font-mono text-[10px]">
+                  {isMac ? "⌘" : "Ctrl"} K
+                </kbd>
+              </button>
               <GlobalCreateMenu />
               <ThemeToggle />
               <ApprovalInbox />
@@ -40,6 +58,7 @@ export function AppLayout() {
           </main>
         </div>
       </div>
+      <CommandPalette open={palette.open} onOpenChange={palette.setOpen} />
       <OnboardingDialog />
       <MobileLabNotice />
     </SidebarProvider>
