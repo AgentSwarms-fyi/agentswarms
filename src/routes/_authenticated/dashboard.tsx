@@ -61,7 +61,7 @@ const FEATURES = [
     desc: "AI-generated dashboards, 20+ visuals, ontology maps, schedules & alerts.",
     to: "/bi" as const,
     icon: PieChart,
-    badge: "New",
+    badge: null,
     color: "text-fuchsia-600 bg-fuchsia-50 dark:text-fuchsia-300 dark:bg-fuchsia-500/15",
   },
   {
@@ -77,7 +77,7 @@ const FEATURES = [
     desc: "Vector search over your documents with BYOK embeddings and re-ranking.",
     to: "/knowledge" as const,
     icon: BookOpen,
-    badge: "New",
+    badge: null,
     color: "text-emerald-600 bg-emerald-50 dark:text-emerald-300 dark:bg-emerald-500/15",
   },
   {
