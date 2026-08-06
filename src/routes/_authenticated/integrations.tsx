@@ -1124,7 +1124,7 @@ function IntegrationsPage() {
           </TabsContent>
 
           <TabsContent value="llm" className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {LLM_PROVIDERS.map((provider) => (
                 <Card
                   key={provider.id}
@@ -1134,19 +1134,19 @@ function IntegrationsPage() {
                       : "border-border/50"
                   }`}
                 >
-                  {provider.recommended && (
-                    <Badge className="absolute right-3 top-3 bg-primary text-primary-foreground">
+                  {provider.recommended && !(provider as any).freeHighlight && (
+                    <Badge className="absolute -top-2.5 right-3 h-5 bg-primary px-1.5 text-[10px] text-primary-foreground shadow-sm">
                       Recommended
                     </Badge>
                   )}
                   {(provider as any).freeHighlight && (
-                    <Badge className="absolute right-3 top-3 bg-primary text-primary-foreground">
-                      Free tier available
+                    <Badge className="absolute -top-2.5 right-3 h-5 bg-primary px-1.5 text-[10px] text-primary-foreground shadow-sm">
+                      Free tier
                     </Badge>
                   )}
-                  <CardHeader className="pb-3">
+                  <CardHeader className="p-4 pb-2.5">
                     <div className="flex items-center gap-2">
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted ring-1 ring-inset ring-border/50">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted ring-1 ring-inset ring-border/50">
                         {PROVIDER_LOGO[provider.id] ? (
                           <img
                             src={PROVIDER_LOGO[provider.id]}
@@ -1165,7 +1165,12 @@ function IntegrationsPage() {
                       </div>
                       <CardTitle className="text-base">{provider.name}</CardTitle>
                     </div>
-                    <p className="text-xs text-muted-foreground">{provider.description}</p>
+                    <p
+                      className="text-xs text-muted-foreground line-clamp-3"
+                      title={provider.description}
+                    >
+                      {provider.description}
+                    </p>
                     {isProviderActive(provider.id) ? (
                       providerHealthError(provider.id) ? (
                         <Badge
@@ -1197,7 +1202,7 @@ function IntegrationsPage() {
                       </Badge>
                     ) : null}
                   </CardHeader>
-                  <CardContent>
+                  <CardContent className="mt-auto p-4 pt-0">
                     {provider.fields.length === 0 ? (
                       <p className="text-sm text-muted-foreground">
                         No configuration needed. Ready to use.

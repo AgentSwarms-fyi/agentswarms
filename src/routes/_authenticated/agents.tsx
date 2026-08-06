@@ -1,5 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { Search } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -79,6 +81,7 @@ function AgentsPage() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [query, setQuery] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Agent | null>(null);
   const [exportFor, setExportFor] = useState<Agent | null>(null);
@@ -214,6 +217,18 @@ function AgentsPage() {
           </div>
         </div>
 
+        {agents.length > 0 && (
+          <div className="relative max-w-sm">
+            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search agents by name, description, or model…"
+              className="h-9 pl-8"
+            />
+          </div>
+        )}
+
         {agents.length === 0 ? (
           <EmptyState
             icon={Bot}
@@ -231,101 +246,112 @@ function AgentsPage() {
             }
           />
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {agents.map((agent) => (
-              <Card key={agent.id} className="glow-card group flex flex-col border-border/50">
-                <CardHeader className="pb-3">
-                  <div className="flex items-start gap-3">
-                    <div
-                      className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br text-white shadow-sm ${agentHue(agent.name)}`}
-                    >
-                      <Bot className="h-5 w-5" strokeWidth={1.8} />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <CardTitle className="truncate text-base leading-tight">
-                        {agent.name}
-                      </CardTitle>
-                      <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-                        <span className="inline-flex items-center gap-1.5">
-                          <span
-                            className={`h-1.5 w-1.5 rounded-full ${agent.is_active ? "bg-emerald-500" : "bg-muted-foreground/40"}`}
-                          />
-                          {agent.is_active ? "Active" : "Inactive"}
-                        </span>
-                        {hasGuardrails(agent) && (
-                          <span className="inline-flex items-center gap-1 text-primary">
-                            <Shield className="h-3 w-3" /> Guarded
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {agents
+              .filter((a) => {
+                const q = query.trim().toLowerCase();
+                if (!q) return true;
+                return (
+                  a.name.toLowerCase().includes(q) ||
+                  (a.description ?? "").toLowerCase().includes(q) ||
+                  a.llm_model.toLowerCase().includes(q) ||
+                  a.llm_provider.toLowerCase().includes(q)
+                );
+              })
+              .map((agent) => (
+                <Card key={agent.id} className="glow-card group flex flex-col border-border/50">
+                  <CardHeader className="p-4 pb-2.5">
+                    <div className="flex items-start gap-2.5">
+                      <div
+                        className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-gradient-to-br text-white shadow-sm ${agentHue(agent.name)}`}
+                      >
+                        <Bot className="h-4 w-4" strokeWidth={1.8} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <CardTitle className="truncate text-base leading-tight">
+                          {agent.name}
+                        </CardTitle>
+                        <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                          <span className="inline-flex items-center gap-1.5">
+                            <span
+                              className={`h-1.5 w-1.5 rounded-full ${agent.is_active ? "bg-emerald-500" : "bg-muted-foreground/40"}`}
+                            />
+                            {agent.is_active ? "Active" : "Inactive"}
                           </span>
-                        )}
+                          {hasGuardrails(agent) && (
+                            <span className="inline-flex items-center gap-1 text-primary">
+                              <Shield className="h-3 w-3" /> Guarded
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  {agent.description && (
-                    <p className="mt-1 text-sm leading-relaxed text-muted-foreground line-clamp-2">
-                      {agent.description}
-                    </p>
-                  )}
-                </CardHeader>
-                <CardContent className="mt-auto">
-                  <div className="mb-3 flex min-w-0 items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
-                    <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5">
-                      {PROVIDERS.find((p) => p.value === agent.llm_provider)?.label ??
-                        agent.llm_provider}
-                    </span>
-                    <span className="truncate rounded-md bg-muted px-1.5 py-0.5">
-                      {agent.llm_model}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1.5 border-t border-border/60 pt-3">
-                    <Button size="sm" className="h-7 gap-1 px-3 text-xs" asChild>
-                      <Link to="/playground" search={{ agentId: agent.id }}>
-                        <Play className="h-3 w-3" /> Chat
-                      </Link>
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        setEditing(agent);
-                        setDialogOpen(true);
-                      }}
-                    >
-                      <Pencil className="h-3 w-3 mr-1" /> Edit
-                    </Button>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="ml-auto"
-                          aria-label="More actions"
-                        >
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-48">
-                        <DropdownMenuItem onSelect={() => setExportFor(agent)}>
-                          <Download className="h-3.5 w-3.5 mr-2" /> Export code
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onSelect={() => setShareFor(agent)}>
-                          <Share2 className="h-3.5 w-3.5 mr-2" /> Share
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onSelect={() => setVersionsFor(agent)}>
-                          <History className="h-3.5 w-3.5 mr-2" /> Version history
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          className="text-destructive focus:text-destructive"
-                          onSelect={() => setConfirmDelete(agent)}
-                        >
-                          <Trash2 className="h-3.5 w-3.5 mr-2" /> Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+                    {agent.description && (
+                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground line-clamp-2">
+                        {agent.description}
+                      </p>
+                    )}
+                  </CardHeader>
+                  <CardContent className="mt-auto p-4 pt-0">
+                    <div className="mb-2.5 flex min-w-0 items-center gap-1.5 font-mono text-[10.5px] text-muted-foreground">
+                      <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5">
+                        {PROVIDERS.find((p) => p.value === agent.llm_provider)?.label ??
+                          agent.llm_provider}
+                      </span>
+                      <span className="truncate rounded-md bg-muted px-1.5 py-0.5">
+                        {agent.llm_model}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1 border-t border-border/60 pt-2.5">
+                      <Button size="sm" className="h-7 gap-1 px-3 text-xs" asChild>
+                        <Link to="/playground" search={{ agentId: agent.id }}>
+                          <Play className="h-3 w-3" /> Chat
+                        </Link>
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setEditing(agent);
+                          setDialogOpen(true);
+                        }}
+                      >
+                        <Pencil className="h-3 w-3 mr-1" /> Edit
+                      </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="ml-auto"
+                            aria-label="More actions"
+                          >
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-48">
+                          <DropdownMenuItem onSelect={() => setExportFor(agent)}>
+                            <Download className="h-3.5 w-3.5 mr-2" /> Export code
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => setShareFor(agent)}>
+                            <Share2 className="h-3.5 w-3.5 mr-2" /> Share
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => setVersionsFor(agent)}>
+                            <History className="h-3.5 w-3.5 mr-2" /> Version history
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onSelect={() => setConfirmDelete(agent)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5 mr-2" /> Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
           </div>
         )}
         {exportFor && (

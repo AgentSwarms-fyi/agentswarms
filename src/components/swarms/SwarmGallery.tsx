@@ -320,25 +320,25 @@ export function SwarmGallery() {
                 </CardContent>
               </Card>
             ) : (
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {filteredMine.map((s) => {
                   const nodeCount = Array.isArray(s.nodes) ? s.nodes.length : 0;
                   const edgeCount = Array.isArray(s.edges) ? s.edges.length : 0;
                   return (
                     <Card key={s.id} className="group hover:border-primary/50 transition-colors">
-                      <CardHeader className="pb-3">
+                      <CardHeader className="p-4 pb-2">
                         <div className="flex items-start justify-between gap-2">
-                          <CardTitle className="text-base truncate flex-1" title={s.name}>
+                          <CardTitle className="text-sm truncate flex-1" title={s.name}>
                             {s.name}
                           </CardTitle>
                         </div>
                         {s.description && (
-                          <p className="text-xs text-muted-foreground line-clamp-2">
+                          <p className="text-xs text-muted-foreground line-clamp-1">
                             {s.description}
                           </p>
                         )}
                       </CardHeader>
-                      <CardContent className="space-y-3">
+                      <CardContent className="space-y-2.5 p-4 pt-0">
                         <SwarmGraphThumb nodes={s.nodes} edges={s.edges} />
                         <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
                           <span>{nodeCount} nodes</span>
@@ -353,9 +353,13 @@ export function SwarmGallery() {
                             </>
                           )}
                         </div>
-                        <div className="flex gap-2">
-                          <Button size="sm" onClick={() => openSwarm(s.id)} className="flex-1">
-                            <Play className="h-3.5 w-3.5 mr-1.5" /> Open in canvas
+                        <div className="flex gap-1.5">
+                          <Button
+                            size="sm"
+                            onClick={() => openSwarm(s.id)}
+                            className="h-7 flex-1 text-xs"
+                          >
+                            <Play className="h-3 w-3 mr-1" /> Open
                           </Button>
                           <ExportSwarmDropdown
                             name={s.name}
@@ -425,7 +429,7 @@ export function SwarmGallery() {
             {filteredTemplates.length === 0 ? (
               <p className="text-sm text-muted-foreground py-4">No templates match your search.</p>
             ) : (
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {filteredTemplates.map((t) => (
                   <Card key={t.id} className="group hover:border-primary/50 transition-colors">
                     <CardHeader className="pb-3">
