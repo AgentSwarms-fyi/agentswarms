@@ -278,6 +278,18 @@ export function DataPrepTab() {
   const [showSql, setShowSql] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [shapeTab, setShapeTab] = useState("columns");
+  // Palette sections collapse. Local tables start CLOSED: a workspace with 22
+  // datasets pushed "External tables" ~1,100px down the panel, so connected
+  // warehouses were invisible without scrolling for them. Both headers now sit
+  // on screen together and you open the one you want.
+  const [localOpen, setLocalOpen] = useState(false);
+  const [extOpen, setExtOpen] = useState(true);
+  const [paletteQuery, setPaletteQuery] = useState("");
+  const paletteQ = paletteQuery.trim().toLowerCase();
+  const localDatasets = useMemo(
+    () => (datasets ?? []).filter((d) => !paletteQ || d.name.toLowerCase().includes(paletteQ)),
+    [datasets, paletteQ],
+  );
 
   // External tables (connected databases/warehouses) shown in the palette
   // alongside local datasets. Schemas load lazily per connection; clicking a
@@ -818,21 +830,53 @@ export function DataPrepTab() {
           </CardHeader>
           <CardContent className="max-h-[560px] space-y-1.5 overflow-y-auto pt-0">
             {/* ── Local tables ─────────────────────────────────────── */}
-            <p className="pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            {/* Search spans both sections, and typing opens them — so a
+                collapsed-by-default palette still finds a table in one move. */}
+            <Input
+              value={paletteQuery}
+              onChange={(e) => {
+                setPaletteQuery(e.target.value);
+                if (e.target.value.trim()) {
+                  setLocalOpen(true);
+                  setExtOpen(true);
+                }
+              }}
+              placeholder="Search tables…"
+              aria-label="Search source tables"
+              className="mb-1.5 h-8 text-xs"
+            />
+
+            <button
+              type="button"
+              onClick={() => setLocalOpen((v) => !v)}
+              aria-expanded={localOpen}
+              className="flex w-full items-center gap-1.5 rounded-md py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {localOpen ? (
+                <ChevronDown className="h-3 w-3 shrink-0" />
+              ) : (
+                <ChevronRight className="h-3 w-3 shrink-0" />
+              )}
               Local tables
-            </p>
-            {datasets === null ? (
+              {datasets !== null && (
+                <span className="ml-auto rounded-full bg-muted px-1.5 font-medium normal-case tracking-normal tabular-nums">
+                  {localDatasets.length}
+                </span>
+              )}
+            </button>
+            {!localOpen ? null : datasets === null ? (
               <>
                 <Skeleton className="h-12 w-full" />
                 <Skeleton className="h-12 w-full" />
               </>
-            ) : datasets.length === 0 ? (
+            ) : localDatasets.length === 0 ? (
               <p className="py-3 text-center text-xs text-muted-foreground">
-                No local tables yet — upload a CSV on the Workbench tab, or add one from an external
-                source below.
+                {paletteQ
+                  ? "No local table matches that search."
+                  : "No local tables yet — upload a CSV on the Workbench tab, or add one from an external source below."}
               </p>
             ) : (
-              datasets.map((d) => {
+              localDatasets.map((d) => {
                 const used = onCanvas.has(d.name);
                 const fromWarehouse = d.source_filename?.startsWith("warehouse:")
                   ? d.source_filename.slice("warehouse:".length)
@@ -891,10 +935,25 @@ export function DataPrepTab() {
             )}
 
             {/* ── External tables (connected databases & warehouses) ── */}
-            <p className="pb-0.5 pt-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <button
+              type="button"
+              onClick={() => setExtOpen((v) => !v)}
+              aria-expanded={extOpen}
+              className="mt-2 flex w-full items-center gap-1.5 rounded-md py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {extOpen ? (
+                <ChevronDown className="h-3 w-3 shrink-0" />
+              ) : (
+                <ChevronRight className="h-3 w-3 shrink-0" />
+              )}
               External tables
-            </p>
-            {whConns === null ? (
+              {whConns !== null && whConns.length > 0 && (
+                <span className="ml-auto rounded-full bg-muted px-1.5 font-medium normal-case tracking-normal tabular-nums">
+                  {whConns.length}
+                </span>
+              )}
+            </button>
+            {!extOpen ? null : whConns === null ? (
               <Skeleton className="h-9 w-full" />
             ) : whConns.length === 0 ? (
               <p className="py-2 text-center text-[11px] text-muted-foreground">
