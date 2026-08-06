@@ -116,7 +116,7 @@ function TraceDetail() {
       </div>
 
       <div>
-        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+        <h1 className="font-display text-2xl font-semibold tracking-tight flex items-center gap-2">
           {run.swarm_name ?? "Untitled swarm"}
           <Badge
             variant="outline"

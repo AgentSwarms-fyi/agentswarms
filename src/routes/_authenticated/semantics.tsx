@@ -583,7 +583,7 @@ function SemanticsPage() {
   return (
     <div className="space-y-6 p-6">
       <div>
-        <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
+        <h1 className="flex items-center gap-2 font-display text-2xl font-semibold tracking-tight">
           <Layers className="h-6 w-6 text-primary" /> Semantic Layer
         </h1>
         <p className="mt-1 max-w-3xl text-sm text-muted-foreground">

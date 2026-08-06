@@ -298,7 +298,7 @@ function AnalyticsPage() {
       <div className="p-6">
         <div className="flex items-start justify-between mb-6">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Analytics</h1>
+            <h1 className="font-display text-3xl font-semibold tracking-tight">Analytics</h1>
             <p className="text-muted-foreground mt-1">
               Real-time observability for your agent fleet.
             </p>
@@ -323,7 +323,7 @@ function AnalyticsPage() {
     <div className="p-6 space-y-6">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Analytics</h1>
+          <h1 className="font-display text-3xl font-semibold tracking-tight">Analytics</h1>
           <p className="text-muted-foreground mt-1">
             {traces.length.toLocaleString()} traces over the last 30 days
           </p>

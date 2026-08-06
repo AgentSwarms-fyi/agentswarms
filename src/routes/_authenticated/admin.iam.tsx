@@ -252,7 +252,7 @@ function AdminIamPage() {
     <div className="p-6 space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+          <h1 className="font-display text-2xl font-semibold tracking-tight flex items-center gap-2">
             <Shield className="h-6 w-6 text-primary" /> Identity &amp; Access Management
           </h1>
           <p className="text-sm text-muted-foreground mt-1">

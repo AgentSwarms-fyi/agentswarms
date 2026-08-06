@@ -445,7 +445,7 @@ function ImagePlaygroundPage() {
       <header className="space-y-2">
         <div className="flex items-center gap-2">
           <ImageIcon className="h-6 w-6 text-primary" />
-          <h1 className="text-3xl font-bold tracking-tight">Image Playground</h1>
+          <h1 className="font-display text-3xl font-semibold tracking-tight">Image Playground</h1>
           <Badge variant="secondary" className="ml-1">
             New
           </Badge>

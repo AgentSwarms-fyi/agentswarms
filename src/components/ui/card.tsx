@@ -4,9 +4,15 @@ import { cn } from "@/lib/utils";
 
 const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
+    // surface-raised gives dark mode its 1px inner top highlight — shadows
+    // are invisible on a dark background, so the highlight is what makes a
+    // card read as raised rather than outlined.
     <div
       ref={ref}
-      className={cn("rounded-xl border bg-card text-card-foreground shadow", className)}
+      className={cn(
+        "surface-raised rounded-xl border bg-card text-card-foreground shadow",
+        className,
+      )}
       {...props}
     />
   ),

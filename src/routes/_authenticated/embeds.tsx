@@ -17,7 +17,7 @@ function EmbedsPage() {
   return (
     <div className="max-w-6xl space-y-6 p-6">
       <div>
-        <h1 className="flex items-center gap-2 text-3xl font-bold tracking-tight">
+        <h1 className="flex items-center gap-2 font-display text-3xl font-semibold tracking-tight">
           <Code2 className="h-7 w-7 text-primary" /> Web Embedding
         </h1>
         <p className="mt-1 max-w-2xl text-muted-foreground">

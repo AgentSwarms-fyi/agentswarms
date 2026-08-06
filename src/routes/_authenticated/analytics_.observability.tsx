@@ -70,7 +70,7 @@ function ObservabilityList() {
   return (
     <div className="p-6 space-y-4">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Swarm Observability</h1>
+        <h1 className="font-display text-3xl font-semibold tracking-tight">Swarm Observability</h1>
         <p className="text-muted-foreground mt-1 text-sm">
           {runs.length} swarm run{runs.length === 1 ? "" : "s"} · click a row to inspect agent-level
           traces · auto-deleted after 30 days

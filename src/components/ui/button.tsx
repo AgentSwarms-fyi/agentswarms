@@ -9,10 +9,14 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground shadow hover:bg-primary/90",
-        destructive: "bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90",
+        // Inner top highlight + a shadow tinted with the button's own colour:
+        // the primary action should sit visibly above the page, not beside it.
+        default:
+          "bg-primary text-primary-foreground shadow-md shadow-primary/25 [box-shadow:inset_0_1px_0_0_oklch(1_0_0/0.18),var(--tw-shadow)] hover:bg-primary/90 hover:shadow-lg hover:shadow-primary/30",
+        destructive:
+          "bg-destructive text-destructive-foreground shadow-sm shadow-destructive/25 [box-shadow:inset_0_1px_0_0_oklch(1_0_0/0.12),var(--tw-shadow)] hover:bg-destructive/90",
         outline:
-          "border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground",
+          "border border-input bg-background shadow-sm hover:border-primary/40 hover:bg-accent hover:text-accent-foreground",
         secondary: "bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80",
         ghost: "hover:bg-accent hover:text-accent-foreground",
         link: "text-primary underline-offset-4 hover:underline",

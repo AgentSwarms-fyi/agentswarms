@@ -22,7 +22,7 @@ function AuditPage() {
   return (
     <div className="space-y-4 p-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Audit Log</h1>
+        <h1 className="font-display text-3xl font-semibold tracking-tight">Audit Log</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Who did what, when — model calls, dataset and warehouse queries, dashboard views and
           catalog crawls. Administrators see the whole instance; everyone else sees their own

@@ -196,7 +196,7 @@ function LoginPage() {
           surface in both themes, exactly like the landing hero. Sign-in is a
           brand moment: say what this is and why it's trustworthy, instead of
           floating an anonymous card in an empty viewport. */}
-      <div className="dark relative hidden w-[44%] flex-col justify-between overflow-hidden bg-[oklch(0.135_0.005_250)] p-10 text-foreground lg:flex xl:p-14">
+      <div className="dark relative hidden w-[44%] flex-col justify-between overflow-hidden bg-background p-10 text-foreground lg:flex xl:p-14">
         <div className="bg-grid-faint pointer-events-none absolute inset-0 [mask-image:radial-gradient(ellipse_70%_70%_at_40%_40%,black,transparent)]" />
         <div className="bg-hero-glow pointer-events-none absolute inset-0" />
         <Link to="/" className="relative flex items-center gap-3" title="Back to home">

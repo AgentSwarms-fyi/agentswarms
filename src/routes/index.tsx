@@ -486,8 +486,15 @@ function LandingPage() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.55, ease: [0.21, 0.47, 0.32, 0.98] }}
               >
+                <div className="inline-flex items-center gap-2 rounded-full border border-primary/25 bg-primary/5 px-3 py-1 text-xs font-medium text-primary">
+                  <span className="relative flex h-1.5 w-1.5">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-60" />
+                    <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-primary" />
+                  </span>
+                  Source-available &middot; Elastic License 2.0
+                </div>
                 <h1 className="font-display text-[2.5rem] font-semibold leading-[1.05] tracking-tight text-foreground sm:text-5xl lg:text-7xl">
-                  Run <span className="text-muted-foreground">agents, swarms &amp; BI</span> on your
+                  Run <span className="text-gradient-brand">agents, swarms &amp; BI</span> on your
                   own infrastructure
                 </h1>
                 <p className="max-w-xl text-lg leading-relaxed text-muted-foreground lg:text-xl">

@@ -202,7 +202,7 @@ function McpPage() {
       <div className="flex-1 p-6 space-y-6">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">MCP Integrations</h1>
+            <h1 className="font-display text-3xl font-semibold tracking-tight">MCP Integrations</h1>
             <p className="text-muted-foreground mt-1">
               Model Context Protocol servers expose tools and resources to your agents. To write
               your own instead of connecting to someone else's, use{" "}

@@ -220,7 +220,7 @@ function BiWorkspacePage() {
     <div className="p-6 space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
+          <h1 className="font-display text-3xl font-semibold tracking-tight flex items-center gap-2">
             <LayoutDashboard className="h-7 w-7 text-primary" /> BI Workspace
           </h1>
           <p className="text-muted-foreground mt-1 max-w-2xl">

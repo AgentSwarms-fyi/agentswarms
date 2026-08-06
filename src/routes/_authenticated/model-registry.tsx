@@ -189,7 +189,7 @@ function ModelRegistryPage() {
       <div className="flex-1 p-6 space-y-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
+            <h1 className="font-display text-3xl font-semibold tracking-tight flex items-center gap-2">
               <Boxes className="h-7 w-7 text-primary" /> Model Registry
             </h1>
             <p className="text-muted-foreground mt-1 max-w-2xl">

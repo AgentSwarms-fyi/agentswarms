@@ -194,7 +194,7 @@ function PromptsPage() {
       <div className="flex-1 p-6 space-y-6">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
+            <h1 className="font-display text-3xl font-semibold tracking-tight flex items-center gap-2">
               <BookMarked className="h-7 w-7 text-primary" />
               Prompt Library
             </h1>

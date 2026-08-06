@@ -334,6 +334,7 @@ function DashboardPage() {
       desc: "Chat with any model and prototype instantly.",
       to: "/playground" as const,
       icon: MessageSquare,
+      accent: "text-violet-600 bg-violet-50 dark:text-violet-300 dark:bg-violet-500/15",
       search: undefined as undefined | Record<string, unknown>,
     },
     {
@@ -341,6 +342,7 @@ function DashboardPage() {
       desc: "Open the agent builder and ship a single agent.",
       to: "/agents" as const,
       icon: Bot,
+      accent: "text-primary bg-primary/10 dark:bg-primary/15",
       search: { new: 1 } as Record<string, unknown>,
     },
     {
@@ -348,6 +350,7 @@ function DashboardPage() {
       desc: "Open a blank canvas and wire agents together.",
       to: "/swarms" as const,
       icon: Workflow,
+      accent: "text-sky-600 bg-sky-50 dark:text-sky-300 dark:bg-sky-500/15",
       search: undefined,
     },
     {
@@ -355,6 +358,7 @@ function DashboardPage() {
       desc: "Let AI build dashboards over your data.",
       to: "/bi" as const,
       icon: PieChart,
+      accent: "text-fuchsia-600 bg-fuchsia-50 dark:text-fuchsia-300 dark:bg-fuchsia-500/15",
       search: undefined,
     },
   ];
@@ -383,6 +387,11 @@ function DashboardPage() {
         <section className={cn(cardCls, "relative overflow-hidden p-6 sm:p-8")}>
           <div
             aria-hidden
+            className="bg-grid-faint pointer-events-none absolute inset-0 opacity-60"
+          />
+          <div aria-hidden className="bg-hero-glow pointer-events-none absolute inset-0" />
+          <div
+            aria-hidden
             className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full bg-primary/10 blur-3xl"
           />
           <div
@@ -390,8 +399,8 @@ function DashboardPage() {
             className="pointer-events-none absolute -bottom-32 -left-16 h-64 w-64 rounded-full bg-indigo-500/10 blur-3xl"
           />
           <header className="relative">
-            <h1 className="text-3xl font-semibold tracking-tight text-foreground">
-              Welcome back, {userName}
+            <h1 className="font-display text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
+              Welcome back, <span className="text-gradient-brand">{userName}</span>
             </h1>
             <p className="mt-1.5 text-base text-muted-foreground">
               Pick up where you left off, or start something new.
@@ -453,9 +462,14 @@ function DashboardPage() {
                 to={tile.to}
                 {...(tile.search ? { search: tile.search } : {})}
                 aria-label={tile.title}
-                className="group flex items-start gap-3 rounded-xl bg-card p-5 ring-1 ring-border transition hover:-translate-y-0.5 hover:shadow-md hover:ring-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                className="surface-raised glow-card group flex items-start gap-3 rounded-xl border border-border bg-card p-5 transition hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
               >
-                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-muted text-foreground ring-1 ring-border transition-colors group-hover:bg-primary/10 group-hover:text-primary">
+                <div
+                  className={cn(
+                    "grid h-10 w-10 shrink-0 place-items-center rounded-lg ring-1 ring-inset ring-border/50 transition-transform group-hover:scale-105",
+                    tile.accent,
+                  )}
+                >
                   <tile.icon className="h-5 w-5" strokeWidth={1.6} />
                 </div>
                 <div className="min-w-0 flex-1">

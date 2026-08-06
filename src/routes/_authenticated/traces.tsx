@@ -233,7 +233,7 @@ function TracesPage() {
   if (!loading && traces.length === 0) {
     return (
       <div className="p-6">
-        <h1 className="text-3xl font-bold tracking-tight mb-1">Traces & Logs</h1>
+        <h1 className="font-display text-3xl font-semibold tracking-tight mb-1">Traces & Logs</h1>
         <p className="text-muted-foreground mb-6">Granular logs from every agent execution.</p>
         <EmptyState
           icon={ScrollText}
@@ -257,7 +257,7 @@ function TracesPage() {
     <div className="p-6 space-y-4">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Traces & Logs</h1>
+          <h1 className="font-display text-3xl font-semibold tracking-tight">Traces & Logs</h1>
           <p className="text-muted-foreground mt-1">
             {filtered.length.toLocaleString()} traces · click any row for details
           </p>

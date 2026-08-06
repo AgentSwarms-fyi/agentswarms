@@ -101,7 +101,7 @@ function SkillLibraryPage() {
       <div className="flex-1 container mx-auto space-y-6 p-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className="flex items-center gap-2 text-2xl font-bold">
+            <h1 className="flex items-center gap-2 font-display text-2xl font-semibold tracking-tight">
               <Wand2 className="h-6 w-6 text-primary" />
               Skill Library
             </h1>

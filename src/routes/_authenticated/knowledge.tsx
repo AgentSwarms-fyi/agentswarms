@@ -701,7 +701,7 @@ function KnowledgePage() {
       <div className="flex-1 p-6 space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Knowledge Bases</h1>
+            <h1 className="font-display text-3xl font-semibold tracking-tight">Knowledge Bases</h1>
             <p className="text-muted-foreground mt-1">
               The documents your agents retrieve from. Add sources, watch them get chunked and
               embedded, then wire a knowledge base into any agent.

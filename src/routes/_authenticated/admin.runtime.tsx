@@ -50,7 +50,7 @@ function AdminRuntimePage() {
   return (
     <div className="space-y-6 p-6">
       <div>
-        <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
+        <h1 className="flex items-center gap-2 font-display text-2xl font-semibold tracking-tight">
           <Server className="h-6 w-6 text-primary" /> Developer runtime
         </h1>
         <p className="mt-1 max-w-2xl text-sm text-muted-foreground">

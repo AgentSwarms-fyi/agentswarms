@@ -1093,7 +1093,7 @@ function IntegrationsPage() {
     <div className="flex">
       <div className="flex-1 p-6 space-y-6">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Integration Hub</h1>
+          <h1 className="font-display text-3xl font-semibold tracking-tight">Integration Hub</h1>
           <p className="text-muted-foreground mt-1">
             Connect your LLM providers, gateways, and workflow tools.
           </p>
