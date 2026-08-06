@@ -103,6 +103,9 @@ export function NotificationBell() {
           size="icon"
           className="relative h-8 w-8"
           title="Alerts & notifications"
+          aria-label={
+            unread > 0 ? `Alerts & notifications (${unread} unread)` : "Alerts & notifications"
+          }
         >
           <BellRing className="h-4 w-4" />
           {unread > 0 && (
