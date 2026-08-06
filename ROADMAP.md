@@ -66,8 +66,9 @@ Stated because you will find them anyway.
 - **Pool and rate limits are per process.** Behind a load balancer each replica
   enforces its own, so multiply by replica count when sizing against a
   warehouse's `max_connections`. A cluster-wide budget needs shared state.
-- **No numbered releases.** The project ships from `main`. Versioned releases
-  and an upgrade guide are wanted, not yet done.
+- **No upgrade guide yet.** Numbered releases exist from `v1.0.0` (git tags +
+  GitHub Releases; `main` is the development branch), but a written upgrade
+  guide between versions is wanted and not yet done.
 - **The scope switcher covers SPEND, not the whole dashboard.** The Spend &
   usage panel can be read as you / your teams / the organisation, but the
   workspace tiles, activity chart and recent runs above it are still your own

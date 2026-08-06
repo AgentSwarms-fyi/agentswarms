@@ -6,12 +6,21 @@ This file exists partly for you and partly for the person evaluating whether
 this project is maintained — an absent changelog reads as abandonment risk
 regardless of how active the commit log is.
 
-Dates are the date work landed, not a release date. The project does not yet
-cut numbered releases; see [ROADMAP.md](./ROADMAP.md).
+Dates are the date work landed. From 1.0.0 the project cuts numbered
+releases as git tags (see the GitHub Releases page); `main` remains the
+development branch and may be ahead of the latest tag.
 
 ---
 
-## Unreleased
+## 1.0.0 — 2026-08-06
+
+**First numbered release.** Everything below shipped on `main` since the last
+changelog cut and is included in `v1.0.0`, alongside the platform itself:
+agents and multi-agent swarms with a visual canvas, RAG knowledge bases with
+cloud-source sync, an AI-native BI suite over 22 warehouse connectors and 5
+SaaS app sources, IAM with groups/grants/model rules, budgets, hash-chained
+audit, and full execution traces — self-hosted on one Supabase project and
+one container, under the Elastic License 2.0.
 
 ### Data sources
 
