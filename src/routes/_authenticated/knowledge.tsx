@@ -701,6 +701,9 @@ function KnowledgePage() {
       <div className="flex-1 p-6 space-y-6">
         <div className="flex items-center justify-between">
           <div>
+            <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
+              Data &amp; BI
+            </p>
             <h1 className="font-display text-3xl font-semibold tracking-tight">Knowledge Bases</h1>
             <p className="text-muted-foreground mt-1">
               The documents your agents retrieve from. Add sources, watch them get chunked and
@@ -992,7 +995,16 @@ function KnowledgePage() {
               >
                 <CardHeader className="p-4 pb-2">
                   <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 min-w-0">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div
+                        className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ring-1 ring-inset ring-border/50 transition-colors ${
+                          selectedBase?.id === base.id
+                            ? "bg-primary/15 text-primary"
+                            : "bg-muted text-muted-foreground"
+                        }`}
+                      >
+                        <BookOpen className="h-4 w-4" />
+                      </div>
                       <CardTitle className="text-sm truncate">{base.name}</CardTitle>
                       {base.is_sample && (
                         <Badge variant="secondary" className="text-[10px] px-1.5 py-0 shrink-0">

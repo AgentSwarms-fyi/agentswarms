@@ -300,7 +300,9 @@ function PromptComparePage() {
         <div className="shrink-0 border-b border-border bg-card/40 px-4 py-3 sm:px-6">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-lg font-bold tracking-tight">Prompt Comparison Lab</h1>
+              <h1 className="font-display text-lg font-semibold tracking-tight">
+                Prompt Comparison Lab
+              </h1>
               <p className="text-xs text-muted-foreground mt-0.5">
                 Send the same prompt to two models — see how they differ in quality, speed, and
                 style.

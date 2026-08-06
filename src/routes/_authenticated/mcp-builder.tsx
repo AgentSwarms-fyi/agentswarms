@@ -119,7 +119,7 @@ function McpBuilderPage() {
     <div className="dot-matrix-bg min-h-full p-6 sm:p-8">
       <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
+          <h1 className="flex items-center gap-2 font-display text-2xl font-semibold tracking-tight">
             <Wrench className="h-6 w-6 text-primary" />
             MCP Builder
           </h1>

@@ -261,6 +261,9 @@ function AccountPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-6">
       <div>
+        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
+          Settings
+        </p>
         <h1 className="font-display text-3xl font-semibold tracking-tight">Account Settings</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Manage your AgentSwarms profile, password, and session.

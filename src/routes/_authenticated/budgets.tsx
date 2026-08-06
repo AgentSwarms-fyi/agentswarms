@@ -147,6 +147,9 @@ function BudgetsPage() {
   return (
     <div className="p-6 space-y-6 max-w-5xl">
       <div>
+        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
+          Observability
+        </p>
         <h1 className="font-display text-3xl font-semibold tracking-tight">Budgets & Guardrails</h1>
         <p className="text-muted-foreground mt-1">
           Set spend caps and automated guardrails for your agent fleet.

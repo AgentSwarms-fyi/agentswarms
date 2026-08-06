@@ -70,6 +70,9 @@ function ObservabilityList() {
   return (
     <div className="p-6 space-y-4">
       <div>
+        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
+          Observability
+        </p>
         <h1 className="font-display text-3xl font-semibold tracking-tight">Swarm Observability</h1>
         <p className="text-muted-foreground mt-1 text-sm">
           {runs.length} swarm run{runs.length === 1 ? "" : "s"} · click a row to inspect agent-level

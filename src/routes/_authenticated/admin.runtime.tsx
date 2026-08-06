@@ -50,6 +50,9 @@ function AdminRuntimePage() {
   return (
     <div className="space-y-6 p-6">
       <div>
+        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
+          Admin
+        </p>
         <h1 className="flex items-center gap-2 font-display text-2xl font-semibold tracking-tight">
           <Server className="h-6 w-6 text-primary" /> Developer runtime
         </h1>

@@ -22,6 +22,9 @@ function AuditPage() {
   return (
     <div className="space-y-4 p-6">
       <div>
+        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
+          Observability
+        </p>
         <h1 className="font-display text-3xl font-semibold tracking-tight">Audit Log</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Who did what, when — model calls, dataset and warehouse queries, dashboard views and

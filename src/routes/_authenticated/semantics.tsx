@@ -583,6 +583,9 @@ function SemanticsPage() {
   return (
     <div className="space-y-6 p-6">
       <div>
+        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
+          Data &amp; BI
+        </p>
         <h1 className="flex items-center gap-2 font-display text-2xl font-semibold tracking-tight">
           <Layers className="h-6 w-6 text-primary" /> Semantic Layer
         </h1>

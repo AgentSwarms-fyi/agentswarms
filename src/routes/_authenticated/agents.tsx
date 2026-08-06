@@ -129,6 +129,24 @@ function AgentsPage() {
     }
   }
 
+  // Stable identity colour per agent (hash of the name): the grid gets the
+  // at-a-glance variety of project icons without asking anyone to pick one.
+  const AVATAR_HUES = [
+    "from-teal-500/80 to-cyan-600/80",
+    "from-violet-500/80 to-purple-600/80",
+    "from-sky-500/80 to-blue-600/80",
+    "from-emerald-500/80 to-teal-600/80",
+    "from-fuchsia-500/80 to-pink-600/80",
+    "from-amber-500/80 to-orange-600/80",
+    "from-indigo-500/80 to-violet-600/80",
+    "from-rose-500/80 to-red-600/80",
+  ] as const;
+  function agentHue(name: string): string {
+    let h = 0;
+    for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+    return AVATAR_HUES[h % AVATAR_HUES.length];
+  }
+
   function hasGuardrails(agent: Agent): boolean {
     const tools = agent.tools as any;
     if (!tools?.guardrails) return false;
@@ -143,8 +161,18 @@ function AgentsPage() {
       <div className="flex-1 p-6 space-y-6">
         <div className="flex items-center justify-between">
           <div>
+            <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
+              Build
+            </p>
             <h1 className="font-display text-3xl font-semibold tracking-tight">Agent Builder</h1>
-            <p className="text-muted-foreground mt-1">Create and manage your AI agents.</p>
+            <p className="text-muted-foreground mt-1">
+              Create and manage your AI agents.
+              {agents.length > 0 && (
+                <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                  {agents.length} {agents.length === 1 ? "agent" : "agents"}
+                </span>
+              )}
+            </p>
           </div>
           <div className="flex gap-2">
             <ImportAgentDialog
@@ -205,41 +233,53 @@ function AgentsPage() {
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {agents.map((agent) => (
-              <Card key={agent.id} className="glow-card border-border/50">
+              <Card key={agent.id} className="glow-card group flex flex-col border-border/50">
                 <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-base">{agent.name}</CardTitle>
-                    <div className="flex items-center gap-1">
-                      {hasGuardrails(agent) && (
-                        <Badge variant="outline" className="text-xs border-primary/30 text-primary">
-                          <Shield className="h-3 w-3 mr-1" /> Guarded
-                        </Badge>
-                      )}
-                      <Badge variant={agent.is_active ? "default" : "secondary"}>
-                        {agent.is_active ? "Active" : "Inactive"}
-                      </Badge>
+                  <div className="flex items-start gap-3">
+                    <div
+                      className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br text-white shadow-sm ${agentHue(agent.name)}`}
+                    >
+                      <Bot className="h-5 w-5" strokeWidth={1.8} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <CardTitle className="truncate text-base leading-tight">
+                        {agent.name}
+                      </CardTitle>
+                      <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                        <span className="inline-flex items-center gap-1.5">
+                          <span
+                            className={`h-1.5 w-1.5 rounded-full ${agent.is_active ? "bg-emerald-500" : "bg-muted-foreground/40"}`}
+                          />
+                          {agent.is_active ? "Active" : "Inactive"}
+                        </span>
+                        {hasGuardrails(agent) && (
+                          <span className="inline-flex items-center gap-1 text-primary">
+                            <Shield className="h-3 w-3" /> Guarded
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                   {agent.description && (
-                    <p className="text-sm text-muted-foreground line-clamp-2">
+                    <p className="mt-1 text-sm leading-relaxed text-muted-foreground line-clamp-2">
                       {agent.description}
                     </p>
                   )}
                 </CardHeader>
-                <CardContent>
-                  <div className="mb-3 flex flex-wrap gap-1.5">
-                    <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+                <CardContent className="mt-auto">
+                  <div className="mb-3 flex min-w-0 items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
+                    <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5">
                       {PROVIDERS.find((p) => p.value === agent.llm_provider)?.label ??
                         agent.llm_provider}
                     </span>
-                    <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+                    <span className="truncate rounded-md bg-muted px-1.5 py-0.5">
                       {agent.llm_model}
                     </span>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <Button variant="outline" size="sm" asChild>
+                  <div className="flex items-center gap-1.5 border-t border-border/60 pt-3">
+                    <Button size="sm" className="h-7 gap-1 px-3 text-xs" asChild>
                       <Link to="/playground" search={{ agentId: agent.id }}>
-                        <Play className="h-3 w-3 mr-1" /> Chat
+                        <Play className="h-3 w-3" /> Chat
                       </Link>
                     </Button>
                     <Button

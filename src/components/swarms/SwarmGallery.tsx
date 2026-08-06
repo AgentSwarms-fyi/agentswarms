@@ -77,7 +77,14 @@ const THUMB_KIND_COLOR: Record<string, string> = {
 function SwarmGraphThumb({ nodes, edges }: { nodes: unknown; edges: unknown }) {
   const nodeList = (Array.isArray(nodes) ? nodes : []) as Node<SwarmNodeData>[];
   const edgeList = (Array.isArray(edges) ? edges : []) as Edge[];
-  if (nodeList.length === 0) return null;
+  // A draft with no nodes used to render nothing, which made the card look
+  // broken. An empty canvas is a real state — draw it as one.
+  if (nodeList.length === 0)
+    return (
+      <div className="dot-matrix-bg grid h-20 place-items-center rounded-md border border-dashed border-border/70 text-[11px] text-muted-foreground">
+        Empty canvas — open to start wiring
+      </div>
+    );
 
   const W = 280;
   const H = 88;

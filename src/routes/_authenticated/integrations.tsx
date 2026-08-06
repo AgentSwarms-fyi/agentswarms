@@ -1093,6 +1093,9 @@ function IntegrationsPage() {
     <div className="flex">
       <div className="flex-1 p-6 space-y-6">
         <div>
+          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
+            Integrations
+          </p>
           <h1 className="font-display text-3xl font-semibold tracking-tight">Integration Hub</h1>
           <p className="text-muted-foreground mt-1">
             Connect your LLM providers, gateways, and workflow tools.
@@ -1125,7 +1128,7 @@ function IntegrationsPage() {
               {LLM_PROVIDERS.map((provider) => (
                 <Card
                   key={provider.id}
-                  className={`relative ${
+                  className={`glow-card relative flex flex-col ${
                     (provider as any).freeHighlight
                       ? "border-primary/60 bg-primary/5 shadow-[0_0_0_1px_hsl(var(--primary)/0.2)]"
                       : "border-border/50"
@@ -1143,12 +1146,12 @@ function IntegrationsPage() {
                   )}
                   <CardHeader className="pb-3">
                     <div className="flex items-center gap-2">
-                      <div className="h-8 w-8 rounded-md bg-muted flex items-center justify-center shrink-0 overflow-hidden">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted ring-1 ring-inset ring-border/50">
                         {PROVIDER_LOGO[provider.id] ? (
                           <img
                             src={PROVIDER_LOGO[provider.id]}
                             alt={provider.name}
-                            className={`h-5 w-5 opacity-90 ${PROVIDER_LOGO_COLOR.has(provider.id) ? "" : "dark:invert"}`}
+                            className={`h-6 w-6 opacity-90 ${PROVIDER_LOGO_COLOR.has(provider.id) ? "" : "dark:invert"}`}
                             loading="lazy"
                             onError={(e) => {
                               // If the CDN logo fails, hide the img so the

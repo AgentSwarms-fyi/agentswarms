@@ -154,6 +154,9 @@ function SecretsPage() {
     <div className="p-6 space-y-6 max-w-5xl">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
+          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
+            Integrations
+          </p>
           <h1 className="font-display text-3xl font-semibold tracking-tight flex items-center gap-2">
             <KeyRound className="h-7 w-7 text-primary" /> Secrets
           </h1>

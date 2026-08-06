@@ -298,6 +298,9 @@ function AnalyticsPage() {
       <div className="p-6">
         <div className="flex items-start justify-between mb-6">
           <div>
+            <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
+              Observability
+            </p>
             <h1 className="font-display text-3xl font-semibold tracking-tight">Analytics</h1>
             <p className="text-muted-foreground mt-1">
               Real-time observability for your agent fleet.
@@ -323,6 +326,9 @@ function AnalyticsPage() {
     <div className="p-6 space-y-6">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
+          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
+            Observability
+          </p>
           <h1 className="font-display text-3xl font-semibold tracking-tight">Analytics</h1>
           <p className="text-muted-foreground mt-1">
             {traces.length.toLocaleString()} traces over the last 30 days
