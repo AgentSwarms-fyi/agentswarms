@@ -27,6 +27,7 @@ import {
   mergeWidgetResults,
   parseFilters,
   stripWidgetData,
+  widgetRowCap,
 } from "@/lib/biDashboards";
 import { fetchWidgetResultsAdmin, upsertWidgetResultsAdmin } from "@/utils/bi/results.server";
 import { sendMail } from "@/lib/email/mailer.server";
@@ -37,7 +38,9 @@ import { assertLocalReadOnlySql } from "@/lib/sqlSafety";
 import { STAGING_PREFIX } from "@/lib/datasetParse";
 import { localEngineName } from "@/utils/data/localEngine.server";
 
-const WIDGET_ROW_CAP = 500;
+// One definition, shared with the client that creates the snapshot in the
+// first place — a second copy here is how the two silently drift apart.
+const WIDGET_ROW_CAP = widgetRowCap();
 const LOCAL_ROWS_PER_TABLE_CAP = 20_000;
 const MIN_PROCESS_INTERVAL_MS = 30_000;
 const SCHEDULES_PER_RUN = 10;

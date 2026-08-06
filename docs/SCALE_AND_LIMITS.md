@@ -101,9 +101,9 @@ what you want for real volume.
 
 ### BI dashboards — `src/lib/biDashboards.ts`
 
-| Constant / field | Default | What it bounds |
+| Setting / field | Default | What it bounds |
 | --- | --- | --- |
-| `WIDGET_ROW_CAP` | `500` | Rows cached in a widget's snapshot |
+| `VITE_BI_SNAPSHOT_ROWS_CAP` | `500` (ceiling `100000`) | Rows cached in a widget's snapshot |
 | `DIRECT_QUERY_DEFAULT_ROWS` | `50000` | Rows for a `direct`-mode widget |
 | `DIRECT_QUERY_MAX_ROWS` | `100000` | Ceiling for `direct` mode |
 
@@ -121,6 +121,12 @@ what you want for real volume.
 >   doing so would silently change numbers on existing dashboards.
 > - **`query_mode: "direct"`** — re-run the query against the warehouse at view
 >   time for current truth, at the cost of a warehouse query per view.
+>
+> The cap itself is configurable — `VITE_BI_SNAPSHOT_ROWS_CAP`, one value read
+> by both the browser (which creates snapshots) and the server (which refreshes
+> them). It is `VITE_`-prefixed and therefore baked at build like the rest of
+> the public config, so set it as a build arg rather than at runtime. Raising it
+> grows every dashboard record, which is the cost being traded.
 >
 > A widget whose last refresh filled the cap sets `truncated`, and the UI says
 > so rather than showing a confident wrong total. Public embeds and share links

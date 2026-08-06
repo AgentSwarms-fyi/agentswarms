@@ -3,7 +3,7 @@
 // playground to show visuals alongside an agent's natural-language answer.
 import { runBiTurn, loadSemantics, loadSavedMetrics, llmJson } from "@/lib/biAgent";
 import { hydrateFromSupabase } from "@/lib/sqlEngine";
-import { widgetFromBiTurn, WIDGET_ROW_CAP, type BiWidget } from "@/lib/biDashboards";
+import { widgetFromBiTurn, widgetRowCap, type BiWidget } from "@/lib/biDashboards";
 import type { DocScope } from "@/lib/docGen/types";
 import { buildSources, sqlTableSources, type RawSource, type Source } from "@/utils/tools/sources";
 import {
@@ -16,7 +16,8 @@ import {
 
 // The chat widget's row snapshot. `full` lets the visual cover the whole result
 // (up to a safety cap); `sample` keeps it light for a quick answer-side visual.
-const SCOPE_ROW_CAP: Record<DocScope, number> = { sample: WIDGET_ROW_CAP, full: 50_000 };
+// Resolved per call, not at module load, so the configured cap applies.
+const scopeRowCap = (scope: DocScope): number => (scope === "full" ? 50_000 : widgetRowCap());
 
 /**
  * The outcome of a Visual BI attempt for a chat turn:
@@ -232,7 +233,7 @@ export async function generateChatWidget(
       ? await splitQuestion(resolved, opts.model)
       : [resolved];
 
-    const cap = SCOPE_ROW_CAP[opts.scope ?? "sample"] ?? WIDGET_ROW_CAP;
+    const cap = scopeRowCap(opts.scope ?? "sample");
     const widgets: BiWidget[] = [];
     const narratives: string[] = [];
     const rawSources: RawSource[] = [];

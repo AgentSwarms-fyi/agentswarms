@@ -669,7 +669,7 @@ describe("the BI page states the numbers that decide whether a chart is right", 
   it("quotes the real snapshot row cap", () => {
     // The cap is the reason a chart can show a partial total, so a stale
     // number here misleads about exactly the case that matters.
-    const cap = dash.match(/WIDGET_ROW_CAP = (\d+)/)?.[1];
+    const cap = dash.match(/WIDGET_ROW_CAP_DEFAULT = (\d+)/)?.[1];
     expect(cap).toBeTruthy();
     expect(page, "the documented row cap is stale").toContain(cap!);
   });

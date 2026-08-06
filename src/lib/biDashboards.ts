@@ -12,7 +12,38 @@ import { isAggregatableChart } from "@/lib/biAggregate";
 import type { ComparePeriod, SemanticFilter, TimeGrain } from "@/lib/semanticLayer";
 
 export const GRID_COLS = 12;
-export const WIDGET_ROW_CAP = 500;
+
+/** Fallback when nothing is configured. */
+export const WIDGET_ROW_CAP_DEFAULT = 500;
+/** Refuse absurd values rather than letting one widget carry a million rows. */
+export const WIDGET_ROW_CAP_MAX = 100_000;
+
+/**
+ * Rows kept in a widget's snapshot.
+ *
+ * A snapshot is what shared links, public embeds and offline views render, and
+ * it lives inside the dashboard row as JSONB — so this trades storage and load
+ * time against how much raw data a browser-side sum can see. For an aggregated
+ * widget (`agg_pushdown`, the default where the chart type allows it) 500 rows
+ * is already far more than any readable chart needs. For a widget that sums RAW
+ * rows, the cap is a correctness limit: hit it and the total is partial, which
+ * is why such widgets get `truncated`.
+ *
+ * Set `VITE_BI_SNAPSHOT_ROWS_CAP` to raise it. One knob, read the same way on
+ * both sides: this module runs in the browser (widgets are created there) and
+ * on the server (scheduled refresh), and two constants that could disagree is
+ * exactly how this codebase has been bitten before.
+ */
+export function widgetRowCap(): number {
+  // Written as the canonical `import.meta.env.VITE_*` form on purpose: the
+  // production build substitutes it by LITERAL TEXT MATCH (see envDefine in
+  // vite.config.ts), so `env?.VITE_…` would silently never be replaced — and
+  // the knob would work in dev and do nothing in the shipped image.
+  const raw = import.meta.env.VITE_BI_SNAPSHOT_ROWS_CAP as string | undefined;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 1) return WIDGET_ROW_CAP_DEFAULT;
+  return Math.min(Math.trunc(n), WIDGET_ROW_CAP_MAX);
+}
 
 export type BiWidgetSource =
   | { kind: "local" }
@@ -727,7 +758,7 @@ export function makeEmptyPage(name: string): BiPage {
 
 export function snapshotRows(
   rows: Record<string, unknown>[],
-  cap: number = WIDGET_ROW_CAP,
+  cap: number = widgetRowCap(),
 ): Record<string, unknown>[] {
   return rows.slice(0, Math.max(1, cap));
 }
@@ -736,7 +767,7 @@ export function snapshotRows(
 export function widgetFromBiTurn(
   turn: BiTurn,
   source: BiWidgetSource,
-  rowCap: number = WIDGET_ROW_CAP,
+  rowCap: number = widgetRowCap(),
 ): BiWidget | null {
   if (!turn.sql || !turn.result || turn.status !== "done") return null;
   return {

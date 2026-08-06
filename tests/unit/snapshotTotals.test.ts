@@ -2,7 +2,7 @@
 //
 // The NL-to-SQL eval grades the QUERY: it runs the SQL and compares rows. A
 // dashboard does not show query rows — it shows a chart drawn from a stored
-// SNAPSHOT, capped at WIDGET_ROW_CAP, with duplicate categories summed in the
+// SNAPSHOT, capped at the widget row cap, with duplicate categories summed in the
 // BROWSER by aggregateByField.
 //
 // Put those together and a widget over a table larger than the cap displays
@@ -19,7 +19,7 @@ import { describe, expect, it } from "vitest";
 
 import { aggregateByField } from "@/components/bi/BiChartRender";
 import { aggregationPlan, isAggregatableChart, renderAggregateClauses } from "@/lib/biAggregate";
-import { WIDGET_ROW_CAP, snapshotRows } from "@/lib/biDashboards";
+import { WIDGET_ROW_CAP_DEFAULT, snapshotRows, widgetRowCap } from "@/lib/biDashboards";
 
 /** Raw rows as a warehouse would return them: one per transaction. */
 function salesRows(n: number): Record<string, unknown>[] {
@@ -35,8 +35,11 @@ describe("a capped snapshot turns a correct query into a wrong total", () => {
   const trueTotal = ALL.length * 10;
 
   it("caps the snapshot at the documented row count", () => {
-    expect(snapshotRows(ALL)).toHaveLength(WIDGET_ROW_CAP);
-    expect(WIDGET_ROW_CAP).toBe(500);
+    // The cap is configurable now (VITE_BI_SNAPSHOT_ROWS_CAP); unset, it is
+    // the documented default, which is what this scenario is written against.
+    expect(widgetRowCap()).toBe(WIDGET_ROW_CAP_DEFAULT);
+    expect(snapshotRows(ALL)).toHaveLength(WIDGET_ROW_CAP_DEFAULT);
+    expect(WIDGET_ROW_CAP_DEFAULT).toBe(500);
   });
 
   it("sums the WHOLE table correctly when nothing is dropped", () => {
@@ -53,7 +56,7 @@ describe("a capped snapshot turns a correct query into a wrong total", () => {
     const charted = aggregateByField(snapshotRows(ALL), "region", ["amount"]);
     const shown = charted.reduce((s, r) => s + Number(r.amount), 0);
 
-    expect(shown).toBe(WIDGET_ROW_CAP * 10);
+    expect(shown).toBe(WIDGET_ROW_CAP_DEFAULT * 10);
     expect(shown).toBeLessThan(trueTotal);
     expect(shown / trueTotal).toBeCloseTo(0.1, 6);
 
