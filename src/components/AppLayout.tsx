@@ -9,13 +9,12 @@ import { MobileLabNotice } from "@/components/MobileLabNotice";
 import { GlobalCreateMenu } from "@/components/GlobalCreateMenu";
 import { CommandPalette, useCommandPalette } from "@/components/CommandPalette";
 import { Search } from "lucide-react";
-import { Outlet, useLocation } from "@tanstack/react-router";
+import { Outlet } from "@tanstack/react-router";
 
 export function AppLayout() {
-  // Keying the routed content by pathname replays the entrance animation on
-  // every navigation. Routes are distinct components anyway, so the remount
-  // is the one that was already happening.
-  const { pathname } = useLocation();
+  // Route-change motion is the router's defaultViewTransition (see
+  // router.tsx) — a browser-level cross-fade with no blank frame. The keyed
+  // CSS enter-animation that used to live here flashed and jumped.
   const palette = useCommandPalette();
   const isMac =
     typeof navigator !== "undefined" && /Mac|iP(hone|ad|od)/.test(navigator.platform || "");
@@ -52,9 +51,7 @@ export function AppLayout() {
             </div>
           </header>
           <main className="flex-1 min-w-0 overflow-hidden">
-            <div key={pathname} className="animate-page-in h-full min-w-0">
-              <Outlet />
-            </div>
+            <Outlet />
           </main>
         </div>
       </div>
