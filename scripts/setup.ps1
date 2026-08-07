@@ -81,7 +81,12 @@ if (-not $SkipMigrations) {
   if ($LASTEXITCODE -ne 0) {
     Warn "Could not push migrations - link the project first, then re-run:"
     Write-Host "    npx supabase login"
-    Write-Host ("    npx supabase link --project-ref " + (Get-EnvVar "SUPABASE_PROJECT_ID"))
+    # The project ref is NOT an env var (nothing at runtime reads one).
+    # On Supabase Cloud it is the subdomain of SUPABASE_URL.
+    $ref = "<your-project-ref>"
+    $supaUrl = Get-EnvVar "SUPABASE_URL"
+    if ($supaUrl -match "^https?://([^.]+)\.supabase\.(co|in)") { $ref = $Matches[1] }
+    Write-Host ("    npx supabase link --project-ref " + $ref)
     Write-Host "  (or re-run with -SkipMigrations if already applied)"
     exit 1
   }

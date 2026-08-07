@@ -25,12 +25,13 @@ background scheduler — and it's a two-line setup covered below.
 
 ### Which option should I pick?
 
-| You want to…                                            | Use                                           | Section                                       |
-| ------------------------------------------------------- | --------------------------------------------- | --------------------------------------------- |
-| Try it on your own machine                              | **Local desktop (Docker Desktop)**            | [A](#a-local-desktop)                         |
-| Run it for a team on one server                         | **Single cloud VM** — the recommended default | [B](#b-single-cloud-vm-recommended)           |
-| Handle spiky/high load with autoscaling                 | **Autoscaled VMs + load balancer**            | [C](#c-autoscaled-vms-behind-a-load-balancer) |
-| Run on an existing K8s cluster / scale Python notebooks | **Kubernetes**                                | [D](#d-kubernetes)                            |
+| You want to…                                            | Use                                           | Section                                                               |
+| ------------------------------------------------------- | --------------------------------------------- | --------------------------------------------------------------------- |
+| Try it on your own machine                              | **Local desktop (Docker Desktop)**            | [A](#a-local-desktop)                                                 |
+| Run it for a team on one server                         | **Single cloud VM** — the recommended default | [B](#b-single-cloud-vm-recommended)                                   |
+| Handle spiky/high load with autoscaling                 | **Autoscaled VMs + load balancer**            | [C](#c-autoscaled-vms-behind-a-load-balancer)                         |
+| Run on an existing K8s cluster / scale Python notebooks | **Kubernetes**                                | [D](#d-kubernetes)                                                    |
+| Keep **all** data on infrastructure you control         | **Self-hosted Supabase** (with any of A–D)    | [Self-hosted Supabase](#self-hosted-supabase-complete-data-residency) |
 
 All options share the same two prerequisites.
 
@@ -101,6 +102,9 @@ project as the backend.
 - Want notebooks to run real Python? Add the optional runtime with
   `docker compose --profile notebooks up -d --build` — see
   [Developer-workspace runtime](#developer-workspace-python-runtime).
+- Want **Deep-mode** document generation? Add the renderer with
+  `docker compose --profile docgen up -d --build` — see
+  [Document renderer](#document-renderer-deep-mode-officeexports).
 
 ## B. Single cloud VM (recommended)
 
@@ -210,6 +214,151 @@ unlike the single-host Docker backend). Manifests live under
 in-cluster. See [DEVELOPER_WORKSPACE_RUNTIME.md](./DEVELOPER_WORKSPACE_RUNTIME.md).
 
 ---
+
+---
+
+## Self-hosted Supabase (complete data residency)
+
+Everything above assumes **Supabase Cloud**, which is the fastest path and is
+fine for most teams. If your requirement is that **no data leaves
+infrastructure you control** — data residency, data localisation, sovereignty
+rules, or a genuinely air-gapped network — run Supabase yourself. The app does
+not care which one it talks to: it needs a URL and two keys.
+
+> **What this does and does not buy you.** Self-hosting Supabase removes the
+> last managed dependency for _your data_. It does **not** by itself make the
+> deployment air-gapped: model calls still leave your network unless you also
+> run a local model server (see [Air-gapped](#air-gapped-no-outbound-internet)
+> below).
+
+### 1. What you are running
+
+Supabase self-hosted is a Docker Compose stack: Postgres, GoTrue (auth),
+PostgREST, Realtime, Storage, Kong (the API gateway that fronts them), and
+Studio. AgentSwarms talks to the **Kong** endpoint, exactly as it talks to a
+cloud project's URL.
+
+Budget roughly **+2 vCPU / +4 GB RAM / +20 GB disk** on top of the app's own
+requirements — see [SYSTEM_REQUIREMENTS.md](./SYSTEM_REQUIREMENTS.md).
+
+### 2. Bring up the stack
+
+```bash
+git clone --depth 1 https://github.com/supabase/supabase
+```
+
+```bash
+cd supabase/docker && cp .env.example .env
+```
+
+Now edit that `.env` **before first start** — these are the ones that matter:
+
+| Setting                                    | Why it matters                                                                                                                          |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `POSTGRES_PASSWORD`                        | Superuser password. Generate it; never keep the sample.                                                                                 |
+| `JWT_SECRET`                               | Signs every token. **`ANON_KEY` and `SERVICE_ROLE_KEY` must be generated from this secret** — if they do not match, every request 401s. |
+| `ANON_KEY`, `SERVICE_ROLE_KEY`             | The two keys AgentSwarms needs. Generate them from your `JWT_SECRET`.                                                                   |
+| `SITE_URL`, `API_EXTERNAL_URL`             | Your AgentSwarms origin and your Supabase origin. Wrong values break auth redirects and email links.                                    |
+| `DASHBOARD_USERNAME`, `DASHBOARD_PASSWORD` | Studio login. Do not expose Studio publicly.                                                                                            |
+| `SMTP_*`                                   | Auth emails (confirmation, password reset). Supabase sends these, not AgentSwarms.                                                      |
+
+```bash
+docker compose up -d
+```
+
+Kong now listens on `:8000` (HTTP) — that is your `SUPABASE_URL`.
+
+### 3. Check the extensions before you migrate
+
+The migrations use five Postgres extensions. Recent `supabase/postgres` images
+ship all of them, but **verify rather than assume** — a missing one fails the
+migration halfway. Run this against your instance:
+
+```sql
+select e.name,
+       case when x.extname is null then 'MISSING' else 'ok' end as status
+from (values ('vector'),('pg_net'),('pg_cron'),('pgmq'),('supabase_vault')) as e(name)
+left join pg_extension x on x.extname = e.name
+order by status desc, e.name;
+```
+
+Anything `MISSING` needs `CREATE EXTENSION IF NOT EXISTS <name>;` as a
+superuser first. What each is for:
+
+| Extension        | Used for                                                         |
+| ---------------- | ---------------------------------------------------------------- |
+| `vector`         | Knowledge Base embeddings (pgvector, HNSW cosine index)          |
+| `pg_net`         | Database-initiated HTTP used by scheduled work                   |
+| `pg_cron`        | The in-database purge of runs/traces past their retention window |
+| `pgmq`           | Queue tables behind background jobs                              |
+| `supabase_vault` | Supabase's own secret storage                                    |
+
+### 4. Apply the schema
+
+`supabase link` is for Cloud projects. Against a self-hosted instance, point
+the CLI at the database directly:
+
+```bash
+npx supabase db push --db-url "postgresql://postgres:<POSTGRES_PASSWORD>@<db-host>:5432/postgres"
+```
+
+Storage buckets and their RLS policies are created by the migrations, so there
+is nothing to click in Studio afterwards.
+
+### 5. Point AgentSwarms at it
+
+In the AgentSwarms `.env`:
+
+```bash
+SUPABASE_URL="https://supabase.your-domain.internal"
+SUPABASE_PUBLISHABLE_KEY="<ANON_KEY>"
+SUPABASE_SERVICE_ROLE_KEY="<SERVICE_ROLE_KEY>"
+VITE_SUPABASE_URL="https://supabase.your-domain.internal"
+VITE_SUPABASE_PUBLISHABLE_KEY="<ANON_KEY>"
+```
+
+`VITE_SUPABASE_URL` is **baked into the browser bundle at build time**, so it
+must be the URL a _browser_ can reach — not a Docker-internal hostname like
+`http://kong:8000`. If the app and Supabase share a Compose network, the server
+half may use the internal name while the `VITE_` copy uses the external one.
+
+Then rebuild (the `VITE_` values are build-time) and start:
+
+```bash
+docker compose up -d --build
+```
+
+### 6. Before you call it production
+
+- **Put TLS in front of Kong.** Auth cookies and the service-role key travel
+  this path. The same reverse proxy that terminates TLS for AgentSwarms can
+  front Supabase on a second hostname.
+- **Do not publish Studio or Postgres.** Bind them to the internal network;
+  reach Studio over your VPN or an SSH tunnel.
+- **Back up Postgres yourself.** There is no managed backup now — this is the
+  single stateful component, and `PROVIDER_CREDS_SECRET` must be backed up
+  _separately_ or credentials in a restored database cannot be decrypted.
+- **Keep `JWT_SECRET` stable.** Rotating it invalidates every issued token and
+  both keys.
+- **Watch disk.** Traces, audit events and KB vectors grow — see
+  [storage growth](./SYSTEM_REQUIREMENTS.md#storage-growth) and set the
+  retention windows.
+
+### Air-gapped (no outbound internet)
+
+Self-hosted Supabase removes the data dependency; three things still reach out
+by default, and each has a local answer:
+
+| Reaches out          | Local answer                                                                                                                                             |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Model providers**  | Run **Ollama** or **vLLM** inside the network and connect it on the Integrations page. Everything else — agents, swarms, RAG, BI — is provider-agnostic. |
+| **Email**            | Point `SMTP_*` at an internal relay, or leave email unset: sends are skipped and logged.                                                                 |
+| **Container images** | Mirror `agentswarms/*`, `supabase/*` and any model image into your internal registry.                                                                    |
+
+Nothing else phones home: there is no telemetry, no licence check and no usage
+reporting, fonts and the SQL engine (DuckDB-Wasm) are served from the app
+itself, and analytics exist only if you set `VITE_GA_ID`. See
+[/architecture](./ARCHITECTURE.md) and [/security](../src/routes/security.tsx).
 
 ## Production checklist (cross-cutting)
 
@@ -604,6 +753,28 @@ enable and verify them; this is your system of record.
 `docker-compose.yml` uses `:latest` for the third-party runtime images
 (`tecnativa/docker-socket-proxy`, `ubuntu/squid`) and flags this inline — pin
 them to digests in production for reproducibility.
+
+### Document renderer (Deep-mode Office exports)
+
+Agent Chat can generate PowerPoint, Word and Excel files two ways. **Browser ·
+fast** builds them in the browser and works on every deployment with nothing
+extra installed. **Deep · slow** uses a server-side renderer for native Office
+output — editable charts, real tables — plus an AI visual review pass.
+
+The renderer is an optional Compose profile:
+
+```bash
+docker compose --profile docgen up -d --build
+```
+
+It listens on `8099`, published to loopback only (`127.0.0.1:8099`). The app
+probes both the in-network address (`docgen:8099`) and the published one, so
+the same `.env` works whether you run the app in Compose or with `npm run dev`
+— there is deliberately no address to configure.
+
+**Without this profile, Deep mode still works**: it silently falls back to the
+browser build, producing a file identical to Fast. The UI disables the Deep
+option and states the reason rather than leaving a control that does nothing.
 
 ### Developer-workspace Python runtime
 

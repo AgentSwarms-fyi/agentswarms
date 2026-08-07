@@ -92,7 +92,13 @@ if [ "$SKIP_MIGRATIONS" -eq 0 ]; then
   if ! npx --yes supabase db push; then
     warn "Could not push migrations — link the project first, then re-run:"
     echo "    npx supabase login"
-    echo "    npx supabase link --project-ref $(getenv SUPABASE_PROJECT_ID)"
+    # The project ref is NOT an env var (nothing at runtime reads one).
+    # On Supabase Cloud it is the subdomain of SUPABASE_URL.
+    ref="$(getenv SUPABASE_URL | sed -E 's#^https?://([^.]+)\.supabase\.(co|in).*#\1#')"
+    case "$ref" in
+      http*|"") ref="<your-project-ref>" ;;
+    esac
+    echo "    npx supabase link --project-ref $ref"
     echo "  (or re-run with --skip-migrations if already applied)"
     exit 1
   fi
