@@ -52,11 +52,6 @@ export function AppSidebar() {
                 <Link to={item.url}>
                   <item.icon className="h-4 w-4" />
                   <span className="flex-1">{item.title}</span>
-                  {item.title === "Developer workspace" && !collapsed && (
-                    <span className="ml-auto rounded-full bg-primary/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-primary">
-                      New
-                    </span>
-                  )}
                 </Link>
               </SidebarMenuButton>
             </SidebarMenuItem>
