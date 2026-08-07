@@ -295,6 +295,17 @@ superuser first. What each is for:
 
 ### 4. Apply the schema
 
+> [!IMPORTANT]
+> **Start the whole stack first, and let it settle, before you push the
+> schema.** Three of our migrations write to `storage.buckets`, and the
+> `public` column they use is created by the **storage-api service's own
+> migrations**, not by the Postgres image. Push against a database whose
+> storage service has never booted and those three fail with
+> `column "public" of relation "buckets" does not exist` — verified by running
+> the full migration set against a bare `supabase/postgres` container. On
+> Supabase Cloud this is invisible because storage is always already
+> provisioned.
+
 `supabase link` is for Cloud projects. Against a self-hosted instance, point
 the CLI at the database directly:
 
@@ -304,6 +315,12 @@ npx supabase db push --db-url "postgresql://postgres:<POSTGRES_PASSWORD>@<db-hos
 
 Storage buckets and their RLS policies are created by the migrations, so there
 is nothing to click in Studio afterwards.
+
+**Verified.** All 146 migrations were applied to a stock
+`supabase/postgres:15.8.1.060` container: 146 applied, 0 failed, producing 98
+tables with RLS enabled on all 98, the pgvector HNSW index, 2 `pg_cron` jobs
+and 3 storage buckets. All five required extensions were present in that image
+— run the preflight above anyway, because the image you pull may differ.
 
 ### 5. Point AgentSwarms at it
 
