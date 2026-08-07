@@ -1,0 +1,361 @@
+Shipment ID,Month,Order Date,Carrier,Mode,Origin Warehouse,Dest Region,Dest Country,Category,Units,Order Value,Freight Cost,Weight Kg,SLA Days,Transit Days,On Time,On Time Num,Damaged,Damaged Num,CO2 Kg
+SHP-0001,2025-01,2025-01-02,BlueDart Express,Air,Guadalajara DC,EMEA,Germany,Apparel,229,32671,4520,1258,4,2,Yes,100,No,0,1359
+SHP-0002,2025-01,2025-01-08,Meridian Freight,Sea,Guadalajara DC,EMEA,Germany,Industrial Parts,415,37214,232,1264,28,29,Yes,100,No,0,27
+SHP-0003,2025-01,2025-01-20,Meridian Freight,Road,Singapore Hub,EMEA,Germany,Industrial Parts,266,23045,772,1779,7,8,Yes,100,No,0,288
+SHP-0004,2025-01,2025-01-06,BlueDart Express,Air,Memphis DC,APAC,Japan,Perishables,389,77495,4212,1365,4,2,No,0,No,0,4259
+SHP-0005,2025-01,2025-01-24,BlueDart Express,Road,Guadalajara DC,LATAM,Mexico,Electronics,410,29332,886,847,7,3,Yes,100,No,0,183
+SHP-0006,2025-01,2025-01-30,Arctic Line,Sea,Rotterdam DC,EMEA,France,Industrial Parts,395,59303,444,3059,28,36,Yes,100,No,0,66
+SHP-0007,2025-01,2025-01-22,TransGlobal,Sea,Memphis DC,Americas,Brazil,Perishables,400,47009,264,1230,28,27,Yes,100,No,0,53
+SHP-0008,2025-01,2025-01-18,Meridian Freight,Road,Memphis DC,EMEA,United Arab Emirates,Perishables,374,25399,876,2117,7,7,Yes,100,No,0,343
+SHP-0009,2025-01,2025-01-18,BlueDart Express,Road,Guadalajara DC,LATAM,Mexico,Perishables,260,8179,670,710,7,3,Yes,100,No,0,153
+SHP-0010,2025-01,2025-01-06,Arctic Line,Rail,Gdansk DC,Americas,Brazil,Industrial Parts,40,2747,55,189,10,11,Yes,100,No,0,20
+SHP-0011,2025-01,2025-01-26,Meridian Freight,Road,Gdansk DC,APAC,Japan,Industrial Parts,412,26128,488,1215,7,8,Yes,100,No,0,569
+SHP-0012,2025-01,2025-01-20,Meridian Freight,Road,Singapore Hub,Americas,Canada,Electronics,146,26104,398,788,7,12,No,0,No,0,255
+SHP-0013,2025-01,2025-01-02,BlueDart Express,Road,Singapore Hub,APAC,Japan,Apparel,475,53918,1590,1671,7,4,Yes,100,No,0,782
+SHP-0014,2025-01,2025-01-13,TransGlobal,Air,Singapore Hub,LATAM,Mexico,Electronics,240,9970,2346,1291,4,4,Yes,100,No,0,1859
+SHP-0015,2025-01,2025-01-19,TransGlobal,Rail,Singapore Hub,LATAM,Mexico,Apparel,311,55326,444,1201,10,8,Yes,100,No,0,86
+SHP-0016,2025-01,2025-01-01,Meridian Freight,Sea,Guadalajara DC,EMEA,France,Apparel,432,55666,454,2603,28,32,Yes,100,No,0,56
+SHP-0017,2025-01,2025-01-29,Arctic Line,Sea,Singapore Hub,Americas,Brazil,Apparel,262,45953,206,1225,28,37,Yes,100,No,0,53
+SHP-0018,2025-01,2025-01-21,BlueDart Express,Air,Singapore Hub,Americas,Canada,Perishables,182,16733,4939,1338,4,2,Yes,100,No,0,2890
+SHP-0019,2025-01,2025-01-15,TransGlobal,Rail,Memphis DC,LATAM,Chile,Electronics,397,73608,656,1484,10,8,Yes,100,No,0,107
+SHP-0020,2025-01,2025-01-13,Arctic Line,Rail,Guadalajara DC,LATAM,Chile,Industrial Parts,92,13991,59,222,10,11,Yes,100,No,0,16
+SHP-0021,2025-02,2025-02-21,Meridian Freight,Sea,Singapore Hub,Americas,United States,Perishables,317,52743,298,1534,28,27,Yes,100,Yes,100,66
+SHP-0022,2025-02,2025-02-07,Meridian Freight,Sea,Memphis DC,Americas,Brazil,Apparel,209,15261,231,1156,28,29,Yes,100,No,0,50
+SHP-0023,2025-02,2025-02-13,TransGlobal,Air,Memphis DC,EMEA,France,Electronics,414,55418,5416,3115,4,5,No,0,No,0,3364
+SHP-0024,2025-02,2025-02-02,BlueDart Express,Road,Rotterdam DC,APAC,Australia,Electronics,489,61358,3253,3066,7,3,Yes,100,No,0,1435
+SHP-0025,2025-02,2025-02-28,BlueDart Express,Road,Memphis DC,Americas,United States,Industrial Parts,76,10563,510,545,7,3,Yes,100,No,0,177
+SHP-0026,2025-02,2025-02-16,BlueDart Express,Road,Gdansk DC,EMEA,Germany,Electronics,121,23229,653,753,7,4,Yes,100,No,0,122
+SHP-0027,2025-02,2025-02-28,Arctic Line,Rail,Rotterdam DC,LATAM,Mexico,Industrial Parts,446,50373,561,1963,10,14,Yes,100,No,0,141
+SHP-0028,2025-02,2025-02-04,TransGlobal,Sea,Gdansk DC,LATAM,Chile,Perishables,297,52957,349,1453,28,22,Yes,100,No,0,42
+SHP-0029,2025-02,2025-02-05,Meridian Freight,Sea,Rotterdam DC,Americas,Canada,Apparel,395,47371,265,1370,28,31,Yes,100,Yes,100,59
+SHP-0030,2025-02,2025-02-21,Arctic Line,Sea,Rotterdam DC,Americas,Canada,Perishables,455,64581,337,1930,28,48,No,0,No,0,83
+SHP-0031,2025-02,2025-02-16,Arctic Line,Sea,Memphis DC,APAC,Australia,Perishables,396,63044,256,1487,28,33,Yes,100,No,0,93
+SHP-0032,2025-02,2025-02-24,TransGlobal,Air,Memphis DC,Americas,United States,Perishables,371,53976,3505,1719,4,3,Yes,100,No,0,3713
+SHP-0033,2025-02,2025-02-15,BlueDart Express,Road,Singapore Hub,LATAM,Mexico,Perishables,442,83410,3276,3399,7,3,Yes,100,No,0,734
+SHP-0034,2025-02,2025-02-02,Meridian Freight,Sea,Memphis DC,APAC,Australia,Perishables,208,40690,106,591,28,34,Yes,100,No,0,37
+SHP-0035,2025-02,2025-02-09,TransGlobal,Air,Memphis DC,Americas,United States,Industrial Parts,395,78462,5283,2437,4,5,No,0,No,0,5264
+SHP-0036,2025-02,2025-02-09,Arctic Line,Rail,Gdansk DC,APAC,Japan,Apparel,311,56985,465,1810,10,21,No,0,No,0,282
+SHP-0037,2025-02,2025-02-24,TransGlobal,Air,Memphis DC,Americas,United States,Industrial Parts,385,32611,3116,1842,4,4,Yes,100,No,0,3979
+SHP-0038,2025-02,2025-02-06,BlueDart Express,Road,Gdansk DC,EMEA,Germany,Apparel,104,4302,371,392,7,3,Yes,100,No,0,64
+SHP-0039,2025-02,2025-02-19,BlueDart Express,Air,Guadalajara DC,Americas,Canada,Perishables,62,8609,1602,466,4,2,Yes,100,No,0,1007
+SHP-0040,2025-02,2025-02-17,Meridian Freight,Road,Rotterdam DC,LATAM,Chile,Industrial Parts,145,16151,435,933,7,8,Yes,100,No,0,202
+SHP-0041,2025-03,2025-03-18,TransGlobal,Sea,Singapore Hub,Americas,Brazil,Industrial Parts,494,59311,661,2766,28,26,Yes,100,No,0,119
+SHP-0042,2025-03,2025-03-07,Meridian Freight,Sea,Rotterdam DC,LATAM,Mexico,Perishables,172,9415,142,875,28,27,Yes,100,No,0,25
+SHP-0043,2025-03,2025-03-06,BlueDart Express,Air,Gdansk DC,Americas,United States,Industrial Parts,458,55434,10837,2956,4,2,Yes,100,No,0,6385
+SHP-0044,2025-03,2025-03-01,TransGlobal,Air,Gdansk DC,EMEA,United Kingdom,Perishables,439,43921,3009,1492,4,3,Yes,100,No,0,1611
+SHP-0045,2025-03,2025-03-11,Meridian Freight,Road,Memphis DC,EMEA,United Kingdom,Apparel,360,56762,588,1481,7,7,Yes,100,No,0,240
+SHP-0046,2025-03,2025-03-19,TransGlobal,Rail,Guadalajara DC,Americas,United States,Perishables,207,11549,372,859,10,8,Yes,100,No,0,93
+SHP-0047,2025-03,2025-03-26,TransGlobal,Rail,Memphis DC,Americas,Brazil,Apparel,469,20126,771,1661,10,8,Yes,100,No,0,179
+SHP-0048,2025-03,2025-03-05,Arctic Line,Sea,Memphis DC,Americas,Canada,Apparel,46,3926,23,154,28,33,Yes,100,No,0,7
+SHP-0049,2025-03,2025-03-05,TransGlobal,Sea,Memphis DC,EMEA,Germany,Electronics,140,4529,83,351,28,22,Yes,100,No,0,8
+SHP-0050,2025-03,2025-03-30,Arctic Line,Rail,Rotterdam DC,APAC,India,Perishables,314,52454,507,1545,10,13,Yes,100,No,0,241
+SHP-0051,2025-03,2025-03-01,Meridian Freight,Sea,Singapore Hub,LATAM,Mexico,Industrial Parts,391,42648,435,2309,28,27,Yes,100,No,0,66
+SHP-0052,2025-03,2025-03-22,BlueDart Express,Air,Gdansk DC,EMEA,United Arab Emirates,Industrial Parts,178,15256,2378,799,4,2,Yes,100,No,0,863
+SHP-0053,2025-03,2025-03-20,Meridian Freight,Sea,Memphis DC,Americas,Canada,Apparel,487,84653,349,2047,28,29,Yes,100,No,0,88
+SHP-0054,2025-03,2025-03-19,TransGlobal,Air,Rotterdam DC,LATAM,Mexico,Perishables,401,27359,1956,1023,4,3,Yes,100,No,0,1473
+SHP-0055,2025-03,2025-03-14,Arctic Line,Rail,Memphis DC,LATAM,Mexico,Apparel,77,9120,172,548,10,21,No,0,No,0,39
+SHP-0056,2025-03,2025-03-27,Arctic Line,Rail,Gdansk DC,LATAM,Mexico,Industrial Parts,461,25383,813,3079,10,13,Yes,100,No,0,222
+SHP-0057,2025-03,2025-03-20,Arctic Line,Rail,Memphis DC,APAC,Japan,Perishables,160,29419,292,1161,10,12,Yes,100,No,0,181
+SHP-0058,2025-03,2025-03-14,TransGlobal,Rail,Guadalajara DC,EMEA,United Kingdom,Apparel,105,18094,235,655,10,8,Yes,100,No,0,35
+SHP-0059,2025-03,2025-03-24,Meridian Freight,Road,Rotterdam DC,APAC,India,Industrial Parts,98,11467,345,667,7,7,Yes,100,No,0,312
+SHP-0060,2025-03,2025-03-22,TransGlobal,Rail,Gdansk DC,APAC,India,Apparel,453,79180,618,1514,10,10,Yes,100,No,0,236
+SHP-0061,2025-04,2025-04-09,Arctic Line,Sea,Guadalajara DC,Americas,United States,Apparel,113,5344,41,301,28,56,No,0,No,0,13
+SHP-0062,2025-04,2025-04-22,Meridian Freight,Sea,Memphis DC,Americas,Brazil,Perishables,55,4409,45,286,28,27,Yes,100,No,0,12
+SHP-0063,2025-04,2025-04-26,Arctic Line,Sea,Singapore Hub,APAC,Japan,Electronics,288,25192,252,1728,28,36,Yes,100,No,0,108
+SHP-0064,2025-04,2025-04-25,BlueDart Express,Road,Singapore Hub,EMEA,Germany,Apparel,344,48875,2264,2335,7,3,Yes,100,No,0,378
+SHP-0065,2025-04,2025-04-05,Meridian Freight,Sea,Singapore Hub,LATAM,Mexico,Electronics,370,27622,316,1745,28,51,No,0,No,0,50
+SHP-0066,2025-04,2025-04-19,Arctic Line,Rail,Memphis DC,APAC,India,Electronics,222,40864,475,1631,10,12,Yes,100,No,0,254
+SHP-0067,2025-04,2025-04-09,TransGlobal,Air,Rotterdam DC,LATAM,Mexico,Electronics,78,6864,452,229,4,3,Yes,100,Yes,100,330
+SHP-0068,2025-04,2025-04-15,Meridian Freight,Sea,Rotterdam DC,LATAM,Mexico,Apparel,26,1005,18,108,28,31,Yes,100,No,0,3
+SHP-0069,2025-04,2025-04-14,Meridian Freight,Sea,Singapore Hub,LATAM,Mexico,Industrial Parts,270,12866,330,1887,28,28,Yes,100,No,0,54
+SHP-0070,2025-04,2025-04-03,BlueDart Express,Road,Guadalajara DC,APAC,Australia,Electronics,318,22286,1812,1954,7,3,Yes,100,No,0,914
+SHP-0071,2025-04,2025-04-11,Arctic Line,Sea,Guadalajara DC,Americas,Brazil,Electronics,356,28924,269,1744,28,39,Yes,100,No,0,75
+SHP-0072,2025-04,2025-04-26,BlueDart Express,Road,Guadalajara DC,LATAM,Chile,Industrial Parts,416,46847,1579,1466,7,3,Yes,100,No,0,317
+SHP-0073,2025-04,2025-04-29,Arctic Line,Rail,Gdansk DC,Americas,Brazil,Industrial Parts,38,6576,59,230,10,13,Yes,100,No,0,25
+SHP-0074,2025-04,2025-04-23,TransGlobal,Rail,Rotterdam DC,APAC,Japan,Apparel,266,36729,387,841,10,8,Yes,100,No,0,131
+SHP-0075,2025-04,2025-04-03,TransGlobal,Air,Guadalajara DC,APAC,India,Electronics,302,59980,2529,1202,4,4,Yes,100,No,0,3750
+SHP-0076,2025-04,2025-04-25,Arctic Line,Sea,Gdansk DC,Americas,United States,Electronics,338,47273,133,878,28,31,Yes,100,No,0,38
+SHP-0077,2025-04,2025-04-08,BlueDart Express,Road,Memphis DC,EMEA,United Arab Emirates,Perishables,437,42231,944,1144,7,3,Yes,100,No,0,185
+SHP-0078,2025-04,2025-04-19,Arctic Line,Sea,Rotterdam DC,APAC,Australia,Industrial Parts,492,71563,661,3663,28,37,Yes,100,No,0,229
+SHP-0079,2025-04,2025-04-28,Meridian Freight,Sea,Singapore Hub,Americas,Brazil,Industrial Parts,57,3520,28,174,28,27,Yes,100,No,0,8
+SHP-0080,2025-04,2025-04-09,TransGlobal,Rail,Guadalajara DC,APAC,Japan,Industrial Parts,499,63241,1150,2461,10,9,Yes,100,No,0,384
+SHP-0081,2025-05,2025-05-27,BlueDart Express,Road,Gdansk DC,EMEA,France,Electronics,217,33938,1326,1519,7,3,Yes,100,No,0,246
+SHP-0082,2025-05,2025-05-11,Meridian Freight,Road,Singapore Hub,APAC,Japan,Electronics,95,15028,144,354,7,8,Yes,100,No,0,166
+SHP-0083,2025-05,2025-05-27,TransGlobal,Air,Singapore Hub,APAC,India,Industrial Parts,64,12146,305,141,4,3,Yes,100,No,0,440
+SHP-0084,2025-05,2025-05-13,BlueDart Express,Air,Gdansk DC,EMEA,United Kingdom,Electronics,285,45819,8073,2221,4,2,Yes,100,No,0,2399
+SHP-0085,2025-05,2025-05-08,TransGlobal,Rail,Guadalajara DC,LATAM,Mexico,Electronics,152,12254,156,329,10,9,Yes,100,No,0,24
+SHP-0086,2025-05,2025-05-20,Arctic Line,Sea,Guadalajara DC,LATAM,Chile,Industrial Parts,421,50602,146,980,28,36,Yes,100,No,0,28
+SHP-0087,2025-05,2025-05-02,Arctic Line,Rail,Gdansk DC,EMEA,Germany,Apparel,28,5009,32,94,10,13,Yes,100,Yes,100,5
+SHP-0088,2025-05,2025-05-02,Arctic Line,Rail,Gdansk DC,LATAM,Chile,Industrial Parts,149,28444,192,578,10,14,Yes,100,No,0,42
+SHP-0089,2025-05,2025-05-28,Meridian Freight,Sea,Guadalajara DC,EMEA,France,Apparel,188,12932,211,1171,28,26,Yes,100,No,0,25
+SHP-0090,2025-05,2025-05-06,Meridian Freight,Road,Gdansk DC,Americas,United States,Perishables,118,16243,275,521,7,7,Yes,100,No,0,169
+SHP-0091,2025-05,2025-05-19,Meridian Freight,Sea,Gdansk DC,APAC,Japan,Industrial Parts,184,30547,147,899,28,34,Yes,100,No,0,56
+SHP-0092,2025-05,2025-05-14,Meridian Freight,Road,Gdansk DC,APAC,India,Apparel,217,39906,402,927,7,8,Yes,100,No,0,434
+SHP-0093,2025-05,2025-05-07,Meridian Freight,Sea,Memphis DC,EMEA,France,Industrial Parts,404,30606,171,1041,28,32,Yes,100,No,0,22
+SHP-0094,2025-05,2025-05-25,Meridian Freight,Road,Gdansk DC,LATAM,Chile,Perishables,364,68600,1276,2417,7,8,Yes,100,No,0,522
+SHP-0095,2025-05,2025-05-12,BlueDart Express,Road,Memphis DC,APAC,Australia,Electronics,310,17304,1572,1524,7,3,Yes,100,No,0,713
+SHP-0096,2025-05,2025-05-27,TransGlobal,Rail,Singapore Hub,APAC,Japan,Perishables,352,18920,727,1711,10,8,Yes,100,No,0,267
+SHP-0097,2025-05,2025-05-09,TransGlobal,Sea,Rotterdam DC,Americas,United States,Electronics,175,9696,123,517,28,25,Yes,100,No,0,22
+SHP-0098,2025-05,2025-05-02,TransGlobal,Air,Gdansk DC,Americas,Brazil,Perishables,192,21997,1121,597,4,3,Yes,100,No,0,1290
+SHP-0099,2025-05,2025-05-27,TransGlobal,Rail,Gdansk DC,APAC,Japan,Electronics,90,15793,80,184,10,9,Yes,100,No,0,29
+SHP-0100,2025-05,2025-05-08,TransGlobal,Air,Singapore Hub,Americas,Brazil,Apparel,425,67221,2059,1195,4,3,Yes,100,No,0,2581
+SHP-0101,2025-06,2025-06-23,TransGlobal,Sea,Singapore Hub,APAC,Japan,Perishables,400,36149,289,1356,28,23,Yes,100,No,0,85
+SHP-0102,2025-06,2025-06-04,TransGlobal,Sea,Guadalajara DC,APAC,Australia,Apparel,236,42159,140,542,28,26,Yes,100,No,0,34
+SHP-0103,2025-06,2025-06-23,Arctic Line,Rail,Guadalajara DC,EMEA,United Kingdom,Perishables,437,50031,606,2161,10,13,Yes,100,No,0,117
+SHP-0104,2025-06,2025-06-27,BlueDart Express,Road,Guadalajara DC,APAC,India,Electronics,285,31803,1098,1084,7,3,Yes,100,No,0,507
+SHP-0105,2025-06,2025-06-19,BlueDart Express,Road,Guadalajara DC,Americas,United States,Apparel,484,61391,3659,3465,7,3,Yes,100,No,0,1123
+SHP-0106,2025-06,2025-06-23,Meridian Freight,Road,Singapore Hub,Americas,Canada,Perishables,395,52070,1486,2929,7,8,Yes,100,No,0,949
+SHP-0107,2025-06,2025-06-06,BlueDart Express,Air,Guadalajara DC,APAC,Japan,Perishables,367,40443,9698,2830,4,2,Yes,100,No,0,8830
+SHP-0108,2025-06,2025-06-27,Meridian Freight,Sea,Gdansk DC,Americas,Brazil,Apparel,367,70364,513,2873,28,29,Yes,100,No,0,124
+SHP-0109,2025-06,2025-06-23,TransGlobal,Rail,Rotterdam DC,Americas,Brazil,Apparel,288,17672,1081,2234,10,14,No,0,No,0,241
+SHP-0110,2025-06,2025-06-18,Meridian Freight,Sea,Singapore Hub,Americas,United States,Industrial Parts,95,7178,42,226,28,28,Yes,100,No,0,10
+SHP-0111,2025-06,2025-06-11,Arctic Line,Rail,Gdansk DC,LATAM,Chile,Electronics,361,33166,810,2730,10,12,Yes,100,No,0,197
+SHP-0112,2025-06,2025-06-21,TransGlobal,Rail,Memphis DC,EMEA,Germany,Electronics,285,15885,673,1464,10,8,Yes,100,No,0,79
+SHP-0113,2025-06,2025-06-27,Arctic Line,Sea,Rotterdam DC,LATAM,Chile,Apparel,336,18140,269,1838,28,34,Yes,100,No,0,53
+SHP-0114,2025-06,2025-06-29,Meridian Freight,Road,Singapore Hub,Americas,Canada,Perishables,29,5683,78,184,7,8,Yes,100,No,0,60
+SHP-0115,2025-06,2025-06-29,TransGlobal,Rail,Gdansk DC,Americas,Canada,Industrial Parts,65,7638,190,458,10,8,Yes,100,No,0,49
+SHP-0116,2025-06,2025-06-19,Arctic Line,Sea,Gdansk DC,LATAM,Mexico,Perishables,263,27602,292,1640,28,39,Yes,100,No,0,47
+SHP-0117,2025-06,2025-06-08,Arctic Line,Rail,Guadalajara DC,EMEA,United Arab Emirates,Industrial Parts,360,40548,435,1511,10,13,Yes,100,No,0,82
+SHP-0118,2025-06,2025-06-14,TransGlobal,Rail,Guadalajara DC,EMEA,United Kingdom,Industrial Parts,308,52692,316,873,10,8,Yes,100,No,0,47
+SHP-0119,2025-06,2025-06-26,Arctic Line,Sea,Gdansk DC,Americas,Brazil,Industrial Parts,168,27643,136,874,28,39,Yes,100,No,0,38
+SHP-0120,2025-06,2025-06-12,BlueDart Express,Road,Memphis DC,EMEA,Germany,Perishables,78,11121,311,351,7,3,Yes,100,No,0,57
+SHP-0121,2025-07,2025-07-09,TransGlobal,Rail,Guadalajara DC,LATAM,Chile,Electronics,325,14371,837,1867,10,8,Yes,100,No,0,134
+SHP-0122,2025-07,2025-07-13,Arctic Line,Rail,Guadalajara DC,Americas,Canada,Apparel,457,30000,384,1423,10,13,Yes,100,No,0,154
+SHP-0123,2025-07,2025-07-28,Arctic Line,Rail,Gdansk DC,APAC,India,Industrial Parts,203,28477,136,485,10,11,Yes,100,No,0,76
+SHP-0124,2025-07,2025-07-31,BlueDart Express,Air,Gdansk DC,EMEA,France,Industrial Parts,73,8725,2116,532,4,2,Yes,100,No,0,575
+SHP-0125,2025-07,2025-07-02,BlueDart Express,Road,Singapore Hub,APAC,Japan,Industrial Parts,242,44013,1355,1461,7,3,Yes,100,No,0,684
+SHP-0126,2025-07,2025-07-10,Meridian Freight,Road,Guadalajara DC,APAC,Australia,Electronics,448,21739,1226,2782,7,7,Yes,100,No,0,1302
+SHP-0127,2025-07,2025-07-21,TransGlobal,Rail,Guadalajara DC,EMEA,Germany,Industrial Parts,294,29776,744,1545,10,9,Yes,100,Yes,100,83
+SHP-0128,2025-07,2025-07-05,TransGlobal,Sea,Rotterdam DC,LATAM,Chile,Electronics,342,55817,611,2600,28,26,Yes,100,No,0,75
+SHP-0129,2025-07,2025-07-28,Meridian Freight,Road,Guadalajara DC,Americas,Canada,Electronics,48,9521,154,354,7,7,Yes,100,No,0,115
+SHP-0130,2025-07,2025-07-25,Meridian Freight,Road,Memphis DC,EMEA,United Arab Emirates,Electronics,33,4343,82,198,7,8,Yes,100,No,0,32
+SHP-0131,2025-07,2025-07-16,Meridian Freight,Sea,Rotterdam DC,EMEA,Germany,Apparel,85,11416,116,658,28,27,Yes,100,No,0,14
+SHP-0132,2025-07,2025-07-12,Meridian Freight,Sea,Memphis DC,LATAM,Mexico,Perishables,207,30251,136,720,28,52,No,0,No,0,21
+SHP-0133,2025-07,2025-07-29,Arctic Line,Sea,Memphis DC,APAC,Australia,Apparel,53,5553,55,302,28,34,Yes,100,No,0,19
+SHP-0134,2025-07,2025-07-06,Arctic Line,Sea,Rotterdam DC,EMEA,Germany,Electronics,207,29005,109,686,28,32,Yes,100,No,0,15
+SHP-0135,2025-07,2025-07-30,Meridian Freight,Road,Guadalajara DC,LATAM,Chile,Perishables,423,61834,972,1961,7,7,Yes,100,No,0,424
+SHP-0136,2025-07,2025-07-14,Meridian Freight,Sea,Singapore Hub,LATAM,Mexico,Apparel,489,32295,743,3487,28,27,Yes,100,No,0,100
+SHP-0137,2025-07,2025-07-18,Meridian Freight,Road,Rotterdam DC,Americas,Canada,Industrial Parts,170,15317,198,423,7,7,Yes,100,No,0,137
+SHP-0138,2025-07,2025-07-07,BlueDart Express,Air,Rotterdam DC,Americas,Canada,Apparel,70,10046,1426,406,4,2,Yes,100,No,0,877
+SHP-0139,2025-07,2025-07-31,TransGlobal,Air,Gdansk DC,LATAM,Mexico,Perishables,80,3537,533,248,4,4,Yes,100,No,0,357
+SHP-0140,2025-07,2025-07-05,Meridian Freight,Road,Gdansk DC,Americas,Canada,Electronics,480,73538,1073,2334,7,8,Yes,100,No,0,756
+SHP-0141,2025-08,2025-08-28,BlueDart Express,Road,Singapore Hub,LATAM,Chile,Perishables,448,70290,2221,2364,7,4,Yes,100,No,0,511
+SHP-0142,2025-08,2025-08-25,Arctic Line,Rail,Memphis DC,LATAM,Mexico,Industrial Parts,358,47987,546,1968,10,13,Yes,100,No,0,142
+SHP-0143,2025-08,2025-08-25,Arctic Line,Rail,Gdansk DC,Americas,Brazil,Apparel,366,54838,364,1132,10,21,No,0,Yes,100,122
+SHP-0144,2025-08,2025-08-24,Meridian Freight,Sea,Guadalajara DC,EMEA,Germany,Electronics,95,4114,132,622,28,50,No,0,No,0,13
+SHP-0145,2025-08,2025-08-14,Meridian Freight,Sea,Rotterdam DC,EMEA,France,Industrial Parts,51,8615,49,227,28,30,Yes,100,No,0,5
+SHP-0146,2025-08,2025-08-30,BlueDart Express,Air,Rotterdam DC,Americas,Brazil,Electronics,59,8462,1394,438,4,2,Yes,100,No,0,946
+SHP-0147,2025-08,2025-08-06,TransGlobal,Sea,Gdansk DC,EMEA,United Arab Emirates,Apparel,73,9775,123,451,28,22,Yes,100,No,0,10
+SHP-0148,2025-08,2025-08-22,BlueDart Express,Road,Memphis DC,APAC,India,Perishables,420,45720,1366,1485,7,4,Yes,100,No,0,695
+SHP-0149,2025-08,2025-08-29,Arctic Line,Sea,Gdansk DC,APAC,Japan,Apparel,254,31812,215,1359,28,39,Yes,100,No,0,85
+SHP-0150,2025-08,2025-08-15,Meridian Freight,Sea,Gdansk DC,LATAM,Chile,Apparel,176,34850,71,366,28,32,Yes,100,No,0,11
+SHP-0151,2025-08,2025-08-27,TransGlobal,Sea,Singapore Hub,Americas,Brazil,Electronics,444,67152,642,2701,28,22,Yes,100,No,0,117
+SHP-0152,2025-08,2025-08-03,TransGlobal,Rail,Rotterdam DC,LATAM,Mexico,Industrial Parts,409,72799,1102,2451,10,9,Yes,100,No,0,176
+SHP-0153,2025-08,2025-08-11,Meridian Freight,Sea,Singapore Hub,EMEA,United Arab Emirates,Apparel,430,84163,452,2239,28,33,Yes,100,No,0,48
+SHP-0154,2025-08,2025-08-02,Arctic Line,Rail,Singapore Hub,EMEA,France,Industrial Parts,437,69053,778,2904,10,13,Yes,100,No,0,157
+SHP-0155,2025-08,2025-08-07,Meridian Freight,Road,Memphis DC,Americas,Canada,Apparel,248,32857,291,689,7,8,Yes,100,No,0,223
+SHP-0156,2025-08,2025-08-24,Arctic Line,Sea,Guadalajara DC,Americas,Brazil,Perishables,394,26664,359,2515,28,31,Yes,100,Yes,100,109
+SHP-0157,2025-08,2025-08-07,Meridian Freight,Road,Guadalajara DC,EMEA,United Kingdom,Perishables,497,96696,1413,2937,7,8,Yes,100,No,0,476
+SHP-0158,2025-08,2025-08-27,BlueDart Express,Road,Guadalajara DC,EMEA,United Kingdom,Electronics,371,28339,1664,1492,7,4,Yes,100,No,0,242
+SHP-0159,2025-08,2025-08-31,Arctic Line,Sea,Memphis DC,LATAM,Chile,Industrial Parts,67,4784,74,514,28,33,Yes,100,No,0,15
+SHP-0160,2025-08,2025-08-01,Arctic Line,Sea,Gdansk DC,EMEA,Germany,Industrial Parts,356,60942,115,782,28,37,Yes,100,No,0,17
+SHP-0161,2025-09,2025-09-11,Arctic Line,Sea,Guadalajara DC,EMEA,France,Apparel,160,11343,187,1276,28,31,Yes,100,No,0,28
+SHP-0162,2025-09,2025-09-28,TransGlobal,Air,Memphis DC,Americas,United States,Industrial Parts,22,4278,210,113,4,3,Yes,100,No,0,244
+SHP-0163,2025-09,2025-09-21,Meridian Freight,Road,Guadalajara DC,EMEA,United Arab Emirates,Apparel,383,65305,1502,3001,7,7,Yes,100,No,0,486
+SHP-0164,2025-09,2025-09-06,TransGlobal,Sea,Gdansk DC,Americas,Canada,Perishables,85,10756,55,219,28,24,Yes,100,No,0,9
+SHP-0165,2025-09,2025-09-17,Meridian Freight,Road,Memphis DC,LATAM,Chile,Perishables,44,5677,41,91,7,7,Yes,100,No,0,20
+SHP-0166,2025-09,2025-09-21,BlueDart Express,Road,Gdansk DC,APAC,India,Electronics,414,30266,1240,1188,7,3,Yes,100,No,0,556
+SHP-0167,2025-09,2025-09-11,BlueDart Express,Road,Rotterdam DC,LATAM,Mexico,Perishables,205,36009,1229,1049,7,3,Yes,100,No,0,227
+SHP-0168,2025-09,2025-09-07,Meridian Freight,Sea,Guadalajara DC,Americas,United States,Electronics,222,31414,142,712,28,32,Yes,100,No,0,31
+SHP-0169,2025-09,2025-09-29,Meridian Freight,Road,Rotterdam DC,APAC,Australia,Perishables,203,17433,403,844,7,8,Yes,100,Yes,100,395
+SHP-0170,2025-09,2025-09-22,Arctic Line,Sea,Rotterdam DC,Americas,Canada,Industrial Parts,220,10237,244,1510,28,34,Yes,100,No,0,65
+SHP-0171,2025-09,2025-09-16,BlueDart Express,Air,Guadalajara DC,Americas,Brazil,Apparel,349,22289,2228,716,4,2,Yes,100,No,0,1547
+SHP-0172,2025-09,2025-09-16,Meridian Freight,Sea,Singapore Hub,LATAM,Mexico,Industrial Parts,311,14285,239,1328,28,47,No,0,No,0,38
+SHP-0173,2025-09,2025-09-24,Meridian Freight,Road,Memphis DC,EMEA,United Arab Emirates,Electronics,337,65110,1106,2306,7,8,Yes,100,No,0,374
+SHP-0174,2025-09,2025-09-24,BlueDart Express,Road,Guadalajara DC,Americas,Canada,Apparel,447,39767,2314,2292,7,3,Yes,100,No,0,743
+SHP-0175,2025-09,2025-09-06,Arctic Line,Sea,Rotterdam DC,EMEA,United Arab Emirates,Apparel,185,8470,196,1045,28,35,Yes,100,No,0,23
+SHP-0176,2025-09,2025-09-19,BlueDart Express,Road,Rotterdam DC,Americas,Brazil,Apparel,202,27000,678,725,7,3,Yes,100,No,0,235
+SHP-0177,2025-09,2025-09-26,Meridian Freight,Sea,Singapore Hub,Americas,Canada,Industrial Parts,90,7774,48,274,28,31,Yes,100,No,0,12
+SHP-0178,2025-09,2025-09-03,TransGlobal,Air,Gdansk DC,LATAM,Mexico,Industrial Parts,345,21242,2963,1263,4,3,Yes,100,No,0,1819
+SHP-0179,2025-09,2025-09-15,TransGlobal,Air,Memphis DC,Americas,Brazil,Electronics,284,21695,2983,1576,4,3,Yes,100,No,0,3404
+SHP-0180,2025-09,2025-09-12,Arctic Line,Rail,Rotterdam DC,EMEA,Germany,Electronics,457,24341,1025,3178,10,13,Yes,100,No,0,172
+SHP-0181,2025-10,2025-10-06,Arctic Line,Rail,Rotterdam DC,Americas,Canada,Industrial Parts,99,9510,210,621,10,13,Yes,100,No,0,67
+SHP-0182,2025-10,2025-10-15,TransGlobal,Air,Memphis DC,LATAM,Mexico,Perishables,97,8858,1207,512,4,3,Yes,100,Yes,100,737
+SHP-0183,2025-10,2025-10-03,TransGlobal,Sea,Guadalajara DC,EMEA,France,Apparel,454,76332,941,3528,28,26,Yes,100,No,0,76
+SHP-0184,2025-10,2025-10-14,BlueDart Express,Air,Memphis DC,LATAM,Mexico,Electronics,375,21494,3164,843,4,2,Yes,100,No,0,1214
+SHP-0185,2025-10,2025-10-21,TransGlobal,Rail,Rotterdam DC,Americas,Brazil,Industrial Parts,116,23095,381,865,10,8,Yes,100,No,0,93
+SHP-0186,2025-10,2025-10-20,Arctic Line,Rail,Gdansk DC,LATAM,Chile,Perishables,141,14692,337,962,10,18,No,0,No,0,69
+SHP-0187,2025-10,2025-10-06,TransGlobal,Sea,Guadalajara DC,APAC,India,Perishables,277,52210,129,577,28,25,Yes,100,No,0,36
+SHP-0188,2025-10,2025-10-08,BlueDart Express,Road,Singapore Hub,EMEA,France,Apparel,436,36574,2121,1784,7,3,Yes,100,No,0,289
+SHP-0189,2025-10,2025-10-11,Meridian Freight,Road,Memphis DC,Americas,Canada,Industrial Parts,70,8554,285,512,7,7,Yes,100,No,0,166
+SHP-0190,2025-10,2025-10-14,BlueDart Express,Road,Memphis DC,LATAM,Chile,Apparel,56,8528,262,247,7,3,Yes,100,No,0,53
+SHP-0191,2025-10,2025-10-17,Meridian Freight,Road,Gdansk DC,EMEA,Germany,Apparel,325,52343,323,731,7,8,Yes,100,No,0,118
+SHP-0192,2025-10,2025-10-23,TransGlobal,Sea,Singapore Hub,LATAM,Chile,Perishables,155,21938,123,522,28,27,Yes,100,No,0,15
+SHP-0193,2025-10,2025-10-14,Meridian Freight,Road,Gdansk DC,EMEA,France,Electronics,239,21157,857,1723,7,8,Yes,100,No,0,279
+SHP-0194,2025-10,2025-10-13,TransGlobal,Sea,Guadalajara DC,LATAM,Chile,Perishables,107,4811,79,324,28,22,Yes,100,No,0,9
+SHP-0195,2025-10,2025-10-12,TransGlobal,Rail,Memphis DC,Americas,Canada,Perishables,177,10533,482,1072,10,8,Yes,100,No,0,116
+SHP-0196,2025-10,2025-10-18,TransGlobal,Sea,Memphis DC,Americas,Brazil,Industrial Parts,31,4784,65,243,28,23,Yes,100,No,0,10
+SHP-0197,2025-10,2025-10-08,Meridian Freight,Sea,Singapore Hub,APAC,India,Apparel,374,72802,425,2120,28,32,Yes,100,No,0,132
+SHP-0198,2025-10,2025-10-06,Arctic Line,Rail,Rotterdam DC,Americas,Brazil,Perishables,402,36996,482,1382,10,12,Yes,100,No,0,149
+SHP-0199,2025-10,2025-10-02,TransGlobal,Rail,Singapore Hub,EMEA,United Arab Emirates,Industrial Parts,446,36431,515,1141,10,13,No,0,No,0,62
+SHP-0200,2025-10,2025-10-23,Arctic Line,Rail,Memphis DC,LATAM,Mexico,Apparel,495,59478,998,3408,10,14,Yes,100,No,0,245
+SHP-0201,2025-11,2025-11-23,BlueDart Express,Road,Singapore Hub,Americas,United States,Perishables,356,12757,993,967,7,3,Yes,100,No,0,313
+SHP-0202,2025-11,2025-11-11,Arctic Line,Rail,Guadalajara DC,APAC,Australia,Electronics,297,39832,354,1028,10,12,Yes,100,No,0,160
+SHP-0203,2025-11,2025-11-20,Arctic Line,Rail,Memphis DC,Americas,United States,Apparel,116,9260,237,794,10,13,Yes,100,No,0,86
+SHP-0204,2025-11,2025-11-29,Meridian Freight,Road,Guadalajara DC,Americas,Canada,Apparel,194,16013,763,1499,7,8,Yes,100,No,0,486
+SHP-0205,2025-11,2025-11-14,Arctic Line,Rail,Rotterdam DC,Americas,Brazil,Perishables,193,26882,163,525,10,12,Yes,100,No,0,57
+SHP-0206,2025-11,2025-11-11,Meridian Freight,Road,Singapore Hub,Americas,Canada,Apparel,73,10333,178,395,7,7,Yes,100,No,0,128
+SHP-0207,2025-11,2025-11-30,TransGlobal,Air,Gdansk DC,LATAM,Mexico,Perishables,444,51669,3690,1774,4,4,Yes,100,No,0,2555
+SHP-0208,2025-11,2025-11-21,Arctic Line,Sea,Gdansk DC,APAC,Japan,Industrial Parts,145,24917,84,500,28,37,Yes,100,No,0,31
+SHP-0209,2025-11,2025-11-16,BlueDart Express,Air,Rotterdam DC,EMEA,United Arab Emirates,Apparel,22,3327,310,90,4,2,Yes,100,No,0,97
+SHP-0210,2025-11,2025-11-16,BlueDart Express,Road,Rotterdam DC,EMEA,Germany,Apparel,241,24897,1500,1327,7,3,Yes,100,No,0,215
+SHP-0211,2025-11,2025-11-11,Meridian Freight,Sea,Memphis DC,Americas,Brazil,Industrial Parts,440,70777,615,2993,28,28,Yes,100,No,0,129
+SHP-0212,2025-11,2025-11-21,Meridian Freight,Road,Gdansk DC,APAC,Japan,Apparel,287,15642,748,1695,7,13,No,0,No,0,793
+SHP-0213,2025-11,2025-11-10,Arctic Line,Sea,Guadalajara DC,LATAM,Chile,Electronics,415,40436,249,1622,28,38,Yes,100,No,0,47
+SHP-0214,2025-11,2025-11-09,Meridian Freight,Road,Singapore Hub,EMEA,United Arab Emirates,Perishables,473,17983,1250,2613,7,7,Yes,100,Yes,100,423
+SHP-0215,2025-11,2025-11-12,Meridian Freight,Sea,Memphis DC,Americas,Canada,Industrial Parts,366,50622,280,1440,28,30,Yes,100,No,0,62
+SHP-0216,2025-11,2025-11-08,Arctic Line,Sea,Gdansk DC,Americas,Brazil,Perishables,236,30942,110,707,28,33,Yes,100,No,0,31
+SHP-0217,2025-11,2025-11-27,BlueDart Express,Road,Rotterdam DC,Americas,Brazil,Perishables,389,20035,2371,2471,7,4,Yes,100,No,0,801
+SHP-0218,2025-11,2025-11-29,BlueDart Express,Road,Gdansk DC,APAC,India,Perishables,475,48658,1411,1296,7,3,Yes,100,No,0,607
+SHP-0219,2025-11,2025-11-09,TransGlobal,Air,Memphis DC,EMEA,France,Perishables,161,26885,2460,1033,4,6,No,0,No,0,1116
+SHP-0220,2025-11,2025-11-30,Meridian Freight,Road,Memphis DC,LATAM,Chile,Perishables,234,18054,496,1174,7,7,Yes,100,No,0,254
+SHP-0221,2025-12,2025-12-26,Arctic Line,Sea,Rotterdam DC,LATAM,Mexico,Electronics,393,38112,464,2481,28,35,Yes,100,No,0,71
+SHP-0222,2025-12,2025-12-26,Arctic Line,Sea,Memphis DC,EMEA,United Arab Emirates,Industrial Parts,98,7834,89,550,28,36,Yes,100,No,0,12
+SHP-0223,2025-12,2025-12-14,TransGlobal,Air,Singapore Hub,APAC,India,Industrial Parts,288,54962,3043,1445,4,3,Yes,100,No,0,4508
+SHP-0224,2025-12,2025-12-11,Meridian Freight,Sea,Guadalajara DC,Americas,Canada,Perishables,477,44161,344,1688,28,30,Yes,100,No,0,73
+SHP-0225,2025-12,2025-12-16,Meridian Freight,Road,Memphis DC,LATAM,Chile,Electronics,152,6274,346,607,7,7,Yes,100,No,0,131
+SHP-0226,2025-12,2025-12-23,Meridian Freight,Sea,Rotterdam DC,APAC,Australia,Apparel,168,16826,64,366,28,30,Yes,100,No,0,23
+SHP-0227,2025-12,2025-12-22,Arctic Line,Sea,Singapore Hub,LATAM,Mexico,Apparel,224,31908,117,750,28,32,Yes,100,No,0,22
+SHP-0228,2025-12,2025-12-05,Arctic Line,Sea,Rotterdam DC,APAC,Australia,Perishables,403,59366,489,2946,28,33,Yes,100,Yes,100,184
+SHP-0229,2025-12,2025-12-11,BlueDart Express,Air,Memphis DC,LATAM,Chile,Apparel,233,18676,4793,1273,4,2,Yes,100,No,0,1833
+SHP-0230,2025-12,2025-12-22,BlueDart Express,Air,Rotterdam DC,Americas,Brazil,Perishables,390,25632,10106,2779,4,2,Yes,100,No,0,6003
+SHP-0231,2025-12,2025-12-10,TransGlobal,Sea,Guadalajara DC,Americas,Brazil,Apparel,138,12743,150,561,28,21,Yes,100,No,0,24
+SHP-0232,2025-12,2025-12-30,TransGlobal,Air,Singapore Hub,LATAM,Chile,Perishables,364,14526,5370,2273,4,4,Yes,100,No,0,3273
+SHP-0233,2025-12,2025-12-07,Arctic Line,Rail,Rotterdam DC,APAC,Australia,Apparel,206,39838,163,535,10,22,No,0,No,0,83
+SHP-0234,2025-12,2025-12-22,Meridian Freight,Road,Singapore Hub,APAC,Australia,Perishables,345,29618,798,1597,7,7,Yes,100,No,0,747
+SHP-0235,2025-12,2025-12-02,BlueDart Express,Road,Singapore Hub,Americas,Canada,Electronics,487,68576,3694,3779,7,3,Yes,100,No,0,1224
+SHP-0236,2025-12,2025-12-25,TransGlobal,Sea,Memphis DC,LATAM,Mexico,Industrial Parts,260,11515,340,1395,28,22,Yes,100,No,0,40
+SHP-0237,2025-12,2025-12-26,TransGlobal,Air,Singapore Hub,Americas,Brazil,Industrial Parts,292,20782,1767,955,4,4,Yes,100,No,0,2063
+SHP-0238,2025-12,2025-12-13,Meridian Freight,Road,Gdansk DC,EMEA,United Kingdom,Perishables,357,40168,645,1351,7,7,Yes,100,No,0,219
+SHP-0239,2025-12,2025-12-16,BlueDart Express,Road,Singapore Hub,LATAM,Mexico,Industrial Parts,66,12359,342,317,7,3,Yes,100,No,0,68
+SHP-0240,2025-12,2025-12-20,BlueDart Express,Road,Memphis DC,Americas,United States,Perishables,288,21626,1278,1398,7,3,Yes,100,No,0,453
+SHP-0241,2026-01,2026-01-19,BlueDart Express,Air,Gdansk DC,APAC,Japan,Perishables,382,66376,3059,890,4,2,Yes,100,No,0,2777
+SHP-0242,2026-01,2026-01-13,TransGlobal,Air,Rotterdam DC,LATAM,Mexico,Electronics,28,4459,445,220,4,3,Yes,100,No,0,317
+SHP-0243,2026-01,2026-01-29,Arctic Line,Rail,Singapore Hub,EMEA,United Kingdom,Perishables,363,23532,445,1503,10,12,Yes,100,No,0,81
+SHP-0244,2026-01,2026-01-18,Arctic Line,Sea,Guadalajara DC,APAC,India,Apparel,262,47582,160,954,28,35,Yes,100,No,0,60
+SHP-0245,2026-01,2026-01-28,TransGlobal,Air,Guadalajara DC,LATAM,Mexico,Apparel,292,35581,3527,1411,4,3,Yes,100,No,0,2032
+SHP-0246,2026-01,2026-01-19,TransGlobal,Sea,Singapore Hub,Americas,United States,Industrial Parts,286,56629,495,2271,28,25,Yes,100,No,0,98
+SHP-0247,2026-01,2026-01-10,BlueDart Express,Air,Rotterdam DC,APAC,India,Electronics,262,48889,5941,1564,4,2,Yes,100,No,0,4880
+SHP-0248,2026-01,2026-01-23,Arctic Line,Rail,Gdansk DC,EMEA,Germany,Electronics,228,18135,404,1113,10,15,No,0,No,0,60
+SHP-0249,2026-01,2026-01-22,TransGlobal,Air,Memphis DC,EMEA,United Arab Emirates,Apparel,254,21942,4227,2004,4,3,Yes,100,No,0,2164
+SHP-0250,2026-01,2026-01-07,Arctic Line,Rail,Rotterdam DC,LATAM,Mexico,Perishables,409,70977,312,941,10,12,Yes,100,No,0,68
+SHP-0251,2026-01,2026-01-11,Arctic Line,Rail,Guadalajara DC,LATAM,Chile,Industrial Parts,49,8559,110,334,10,12,Yes,100,No,0,24
+SHP-0252,2026-01,2026-01-17,BlueDart Express,Road,Gdansk DC,EMEA,United Arab Emirates,Apparel,191,21534,1216,1292,7,4,Yes,100,No,0,209
+SHP-0253,2026-01,2026-01-15,Meridian Freight,Sea,Rotterdam DC,APAC,India,Electronics,195,36436,151,864,28,32,Yes,100,No,0,54
+SHP-0254,2026-01,2026-01-19,TransGlobal,Rail,Rotterdam DC,EMEA,United Arab Emirates,Perishables,84,5544,118,231,10,8,Yes,100,No,0,12
+SHP-0255,2026-01,2026-01-28,Arctic Line,Sea,Guadalajara DC,LATAM,Chile,Electronics,389,74014,180,1183,28,32,Yes,100,No,0,34
+SHP-0256,2026-01,2026-01-29,BlueDart Express,Air,Rotterdam DC,Americas,Canada,Apparel,189,6219,4122,1059,4,2,Yes,100,No,0,2287
+SHP-0257,2026-01,2026-01-23,Arctic Line,Rail,Rotterdam DC,EMEA,United Kingdom,Perishables,394,38235,1055,3106,10,12,Yes,100,No,0,168
+SHP-0258,2026-01,2026-01-13,Meridian Freight,Sea,Gdansk DC,EMEA,United Kingdom,Electronics,164,12342,102,556,28,27,Yes,100,No,0,12
+SHP-0259,2026-01,2026-01-31,Arctic Line,Rail,Singapore Hub,LATAM,Chile,Perishables,62,10358,39,130,10,14,Yes,100,No,0,9
+SHP-0260,2026-01,2026-01-09,TransGlobal,Air,Rotterdam DC,APAC,Japan,Perishables,348,60340,3502,1467,4,3,Yes,100,No,0,4577
+SHP-0261,2026-02,2026-02-02,TransGlobal,Rail,Memphis DC,APAC,Japan,Perishables,496,53655,1451,3170,10,8,Yes,100,No,0,495
+SHP-0262,2026-02,2026-02-05,Meridian Freight,Road,Gdansk DC,APAC,Japan,Electronics,395,41221,1224,2417,7,7,Yes,100,No,0,1131
+SHP-0263,2026-02,2026-02-27,TransGlobal,Air,Memphis DC,Americas,Canada,Apparel,71,8256,846,425,4,4,Yes,100,No,0,918
+SHP-0264,2026-02,2026-02-02,BlueDart Express,Road,Rotterdam DC,LATAM,Chile,Electronics,129,17596,851,821,7,3,Yes,100,No,0,177
+SHP-0265,2026-02,2026-02-13,Arctic Line,Rail,Memphis DC,APAC,Japan,Electronics,215,34199,159,523,10,12,Yes,100,No,0,82
+SHP-0266,2026-02,2026-02-16,Meridian Freight,Road,Guadalajara DC,EMEA,United Arab Emirates,Perishables,29,5051,48,88,7,10,No,0,No,0,14
+SHP-0267,2026-02,2026-02-13,BlueDart Express,Air,Singapore Hub,EMEA,Germany,Apparel,202,11616,3186,751,4,2,Yes,100,No,0,811
+SHP-0268,2026-02,2026-02-07,BlueDart Express,Air,Memphis DC,LATAM,Mexico,Industrial Parts,83,5384,1777,513,4,2,Yes,100,No,0,739
+SHP-0269,2026-02,2026-02-20,Meridian Freight,Sea,Rotterdam DC,APAC,Japan,Industrial Parts,435,34155,769,3300,28,28,Yes,100,No,0,206
+SHP-0270,2026-02,2026-02-10,BlueDart Express,Air,Singapore Hub,APAC,Australia,Perishables,206,20905,5475,1618,4,2,Yes,100,No,0,5048
+SHP-0271,2026-02,2026-02-10,Arctic Line,Rail,Guadalajara DC,LATAM,Mexico,Industrial Parts,38,2187,95,262,10,12,Yes,100,No,0,19
+SHP-0272,2026-02,2026-02-01,Arctic Line,Rail,Gdansk DC,APAC,India,Electronics,25,4467,44,151,10,12,Yes,100,No,0,24
+SHP-0273,2026-02,2026-02-20,BlueDart Express,Air,Memphis DC,APAC,Japan,Apparel,321,12567,7428,2045,4,2,Yes,100,No,0,6380
+SHP-0274,2026-02,2026-02-08,Arctic Line,Sea,Rotterdam DC,APAC,India,Electronics,327,15310,210,1336,28,36,Yes,100,No,0,83
+SHP-0275,2026-02,2026-02-08,Arctic Line,Sea,Memphis DC,EMEA,United Arab Emirates,Apparel,305,27974,180,1042,28,52,No,0,No,0,23
+SHP-0276,2026-02,2026-02-08,TransGlobal,Air,Singapore Hub,APAC,India,Perishables,352,42579,2457,1153,4,3,Yes,100,No,0,3597
+SHP-0277,2026-02,2026-02-08,BlueDart Express,Air,Rotterdam DC,APAC,Japan,Perishables,252,36716,3319,880,4,2,Yes,100,No,0,2746
+SHP-0278,2026-02,2026-02-23,BlueDart Express,Road,Memphis DC,LATAM,Mexico,Perishables,220,38037,1644,1704,7,4,Yes,100,No,0,368
+SHP-0279,2026-02,2026-02-26,Meridian Freight,Road,Singapore Hub,APAC,Australia,Electronics,94,6784,182,372,7,7,Yes,100,No,0,174
+SHP-0280,2026-02,2026-02-06,Arctic Line,Rail,Memphis DC,APAC,India,Perishables,404,14593,1085,2963,10,16,No,0,No,0,462
+SHP-0281,2026-03,2026-03-16,BlueDart Express,Road,Rotterdam DC,Americas,United States,Perishables,444,58797,2768,2869,7,4,Yes,100,No,0,930
+SHP-0282,2026-03,2026-03-02,TransGlobal,Rail,Rotterdam DC,Americas,Brazil,Perishables,480,34731,867,1909,10,8,Yes,100,No,0,206
+SHP-0283,2026-03,2026-03-08,TransGlobal,Sea,Rotterdam DC,Americas,United States,Perishables,228,21776,257,1153,28,25,Yes,100,No,0,50
+SHP-0284,2026-03,2026-03-02,Meridian Freight,Sea,Singapore Hub,EMEA,Germany,Electronics,70,8137,43,193,28,33,Yes,100,No,0,4
+SHP-0285,2026-03,2026-03-24,Arctic Line,Sea,Singapore Hub,EMEA,France,Apparel,69,2592,57,353,28,35,Yes,100,No,0,8
+SHP-0286,2026-03,2026-03-16,TransGlobal,Rail,Guadalajara DC,EMEA,France,Industrial Parts,138,24412,437,907,10,10,Yes,100,No,0,49
+SHP-0287,2026-03,2026-03-03,Meridian Freight,Sea,Guadalajara DC,APAC,India,Industrial Parts,370,40743,565,2944,28,29,Yes,100,No,0,184
+SHP-0288,2026-03,2026-03-13,Meridian Freight,Road,Guadalajara DC,Americas,Canada,Apparel,479,25031,1649,3287,7,8,Yes,100,No,0,1065
+SHP-0289,2026-03,2026-03-17,TransGlobal,Air,Guadalajara DC,APAC,Japan,Apparel,479,70354,3728,1618,4,4,Yes,100,No,0,5048
+SHP-0290,2026-03,2026-03-08,TransGlobal,Air,Memphis DC,LATAM,Chile,Electronics,129,8392,1755,715,4,4,Yes,100,No,0,1030
+SHP-0291,2026-03,2026-03-27,Arctic Line,Rail,Singapore Hub,APAC,Japan,Electronics,79,4016,180,548,10,13,Yes,100,No,0,85
+SHP-0292,2026-03,2026-03-07,Meridian Freight,Road,Singapore Hub,LATAM,Chile,Electronics,242,38388,389,764,7,8,Yes,100,No,0,165
+SHP-0293,2026-03,2026-03-19,BlueDart Express,Road,Guadalajara DC,EMEA,Germany,Electronics,476,93685,3081,3142,7,3,Yes,100,No,0,509
+SHP-0294,2026-03,2026-03-27,BlueDart Express,Air,Rotterdam DC,APAC,Japan,Perishables,241,28903,6741,1632,4,2,Yes,100,No,0,5092
+SHP-0295,2026-03,2026-03-09,Meridian Freight,Sea,Rotterdam DC,LATAM,Chile,Perishables,115,13067,129,688,28,31,Yes,100,Yes,100,20
+SHP-0296,2026-03,2026-03-23,TransGlobal,Sea,Memphis DC,LATAM,Chile,Industrial Parts,443,61845,811,3370,28,22,Yes,100,No,0,97
+SHP-0297,2026-03,2026-03-15,TransGlobal,Sea,Memphis DC,APAC,Australia,Apparel,366,50472,499,1931,28,22,Yes,100,No,0,120
+SHP-0298,2026-03,2026-03-02,Meridian Freight,Road,Memphis DC,APAC,Japan,Electronics,438,70418,887,1824,7,7,Yes,100,No,0,854
+SHP-0299,2026-03,2026-03-09,Arctic Line,Rail,Rotterdam DC,LATAM,Mexico,Industrial Parts,454,49136,1110,3451,10,22,No,0,No,0,248
+SHP-0300,2026-03,2026-03-09,TransGlobal,Sea,Singapore Hub,APAC,India,Apparel,191,17261,206,830,28,25,Yes,100,No,0,52
+SHP-0301,2026-04,2026-04-29,Meridian Freight,Road,Rotterdam DC,EMEA,Germany,Industrial Parts,283,49446,424,833,7,7,Yes,100,No,0,135
+SHP-0302,2026-04,2026-04-01,Arctic Line,Sea,Rotterdam DC,Americas,Canada,Industrial Parts,478,28932,354,1939,28,32,Yes,100,No,0,84
+SHP-0303,2026-04,2026-04-23,Meridian Freight,Sea,Singapore Hub,Americas,Brazil,Perishables,87,3930,77,433,28,26,Yes,100,No,0,19
+SHP-0304,2026-04,2026-04-02,BlueDart Express,Road,Guadalajara DC,EMEA,United Kingdom,Industrial Parts,42,8346,252,206,7,3,Yes,100,No,0,33
+SHP-0305,2026-04,2026-04-28,TransGlobal,Air,Memphis DC,LATAM,Mexico,Perishables,322,36332,4502,1900,4,3,Yes,100,No,0,2736
+SHP-0306,2026-04,2026-04-02,Arctic Line,Sea,Guadalajara DC,Americas,Canada,Perishables,489,19677,737,3700,28,33,Yes,100,No,0,160
+SHP-0307,2026-04,2026-04-10,TransGlobal,Rail,Singapore Hub,Americas,Brazil,Apparel,191,17355,361,793,10,8,Yes,100,No,0,86
+SHP-0308,2026-04,2026-04-01,TransGlobal,Sea,Rotterdam DC,EMEA,United Kingdom,Perishables,221,21633,139,583,28,24,Yes,100,No,0,13
+SHP-0309,2026-04,2026-04-19,Arctic Line,Sea,Memphis DC,EMEA,Germany,Industrial Parts,438,28431,183,914,28,34,Yes,100,No,0,20
+SHP-0310,2026-04,2026-04-23,Arctic Line,Rail,Guadalajara DC,APAC,India,Electronics,403,44080,559,1775,10,11,Yes,100,No,0,277
+SHP-0311,2026-04,2026-04-21,BlueDart Express,Air,Guadalajara DC,APAC,Japan,Electronics,438,74321,3358,1012,4,2,Yes,100,No,0,3157
+SHP-0312,2026-04,2026-04-13,TransGlobal,Sea,Gdansk DC,APAC,Australia,Perishables,247,21624,342,1488,28,24,Yes,100,No,0,93
+SHP-0313,2026-04,2026-04-20,BlueDart Express,Road,Rotterdam DC,Americas,United States,Electronics,90,11528,433,395,7,3,Yes,100,No,0,128
+SHP-0314,2026-04,2026-04-09,Meridian Freight,Sea,Guadalajara DC,LATAM,Chile,Electronics,301,45987,316,1712,28,33,Yes,100,No,0,49
+SHP-0315,2026-04,2026-04-27,Arctic Line,Sea,Gdansk DC,APAC,Japan,Perishables,260,44754,201,1128,28,34,Yes,100,No,0,70
+SHP-0316,2026-04,2026-04-17,BlueDart Express,Air,Gdansk DC,LATAM,Mexico,Electronics,419,65142,4813,1356,4,2,Yes,100,No,0,1953
+SHP-0317,2026-04,2026-04-27,TransGlobal,Rail,Singapore Hub,APAC,India,Perishables,354,44052,513,1259,10,9,Yes,100,No,0,196
+SHP-0318,2026-04,2026-04-20,TransGlobal,Sea,Memphis DC,APAC,Japan,Electronics,344,50829,376,1494,28,25,Yes,100,No,0,93
+SHP-0319,2026-04,2026-04-07,Arctic Line,Sea,Singapore Hub,LATAM,Mexico,Apparel,401,72235,282,1633,28,37,Yes,100,No,0,47
+SHP-0320,2026-04,2026-04-10,BlueDart Express,Road,Gdansk DC,Americas,United States,Apparel,93,7383,405,366,7,3,Yes,100,No,0,119
+SHP-0321,2026-05,2026-05-16,Arctic Line,Rail,Singapore Hub,EMEA,Germany,Apparel,456,71568,415,1318,10,13,Yes,100,No,0,71
+SHP-0322,2026-05,2026-05-25,BlueDart Express,Air,Singapore Hub,APAC,Japan,Electronics,438,60285,10345,2632,4,2,Yes,100,No,0,8212
+SHP-0323,2026-05,2026-05-22,BlueDart Express,Air,Gdansk DC,LATAM,Chile,Electronics,338,66127,6856,1668,4,2,Yes,100,No,0,2402
+SHP-0324,2026-05,2026-05-21,Meridian Freight,Road,Guadalajara DC,APAC,India,Electronics,163,27279,505,952,7,7,Yes,100,No,0,446
+SHP-0325,2026-05,2026-05-18,BlueDart Express,Road,Memphis DC,LATAM,Chile,Apparel,425,77585,2884,2495,7,3,Yes,100,No,0,539
+SHP-0326,2026-05,2026-05-20,Arctic Line,Rail,Gdansk DC,LATAM,Mexico,Industrial Parts,366,42841,755,2050,10,13,Yes,100,No,0,148
+SHP-0327,2026-05,2026-05-25,BlueDart Express,Road,Singapore Hub,Americas,Canada,Apparel,472,38974,3829,3639,7,3,Yes,100,No,0,1179
+SHP-0328,2026-05,2026-05-28,BlueDart Express,Road,Guadalajara DC,EMEA,United Arab Emirates,Industrial Parts,298,28210,776,705,7,3,Yes,100,No,0,114
+SHP-0329,2026-05,2026-05-06,Meridian Freight,Road,Guadalajara DC,LATAM,Chile,Electronics,100,17369,227,488,7,8,Yes,100,No,0,105
+SHP-0330,2026-05,2026-05-24,BlueDart Express,Air,Guadalajara DC,EMEA,United Arab Emirates,Electronics,35,1389,1061,246,4,2,Yes,100,No,0,266
+SHP-0331,2026-05,2026-05-10,BlueDart Express,Road,Guadalajara DC,EMEA,United Arab Emirates,Electronics,442,53718,4003,3428,7,3,Yes,100,No,0,555
+SHP-0332,2026-05,2026-05-11,Meridian Freight,Road,Gdansk DC,EMEA,United Kingdom,Perishables,323,11973,496,889,7,8,Yes,100,No,0,144
+SHP-0333,2026-05,2026-05-30,BlueDart Express,Air,Rotterdam DC,Americas,Brazil,Perishables,113,5848,2414,717,4,2,Yes,100,No,0,1549
+SHP-0334,2026-05,2026-05-10,TransGlobal,Sea,Rotterdam DC,APAC,India,Apparel,266,41530,547,2043,28,26,Yes,100,No,0,127
+SHP-0335,2026-05,2026-05-27,BlueDart Express,Road,Memphis DC,APAC,Australia,Electronics,451,19021,2380,2138,7,3,Yes,100,No,0,1001
+SHP-0336,2026-05,2026-05-28,BlueDart Express,Air,Guadalajara DC,LATAM,Chile,Industrial Parts,442,26167,9686,2508,4,2,Yes,100,No,0,3612
+SHP-0337,2026-05,2026-05-04,Arctic Line,Rail,Gdansk DC,LATAM,Mexico,Industrial Parts,154,28361,210,645,10,14,Yes,100,No,0,46
+SHP-0338,2026-05,2026-05-14,Arctic Line,Sea,Singapore Hub,APAC,India,Industrial Parts,410,34890,314,1903,28,47,No,0,No,0,119
+SHP-0339,2026-05,2026-05-21,Arctic Line,Rail,Gdansk DC,LATAM,Mexico,Apparel,367,50351,598,1819,10,13,Yes,100,No,0,131
+SHP-0340,2026-05,2026-05-05,Meridian Freight,Sea,Gdansk DC,APAC,Japan,Industrial Parts,431,29695,311,1362,28,30,Yes,100,No,0,85
+SHP-0341,2026-06,2026-06-06,BlueDart Express,Air,Gdansk DC,EMEA,France,Electronics,455,23020,8305,1963,4,2,Yes,100,No,0,2120
+SHP-0342,2026-06,2026-06-06,BlueDart Express,Air,Gdansk DC,APAC,India,Electronics,213,30444,3825,1156,4,2,Yes,100,No,0,3607
+SHP-0343,2026-06,2026-06-30,Arctic Line,Rail,Singapore Hub,LATAM,Chile,Industrial Parts,401,44771,310,974,10,14,Yes,100,No,0,70
+SHP-0344,2026-06,2026-06-24,Arctic Line,Rail,Singapore Hub,Americas,Canada,Electronics,359,43503,682,1963,10,11,Yes,100,No,0,212
+SHP-0345,2026-06,2026-06-20,Meridian Freight,Road,Memphis DC,EMEA,United Kingdom,Electronics,478,90323,498,1008,7,7,Yes,100,No,0,163
+SHP-0346,2026-06,2026-06-11,TransGlobal,Air,Singapore Hub,APAC,Australia,Perishables,471,91294,4096,1855,4,4,Yes,100,Yes,100,5788
+SHP-0347,2026-06,2026-06-10,BlueDart Express,Air,Memphis DC,EMEA,France,Industrial Parts,121,23163,1422,383,4,2,Yes,100,No,0,414
+SHP-0348,2026-06,2026-06-13,Meridian Freight,Sea,Gdansk DC,APAC,India,Apparel,159,24925,114,476,28,30,Yes,100,No,0,30
+SHP-0349,2026-06,2026-06-06,TransGlobal,Sea,Memphis DC,LATAM,Mexico,Apparel,28,3506,33,112,28,22,Yes,100,No,0,3
+SHP-0350,2026-06,2026-06-27,TransGlobal,Rail,Singapore Hub,APAC,Japan,Electronics,374,27660,420,947,10,8,Yes,100,No,0,148
+SHP-0351,2026-06,2026-06-21,TransGlobal,Sea,Gdansk DC,LATAM,Chile,Electronics,28,4650,34,139,28,26,Yes,100,No,0,4
+SHP-0352,2026-06,2026-06-29,Arctic Line,Sea,Guadalajara DC,APAC,India,Electronics,206,32590,269,1363,28,39,Yes,100,No,0,85
+SHP-0353,2026-06,2026-06-10,Meridian Freight,Road,Memphis DC,EMEA,Germany,Apparel,92,14561,327,642,7,7,Yes,100,No,0,104
+SHP-0354,2026-06,2026-06-28,Arctic Line,Rail,Guadalajara DC,LATAM,Chile,Electronics,46,5910,114,309,10,13,Yes,100,No,0,22
+SHP-0355,2026-06,2026-06-11,BlueDart Express,Air,Rotterdam DC,Americas,Canada,Electronics,188,25072,3451,831,4,2,Yes,100,No,0,1795
+SHP-0356,2026-06,2026-06-03,BlueDart Express,Air,Guadalajara DC,APAC,Australia,Electronics,455,16200,10106,2655,4,2,Yes,100,No,0,8284
+SHP-0357,2026-06,2026-06-02,Arctic Line,Rail,Memphis DC,LATAM,Mexico,Perishables,427,77335,411,1183,10,14,Yes,100,No,0,85
+SHP-0358,2026-06,2026-06-16,Meridian Freight,Road,Singapore Hub,EMEA,France,Industrial Parts,233,34200,569,1261,7,8,Yes,100,No,0,204
+SHP-0359,2026-06,2026-06-04,Arctic Line,Rail,Guadalajara DC,EMEA,United Kingdom,Industrial Parts,143,5887,314,1096,10,12,Yes,100,No,0,59
+SHP-0360,2026-06,2026-06-15,Arctic Line,Rail,Gdansk DC,Americas,Canada,Apparel,289,16167,375,1035,10,13,Yes,100,No,0,112

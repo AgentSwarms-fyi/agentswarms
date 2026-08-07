@@ -1,0 +1,73 @@
+Month,Carrier,Shipments,On Time Pct,Avg Transit Days,Freight Cost,Damage Pct
+2025-01,Meridian Freight,6,83.3,16,3220,0
+2025-01,BlueDart Express,6,83.3,2.7,16817,0
+2025-01,TransGlobal,4,100,11.8,3710,0
+2025-01,Arctic Line,4,100,23.8,764,0
+2025-02,Meridian Freight,5,100,25.8,1335,40
+2025-02,BlueDart Express,6,100,3,9665,0
+2025-02,TransGlobal,5,60,7.8,17669,0
+2025-02,Arctic Line,4,50,29,1619,0
+2025-03,Meridian Freight,5,100,19.4,1859,0
+2025-03,BlueDart Express,2,100,2,13215,0
+2025-03,TransGlobal,8,100,11,7705,0
+2025-03,Arctic Line,5,80,18.4,1807,0
+2025-04,Meridian Freight,5,80,32.8,737,0
+2025-04,BlueDart Express,4,100,3,6599,0
+2025-04,TransGlobal,4,100,6,4518,25
+2025-04,Arctic Line,7,85.7,32,1890,0
+2025-05,Meridian Freight,7,100,17.6,2626,0
+2025-05,BlueDart Express,3,100,2.7,10971,0
+2025-05,TransGlobal,7,100,8.6,4571,0
+2025-05,Arctic Line,3,100,21,370,33.3
+2025-06,Meridian Freight,4,100,18.3,2119,0
+2025-06,BlueDart Express,4,100,2.8,14766,0
+2025-06,TransGlobal,6,83.3,14.5,2689,0
+2025-06,Arctic Line,6,100,25,2548,0
+2025-07,Meridian Freight,9,88.9,16.7,4700,0
+2025-07,BlueDart Express,3,100,2.3,4897,0
+2025-07,TransGlobal,4,100,11.8,2725,25
+2025-07,Arctic Line,4,100,22.5,684,0
+2025-08,Meridian Freight,6,83.3,26.8,2408,0
+2025-08,BlueDart Express,4,100,3.5,6645,0
+2025-08,TransGlobal,3,100,17.7,1867,0
+2025-08,Arctic Line,7,85.7,26.7,2451,28.6
+2025-09,Meridian Freight,7,85.7,20,3481,14.3
+2025-09,BlueDart Express,5,100,2.8,7689,0
+2025-09,TransGlobal,4,100,8.3,6211,0
+2025-09,Arctic Line,4,100,28.3,1652,0
+2025-10,Meridian Freight,4,100,13.8,1890,0
+2025-10,BlueDart Express,3,100,2.7,5547,0
+2025-10,TransGlobal,9,88.9,17.2,3922,11.1
+2025-10,Arctic Line,4,75,14.3,2027,0
+2025-11,Meridian Freight,7,85.7,14.3,4330,14.3
+2025-11,BlueDart Express,5,100,3,6585,0
+2025-11,TransGlobal,2,50,5,6150,0
+2025-11,Arctic Line,6,100,24.2,1197,0
+2025-12,Meridian Freight,5,100,16.2,2197,0
+2025-12,BlueDart Express,5,100,2.6,20213,0
+2025-12,TransGlobal,5,100,10.8,10670,0
+2025-12,Arctic Line,5,80,31.6,1322,20
+2026-01,Meridian Freight,2,100,29.5,253,0
+2026-01,BlueDart Express,4,100,2.5,14338,0
+2026-01,TransGlobal,6,100,7.5,12314,0
+2026-01,Arctic Line,8,87.5,18,2705,0
+2026-02,Meridian Freight,4,75,13,2223,0
+2026-02,BlueDart Express,7,100,2.4,23680,0
+2026-02,TransGlobal,3,100,5,4754,0
+2026-02,Arctic Line,6,66.7,23.3,1773,0
+2026-03,Meridian Freight,6,100,19.3,3662,16.7
+2026-03,BlueDart Express,3,100,3,12590,0
+2026-03,TransGlobal,8,100,15,8560,0
+2026-03,Arctic Line,3,66.7,23.3,1347,0
+2026-04,Meridian Freight,3,100,22,817,0
+2026-04,BlueDart Express,5,100,2.6,9261,0
+2026-04,TransGlobal,6,100,15.5,6233,0
+2026-04,Arctic Line,6,100,30.2,2316,0
+2026-05,Meridian Freight,4,100,13.3,1539,0
+2026-05,BlueDart Express,10,100,2.5,44234,0
+2026-05,TransGlobal,1,100,26,547,0
+2026-05,Arctic Line,5,80,20,2292,0
+2026-06,Meridian Freight,4,100,13,1508,0
+2026-06,BlueDart Express,5,100,2,27109,0
+2026-06,TransGlobal,4,100,15,4583,25
+2026-06,Arctic Line,7,100,16.6,2475,0
