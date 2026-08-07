@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
-import { createSwarmApiKey } from "@/utils/swarmDeploy.functions";
+import { createSwarmApiKey, jsSandboxStatusFn } from "@/utils/swarmDeploy.functions";
 import {
   Dialog,
   DialogContent,
@@ -138,11 +138,32 @@ export function SwarmDeployDialog({
   // which supports fewer node kinds than the canvas and decides approvals
   // without a human — surface both BEFORE the user deploys.
   const approvalNodes = (nodes ?? []).filter((n) => n.data?.kind === "approval");
-  const blockedNodes = (nodes ?? []).filter(
-    (n) => n.data?.kind === "function" || n.data?.kind === "a2a_remote",
-  );
+  const functionNodes = (nodes ?? []).filter((n) => n.data?.kind === "function");
+  const a2aNodes = (nodes ?? []).filter((n) => n.data?.kind === "a2a_remote");
+  // Custom code runs headlessly only when the operator deployed the JS sandbox
+  // service, so ASK this instance rather than hard-coding "canvas only".
+  const [sandbox, setSandbox] = useState<{ configured: boolean; healthy: boolean } | null>(null);
+  const blockedNodes = [...a2aNodes, ...(sandbox?.healthy ? [] : functionNodes)];
   const { user } = useAuth();
   const origin = typeof window !== "undefined" ? window.location.origin : "https://your-app";
+
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    void (async () => {
+      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      if (!token) return;
+      try {
+        const res = await jsSandboxStatusFn({ data: { access_token: token } });
+        if (alive) setSandbox(res);
+      } catch {
+        if (alive) setSandbox({ configured: false, healthy: false });
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [open]);
 
   const [keys, setKeys] = useState<ApiKeyRow[]>([]);
   const [schedules, setSchedules] = useState<ScheduleRow[]>([]);
@@ -313,9 +334,36 @@ export function SwarmDeployDialog({
                   .map((n) => `“${n.data?.label ?? n.data?.kind}”`)
                   .slice(0, 4)
                   .join(", ")}
-                ) use Function (custom JS) or A2A Remote, which only run from the canvas. Deployed
-                and scheduled runs will fail until you replace or remove them.
+                ){" "}
+                {a2aNodes.length > 0 && functionNodes.length > 0
+                  ? "use A2A Remote, or custom code with no JS sandbox deployed"
+                  : a2aNodes.length > 0
+                    ? "use A2A Remote, which needs your login"
+                    : sandbox?.configured
+                      ? "use custom code, and this instance's JS sandbox is not answering"
+                      : "use custom code, which needs the JS sandbox service"}
+                . Deployed and scheduled runs will fail until that is resolved.
               </p>
+              {functionNodes.length > 0 && !sandbox?.healthy && (
+                <p className="mt-1.5 text-muted-foreground">
+                  {sandbox?.configured ? (
+                    <>
+                      JS_SANDBOX_URL is set but the service did not respond — check that{" "}
+                      <code className="font-mono">docker compose --profile sandbox up -d</code> is
+                      running.
+                    </>
+                  ) : (
+                    <>
+                      Enable it with{" "}
+                      <code className="font-mono">
+                        docker compose --profile sandbox up -d --build
+                      </code>
+                      . Until then these nodes work on the canvas only.
+                    </>
+                  )}
+                </p>
+              )}
+              <p className="hidden"></p>
             </div>
           </div>
         )}

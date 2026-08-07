@@ -19,6 +19,13 @@
 # per user / 20 per instance don't suit: MCP_MAX_SERVERS_PER_USER,
 # MCP_MAX_SERVERS_TOTAL.
 #
+# Optional — the JS SANDBOX, so Function and custom-component nodes also run in
+# DEPLOYED (API-key) and SCHEDULED swarm runs rather than canvas-only:
+#
+#   docker compose --profile sandbox up -d --build
+#
+# See docs/DEPLOYMENT.md § "JS sandbox".
+#
 # Compose reads .env automatically: the VITE_* values are passed as build args
 # (inlined into the client bundle), everything else is runtime environment.
 services:
@@ -41,8 +48,9 @@ services:
     # the setting saves but never reaches the proxy.
     volumes:
       - ./deploy/notebooks/egress:/etc/agentswarms/egress
-    # nb-internal lets notebook kernels call back for governed model/KB access.
-    networks: [default, nb-internal]
+    # nb-internal lets notebook kernels call back for governed model/KB access;
+    # js-internal lets the app reach the (optional) JS sandbox by service name.
+    networks: [default, nb-internal, js-internal]
     restart: unless-stopped
 
   # ── Developer-workspace server runtime (opt-in: --profile notebooks) ─────────
@@ -148,6 +156,59 @@ services:
       - "127.0.0.1:8099:8099"
     restart: unless-stopped
 
+  # ── JS sandbox for headless custom code (opt-in: --profile sandbox) ─────────
+  # Runs Function and custom-component snippets for DEPLOYED (API-key) and
+  # SCHEDULED swarm runs. The canvas keeps using the in-browser Worker sandbox;
+  # this exists so the same node also works unattended.
+  #
+  # It is a separate container because the app process holds the service-role
+  # key and provider credentials — user JavaScript must never share a realm
+  # with those. Everything below is the isolation, and it is deliberately
+  # stricter than the notebook runtime because a snippet needs nothing:
+  #   js-internal  no route to the internet AND none back to the app
+  #   read_only    nothing on disk can be modified
+  #   cap_drop ALL no privileged syscalls
+  #   no-new-privileges  a setuid binary cannot escalate
+  #   pids/mem/cpu limits  a runaway snippet cannot starve the host
+  # Inside the process each request additionally gets a fresh V8 realm in a
+  # worker thread that is terminated afterwards (services/js-sandbox).
+  #
+  # Enable with:
+  #   docker compose --profile sandbox up -d --build
+  #   JS_SANDBOX_URL=http://js-sandbox:8091   (in .env; already the default
+  #   the app tries, so this line is only needed if you rename/move it)
+  js-sandbox:
+    build:
+      context: ./services/js-sandbox
+    image: agentswarms/js-sandbox:latest
+    profiles: [sandbox]
+    environment:
+      PORT: "8091"
+      # Shared secret with the app. Defaults to the service-role key, which the
+      # app also falls back to, so no extra wiring is needed.
+      INTERNAL_RUN_SECRET: ${INTERNAL_RUN_SECRET:-${SUPABASE_SERVICE_ROLE_KEY}}
+      JS_SANDBOX_MAX_TIMEOUT_MS: ${JS_SANDBOX_MAX_TIMEOUT_MS:-5000}
+      JS_SANDBOX_MAX_CONCURRENT: ${JS_SANDBOX_MAX_CONCURRENT:-4}
+      JS_SANDBOX_MEM_MB: ${JS_SANDBOX_MEM_MB:-128}
+    expose:
+      - "8091"
+    # Published on LOOPBACK only, so `npm run dev` on the host can reach it at
+    # http://localhost:8091. Never 0.0.0.0: this endpoint executes code, and its
+    # only guard is the shared secret.
+    ports:
+      - "127.0.0.1:8091:8091"
+    networks: [js-internal]
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 1.0
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    restart: unless-stopped
+
 # Network topology for the runtime (egress control):
 #   nb-internal — internal:true, so kernels have NO direct internet. Members:
 #                 app, gateway, egress proxy, and the per-session kernels.
@@ -156,6 +217,12 @@ services:
 # egress proxy, but the only route off-box is the allowlisted proxy.
 networks:
   default: {}
+  # The JS sandbox sits here alone: internal:true means no internet, and the
+  # app reaches it because the app joins this network too (see below). The
+  # sandbox itself can initiate nothing — it only answers.
+  js-internal:
+    name: agentswarms_js-internal
+    internal: true
   nb-internal:
     name: agentswarms_nb-internal
     internal: true

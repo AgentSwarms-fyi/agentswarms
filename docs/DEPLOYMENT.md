@@ -105,6 +105,10 @@ project as the backend.
 - Want **Deep-mode** document generation? Add the renderer with
   `docker compose --profile docgen up -d --build` — see
   [Document renderer](#document-renderer-deep-mode-officeexports).
+- Want **Function / custom-component nodes to run in deployed and scheduled
+  swarms** (not just on the canvas)? Add the sandbox with
+  `docker compose --profile sandbox up -d --build` — see
+  [JS sandbox](#js-sandbox-custom-code-in-deployed-runs).
 
 ## B. Single cloud VM (recommended)
 
@@ -792,6 +796,63 @@ the same `.env` works whether you run the app in Compose or with `npm run dev`
 **Without this profile, Deep mode still works**: it silently falls back to the
 browser build, producing a file identical to Fast. The UI disables the Deep
 option and states the reason rather than leaving a control that does nothing.
+
+### JS sandbox (custom code in deployed runs)
+
+Optional, off by default. **Function** nodes and **custom components** run
+user-authored JavaScript. On the canvas that code runs in the browser, in a
+Worker with the dangerous globals removed. A deployed run has no browser, and
+the app process holds the service-role key and every provider credential — so
+without this service, headless runs (API keys and schedules) refuse custom code
+rather than executing it next to those secrets.
+
+Enable it and those nodes work unattended too:
+
+```bash
+docker compose --profile sandbox up -d --build
+```
+
+No address to configure inside Compose: the app defaults to `js-sandbox:8091`.
+Running the app on the host with `npm run dev` instead? Point it at the
+published loopback port:
+
+```bash
+JS_SANDBOX_URL="http://127.0.0.1:8091"
+```
+
+**How it is isolated.** Every layer here is deliberate, and stricter than the
+notebook runtime because a snippet needs nothing at all:
+
+| Layer | What it does |
+| ----- | ------------ |
+| Separate container | The snippet never shares a process with the service-role key or provider credentials |
+| `js-internal` network | `internal: true` — no route to the internet, and none back to the app |
+| `read_only: true`, `cap_drop: ALL`, `no-new-privileges` | Nothing writable, no privileged syscalls, no setuid escalation |
+| `pids_limit`, `mem_limit`, `cpus` | A runaway snippet cannot starve the host |
+| Fresh V8 realm per call | Built with `vm.createContext` — `require`, `process`, `fetch` and `Buffer` do not exist inside it |
+| Worker thread per call, terminated after | Kills even a synchronous infinite loop |
+| Shared secret | The service refuses to start without `INTERNAL_RUN_SECRET`, so an exposed port is not an open code-execution endpoint |
+
+Nothing from the host realm is placed in the sandbox — not even a `console`
+shim. That rule exists because a host object's prototype chain carries the host
+`Function` constructor: with a host console in scope,
+`console.log.constructor("return process")()` returns the real `process`, and
+with it this container's environment. The service builds `console` and `ctx`
+*inside* the sandbox realm and passes only JSON strings across the boundary.
+
+**Verify it after deploying:**
+
+```bash
+curl -s http://127.0.0.1:8091/health
+```
+
+Then deploy a swarm with a Function node and run it through its API key. The
+Deploy dialog also reports the sandbox's state: it warns only when custom-code
+nodes are present *and* the sandbox is missing or unreachable on this instance.
+
+**Without this profile nothing breaks** — Function and component nodes keep
+working on the canvas, and the Deploy dialog says plainly that they will fail
+in deployed and scheduled runs until the sandbox is up.
 
 ### Developer-workspace Python runtime
 

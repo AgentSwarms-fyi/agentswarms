@@ -5,6 +5,7 @@
     powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -Dev       # local dev server
     powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -Docgen    # + server-side PPTX/Word/Excel renderer
     powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -Notebooks # + Developer-workspace runtime
+    powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -Sandbox   # + JS sandbox (custom code in deployed runs)
     powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -SkipMigrations
 
   Scaffolds .env, generates the encryption secrets, installs deps (dev mode),
@@ -15,6 +16,7 @@ param(
   [switch]$Dev,
   [switch]$Docgen,
   [switch]$Notebooks,
+  [switch]$Sandbox,
   [switch]$SkipMigrations
 )
 $ErrorActionPreference = "Stop"
@@ -100,7 +102,19 @@ if ($Dev) {
   $profiles = @()
   if ($Docgen)    { $profiles += @("--profile","docgen") }
   if ($Notebooks) { $profiles += @("--profile","notebooks") }
+  if ($Sandbox)   { $profiles += @("--profile","sandbox") }
   Say "Starting Docker stack"
   docker compose @profiles up -d --build
   Say "Up. Open http://localhost:8080"
+  if ($Sandbox) {
+    Write-Host "  JS sandbox: custom-code nodes now run in DEPLOYED and SCHEDULED swarm runs too."
+    # Report what the service actually says rather than assuming it is healthy.
+    try {
+      $null = Invoke-WebRequest -Uri "http://127.0.0.1:8091/health" -TimeoutSec 5 -UseBasicParsing
+      Write-Host "    health: OK (http://127.0.0.1:8091/health)"
+    } catch {
+      Write-Host "    health: not answering yet - give it a few seconds, then: curl http://127.0.0.1:8091/health"
+    }
+    Write-Host "    Running the app with 'npm run dev' instead of in Compose? Set JS_SANDBOX_URL=""http://127.0.0.1:8091"" in .env."
+  }
 }

@@ -601,17 +601,16 @@ name: is_urgent       type: boolean  "True if they mention a deadline"`}</Code>
 
       <H2 id="components">Custom components</H2>
       <P>
-        A <strong>Function</strong> node holds a snippet used once.{" "}
-        <strong>Components</strong> are the reusable form: author a snippet with a declared
-        parameter schema in the palette&rsquo;s <em>My components → Manage</em>, and it appears in
-        the palette of every swarm you build.
+        A <strong>Function</strong> node holds a snippet used once. <strong>Components</strong> are
+        the reusable form: author a snippet with a declared parameter schema in the palette&rsquo;s{" "}
+        <em>My components → Manage</em>, and it appears in the palette of every swarm you build.
       </P>
       <Table
         headers={["Piece", "What it is"]}
         rows={[
           [
             "Parameters",
-            "Declared per component (text, number, boolean, select — with labels, defaults and required flags). Each becomes a field on the node and arrives in the code as ctx.params, typed: a number parameter is a number, not \"5\".",
+            'Declared per component (text, number, boolean, select — with labels, defaults and required flags). Each becomes a field on the node and arrives in the code as ctx.params, typed: a number parameter is a number, not "5".',
           ],
           [
             "Code",
@@ -627,10 +626,22 @@ name: is_urgent       type: boolean  "True if they mention a deadline"`}</Code>
           ],
         ]}
       />
+      <Callout kind="info">
+        <strong>Where custom code runs.</strong> On the canvas it runs in your browser, in a Worker
+        with the dangerous globals removed. In <em>deployed</em> (API-key) and <em>scheduled</em>
+        runs there is no browser, so it runs in the <strong>JS sandbox</strong> — a separate
+        container with no secrets, no filesystem and no route to the internet, giving each call a
+        fresh JavaScript realm that is destroyed afterwards. Your snippet sees exactly the same{" "}
+        <code className="font-mono">ctx.input</code>, <code className="font-mono">ctx.vars</code>{" "}
+        and <code className="font-mono">ctx.params</code> either way.
+      </Callout>
       <Callout kind="warn">
-        Custom code is canvas-only. Headless runs (deployed API keys and schedules) refuse Function
-        and component nodes — arbitrary JavaScript is never executed on the server. The Deploy
-        dialog flags such nodes before you deploy.
+        The sandbox is an <strong>opt-in service</strong>:{" "}
+        <code className="font-mono">docker compose --profile sandbox up -d --build</code>. Until an
+        operator starts it, deployed and scheduled runs refuse custom code rather than executing it
+        beside the server&rsquo;s credentials — and the Deploy dialog tells you so, for this
+        instance specifically, before you deploy. Custom code never runs in the application process
+        either way.
       </Callout>
 
       <H2 id="file-inputs">File inputs</H2>

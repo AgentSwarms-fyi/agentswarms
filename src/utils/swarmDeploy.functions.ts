@@ -140,3 +140,28 @@ export const createSwarmApiKey = createServerFn({ method: "POST" })
       return { ok: true, id: row.id, raw_key: raw, webhook_secret: row.webhook_secret };
     },
   );
+
+/**
+ * Whether headless runs can execute custom code — i.e. whether the operator
+ * deployed the JS sandbox service. The Deploy dialog asks before warning that
+ * Function/component nodes are canvas-only, so the warning reflects THIS
+ * instance rather than a stale assumption baked into the UI.
+ */
+export const jsSandboxStatusFn = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .handler(async ({ data }) => {
+    // Signed-in callers only: this reports a deployment detail of the instance.
+    const userId = await userFromToken(data.access_token);
+    if (!userId) return { configured: false, healthy: false };
+    const { resolveJsSandboxUrl } = await import("@/utils/jsSandbox.server");
+    const url = await resolveJsSandboxUrl();
+    if (!url) return { configured: false, healthy: false };
+    try {
+      const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(2500) });
+      return { configured: true, healthy: res.ok };
+    } catch {
+      // Configured but unreachable is worth distinguishing from not configured:
+      // one is a deployment mistake, the other a deliberate choice.
+      return { configured: true, healthy: false };
+    }
+  });

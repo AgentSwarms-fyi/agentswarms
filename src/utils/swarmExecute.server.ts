@@ -15,8 +15,11 @@
 // IAM-shared resources (mirrors RLS); never another tenant's.
 // Agent nodes may also use kb_search / sql_query directly: /api/chat's internal
 // path caps their toolset to the headless-safe set and owner-scopes it.
-// Still owner-login-only: `function` (custom JS — RCE risk in the server realm)
-// and `a2a_remote` (needs the owner's JWT for the /api/a2a proxy).
+// `function` (custom JS) runs in the JS SANDBOX SERVICE when one is deployed
+// (JS_SANDBOX_URL) — never in this process, which holds the service-role key
+// and provider credentials. Without that service it is refused, with a message
+// saying how to enable it. Still owner-login-only: `a2a_remote` (needs the
+// owner's JWT for the /api/a2a proxy).
 import type { Node, Edge } from "@xyflow/react";
 import {
   interpolate,
@@ -49,6 +52,13 @@ import { createServerSwarmTracer } from "@/utils/observability/serverTracer.serv
 import { runHttpNodeCore, runToolNodeCore, type ToolNodeParams } from "@/utils/swarmNodes.server";
 import type { AgentToolContext } from "@/utils/tools/registry.server";
 import { internalRunSecret } from "@/utils/internalOrigin.server";
+import {
+  jsSandboxConfigured,
+  runSandboxedServer,
+  JS_SANDBOX_UNAVAILABLE,
+} from "@/utils/jsSandbox.server";
+import { coerceParams, missingRequired } from "@/lib/swarmComponents";
+import { safeStringify } from "@/lib/sandbox/jsSandbox";
 import { envInt } from "@/utils/rateLimit.server";
 
 // Tool context for headless data tools: service-role client with scopeUserId
@@ -881,9 +891,43 @@ export async function executeSwarmServer(opts: {
             return;
           }
           if (kind === "function") {
-            throw new Error(
-              "Function (custom JS) nodes can't run in headless (API/scheduled) runs — arbitrary code isn't executed on the server. Run this swarm from the canvas.",
+            // Custom code runs in the JS sandbox SERVICE, never in this
+            // process: the app holds the service-role key and provider
+            // credentials, so a snippet here would be one prototype-chain
+            // trick away from all of it. The service is a separate container
+            // with no secrets, no egress and a fresh realm per call.
+            if (!(await jsSandboxConfigured())) throw new Error(JS_SANDBOX_UNAVAILABLE);
+            const inputValue = gatherInputs(node, ctx, lastOutput);
+            const snippet = (d.functionCode || "return ctx.input;").trim();
+            const timeoutMs = Math.max(100, Math.min(d.functionTimeoutMs ?? 2000, 5000));
+            const cParams = d.componentParams ?? [];
+            const cValues = d.componentValues ?? {};
+            if (cParams.length > 0) {
+              const missing = missingRequired(cParams, cValues);
+              if (missing.length > 0) {
+                throw new Error(
+                  `${d.componentName ?? "Component"} node is missing required parameter${
+                    missing.length === 1 ? "" : "s"
+                  }: ${missing.join(", ")}.`,
+                );
+              }
+            }
+            const result = await runSandboxedServer(
+              snippet,
+              {
+                input: inputValue,
+                vars: { ...ctx },
+                params: cParams.length > 0 ? coerceParams(cParams, cValues) : {},
+              },
+              timeoutMs,
+              ac.signal,
             );
+            if (!result.ok) {
+              const who = d.componentName ? `Component "${d.componentName}"` : "Function node";
+              throw new Error(`${who} error: ${result.error}`);
+            }
+            write(safeStringify(result.value));
+            return;
           }
           if (kind === "a2a_remote") {
             throw new Error(

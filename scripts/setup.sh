@@ -6,6 +6,7 @@
 #   bash scripts/setup.sh --dev           # local dev server (npm run dev)
 #   bash scripts/setup.sh --docgen        # + server-side PPTX/Word/Excel renderer
 #   bash scripts/setup.sh --notebooks     # + Developer-workspace Python runtime
+#   bash scripts/setup.sh --sandbox       # + JS sandbox (custom code in deployed runs)
 #   bash scripts/setup.sh --skip-migrations
 #
 # It scaffolds .env, generates the encryption secrets, installs deps (dev mode),
@@ -19,6 +20,7 @@ cd "$ROOT"
 MODE="docker"
 PROFILE_FLAGS=""
 DOCGEN=0
+SANDBOX=0
 SKIP_MIGRATIONS=0
 for arg in "$@"; do
   case "$arg" in
@@ -26,6 +28,7 @@ for arg in "$@"; do
     --dev) MODE="dev" ;;
     --docgen) DOCGEN=1; PROFILE_FLAGS="$PROFILE_FLAGS --profile docgen" ;;
     --notebooks) PROFILE_FLAGS="$PROFILE_FLAGS --profile notebooks" ;;
+    --sandbox) SANDBOX=1; PROFILE_FLAGS="$PROFILE_FLAGS --profile sandbox" ;;
     --skip-migrations) SKIP_MIGRATIONS=1 ;;
     -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
     *) echo "Unknown option: $arg (try --help)"; exit 1 ;;
@@ -111,6 +114,17 @@ if [ "$MODE" = "docker" ]; then
   docker compose $PROFILE_FLAGS up -d --build
   say "Up. Open http://localhost:8080"
   [ "$DOCGEN" -eq 1 ] && echo "  Server-side PPTX/Word/Excel renderer: http://docgen:8099 in-cluster, http://localhost:8099 from the host (set OPENROUTER_API_KEY in .env for the PPT verify loop)"
+  if [ "$SANDBOX" -eq 1 ]; then
+    echo "  JS sandbox: custom-code nodes now run in DEPLOYED and SCHEDULED swarm runs too."
+    # Report what the service actually says, rather than assuming the build
+    # that just started is healthy.
+    if command -v curl >/dev/null 2>&1 && curl -fsS --max-time 5 http://127.0.0.1:8091/health >/dev/null 2>&1; then
+      echo "    health: OK (http://127.0.0.1:8091/health)"
+    else
+      echo "    health: not answering yet — give it a few seconds, then: curl http://127.0.0.1:8091/health"
+    fi
+    echo "    Running the app with 'npm run dev' instead of in Compose? Set JS_SANDBOX_URL=\"http://127.0.0.1:8091\" in .env."
+  fi
 else
   say "Starting dev server (Ctrl+C to stop). Open http://localhost:8080"
   npm run dev

@@ -1,0 +1,14 @@
+{
+  "name": "agentswarms-js-sandbox",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Hardened server-side execution of user-authored Function/component node code for headless swarm runs.",
+  "main": "server.mjs",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
