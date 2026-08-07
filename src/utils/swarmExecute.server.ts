@@ -105,6 +105,12 @@ async function serverChat(args: {
   signal?: AbortSignal;
   // Chat mode: prior conversation turns replayed as leading messages.
   history?: { role: "user" | "assistant"; content: string }[];
+  /**
+   * Receives the turn's measured usage from /api/chat's `cost` event. The
+   * browser runtime consumes the same event; without this the headless path
+   * (deployed API, schedules, evals) recorded latency but zero tokens/cost.
+   */
+  onUsage?: (u: { model?: string; costUsd: number; tokensIn: number; tokensOut: number }) => void;
 }): Promise<string> {
   const secret = internalRunSecret();
   if (!secret) {
@@ -169,7 +175,27 @@ async function serverChat(args: {
       }
       if (!line.startsWith("data: ")) continue;
       const payload = line.slice(6).trim();
-      if (!payload || payload === "[DONE]" || event !== "message") continue;
+      if (!payload || payload === "[DONE]") continue;
+      if (event === "cost") {
+        try {
+          const c = JSON.parse(payload) as {
+            model?: string;
+            costUsd?: number;
+            tokensIn?: number;
+            tokensOut?: number;
+          };
+          args.onUsage?.({
+            model: c.model,
+            costUsd: c.costUsd ?? 0,
+            tokensIn: c.tokensIn ?? 0,
+            tokensOut: c.tokensOut ?? 0,
+          });
+        } catch {
+          /* telemetry only — never break the run */
+        }
+        continue;
+      }
+      if (event !== "message") continue;
       try {
         const p = JSON.parse(payload) as {
           choices?: { delta?: { content?: string }; message?: { content?: string } }[];
@@ -303,10 +329,31 @@ export async function executeSwarmServer(opts: {
     throw lastErr;
   };
 
-  // Inject the conversation history into every LLM node call (chat mode).
+  // Measured usage per node id, summed across retries and multi-call nodes
+  // (foreach/loop bodies). Drained when the node's step row is finished.
+  const nodeUsage = new Map<
+    string,
+    { model?: string; costUsd: number; tokensIn: number; tokensOut: number }
+  >();
+
+  // Inject the conversation history into every LLM node call (chat mode), and
+  // record what the call actually cost.
   const chat = (a: Parameters<typeof serverChat>[0]) =>
     withNodeRetry(a.node.data, () =>
-      serverChat({ ...a, history: opts.history, signal: ac.signal }),
+      serverChat({
+        ...a,
+        history: opts.history,
+        signal: ac.signal,
+        onUsage: (u) => {
+          const prev = nodeUsage.get(a.node.id) ?? { costUsd: 0, tokensIn: 0, tokensOut: 0 };
+          nodeUsage.set(a.node.id, {
+            model: u.model ?? prev.model,
+            costUsd: prev.costUsd + u.costUsd,
+            tokensIn: prev.tokensIn + u.tokensIn,
+            tokensOut: prev.tokensOut + u.tokensOut,
+          });
+        },
+      }),
     );
 
   // Record the run + per-node steps for observability (Recent runs / traces),
@@ -872,12 +919,17 @@ export async function executeSwarmServer(opts: {
         } finally {
           if (tracer) {
             const meta = d as { model?: string; provider?: string };
+            const used = nodeUsage.get(node.id);
+            nodeUsage.delete(node.id);
             await tracer.finishStep(node.id, {
               status: stepError ? "error" : "success",
               output: stepError ? null : stepOutput,
               errorMessage: stepError,
-              llmModel: meta.model ?? null,
+              llmModel: used?.model ?? meta.model ?? null,
               llmProvider: meta.provider ?? null,
+              tokensIn: used?.tokensIn,
+              tokensOut: used?.tokensOut,
+              costUsd: used?.costUsd,
               latencyMs: Date.now() - stepStartedAt,
             });
           }

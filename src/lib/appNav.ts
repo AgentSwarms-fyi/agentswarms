@@ -20,6 +20,7 @@ import {
   Wand2,
   Image as ImageIcon,
   Columns,
+  FlaskConical,
   NotebookPen,
   PieChart,
   Code2,
@@ -93,6 +94,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Experiment",
     items: [
       { title: "Prompt Compare", url: "/prompt-compare", icon: Columns },
+      { title: "Evaluations", url: "/evaluations", icon: FlaskConical },
       { title: "Image Playground", url: "/image-playground", icon: ImageIcon },
     ],
   },

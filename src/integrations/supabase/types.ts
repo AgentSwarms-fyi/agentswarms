@@ -1353,6 +1353,236 @@ export type Database = {
         };
         Relationships: [];
       };
+      eval_cases: {
+        Row: {
+          created_at: string
+          dataset_id: string
+          expected: string | null
+          id: string
+          input: string
+          input_state: Json
+          name: string
+          sort: number
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          dataset_id: string
+          expected?: string | null
+          id?: string
+          input?: string
+          input_state?: Json
+          name?: string
+          sort?: number
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          dataset_id?: string
+          expected?: string | null
+          id?: string
+          input?: string
+          input_state?: Json
+          name?: string
+          sort?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "eval_cases_dataset_id_fkey"
+            columns: ["dataset_id"]
+            isOneToOne: false
+            referencedRelation: "eval_datasets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      eval_datasets: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          name: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      eval_results: {
+        Row: {
+          case_expected: string | null
+          case_id: string | null
+          case_input: string
+          case_name: string
+          cost_usd: number
+          created_at: string
+          duration_ms: number
+          error: string | null
+          eval_run_id: string
+          id: string
+          judge: Json | null
+          output: string
+          score: number | null
+          status: string
+          swarm_run_id: string | null
+          user_id: string
+        }
+        Insert: {
+          case_expected?: string | null
+          case_id?: string | null
+          case_input?: string
+          case_name?: string
+          cost_usd?: number
+          created_at?: string
+          duration_ms?: number
+          error?: string | null
+          eval_run_id: string
+          id?: string
+          judge?: Json | null
+          output?: string
+          score?: number | null
+          status: string
+          swarm_run_id?: string | null
+          user_id: string
+        }
+        Update: {
+          case_expected?: string | null
+          case_id?: string | null
+          case_input?: string
+          case_name?: string
+          cost_usd?: number
+          created_at?: string
+          duration_ms?: number
+          error?: string | null
+          eval_run_id?: string
+          id?: string
+          judge?: Json | null
+          output?: string
+          score?: number | null
+          status?: string
+          swarm_run_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "eval_results_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "eval_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "eval_results_eval_run_id_fkey"
+            columns: ["eval_run_id"]
+            isOneToOne: false
+            referencedRelation: "eval_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      eval_runs: {
+        Row: {
+          avg_score: number | null
+          case_count: number
+          created_at: string
+          dataset_id: string | null
+          dataset_name: string
+          done_count: number
+          error_count: number
+          evaluator: Json
+          fail_count: number
+          finished_at: string | null
+          id: string
+          label: string
+          pass_count: number
+          reject_approvals: boolean
+          started_at: string
+          status: string
+          swarm_id: string | null
+          swarm_name: string
+          swarm_version_id: string | null
+          total_cost_usd: number
+          user_id: string
+        }
+        Insert: {
+          avg_score?: number | null
+          case_count?: number
+          created_at?: string
+          dataset_id?: string | null
+          dataset_name?: string
+          done_count?: number
+          error_count?: number
+          evaluator: Json
+          fail_count?: number
+          finished_at?: string | null
+          id?: string
+          label?: string
+          pass_count?: number
+          reject_approvals?: boolean
+          started_at?: string
+          status?: string
+          swarm_id?: string | null
+          swarm_name?: string
+          swarm_version_id?: string | null
+          total_cost_usd?: number
+          user_id: string
+        }
+        Update: {
+          avg_score?: number | null
+          case_count?: number
+          created_at?: string
+          dataset_id?: string | null
+          dataset_name?: string
+          done_count?: number
+          error_count?: number
+          evaluator?: Json
+          fail_count?: number
+          finished_at?: string | null
+          id?: string
+          label?: string
+          pass_count?: number
+          reject_approvals?: boolean
+          started_at?: string
+          status?: string
+          swarm_id?: string | null
+          swarm_name?: string
+          swarm_version_id?: string | null
+          total_cost_usd?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "eval_runs_dataset_id_fkey"
+            columns: ["dataset_id"]
+            isOneToOne: false
+            referencedRelation: "eval_datasets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "eval_runs_swarm_id_fkey"
+            columns: ["swarm_id"]
+            isOneToOne: false
+            referencedRelation: "swarms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       sql_query_history: {
         Row: {
           connection_id: string | null;

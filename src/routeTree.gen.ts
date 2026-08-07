@@ -77,6 +77,7 @@ import { Route as AuthenticatedMcpRouteImport } from './routes/_authenticated/mc
 import { Route as AuthenticatedKnowledgeRouteImport } from './routes/_authenticated/knowledge'
 import { Route as AuthenticatedIntegrationsRouteImport } from './routes/_authenticated/integrations'
 import { Route as AuthenticatedImagePlaygroundRouteImport } from './routes/_authenticated/image-playground'
+import { Route as AuthenticatedEvaluationsRouteImport } from './routes/_authenticated/evaluations'
 import { Route as AuthenticatedEmbedsRouteImport } from './routes/_authenticated/embeds'
 import { Route as AuthenticatedDataSqlRouteImport } from './routes/_authenticated/data-sql'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
@@ -472,6 +473,12 @@ const AuthenticatedImagePlaygroundRoute =
     path: '/image-playground',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
+const AuthenticatedEvaluationsRoute =
+  AuthenticatedEvaluationsRouteImport.update({
+    id: '/evaluations',
+    path: '/evaluations',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 const AuthenticatedEmbedsRoute = AuthenticatedEmbedsRouteImport.update({
   id: '/embeds',
   path: '/embeds',
@@ -762,6 +769,7 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/data-sql': typeof AuthenticatedDataSqlRoute
   '/embeds': typeof AuthenticatedEmbedsRoute
+  '/evaluations': typeof AuthenticatedEvaluationsRoute
   '/image-playground': typeof AuthenticatedImagePlaygroundRoute
   '/integrations': typeof AuthenticatedIntegrationsRoute
   '/knowledge': typeof AuthenticatedKnowledgeRoute
@@ -881,6 +889,7 @@ export interface FileRoutesByTo {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/data-sql': typeof AuthenticatedDataSqlRoute
   '/embeds': typeof AuthenticatedEmbedsRoute
+  '/evaluations': typeof AuthenticatedEvaluationsRoute
   '/image-playground': typeof AuthenticatedImagePlaygroundRoute
   '/integrations': typeof AuthenticatedIntegrationsRoute
   '/knowledge': typeof AuthenticatedKnowledgeRoute
@@ -1003,6 +1012,7 @@ export interface FileRoutesById {
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/data-sql': typeof AuthenticatedDataSqlRoute
   '/_authenticated/embeds': typeof AuthenticatedEmbedsRoute
+  '/_authenticated/evaluations': typeof AuthenticatedEvaluationsRoute
   '/_authenticated/image-playground': typeof AuthenticatedImagePlaygroundRoute
   '/_authenticated/integrations': typeof AuthenticatedIntegrationsRoute
   '/_authenticated/knowledge': typeof AuthenticatedKnowledgeRoute
@@ -1125,6 +1135,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/data-sql'
     | '/embeds'
+    | '/evaluations'
     | '/image-playground'
     | '/integrations'
     | '/knowledge'
@@ -1244,6 +1255,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/data-sql'
     | '/embeds'
+    | '/evaluations'
     | '/image-playground'
     | '/integrations'
     | '/knowledge'
@@ -1365,6 +1377,7 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard'
     | '/_authenticated/data-sql'
     | '/_authenticated/embeds'
+    | '/_authenticated/evaluations'
     | '/_authenticated/image-playground'
     | '/_authenticated/integrations'
     | '/_authenticated/knowledge'
@@ -1994,6 +2007,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedImagePlaygroundRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/evaluations': {
+      id: '/_authenticated/evaluations'
+      path: '/evaluations'
+      fullPath: '/evaluations'
+      preLoaderRoute: typeof AuthenticatedEvaluationsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/embeds': {
       id: '/_authenticated/embeds'
       path: '/embeds'
@@ -2397,6 +2417,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedDataSqlRoute: typeof AuthenticatedDataSqlRoute
   AuthenticatedEmbedsRoute: typeof AuthenticatedEmbedsRoute
+  AuthenticatedEvaluationsRoute: typeof AuthenticatedEvaluationsRoute
   AuthenticatedImagePlaygroundRoute: typeof AuthenticatedImagePlaygroundRoute
   AuthenticatedIntegrationsRoute: typeof AuthenticatedIntegrationsRoute
   AuthenticatedKnowledgeRoute: typeof AuthenticatedKnowledgeRoute
@@ -2429,6 +2450,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedDataSqlRoute: AuthenticatedDataSqlRoute,
   AuthenticatedEmbedsRoute: AuthenticatedEmbedsRoute,
+  AuthenticatedEvaluationsRoute: AuthenticatedEvaluationsRoute,
   AuthenticatedImagePlaygroundRoute: AuthenticatedImagePlaygroundRoute,
   AuthenticatedIntegrationsRoute: AuthenticatedIntegrationsRoute,
   AuthenticatedKnowledgeRoute: AuthenticatedKnowledgeRoute,

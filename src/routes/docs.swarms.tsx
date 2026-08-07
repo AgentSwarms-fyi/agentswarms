@@ -599,6 +599,47 @@ name: is_urgent       type: boolean  "True if they mention a deadline"`}</Code>
         <DocLink to="/docs/embedding">Web embedding</DocLink>.
       </P>
 
+      <H2 id="evaluations">Batch evaluations</H2>
+      <P>
+        A swarm that works on the prompt you tried it with can still regress on the other forty.{" "}
+        <strong>Evaluations</strong> (under Experiment in the sidebar) runs a whole dataset of test
+        cases through a swarm headlessly and scores every output, so a prompt tweak is measured
+        rather than guessed at.
+      </P>
+      <Table
+        headers={["Piece", "What it is"]}
+        rows={[
+          [
+            "Dataset",
+            "Named collection of cases. A case is an input, optional typed start-form values, and an optional expected answer. Import a CSV — columns beyond name/input/expected become start-form values.",
+          ],
+          [
+            "Evaluator",
+            "How every output in the run is scored: an LLM judge (weighted metrics, 0–1, with a pass threshold), or a deterministic check — contains, exactly equals, or a regex.",
+          ],
+          [
+            "Run",
+            "One dataset × one swarm × one evaluator. Cases execute on the same headless engine as a deployed API run, two at a time; progress, pass rate, average score and model spend are recorded.",
+          ],
+          [
+            "Comparison",
+            "Pick an earlier run on the same dataset with the same evaluator and every case is paired: improved, regressed or unchanged, with the score delta.",
+          ],
+        ]}
+      />
+      <Callout kind="info">
+        The judge&rsquo;s verdict is recomputed from its per-metric scores and your weights — the
+        model&rsquo;s own &ldquo;pass&rdquo; claim is never trusted. A scorecard that skips a metric
+        is rejected rather than counted as zero, so a lazy judge fails loudly instead of quietly
+        failing your swarm.
+      </Callout>
+      <P>
+        Runs are resumable and cancellable: cancelling is enforced server-side, and a case that
+        already has a verdict is never scored twice, so &ldquo;run remaining&rdquo; picks up exactly
+        where it stopped. Approval nodes are auto-rejected by default — leave that on unless the
+        swarm is safe to auto-approve in a batch. Each result links to its full execution trace.
+      </P>
+
       <H2 id="export">Export</H2>
       <Table
         headers={["Target", "Fidelity"]}
