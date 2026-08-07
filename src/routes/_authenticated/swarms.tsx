@@ -101,9 +101,12 @@ import {
   Rocket,
   MessagesSquare,
   History,
+  Puzzle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { ComponentLibraryDialog } from "@/components/swarms/ComponentLibraryDialog";
+import { bindingFor, type SwarmComponent } from "@/lib/swarmComponents";
 import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "@/hooks/use-theme";
 import { type SwarmNodeData, topoLevels } from "@/lib/swarmRuntime";
@@ -512,6 +515,29 @@ type PaletteItem = {
   description: string;
   defaults: Partial<SwarmNodeData>;
 };
+
+/**
+ * A saved component becomes an ordinary `function` node carrying a SNAPSHOT of
+ * the component's code and parameter schema (see lib/swarmComponents) - no new
+ * node kind, no new execution path.
+ */
+function componentPaletteItem(c: SwarmComponent): PaletteItem {
+  const b = bindingFor(c);
+  return {
+    kind: "function",
+    label: c.name,
+    avatar: "🧩",
+    description: c.description || "Custom component",
+    defaults: {
+      functionCode: b.functionCode,
+      componentId: b.componentId,
+      componentName: b.componentName,
+      componentVersion: b.componentVersion,
+      componentParams: b.componentParams,
+      componentValues: b.componentValues,
+    },
+  };
+}
 
 // Palette icon chips reuse the same accent pairs as the canvas node headers
 // so the palette previews exactly what lands on the canvas.
@@ -1138,6 +1164,23 @@ function SwarmsCanvas({
     [setNodes],
   );
 
+  // Saved custom components shown in the palette.
+  const [myComponents, setMyComponents] = useState<SwarmComponent[]>([]);
+  const [componentLibOpen, setComponentLibOpen] = useState(false);
+  const loadComponents = useCallback(async () => {
+    const { data } = await supabase
+      .from("swarm_components")
+      .select("id, name, description, category, params, code, version, updated_at")
+      .order("updated_at", { ascending: false });
+    setMyComponents((data as unknown as SwarmComponent[]) ?? []);
+  }, []);
+  // Keyed on the user: the component query runs under RLS, so firing it before
+  // the session hydrates returns an empty list and the palette would stay
+  // empty until a reload. (Caught by the end-to-end test, not by review.)
+  useEffect(() => {
+    if (user?.id) void loadComponents();
+  }, [user?.id, loadComponents]);
+
   const onDragStart = (event: React.DragEvent, item: PaletteItem) => {
     event.dataTransfer.setData("application/swarmnode", JSON.stringify(item));
     event.dataTransfer.effectAllowed = "move";
@@ -1701,6 +1744,60 @@ function SwarmsCanvas({
             ))}
           </div>
 
+          {/* Saved custom components — author once, reuse in any swarm. */}
+          <div className="p-2 space-y-1 border-t border-border">
+            <div className="flex items-center justify-between px-1 pt-1">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                My components
+              </p>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-1.5 text-[10px]"
+                onClick={() => setComponentLibOpen(true)}
+              >
+                <Puzzle className="h-3 w-3 mr-1" /> Manage
+              </Button>
+            </div>
+            {myComponents.length === 0 ? (
+              <p className="px-1 pb-1 text-[10px] text-muted-foreground">
+                None yet —{" "}
+                <button
+                  className="underline hover:text-foreground"
+                  onClick={() => setComponentLibOpen(true)}
+                >
+                  author a reusable node
+                </button>
+                .
+              </p>
+            ) : (
+              myComponents.map((c) => {
+                const item = componentPaletteItem(c);
+                return (
+                  <Card
+                    key={c.id}
+                    draggable
+                    onDragStart={(e) => onDragStart(e, item)}
+                    onClick={() => addNode(item)}
+                    className="p-2 cursor-grab active:cursor-grabbing hover:border-primary/50 hover:bg-muted/50 transition-all border-border/50"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-violet-500/10 text-violet-500">
+                        <Puzzle className="h-3.5 w-3.5" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-medium truncate">{c.name}</p>
+                        <p className="text-[10px] text-muted-foreground truncate">
+                          {c.description || `v${c.version} · custom component`}
+                        </p>
+                      </div>
+                    </div>
+                  </Card>
+                );
+              })
+            )}
+          </div>
+
           <div className="p-3 border-t border-border">
             <p className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1">
               <Sparkles className="h-3 w-3" /> Tip
@@ -2022,6 +2119,11 @@ function SwarmsCanvas({
       </div>
 
       {/* Deploy + Chat surfaces for saved swarms */}
+      <ComponentLibraryDialog
+        open={componentLibOpen}
+        onOpenChange={setComponentLibOpen}
+        onChanged={loadComponents}
+      />
       <SwarmDeployDialog
         swarmId={swarmId}
         swarmName={swarmName}

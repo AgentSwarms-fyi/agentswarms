@@ -599,6 +599,64 @@ name: is_urgent       type: boolean  "True if they mention a deadline"`}</Code>
         <DocLink to="/docs/embedding">Web embedding</DocLink>.
       </P>
 
+      <H2 id="components">Custom components</H2>
+      <P>
+        A <strong>Function</strong> node holds a snippet used once.{" "}
+        <strong>Components</strong> are the reusable form: author a snippet with a declared
+        parameter schema in the palette&rsquo;s <em>My components → Manage</em>, and it appears in
+        the palette of every swarm you build.
+      </P>
+      <Table
+        headers={["Piece", "What it is"]}
+        rows={[
+          [
+            "Parameters",
+            "Declared per component (text, number, boolean, select — with labels, defaults and required flags). Each becomes a field on the node and arrives in the code as ctx.params, typed: a number parameter is a number, not \"5\".",
+          ],
+          [
+            "Code",
+            "Runs in the same sandboxed Worker as a Function node — no DOM, no network, no storage, hard timeout. ctx.input is the upstream value, ctx.vars the flow state.",
+          ],
+          [
+            "Test harness",
+            "Runs your snippet with the same sandbox and the same parameter coercion the canvas uses, so a passing test means a passing node.",
+          ],
+          [
+            "Versions",
+            "Saving bumps the component's version. Nodes carry a SNAPSHOT of the code they were built with, so editing the library never silently changes a swarm that already works — and a deleted component leaves working swarms working.",
+          ],
+        ]}
+      />
+      <Callout kind="warn">
+        Custom code is canvas-only. Headless runs (deployed API keys and schedules) refuse Function
+        and component nodes — arbitrary JavaScript is never executed on the server. The Deploy
+        dialog flags such nodes before you deploy.
+      </Callout>
+
+      <H2 id="file-inputs">File inputs</H2>
+      <P>
+        A start-form field of type <strong>file</strong> lets whoever runs the swarm attach a PDF,
+        DOCX or text document. The file is converted to text in the browser and that text is seeded
+        into flow state under the field&rsquo;s name — so downstream nodes read it like any other
+        variable, and no document is ever uploaded to the server.
+      </P>
+      <Table
+        headers={["Limit", "Value", "What happens at the edge"]}
+        rows={[
+          ["File size", "10 MB", "Larger files are refused before parsing"],
+          [
+            "Extracted text",
+            "200,000 characters",
+            "Longer documents are truncated, with a visible notice in the field and in the text itself — never silently",
+          ],
+          [
+            "Scanned PDFs",
+            "—",
+            "A PDF with no text layer yields nothing and is refused with a message pointing at OCR",
+          ],
+        ]}
+      />
+
       <H2 id="evaluations">Batch evaluations</H2>
       <P>
         A swarm that works on the prompt you tried it with can still regress on the other forty.{" "}

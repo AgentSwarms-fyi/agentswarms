@@ -43,6 +43,13 @@
 export type SandboxContext = {
   input: unknown;
   vars: Record<string, unknown>;
+  /**
+   * Declared parameters of a saved component (see swarm_components). Plain
+   * data, frozen like `vars` — a component reads its configuration here
+   * instead of hard-coding it, which is what makes one component reusable
+   * across swarms.
+   */
+  params?: Record<string, unknown>;
 };
 
 export type SandboxResult =
@@ -136,6 +143,7 @@ self.onmessage = async (ev) => {
   const frozen = Object.freeze({
     input: ctx.input,
     vars: Object.freeze({ ...(ctx.vars || {}) }),
+    params: Object.freeze({ ...(ctx.params || {}) }),
   });
 
   try {
@@ -193,9 +201,11 @@ export async function runSandboxed(
   // (functions, symbols, class instances) before handing it over.
   let cloneableCtx: SandboxContext;
   try {
-    cloneableCtx = JSON.parse(JSON.stringify({ input: ctx.input, vars: ctx.vars ?? {} }));
+    cloneableCtx = JSON.parse(
+      JSON.stringify({ input: ctx.input, vars: ctx.vars ?? {}, params: ctx.params ?? {} }),
+    );
   } catch {
-    cloneableCtx = { input: String(ctx.input ?? ""), vars: {} };
+    cloneableCtx = { input: String(ctx.input ?? ""), vars: {}, params: {} };
   }
 
   const worker = new Worker(bootstrapUrl());

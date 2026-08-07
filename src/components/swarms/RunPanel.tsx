@@ -14,14 +14,17 @@ import {
   ChevronUp,
   ImageIcon,
   Maximize2,
+  Paperclip,
   X,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { SwarmRunEvent } from "@/lib/swarmRuntime";
 import { safeUrl } from "@/components/playground/MarkdownMessage";
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { toast } from "sonner";
+import { FILE_INPUT_ACCEPT, FILE_INPUT_MAX_CHARS } from "@/lib/swarmFileInput";
 
 // Extract image URLs from arbitrary text. Catches:
 //   - Markdown:  ![alt](https://x/y.png)
@@ -95,7 +98,7 @@ type Props = {
   inputFields?: {
     name: string;
     label?: string;
-    type: "text" | "textarea" | "number" | "select";
+    type: "text" | "textarea" | "number" | "select" | "file";
     options?: string[];
     placeholder?: string;
     required?: boolean;
@@ -453,6 +456,108 @@ function UsageMeter({ usage }: { usage: UsageSummary }) {
 
 // Typed start-input form — one control per field the input node declares.
 // Each value is seeded into flow state under its field name at run time.
+/**
+ * A file field: pick a document, extract its text, seed the text as the field's
+ * value. Extraction happens HERE (client-side) so the swarm graph only ever
+ * carries strings — see lib/swarmFileInput for why, and for the caps.
+ */
+function FileField({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [meta, setMeta] = useState<{ name: string; chars: number; truncated: boolean } | null>(
+    null,
+  );
+
+  const pick = async (file: File) => {
+    setBusy(true);
+    try {
+      const { parseFileToText } = await import("@/lib/fileParsers");
+      const { readFileField } = await import("@/lib/swarmFileInput");
+      const res = await readFileField(file, () => parseFileToText(file));
+      onChange(res.text);
+      setMeta({ name: res.fileName, chars: res.text.length, truncated: res.truncated });
+      if (res.truncated) {
+        toast.warning(
+          `"${res.fileName}" was truncated to ${FILE_INPUT_MAX_CHARS.toLocaleString()} characters — the swarm will not see the rest.`,
+        );
+      }
+    } catch (e) {
+      toast.error((e as Error).message);
+      onChange("");
+      setMeta(null);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-1">
+      <input
+        ref={ref}
+        type="file"
+        accept={FILE_INPUT_ACCEPT}
+        className="hidden"
+        disabled={disabled}
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) void pick(f);
+          e.currentTarget.value = "";
+        }}
+      />
+      <div className="flex items-center gap-1.5">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8 text-xs"
+          disabled={disabled || busy}
+          onClick={() => ref.current?.click()}
+        >
+          {busy ? (
+            <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+          ) : (
+            <Paperclip className="h-3.5 w-3.5 mr-1" />
+          )}
+          {meta ? "Replace file" : "Attach file"}
+        </Button>
+        {meta && (
+          <button
+            type="button"
+            className="text-[10px] text-muted-foreground hover:text-destructive"
+            onClick={() => {
+              onChange("");
+              setMeta(null);
+            }}
+          >
+            clear
+          </button>
+        )}
+      </div>
+      {meta ? (
+        <p className="text-[10px] text-muted-foreground">
+          <span className="font-medium text-foreground">{meta.name}</span> ·{" "}
+          {meta.chars.toLocaleString()} chars extracted
+          {meta.truncated && <span className="text-amber-500"> · truncated</span>}
+        </p>
+      ) : value ? (
+        <p className="text-[10px] text-muted-foreground">
+          {value.length.toLocaleString()} chars of text
+        </p>
+      ) : (
+        <p className="text-[10px] text-muted-foreground">PDF, DOCX or text — extracted to text</p>
+      )}
+    </div>
+  );
+}
+
 function StartInputForm({
   fields,
   values,
@@ -474,7 +579,13 @@ function StartInputForm({
             {f.label || f.name}
             {f.required && <span className="text-destructive"> *</span>}
           </label>
-          {f.type === "textarea" ? (
+          {f.type === "file" ? (
+            <FileField
+              value={values[f.name] ?? ""}
+              onChange={(v) => onChange(f.name, v)}
+              disabled={disabled}
+            />
+          ) : f.type === "textarea" ? (
             <Textarea
               value={values[f.name] ?? ""}
               onChange={(e) => onChange(f.name, e.target.value)}

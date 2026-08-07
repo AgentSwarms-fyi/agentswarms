@@ -53,10 +53,12 @@ import {
   Mail,
   Plus,
   CopyPlus,
+  Puzzle,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useApproverDirectory } from "@/hooks/use-approver-directory";
 import { runSandboxed, safeStringify } from "@/lib/sandbox/jsSandbox";
+import { coerceParams } from "@/lib/swarmComponents";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { PromptLibraryPicker } from "@/components/prompts/PromptLibraryPicker";
@@ -2127,7 +2129,9 @@ function InputFieldsPanel({
         <p className="text-[10px] text-muted-foreground">
           Add fields to collect typed inputs in the Run panel. Each value is seeded into flow state
           under its name — reference it anywhere as <code className="font-mono">{"{{name}}"}</code>.
-          Leave empty for a single free-text input.
+          Leave empty for a single free-text input. A <strong>file</strong> field accepts a PDF,
+          DOCX or text document and seeds its extracted TEXT — so downstream nodes read it like any
+          other variable.
         </p>
         {fields.map((f, i) => (
           <div key={i} className="rounded-md border border-border/40 p-2 space-y-1.5">
@@ -2146,7 +2150,7 @@ function InputFieldsPanel({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {["text", "textarea", "number", "select"].map((t) => (
+                  {["text", "textarea", "number", "select", "file"].map((t) => (
                     <SelectItem key={t} value={t}>
                       {t}
                     </SelectItem>
@@ -3156,7 +3160,16 @@ function FunctionPanel({
       // Treat as raw string if not valid JSON.
       parsed = sample;
     }
-    const result = await runSandboxed(code, { input: parsed, vars: {} }, timeoutMs);
+    const result = await runSandboxed(
+      code,
+      {
+        input: parsed,
+        vars: {},
+        // Same coercion the runtime uses, so a test here means what a run means.
+        params: coerceParams(data.componentParams ?? [], data.componentValues ?? {}),
+      },
+      timeoutMs,
+    );
     setRunning(false);
     setTestLogs(result.logs);
     if (result.ok) {
@@ -3168,8 +3181,83 @@ function FunctionPanel({
     }
   }
 
+  const cParams = data.componentParams ?? [];
+  const cValues = data.componentValues ?? {};
+  const setParam = (name: string, value: string) =>
+    onChange({ componentValues: { ...cValues, [name]: value } });
+
   return (
     <>
+      {data.componentId && (
+        <Section
+          label={
+            <span className="flex items-center gap-1.5">
+              <Puzzle className="h-3 w-3" /> Component
+            </span>
+          }
+        >
+          <div className="rounded-md border border-violet-500/30 bg-violet-500/5 p-2 space-y-2">
+            <p className="text-[11px]">
+              <span className="font-medium">{data.componentName}</span>{" "}
+              <span className="text-muted-foreground">v{data.componentVersion ?? 1}</span>
+            </p>
+            <p className="text-[10px] text-muted-foreground">
+              This node carries its own copy of the component&rsquo;s code, so editing the library
+              later cannot change a swarm that already works. Edit the code below to fork it for
+              this node only.
+            </p>
+            {cParams.length > 0 && (
+              <div className="space-y-1.5 pt-0.5">
+                {cParams.map((p) => (
+                  <div key={p.name} className="space-y-0.5">
+                    <label
+                      htmlFor={`cp-${p.name}`}
+                      className="text-[10px] text-muted-foreground block"
+                    >
+                      {p.label || p.name}
+                      {p.required && <span className="text-destructive"> *</span>}
+                    </label>
+                    {p.type === "select" ? (
+                      <select
+                        id={`cp-${p.name}`}
+                        value={cValues[p.name] ?? p.default ?? ""}
+                        onChange={(e) => setParam(p.name, e.target.value)}
+                        className="w-full h-7 rounded-md border border-input bg-background px-2 text-xs"
+                      >
+                        <option value="">Select…</option>
+                        {(p.options ?? []).map((o) => (
+                          <option key={o} value={o}>
+                            {o}
+                          </option>
+                        ))}
+                      </select>
+                    ) : p.type === "boolean" ? (
+                      <label className="flex items-center gap-1.5 text-[11px]">
+                        <input
+                          id={`cp-${p.name}`}
+                          type="checkbox"
+                          className="h-3 w-3 accent-primary"
+                          checked={(cValues[p.name] ?? p.default) === "true"}
+                          onChange={(e) => setParam(p.name, e.target.checked ? "true" : "false")}
+                        />
+                        enabled
+                      </label>
+                    ) : (
+                      <Input
+                        id={`cp-${p.name}`}
+                        type={p.type === "number" ? "number" : "text"}
+                        value={cValues[p.name] ?? p.default ?? ""}
+                        onChange={(e) => setParam(p.name, e.target.value)}
+                        className="h-7 text-xs"
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </Section>
+      )}
       <Section
         label={
           <span className="flex items-center gap-1.5">

@@ -1583,6 +1583,45 @@ export type Database = {
           },
         ]
       }
+      swarm_components: {
+        Row: {
+          category: string
+          code: string
+          created_at: string
+          description: string
+          id: string
+          name: string
+          params: Json
+          updated_at: string
+          user_id: string
+          version: number
+        }
+        Insert: {
+          category?: string
+          code?: string
+          created_at?: string
+          description?: string
+          id?: string
+          name: string
+          params?: Json
+          updated_at?: string
+          user_id: string
+          version?: number
+        }
+        Update: {
+          category?: string
+          code?: string
+          created_at?: string
+          description?: string
+          id?: string
+          name?: string
+          params?: Json
+          updated_at?: string
+          user_id?: string
+          version?: number
+        }
+        Relationships: []
+      }
       sql_query_history: {
         Row: {
           connection_id: string | null;

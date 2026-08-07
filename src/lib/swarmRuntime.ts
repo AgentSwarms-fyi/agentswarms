@@ -21,6 +21,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Node, Edge } from "@xyflow/react";
 import { buildUserMessage, invokeAgent, type AgentCard } from "@/lib/a2aClient";
 import { runSandboxed, safeStringify } from "@/lib/sandbox/jsSandbox";
+import { coerceParams, missingRequired } from "@/lib/swarmComponents";
 import { isImageModelId } from "@/lib/providerSupport";
 import {
   SkipTracker,
@@ -194,7 +195,9 @@ export type SwarmNodeData = {
   inputFields?: {
     name: string;
     label?: string;
-    type: "text" | "textarea" | "number" | "select";
+    // "file" collects a document and seeds its EXTRACTED TEXT into flow state
+    // under `name` — the graph never carries a binary (see lib/swarmFileInput).
+    type: "text" | "textarea" | "number" | "select" | "file";
     options?: string[]; // for type "select"
     placeholder?: string;
     required?: boolean;
@@ -227,6 +230,21 @@ export type SwarmNodeData = {
   // Executed in-browser via runSandboxed() with a hard 2s timeout.
   functionCode?: string;
   functionTimeoutMs?: number;
+  // Custom component binding (see lib/swarmComponents). When set, functionCode
+  // above is a SNAPSHOT of the component's code and componentValues configures
+  // it; the snippet reads them as ctx.params.
+  componentId?: string;
+  componentName?: string;
+  componentVersion?: number;
+  componentParams?: {
+    name: string;
+    label?: string;
+    type: "text" | "number" | "boolean" | "select";
+    options?: string[];
+    default?: string;
+    required?: boolean;
+  }[];
+  componentValues?: Record<string, string>;
   // evaluate — LLM-as-a-judge scoring node
   evalMetrics?: EvalMetricConfig[];
   evalRubric?: string; // free-form rubric the judge must follow
@@ -1407,13 +1425,35 @@ export async function runSwarm(
           const inputValue = gatherInputs(node, ctx, lastOutput);
           const code = (node.data.functionCode || "return ctx.input;").trim();
           const timeoutMs = Math.max(100, Math.min(node.data.functionTimeoutMs ?? 2000, 5000));
+          // Component-bound nodes: check declared requirements BEFORE running,
+          // so a missing parameter is a clear message rather than whatever the
+          // snippet does with undefined.
+          const cParams = node.data.componentParams ?? [];
+          const cValues = node.data.componentValues ?? {};
+          if (cParams.length > 0) {
+            const missing = missingRequired(cParams, cValues);
+            if (missing.length > 0) {
+              throw new Error(
+                `${node.data.componentName ?? "Component"} node is missing required parameter${
+                  missing.length === 1 ? "" : "s"
+                }: ${missing.join(", ")}.`,
+              );
+            }
+          }
           const result = await runSandboxed(
             code,
-            { input: inputValue, vars: { ...ctx } },
+            {
+              input: inputValue,
+              vars: { ...ctx },
+              params: cParams.length > 0 ? coerceParams(cParams, cValues) : {},
+            },
             timeoutMs,
           );
           if (!result.ok) {
-            throw new Error(`Function node error: ${result.error}`);
+            const who = node.data.componentName
+              ? `Component "${node.data.componentName}"`
+              : "Function node";
+            throw new Error(`${who} error: ${result.error}`);
           }
           const outStr = safeStringify(result.value);
           if (outStr) {
