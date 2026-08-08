@@ -86,14 +86,26 @@ installed.
 git clone <your-repo-url> agentswarms
 ```
 
-Fill in `.env` and apply migrations (shared prerequisites above), then:
+The setup script is the shortest path — it scaffolds `.env`, generates the
+encryption secrets, applies the migrations and starts **every** service:
 
 ```bash
-docker compose up --build
+bash scripts/setup.sh --all
 ```
 
-Open **http://localhost:8080**. That's it — one container, your Supabase
-project as the backend.
+On Windows:
+
+```bash
+powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -All
+```
+
+It cannot create your Supabase project or guess its keys: it writes the `.env`
+and tells you which values to fill in, then you re-run it. Open
+**http://localhost:8080** when it finishes.
+
+`--all` turns on the three optional profiles described below. Plain
+`docker compose up --build` starts the app alone — enough to try it, but
+notebooks, Deep-mode documents and headless custom code stay unavailable.
 
 - Set the Supabase **Auth → URL Configuration** Site URL to
   `http://localhost:8080` so email links resolve (INSTALL.md §3.3).
@@ -199,7 +211,7 @@ off. No session affinity needed.
 kernels are addressed by container IP on one Docker host, so a request landing
 on a different VM can't reach a kernel created elsewhere. If you enable the
 Developer-workspace runtime on an autoscaled fleet, either (a) use the
-**Kubernetes** backend (see [E](#e-kubernetes)), (b) point all instances at a
+**Kubernetes** backend (see [D](#d-kubernetes)), (b) point all instances at a
 **single dedicated runtime host**, or (c) leave notebooks off the autoscaled
 tier. The core web/agent/BI/RAG platform scales regardless.
 
@@ -216,8 +228,6 @@ across nodes: it launches a pod per notebook session (cluster-addressable,
 unlike the single-host Docker backend). Manifests live under
 `deploy/k8s/notebooks/`; set `NOTEBOOK_RUNTIME_BACKEND=k8s` and run the app
 in-cluster. See [DEVELOPER_WORKSPACE_RUNTIME.md](./DEVELOPER_WORKSPACE_RUNTIME.md).
-
----
 
 ---
 
@@ -320,11 +330,16 @@ npx supabase db push --db-url "postgresql://postgres:<POSTGRES_PASSWORD>@<db-hos
 Storage buckets and their RLS policies are created by the migrations, so there
 is nothing to click in Studio afterwards.
 
-**Verified.** All 146 migrations were applied to a stock
+**Verified, at the 146-migration mark.** The whole set was applied to a stock
 `supabase/postgres:15.8.1.060` container: 146 applied, 0 failed, producing 98
 tables with RLS enabled on all 98, the pgvector HNSW index, 2 `pg_cron` jobs
-and 3 storage buckets. All five required extensions were present in that image
-— run the preflight above anyway, because the image you pull may differ.
+and 3 storage buckets. All five required extensions were present in that image.
+
+The set has grown since that run (**154 migrations, 100 tables** as of this
+writing) and the bare-container test has not been repeated, so treat the
+numbers above as the last full verification rather than a current guarantee.
+Run the extension preflight regardless — it is what actually protects you, and
+the image you pull may differ from the one tested.
 
 ### 5. Point AgentSwarms at it
 
@@ -420,7 +435,7 @@ one pass runs at a time (extra callers get `{"skipped": true}`).
 
 - **Single instance (A/B):** nothing to do — the in-process 60s scheduler runs
   automatically.
-- **Multi-instance / serverless (C/D/E):** set `DISABLE_INPROCESS_SCHEDULER=1`
+- **Multi-instance / serverless (C/D):** set `DISABLE_INPROCESS_SCHEDULER=1`
   and run one external cron every minute:
 
   ```bash

@@ -49,11 +49,17 @@ function SelfHostingPage() {
         The setup script scaffolds <C>.env</C>, generates the encryption secrets, applies database
         migrations and starts the stack.
       </P>
-      <Code lang="bash">{`./scripts/setup.sh --docker`}</Code>
-      <Code lang="powershell">{`powershell -ExecutionPolicy Bypass -File scripts\\setup.ps1`}</Code>
+      <Code lang="bash">{`./scripts/setup.sh --all`}</Code>
+      <Code lang="powershell">{`powershell -ExecutionPolicy Bypass -File scripts\\setup.ps1 -All`}</Code>
       <P>
-        Add <C>--dev</C> for a local dev server instead of containers, <C>--docgen</C> for the
-        server-side Office renderer, and <C>--notebooks</C> for the Developer-workspace runtime.
+        <C>--all</C> brings up <em>every</em> service and is the right default for a full install.
+        Without it you get the app alone: add <C>--docgen</C> for the server-side Office renderer,{" "}
+        <C>--notebooks</C> for the Developer-workspace Python runtime, or <C>--sandbox</C> for
+        custom code in deployed swarms. <C>--dev</C> runs a local dev server instead of containers.
+      </P>
+      <P>
+        It cannot create your Supabase project or guess its keys — it writes the <C>.env</C>, tells
+        you which values to fill in, and you re-run it.
       </P>
 
       <H2 id="manual">Manual setup</H2>
@@ -503,13 +509,29 @@ BI_CRON_TOKEN="..."`}</Code>
             <C key="p2">--profile notebooks</C>,
             "Real Python kernels for the Developer workspace, with a gateway and a default-deny egress proxy.",
           ],
+          [
+            "JS sandbox",
+            <C key="p3">--profile sandbox</C>,
+            "Runs Function nodes and custom components in deployed and scheduled swarms, in a locked-down container instead of next to the app's credentials.",
+          ],
         ]}
       />
-      <Code lang="bash">{`docker compose --profile docgen --profile notebooks up -d --build`}</Code>
+      <Code lang="bash">{`docker compose --profile docgen --profile notebooks --profile sandbox up -d --build`}</Code>
       <P>
-        Both are optional. Without the renderer, documents are generated in the browser and Deep
-        mode is greyed out with the reason. Without the notebook runtime, notebooks fall back to the
-        in-browser Python runtime.
+        Or let the setup script start everything: <C>bash scripts/setup.sh --all</C> (
+        <C>powershell -File scripts\setup.ps1 -All</C> on Windows).
+      </P>
+      <P>
+        All three are optional, and each degrades to something rather than breaking. Without the
+        renderer, documents are generated in the browser and Deep mode is greyed out with the
+        reason. Without the notebook runtime, notebooks fall back to the in-browser Python runtime.
+        Without the sandbox, custom code still runs on the canvas and the Deploy dialog says plainly
+        that it will fail in headless runs.
+      </P>
+      <P>
+        <strong>Observability → Monitoring</strong> (superadmin) shows which of these are actually
+        up on this deployment, with the address that answered and live CPU, memory and disk. A
+        profile you chose not to start reads &ldquo;Not running&rdquo; rather than as a failure.
       </P>
 
       <H2 id="deploy-targets">Deployment targets</H2>
