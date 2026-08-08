@@ -6,6 +6,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { embedTexts } from "./embedding.server";
+import {
+  fuseHybrid,
+  resolveRetrievalSettings,
+  type Candidate,
+  type RetrievalSettings,
+} from "@/lib/kbRag";
 
 export type Citation = {
   index: number;
@@ -204,9 +210,45 @@ const STOP = new Set([
 
 const SNIPPET_RADIUS = 280;
 const SNIPPET_MAX = 560;
+/**
+ * Parent-expanded citations get a much larger budget than a child snippet.
+ *
+ * The 560-char cap exists to stop one runaway chunk from eating the prompt. A
+ * parent is deliberately large — that is the whole reason to retrieve one — so
+ * reusing the child cap here would trim a 4,000-character parent down to 560
+ * and quietly deliver flat chunking under a different name.
+ */
+const PARENT_SNIPPET_MAX = 4000;
 
 function trimSnippet(s: string): string {
   return s.replace(/\s+/g, " ").trim().slice(0, SNIPPET_MAX);
+}
+
+/**
+ * The text a matched chunk contributes to the prompt.
+ *
+ * Three cases, in priority order:
+ *  - PARENT-CHILD: a small child matched, but the model reads the whole parent.
+ *    Retrieval and generation want different chunk sizes and this is where that
+ *    is reconciled.
+ *  - Q&A: the question was embedded and the answer is the content; both are
+ *    shown, because an answer stripped of its question often loses its subject
+ *    ("Yes, up to 90 days." is useless on its own).
+ *  - FLAT: the chunk itself, exactly as before.
+ */
+function citationText(row: {
+  content: string;
+  question: string | null;
+  chunk_kind: string;
+  parent_content: string | null;
+}): string {
+  if (row.parent_content) {
+    return row.parent_content.replace(/\s+/g, " ").trim().slice(0, PARENT_SNIPPET_MAX);
+  }
+  if (row.chunk_kind === "qa" && row.question) {
+    return trimSnippet(`Q: ${row.question} — A: ${row.content}`);
+  }
+  return trimSnippet(row.content);
 }
 
 export async function retrieveCitationsServer(opts: {
@@ -280,11 +322,45 @@ export async function retrieveCitationsServer(opts: {
     if (kbIds.length === 0) return [];
   }
 
+  // 1b) Retrieval settings live on the knowledge base, not the agent: they
+  // describe how this collection should be searched. When several KBs are in
+  // play the most keyword-leaning wins, because a KB configured for hybrid was
+  // configured that way for a reason (identifiers, error codes, product names)
+  // and silently searching it semantically would lose exactly those matches.
+  let retrieval: RetrievalSettings = { mode: "semantic", semanticWeight: 1 };
+  try {
+    const { data: kbSettings } = await sb
+      .from("knowledge_bases")
+      .select("retrieval_settings")
+      .in("id", kbIds);
+    for (const row of kbSettings ?? []) {
+      const r = resolveRetrievalSettings(row.retrieval_settings);
+      if (r.semanticWeight < retrieval.semanticWeight) retrieval = r;
+    }
+  } catch {
+    /* defaults stand — a settings read must never break retrieval */
+  }
+
   // 2) Vector search via pgvector — best-effort. The query must be embedded
   // with the same model/provider the documents were embedded with, so read
   // the embed config stamped on the KB's documents and resolve the caller's
   // integration when it isn't the built-in OpenAI key.
-  let vectorCits: Citation[] = [];
+  type ChunkRow = {
+    id: string;
+    document_id: string;
+    knowledge_base_id: string;
+    chunk_index: number;
+    content: string;
+    question: string | null;
+    chunk_kind: string;
+    parent_id: string | null;
+    parent_content: string | null;
+    similarity?: number;
+    rank?: number;
+  };
+  let vectorRows: ChunkRow[] = [];
+  let vectorScores: Candidate[] = [];
+  let fusedCits: Citation[] = [];
   let embedKey = process.env.OPENAI_API_KEY ?? "";
   let embedEndpoint: string | undefined;
   let embedModel: string | undefined;
@@ -328,39 +404,86 @@ export async function retrieveCitationsServer(opts: {
         endpoint: embedEndpoint,
         allowCustomModel,
       });
+      // Over-fetch when a re-ranker or hybrid fusion will re-order the list:
+      // fusion can only promote what it was given, so a top-k fetch would let
+      // the keyword side rescue nothing.
+      const wide = reranker || retrieval.mode !== "semantic" ? Math.min(topK * 3, 30) : topK;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: matches, error: matchErr } = await (sb as any).rpc("match_kb_chunks", {
+      const { data: matches, error: matchErr } = await (sb as any).rpc("match_kb_chunks_v2", {
         query_embedding: `[${queryEmbedding.join(",")}]`,
         kb_ids: kbIds,
-        match_count: reranker ? Math.min(topK * 3, 20) : topK,
+        match_count: wide,
       });
       if (matchErr) throw new Error(matchErr.message);
-      const rows = (matches ?? []) as Array<{
-        document_id: string;
-        knowledge_base_id: string;
-        chunk_index: number;
-        content: string;
-        similarity: number;
-      }>;
-      if (rows.length > 0) {
-        const docIds = Array.from(new Set(rows.map((r) => r.document_id)));
-        const [{ data: kbs }, { data: docs }] = await Promise.all([
-          sb.from("knowledge_bases").select("id, name").in("id", kbIds),
-          sb.from("knowledge_documents").select("id, name").in("id", docIds),
-        ]);
-        const kbMap = new Map((kbs ?? []).map((k) => [k.id, k.name]));
-        const docMap = new Map((docs ?? []).map((d) => [d.id, d.name]));
-        vectorCits = rows.map((m, i) => ({
-          index: i + 1,
-          documentId: m.document_id,
-          documentName: docMap.get(m.document_id) ?? "Document",
-          knowledgeBaseId: m.knowledge_base_id,
-          knowledgeBaseName: kbMap.get(m.knowledge_base_id) ?? "Knowledge Base",
-          snippet: trimSnippet(m.content),
-        }));
-      }
+      vectorRows = (matches ?? []) as ChunkRow[];
+      vectorScores = vectorRows.map((r) => ({ id: r.id, score: r.similarity ?? 0 }));
     } catch (err) {
       console.warn("[kb.server] vector search failed, falling back to keyword scan:", err);
+    }
+  }
+
+  // 2b) Keyword search over the SAME chunks, via Postgres full-text search.
+  //
+  // This is what makes retrieval genuinely hybrid. The older keyword pass below
+  // only ever looked at documents with no embeddings, so an exact term match
+  // inside an embedded document — a part number, an error code, a person's name
+  // — could never rescue a weak semantic match.
+  let keywordRows: ChunkRow[] = [];
+  let keywordScores: Candidate[] = [];
+  if (retrieval.mode !== "semantic") {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: kwMatches, error: kwErr } = await (sb as any).rpc("keyword_kb_chunks", {
+        query_text: opts.query,
+        kb_ids: kbIds,
+        match_count: Math.min(topK * 3, 30),
+      });
+      if (kwErr) throw new Error(kwErr.message);
+      keywordRows = (kwMatches ?? []) as ChunkRow[];
+      keywordScores = keywordRows.map((r) => ({ id: r.id, score: r.rank ?? 0 }));
+    } catch (err) {
+      // Keyword search failing must not take semantic search down with it.
+      console.warn("[kb.server] keyword chunk search failed:", err);
+    }
+  }
+
+  // 2c) Fuse, then collapse to citations.
+  //
+  // Citations stay per DOCUMENT — that is the contract the grounding prompt and
+  // every caller already expect. What changes is which document wins and which
+  // text represents it: the best-scoring chunk decides, and a chunk with a
+  // parent contributes its PARENT's text so the model reads the full passage
+  // rather than the fragment that happened to match.
+  {
+    const byId = new Map<string, ChunkRow>();
+    for (const r of [...vectorRows, ...keywordRows]) if (!byId.has(r.id)) byId.set(r.id, r);
+    const fused = fuseHybrid(vectorScores, keywordScores, retrieval);
+    if (fused.length > 0) {
+      const docIds = Array.from(
+        new Set(fused.map((f) => byId.get(f.id)?.document_id).filter((d): d is string => !!d)),
+      );
+      const [{ data: kbs }, { data: docs }] = await Promise.all([
+        sb.from("knowledge_bases").select("id, name").in("id", kbIds),
+        sb.from("knowledge_documents").select("id, name").in("id", docIds),
+      ]);
+      const kbMap = new Map((kbs ?? []).map((k) => [k.id, k.name]));
+      const docMap = new Map((docs ?? []).map((d) => [d.id, d.name]));
+      const seenDocs = new Set<string>();
+      const out: Citation[] = [];
+      for (const f of fused) {
+        const row = byId.get(f.id);
+        if (!row || seenDocs.has(row.document_id)) continue;
+        seenDocs.add(row.document_id);
+        out.push({
+          index: out.length + 1,
+          documentId: row.document_id,
+          documentName: docMap.get(row.document_id) ?? "Document",
+          knowledgeBaseId: row.knowledge_base_id,
+          knowledgeBaseName: kbMap.get(row.knowledge_base_id) ?? "Knowledge Base",
+          snippet: citationText(row),
+        });
+      }
+      fusedCits = out;
     }
   }
 
@@ -471,11 +594,14 @@ export async function retrieveCitationsServer(opts: {
     console.warn("[kb.server] keyword fallback failed:", err);
   }
 
-  // 4) Merge — vector first (semantic priority), then keyword. Dedupe by doc.
+  // 4) Append the unembedded-document fallback beneath the fused results.
+  //    fusedCits is already ranked and deduped by document; this only adds
+  //    documents that have no chunks at all, so it can never outrank a real
+  //    match. Dedupe by doc.
   const seen = new Set<string>();
   let merged: Citation[] = [];
   const mergeCap = reranker ? Math.min(topK * 3, 20) : topK;
-  for (const c of [...vectorCits, ...keywordCits]) {
+  for (const c of [...fusedCits, ...keywordCits]) {
     if (seen.has(c.documentId)) continue;
     seen.add(c.documentId);
     merged.push({ ...c, index: merged.length + 1 });

@@ -28,6 +28,7 @@ export const embedKbDocuments = createServerFn({ method: "POST" })
       return {
         documentsProcessed: 0,
         chunksInserted: 0,
+        warnings: [] as string[],
         skipped: true,
         reason: "no_api_key" as const,
       };
@@ -39,7 +40,8 @@ export const embedKbDocuments = createServerFn({ method: "POST" })
       .in("id", data.documentIds)
       .eq("user_id", userId);
     if (error) throw new Error(error.message);
-    if (!docs || docs.length === 0) return { documentsProcessed: 0, chunksInserted: 0 };
+    if (!docs || docs.length === 0)
+      return { documentsProcessed: 0, chunksInserted: 0, warnings: [] as string[] };
 
     const result = await embedAndStoreDocuments({
       sb: supabase,
@@ -65,6 +67,18 @@ export const backfillKbEmbeddings = createServerFn({ method: "POST" })
         limit: z.number().int().min(1).max(100).optional(),
         provider: z.string().optional(),
         model: z.string().optional(),
+        /** Re-index documents that already have chunks, not just the pending ones. */
+        force: z.boolean().optional(),
+        /** Chunk settings to stamp on each document before rebuilding its rows. */
+        chunkSettings: z
+          .object({
+            mode: z.enum(["flat", "parent_child", "qa"]).optional(),
+            strategy: z.string().optional(),
+            chunkSize: z.number().int().min(64).max(8192).optional(),
+            chunkOverlap: z.number().int().min(0).max(1024).optional(),
+            parentSize: z.number().int().min(128).max(4096).optional(),
+          })
+          .optional(),
       })
       .parse(input),
   )
@@ -78,6 +92,7 @@ export const backfillKbEmbeddings = createServerFn({ method: "POST" })
       return {
         documentsProcessed: 0,
         chunksInserted: 0,
+        warnings: [] as string[],
         skipped: true,
         reason: "no_api_key" as const,
       };
@@ -90,19 +105,54 @@ export const backfillKbEmbeddings = createServerFn({ method: "POST" })
       .eq("user_id", userId)
       .limit(data.limit ?? 50);
     if (error) throw new Error(error.message);
-    if (!docs || docs.length === 0) return { documentsProcessed: 0, chunksInserted: 0 };
+    if (!docs || docs.length === 0)
+      return { documentsProcessed: 0, chunksInserted: 0, warnings: [] as string[] };
 
-    // Skip docs that already have chunks.
-    const ids = docs.map((d) => d.id);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: existing } = await (supabase.from("kb_chunks" as any) as any)
-      .select("document_id")
-      .in("document_id", ids);
-    const have = new Set<string>(
-      ((existing ?? []) as { document_id: string }[]).map((r) => r.document_id),
-    );
-    const pending = docs.filter((d) => !have.has(d.id));
-    if (pending.length === 0) return { documentsProcessed: 0, chunksInserted: 0 };
+    // Normally this is a BACKFILL: documents that already have chunks are left
+    // alone. `force` turns it into a re-index, which is what changing the
+    // chunking mode requires — parent-child and Q&A rebuild the rows entirely,
+    // so without this the new setting would apply only to documents added
+    // afterwards and an existing knowledge base could never be upgraded.
+    let pending = docs;
+    if (!data.force) {
+      const ids = docs.map((d) => d.id);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: existing } = await (supabase.from("kb_chunks" as any) as any)
+        .select("document_id")
+        .in("document_id", ids);
+      const have = new Set<string>(
+        ((existing ?? []) as { document_id: string }[]).map((r) => r.document_id),
+      );
+      pending = docs.filter((d) => !have.has(d.id));
+    }
+    if (pending.length === 0)
+      return { documentsProcessed: 0, chunksInserted: 0, warnings: [] as string[] };
+
+    // Persist the requested chunk settings onto each document BEFORE embedding.
+    // embedAndStoreDocuments reads the mode from the document's own metadata,
+    // and that metadata is also what tells a later reader how these chunks were
+    // built — leaving it stale would make the row describe a shape it no longer
+    // has.
+    if (data.chunkSettings) {
+      const cs = data.chunkSettings;
+      pending = pending.map((d) => ({
+        ...d,
+        metadata: {
+          ...((d.metadata ?? {}) as Record<string, unknown>),
+          ...(cs.mode ? { chunk_mode: cs.mode } : {}),
+          ...(cs.strategy ? { chunk_strategy: cs.strategy } : {}),
+          ...(typeof cs.chunkSize === "number" ? { chunk_size: cs.chunkSize } : {}),
+          ...(typeof cs.chunkOverlap === "number" ? { chunk_overlap: cs.chunkOverlap } : {}),
+          ...(typeof cs.parentSize === "number" ? { parent_chunk_size: cs.parentSize } : {}),
+        },
+      }));
+      for (const d of pending) {
+        await supabase
+          .from("knowledge_documents")
+          .update({ metadata: d.metadata as never })
+          .eq("id", d.id);
+      }
+    }
 
     const result = await embedAndStoreDocuments({
       sb: supabase,
@@ -123,4 +173,7 @@ export const backfillKbEmbeddings = createServerFn({ method: "POST" })
  * lets the RAG settings UI label "Built-in" honestly. */
 export const kbEmbedStatus = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .handler(async () => ({ builtinConfigured: Boolean(process.env.OPENAI_API_KEY) }));
+  .handler(async () => ({
+    builtinConfigured: Boolean(process.env.OPENAI_API_KEY),
+    openrouterAvailable: Boolean(process.env.OPENROUTER_API_KEY),
+  }));

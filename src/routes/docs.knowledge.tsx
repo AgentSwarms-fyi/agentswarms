@@ -202,12 +202,13 @@ question ──▶ embed ──▶ nearest chunks ──▶ pasted into the prom
 
       <H3 id="embedding-provider">Which model does the embedding</H3>
       <P>
-        Set this per collection under <strong>RAG settings → Embedding</strong>. When you have{" "}
-        <strong>OpenRouter</strong> connected it is the default, so embedding does not compete for
-        the OpenAI quota that chat, document generation and retrieval already share — when that
-        quota runs out, knowledge-base search goes down with it. The built-in operator OpenAI key is
-        the fallback, and any other connected provider with an OpenAI-compatible <C>/embeddings</C>{" "}
-        endpoint can be selected instead.
+        Set this per collection under <strong>RAG settings → Embedding</strong>.{" "}
+        <strong>OpenRouter is the default</strong> — either through your own integration or, with no
+        integration at all, through the operator's <C>OPENROUTER_API_KEY</C>. That keeps embedding
+        off the OpenAI quota that chat, document generation and retrieval already share; when that
+        quota runs out, knowledge-base search would otherwise go down with it. The operator's OpenAI
+        key is the fallback, and any other connected provider exposing an OpenAI-compatible{" "}
+        <C>/embeddings</C> endpoint can be selected instead.
       </P>
       <Callout kind="warn" title="Changing the model means re-embedding">
         Vectors from two different models are not comparable — searching model A's chunks with model
@@ -224,16 +225,122 @@ question ──▶ embed ──▶ nearest chunks ──▶ pasted into the prom
         writing unusable vectors.
       </Callout>
       <P>
-        This is why the OpenRouter default is <C>openai/text-embedding-3-small</C> rather than one
-        of the NVIDIA nemotron embedding models: it is the <em>same</em> 1536-d space the built-in
-        key produces, so moving a collection onto OpenRouter to get off an exhausted OpenAI quota
-        costs nothing and leaves existing chunks searchable. <C>nvidia/nemotron-3-embed-1b</C> and{" "}
-        <C>nvidia/llama-nemotron-embed-vl-1b-v2</C> (which can embed images as well as text) are
-        selectable, but they are a different space — switching to one means re-embedding the
-        collection.
+        The OpenRouter default is <C>openai/text-embedding-3-small</C> because it is the{" "}
+        <em>same</em> 1536-d space the operator's OpenAI key produces: moving a collection onto
+        OpenRouter to get off an exhausted OpenAI quota costs nothing and leaves existing chunks
+        searchable. The other options are different spaces, so choosing one means re-indexing.
+      </P>
+      <Table
+        headers={["Model", "Native width", "Notes"]}
+        rows={[
+          [
+            <C key="a">openai/text-embedding-3-small</C>,
+            "1536",
+            "Default. Same vector space as the built-in OpenAI key.",
+          ],
+          [<C key="b">openai/text-embedding-3-large</C>, "3072", "Truncates to 1536 on request."],
+          [<C key="c">google/gemini-embedding-001</C>, "3072", "Truncates to 1536 on request."],
+          [<C key="d">qwen/qwen3-embedding-8b</C>, "4096", "Truncates to 1536 on request."],
+          [<C key="e">qwen/qwen3-embedding-4b</C>, "2560", "Truncates to 1536 on request."],
+        ]}
+      />
+      <P>
+        Every model in that list was called against OpenRouter's live endpoint and confirmed to
+        return 1536 dimensions. That check is not ceremony: OpenRouter does not list embedding
+        models in its public <C>/models</C> catalogue, so a plausible-looking id is no evidence the
+        model exists. Two NVIDIA nemotron ids used to be offered here and both returned{" "}
+        <C>404 No endpoints found</C> — selecting one produced a failed embed with nothing to
+        indicate the model had never been available.
       </P>
 
       {/* ── RETRIEVAL ── */}
+      <H2 id="chunk-modes">Chunking modes</H2>
+      <P>
+        Retrieval and generation want opposite things from a chunk. Matching is most precise when
+        chunks are small and about one idea; answering is best when the model can see the whole
+        passage. <strong>RAG Settings &rarr; Chunking &rarr; Chunking Mode</strong> decides how that
+        tension is resolved for a document.
+      </P>
+      <Table
+        headers={["Mode", "What is embedded", "What the model reads", "Use it when"]}
+        rows={[
+          [
+            "Flat",
+            "The chunk",
+            "The same chunk",
+            "Short documents, FAQs, anything where one chunk is already a complete thought. This is the default and was the only behaviour before.",
+          ],
+          [
+            "Parent-child",
+            "Small child chunks",
+            "The child's parent",
+            "Long reference material — manuals, contracts, policies — where the sentence that matches is meaningless without the section around it.",
+          ],
+          [
+            "Q&A",
+            "A generated question",
+            "The question and its answer",
+            "Support content and policy documents that people query in natural questions. Costs one model call per passage at index time.",
+          ],
+        ]}
+      />
+      <P>
+        <strong>Parent-child</strong> sets two sizes: the parent is what reaches the model, and the
+        existing chunk size becomes the child. A child is capped at half the parent, because a child
+        the same size as its parent is flat chunking with extra bookkeeping. Parents do not overlap
+        each other; children overlap within a parent.
+      </P>
+      <P>
+        <strong>Q&amp;A</strong> exists because a question and a statement are different kinds of
+        text, and that difference is a real part of the distance between their vectors. Asking
+        &ldquo;How do I rotate a key?&rdquo; against a paragraph that says &ldquo;Rotation issues a
+        replacement&hellip;&rdquo; is a harder match than asking it against the generated question
+        &ldquo;How do I rotate a key?&rdquo;. It needs <C>OPENROUTER_API_KEY</C>; if generation
+        fails, the run reports it rather than quietly writing flat chunks, so a collection never
+        disagrees with the mode shown in its own settings.
+      </P>
+      <Callout kind="warn" title="Changing the mode does not rewrite existing chunks">
+        Re-chunking means paying to embed the whole document again, so it is never automatic. Use
+        <strong> Re-index &ldquo;&hellip;&rdquo; with these settings</strong> in the Chunking tab to
+        rebuild a collection under the new mode. Documents added afterwards use the new mode
+        already.
+      </Callout>
+
+      <H2 id="hybrid">Hybrid search and weighting</H2>
+      <P>
+        Vector search finds meaning and blurs exact strings; an error code, a part number or a
+        surname is exactly the kind of token embeddings smooth away. Keyword search is the opposite.
+        <strong> RAG Settings &rarr; Retrieval</strong> sets which of them runs, per knowledge base.
+      </P>
+      <Table
+        headers={["Mode", "What runs"]}
+        rows={[
+          [
+            "Semantic",
+            "Vector search only. The default, and what every collection did before this existed.",
+          ],
+          [
+            "Hybrid",
+            "Vector and Postgres full-text search over the same chunks, merged by weight.",
+          ],
+          ["Keyword", "Full-text search only."],
+        ]}
+      />
+      <P>
+        The <strong>weighting</strong> slider splits the score between them. Each retriever&rsquo;s
+        scores are normalised within its own list first, because cosine similarity (roughly
+        0.3&ndash;0.9) and text rank (roughly 0.0&ndash;0.3) are not comparable numbers &mdash;
+        added raw, the slider would do almost nothing across most of its range. A chunk found by{" "}
+        <em>both</em>
+        retrievers scores above one found by only one, which is usually the result you want.
+      </P>
+      <P>
+        Changing retrieval mode takes effect immediately and needs no re-embedding: it changes how
+        the existing index is queried, not how it was built. Note that keyword search also indexes
+        the generated <em>question</em> on Q&amp;A rows, because the answer text often does not
+        contain the words someone would search for.
+      </P>
+
       <H2 id="retrieval">Retrieval settings — the real numbers</H2>
       <Table
         headers={["Setting", "Default", "Range", "Notes"]}

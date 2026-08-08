@@ -62,6 +62,8 @@ import {
   kbEmbedStatus,
 } from "@/utils/tools/kbEmbed.functions";
 import { formatDistanceToNow } from "date-fns";
+import { Slider } from "@/components/ui/slider";
+import { type ChunkMode, type RetrievalMode, resolveRetrievalSettings } from "@/lib/kbRag";
 
 export const Route = createFileRoute("/_authenticated/knowledge")({
   component: KnowledgePage,
@@ -164,10 +166,50 @@ const ALL_EMBEDDING_MODELS: EmbeddingModelDef[] = [
     label: "OpenAI text-embedding-3-large (→1536d) — Built-in",
     provider: "openai_builtin",
   },
+  {
+    value: "openai/text-embedding-3-small",
+    label: "OpenAI text-embedding-3-small (1536d) — via OpenRouter",
+    provider: "openrouter",
+  },
+  {
+    value: "openai/text-embedding-3-large",
+    label: "OpenAI text-embedding-3-large (→1536d) — via OpenRouter",
+    provider: "openrouter",
+  },
+  {
+    value: "google/gemini-embedding-001",
+    label: "Gemini embedding-001 (→1536d) — via OpenRouter",
+    provider: "openrouter",
+  },
+  {
+    value: "qwen/qwen3-embedding-8b",
+    label: "Qwen3 embedding 8B (→1536d) — via OpenRouter",
+    provider: "openrouter",
+  },
 ];
 
 // Providers whose integrations expose an OpenAI-compatible /embeddings
 // endpoint. "openai_builtin" = the operator's OPENAI_API_KEY (zero config).
+// OpenRouter embedding models, every one probed against the live endpoint and
+// confirmed to return 1536 dimensions — the width of the pgvector column.
+//
+// text-embedding-3-small leads deliberately: it is the same vector space the
+// built-in OpenAI key produces, so moving a collection between the two does NOT
+// invalidate chunks that are already embedded. The others are different spaces
+// and selecting one means a re-index.
+//
+// Two nvidia/* models used to be listed here and both returned 404 "No
+// endpoints found". Only add a model to this list after calling /embeddings
+// with it: OpenRouter does not expose embedding models in its /models
+// catalogue, so a plausible-looking id is not evidence that it exists.
+const OPENROUTER_EMBED_MODELS = [
+  "openai/text-embedding-3-small",
+  "openai/text-embedding-3-large",
+  "google/gemini-embedding-001",
+  "qwen/qwen3-embedding-8b",
+  "qwen/qwen3-embedding-4b",
+];
+
 const EMBED_PROVIDERS: { id: string; label: string; models: string[] }[] = [
   {
     id: "openai_builtin",
@@ -182,17 +224,7 @@ const EMBED_PROVIDERS: { id: string; label: string; models: string[] }[] = [
   {
     id: "openrouter",
     label: "OpenRouter",
-    // OpenRouter model ids are namespaced by publisher. text-embedding-3-small
-    // is listed first deliberately: it is the same 1536-d space the built-in
-    // key produces, so switching to OpenRouter to escape an OpenAI quota does
-    // NOT invalidate chunks that are already embedded. The nemotron models are
-    // a different space (and width) — selecting one means re-embedding.
-    models: [
-      "openai/text-embedding-3-small",
-      "openai/text-embedding-3-large",
-      "nvidia/nemotron-3-embed-1b",
-      "nvidia/llama-nemotron-embed-vl-1b-v2",
-    ],
+    models: OPENROUTER_EMBED_MODELS,
   },
   // Notionally alphabetical below; OpenRouter sits high because it is the
   // default when connected (see DEFAULT_EMBED_PROVIDER).
@@ -267,11 +299,22 @@ function KnowledgePage() {
   // Set once the user picks a provider, so the auto-default stops interfering.
   const [embedProviderTouched, setEmbedProviderTouched] = useState(false);
   const [builtinConfigured, setBuiltinConfigured] = useState<boolean | null>(null);
+  const [openrouterAvailable, setOpenrouterAvailable] = useState<boolean | null>(null);
   const [customEmbedModel, setCustomEmbedModel] = useState("");
   const [chunkStrategy, setChunkStrategy] = useState("recursive");
   const [chunkSize, setChunkSize] = useState(512);
   const [chunkOverlap, setChunkOverlap] = useState(50);
   const [autoEmbed, setAutoEmbed] = useState(true);
+  // How a document becomes rows: flat | parent_child | qa. Applied to documents
+  // added AFTER the change — existing chunks keep whatever they were built with
+  // until they are re-embedded, which the UI says out loud.
+  const [chunkMode, setChunkMode] = useState<ChunkMode>("flat");
+  const [parentChunkSize, setParentChunkSize] = useState(1024);
+  // Retrieval settings belong to the knowledge base, not the document.
+  const [retrievalMode, setRetrievalMode] = useState<RetrievalMode>("semantic");
+  const [semanticWeight, setSemanticWeight] = useState(0.7);
+  const [savingRetrieval, setSavingRetrieval] = useState(false);
+  const [reindexing, setReindexing] = useState(false);
 
   // Connected embedding providers. "openai_builtin" is always available —
   // it's backed by the server's OPENAI_API_KEY, not a per-user integration.
@@ -285,15 +328,26 @@ function KnowledgePage() {
   );
   const [uploading, setUploading] = useState(false);
 
+  // "Usable" means the SERVER can reach it, not that this user added a personal
+  // integration. Two providers are backed by operator keys and never appear in
+  // connectedProviders; three separate places used to ask this question and
+  // answered it differently, which is how the dialog ended up defaulting to
+  // OpenRouter while warning that OpenRouter was not connected.
+  const providerUsable = useCallback(
+    (id: string) =>
+      connectedProviders.has(id) ||
+      (id === "openrouter" && openrouterAvailable === true) ||
+      (id === "openai_builtin" && builtinConfigured !== false),
+    [connectedProviders, openrouterAvailable, builtinConfigured],
+  );
+
   const availableEmbeddingModels = useMemo(
     () =>
-      ALL_EMBEDDING_MODELS.filter(
-        (m) => connectedProviders.has(m.provider) || m.value === embeddingModel,
-      ),
-    [connectedProviders, embeddingModel],
+      ALL_EMBEDDING_MODELS.filter((m) => providerUsable(m.provider) || m.value === embeddingModel),
+    [providerUsable, embeddingModel],
   );
   const embedProviderOptions = EMBED_PROVIDERS.filter(
-    (p) => p.id === "openai_builtin" || connectedProviders.has(p.id),
+    (p) => p.id === "openai_builtin" || providerUsable(p.id),
   );
 
   // Default to OpenRouter when it is connected: it is the provider most
@@ -304,10 +358,18 @@ function KnowledgePage() {
   // a provider themselves, `embedProviderTouched` stops this from overriding it.
   useEffect(() => {
     if (embedProviderTouched || embedProvider !== "openai_builtin") return;
+    // Mirrors resolveEmbedTarget on the server: a connected OpenRouter
+    // integration, then the operator's OpenRouter key, then the operator's
+    // OpenAI key. If this order disagreed with the server's, the dialog would
+    // name one provider while ingest quietly used another — and the stamp on
+    // each document would be the only evidence.
     const preferred =
       EMBED_PROVIDERS.find(
         (p) => p.id === DEFAULT_EMBED_PROVIDER && connectedProviders.has(p.id),
       ) ??
+      (openrouterAvailable === true
+        ? EMBED_PROVIDERS.find((p) => p.id === DEFAULT_EMBED_PROVIDER)
+        : undefined) ??
       (builtinConfigured === false
         ? EMBED_PROVIDERS.find((p) => p.id !== "openai_builtin" && connectedProviders.has(p.id))
         : undefined);
@@ -316,19 +378,22 @@ function KnowledgePage() {
       if (preferred.models[0]) setEmbeddingModel(preferred.models[0]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [builtinConfigured, connectedProviders, embedProviderTouched]);
+  }, [builtinConfigured, openrouterAvailable, connectedProviders, embedProviderTouched]);
   const embedModelSuggestions = EMBED_PROVIDERS.find((p) => p.id === embedProvider)?.models ?? [];
   const effectiveEmbedModel = customEmbedModel.trim() || embeddingModel;
   const currentEmbeddingDef = ALL_EMBEDDING_MODELS.find((m) => m.value === embeddingModel);
   const isEmbeddingProviderConnected = currentEmbeddingDef
-    ? connectedProviders.has(currentEmbeddingDef.provider)
+    ? providerUsable(currentEmbeddingDef.provider)
     : true;
 
   useEffect(() => {
     loadBases();
     loadConnectedProviders();
     embedStatusFn({})
-      .then((r) => setBuiltinConfigured(r.builtinConfigured))
+      .then((r) => {
+        setBuiltinConfigured(r.builtinConfigured);
+        setOpenrouterAvailable(r.openrouterAvailable);
+      })
       .catch(() => setBuiltinConfigured(null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -360,12 +425,89 @@ function KnowledgePage() {
     if (user) loadConnectedProviders();
   }, [user]);
 
+  // The dialog must open showing what this KB actually does. Leaving the
+  // controls on their defaults would tell a user with hybrid enabled that they
+  // are on semantic, and the first save would then silently undo their setting.
+  useEffect(() => {
+    if (!selectedBase) return;
+    const r = resolveRetrievalSettings(
+      (selectedBase as { retrieval_settings?: unknown }).retrieval_settings,
+    );
+    setRetrievalMode(r.mode);
+    // resolveRetrievalSettings pins the weight to 1/0 outside hybrid mode; the
+    // slider only means something in hybrid, so keep a usable value otherwise.
+    setSemanticWeight(r.mode === "hybrid" ? r.semanticWeight : 0.7);
+  }, [selectedBase]);
+
   async function loadBases() {
     const { data } = await supabase
       .from("knowledge_bases")
       .select("*")
       .order("created_at", { ascending: false });
     if (data) setBases(data);
+  }
+
+  async function reindexWithCurrentSettings() {
+    if (!selectedBase) return;
+    setReindexing(true);
+    const t = toast.loading("Re-indexing with the current chunking settings\u2026");
+    try {
+      const r = await backfillFn({
+        data: {
+          knowledgeBaseId: selectedBase.id,
+          limit: 100,
+          provider: embedProvider,
+          model: effectiveEmbedModel,
+          // force, because every document in this KB already has chunks — that
+          // is exactly the case a mode change needs to rebuild.
+          force: true,
+          chunkSettings: {
+            mode: chunkMode,
+            strategy: chunkStrategy,
+            chunkSize: chunkSize,
+            chunkOverlap: chunkOverlap,
+            parentSize: parentChunkSize,
+          },
+        },
+      });
+      if (r.skipped) {
+        toast.error("Embeddings are unavailable on this workspace.", { id: t });
+      } else if (r.documentsProcessed === 0) {
+        toast.success("Nothing to re-index.", { id: t });
+      } else {
+        toast.success(
+          `Re-indexed ${r.documentsProcessed} document(s) into ${r.chunksInserted} chunks.`,
+          { id: t },
+        );
+      }
+      // Q&A generation can fail per document without failing the run. Saying so
+      // matters: the alternative is a knowledge base that quietly disagrees
+      // with the mode shown in this dialog.
+      for (const w of r.warnings ?? []) toast.warning(w);
+      await loadChunkCounts(selectedBase.id);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Re-index failed", { id: t });
+    } finally {
+      setReindexing(false);
+    }
+  }
+
+  async function saveRetrievalSettings() {
+    if (!selectedBase) return;
+    setSavingRetrieval(true);
+    const { error } = await supabase
+      .from("knowledge_bases")
+      .update({
+        retrieval_settings: { mode: retrievalMode, semantic_weight: semanticWeight },
+      })
+      .eq("id", selectedBase.id);
+    setSavingRetrieval(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success("Retrieval settings saved");
+    loadBases();
   }
 
   async function loadDocs(kbId: string) {
@@ -551,6 +693,8 @@ function KnowledgePage() {
       chunk_size: chunkSize,
       chunk_overlap: chunkOverlap,
       auto_embed: autoEmbed,
+      chunk_mode: chunkMode,
+      parent_chunk_size: parentChunkSize,
     };
 
     // Combined: paste + uploaded files
@@ -732,6 +876,9 @@ function KnowledgePage() {
                     <TabsTrigger value="chunking" className="flex-1">
                       Chunking
                     </TabsTrigger>
+                    <TabsTrigger value="retrieval" className="flex-1">
+                      Retrieval
+                    </TabsTrigger>
                   </TabsList>
 
                   <TabsContent value="vectorstore" className="space-y-4 mt-4">
@@ -886,6 +1033,46 @@ function KnowledgePage() {
 
                   <TabsContent value="chunking" className="space-y-4 mt-4">
                     <div className="space-y-2">
+                      <Label>Chunking Mode</Label>
+                      <Select value={chunkMode} onValueChange={(v) => setChunkMode(v as ChunkMode)}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="flat">Flat &mdash; one size for both</SelectItem>
+                          <SelectItem value="parent_child">
+                            Parent-child &mdash; match small, read large
+                          </SelectItem>
+                          <SelectItem value="qa">
+                            Q&amp;A &mdash; index generated questions
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        {chunkMode === "flat"
+                          ? "The chunk that matches is the text the model reads. Best for short documents."
+                          : chunkMode === "parent_child"
+                            ? "Small chunks are embedded so matching stays precise; the surrounding parent is what reaches the model. Best for long reference documents."
+                            : "An LLM writes question/answer pairs and the QUESTION is embedded, so a user question is compared against a question. Costs one model call per passage at index time."}
+                      </p>
+                    </div>
+                    {chunkMode === "parent_child" && (
+                      <div className="space-y-2">
+                        <Label>Parent Size (tokens)</Label>
+                        <Input
+                          type="number"
+                          value={parentChunkSize}
+                          onChange={(e) => setParentChunkSize(Number(e.target.value))}
+                          min={128}
+                          max={4096}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          The chunk size below becomes the CHILD size &mdash; what gets embedded. A
+                          child is capped at half the parent, so leave clear space between the two.
+                        </p>
+                      </div>
+                    )}
+                    <div className="space-y-2">
                       <Label>Chunking Strategy</Label>
                       <Select value={chunkStrategy} onValueChange={setChunkStrategy}>
                         <SelectTrigger>
@@ -926,6 +1113,100 @@ function KnowledgePage() {
                       Overlap ensures context continuity between chunks. Typically 10-20% of chunk
                       size.
                     </p>
+                    <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
+                      <p>
+                        These settings apply to documents added from now on. Documents that are
+                        already embedded keep the chunks they were built with &mdash; changing the
+                        mode does not rewrite them, because re-chunking means paying to embed the
+                        whole document again.
+                      </p>
+                      {selectedBase && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={reindexing}
+                          onClick={reindexWithCurrentSettings}
+                        >
+                          {reindexing
+                            ? "Re-indexing\u2026"
+                            : `Re-index \u201C${selectedBase.name}\u201D with these settings`}
+                        </Button>
+                      )}
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="retrieval" className="space-y-4 mt-4">
+                    {!selectedBase ? (
+                      <p className="text-sm text-muted-foreground">
+                        Select a knowledge base to configure how it is searched.
+                      </p>
+                    ) : (
+                      <>
+                        <div className="space-y-2">
+                          <Label>Search Mode</Label>
+                          <Select
+                            value={retrievalMode}
+                            onValueChange={(v) => setRetrievalMode(v as RetrievalMode)}
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="semantic">Semantic &mdash; vector only</SelectItem>
+                              <SelectItem value="hybrid">
+                                Hybrid &mdash; vector + keyword
+                              </SelectItem>
+                              <SelectItem value="keyword">
+                                Keyword &mdash; full-text only
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <p className="text-xs text-muted-foreground">
+                            Semantic finds meaning and misses exact strings. Keyword finds part
+                            numbers, error codes and names that vectors blur together. Hybrid runs
+                            both and merges them.
+                          </p>
+                        </div>
+
+                        {retrievalMode === "hybrid" && (
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <Label>Weighting</Label>
+                              <span className="text-xs font-mono text-muted-foreground">
+                                {Math.round(semanticWeight * 100)}% semantic /{" "}
+                                {Math.round((1 - semanticWeight) * 100)}% keyword
+                              </span>
+                            </div>
+                            <Slider
+                              value={[semanticWeight]}
+                              onValueChange={([v]) => setSemanticWeight(v)}
+                              min={0}
+                              max={1}
+                              step={0.05}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              Each retriever scores on a different scale &mdash; cosine similarity
+                              and text rank are not the same kind of number &mdash; so both are
+                              normalised before weighting. A chunk found by both is ranked above a
+                              chunk found by only one.
+                            </p>
+                          </div>
+                        )}
+
+                        <Button
+                          size="sm"
+                          disabled={savingRetrieval}
+                          onClick={saveRetrievalSettings}
+                        >
+                          {savingRetrieval ? "Saving\u2026" : "Save retrieval settings"}
+                        </Button>
+                        <p className="text-xs text-muted-foreground">
+                          Applies immediately to every agent and swarm that searches this knowledge
+                          base. No re-embedding needed &mdash; this changes how the existing index
+                          is queried, not how it was built.
+                        </p>
+                      </>
+                    )}
                   </TabsContent>
                 </Tabs>
               </DialogContent>

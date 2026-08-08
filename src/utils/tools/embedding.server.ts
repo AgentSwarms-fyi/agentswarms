@@ -14,6 +14,9 @@
 //   rows.
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
+import { chunkParentChild, isChunkMode, type ChunkMode, DEFAULT_PARENT_TOKENS } from "@/lib/kbRag";
+import { generateQaPairs } from "./kbQa.server";
+import { getOpenRouterApiKey } from "@/utils/providers/openrouterDefault.server";
 
 export const DEFAULT_EMBED_MODEL = "text-embedding-3-small";
 export const SUPPORTED_EMBED_MODELS = new Set<string>([
@@ -251,6 +254,8 @@ export type EmbedDocInput = {
 function readDocSettings(meta: Record<string, unknown> | null | undefined): {
   model: string;
   chunk: ChunkOptions;
+  mode: ChunkMode;
+  parentSize: number;
 } {
   const m = (meta ?? {}) as Record<string, unknown>;
   const rawModel = typeof m.embedding_model === "string" ? (m.embedding_model as string) : "";
@@ -260,7 +265,12 @@ function readDocSettings(meta: Record<string, unknown> | null | undefined): {
   const chunkSize = typeof m.chunk_size === "number" ? (m.chunk_size as number) : undefined;
   const chunkOverlap =
     typeof m.chunk_overlap === "number" ? (m.chunk_overlap as number) : undefined;
-  return { model, chunk: { strategy, chunkSize, chunkOverlap } };
+  const mode: ChunkMode = isChunkMode(m.chunk_mode) ? m.chunk_mode : "flat";
+  const parentSize =
+    typeof m.parent_chunk_size === "number"
+      ? (m.parent_chunk_size as number)
+      : DEFAULT_PARENT_TOKENS;
+  return { model, chunk: { strategy, chunkSize, chunkOverlap }, mode, parentSize };
 }
 
 export async function embedAndStoreDocuments(opts: {
@@ -283,9 +293,14 @@ export async function embedAndStoreDocuments(opts: {
    * — which does not error, it just returns confidently wrong matches.
    */
   stampProvider?: string;
-}): Promise<{ documentsProcessed: number; chunksInserted: number }> {
+}): Promise<{
+  documentsProcessed: number;
+  chunksInserted: number;
+  /** Non-fatal problems the caller should surface (e.g. Q&A generation). */
+  warnings: string[];
+}> {
   const { sb, docs, openaiKey } = opts;
-  if (docs.length === 0) return { documentsProcessed: 0, chunksInserted: 0 };
+  if (docs.length === 0) return { documentsProcessed: 0, chunksInserted: 0, warnings: [] };
 
   type Row = {
     document_id: string;
@@ -295,10 +310,32 @@ export async function embedAndStoreDocuments(opts: {
     chunk_index: number;
     content: string;
     token_estimate: number;
+    chunk_kind: "text" | "qa";
+    question: string | null;
     _model: string;
+    /**
+     * What actually gets embedded. Equal to `content` for flat and
+     * parent-child, but the QUESTION for Q&A rows — that difference is the
+     * entire point of Q&A mode, so it is a field rather than a branch at the
+     * embedding call.
+     */
+    _embedText: string;
+    /** Index into `parents` below; resolved to a real id after insert. */
+    _parentSlot: number | null;
+  };
+  type ParentRow = {
+    document_id: string;
+    knowledge_base_id: string;
+    user_id: string | null;
+    is_sample: boolean;
+    parent_index: number;
+    content: string;
   };
   const rows: Row[] = [];
+  const parents: ParentRow[] = [];
   const docIdsToReplace: string[] = [];
+  /** Per-document notes surfaced to the caller (e.g. Q&A generation failures). */
+  const warnings: string[] = [];
 
   for (const d of docs) {
     const text = (d.content || "").trim();
@@ -314,26 +351,120 @@ export async function embedAndStoreDocuments(opts: {
       chunkSize: perDoc.chunk.chunkSize ?? opts.defaults?.chunk?.chunkSize,
       chunkOverlap: perDoc.chunk.chunkOverlap ?? opts.defaults?.chunk?.chunkOverlap,
     };
-    const chunks = chunkText(text, chunkOpts);
-    chunks.forEach((c, idx) => {
+    const base = {
+      document_id: d.id,
+      knowledge_base_id: d.knowledge_base_id,
+      user_id: d.user_id,
+      is_sample: !!d.is_sample,
+      _model: model,
+    };
+    // chunk_index is the row's identity for the upsert, so it has to keep
+    // counting across parents rather than restarting inside each one.
+    let idx = 0;
+    const pushRow = (
+      content: string,
+      embedText: string,
+      parentSlot: number | null,
+      kind: "text" | "qa",
+      question: string | null,
+    ) => {
       rows.push({
-        document_id: d.id,
-        knowledge_base_id: d.knowledge_base_id,
-        user_id: d.user_id,
-        is_sample: !!d.is_sample,
-        chunk_index: idx,
-        content: c,
-        token_estimate: Math.ceil(c.length / CHARS_PER_TOKEN),
-        _model: model,
+        ...base,
+        chunk_index: idx++,
+        content,
+        token_estimate: Math.ceil(content.length / CHARS_PER_TOKEN),
+        chunk_kind: kind,
+        question,
+        _embedText: embedText,
+        _parentSlot: parentSlot,
       });
-    });
+    };
+
+    if (perDoc.mode === "parent_child") {
+      const pcs = chunkParentChild(text, {
+        strategy: chunkOpts.strategy,
+        parentTokens: perDoc.parentSize,
+        childTokens: chunkOpts.chunkSize,
+        childOverlap: chunkOpts.chunkOverlap,
+      });
+      for (const pc of pcs) {
+        const slot = parents.length;
+        parents.push({
+          document_id: d.id,
+          knowledge_base_id: d.knowledge_base_id,
+          user_id: d.user_id,
+          is_sample: !!d.is_sample,
+          parent_index: slot,
+          content: pc.parent,
+        });
+        // The CHILD is embedded; the parent is what retrieval will hand back.
+        for (const child of pc.children) pushRow(child, child, slot, "text", null);
+      }
+    } else if (perDoc.mode === "qa") {
+      const key = getOpenRouterApiKey();
+      // Passages are chunked first so each generation call sees a bounded,
+      // coherent piece of text rather than a whole document.
+      const passages = chunkText(text, { ...chunkOpts, chunkOverlap: 0 });
+      let pairCount = 0;
+      for (const passage of passages) {
+        const res = await generateQaPairs(passage, key ?? "");
+        if (!res.ok) {
+          // Reported, never downgraded. Silently writing flat chunks would
+          // leave a knowledge base that disagrees with its own settings, and
+          // the only symptom would be worse answers months later.
+          warnings.push(`${d.id}: ${res.error}`);
+          break;
+        }
+        for (const pair of res.pairs) {
+          pairCount += 1;
+          pushRow(pair.answer, pair.question, null, "qa", pair.question);
+        }
+      }
+      if (pairCount === 0 && warnings.length === 0) {
+        warnings.push(`${d.id}: Q&A generation produced no pairs`);
+      }
+    } else {
+      const chunks = chunkText(text, chunkOpts);
+      for (const c of chunks) pushRow(c, c, null, "text", null);
+    }
   }
 
   if (docIdsToReplace.length > 0) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (sb.from("kb_chunks" as any) as any).delete().in("document_id", docIdsToReplace);
+    // Parents second. Doing it first would cascade-delete the chunks we are
+    // about to replace anyway — harmless today, but it would also delete the
+    // NEW chunks if this ever moved below the insert.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (sb.from("kb_chunk_parents" as any) as any).delete().in("document_id", docIdsToReplace);
   }
-  if (rows.length === 0) return { documentsProcessed: docs.length, chunksInserted: 0 };
+  if (rows.length === 0) {
+    return { documentsProcessed: docs.length, chunksInserted: 0, warnings };
+  }
+
+  // Parents are inserted before their children so each child can carry a real
+  // parent_id. A child whose parent insert failed would retrieve as if it were
+  // flat, which is the silent-degradation case this whole module avoids.
+  const parentIdBySlot = new Map<number, string>();
+  if (parents.length > 0) {
+    for (let i = 0; i < parents.length; i += INSERT_BATCH) {
+      const slice = parents.slice(i, i + INSERT_BATCH);
+      const { data, error } = await (
+        sb.from("kb_chunk_parents" as never) as unknown as {
+          insert: (rows: unknown[]) => {
+            select: (cols: string) => Promise<{
+              data: Array<{ id: string; parent_index: number }> | null;
+              error: { message: string } | null;
+            }>;
+          };
+        }
+      )
+        .insert(slice)
+        .select("id, parent_index");
+      if (error) throw new Error(`kb_chunk_parents insert failed: ${error.message}`);
+      for (const r of data ?? []) parentIdBySlot.set(r.parent_index, r.id);
+    }
+  }
 
   // Group rows by embedding model so each model is embedded in its own batch.
   const byModel = new Map<string, number[]>();
@@ -345,7 +476,9 @@ export async function embedAndStoreDocuments(opts: {
 
   const embeddings: number[][] = new Array(rows.length);
   for (const [model, indices] of byModel) {
-    const inputs = indices.map((i) => rows[i].content);
+    // _embedText, not content: in Q&A mode the vector must represent the
+    // QUESTION even though the row stores the answer.
+    const inputs = indices.map((i) => rows[i]._embedText);
     const vectors = await embedTexts(inputs, openaiKey, model, {
       endpoint: opts.endpoint,
       allowCustomModel: opts.allowCustomModel,
@@ -361,9 +494,14 @@ export async function embedAndStoreDocuments(opts: {
   }
 
   const toInsert = rows.map((r, i) => {
-    const { _model: _drop, ...rest } = r;
+    const { _model: _drop, _embedText: _drop2, _parentSlot, ...rest } = r;
     void _drop;
-    return { ...rest, embedding: `[${embeddings[i].join(",")}]` };
+    void _drop2;
+    return {
+      ...rest,
+      parent_id: _parentSlot === null ? null : (parentIdBySlot.get(_parentSlot) ?? null),
+      embedding: `[${embeddings[i].join(",")}]`,
+    };
   });
 
   // Upsert against the kb_chunks_doc_chunk_unique constraint so partial
@@ -409,5 +547,5 @@ export async function embedAndStoreDocuments(opts: {
     }
   }
 
-  return { documentsProcessed: docs.length, chunksInserted: rows.length };
+  return { documentsProcessed: docs.length, chunksInserted: rows.length, warnings };
 }

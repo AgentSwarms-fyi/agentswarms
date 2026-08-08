@@ -101,11 +101,21 @@ export const MODEL_ALIASES: Record<string, string> = {
   "gemini-flash-latest": "gemini-2.5-flash",
 };
 
-// Embedding models — cost per 1K input tokens (no output side). Called
-// directly against OpenAI's API, so ids are bare (no vendor/ prefix).
+// Embedding models — cost per 1K input tokens (no output side). Keyed by the
+// bare id; lookup() below also matches the `vendor/model` gateway spelling.
+//
+// The three non-OpenAI entries are reachable through OpenRouter and are not in
+// the community catalogue that scripts/refreshPrices.ts vendors, so they were
+// MEASURED rather than guessed: each model was called through OpenRouter, whose
+// response reports the cost it billed, and the per-token figure was divided out
+// (2026-08-08). Re-measure the same way if OpenRouter changes its rates —
+// inventing a plausible number here would move real budgets.
 export const EMBED_COST_TABLE: Record<string, number> = {
   "text-embedding-3-small": 0.00002,
   "text-embedding-3-large": 0.00013,
+  "gemini-embedding-001": 0.00015,
+  "qwen3-embedding-8b": 0.00001,
+  "qwen3-embedding-4b": 0.00002,
 };
 
 // Per-image price (USD) for image-generation models. Output tokens are
