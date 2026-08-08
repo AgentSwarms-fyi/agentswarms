@@ -15,6 +15,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { sanitizePublicPages, sanitizePublicWidgets } from "@/lib/biDashboards";
+import { resolveDeployedGraph } from "@/lib/swarmPublish";
 import { touchEmbedKey, validateEmbedKey } from "@/utils/embed.server";
 import { rateLimitedGlobal } from "@/utils/rateLimit.server";
 import { budgetMessage, getBudgetDecision } from "@/utils/budgetGuard.server";
@@ -128,13 +129,19 @@ export const Route = createFileRoute("/api/embed")({
           if (keyRow.resource_type === "swarm") {
             const { data: swarm } = await supabaseAdmin
               .from("swarms")
-              .select("id, name, description, nodes, edges, user_id")
+              .select(
+                "id, name, description, nodes, edges, user_id, published_nodes, published_edges, published_at",
+              )
               .eq("id", keyRow.resource_id)
               .maybeSingle();
             if (!swarm || swarm.user_id !== keyRow.user_id) {
               return json({ error: "The embedded swarm no longer exists." }, 404);
             }
-            const nodes = sanitizeSwarmNodes(swarm.nodes);
+            // An embed on someone else's website is a deployed surface like any
+            // other, so it serves the PUBLISHED graph. Embeds created before
+            // publishing existed have no snapshot and keep serving the draft.
+            const deployed = resolveDeployedGraph(swarm);
+            const nodes = sanitizeSwarmNodes(deployed.nodes);
             if (nodes.some((n) => (n.data as { kind?: string }).kind === "approval")) {
               return json(
                 {
@@ -149,7 +156,7 @@ export const Route = createFileRoute("/api/embed")({
               name: swarm.name,
               description: swarm.description,
               nodes,
-              edges: Array.isArray(swarm.edges) ? swarm.edges : [],
+              edges: Array.isArray(deployed.edges) ? deployed.edges : [],
             });
           }
 

@@ -4,7 +4,18 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
-import { createSwarmApiKey, jsSandboxStatusFn } from "@/utils/swarmDeploy.functions";
+import {
+  createSwarmApiKey,
+  jsSandboxStatusFn,
+  publishSwarm,
+  unpublishSwarm,
+} from "@/utils/swarmDeploy.functions";
+import {
+  deployState,
+  deployStateCopy,
+  graphFingerprint,
+  type PublishableSwarm,
+} from "@/lib/swarmPublish";
 import {
   Dialog,
   DialogContent,
@@ -46,6 +57,8 @@ import {
   Trash2,
   Rocket,
   AlertTriangle,
+  UploadCloud,
+  History,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -126,6 +139,8 @@ export function SwarmDeployDialog({
   open,
   onOpenChange,
   nodes,
+  edges,
+  onPublishedChange,
 }: {
   swarmId: string | null;
   swarmName: string;
@@ -133,6 +148,14 @@ export function SwarmDeployDialog({
   onOpenChange: (v: boolean) => void;
   /** Current graph — used to pre-flight what will actually run headlessly. */
   nodes?: { data?: { kind?: string; label?: string } }[];
+  /** Live canvas edges, for detecting unsaved work before publishing. */
+  edges?: unknown[];
+  /**
+   * Publishing changes what the CANVAS should say about itself (the toolbar's
+   * "Draft ahead" badge), so the page has to hear about it — otherwise the
+   * badge sits there contradicting the dialog the user just used.
+   */
+  onPublishedChange?: () => void;
 }) {
   // Pre-flight checks. Headless (API / scheduled) runs use the server executor,
   // which supports fewer node kinds than the canvas and decides approvals
@@ -168,6 +191,12 @@ export function SwarmDeployDialog({
   const [keys, setKeys] = useState<ApiKeyRow[]>([]);
   const [schedules, setSchedules] = useState<ScheduleRow[]>([]);
   const [loading, setLoading] = useState(false);
+  // The SAVED draft and the published snapshot, both read from the database.
+  // Drift is judged on the saved draft because that is what Publish will pin —
+  // comparing against the in-memory canvas instead would promise to roll out
+  // edits that were never saved.
+  const [row, setRow] = useState<PublishableSwarm | null>(null);
+  const [publishing, setPublishing] = useState(false);
 
   // New-key form
   const [keyName, setKeyName] = useState("Production key");
@@ -190,7 +219,7 @@ export function SwarmDeployDialog({
   const load = useCallback(async () => {
     if (!swarmId) return;
     setLoading(true);
-    const [{ data: k }, { data: s }] = await Promise.all([
+    const [{ data: k }, { data: s }, { data: sw }] = await Promise.all([
       supabase
         .from("swarm_api_keys")
         .select(
@@ -205,9 +234,15 @@ export function SwarmDeployDialog({
         )
         .eq("swarm_id", swarmId)
         .order("created_at", { ascending: false }),
+      supabase
+        .from("swarms")
+        .select("nodes, edges, published_nodes, published_edges, published_at")
+        .eq("id", swarmId)
+        .maybeSingle(),
     ]);
     setKeys((k ?? []) as ApiKeyRow[]);
     setSchedules((s ?? []) as ScheduleRow[]);
+    setRow((sw ?? null) as PublishableSwarm | null);
     setLoading(false);
   }, [swarmId]);
 
@@ -270,6 +305,48 @@ export function SwarmDeployDialog({
     if (error) return toast.error("Could not revoke key");
     setKeys((prev) => prev.filter((k) => k.id !== id));
     toast.success("Key revoked");
+  };
+
+  const deployed = keys.length > 0 || schedules.length > 0;
+  const state = row ? deployState(row, deployed) : "not-deployed";
+  const copy = deployStateCopy(state);
+  // Publish pins what is SAVED. If the canvas has moved on since the last save,
+  // say so instead of letting the button appear to promote what is on screen.
+  const unsaved = useMemo(() => {
+    if (!row || !nodes) return false;
+    return graphFingerprint(nodes, edges ?? []) !== graphFingerprint(row.nodes, row.edges);
+  }, [row, nodes, edges]);
+
+  const doPublish = async () => {
+    if (!swarmId) return;
+    setPublishing(true);
+    try {
+      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      if (!token) return toast.error("Session expired");
+      const res = await publishSwarm({ data: { access_token: token, swarm_id: swarmId } });
+      if (!res.ok) return toast.error(res.error);
+      await load();
+      onPublishedChange?.();
+      toast.success("Published — deployed runs now use this version");
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  const doUnpublish = async () => {
+    if (!swarmId) return;
+    setPublishing(true);
+    try {
+      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      if (!token) return toast.error("Session expired");
+      const res = await unpublishSwarm({ data: { access_token: token, swarm_id: swarmId } });
+      if (!res.ok) return toast.error(res.error);
+      await load();
+      onPublishedChange?.();
+      toast.success("Unpinned — deployed runs follow the canvas again");
+    } finally {
+      setPublishing(false);
+    }
   };
 
   const addSchedule = async () => {
@@ -367,6 +444,71 @@ export function SwarmDeployDialog({
             </div>
           </div>
         )}
+
+        {/* What deployed callers are actually getting, and how to change it. */}
+        <div
+          className={
+            "rounded-md border p-3 text-xs " +
+            (state === "drifted"
+              ? "border-amber-500/40 bg-amber-500/10"
+              : state === "unpinned"
+                ? "border-sky-500/40 bg-sky-500/10"
+                : "border-border bg-muted/40")
+          }
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-foreground">{copy.label}</span>
+                {state === "in-sync" && row?.published_at && (
+                  <span className="text-muted-foreground">
+                    · pinned {new Date(row.published_at).toLocaleString()}
+                  </span>
+                )}
+              </div>
+              <p className="mt-1 text-muted-foreground">{copy.detail}</p>
+              {unsaved && (
+                <p className="mt-1 text-amber-600 dark:text-amber-400">
+                  The canvas has unsaved edits. Publishing pins the last SAVED version — save first
+                  if you meant to include them.
+                </p>
+              )}
+            </div>
+            <div className="flex shrink-0 flex-col items-end gap-1.5">
+              <Button size="sm" onClick={doPublish} disabled={publishing || !swarmId}>
+                {publishing ? (
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <UploadCloud className="mr-1.5 h-3.5 w-3.5" />
+                )}
+                {state === "in-sync" ? "Republish" : "Publish"}
+              </Button>
+              {state !== "unpinned" && state !== "not-deployed" && (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button size="sm" variant="ghost" className="h-6 px-2 text-[11px]">
+                      <History className="mr-1 h-3 w-3" /> Unpin
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Let deployed runs follow the canvas?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Every save will immediately change what this swarm&apos;s API keys and
+                        schedules execute, including half-finished edits. The pinned snapshot is
+                        discarded.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={doUnpublish}>Unpin</AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
+            </div>
+          </div>
+        </div>
 
         {approvalNodes.length > 0 && (
           <div className="flex gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs">

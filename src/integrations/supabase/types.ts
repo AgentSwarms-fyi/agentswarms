@@ -2071,6 +2071,39 @@ export type Database = {
         };
         Relationships: [];
       };
+      kb_chunk_parents: {
+        Row: {
+          content: string;
+          created_at: string;
+          document_id: string;
+          id: string;
+          is_sample: boolean;
+          knowledge_base_id: string;
+          parent_index: number;
+          user_id: string | null;
+        };
+        Insert: {
+          content: string;
+          created_at?: string;
+          document_id: string;
+          id?: string;
+          is_sample?: boolean;
+          knowledge_base_id: string;
+          parent_index: number;
+          user_id?: string | null;
+        };
+        Update: {
+          content?: string;
+          created_at?: string;
+          document_id?: string;
+          id?: string;
+          is_sample?: boolean;
+          knowledge_base_id?: string;
+          parent_index?: number;
+          user_id?: string | null;
+        };
+        Relationships: [];
+      };
       kb_chunks: {
         Row: {
           chunk_index: number;
@@ -2083,6 +2116,9 @@ export type Database = {
           knowledge_base_id: string;
           token_estimate: number | null;
           user_id: string;
+          chunk_kind: string;
+          parent_id: string | null;
+          question: string | null;
         };
         Insert: {
           chunk_index: number;
@@ -2095,6 +2131,9 @@ export type Database = {
           knowledge_base_id: string;
           token_estimate?: number | null;
           user_id: string;
+          chunk_kind?: string;
+          parent_id?: string | null;
+          question?: string | null;
         };
         Update: {
           chunk_index?: number;
@@ -2107,6 +2146,9 @@ export type Database = {
           knowledge_base_id?: string;
           token_estimate?: number | null;
           user_id?: string;
+          chunk_kind?: string;
+          parent_id?: string | null;
+          question?: string | null;
         };
         Relationships: [
           {
@@ -2368,6 +2410,7 @@ export type Database = {
           name: string;
           updated_at: string;
           user_id: string | null;
+          retrieval_settings: Json | null;
         };
         Insert: {
           created_at?: string;
@@ -2380,6 +2423,7 @@ export type Database = {
           name: string;
           updated_at?: string;
           user_id?: string | null;
+          retrieval_settings?: Json | null;
         };
         Update: {
           created_at?: string;
@@ -2392,6 +2436,7 @@ export type Database = {
           name?: string;
           updated_at?: string;
           user_id?: string | null;
+          retrieval_settings?: Json | null;
         };
         Relationships: [];
       };
@@ -3517,6 +3562,11 @@ export type Database = {
           is_deployed: boolean;
           name: string;
           nodes: Json;
+          published_at: string | null;
+          published_by: string | null;
+          published_edges: Json | null;
+          published_nodes: Json | null;
+          published_version_id: string | null;
           updated_at: string;
           user_id: string;
         };
@@ -3528,6 +3578,11 @@ export type Database = {
           is_deployed?: boolean;
           name?: string;
           nodes?: Json;
+          published_at?: string | null;
+          published_by?: string | null;
+          published_edges?: Json | null;
+          published_nodes?: Json | null;
+          published_version_id?: string | null;
           updated_at?: string;
           user_id: string;
         };
@@ -3539,6 +3594,11 @@ export type Database = {
           is_deployed?: boolean;
           name?: string;
           nodes?: Json;
+          published_at?: string | null;
+          published_by?: string | null;
+          published_edges?: Json | null;
+          published_nodes?: Json | null;
+          published_version_id?: string | null;
           updated_at?: string;
           user_id?: string;
         };

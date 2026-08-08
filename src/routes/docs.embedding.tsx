@@ -152,8 +152,19 @@ function EmbeddingPage() {
             "Guardrails",
             "The agent's guardrails apply, including PII handling on input and output.",
           ],
+          [
+            "Which version runs",
+            "For an embedded SWARM, the published snapshot — not your working canvas. Creating the embed key publishes the current graph, and later edits stay private until you press Publish in the Deploy dialog.",
+          ],
         ]}
       />
+      <P>
+        That last row is the one people are surprised by, and it is deliberate: an embed sits in
+        someone else&rsquo;s page, so a half-finished edit reaching it the moment you press Save
+        would be the worst version of that behaviour. See{" "}
+        <DocLink to="/docs/api">API &amp; webhooks</DocLink> for the publish states. Embeds created
+        before publishing existed keep serving the live canvas until you publish once.
+      </P>
       <Callout kind="warn" title="An embed is a public surface">
         Anything the agent can read, a visitor can ask it to reveal — including by writing a prompt
         that tries to talk it out of its instructions. Before publishing, ask: if a stranger asked

@@ -28,6 +28,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { sha256Hex } from "@/utils/swarmDeploy.functions";
 import { executeSwarmServer } from "@/utils/swarmExecute.server";
+import { resolveDeployedGraph } from "@/lib/swarmPublish";
 import { resolveInternalOrigin } from "@/utils/internalOrigin.server";
 import { acquireSlotGlobal, envInt, rateLimitedGlobal } from "@/utils/rateLimit.server";
 import { auditEvent } from "@/utils/audit.server";
@@ -247,10 +248,20 @@ export const Route = createFileRoute("/api/swarm/run")({
 
           const { data: swarm } = await supabaseAdmin
             .from("swarms")
-            .select("id, name, nodes, edges")
+            .select("id, name, nodes, edges, published_nodes, published_edges, published_at")
             .eq("id", key.swarm_id)
             .maybeSingle();
           if (!swarm) return json({ error: "Swarm not found" }, 404);
+          // Serve the PUBLISHED graph, so editing the canvas cannot change
+          // what this key returns mid-flight. Swarms deployed before
+          // publishing existed have no snapshot and fall back to the draft.
+          const deployed = resolveDeployedGraph(swarm);
+          const runGraph = {
+            id: swarm.id,
+            name: swarm.name,
+            nodes: deployed.nodes,
+            edges: deployed.edges,
+          };
 
           // Resolved from configuration only — never from the request's Host
           // header, because the executor sends an internal secret to this origin.
@@ -269,7 +280,7 @@ export const Route = createFileRoute("/api/swarm/run")({
 
           const runSwarm = () =>
             executeSwarmServer({
-              swarm,
+              swarm: runGraph,
               userId: key.user_id,
               origin,
               input,

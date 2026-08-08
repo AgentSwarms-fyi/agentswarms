@@ -132,6 +132,7 @@ import { downloadSwarmAsCrewAI, downloadSwarmAsOpenAIAgents } from "@/lib/swarmE
 import { downloadSwarmAsStrands } from "@/lib/swarmExportStrands";
 import { SwarmGallery } from "@/components/swarms/SwarmGallery";
 import { SwarmDeployDialog } from "@/components/swarms/SwarmDeployDialog";
+import { graphFingerprint } from "@/lib/swarmPublish";
 import { SwarmChatDialog } from "@/components/swarms/SwarmChatDialog";
 import { SwarmVersionsDialog } from "@/components/swarms/SwarmVersionsDialog";
 import { snapshotSwarmVersion, graphHash } from "@/lib/swarmVersions";
@@ -900,9 +901,34 @@ function SwarmsCanvas({
   // Track unsaved edits so we can warn on tab/window close.
   const dirtyRef = useRef(false);
 
+  // The published snapshot of the OPEN swarm, for the drift badge below.
+  const [published, setPublished] = useState<{
+    published_nodes?: unknown;
+    published_edges?: unknown;
+    published_at: string | null;
+  } | null>(null);
+
   const applySwarmRow = useCallback(
-    (row: { id: string; name: string; nodes: unknown; edges: unknown }) => {
+    (row: {
+      id: string;
+      name: string;
+      nodes: unknown;
+      edges: unknown;
+      published_nodes?: unknown;
+      published_edges?: unknown;
+      published_at?: string | null;
+    }) => {
       setSwarmId(row.id);
+      // Kept so the toolbar can say "not live yet" without opening a dialog.
+      setPublished(
+        row.published_at !== undefined || row.published_nodes !== undefined
+          ? {
+              published_nodes: row.published_nodes,
+              published_edges: row.published_edges,
+              published_at: row.published_at ?? null,
+            }
+          : null,
+      );
       setSwarmName(row.name);
       const loadedNodes = (row.nodes as Node<SwarmNodeData>[]) ?? [];
       const loadedEdges = (row.edges as Edge[]) ?? [];
@@ -928,6 +954,29 @@ function SwarmsCanvas({
     if (loading) return;
     dirtyRef.current = true;
   }, [nodes, edges, swarmName, loading]);
+
+  // Compared against the LIVE canvas rather than the saved row, because the
+  // question the badge answers is "is what I am looking at what my callers
+  // get?" — and an unsaved edit is just as absent from production as an
+  // unpublished one.
+  const refreshPublished = useCallback(async () => {
+    if (!swarmId) return;
+    const { data } = await supabase
+      .from("swarms")
+      .select("published_nodes, published_edges, published_at")
+      .eq("id", swarmId)
+      .maybeSingle();
+    setPublished(data ?? null);
+  }, [swarmId]);
+
+  const draftAhead = useMemo(
+    () =>
+      !!published &&
+      Array.isArray(published.published_nodes) &&
+      graphFingerprint(nodes, edges) !==
+        graphFingerprint(published.published_nodes, published.published_edges),
+    [published, nodes, edges],
+  );
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
       if (!dirtyRef.current) return;
@@ -2009,6 +2058,16 @@ function SwarmsCanvas({
                     title="Deploy via API key or schedule"
                   >
                     <Rocket className="h-3.5 w-3.5 mr-1.5" /> Deploy
+                    {draftAhead && (
+                      // Drift is only actionable if you can see it without
+                      // opening the dialog you have no reason to open.
+                      <span
+                        className="ml-1.5 rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-400"
+                        title="The canvas has changes that deployed runs are not using yet"
+                      >
+                        Draft ahead
+                      </span>
+                    )}
                   </Button>
                 )}
 
@@ -2130,6 +2189,8 @@ function SwarmsCanvas({
         open={deployOpen}
         onOpenChange={setDeployOpen}
         nodes={nodes}
+        edges={edges}
+        onPublishedChange={refreshPublished}
       />
       <SwarmChatDialog
         swarmId={swarmId}

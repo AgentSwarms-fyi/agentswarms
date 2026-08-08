@@ -165,3 +165,84 @@ export const jsSandboxStatusFn = createServerFn({ method: "POST" })
       return { configured: true, healthy: false };
     }
   });
+
+/**
+ * Publish the current canvas graph: from now on, API keys and schedules run
+ * THIS snapshot until it is published again. The draft stays editable.
+ */
+export const publishSwarm = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z.object({ access_token: z.string().min(1), swarm_id: z.string().uuid() }).parse(input),
+  )
+  .handler(
+    async ({
+      data,
+    }): Promise<{ ok: false; error: string } | { ok: true; published_at: string }> => {
+      const userId = await userFromToken(data.access_token);
+      if (!userId) return { ok: false, error: "Not signed in" };
+      const { data: swarm } = await supabaseAdmin
+        .from("swarms")
+        .select("id, user_id, nodes, edges")
+        .eq("id", data.swarm_id)
+        .maybeSingle();
+      // Ownership re-checked here: this runs under the service role, so RLS is
+      // not doing it for us.
+      if (!swarm || swarm.user_id !== userId) return { ok: false, error: "Swarm not found" };
+      const published_at = new Date().toISOString();
+      const { error } = await supabaseAdmin
+        .from("swarms")
+        .update({
+          published_nodes: swarm.nodes,
+          published_edges: swarm.edges,
+          published_at,
+          published_by: userId,
+        })
+        .eq("id", swarm.id);
+      if (error) return { ok: false, error: error.message };
+      await auditEvent({
+        userId,
+        action: "swarm.publish",
+        resourceType: "swarm",
+        resourceId: swarm.id,
+        detail: { nodes: Array.isArray(swarm.nodes) ? swarm.nodes.length : 0 },
+      });
+      return { ok: true, published_at };
+    },
+  );
+
+/**
+ * Drop the pinned snapshot: deployed runs go back to serving the live canvas.
+ * Deliberately available — an operator who wants the old behaviour should be
+ * able to choose it, rather than discovering the product decided for them.
+ */
+export const unpublishSwarm = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z.object({ access_token: z.string().min(1), swarm_id: z.string().uuid() }).parse(input),
+  )
+  .handler(async ({ data }): Promise<{ ok: false; error: string } | { ok: true }> => {
+    const userId = await userFromToken(data.access_token);
+    if (!userId) return { ok: false, error: "Not signed in" };
+    const { data: swarm } = await supabaseAdmin
+      .from("swarms")
+      .select("id, user_id")
+      .eq("id", data.swarm_id)
+      .maybeSingle();
+    if (!swarm || swarm.user_id !== userId) return { ok: false, error: "Swarm not found" };
+    const { error } = await supabaseAdmin
+      .from("swarms")
+      .update({
+        published_nodes: null,
+        published_edges: null,
+        published_at: null,
+        published_by: null,
+      })
+      .eq("id", swarm.id);
+    if (error) return { ok: false, error: error.message };
+    await auditEvent({
+      userId,
+      action: "swarm.unpublish",
+      resourceType: "swarm",
+      resourceId: swarm.id,
+    });
+    return { ok: true };
+  });

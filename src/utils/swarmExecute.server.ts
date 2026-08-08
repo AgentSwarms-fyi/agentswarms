@@ -58,6 +58,7 @@ import {
   JS_SANDBOX_UNAVAILABLE,
 } from "@/utils/jsSandbox.server";
 import { coerceParams, missingRequired } from "@/lib/swarmComponents";
+import { resolveDeployedGraph } from "@/lib/swarmPublish";
 import { safeStringify } from "@/lib/sandbox/jsSandbox";
 import { envInt } from "@/utils/rateLimit.server";
 
@@ -868,14 +869,19 @@ export async function executeSwarmServer(opts: {
             if (!subId) throw new Error("Execute Swarm node has no swarm selected.");
             const { data: sub } = await supabaseAdmin
               .from("swarms")
-              .select("id, name, nodes, edges, user_id")
+              .select(
+                "id, name, nodes, edges, user_id, published_nodes, published_edges, published_at",
+              )
               .eq("id", subId)
               .maybeSingle();
             if (!sub || sub.user_id !== opts.userId) {
               throw new Error("Referenced swarm not found or not owned by you.");
             }
+            // A nested swarm resolves the same way as its parent: a headless
+            // run must not pick up someone's in-progress edit of the child.
+            const subGraph = resolveDeployedGraph(sub);
             const subResult = await executeSwarmServer({
-              swarm: sub,
+              swarm: { id: sub.id, name: sub.name, nodes: subGraph.nodes, edges: subGraph.edges },
               userId: opts.userId,
               origin: opts.origin,
               input: gatherInputs(node, ctx, lastOutput),

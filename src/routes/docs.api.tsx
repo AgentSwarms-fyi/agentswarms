@@ -99,6 +99,41 @@ function ApiPage() {
         ]}
       />
 
+      {/* ── PUBLISHING ── */}
+      <H2 id="publishing">Which version your key runs</H2>
+      <P>
+        The canvas edits a <strong>draft</strong>. API keys and schedules run the{" "}
+        <strong>published</strong> snapshot, so saving a half-finished edit cannot change what your
+        integration receives. Creating a swarm's first key or schedule publishes the current graph
+        automatically — a new deployment is never pointed at nothing.
+      </P>
+      <P>
+        After that, rolling out a change is deliberate: edit and save on the canvas, then press{" "}
+        <strong>Publish</strong> in the Deploy dialog. Until you do, the dialog shows{" "}
+        <strong>Draft ahead</strong> and deployed callers keep getting the previous version.
+        Publishing pins whatever is <em>saved</em>, so save before you publish — the dialog says so
+        if the canvas has unsaved edits.
+      </P>
+      <Table
+        headers={["State", "What deployed runs execute"]}
+        rows={[
+          ["Published", "The pinned snapshot, which currently matches the canvas."],
+          [
+            "Draft ahead",
+            "The pinned snapshot. Your canvas changes are NOT live until you publish.",
+          ],
+          [
+            "Serving the live canvas",
+            "The draft itself — every save is immediately live. Only happens on swarms deployed before publishing existed, or if you press Unpin.",
+          ],
+        ]}
+      />
+      <P>
+        <strong>Unpin</strong> is available if you want the old behaviour, where saves reach
+        production immediately. Sub-swarms follow the same rule: an Execute Swarm node inside a
+        headless run executes the child's published graph, not its draft.
+      </P>
+
       {/* ── REQUEST ── */}
       <H2 id="request">POST /api/swarm/run</H2>
       <H3 id="req-headers">Headers</H3>

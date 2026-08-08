@@ -598,6 +598,14 @@ name: is_urgent       type: boolean  "True if they mention a deadline"`}</Code>
         unattended. Full detail in <DocLink to="/docs/api">API &amp; webhooks</DocLink> and{" "}
         <DocLink to="/docs/embedding">Web embedding</DocLink>.
       </P>
+      <P>
+        The canvas edits a <strong>draft</strong>; deployed runs execute the{" "}
+        <strong>published</strong> snapshot. Creating the first key or schedule publishes the
+        current graph, and after that your saves stay private until you press{" "}
+        <strong>Publish</strong> — so you can rewrite a prompt at 3am without changing what a live
+        integration receives. The Deploy dialog shows <em>Draft ahead</em> whenever the canvas has
+        moved on, and <DocLink to="/docs/api">API &amp; webhooks</DocLink> covers the states.
+      </P>
 
       <H2 id="components">Custom components</H2>
       <P>

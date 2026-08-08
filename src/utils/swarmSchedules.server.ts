@@ -12,6 +12,7 @@
 // untestable because they were inline.
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { executeSwarmServer } from "@/utils/swarmExecute.server";
+import { resolveDeployedGraph } from "@/lib/swarmPublish";
 import { resolveInternalOrigin } from "@/utils/internalOrigin.server";
 
 export type ScheduleRow = {
@@ -133,7 +134,7 @@ export async function processDueSwarmSchedules(force = false): Promise<number> {
 
       const { data: swarm } = await supabaseAdmin
         .from("swarms")
-        .select("id, name, nodes, edges, user_id")
+        .select("id, name, nodes, edges, user_id, published_nodes, published_edges, published_at")
         .eq("id", s.swarm_id)
         .maybeSingle();
 
@@ -147,8 +148,11 @@ export async function processDueSwarmSchedules(force = false): Promise<number> {
       }
 
       try {
+        // Scheduled runs are unattended — they get the published snapshot for
+        // the same reason API keys do.
+        const pinned = resolveDeployedGraph(swarm!);
         const result = await executeSwarmServer({
-          swarm: swarm!,
+          swarm: { id: swarm!.id, name: swarm!.name, nodes: pinned.nodes, edges: pinned.edges },
           userId: s.user_id,
           origin: base,
           input: s.input ?? "",

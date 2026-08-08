@@ -44,7 +44,9 @@ instance can start with zero setup.
 **Swarm canvas** — design a multi-agent workflow as a graph and run it end to
 end. Each node is a step (agent, router, condition, loop, approval, tool call);
 the inspector sets its provider, model, prompt, tools and knowledge. The same
-graph runs from the canvas, from the API and on a schedule.
+graph runs from the canvas, from the API and on a schedule — the canvas edits a
+draft, and API keys and schedules keep serving the last **published** snapshot
+until you promote it.
 
 ![The swarm canvas: a nine-node "Earnings Call Analyst Desk" workflow, with the node palette on the left and the selected agent node's configuration on the right](docs/screenshots/swarm-canvas.png)
 
