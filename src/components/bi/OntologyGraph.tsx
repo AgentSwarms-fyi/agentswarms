@@ -13,6 +13,7 @@
 //               side, ER-diagram style. The layout reflows around expanded
 //               cards.
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   forceCollide,
   forceLink,
@@ -23,7 +24,15 @@ import {
   type SimulationLinkDatum,
   type SimulationNodeDatum,
 } from "d3-force";
-import { ChevronsDownUp, ChevronsUpDown, Maximize2, Minus, Plus } from "lucide-react";
+import {
+  ChevronsDownUp,
+  ChevronsUpDown,
+  Maximize2,
+  Minimize2,
+  Minus,
+  Plus,
+  Scan,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -309,6 +318,7 @@ export function OntologyGraph({
   // for inspection (hover alone is useless on touch and for reading).
   const [pinnedEdge, setPinnedEdge] = useState<number | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [isFull, setIsFull] = useState(false);
   const dragRef = useRef<{
     x: number;
     y: number;
@@ -337,7 +347,12 @@ export function OntologyGraph({
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+    // isFull is a dependency because entering fullscreen PORTALS this subtree
+    // to document.body: React builds new DOM nodes, so an observer bound with
+    // [] would keep watching the old, now-detached element — which reports
+    // 0x0 — and the canvas would render nothing at all. Re-running rebinds it
+    // to the node that is actually on screen.
+  }, [isFull]);
 
   const fit = useMemo(() => {
     if (size.w === 0 || size.h === 0) return { x: 0, y: 0, k: 1 };
@@ -356,6 +371,18 @@ export function OntologyGraph({
 
   // Re-fit whenever the container size, the spec or the drill level changes.
   useEffect(() => setView(fit), [fit]);
+
+  // Esc leaves fullscreen. Without it the only way out is the button, which is
+  // not where anyone looks first — every other fullscreen surface on the web
+  // exits on Esc.
+  useEffect(() => {
+    if (!isFull) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsFull(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isFull]);
 
   const focusId = pinned ?? active;
   const hood = focusId ? layout.neighbors.get(focusId) : null;
@@ -413,8 +440,16 @@ export function OntologyGraph({
     );
   }
 
-  return (
-    <div className={cn("flex min-h-0 flex-col", heightClass)}>
+  const tree = (
+    <div
+      className={cn(
+        "flex min-h-0 flex-col",
+        // An overlay rather than the Fullscreen API: this graph also renders
+        // inside embedded dashboards in an iframe, where requestFullscreen
+        // needs an allowfullscreen attribute on a host page we do not control.
+        isFull ? "fixed inset-0 z-50 h-auto bg-background p-4 shadow-2xl" : heightClass,
+      )}
+    >
       {/* Summary strip */}
       <div className="flex shrink-0 items-start justify-between gap-3 px-1 pb-1.5">
         <p
@@ -885,6 +920,9 @@ export function OntologyGraph({
           >
             <Minus className="h-3 w-3" />
           </Button>
+          {/* Scan, not Maximize2: this frames the graph, it does not go
+              fullscreen. The fullscreen glyph belongs to the button below, and
+              having both on one control is what made this read as broken. */}
           <Button
             variant="outline"
             size="icon"
@@ -892,7 +930,16 @@ export function OntologyGraph({
             onClick={() => setView(fit)}
             title="Fit to view"
           >
-            <Maximize2 className="h-3 w-3" />
+            <Scan className="h-3 w-3" />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-6 w-6 bg-card"
+            onClick={() => setIsFull((v) => !v)}
+            title={isFull ? "Exit fullscreen (Esc)" : "Fullscreen"}
+          >
+            {isFull ? <Minimize2 className="h-3 w-3" /> : <Maximize2 className="h-3 w-3" />}
           </Button>
           {expandableIds.length > 0 && (
             <Button
@@ -1088,4 +1135,13 @@ export function OntologyGraph({
       </div>
     </div>
   );
+
+  // Fullscreen renders through a portal on document.body. Without it the
+  // overlay is trapped by the widget card's `backdrop-filter`, which — like a
+  // transform — makes that card the containing block for `position: fixed`, so
+  // `inset-0` sized the overlay to the card instead of the viewport.
+  if (isFull && typeof document !== "undefined") {
+    return createPortal(tree, document.body);
+  }
+  return tree;
 }
