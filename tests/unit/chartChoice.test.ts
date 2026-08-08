@@ -44,17 +44,23 @@ describe("the shapes that are decided without asking a model", () => {
     // short-circuit must require BOTH one row and one column, or every
     // single-row breakdown collapses to one number.
     //
-    // Asserted by the ROUTE TAKEN rather than the chart returned: with no
-    // session, reaching the model throws "Not signed in", so the throw proves
-    // this shape was not short-circuited. Asserting a chart type here would
+    // Asserted by the ROUTE TAKEN rather than the chart returned: both
+    // short-circuits RETURN, and only the model path can throw, so a rejection
+    // is proof this shape reached the model. Asserting a chart type here would
     // need a paid call and would make the suite flaky on a model's judgement.
+    //
+    // The MESSAGE is deliberately not matched. It used to expect /not signed
+    // in/, which passes on a machine with a .env and fails in CI without one,
+    // where the Supabase client throws "Missing Supabase environment
+    // variables" first. Both prove the same thing; pinning either one makes
+    // the test a check on the environment rather than on the short-circuit.
     await expect(
       suggestChart({
         question: "Revenue, cost and margin",
         result: result(["revenue", "cost", "margin"], [{ revenue: 10, cost: 6, margin: 4 }]),
         plan,
       }),
-    ).rejects.toThrow(/not signed in/i);
+    ).rejects.toThrow();
   });
 });
 
