@@ -797,6 +797,26 @@ the same `.env` works whether you run the app in Compose or with `npm run dev`
 browser build, producing a file identical to Fast. The UI disables the Deep
 option and states the reason rather than leaving a control that does nothing.
 
+### Checking what is running (Observability → Monitoring)
+
+Every optional piece below is a Compose profile you may or may not have
+started, which makes "is this deployment complete?" a real question. The
+in-app **Observability → Monitoring** page answers it: one row per service
+with its status, response time and the address that answered, plus live CPU,
+memory and disk for the machine running the app.
+
+Two behaviours worth knowing before you rely on it:
+
+- **Optional services that were never started read "Not running" in grey**, with
+  the `docker compose --profile … up -d` command that would start them. They are
+  not counted as problems — only a required service failing, or any service
+  answering incorrectly, is.
+- **Memory reports the container's limit when there is one** (read from cgroups),
+  not the host's RAM. If you set `mem_limit`, that is the number you see.
+
+The page is **superadmin-only**: it exposes hostnames, container limits and the
+internal service topology.
+
 ### JS sandbox (custom code in deployed runs)
 
 Optional, off by default. **Function** nodes and **custom components** run

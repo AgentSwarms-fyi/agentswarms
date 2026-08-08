@@ -71,6 +71,7 @@ import { Route as AuthenticatedPromptsRouteImport } from './routes/_authenticate
 import { Route as AuthenticatedPromptCompareRouteImport } from './routes/_authenticated/prompt-compare'
 import { Route as AuthenticatedPlaygroundRouteImport } from './routes/_authenticated/playground'
 import { Route as AuthenticatedNotebooksRouteImport } from './routes/_authenticated/notebooks'
+import { Route as AuthenticatedMonitoringRouteImport } from './routes/_authenticated/monitoring'
 import { Route as AuthenticatedModelRegistryRouteImport } from './routes/_authenticated/model-registry'
 import { Route as AuthenticatedMcpBuilderRouteImport } from './routes/_authenticated/mcp-builder'
 import { Route as AuthenticatedMcpRouteImport } from './routes/_authenticated/mcp'
@@ -440,6 +441,11 @@ const AuthenticatedNotebooksRoute = AuthenticatedNotebooksRouteImport.update({
   path: '/notebooks',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedMonitoringRoute = AuthenticatedMonitoringRouteImport.update({
+  id: '/monitoring',
+  path: '/monitoring',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 const AuthenticatedModelRegistryRoute =
   AuthenticatedModelRegistryRouteImport.update({
     id: '/model-registry',
@@ -776,6 +782,7 @@ export interface FileRoutesByFullPath {
   '/mcp': typeof AuthenticatedMcpRoute
   '/mcp-builder': typeof AuthenticatedMcpBuilderRoute
   '/model-registry': typeof AuthenticatedModelRegistryRoute
+  '/monitoring': typeof AuthenticatedMonitoringRoute
   '/notebooks': typeof AuthenticatedNotebooksRouteWithChildren
   '/playground': typeof AuthenticatedPlaygroundRoute
   '/prompt-compare': typeof AuthenticatedPromptCompareRoute
@@ -896,6 +903,7 @@ export interface FileRoutesByTo {
   '/mcp': typeof AuthenticatedMcpRoute
   '/mcp-builder': typeof AuthenticatedMcpBuilderRoute
   '/model-registry': typeof AuthenticatedModelRegistryRoute
+  '/monitoring': typeof AuthenticatedMonitoringRoute
   '/notebooks': typeof AuthenticatedNotebooksRouteWithChildren
   '/playground': typeof AuthenticatedPlaygroundRoute
   '/prompt-compare': typeof AuthenticatedPromptCompareRoute
@@ -1019,6 +1027,7 @@ export interface FileRoutesById {
   '/_authenticated/mcp': typeof AuthenticatedMcpRoute
   '/_authenticated/mcp-builder': typeof AuthenticatedMcpBuilderRoute
   '/_authenticated/model-registry': typeof AuthenticatedModelRegistryRoute
+  '/_authenticated/monitoring': typeof AuthenticatedMonitoringRoute
   '/_authenticated/notebooks': typeof AuthenticatedNotebooksRouteWithChildren
   '/_authenticated/playground': typeof AuthenticatedPlaygroundRoute
   '/_authenticated/prompt-compare': typeof AuthenticatedPromptCompareRoute
@@ -1142,6 +1151,7 @@ export interface FileRouteTypes {
     | '/mcp'
     | '/mcp-builder'
     | '/model-registry'
+    | '/monitoring'
     | '/notebooks'
     | '/playground'
     | '/prompt-compare'
@@ -1262,6 +1272,7 @@ export interface FileRouteTypes {
     | '/mcp'
     | '/mcp-builder'
     | '/model-registry'
+    | '/monitoring'
     | '/notebooks'
     | '/playground'
     | '/prompt-compare'
@@ -1384,6 +1395,7 @@ export interface FileRouteTypes {
     | '/_authenticated/mcp'
     | '/_authenticated/mcp-builder'
     | '/_authenticated/model-registry'
+    | '/_authenticated/monitoring'
     | '/_authenticated/notebooks'
     | '/_authenticated/playground'
     | '/_authenticated/prompt-compare'
@@ -1965,6 +1977,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedNotebooksRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/monitoring': {
+      id: '/_authenticated/monitoring'
+      path: '/monitoring'
+      fullPath: '/monitoring'
+      preLoaderRoute: typeof AuthenticatedMonitoringRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/model-registry': {
       id: '/_authenticated/model-registry'
       path: '/model-registry'
@@ -2424,6 +2443,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedMcpRoute: typeof AuthenticatedMcpRoute
   AuthenticatedMcpBuilderRoute: typeof AuthenticatedMcpBuilderRoute
   AuthenticatedModelRegistryRoute: typeof AuthenticatedModelRegistryRoute
+  AuthenticatedMonitoringRoute: typeof AuthenticatedMonitoringRoute
   AuthenticatedNotebooksRoute: typeof AuthenticatedNotebooksRouteWithChildren
   AuthenticatedPlaygroundRoute: typeof AuthenticatedPlaygroundRoute
   AuthenticatedPromptCompareRoute: typeof AuthenticatedPromptCompareRoute
@@ -2457,6 +2477,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedMcpRoute: AuthenticatedMcpRoute,
   AuthenticatedMcpBuilderRoute: AuthenticatedMcpBuilderRoute,
   AuthenticatedModelRegistryRoute: AuthenticatedModelRegistryRoute,
+  AuthenticatedMonitoringRoute: AuthenticatedMonitoringRoute,
   AuthenticatedNotebooksRoute: AuthenticatedNotebooksRouteWithChildren,
   AuthenticatedPlaygroundRoute: AuthenticatedPlaygroundRoute,
   AuthenticatedPromptCompareRoute: AuthenticatedPromptCompareRoute,

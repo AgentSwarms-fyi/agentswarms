@@ -120,6 +120,51 @@ function AnalyticsDoc() {
         optimizing — a cheaper model, a tighter prompt, or a parallel branch.
       </Note>
 
+      <H2 id="monitoring">Service monitoring</H2>
+      <P>
+        <strong>Observability → Monitoring</strong> answers the operator&rsquo;s question rather
+        than the analyst&rsquo;s: is every piece of this deployment actually running, and what is
+        the machine doing right now? It is superadmin-only, because it reports hostnames, container
+        limits and which internal services exist.
+      </P>
+      <Table
+        headers={["Panel", "What it shows"]}
+        rows={[
+          [
+            "CPU",
+            "Utilisation sampled across all cores, with the core count, the container's CPU quota when one is set, and the 1/5/15-minute load averages.",
+          ],
+          [
+            "Memory",
+            "Used against the total — and it says which total: a container's cgroup LIMIT when there is one, otherwise host RAM. Showing 3 GB of 64 GB while the container dies at 4 GB would be worse than showing nothing.",
+          ],
+          [
+            "Disk",
+            "Usage of the filesystem the app is installed on, where the platform reports it.",
+          ],
+          [
+            "App process",
+            "Resident memory, heap used against heap total, and how long this process has been up.",
+          ],
+          [
+            "Services",
+            "One row per service — the app, Supabase, and every optional container — with its status, response time and the address that answered.",
+          ],
+        ]}
+      />
+      <Callout kind="info">
+        <strong>Optional services are not incidents.</strong> A profile you never started reads
+        &ldquo;Not running&rdquo; in grey, with the command that would start it — not a red
+        &ldquo;Down&rdquo;. Only a required service failing, or any service answering badly, is
+        counted in &ldquo;needing attention&rdquo;. A status page that cries wolf is one people stop
+        opening.
+      </Callout>
+      <P>
+        The view refreshes every 15 seconds while open (toggleable), and each probe reports what the
+        service itself says — the document renderer&rsquo;s LibreOffice availability, for instance,
+        appears alongside its status rather than being assumed from the fact that it answered.
+      </P>
+
       <H2 id="audit-timeline">The audit timeline</H2>
       <P>
         The timeline merges <strong>three</strong> sources at read time, which is why an action can

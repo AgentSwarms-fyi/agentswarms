@@ -21,6 +21,7 @@ import {
   Image as ImageIcon,
   Columns,
   FlaskConical,
+  Activity,
   NotebookPen,
   PieChart,
   Code2,
@@ -88,6 +89,9 @@ export const NAV_GROUPS: NavGroup[] = [
       { title: "Traces & Logs", url: "/traces", icon: ScrollText },
       { title: "Audit Log", url: "/audit", icon: FileClock },
       { title: "Budgets", url: "/budgets", icon: Settings },
+      // Superadmin-only page; the route itself enforces that, and the link
+      // is harmless for everyone else (it explains the restriction).
+      { title: "Monitoring", url: "/monitoring", icon: Activity },
     ],
   },
   {
