@@ -153,7 +153,9 @@ describe("service catalogue", () => {
     for (const s of SERVICE_CATALOGUE) {
       if (!s.optional) continue;
       expect(s.profile, `${s.id} has no profile`).toBeTruthy();
-      expect(compose, `profile ${s.profile} is not in compose`).toContain(`profiles: [${s.profile}]`);
+      expect(compose, `profile ${s.profile} is not in compose`).toContain(
+        `profiles: [${s.profile}]`,
+      );
     }
   });
 });

@@ -55,16 +55,20 @@ describe("validateComponent", () => {
     expect(validateComponent({ ...COMP, params: [P({ name: "a" }), P({ name: "a" })] })).toMatch(
       /declared twice/,
     );
-    expect(
-      validateComponent({ ...COMP, params: [P({ name: "mode", type: "select" })] }),
-    ).toMatch(/at least one option/);
+    expect(validateComponent({ ...COMP, params: [P({ name: "mode", type: "select" })] })).toMatch(
+      /at least one option/,
+    );
   });
 });
 
 describe("coerceParams", () => {
   it("gives the snippet typed values, not strings", () => {
     const out = coerceParams(
-      [P({ name: "limit", type: "number" }), P({ name: "loud", type: "boolean" }), P({ name: "tag" })],
+      [
+        P({ name: "limit", type: "number" }),
+        P({ name: "loud", type: "boolean" }),
+        P({ name: "tag" }),
+      ],
       { limit: "12", loud: "true", tag: "x" },
     );
     expect(out).toEqual({ limit: 12, loud: true, tag: "x" });
@@ -135,7 +139,11 @@ describe("componentOutdated", () => {
 describe("defaultValues", () => {
   it("seeds declared defaults, and booleans start false rather than empty", () => {
     expect(
-      defaultValues([P({ name: "a", default: "x" }), P({ name: "b", type: "boolean" }), P({ name: "c" })]),
+      defaultValues([
+        P({ name: "a", default: "x" }),
+        P({ name: "b", type: "boolean" }),
+        P({ name: "c" }),
+      ]),
     ).toEqual({ a: "x", b: "false", c: "" });
   });
 });

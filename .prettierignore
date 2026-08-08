@@ -5,3 +5,9 @@ dist
 pnpm-lock.yaml
 package-lock.json
 routeTree.gen.ts
+
+# The licence is canonical upstream text. Formatting it changes nothing legally
+# but stops LICENSE.md diffing clean against the published Elastic License 2.0,
+# which is the first thing anyone evaluating the licence does. `npm run format`
+# rewrote its emphasis markers once; that is once too often.
+LICENSE.md

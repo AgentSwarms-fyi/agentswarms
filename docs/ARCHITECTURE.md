@@ -8,18 +8,18 @@ concurrency cap.
 
 ## Tech stack
 
-| Layer        | Tech                                                                                                                                                                  |
-| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Framework    | [TanStack Start](https://tanstack.com/start) (React 19), file-based routing via TanStack Router                                                                       |
-| Backend      | [Supabase](https://supabase.com) — Postgres, Auth, Storage, pgvector                                                                                                  |
-| Styling      | [Tailwind CSS](https://tailwindcss.com) + [shadcn/ui](https://ui.shadcn.com)                                                                                          |
-| Agents       | [LangChain](https://js.langchain.com) / LangGraph                                                                                                                     |
-| Swarm canvas | [XYFlow](https://xyflow.com)                                                                                                                                          |
-| BI & SQL     | Custom SVG chart renderers · in-browser SQL via [DuckDB-WASM](https://duckdb.org/docs/api/wasm/overview) (AlaSQL remains an opt-out escape hatch, `LOCAL_ENGINE=alasql`) |
-| Documents    | Client-side [pptxgenjs](https://gitbrent.github.io/PptxGenJS/) · [docx](https://docx.js.org) · [write-excel-file](https://gitlab.com/catamphetamine/write-excel-file) |
-| Notebooks    | Python on sandboxed server kernels (Docker or Kubernetes) — see [DEVELOPER_WORKSPACE_RUNTIME.md](./DEVELOPER_WORKSPACE_RUNTIME.md)                                    |
+| Layer        | Tech                                                                                                                                                                                                |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Framework    | [TanStack Start](https://tanstack.com/start) (React 19), file-based routing via TanStack Router                                                                                                     |
+| Backend      | [Supabase](https://supabase.com) — Postgres, Auth, Storage, pgvector                                                                                                                                |
+| Styling      | [Tailwind CSS](https://tailwindcss.com) + [shadcn/ui](https://ui.shadcn.com)                                                                                                                        |
+| Agents       | [LangChain](https://js.langchain.com) / LangGraph                                                                                                                                                   |
+| Swarm canvas | [XYFlow](https://xyflow.com)                                                                                                                                                                        |
+| BI & SQL     | Custom SVG chart renderers · in-browser SQL via [DuckDB-WASM](https://duckdb.org/docs/api/wasm/overview) (AlaSQL remains an opt-out escape hatch, `LOCAL_ENGINE=alasql`)                            |
+| Documents    | Client-side [pptxgenjs](https://gitbrent.github.io/PptxGenJS/) · [docx](https://docx.js.org) · [write-excel-file](https://gitlab.com/catamphetamine/write-excel-file)                               |
+| Notebooks    | Python on sandboxed server kernels (Docker or Kubernetes) — see [DEVELOPER_WORKSPACE_RUNTIME.md](./DEVELOPER_WORKSPACE_RUNTIME.md)                                                                  |
 | Custom code  | Function / component nodes: a browser Worker on the canvas, and an isolated container for deployed runs — see [DEPLOYMENT.md § JS sandbox](./DEPLOYMENT.md#js-sandbox-custom-code-in-deployed-runs) |
-| Deployment   | Docker (Node) · Kubernetes · installable PWA                                                                                                                          |
+| Deployment   | Docker (Node) · Kubernetes · installable PWA                                                                                                                                                        |
 
 ## Project structure
 

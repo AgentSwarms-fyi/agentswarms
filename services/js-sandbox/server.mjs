@@ -93,14 +93,18 @@ function runInWorker(code, ctx, timeoutMs) {
 const server = http.createServer((req, res) => {
   const send = (status, obj) => {
     const body = JSON.stringify(obj);
-    res.writeHead(status, { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) });
+    res.writeHead(status, {
+      "Content-Type": "application/json",
+      "Content-Length": Buffer.byteLength(body),
+    });
     res.end(body);
   };
 
   // Unauthenticated liveness only — it reveals nothing and runs nothing.
   if (req.method === "GET" && req.url === "/health") return send(200, { ok: true });
 
-  if (req.method !== "POST" || req.url !== "/run") return send(404, { ok: false, error: "not found" });
+  if (req.method !== "POST" || req.url !== "/run")
+    return send(404, { ok: false, error: "not found" });
 
   const auth = req.headers["x-internal-run-secret"];
   if (!auth || !constantTimeEquals(auth, SECRET)) {
@@ -131,10 +135,7 @@ const server = http.createServer((req, res) => {
     }
     const code = typeof payload?.code === "string" ? payload.code : "";
     if (!code.trim()) return send(400, { ok: false, error: "code is required" });
-    const timeoutMs = Math.max(
-      100,
-      Math.min(Number(payload?.timeoutMs) || 2000, MAX_TIMEOUT_MS),
-    );
+    const timeoutMs = Math.max(100, Math.min(Number(payload?.timeoutMs) || 2000, MAX_TIMEOUT_MS));
     const ctx = payload?.ctx ?? {};
     inFlight++;
     try {
@@ -147,5 +148,7 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`[js-sandbox] listening on :${PORT} (max ${MAX_CONCURRENT} concurrent, ${MAX_TIMEOUT_MS}ms ceiling)`);
+  console.log(
+    `[js-sandbox] listening on :${PORT} (max ${MAX_CONCURRENT} concurrent, ${MAX_TIMEOUT_MS}ms ceiling)`,
+  );
 });

@@ -20,14 +20,14 @@ every one is read by code you can grep for.
 
 ## Where the work happens
 
-| Path | Runs where | Bounded by |
-| --- | --- | --- |
-| Warehouse table (linked) | **In your warehouse** | Result-row cap, timeout, concurrency |
-| Local dataset (uploaded/synced) | **DuckDB**, in the app process or the browser | Dataset row cap |
-| Prep flow, all sources on one connection | **In your warehouse** (query folding) | Output-row cap |
-| Prep flow, mixed or non-foldable | **Locally**, after fetching | Output-row cap |
-| BI widget, `direct` mode | **In your warehouse**, at view time | Direct-query cap |
-| BI widget, `import` mode (default) | **From a cached snapshot** | Snapshot cap — see the warning below |
+| Path                                     | Runs where                                    | Bounded by                           |
+| ---------------------------------------- | --------------------------------------------- | ------------------------------------ |
+| Warehouse table (linked)                 | **In your warehouse**                         | Result-row cap, timeout, concurrency |
+| Local dataset (uploaded/synced)          | **DuckDB**, in the app process or the browser | Dataset row cap                      |
+| Prep flow, all sources on one connection | **In your warehouse** (query folding)         | Output-row cap                       |
+| Prep flow, mixed or non-foldable         | **Locally**, after fetching                   | Output-row cap                       |
+| BI widget, `direct` mode                 | **In your warehouse**, at view time           | Direct-query cap                     |
+| BI widget, `import` mode (default)       | **From a cached snapshot**                    | Snapshot cap — see the warning below |
 
 ---
 
@@ -35,14 +35,14 @@ every one is read by code you can grep for.
 
 ### Warehouse queries — `src/utils/warehouse/governor.server.ts`
 
-| Setting | Default | What it bounds |
-| --- | --- | --- |
-| `WAREHOUSE_MAX_ROWS` | `1000` | Rows returned when a caller doesn't specify |
-| `WAREHOUSE_ABS_MAX_ROWS` | `5000` | Hard ceiling — no caller may exceed it |
-| `WAREHOUSE_QUERY_TIMEOUT_MS` | `60000` | Wall clock for one query, including result polling |
-| `WAREHOUSE_MAX_CONCURRENT` | `8` | Simultaneous warehouse queries per app process |
-| `WAREHOUSE_MAX_CONCURRENT_PER_USER` | `3` | Per user, so one person cannot occupy the pool |
-| `WAREHOUSE_QUEUE_TIMEOUT_MS` | `30000` | How long a query waits for a slot |
+| Setting                             | Default | What it bounds                                     |
+| ----------------------------------- | ------- | -------------------------------------------------- |
+| `WAREHOUSE_MAX_ROWS`                | `1000`  | Rows returned when a caller doesn't specify        |
+| `WAREHOUSE_ABS_MAX_ROWS`            | `5000`  | Hard ceiling — no caller may exceed it             |
+| `WAREHOUSE_QUERY_TIMEOUT_MS`        | `60000` | Wall clock for one query, including result polling |
+| `WAREHOUSE_MAX_CONCURRENT`          | `8`     | Simultaneous warehouse queries per app process     |
+| `WAREHOUSE_MAX_CONCURRENT_PER_USER` | `3`     | Per user, so one person cannot occupy the pool     |
+| `WAREHOUSE_QUEUE_TIMEOUT_MS`        | `30000` | How long a query waits for a slot                  |
 
 These bound the **result set**, never the table. `SELECT country, SUM(amount)
 FROM billion_row_table GROUP BY country` scans a billion rows in the warehouse
@@ -53,10 +53,10 @@ replica count when sizing against your warehouse's `max_connections`.
 
 ### Local datasets — `src/utils/data/ingest.server.ts`
 
-| Setting | Default | What it bounds |
-| --- | --- | --- |
-| `UPLOAD_MAX_ROWS` | `500000` | Largest dataset accepted, in rows |
-| `UPLOAD_MAX_BYTES` | `104857600` (100 MB) | Largest file accepted |
+| Setting            | Default              | What it bounds                    |
+| ------------------ | -------------------- | --------------------------------- |
+| `UPLOAD_MAX_ROWS`  | `500000`             | Largest dataset accepted, in rows |
+| `UPLOAD_MAX_BYTES` | `104857600` (100 MB) | Largest file accepted             |
 
 Local datasets are a laptop-scale convenience — CSVs, sample data, SaaS syncs —
 not a warehouse replacement. Past a few million rows, link the warehouse table
@@ -68,24 +68,24 @@ browser tab's memory, and its inline preview shows **50 rows**
 
 ### Semantic layer — `src/lib/semanticLayer.ts`
 
-| Constant | Default | What it bounds |
-| --- | --- | --- |
-| `DEFAULT_LIMIT` | `1000` | Rows when a query doesn't ask |
-| `MAX_LIMIT` | `10000` | Ceiling for any semantic query |
+| Constant        | Default | What it bounds                 |
+| --------------- | ------- | ------------------------------ |
+| `DEFAULT_LIMIT` | `1000`  | Rows when a query doesn't ask  |
+| `MAX_LIMIT`     | `10000` | Ceiling for any semantic query |
 
 Dimensions and metrics compile to SQL that runs **where the data lives**, so the
 aggregation happens in the warehouse and only the grouped result travels.
 
 ### Data preparation — `src/utils/bi/prep.server.ts`
 
-| Setting | Default | What it bounds |
-| --- | --- | --- |
+| Setting                | Default  | What it bounds                                   |
+| ---------------------- | -------- | ------------------------------------------------ |
 | `PREP_OUTPUT_ROWS_CAP` | `250000` | Rows a prep flow may write to its output dataset |
 
 **Query folding** is what makes prep scale: when every source in a flow is
 linked to the same warehouse connection and every step is expressible in that
 dialect, the whole pipeline is compiled to one SQL statement and executed
-**inside the warehouse**. The fold is *proved* before it is trusted — the
+**inside the warehouse**. The fold is _proved_ before it is trusted — the
 generated SQL is run against the real warehouse first, and any parse or
 semantic error falls back to local execution. A refusal therefore costs
 performance, never correctness.
@@ -95,17 +95,17 @@ local and warehouse tables, or when a step has no dialect equivalent. The UI
 names the reason. In that case rows are fetched and processed locally, and the
 caps above apply.
 
-When you add a warehouse table to a flow, *Snapshot* copies up to **1,000
-rows** locally for design-time preview; *Link* reads the table in place and is
+When you add a warehouse table to a flow, _Snapshot_ copies up to **1,000
+rows** locally for design-time preview; _Link_ reads the table in place and is
 what you want for real volume.
 
 ### BI dashboards — `src/lib/biDashboards.ts`
 
-| Setting / field | Default | What it bounds |
-| --- | --- | --- |
+| Setting / field             | Default                  | What it bounds                     |
+| --------------------------- | ------------------------ | ---------------------------------- |
 | `VITE_BI_SNAPSHOT_ROWS_CAP` | `500` (ceiling `100000`) | Rows cached in a widget's snapshot |
-| `DIRECT_QUERY_DEFAULT_ROWS` | `50000` | Rows for a `direct`-mode widget |
-| `DIRECT_QUERY_MAX_ROWS` | `100000` | Ceiling for `direct` mode |
+| `DIRECT_QUERY_DEFAULT_ROWS` | `50000`                  | Rows for a `direct`-mode widget    |
+| `DIRECT_QUERY_MAX_ROWS`     | `100000`                 | Ceiling for `direct` mode          |
 
 > [!IMPORTANT]
 > **Read this before trusting a total.** Warehouse-backed widgets default to

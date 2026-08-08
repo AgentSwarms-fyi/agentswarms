@@ -106,11 +106,16 @@ describe("sandbox isolation invariants", () => {
   });
 
   it("the service enforces its own timeout ceiling, not the caller's", () => {
-    expect(SERVICE).toMatch(/Math\.min\(Number\(payload\?\.timeoutMs\)\s*\|\|\s*2000,\s*MAX_TIMEOUT_MS\)/);
+    expect(SERVICE).toMatch(
+      /Math\.min\(Number\(payload\?\.timeoutMs\)\s*\|\|\s*2000,\s*MAX_TIMEOUT_MS\)/,
+    );
   });
 
   it("the compose service is hardened and has no egress", () => {
-    const block = COMPOSE.slice(COMPOSE.indexOf("  js-sandbox:"), COMPOSE.indexOf("# Network topology"));
+    const block = COMPOSE.slice(
+      COMPOSE.indexOf("  js-sandbox:"),
+      COMPOSE.indexOf("# Network topology"),
+    );
     expect(block).toContain("read_only: true");
     expect(block).toContain("no-new-privileges:true");
     expect(block).toContain("cap_drop: [ALL]");

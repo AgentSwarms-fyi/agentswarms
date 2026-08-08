@@ -58,14 +58,14 @@ All options share the same two prerequisites.
    [INSTALL.md §4](./INSTALL.md#4-configure-environment-variables). The ones
    that matter specifically in production:
 
-   | Variable                                        | Why                                                                                                                                                                                       |
-   | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-   | `PROVIDER_CREDS_SECRET`                         | **Required** if anyone uses warehouses, Secrets, or Data Catalog — the AES-256 key encrypting stored credentials. Set once (`openssl rand -hex 32`); rotating it invalidates saved creds. |
-   | `SITE_URL`                                      | Your public URL — used in email links and as the default origin for scheduled work.                                                                                                       |
+   | Variable                                        | Why                                                                                                                                                                                                                                           |
+   | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+   | `PROVIDER_CREDS_SECRET`                         | **Required** if anyone uses warehouses, Secrets, or Data Catalog — the AES-256 key encrypting stored credentials. Set once (`openssl rand -hex 32`); rotating it invalidates saved creds.                                                     |
+   | `SITE_URL`                                      | Your public URL — used in email links and as the default origin for scheduled work.                                                                                                                                                           |
    | `RESEND_API_KEY` **or** `SMTP_*` + `EMAIL_FROM` | Outbound app email (welcome, budget alerts, BI alerts, scheduled reports, approvals, contact form). `EMAIL_FROM` must be on a **verified** domain — see [Email delivery](#email-delivery). Without a transport, sends are skipped and logged. |
-   | `BI_CRON_TOKEN`                                 | Lets an external scheduler drive background jobs — see [Scheduling](#scheduling--background-jobs).                                                                                        |
-   | `OPENROUTER_API_KEY`                            | Optional but recommended — makes the app usable with zero per-user key setup.                                                                                                             |
-   | `OPENAI_API_KEY`                                | Optional — real vector embeddings for Knowledge Base search (otherwise keyword search).                                                                                                   |
+   | `BI_CRON_TOKEN`                                 | Lets an external scheduler drive background jobs — see [Scheduling](#scheduling--background-jobs).                                                                                                                                            |
+   | `OPENROUTER_API_KEY`                            | Optional but recommended — makes the app usable with zero per-user key setup.                                                                                                                                                                 |
+   | `OPENAI_API_KEY`                                | Optional — real vector embeddings for Knowledge Base search (otherwise keyword search).                                                                                                                                                       |
 
    ```bash
    cp .env.example .env
@@ -895,22 +895,22 @@ JS_SANDBOX_URL="http://127.0.0.1:8091"
 **How it is isolated.** Every layer here is deliberate, and stricter than the
 notebook runtime because a snippet needs nothing at all:
 
-| Layer | What it does |
-| ----- | ------------ |
-| Separate container | The snippet never shares a process with the service-role key or provider credentials |
-| `js-internal` network | `internal: true` — no route to the internet, and none back to the app |
-| `read_only: true`, `cap_drop: ALL`, `no-new-privileges` | Nothing writable, no privileged syscalls, no setuid escalation |
-| `pids_limit`, `mem_limit`, `cpus` | A runaway snippet cannot starve the host |
-| Fresh V8 realm per call | Built with `vm.createContext` — `require`, `process`, `fetch` and `Buffer` do not exist inside it |
-| Worker thread per call, terminated after | Kills even a synchronous infinite loop |
-| Shared secret | The service refuses to start without `INTERNAL_RUN_SECRET`, so an exposed port is not an open code-execution endpoint |
+| Layer                                                   | What it does                                                                                                          |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Separate container                                      | The snippet never shares a process with the service-role key or provider credentials                                  |
+| `js-internal` network                                   | `internal: true` — no route to the internet, and none back to the app                                                 |
+| `read_only: true`, `cap_drop: ALL`, `no-new-privileges` | Nothing writable, no privileged syscalls, no setuid escalation                                                        |
+| `pids_limit`, `mem_limit`, `cpus`                       | A runaway snippet cannot starve the host                                                                              |
+| Fresh V8 realm per call                                 | Built with `vm.createContext` — `require`, `process`, `fetch` and `Buffer` do not exist inside it                     |
+| Worker thread per call, terminated after                | Kills even a synchronous infinite loop                                                                                |
+| Shared secret                                           | The service refuses to start without `INTERNAL_RUN_SECRET`, so an exposed port is not an open code-execution endpoint |
 
 Nothing from the host realm is placed in the sandbox — not even a `console`
 shim. That rule exists because a host object's prototype chain carries the host
 `Function` constructor: with a host console in scope,
 `console.log.constructor("return process")()` returns the real `process`, and
 with it this container's environment. The service builds `console` and `ctx`
-*inside* the sandbox realm and passes only JSON strings across the boundary.
+_inside_ the sandbox realm and passes only JSON strings across the boundary.
 
 **Verify it after deploying:**
 
@@ -920,7 +920,7 @@ curl -s http://127.0.0.1:8091/health
 
 Then deploy a swarm with a Function node and run it through its API key. The
 Deploy dialog also reports the sandbox's state: it warns only when custom-code
-nodes are present *and* the sandbox is missing or unreachable on this instance.
+nodes are present _and_ the sandbox is missing or unreachable on this instance.
 
 **Without this profile nothing breaks** — Function and component nodes keep
 working on the canvas, and the Deploy dialog says plainly that they will fail

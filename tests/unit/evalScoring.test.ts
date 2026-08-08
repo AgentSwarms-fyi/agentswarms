@@ -25,10 +25,10 @@ const M = (id: string, weight: number): EvalJudgeMetric => ({
   weight,
 });
 
-const judge = (threshold: number, metrics = DEFAULT_JUDGE_METRICS): Extract<
-  EvalEvaluator,
-  { kind: "llm_judge" }
-> => ({ kind: "llm_judge", metrics, threshold });
+const judge = (
+  threshold: number,
+  metrics = DEFAULT_JUDGE_METRICS,
+): Extract<EvalEvaluator, { kind: "llm_judge" }> => ({ kind: "llm_judge", metrics, threshold });
 
 describe("validateEvaluator", () => {
   it("accepts the default judge and rejects broken configs", () => {
@@ -51,7 +51,8 @@ describe("parseScorecard", () => {
   const metrics = [M("correctness", 3), M("clarity", 1)];
 
   it("parses clean and fenced JSON", () => {
-    const raw = '{"metrics":{"correctness":{"score":0.9,"reason":"solid"},"clarity":{"score":0.5}},"summary":"ok"}';
+    const raw =
+      '{"metrics":{"correctness":{"score":0.9,"reason":"solid"},"clarity":{"score":0.5}},"summary":"ok"}';
     const clean = parseScorecard(raw, metrics);
     expect(clean.metrics.correctness.score).toBe(0.9);
     expect(clean.metrics.correctness.reason).toBe("solid");
@@ -62,17 +63,14 @@ describe("parseScorecard", () => {
   });
 
   it("rejects a scorecard that skipped a metric — no silent zero", () => {
-    expect(() =>
-      parseScorecard('{"metrics":{"correctness":{"score":1}}}', metrics),
-    ).toThrow(/clarity/);
+    expect(() => parseScorecard('{"metrics":{"correctness":{"score":1}}}', metrics)).toThrow(
+      /clarity/,
+    );
   });
 
   it("rejects out-of-range and non-numeric scores", () => {
     expect(() =>
-      parseScorecard(
-        '{"metrics":{"correctness":{"score":1.2},"clarity":{"score":0.5}}}',
-        metrics,
-      ),
+      parseScorecard('{"metrics":{"correctness":{"score":1.2},"clarity":{"score":0.5}}}', metrics),
     ).toThrow();
     expect(() =>
       parseScorecard(
@@ -126,17 +124,17 @@ describe("deterministicVerdict", () => {
   });
 
   it("contains: falls back to the evaluator value, fails with no needle at all", () => {
-    expect(
-      deterministicVerdict({ kind: "contains", value: "42" }, "it is 42", null).status,
-    ).toBe("pass");
+    expect(deterministicVerdict({ kind: "contains", value: "42" }, "it is 42", null).status).toBe(
+      "pass",
+    );
     expect(deterministicVerdict({ kind: "contains" }, "anything", null).status).toBe("fail");
   });
 
   it("exact: trims, ignores case by default, and never passes an empty expectation", () => {
     expect(deterministicVerdict({ kind: "exact" }, "  Yes \n", "yes").status).toBe("pass");
-    expect(
-      deterministicVerdict({ kind: "exact", caseSensitive: true }, "Yes", "yes").status,
-    ).toBe("fail");
+    expect(deterministicVerdict({ kind: "exact", caseSensitive: true }, "Yes", "yes").status).toBe(
+      "fail",
+    );
     expect(deterministicVerdict({ kind: "exact" }, "", null).status).toBe("fail");
     expect(deterministicVerdict({ kind: "exact" }, "", "").status).toBe("fail");
   });

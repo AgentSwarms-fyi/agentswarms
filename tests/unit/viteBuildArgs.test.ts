@@ -46,7 +46,9 @@ describe("every VITE_ setting survives the Docker build", () => {
   });
 
   it("the Dockerfile declares an ARG for each one", () => {
-    const missing = [...inCode].filter(([name]) => !new RegExp(`^ARG ${name}$`, "m").test(DOCKERFILE));
+    const missing = [...inCode].filter(
+      ([name]) => !new RegExp(`^ARG ${name}$`, "m").test(DOCKERFILE),
+    );
     expect(
       missing.map(([n, f]) => `${n} (read by ${f})`),
       "read by the app but not receivable by the Docker build — it would resolve to undefined in the image",

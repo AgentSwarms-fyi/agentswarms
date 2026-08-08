@@ -278,7 +278,7 @@ SITE_URL="https://your-domain.com"
 > **Two failure modes that look like nothing is wrong.**
 >
 > **Leaving `EMAIL_FROM` empty** falls back to `AgentSwarms
-> <noreply@example.com>`, which Resend rejects — every app email fails while the
+<noreply@example.com>`, which Resend rejects — every app email fails while the
 > app carries on normally. The rejection is recorded in `email_send_log`, which
 > is the first place to look when nobody is receiving mail.
 >
@@ -355,11 +355,11 @@ The core stack is one container: the app. Three more services are optional
 profiles, off unless you ask for them — and until now this guide only mentioned
 one of the three.
 
-| Service | Profile | What you lose without it |
-| ------- | ------- | ------------------------ |
-| Document renderer | `docgen` | Deep-mode exports fall back to the in-browser builder (no native charts/tables) |
-| JS sandbox | `sandbox` | Function and custom-component nodes work on the canvas but fail in deployed / scheduled swarm runs |
-| Developer-workspace runtime | `notebooks` | Notebooks run in the browser (Lite) only — no real CPython, no `pip install` |
+| Service                     | Profile     | What you lose without it                                                                           |
+| --------------------------- | ----------- | -------------------------------------------------------------------------------------------------- |
+| Document renderer           | `docgen`    | Deep-mode exports fall back to the in-browser builder (no native charts/tables)                    |
+| JS sandbox                  | `sandbox`   | Function and custom-component nodes work on the canvas but fail in deployed / scheduled swarm runs |
+| Developer-workspace runtime | `notebooks` | Notebooks run in the browser (Lite) only — no real CPython, no `pip install`                       |
 
 **Start everything:**
 

@@ -62,7 +62,7 @@ Dify. Nine migrations — run `npx supabase db push` after upgrading.
   host function carries the host `Function` constructor on its prototype chain,
   so `console.log.constructor("return process")()` returned the real `process`.
   Nothing from the host realm enters the context now — the console and ctx are
-  built *inside* the sandbox realm and only JSON strings cross.
+  built _inside_ the sandbox realm and only JSON strings cross.
 
 ### Knowledge bases
 
@@ -87,7 +87,7 @@ Dify. Nine migrations — run `npx supabase db push` after upgrading.
   `ts_rank` (~0.0–0.3) are not comparable numbers, and adding them raw would
   make the slider do nothing across most of its range.
 - **Embeddings default to OpenRouter in the UI**, as they already did on the
-  server. The dialog only offered a provider the *user* had connected, and an
+  server. The dialog only offered a provider the _user_ had connected, and an
   operator key is not a personal integration — so an instance with
   `OPENROUTER_API_KEY` set displayed OpenAI while the server embedded through
   OpenRouter. Three call sites answered "is this provider usable" and each
@@ -161,7 +161,7 @@ Dify. Nine migrations — run `npx supabase db push` after upgrading.
   against a bare `supabase/postgres` container rather than assuming. That found
   a real ordering trap: three migrations write to `storage.buckets`, and the
   `public` column they use is created by the storage service's own migrations —
-  so the stack must be started and allowed to settle *before* the schema is
+  so the stack must be started and allowed to settle _before_ the schema is
   pushed.
 - **Fixed: four `VITE_` settings could not reach the Docker build**, including
   the BI snapshot cap added in the same release.

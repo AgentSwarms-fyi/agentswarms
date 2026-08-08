@@ -76,11 +76,11 @@ base** (it describes how the collection is queried).
 
 ### Chunking mode — per document
 
-| Mode           | Embedded         | Sent to the model | Extra storage                                     | Index cost              |
-| -------------- | ---------------- | ----------------- | ------------------------------------------------- | ----------------------- |
-| `flat`         | the chunk        | the same chunk    | none                                              | embeddings only         |
-| `parent_child` | small children   | the child's parent| one `kb_chunk_parents` row per parent             | embeddings only         |
-| `qa`           | a question       | question + answer | none (the question lives on the chunk row)        | **one LLM call per passage** |
+| Mode           | Embedded       | Sent to the model  | Extra storage                              | Index cost                   |
+| -------------- | -------------- | ------------------ | ------------------------------------------ | ---------------------------- |
+| `flat`         | the chunk      | the same chunk     | none                                       | embeddings only              |
+| `parent_child` | small children | the child's parent | one `kb_chunk_parents` row per parent      | embeddings only              |
+| `qa`           | a question     | question + answer  | none (the question lives on the chunk row) | **one LLM call per passage** |
 
 `parent_child` exists because retrieval and generation want opposite chunk
 sizes. Children are cut from their parent and never across it, so expanding a
@@ -95,8 +95,8 @@ document and never silently downgraded to flat chunks: a collection that
 disagreed with its own settings would be undebuggable.
 
 **Changing the mode does not rewrite existing chunks.** Re-chunking means paying
-to embed the document again, so it is an explicit action — *Re-index with these
-settings* in the Chunking tab, which stamps the new settings onto each document
+to embed the document again, so it is an explicit action — _Re-index with these
+settings_ in the Chunking tab, which stamps the new settings onto each document
 and rebuilds its rows. Documents added after the change use it already.
 
 ### Retrieval mode — per knowledge base
@@ -105,11 +105,11 @@ and rebuilds its rows. Documents added after the change use it already.
 0..1}`. `NULL` means semantic-only, which is what every collection did before
 this existed — upgrading changes no answers until someone opts in.
 
-| Mode       | Runs                                                          |
-| ---------- | ------------------------------------------------------------- |
-| `semantic` | pgvector only                                                 |
-| `hybrid`   | pgvector **and** Postgres FTS over the same chunks, fused      |
-| `keyword`  | Postgres FTS only                                             |
+| Mode       | Runs                                                      |
+| ---------- | --------------------------------------------------------- |
+| `semantic` | pgvector only                                             |
+| `hybrid`   | pgvector **and** Postgres FTS over the same chunks, fused |
+| `keyword`  | Postgres FTS only                                         |
 
 Hybrid matters for tokens embeddings blur together: error codes, part numbers,
 SKUs, surnames. Before this, keyword search only ever looked at documents with
@@ -154,7 +154,7 @@ ordinary snippets — reusing the smaller cap would trim a parent down to about
 4. any other connected provider with an OpenAI-compatible `/embeddings` endpoint.
 
 Step 2 is the one that was invisible: the settings dialog only ever offered a
-provider the *user* had connected, so an instance with `OPENROUTER_API_KEY` set
+provider the _user_ had connected, so an instance with `OPENROUTER_API_KEY` set
 and no personal integration displayed OpenAI as the default while the server
 was already embedding through OpenRouter.
 
