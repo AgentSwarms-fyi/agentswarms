@@ -26,7 +26,15 @@ export type ServiceStatus =
    */
   | "down"
   /** Not probed because the deployment says it does not apply. */
-  | "not-deployed";
+  | "not-deployed"
+  /**
+   * Cannot be determined FROM HERE. Some services are reachable only inside
+   * the Compose network (the egress proxy publishes no host port), so an app
+   * running on the host with `npm run dev` cannot probe them at all. Reporting
+   * that as "not running" is a lie the operator would have to disprove by
+   * hand — and a status page that lies about one row is not trusted about any.
+   */
+  | "unreachable";
 
 export type ServiceProbe = {
   id: ServiceId;
@@ -58,6 +66,11 @@ export const SERVICE_CATALOGUE: {
   profile: string | null;
   optional: boolean;
   candidates: string[];
+  /**
+   * Whether compose publishes a host port. When false, only an app running
+   * INSIDE the Compose network can probe it — see the "unreachable" status.
+   */
+  hostPublished: boolean;
   /** Path appended to each candidate. */
   path: string;
   /** A 2xx that is not JSON is still fine for some of these. */
@@ -65,6 +78,7 @@ export const SERVICE_CATALOGUE: {
 }[] = [
   {
     id: "docgen",
+    hostPublished: true,
     label: "Document renderer",
     purpose:
       "Deep-mode PowerPoint / Word / Excel exports. Without it, Agent Chat falls back to the in-browser builder.",
@@ -76,6 +90,7 @@ export const SERVICE_CATALOGUE: {
   },
   {
     id: "js-sandbox",
+    hostPublished: true,
     label: "JS sandbox",
     purpose:
       "Function and custom-component nodes in deployed and scheduled swarm runs. Without it, those nodes are canvas-only.",
@@ -87,6 +102,7 @@ export const SERVICE_CATALOGUE: {
   },
   {
     id: "notebook-gateway",
+    hostPublished: true,
     label: "Notebook gateway",
     purpose: "Websocket bridge between the notebook editor and per-session Python kernels.",
     profile: "notebooks",
@@ -97,6 +113,7 @@ export const SERVICE_CATALOGUE: {
   },
   {
     id: "notebook-egress",
+    hostPublished: false,
     label: "Notebook egress proxy",
     purpose: "The kernels' only route to the internet, default-deny with an allow-list.",
     profile: "notebooks",
@@ -115,6 +132,7 @@ export const SERVICE_CATALOGUE: {
   },
   {
     id: "notebook-docker-proxy",
+    hostPublished: true,
     label: "Docker API proxy",
     purpose: "Least-privilege container control used to start notebook kernels.",
     profile: "notebooks",
@@ -207,5 +225,6 @@ export function statusTone(p: Pick<ServiceProbe, "status" | "optional">): {
   if (p.status === "up") return { tone: "ok", label: "Healthy" };
   if (p.status === "degraded") return { tone: "warn", label: "Degraded" };
   if (p.status === "not-deployed") return { tone: "muted", label: "Not deployed" };
+  if (p.status === "unreachable") return { tone: "muted", label: "Can't check from here" };
   return p.optional ? { tone: "muted", label: "Not running" } : { tone: "critical", label: "Down" };
 }

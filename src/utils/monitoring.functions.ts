@@ -24,6 +24,15 @@ async function probeOne(entry: (typeof SERVICE_CATALOGUE)[number]): Promise<Serv
     optional: entry.optional,
   };
   let lastEndpoint: string | null = null;
+  // Distinguish "the name did not resolve" (we are outside the Compose
+  // network) from "the name resolved and nothing answered" (it really is
+  // down). Without that distinction a host-run app reports every
+  // in-network-only service as down.
+  // An in-network Compose name that we cannot reach at all (DNS failure on some
+  // platforms, a hung lookup that times out on others — measured: Windows SSR
+  // reports TimeoutError, plain Node reports ENOTFOUND) means only that THIS
+  // process is outside that network. It says nothing about the service.
+  let networkNameUnreachable = false;
   for (const candidate of entry.candidates) {
     const url = `${candidate}${entry.path}`;
     lastEndpoint = candidate;
@@ -74,9 +83,39 @@ async function probeOne(entry: (typeof SERVICE_CATALOGUE)[number]): Promise<Serv
         endpoint: candidate,
         message: res.status < 500 ? undefined : `HTTP ${res.status}`,
       };
-    } catch {
+    } catch (e) {
+      // Read the WHOLE error chain: under the SSR runtime the failure arrives
+      // as a bare TimeoutError, while plain Node reports cause.code
+      // ENOTFOUND — a code-only check saw neither and mislabelled every
+      // unreachable Compose name as "connection refused".
+      const err = e as {
+        name?: string;
+        message?: string;
+        cause?: { code?: string; message?: string };
+      };
+      const why = [err?.name, err?.message, err?.cause?.code, err?.cause?.message]
+        .filter(Boolean)
+        .join(" ");
+      const isLoopback = /127\.0\.0\.1|localhost/.test(candidate);
+      if (!isLoopback && /ENOTFOUND|EAI_AGAIN|getaddrinfo|Timeout|aborted/i.test(why)) {
+        networkNameUnreachable = true;
+      }
       // Try the next candidate address before concluding anything.
     }
+  }
+
+  // No host port AND its Compose name is out of reach: there is genuinely
+  // nothing this process can learn. A loopback refusal proves nothing here
+  // either — no port is published on loopback for this service by design.
+  if (!entry.hostPublished && networkNameUnreachable) {
+    return {
+      ...base,
+      status: "unreachable",
+      latencyMs: null,
+      endpoint: lastEndpoint,
+      message:
+        "Publishes no host port, and this app is running outside the Compose network — so its state cannot be determined from here. Run the app in Compose to include it in this check.",
+    };
   }
   return {
     ...base,

@@ -114,10 +114,10 @@ bringing up the stack):
 
 ```bash
 cp .env.example .env      # fill in your Supabase keys, then:
-bash scripts/setup.sh                 # Docker stack  →  http://localhost:8080
+bash scripts/setup.sh --all           # EVERYTHING  →  http://localhost:8080
+# bash scripts/setup.sh               # core stack only (the app; optional services off)
 # bash scripts/setup.sh --dev         # local dev server instead
-# bash scripts/setup.sh --docgen      # + server-side PowerPoint / Word / Excel renderer
-# Windows PowerShell:  powershell -ExecutionPolicy Bypass -File scripts\setup.ps1
+# Windows PowerShell:  powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -All
 ```
 
 Or do it by hand — there is no separate backend to install, since **Supabase
@@ -137,9 +137,17 @@ Self-host with Docker (any Node-capable host — VPS, Fly, Railway, Render, K8s)
 
 ```bash
 cp .env.example .env   # fill in Supabase + keys, apply migrations once
-docker compose up --build
-# → http://localhost:8080
+docker compose --profile docgen --profile notebooks --profile sandbox up --build
+# → http://localhost:8080   (plain `docker compose up --build` starts the app alone)
 ```
+
+`--all` / the profile list above brings up the optional services too: the
+**document renderer** (native PowerPoint/Word/Excel), the **JS sandbox** (custom
+code in deployed swarm runs) and the **Developer-workspace runtime** (real Python
+kernels). They are separate profiles because each costs something — LibreOffice
+is a large image, and the notebook runtime needs Docker-socket access through a
+least-privilege proxy. Once up, **Observability → Monitoring** shows every
+service's health in one place.
 
 First time? Follow **[the full installation guide](./docs/INSTALL.md)** — it
 covers every step on macOS, Linux, and Windows, including the Supabase

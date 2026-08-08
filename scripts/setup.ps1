@@ -3,6 +3,7 @@
 
     powershell -ExecutionPolicy Bypass -File scripts\setup.ps1            # Docker stack
     powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -Dev       # local dev server
+    powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -All       # EVERY service (recommended for a full install)
     powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -Docgen    # + server-side PPTX/Word/Excel renderer
     powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -Notebooks # + Developer-workspace runtime
     powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -Sandbox   # + JS sandbox (custom code in deployed runs)
@@ -14,11 +15,16 @@
 #>
 param(
   [switch]$Dev,
+  # -All is the whole product; the individual switches exist because each
+  # optional profile costs something (LibreOffice image size, Docker socket
+  # access for notebook kernels). See docs/DEPLOYMENT.md.
+  [switch]$All,
   [switch]$Docgen,
   [switch]$Notebooks,
   [switch]$Sandbox,
   [switch]$SkipMigrations
 )
+if ($All) { $Docgen = $true; $Notebooks = $true; $Sandbox = $true }
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
@@ -106,6 +112,11 @@ if ($Dev) {
   Say "Starting Docker stack"
   docker compose @profiles up -d --build
   Say "Up. Open http://localhost:8080"
+  Write-Host "  Verify every service: sign in as the admin and open Observability -> Monitoring."
+  if ($Notebooks) {
+    Write-Host "  Developer-workspace runtime: containers are up, but the feature stays OFF until"
+    Write-Host "    an admin flips it on in Admin -> Developer runtime (then 'Run preflight')."
+  }
   if ($Sandbox) {
     Write-Host "  JS sandbox: custom-code nodes now run in DEPLOYED and SCHEDULED swarm runs too."
     # Report what the service actually says rather than assuming it is healthy.

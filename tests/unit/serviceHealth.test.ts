@@ -45,6 +45,31 @@ describe("statusTone", () => {
   });
 });
 
+describe("unreachable is not the same as down", () => {
+  it("reads as an honest 'can't check' rather than a failure", () => {
+    // Found live: the egress proxy publishes no host port, so an app running
+    // outside Compose cannot probe it — and reported it as DOWN while it was
+    // running perfectly. One false row is enough to make the whole page
+    // untrustworthy.
+    const t = tone("unreachable", true);
+    expect(t.tone).toBe("muted");
+    expect(t.label).toMatch(/can.t check/i);
+  });
+
+  it("services with no published host port are marked as such in the catalogue", () => {
+    const compose = readFileSync(resolve("docker-compose.yml"), "utf-8");
+    for (const svc of SERVICE_CATALOGUE) {
+      const start = compose.indexOf(`  ${svc.id}:`);
+      expect(start, `${svc.id} missing from compose`).toBeGreaterThan(-1);
+      const nextSvc = compose.slice(start + 1).search(/\n {2}[a-z][a-z0-9-]*:\n/);
+      const block = compose.slice(start, nextSvc > -1 ? start + 1 + nextSvc : undefined);
+      // "ports:" is what publishes to the host; "expose:" is in-network only.
+      const publishes = /\n\s+ports:/.test(block);
+      expect(svc.hostPublished, `${svc.id}: hostPublished should be ${publishes}`).toBe(publishes);
+    }
+  });
+});
+
 describe("utilisationTone thresholds", () => {
   it("is ok below 75, warn from 75, critical from 90", () => {
     expect(utilisationTone(0)).toBe("ok");

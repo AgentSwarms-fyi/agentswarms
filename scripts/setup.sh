@@ -2,12 +2,18 @@
 #
 # AgentSwarms one-command setup (macOS / Linux / WSL / Git Bash).
 #
-#   bash scripts/setup.sh                 # Docker stack (default)
+#   bash scripts/setup.sh                 # core stack (app only)  → :8080
+#   bash scripts/setup.sh --all           # EVERY service (recommended for a full install)
 #   bash scripts/setup.sh --dev           # local dev server (npm run dev)
 #   bash scripts/setup.sh --docgen        # + server-side PPTX/Word/Excel renderer
 #   bash scripts/setup.sh --notebooks     # + Developer-workspace Python runtime
 #   bash scripts/setup.sh --sandbox       # + JS sandbox (custom code in deployed runs)
 #   bash scripts/setup.sh --skip-migrations
+#
+# --all is the whole product. The optional profiles are separate because each
+# costs something: the renderer pulls LibreOffice (~1 GB), and the notebook
+# runtime mounts the Docker socket into a least-privilege proxy so it can start
+# kernel containers. Both are documented in docs/DEPLOYMENT.md.
 #
 # It scaffolds .env, generates the encryption secrets, installs deps (dev mode),
 # applies the DB migrations, and starts the stack. It CANNOT create your Supabase
@@ -21,16 +27,27 @@ MODE="docker"
 PROFILE_FLAGS=""
 DOCGEN=0
 SANDBOX=0
+NOTEBOOKS=0
 SKIP_MIGRATIONS=0
+
+add_profile() {
+  case "$PROFILE_FLAGS" in
+    *"--profile $1"*) return 0 ;;  # already requested (e.g. --all --docgen)
+  esac
+  PROFILE_FLAGS="$PROFILE_FLAGS --profile $1"
+}
 for arg in "$@"; do
   case "$arg" in
     --docker) MODE="docker" ;;
     --dev) MODE="dev" ;;
-    --docgen) DOCGEN=1; PROFILE_FLAGS="$PROFILE_FLAGS --profile docgen" ;;
-    --notebooks) PROFILE_FLAGS="$PROFILE_FLAGS --profile notebooks" ;;
-    --sandbox) SANDBOX=1; PROFILE_FLAGS="$PROFILE_FLAGS --profile sandbox" ;;
+    --all)
+      DOCGEN=1; SANDBOX=1; NOTEBOOKS=1
+      add_profile docgen; add_profile notebooks; add_profile sandbox ;;
+    --docgen) DOCGEN=1; add_profile docgen ;;
+    --notebooks) NOTEBOOKS=1; add_profile notebooks ;;
+    --sandbox) SANDBOX=1; add_profile sandbox ;;
     --skip-migrations) SKIP_MIGRATIONS=1 ;;
-    -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
     *) echo "Unknown option: $arg (try --help)"; exit 1 ;;
   esac
 done
@@ -113,7 +130,12 @@ if [ "$MODE" = "docker" ]; then
   # shellcheck disable=SC2086
   docker compose $PROFILE_FLAGS up -d --build
   say "Up. Open http://localhost:8080"
+  echo "  Verify every service: sign in as the admin and open Observability -> Monitoring."
   [ "$DOCGEN" -eq 1 ] && echo "  Server-side PPTX/Word/Excel renderer: http://docgen:8099 in-cluster, http://localhost:8099 from the host (set OPENROUTER_API_KEY in .env for the PPT verify loop)"
+  if [ "$NOTEBOOKS" -eq 1 ]; then
+    echo "  Developer-workspace runtime: containers are up, but the feature stays OFF until"
+    echo "    an admin flips it on in Admin -> Developer runtime (then 'Run preflight')."
+  fi
   if [ "$SANDBOX" -eq 1 ]; then
     echo "  JS sandbox: custom-code nodes now run in DEPLOYED and SCHEDULED swarm runs too."
     # Report what the service actually says, rather than assuming the build

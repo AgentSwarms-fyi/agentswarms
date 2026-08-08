@@ -309,7 +309,45 @@ browser.
 
 Product documentation for every feature ships inside the app at `/docs`.
 
-## 7. Optional: the Developer-workspace server runtime
+## 7. Optional services (and how to start all of them)
+
+The core stack is one container: the app. Three more services are optional
+profiles, off unless you ask for them — and until now this guide only mentioned
+one of the three.
+
+| Service | Profile | What you lose without it |
+| ------- | ------- | ------------------------ |
+| Document renderer | `docgen` | Deep-mode exports fall back to the in-browser builder (no native charts/tables) |
+| JS sandbox | `sandbox` | Function and custom-component nodes work on the canvas but fail in deployed / scheduled swarm runs |
+| Developer-workspace runtime | `notebooks` | Notebooks run in the browser (Lite) only — no real CPython, no `pip install` |
+
+**Start everything:**
+
+```bash
+bash scripts/setup.sh --all
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -All
+```
+
+Or with Compose directly:
+
+```bash
+docker compose --profile docgen --profile notebooks --profile sandbox up -d --build
+```
+
+Why they are opt-in rather than always on: the renderer image carries
+LibreOffice (large), and the notebook runtime mounts the Docker socket into a
+least-privilege proxy so it can start kernel containers. Neither is wrong to
+run — both ship hardened — but they should be a decision, not a surprise.
+
+**Confirm what is actually running:** sign in as the admin and open
+**Observability → Monitoring**. It lists every service with its status and
+response time. Optional services you chose not to start appear as "Not running"
+in grey rather than as failures.
+
+## 8. Optional: the Developer-workspace server runtime
 
 The **Developer workspace** (`/notebooks`) runs notebooks on **secure server
 kernels** — real CPython that can `pip install` and run the _real_ frameworks
