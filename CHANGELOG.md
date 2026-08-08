@@ -12,6 +12,168 @@ development branch and may be ahead of the latest tag.
 
 ---
 
+## 1.1.0 — 2026-08-08
+
+**Swarms grow up.** A deployed swarm now serves a version you chose rather than
+whatever is on the canvas, custom code runs in deployed runs and not just the
+browser, and there is a way to measure whether a change made a swarm better.
+Knowledge bases gain the three retrieval features that separated this from
+Dify. Nine migrations — run `npx supabase db push` after upgrading.
+
+### Swarms
+
+- **Draft vs published.** Editing a swarm used to change what its API keys
+  served the moment you pressed Save — mid-experiment, at 3am, to production
+  callers. Version history made that recoverable, not preventable. The canvas
+  now edits a **draft**; API keys, schedules, sub-swarm calls and embeds all
+  execute a **pinned snapshot**. All four loaders resolve it through one shared
+  function, because one of them quietly reading `nodes` instead would
+  reintroduce the whole bug for that path only. Creating a swarm's first key,
+  schedule or embed key publishes the current graph through a **database
+  trigger** rather than app code — a future write path would otherwise skip it
+  silently. Swarms deployed before this fall back to the live draft and the UI
+  says so, so upgrading changes nothing on the day it is applied. **Unpin**
+  restores the old behaviour for anyone who wants it.
+- **Batch evaluations.** Run a dataset of cases through a swarm and score every
+  output. The judge's own pass/fail is **ignored** and the verdict recomputed
+  from weighted per-metric scores, because a model that grades and then decides
+  will contradict itself; a missing metric is a rejection rather than a zero,
+  since silently scoring an unanswered question as 0 is indistinguishable from
+  a bad answer. `UNIQUE(eval_run_id, case_id)` makes a retried run idempotent.
+- **Custom components.** Author a snippet once with a declared parameter schema
+  and it appears in every swarm's palette. Bindings are **snapshots, not live
+  links**: a node carries the code and schema it was built with, so editing the
+  library cannot silently change a swarm that already works, an exported swarm
+  carries everything it needs, and deleting a component leaves working swarms
+  working. Parameters arrive **typed** — a number param is a number, not `"5"`.
+- **File inputs.** A start-form field of type `file` accepts a PDF, DOCX or text
+  document, extracts its text in the browser using the same parsers the
+  Knowledge Base uses, and seeds it into flow state. Truncation is always
+  reported rather than silently applied.
+- **Custom code in deployed runs**, via a hardened sandbox container
+  (`--profile sandbox`). Function and component nodes previously worked on the
+  canvas only, because the app process holds the service-role key and every
+  provider credential. They now execute in a separate container: a fresh V8
+  realm per call, a worker thread terminated afterwards (which kills a
+  synchronous infinite loop, as a Promise race cannot), an internal-only
+  network, `read_only`, `cap_drop ALL`, and a refusal to start without
+  `INTERNAL_RUN_SECRET`. **A probe caught a critical escape before any of it
+  shipped**: the first version passed a host `console` into the vm, and every
+  host function carries the host `Function` constructor on its prototype chain,
+  so `console.log.constructor("return process")()` returned the real `process`.
+  Nothing from the host realm enters the context now — the console and ctx are
+  built *inside* the sandbox realm and only JSON strings cross.
+
+### Knowledge bases
+
+- **Parent-child chunking.** Retrieval and generation want opposite chunk
+  sizes: small chunks match precisely, large chunks let the model answer. Small
+  children are embedded and the matched child expands to its **parent** before
+  the text reaches the model. Children are cut from their parent and never
+  across it, so a citation always contains the words that retrieved it. Parents
+  do not overlap, or two neighbouring matches would send the model the same
+  sentences twice.
+- **Q&A indexing.** A question and a statement are different kinds of text, and
+  that difference is a real part of the distance between their vectors. Q&A mode
+  generates pairs and embeds the **question**, so the comparison is
+  question-to-question. Generation failures are reported per document and never
+  downgraded to flat chunks — a collection that disagreed with its own settings
+  would be undebuggable.
+- **Hybrid retrieval with a weighting slider.** Keyword search existed, but only
+  ever looked at documents with **no** embeddings, so an exact term inside an
+  embedded document could not rescue a weak semantic match. Postgres full-text
+  search now runs over the same chunks and the two are fused by a per-collection
+  weight. Scores are normalised within each list first: cosine (~0.3–0.9) and
+  `ts_rank` (~0.0–0.3) are not comparable numbers, and adding them raw would
+  make the slider do nothing across most of its range.
+- **Embeddings default to OpenRouter in the UI**, as they already did on the
+  server. The dialog only offered a provider the *user* had connected, and an
+  operator key is not a personal integration — so an instance with
+  `OPENROUTER_API_KEY` set displayed OpenAI while the server embedded through
+  OpenRouter. Three call sites answered "is this provider usable" and each
+  answered differently; they now share one rule.
+- **Fixed: two advertised OpenRouter embedding models did not exist.** Both
+  `nvidia/*` entries returned `404 No endpoints found`, so selecting one
+  produced a failed embed with nothing to indicate the model was never
+  available. Replaced with five models probed against the live endpoint, each
+  confirmed to return 1536 dimensions. Their prices were **measured** from
+  OpenRouter's own billed `usage.cost` rather than guessed, because a
+  selectable model with no price makes budgets stop accumulating silently.
+- Existing collections default to semantic-only, so upgrading changes no
+  answers until someone opts in. Changing chunk mode does not rewrite existing
+  chunks; a **Re-index** action does it explicitly, since re-chunking means
+  paying to embed the document again.
+
+### Security & governance
+
+- **Fixed: a cross-tenant hole let any user run another tenant's swarm.** The
+  RLS policies on `swarm_api_keys` and `swarm_schedules` checked only that a row
+  belonged to you — never that the swarm it named did. Any authenticated user
+  could insert an API key row pointing at someone else's `swarm_id`, with a key
+  hash they chose, then call `POST /api/swarm/run` and receive that swarm's
+  output. The server function that mints keys checked ownership, but the anon
+  key is public by design and a direct PostgREST insert bypassed it entirely.
+  Verified against a live instance before fixing. Both halves of each policy now
+  require swarm ownership, and any row already created through the hole is
+  removed on migration.
+
+### Observability
+
+- **Observability → Monitoring.** Every optional piece of a deployment is a
+  Compose profile an operator may or may not have started, which made "is this
+  deployment complete?" a question with no answer in the product. One row per
+  service with status, response time and the address that answered, plus live
+  CPU, memory and disk. An optional service that was never started reads **"Not
+  running" in grey with the command that would start it** — not a red "Down",
+  because a status page that cries wolf is one people stop opening. Memory
+  reports the **container's cgroup limit** when there is one, not the host's
+  RAM: showing 3 GB of 64 GB while the container is killed at 4 GB is worse than
+  showing nothing. Superadmin-only in both the page and each server function.
+- **Fixed: the monitoring page reported a running service as DOWN.** The egress
+  proxy publishes no host port, so an app running outside Compose cannot probe
+  it. Services now carry `hostPublished`, derived from compose and pinned by a
+  test, and an unreachable service reports **"Can't check from here"** with the
+  reason instead of inventing a failure.
+
+### Business intelligence
+
+- **Two end-to-end samples** — Supply Chain Pulse and People Analytics — each
+  shipping a dataset, knowledge base, prep flow, semantic model, dashboard and
+  ontology, so the BI story can be evaluated without building one first.
+- **Fixed: 65 widget queries in six legacy sample dashboards** still used
+  AlaSQL-era bracket syntax and returned nothing under DuckDB. Each repaired
+  query was validated against the real engine.
+- The BI snapshot row cap is **one configurable knob** rather than two
+  constants that could disagree.
+- Data prep source sections collapse (closed by default, with search), the
+  semantic layer leads with fields instead of making you scroll for them, and
+  the catalog keeps **Query data** visible.
+
+### Install & deployment
+
+- **`--all` starts every service.** Measured before changing anything:
+  `docker compose up` brought up **one** container; with the three profiles,
+  six. The guidance had drifted further — the README listed `--docgen` but never
+  `--notebooks` or `--sandbox`, and neither setup script had a way to say "give
+  me everything". Both scripts now end by pointing at Observability →
+  Monitoring, which is the thing that can actually confirm the result.
+- **Self-hosted Supabase guide**, verified by running the full migration set
+  against a bare `supabase/postgres` container rather than assuming. That found
+  a real ordering trap: three migrations write to `storage.buckets`, and the
+  `public` column they use is created by the storage service's own migrations —
+  so the stack must be started and allowed to settle *before* the schema is
+  pushed.
+- **Fixed: four `VITE_` settings could not reach the Docker build**, including
+  the BI snapshot cap added in the same release.
+- **DEPLOYMENT.md fact-checked line by line.** A dead cross-reference to a
+  section that does not exist, a stale "146 migrations / 98 tables" claim (now
+  dated rather than silently bumped, which would assert a bare-container test
+  that has not been re-run), and a local-install section that still recommended
+  a command starting the app alone. The in-app self-hosting page was missing the
+  `sandbox` profile entirely.
+
+---
+
 ## 1.0.0 — 2026-08-06
 
 **First numbered release.** Everything below shipped on `main` since the last
