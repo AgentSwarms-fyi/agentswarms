@@ -6,7 +6,7 @@
 // later. A disagreement between them does not throw, it just quietly retrieves
 // the wrong text, so the rules live in one place that can be tested directly.
 
-import { chunkText, type ChunkStrategy } from "@/utils/tools/embedding.server";
+import { chunkText, type ChunkStrategy } from "@/lib/kbChunking";
 
 /**
  * How a document is turned into embedded rows.
