@@ -211,9 +211,27 @@ function SelfHostingPage() {
 
       <H3 id="env-email">Email delivery</H3>
       <P>
-        Needed for invitations, alert notifications and scheduled reports. Use{" "}
-        <strong>either</strong> Resend or SMTP.
+        Carries welcome mail, budget alerts, BI alerts, scheduled reports, approval requests and the
+        contact form. Use <strong>either</strong> Resend or SMTP. Auth emails (confirmation,
+        password reset) are separate — Supabase sends those, configured in its own dashboard.
       </P>
+      <P>
+        <strong>Resend needs a verified domain, not just a key.</strong> In Resend: create an API
+        key for <C>RESEND_API_KEY</C>, then <em>Domains → Add Domain</em>, publish the SPF and DKIM
+        records it gives you at your DNS host, and press Verify. Then set <C>EMAIL_FROM</C> to an
+        address on that domain.
+      </P>
+      <Code lang="bash">{`RESEND_API_KEY="re_..."
+EMAIL_FROM="AgentSwarms <noreply@your-company.com>"
+SITE_URL="https://your-domain.com"`}</Code>
+      <Callout kind="warn" title="Two ways email fails without looking broken">
+        Leaving <C>EMAIL_FROM</C> empty falls back to <C>noreply@example.com</C>, which Resend
+        rejects — every app email fails while the app carries on normally. And until your domain is
+        verified, Resend sends only from <C>onboarding@resend.dev</C> and delivers only to the
+        address that owns the Resend account; mail to anyone else is accepted by the API and never
+        arrives. Both outcomes are recorded in <C>email_send_log</C>, which is where to look when
+        nobody is receiving anything.
+      </Callout>
       <Table
         headers={["Variable", "Purpose"]}
         rows={[

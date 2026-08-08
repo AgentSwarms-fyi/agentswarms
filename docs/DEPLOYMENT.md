@@ -62,7 +62,7 @@ All options share the same two prerequisites.
    | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
    | `PROVIDER_CREDS_SECRET`                         | **Required** if anyone uses warehouses, Secrets, or Data Catalog — the AES-256 key encrypting stored credentials. Set once (`openssl rand -hex 32`); rotating it invalidates saved creds. |
    | `SITE_URL`                                      | Your public URL — used in email links and as the default origin for scheduled work.                                                                                                       |
-   | `RESEND_API_KEY` **or** `SMTP_*` + `EMAIL_FROM` | Outbound app email (welcome, budget alerts, scheduled report digests). Without it, sends are skipped and logged.                                                                          |
+   | `RESEND_API_KEY` **or** `SMTP_*` + `EMAIL_FROM` | Outbound app email (welcome, budget alerts, BI alerts, scheduled reports, approvals, contact form). `EMAIL_FROM` must be on a **verified** domain — see [Email delivery](#email-delivery). Without a transport, sends are skipped and logged. |
    | `BI_CRON_TOKEN`                                 | Lets an external scheduler drive background jobs — see [Scheduling](#scheduling--background-jobs).                                                                                        |
    | `OPENROUTER_API_KEY`                            | Optional but recommended — makes the app usable with zero per-user key setup.                                                                                                             |
    | `OPENAI_API_KEY`                                | Optional — real vector embeddings for Knowledge Base search (otherwise keyword search).                                                                                                   |
@@ -678,6 +678,43 @@ Two related knobs:
   HMAC-signed: `X-AgentSwarms-Signature: v1=hex(hmac_sha256(secret,
 "<timestamp>.<raw body>"))` plus `X-AgentSwarms-Timestamp` (ms epoch), so
   receivers can verify authenticity and reject replays.
+
+### Email delivery
+
+App email — welcome, budget alerts, BI alerts, scheduled reports, approval
+requests, contact form — goes through Resend or SMTP. Supabase sends the auth
+emails (confirmation, password reset) separately, and they are configured in the
+Supabase dashboard, not here.
+
+**Resend, with your own domain:**
+
+1. _API Keys_ → _Create_, and put it in `RESEND_API_KEY`.
+2. _Domains_ → _Add Domain_ (`your-company.com`, or a subdomain such as
+   `mail.your-company.com` to keep sending reputation separate from your main
+   domain).
+3. Publish the MX and TXT records Resend shows — SPF and DKIM — at your DNS
+   host, then press _Verify_.
+4. Set `EMAIL_FROM` to an address on that verified domain.
+
+```bash
+RESEND_API_KEY="re_..."
+EMAIL_FROM="AgentSwarms <noreply@your-company.com>"
+SITE_URL="https://your-domain.com"
+```
+
+Two failure modes are worth knowing because neither looks like a failure:
+
+- **`EMAIL_FROM` empty** falls back to `noreply@example.com`, which Resend
+  rejects. Every app email fails while the app carries on normally.
+- **Domain not yet verified** means Resend accepts only `onboarding@resend.dev`
+  as the sender and delivers only to the address that owns the Resend account.
+  Mail to anyone else is accepted by the API and never arrives — useful for a
+  smoke test, useless in production.
+
+Either way the outcome is recorded in the `email_send_log` table, which is the
+first place to look when mail stops arriving. `SITE_URL` builds every link in
+every email, so a production instance left on `http://localhost:8080` sends
+users links to their own machine.
 
 ### Health checks
 

@@ -38,7 +38,7 @@ const fmt = (n: number) => `$${(Math.round((n + Number.EPSILON) * 100) / 100).to
 
 export const BudgetAlertEmail = ({
   siteName = "AgentSwarms",
-  siteUrl = "https://agentswarms.fyi",
+  siteUrl = "http://localhost:8080",
   recipient = "there",
   monthlyCapUsd = 5,
   spentUsd = 0,
@@ -152,7 +152,7 @@ export const template = {
   displayName: "Budget alert",
   previewData: {
     siteName: "AgentSwarms",
-    siteUrl: "https://agentswarms.fyi",
+    siteUrl: "http://localhost:8080",
     recipient: "Alex",
     monthlyCapUsd: 5,
     spentUsd: 4.75,
