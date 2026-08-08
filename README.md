@@ -28,16 +28,29 @@
 
 ---
 
-**AgentSwarms** is a complete, self-hostable, **source-available** agentic AI &
-business-intelligence platform: agent chat, a visual multi-agent swarm canvas,
-knowledge bases with RAG, tool use, MCP connections, connected databases &
-warehouses, dashboards, budgets, and full execution traces. It is designed for
-**easy deployment**: one Supabase project as the backend, one Docker command to
-run, and **bring-your-own-everything** — your data lives in your own Supabase
-project, and models run against your own provider keys (OpenRouter, OpenAI,
-Anthropic, Gemini, Bedrock, Azure, OCI, Qwen, Grok, Groq, Ollama, vLLM…).
-Optionally set one instance-wide OpenRouter key so every user on your
-instance can start with zero setup.
+**AgentSwarms** is a self-hosted, source-available platform for running AI
+agents against your own data.
+
+The agent side is what you'd expect: agent chat, a visual canvas for multi-agent
+swarms, knowledge bases with RAG (hybrid search, parent-child and Q&A indexing),
+MCP in both directions, batch evaluations, and execution traces with per-call
+costs. What's less usual is what sits underneath. A semantic layer holds your
+metric definitions, so an agent asked about revenue uses the same definition
+your finance team does instead of guessing at a column. The data catalog tracks
+lineage, so an answer can be traced back to the table it came from. Model rules,
+spend budgets and a hash-chained audit trail apply per user and per group, and
+they run before the call rather than reporting on it afterwards. Dashboards,
+alerts and scheduled reports read those same definitions.
+
+Warehouses connect directly — Snowflake, BigQuery, Databricks, Redshift, Trino,
+ClickHouse, Oracle, SQL Server, Postgres and MySQL among them — alongside file
+uploads and SaaS sources like Stripe, Shopify and HubSpot.
+
+Running it takes one Supabase project and one Docker command. Your data stays in
+that Supabase project, and models run on your own provider keys: OpenRouter,
+OpenAI, Anthropic, Gemini, Bedrock, Azure, OCI, Qwen, Grok, Groq, Ollama, vLLM.
+Set one instance-wide OpenRouter key and people can start without configuring a
+provider at all.
 
 ## A look at it
 
