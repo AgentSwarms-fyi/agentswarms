@@ -329,7 +329,7 @@ export function AuditLog() {
                     </TableCell>
                     {isAdmin && (
                       <TableCell className="max-w-48 truncate text-xs">
-                        {r.user_email ?? r.user_id.slice(0, 8)}
+                        {r.user_email ?? (r.user_id ? r.user_id.slice(0, 8) : "deleted account")}
                       </TableCell>
                     )}
                     <TableCell>

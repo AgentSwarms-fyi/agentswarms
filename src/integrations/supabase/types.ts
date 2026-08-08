@@ -330,7 +330,8 @@ export type Database = {
           resource_id: string | null;
           resource_name: string | null;
           resource_type: string | null;
-          user_id: string;
+          actor_email: string | null;
+          user_id: string | null;
         };
         Insert: {
           action: string;
@@ -342,7 +343,8 @@ export type Database = {
           resource_id?: string | null;
           resource_name?: string | null;
           resource_type?: string | null;
-          user_id: string;
+          actor_email?: string | null;
+          user_id?: string | null;
         };
         Update: {
           action?: string;
@@ -354,7 +356,8 @@ export type Database = {
           resource_id?: string | null;
           resource_name?: string | null;
           resource_type?: string | null;
-          user_id?: string;
+          actor_email?: string | null;
+          user_id?: string | null;
         };
         Relationships: [];
       };

@@ -45,7 +45,12 @@ async function emailMap(): Promise<Map<string, string>> {
 
 export type AuditRow = {
   id: string;
-  user_id: string;
+  /**
+   * Null once the account is deleted. The audit trail deliberately outlives the
+   * account (FK is ON DELETE SET NULL), so this is a normal state, not an
+   * anomaly — `user_email` falls back to the actor_email captured at write time.
+   */
+  user_id: string | null;
   user_email: string | null;
   action: string;
   resource_type: string | null;
@@ -100,7 +105,9 @@ export const auditListEvents = createServerFn({ method: "POST" })
           wantEvents
             ? client
                 .from("audit_events")
-                .select("id, user_id, action, resource_type, resource_name, detail, created_at")
+                .select(
+                  "id, user_id, actor_email, action, resource_type, resource_name, detail, created_at",
+                )
                 .gte("created_at", since)
                 .order("created_at", { ascending: false })
                 .limit(FETCH_CAP)
@@ -129,13 +136,17 @@ export const auditListEvents = createServerFn({ method: "POST" })
         if (swarmsRes.error) return { ok: false, error: swarmsRes.error.message };
 
         const emails = admin ? await emailMap() : null;
-        const emailFor = (uid: string) => emails?.get(uid) ?? null;
+        const emailFor = (uid: string | null) => (uid ? (emails?.get(uid) ?? null) : null);
 
         const rows: AuditRow[] = [
           ...(eventsRes.data ?? []).map((e) => ({
             id: e.id,
             user_id: e.user_id,
-            user_email: emailFor(e.user_id),
+            // actor_email is the whole point of that column: it is captured at
+            // write time so a deleted account still has a name against its
+            // actions. Rows written before the column existed have neither, and
+            // the UI says "deleted account" rather than inventing an identity.
+            user_email: emailFor(e.user_id) ?? e.actor_email ?? null,
             action: e.action,
             resource_type: e.resource_type,
             resource_name: e.resource_name,
