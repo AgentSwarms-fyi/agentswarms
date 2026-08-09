@@ -1,5 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useState } from "react";
+import { budgetPolicy, type BudgetPolicy } from "@/utils/budgetPolicy.functions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -63,6 +65,16 @@ function BudgetsPage() {
   // which would otherwise render "spent nothing" when the query failed.
   const [mtdSpend, setMtdSpend] = useState<number | null>(0);
   const [loading, setLoading] = useState(true);
+  // Whether this deployment actually enforces the cap. Server-side env, so it
+  // has to be asked for; null until it answers, so the page never guesses.
+  const [policy, setPolicy] = useState<BudgetPolicy | null>(null);
+  const fetchPolicy = useServerFn(budgetPolicy);
+
+  useEffect(() => {
+    void fetchPolicy({})
+      .then((p) => setPolicy(p as BudgetPolicy))
+      .catch(() => setPolicy(null));
+  }, [fetchPolicy]);
 
   useEffect(() => {
     if (!user) return;
@@ -163,9 +175,22 @@ function BudgetsPage() {
             <DollarSign className="h-4 w-4 text-primary" />
             Monthly Hard Cap
           </CardTitle>
-          <p className="text-xs text-muted-foreground">
-            Agents will refuse new requests once this cap is reached.
-          </p>
+          {/* What this cap DOES depends on the deployment, so say which.
+              Claiming a hard stop that is switched off is the failure
+              guardrails.ts refuses to make about its own inert fields. */}
+          {policy?.enforced === false ? (
+            <p className="text-xs text-amber-600 dark:text-amber-400">
+              Tracked but <strong>not enforced</strong> on this deployment — spend can pass this
+              cap. Set <code className="font-mono">ENFORCE_BUDGET_CAP=true</code> to make agents
+              refuse new requests once it is reached.
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Agents will refuse new requests once this cap is reached.
+              {policy?.failsClosed === false &&
+                " If month-to-date spend cannot be read, calls are allowed through."}
+            </p>
+          )}
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4 md:grid-cols-[1fr_180px] items-end">
