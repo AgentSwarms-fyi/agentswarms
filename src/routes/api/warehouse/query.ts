@@ -75,10 +75,33 @@ export const Route = createFileRoute("/api/warehouse/query")({
           });
           return json(200, { ...result, connection: conn.name, provider: conn.provider });
         } catch (e) {
-          return json(400, {
-            error: "query_failed",
-            message: e instanceof Error ? e.message : "Query failed",
+          const message = e instanceof Error ? e.message : "Query failed";
+          // AUDIT THE REFUSALS TOO.
+          //
+          // auditEvent ran only after a successful execute, so the trail
+          // recorded successful reads and nothing else. Verified against this
+          // instance: a SELECT was logged with its tables and row count, and a
+          // `DROP TABLE` — refused by the read-only guard — left no trace at
+          // all, on a page that promises "who did what, when".
+          //
+          // "Someone pointed a DROP at the production warehouse and was
+          // stopped" is precisely the line an auditor is looking for, and it
+          // is the one the log did not have. Transient failures are recorded
+          // too and are worth having: a connection that started refusing at
+          // 3am is the same question asked backwards.
+          auditEvent({
+            userId,
+            action: "warehouse.query",
+            resourceType: "warehouse",
+            resourceName: body.connection_id,
+            detail: {
+              outcome: "failed",
+              error: message.slice(0, 200),
+              tables: extractTableRefs(body.sql).slice(0, 12),
+              sql: body.sql.slice(0, 200),
+            },
           });
+          return json(400, { error: "query_failed", message });
         }
       },
     },
