@@ -202,6 +202,42 @@ function isRenderableTurn(turn: { chart?: unknown; result?: { rows?: unknown } }
  * return a data-grounded narrative + charts. Never throws — a failed BI attempt
  * must not break the chat turn. `scope` controls the widget row snapshot.
  */
+/**
+ * Does this SQL actually read a table?
+ *
+ * A ROW COUNT IS NOT EVIDENCE OF DATA. The skip above used to test only
+ * `row_count === 0`, and a query that touches nothing still returns a row:
+ * asked "who owns the Q3 migration project, and what is its codename?" with
+ * Visual BI on, the analyst wrote
+ *
+ *     SELECT NULL AS owner, NULL AS codename
+ *
+ * got one row of NULLs, narrated it as "currently has no designated owner and
+ * does not have a codename assigned", and cited that invented SELECT as its
+ * source — contradicting the answer the user had given it one turn earlier,
+ * which the same agent recalls correctly with Visual BI off.
+ *
+ * That is the worst shape a wrong answer can take: confident, specific, and
+ * wearing the costume of evidence. Falling through to the agent — which the
+ * surrounding comment always intended for questions data cannot answer — needs
+ * this to be the test, because "the analyst produced prose" never was one.
+ *
+ * Deliberately shallow: a FROM or JOIN naming something. Getting this wrong in
+ * the permissive direction restores the bug; getting it wrong the other way
+ * costs a fall-through to the agent, which is the correct answer anyway for
+ * anything that reads no data.
+ */
+export function readsATable(sql: string | null | undefined): boolean {
+  if (!sql) return false;
+  // Strip string literals and comments so a FROM inside them cannot count.
+  const bare = sql
+    .replace(/'[^']*'/g, "''")
+    .replace(/"[^"]*"/g, '""')
+    .replace(/--[^\n]*/g, " ")
+    .replace(/\/\*[\s\S]*?\*\//g, " ");
+  return /\b(from|join)\s+[a-z_"[(]/i.test(bare);
+}
+
 export async function generateChatWidget(
   question: string,
   opts: { model?: string; scope?: DocScope; history?: ChatBiHistoryTurn[] } = {},
@@ -251,12 +287,18 @@ export async function generateChatWidget(
       });
       // Skip this angle rather than the whole answer — one unanswerable
       // sub-question should not lose the visuals that did work.
-      if (turn.status !== "done" || !turn.result || turn.result.row_count === 0) {
-        biTrace(`turn produced no rows for ${JSON.stringify(q)}`, {
+      if (
+        turn.status !== "done" ||
+        !turn.result ||
+        turn.result.row_count === 0 ||
+        !readsATable(turn.sql)
+      ) {
+        biTrace(`turn produced no data answer for ${JSON.stringify(q)}`, {
           status: turn.status,
           error: turn.error,
           rowCount: turn.result?.row_count ?? null,
           sql: turn.sql ?? null,
+          readsATable: readsATable(turn.sql),
         });
         continue;
       }
