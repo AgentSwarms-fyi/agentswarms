@@ -92,6 +92,7 @@ import { Textarea } from "@/components/ui/textarea";
 
 import { useAuth } from "@/hooks/use-auth";
 import { invalidateIamState, useIsSuperadmin } from "@/hooks/use-iam";
+import { clickable } from "@/lib/clickable";
 import { PROVIDER_LABELS, type ProviderId } from "@/utils/providers/types";
 import {
   iamAddGroupMember,
@@ -836,7 +837,7 @@ function GroupsTab({
             <Card
               key={g.id}
               className="cursor-pointer transition hover:border-primary/40"
-              onClick={() => openSheet(g)}
+              {...clickable(() => openSheet(g), `Group ${g.name}`)}
             >
               <CardHeader className="pb-2">
                 <CardTitle className="text-base">{g.name}</CardTitle>

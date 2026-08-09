@@ -4,6 +4,7 @@ import { useDropzone } from "react-dropzone";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
+import { clickable } from "@/lib/clickable";
 import { parseFileToText } from "@/lib/fileParsers";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -1271,8 +1272,9 @@ function KnowledgePage() {
             {bases.map((base) => (
               <Card
                 key={base.id}
-                className={`cursor-pointer border-border/50 transition-colors hover:border-primary/30 ${selectedBase?.id === base.id ? "border-primary bg-primary/5" : ""}`}
-                onClick={() => setSelectedBase(base)}
+                className={`cursor-pointer border-border/50 transition-colors hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${selectedBase?.id === base.id ? "border-primary bg-primary/5" : ""}`}
+                aria-pressed={selectedBase?.id === base.id}
+                {...clickable(() => setSelectedBase(base), `Knowledge base ${base.name}`)}
               >
                 <CardHeader className="p-4 pb-2">
                   <div className="flex items-center justify-between gap-2">

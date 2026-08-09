@@ -18,6 +18,7 @@ import { toast } from "sonner";
 import { getModelRegistry, type RegistryModel } from "@/utils/modelRegistry.functions";
 import { isProviderSupported, isModelSupported } from "@/lib/providerSupport";
 import { modelMatchesAnyRule, useMyModelRules } from "@/hooks/use-iam";
+import { clickable } from "@/lib/clickable";
 
 type Props = {
   trigger: React.ReactNode;
@@ -148,12 +149,12 @@ export function ModelRegistryPicker({ trigger, defaultModality = "text", onPick 
               {filtered.map((m) => (
                 <li
                   key={m.id}
-                  className="p-3 hover:bg-muted/40 cursor-pointer flex items-start justify-between gap-3"
-                  onClick={() => {
+                  className="p-3 hover:bg-muted/40 cursor-pointer flex items-start justify-between gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  {...clickable(() => {
                     onPick(m.model_id);
                     setOpen(false);
                     toast.success(`Selected ${m.display_name}`);
-                  }}
+                  }, `Select model ${m.display_name}`)}
                 >
                   <div className="min-w-0">
                     <div className="text-sm font-medium truncate">{m.display_name}</div>

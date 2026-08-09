@@ -18,6 +18,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 
 import { llmJson } from "@/lib/biAgent";
+import { clickable } from "@/lib/clickable";
 import { BiModelSelect, useBiModelPref } from "@/components/bi/BiModelSelect";
 import { AddMetricToDashboardDialog } from "@/components/bi/AddMetricToDashboardDialog";
 import { useAuth } from "@/hooks/use-auth";
@@ -634,7 +635,7 @@ function SemanticsPage() {
                 <Card
                   key={m.id as string}
                   className={`cursor-pointer transition-colors ${draft?.id === m.id ? "border-primary" : ""}`}
-                  onClick={() => editModel(m)}
+                  {...clickable(() => editModel(m), `Semantic model ${m.name}`)}
                 >
                   <CardContent className="flex items-center justify-between gap-2 p-3">
                     <div className="min-w-0">
