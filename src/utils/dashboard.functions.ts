@@ -22,6 +22,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { selectAllPages } from "@/lib/pagedSelect";
 import {
   DASHBOARD_RANGES,
   DASHBOARD_SCOPES,
@@ -57,6 +58,13 @@ export type DashboardOverview = {
   to: string;
   /** Scopes THIS caller may ask for — the UI renders only these. */
   available: DashboardScope[];
+  /**
+   * True when the read hit its row ceiling, so these figures are a floor rather
+   * than a total. Said out loud instead of quietly rounded down: a spend number
+   * that is too low is worse than no number, because nothing about it looks
+   * wrong.
+   */
+  partial: boolean;
   totals: {
     runs: number;
     cost_usd: number;
@@ -152,16 +160,30 @@ export const dashboardOverview = createServerFn({ method: "POST" })
       userIds = [...new Set([userId, ...groups.members.map((m) => m.user_id)])];
     }
 
-    let q = supabaseAdmin
-      .from("execution_traces")
-      .select("user_id, cost_usd, tokens_in, tokens_out, latency_ms, status, llm_model, created_at")
-      .gte("created_at", from)
-      .lt("created_at", to);
-    if (userIds) q = q.in("user_id", userIds);
-
-    const { data: rowsRaw, error } = await q;
-    if (error) throw new Error(error.message);
-    const rows = (rowsRaw ?? []) as TraceRow[];
+    // READ EVERY MATCHING ROW, not the first page.
+    //
+    // This query used to be awaited directly, with no `.limit()` — which reads
+    // as "all of them" and is not. PostgREST caps a response at db-max-rows
+    // (1000 on the hosted project) and says nothing about having done so, so
+    // every total below was computed from an arbitrary first slice.
+    //
+    // Measured on this instance before the fix: 1000 rows instead of 2169, and
+    // therefore $1.84 of spend instead of $5.77 — a 68% undercount, in a panel
+    // whose whole job is to attribute cost to people and teams. The same page
+    // showed $5.77 in the Team spend table, which goes through an aggregate.
+    const { rows: rowsRaw, truncated } = await selectAllPages<TraceRow>(() => {
+      // A fresh builder per page: Supabase query builders are single-use, and
+      // reusing one returns page 0 forever.
+      const q = supabaseAdmin
+        .from("execution_traces")
+        .select(
+          "user_id, cost_usd, tokens_in, tokens_out, latency_ms, status, llm_model, created_at",
+        )
+        .gte("created_at", from)
+        .lt("created_at", to);
+      return userIds ? q.in("user_id", userIds) : q;
+    });
+    const rows = rowsRaw;
 
     const ok = rows.filter((r) => r.status === "success").length;
     const totals = {
@@ -257,6 +279,7 @@ export const dashboardOverview = createServerFn({ method: "POST" })
       from,
       to,
       available,
+      partial: truncated,
       totals,
       byUser:
         data.scope === "mine"

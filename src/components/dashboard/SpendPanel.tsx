@@ -191,6 +191,14 @@ export function SpendPanel({ className }: { className?: string }) {
         </p>
       ) : (
         <div className="space-y-5">
+          {/* Only when the read hit its ceiling. Saying "at least" is the
+              difference between a floor and a wrong total. */}
+          {data.partial && (
+            <p className="rounded-md bg-amber-500/10 px-3 py-2 text-[11px] text-amber-600 dark:text-amber-400">
+              This window holds more runs than one read returns — the figures below are a floor, not
+              a total. Narrow the range for an exact answer.
+            </p>
+          )}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {[
               { label: "Cost", value: usd(data.totals.cost_usd) },
