@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { formatMs } from "@/lib/format";
 import { useEffect, useMemo, useState } from "react";
 import { mySpendSince } from "@/lib/budgetSpendClient";
+import { greetingName } from "@/lib/greetingName";
 import { supabase } from "@/integrations/supabase/client";
 import { SpendPanel } from "@/components/dashboard/SpendPanel";
 import { Button } from "@/components/ui/button";
@@ -231,12 +232,27 @@ function DashboardPage() {
       if (capUsd > 0 && spend.ok) {
         setBudget({ spend: spend.spend, cap: capUsd });
       }
+      // The name the user actually set lives in `profiles` — that is what the
+      // Account page writes and what the sidebar reads. Reading only the auth
+      // metadata greeted them by a mangled email prefix while their own name
+      // sat one table away. See src/lib/greetingName.ts.
       const meta = u.data.user?.user_metadata as { full_name?: string; name?: string } | undefined;
-      const fullName = meta?.full_name ?? meta?.name ?? "";
-      const first = fullName.trim().split(/\s+/)[0];
-      const email = u.data.user?.email ?? "";
-      const fallback = email.split("@")[0] || "there";
-      setUserName(first || fallback.charAt(0).toUpperCase() + fallback.slice(1));
+      const uid = u.data.user?.id;
+      const profile = uid
+        ? await supabase
+            .from("profiles")
+            .select("first_name, display_name")
+            .eq("user_id", uid)
+            .maybeSingle()
+        : null;
+      setUserName(
+        greetingName({
+          firstName: profile?.data?.first_name,
+          displayName: profile?.data?.display_name,
+          metaFullName: meta?.full_name ?? meta?.name,
+          email: u.data.user?.email,
+        }),
+      );
       setLoading(false);
     }
     load();
@@ -737,7 +753,9 @@ function DashboardPage() {
               <p className="mt-1 text-xs text-muted-foreground">Where your tokens went</p>
             </header>
             <div className="space-y-3">
-              {metrics.modelMix.length === 0 ? (
+              {loading ? (
+                <p className="py-6 text-center text-sm text-muted-foreground">Loading…</p>
+              ) : metrics.modelMix.length === 0 ? (
                 <p className="py-6 text-center text-sm text-muted-foreground">
                   No runs yet. Provision a template to populate.
                 </p>
@@ -777,7 +795,9 @@ function DashboardPage() {
               </Link>
             </Button>
           </header>
-          {recent.length === 0 ? (
+          {loading ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">Loading…</p>
+          ) : recent.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">
               No runs yet. Open the Playground or provision a template.
             </p>
