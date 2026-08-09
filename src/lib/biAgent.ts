@@ -747,6 +747,28 @@ export async function suggestChart(args: {
  * a truncated set — an honest "of the rows shown" beats a total presented as
  * complete.
  */
+/**
+ * Is this column already an average, rate or ratio — something whose values
+ * must not be added together?
+ *
+ * Judged from the column NAME because that is what the result carries: by the
+ * time rows come back, `AVG(x) AS avg_salary` and `SUM(x) AS total_salary` are
+ * both just a numeric column, and the aggregate that produced them is gone.
+ *
+ * Deliberately conservative. A false positive costs a sum nobody wanted; a
+ * false negative is the bug this exists to stop, where a meaningless total is
+ * offered as authoritative and then read out as "the average".
+ */
+export function isPreAggregated(column: string): boolean {
+  const c = column.toLowerCase();
+  return (
+    /(^|_)(avg|average|mean|median)($|_)/.test(c) ||
+    /(^|_)(rate|ratio|pct|percent|percentage|share|margin|score|index)($|_)/.test(c) ||
+    /_per_/.test(c) ||
+    /(^|_)per_/.test(c)
+  );
+}
+
 export function describeResultFacts(result: QueryResult): string {
   const rows = result.rows ?? [];
   if (rows.length === 0) return "";
@@ -766,6 +788,7 @@ export function describeResultFacts(result: QueryResult): string {
   const lines: string[] = [];
   for (const c of numeric) {
     let sum = 0;
+    let count = 0;
     let max = -Infinity;
     let min = Infinity;
     let maxLabel = "";
@@ -779,6 +802,7 @@ export function describeResultFacts(result: QueryResult): string {
       const n = Number(raw);
       if (!Number.isFinite(n)) continue;
       sum += n;
+      count++;
       if (n > max) {
         max = n;
         maxLabel = labelCol ? String(r[labelCol] ?? "") : "";
@@ -790,8 +814,27 @@ export function describeResultFacts(result: QueryResult): string {
     }
     if (!Number.isFinite(max)) continue;
     const round = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(2));
+    const mean = count > 0 ? sum / count : 0;
+    // A SUM OF AVERAGES IS NOT A NUMBER ANYONE WANTS.
+    //
+    // Asked "average salary by department", the query correctly returned six
+    // per-department averages. This offered the model `total=790.65` — the sum
+    // of six averages, a quantity with no meaning — and the model, holding the
+    // only total it had been given for a column named avg_salary, wrote "the
+    // average salary across all departments is approximately $790.6k". The
+    // true figure is $131.8k. It was wrong by exactly the number of groups,
+    // sat under a chart whose own axis stopped at 160k, and read as confident
+    // prose because every other number in the sentence was right.
+    //
+    // Withholding the sum is the fix, not phrasing: a mean is what the column
+    // supports, so that is what gets offered. Naming the omission matters too
+    // — a fact block that silently lacks a total invites the model to derive
+    // one.
+    const stats = isPreAggregated(c)
+      ? `avg=${round(mean)} (sum omitted — adding up an average is not meaningful)`
+      : `total=${round(sum)} avg=${round(mean)}`;
     lines.push(
-      `${c}: total=${round(sum)} max=${round(max)}${maxLabel ? ` (${maxLabel})` : ""} ` +
+      `${c}: ${stats} max=${round(max)}${maxLabel ? ` (${maxLabel})` : ""} ` +
         `min=${round(min)}${minLabel ? ` (${minLabel})` : ""}`,
     );
   }
