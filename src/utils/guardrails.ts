@@ -586,15 +586,45 @@ export type InputDecision = {
   outboundText: string;
   // What was redacted, for the trace.
   redactions: Record<string, number>;
+  /**
+   * The prompt with PII removed, safe to PERSIST — distinct from
+   * `outboundText`, which is about what the model sees.
+   *
+   * They differ in exactly one case, and it is the important one. When the
+   * policy is `block` the turn is refused, so outboundText is never sent and
+   * was left as the raw input — but the caller still writes a trace row, and
+   * that row is stored in Postgres, rendered on Traces & Logs, and shipped by
+   * the OTEL exporter. Measured: a blocked card number and email were sitting
+   * in execution_traces.prompt in full.
+   *
+   * The mode whose own comment reads "for data that must never transit" was
+   * the one persisting it. The redacted text was already computed and thrown
+   * away; this keeps it.
+   */
+  safeText: string;
 };
 
 export function evaluateInputGuardrails(input: string, g: Guardrails): InputDecision {
+  // Redact ONCE, up front, so every exit below can report a persistable
+  // version of the prompt. The PII checks proper happen at step 5; this is
+  // only about what the caller is allowed to write down.
+  //
+  // It has to be here rather than inside step 5 because the earlier rules
+  // return first. A message that trips the topic denylist AND carries a card
+  // number never reached the PII branch at all, so the raw number went
+  // straight into the trace with a "not allowed to discuss…" reason beside it.
+  const piiForSafety = piiPolicy(g);
+  const safe = piiForSafety.onInput
+    ? redactPII(input, piiForSafety.entities)
+    : { text: input, counts: {} as Record<string, number> };
+
   // 1. Length cap (always enforced when input filters are on).
   if (g.enableInputFilters && g.maxInputLength > 0 && input.length > g.maxInputLength) {
     return {
       allowed: false,
       reason: `Input exceeds the ${g.maxInputLength.toLocaleString()}-character limit set by this agent's guardrails.`,
       outboundText: input,
+      safeText: safe.text,
       redactions: {},
     };
   }
@@ -612,6 +642,7 @@ export function evaluateInputGuardrails(input: string, g: Guardrails): InputDeci
           allowed: false,
           reason: "Input was blocked by a prompt-injection guardrail. Rephrase and try again.",
           outboundText: input,
+          safeText: safe.text,
           redactions: {},
         };
       }
@@ -627,6 +658,7 @@ export function evaluateInputGuardrails(input: string, g: Guardrails): InputDeci
         allowed: false,
         reason: `This agent isn't allowed to discuss "${term}".`,
         outboundText: input,
+        safeText: safe.text,
         redactions: {},
       };
     }
@@ -637,6 +669,7 @@ export function evaluateInputGuardrails(input: string, g: Guardrails): InputDeci
       allowed: false,
       reason: `Input is outside this agent's allowed topics (${allowed.slice(0, 3).join(", ")}${allowed.length > 3 ? "…" : ""}).`,
       outboundText: input,
+      safeText: safe.text,
       redactions: {},
     };
   }
@@ -648,6 +681,7 @@ export function evaluateInputGuardrails(input: string, g: Guardrails): InputDeci
       allowed: false,
       reason: `Input was blocked by the content-safety guardrail (${g.contentSafetyLevel}) for: ${safety.slice(0, 3).join(", ")}.`,
       outboundText: input,
+      safeText: safe.text,
       redactions: {},
     };
   }
@@ -657,7 +691,7 @@ export function evaluateInputGuardrails(input: string, g: Guardrails): InputDeci
   //    operator who turned PII handling on means it unconditionally.
   const pii = piiPolicy(g);
   if (pii.onInput) {
-    const redacted = redactPII(input, pii.entities);
+    const redacted = safe;
     const found = Object.entries(redacted.counts);
     if (found.length > 0 && pii.mode === "block") {
       return {
@@ -667,14 +701,20 @@ export function evaluateInputGuardrails(input: string, g: Guardrails): InputDeci
           `(${found.map(([k]) => k.replace(/_/g, " ")).join(", ")}). ` +
           `This agent is configured not to send that to the model — remove it and try again.`,
         outboundText: input,
+        safeText: safe.text,
         redactions: redacted.counts,
       };
     }
     // redact mode: the model never sees the raw values.
-    return { allowed: true, outboundText: redacted.text, redactions: redacted.counts };
+    return {
+      allowed: true,
+      outboundText: redacted.text,
+      redactions: redacted.counts,
+      safeText: safe.text,
+    };
   }
 
-  return { allowed: true, outboundText: input, redactions: {} };
+  return { allowed: true, outboundText: input, redactions: {}, safeText: safe.text };
 }
 
 // ───────────────── Output evaluation ─────────────────

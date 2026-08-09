@@ -1375,6 +1375,21 @@ export const Route = createFileRoute("/api/chat")({
 
           if (isAnyGuardrailActive(effectiveGuardrails) && promptText) {
             const decision = evaluateInputGuardrails(promptText, effectiveGuardrails);
+            // THE TRACE IS STORAGE, AND STORAGE IS TRANSIT.
+            //
+            // trace.promptText was captured from the raw request before any of
+            // this ran, and the trace row is written on BOTH paths — including
+            // the refusal below. So a card number blocked with "this agent is
+            // configured not to send that to the model" was landing, in full,
+            // in execution_traces.prompt: queryable in Postgres, rendered on
+            // Traces & Logs, and shipped by the OTEL exporter to wherever that
+            // points. Measured on this instance, in both block and redact mode.
+            //
+            // The redacted text already existed; nothing was using it for the
+            // one job where it matters most.
+            if (Object.keys(decision.redactions).length > 0) {
+              trace.promptText = decision.safeText;
+            }
             if (!decision.allowed) {
               await recordTrace({
                 trace,
