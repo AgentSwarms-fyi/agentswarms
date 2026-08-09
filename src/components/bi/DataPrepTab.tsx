@@ -147,6 +147,7 @@ import {
   type PrepRunOutcome,
 } from "@/utils/dataPrep.functions";
 import { DeleteDatasetDialog } from "@/components/bi/DeleteDatasetDialog";
+import { clickable } from "@/lib/clickable";
 import {
   WAREHOUSE_LABELS,
   type WarehouseConnectionSummary,
@@ -886,7 +887,10 @@ export function DataPrepTab() {
                     key={d.id}
                     draggable={!used}
                     onDragStart={(e) => e.dataTransfer.setData(DRAG_MIME, d.name)}
-                    onClick={() => !used && addTable({ name: d.name, columns: d.columns })}
+                    {...clickable(
+                      () => void (!used && addTable({ name: d.name, columns: d.columns })),
+                      used ? `${d.name} — already on the canvas` : `Add ${d.name} to the canvas`,
+                    )}
                     className={`group flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs transition ${
                       used
                         ? "cursor-not-allowed border-border/40 opacity-40"

@@ -29,8 +29,56 @@ function walk(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-/** Elements that render as non-interactive DOM but are handed a click. */
-const CLICKABLE = /<(Card|CardHeader|CardContent|div|span|li|tr)\b([^>]*?)onClick=([^>]*?)>/gs;
+const TAGS = ["Card", "CardHeader", "CardContent", "div", "span", "li", "tr"];
+
+/**
+ * Read the whole opening tag at `i`, tracking {} and quotes.
+ *
+ * THE OLD PATTERN WAS <(Card|div|…)\b([^>]*?)onClick=…> AND IT LIED. `[^>]`
+ * stops at the first ">" inside the tag, and an arrow function in an earlier
+ * prop contains one:
+ *
+ *   <Card draggable onDragStart={(e) => onDragStart(e, p)} onClick={…}>
+ *                                    the "=>" ends the match ─┘
+ *
+ * Measured across src: the regex saw 12 sites in 10 files; a brace-aware scan
+ * finds 16 in 13. The three it could not see were all drag-and-click controls —
+ * the swarm node palette (17 click-to-add cards, the primary way to build a
+ * swarm), the BI data-prep dataset list, and the CSV drop zone, whose hidden
+ * file input cannot be focused either, so uploading a CSV was mouse-only end to
+ * end. A backlog test that cannot see a quarter of the backlog is worse than no
+ * test, because it reads as coverage.
+ */
+function readOpeningTag(src: string, i: number): string | null {
+  let depth = 0;
+  let quote: string | null = null;
+  for (let j = i; j < src.length; j++) {
+    const c = src[j];
+    if (quote) {
+      if (c === quote && src[j - 1] !== "\\") quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === "`") quote = c;
+    else if (c === "{") depth++;
+    else if (c === "}") depth--;
+    else if (c === ">" && depth === 0) return src.slice(i, j + 1);
+  }
+  return null;
+}
+
+/** Every opening tag in `src` for an element that renders non-interactive. */
+function clickableTags(src: string): string[] {
+  const out: string[] = [];
+  for (const tag of TAGS) {
+    const re = new RegExp(`<${tag}\\b`, "g");
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(src))) {
+      const full = readOpeningTag(src, m.index);
+      if (full && /\bonClick=/.test(full)) out.push(full);
+    }
+  }
+  return out;
+}
 
 /**
  * Known-unfixed sites, each with why it is still here. These are NOT excused
@@ -60,16 +108,45 @@ function offendingFiles(): string[] {
   const out = new Set<string>();
   for (const file of walk(resolve("src"))) {
     const src = readFileSync(file, "utf8");
-    for (const m of src.matchAll(CLICKABLE)) {
-      const attrs = m[0];
+    for (const attrs of clickableTags(src)) {
       if (/role=["']button["']/.test(attrs)) continue;
       if (/tabIndex/.test(attrs)) continue;
       if (/onKeyDown|onKeyUp|onKeyPress/.test(attrs)) continue;
+      // `{...clickable(…)}` supplies all four at once.
+      if (/\{\s*\.\.\.\s*clickable\(/.test(attrs)) continue;
       out.add(file.replace(/\\/g, "/").split("/src/")[1]);
     }
   }
   return [...out].sort();
 }
+
+describe("the scanner can see what it claims to scan", () => {
+  // Guard on the guard. This suite's whole value is that it FINDS things, so a
+  // blind spot in the finder reads as a clean bill of health. The previous
+  // pattern had one, and it hid the swarm node palette for as long as this
+  // test has existed.
+  it("finds an onClick that comes after an arrow function in the same tag", () => {
+    const tags = clickableTags(
+      `<Card draggable onDragStart={(e) => go(e, p)} onClick={() => add(p)}>x</Card>`,
+    );
+    expect(tags).toHaveLength(1);
+    expect(tags[0]).toContain("onClick=");
+  });
+
+  it("finds an onClick after a prop containing a bare > comparison", () => {
+    const tags = clickableTags(`<div hidden={count > 3} onClick={go}>x</div>`);
+    expect(tags).toHaveLength(1);
+  });
+
+  it("does not mistake a later sibling tag's onClick for this one's", () => {
+    const tags = clickableTags(`<div className="a">t</div>\n<button onClick={go}>b</button>`);
+    expect(tags).toEqual([]);
+  });
+
+  it("still finds the simple case", () => {
+    expect(clickableTags(`<li onClick={pick}>x</li>`)).toHaveLength(1);
+  });
+});
 
 describe("clickable elements are operable by keyboard", () => {
   it("introduces no new mouse-only controls", () => {

@@ -20,6 +20,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/use-auth";
+import { clickable } from "@/lib/clickable";
 import {
   detectFormat,
   formatLabel,
@@ -203,7 +204,10 @@ export function CsvUploadDialog({
               const f = e.dataTransfer.files?.[0];
               if (f) handleFile(f);
             }}
-            onClick={() => inputRef.current?.click()}
+            // The file input behind this zone is display:none, so it cannot be
+            // focused either — without this, uploading a CSV was mouse-only
+            // end to end, not merely awkward.
+            {...clickable(() => inputRef.current?.click(), "Choose a file to upload")}
             className={`cursor-pointer rounded-lg border-2 border-dashed p-10 text-center transition-colors ${
               dragOver ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"
             }`}

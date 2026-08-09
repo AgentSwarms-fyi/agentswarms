@@ -136,6 +136,7 @@ import { graphFingerprint } from "@/lib/swarmPublish";
 import { SwarmChatDialog } from "@/components/swarms/SwarmChatDialog";
 import { SwarmVersionsDialog } from "@/components/swarms/SwarmVersionsDialog";
 import { snapshotSwarmVersion, graphHash } from "@/lib/swarmVersions";
+import { clickable } from "@/lib/clickable";
 
 export const Route = createFileRoute("/_authenticated/swarms")({
   component: SwarmsPage,
@@ -1785,7 +1786,12 @@ function SwarmsCanvas({
                       key={p.kind}
                       draggable
                       onDragStart={(e) => onDragStart(e, p)}
-                      onClick={() => addNode(p)}
+                      // The panel says "drag onto canvas or click to add", and
+                      // click-to-add is the only half a keyboard can reach —
+                      // so it has to actually be reachable. Without this the
+                      // palette is 17 controls that never enter the
+                      // accessibility tree, on the page where a swarm is built.
+                      {...clickable(() => addNode(p), `Add ${p.label} node`)}
                       className="p-2 cursor-grab active:cursor-grabbing hover:border-primary/50 hover:bg-muted/50 transition-all border-border/50"
                     >
                       <div className="flex items-center gap-2">
@@ -1842,7 +1848,7 @@ function SwarmsCanvas({
                     key={c.id}
                     draggable
                     onDragStart={(e) => onDragStart(e, item)}
-                    onClick={() => addNode(item)}
+                    {...clickable(() => addNode(item), `Add ${c.name} component node`)}
                     className="p-2 cursor-grab active:cursor-grabbing hover:border-primary/50 hover:bg-muted/50 transition-all border-border/50"
                   >
                     <div className="flex items-center gap-2">
