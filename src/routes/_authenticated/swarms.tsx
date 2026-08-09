@@ -1299,12 +1299,27 @@ function SwarmsCanvas({
   const handleSave = async () => {
     if (!user) return;
     setSaving(true);
-    const cleanEdges = edges.map(({ id, source, target, sourceHandle, targetHandle }) => ({
+    // `label` IS NOT DECORATION — it is how the runtime picks a branch.
+    //
+    // This used to destructure five fields and drop the rest, which silently
+    // deleted every edge label on save. The executor reads e.label to choose a
+    // route out of a `router` node and to match "yes"/"no" out of a
+    // `condition` node, so a saved swarm using either came back unrunnable:
+    // "Router node has no labeled outgoing edges."
+    //
+    // It was invisible from the canvas. React Flow still held the label in
+    // memory, so the graph looked right until a reload — and the whole
+    // click-an-edge-to-name-the-route feature below could not persist anything
+    // it produced. Support Copilot ships from a template with three correctly
+    // labelled router edges and broke the first time it was saved, in the
+    // canvas AND through a deployed API key.
+    const cleanEdges = edges.map(({ id, source, target, sourceHandle, targetHandle, label }) => ({
       id,
       source,
       target,
       sourceHandle,
       targetHandle,
+      label,
     }));
     // Strip transient runtime fields before persisting
     const cleanNodes = nodes.map((n) => ({

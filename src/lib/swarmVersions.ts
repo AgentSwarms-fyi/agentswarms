@@ -12,12 +12,18 @@ export type SwarmVersionKind = "auto" | "manual" | "restore";
 // Strip runtime-only fields (matches how handleSave persists a swarm) so a
 // snapshot is a faithful, restorable copy of the graph.
 export function serializeGraph(nodes: Node<SwarmNodeData>[], edges: Edge[]) {
-  const cleanEdges = edges.map(({ id, source, target, sourceHandle, targetHandle }) => ({
+  // `label` is graph MEANING, not runtime state: the executor reads it to pick
+  // a branch out of a router or condition node. Dropping it here made every
+  // snapshot unrestorable-as-working — "restore" would hand back a graph that
+  // fails with "Router node has no labeled outgoing edges", and history was the
+  // one place a user could have recovered from the same bug in handleSave.
+  const cleanEdges = edges.map(({ id, source, target, sourceHandle, targetHandle, label }) => ({
     id,
     source,
     target,
     sourceHandle: sourceHandle ?? null,
     targetHandle: targetHandle ?? null,
+    label,
   }));
   const cleanNodes = nodes.map((n) => {
     // React Flow writes UI state back onto the node objects. `...n` carried all
