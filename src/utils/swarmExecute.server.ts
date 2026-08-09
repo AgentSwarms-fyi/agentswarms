@@ -826,6 +826,24 @@ export async function executeSwarmServer(opts: {
             if (resumed?.suspendedNodeId === node.id && decision) {
               if (decision.approved) {
                 write(pending);
+                // THE DECISION ITSELF, not just the text that was approved.
+                //
+                // write(pending) passes the payload through unchanged, so
+                // nothing downstream could see what the human actually
+                // decided. The shipped "Approval durability check" template
+                // demonstrates the cost: its next node is a condition labelled
+                // "Approved?" asking "Did the approver let this proceed?",
+                // whose only input is the summary — which says nothing about
+                // the decision. Approved by hand, it answered NO.
+                //
+                // Rejection throws, so reaching a later node already implies
+                // approval; this makes that implication READABLE, and carries
+                // the approver's note, which is the part a branch might
+                // genuinely want ("approved, but cap it at $100").
+                staged.writes.push([`${outVar}_approved`, "yes"]);
+                if (decision.note?.trim()) {
+                  staged.writes.push([`${outVar}_note`, decision.note.trim()]);
+                }
                 return;
               }
               throw new Error(

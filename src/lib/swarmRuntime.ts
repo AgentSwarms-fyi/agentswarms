@@ -1196,6 +1196,19 @@ export async function runSwarm(
           }
           const v = node.data.outputVar || `out_${node.id}`;
           ctx[v] = approvalContent;
+          // THE DECISION ITSELF, not just the text that was approved.
+          //
+          // Only the payload used to be written, so nothing downstream could
+          // read what the human decided. The shipped approval template shows
+          // the cost: its next node is a condition labelled "Approved?" whose
+          // only input was this summary, which says nothing about the outcome
+          // — hand-approved, it answered NO, and that became the swarm's final
+          // output.
+          //
+          // Kept identical to swarmExecute.server.ts, which parks and resumes
+          // the same graph headlessly. Two runtimes that disagree about what a
+          // node writes is the bug this pair exists to avoid.
+          ctx[`${v}_approved`] = "yes";
           lastOutput = approvalContent;
           onEvent({ type: "node_done", nodeId: node.id, output: approvalContent });
           return;

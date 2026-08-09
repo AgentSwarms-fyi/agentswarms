@@ -164,8 +164,15 @@ export const SWARM_TEMPLATES: SwarmTemplate[] = [
           // Only reached when a human approved — a rejection fails the run
           // outright. The branch exists so the graph has a routing decision to
           // checkpoint, which is what proves dead edges survive a resume.
-          condition: "Did the approver let this proceed?",
-          inputs: ["approved_summary"],
+          //
+          // It reads approved_summary_approved, which the approval node now
+          // writes. It used to read only the summary and ask "Did the approver
+          // let this proceed?" — a question that text cannot answer, so the
+          // model guessed, and after a hand-approved run it answered NO. A
+          // template is a pattern people copy; this one taught a branch that
+          // does not work.
+          condition: "Is approved_summary_approved equal to yes?",
+          inputs: ["approved_summary_approved", "approved_summary"],
           outputVar: "decision",
         },
       },
