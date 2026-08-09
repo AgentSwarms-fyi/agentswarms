@@ -140,6 +140,9 @@ function EvaluationsPage() {
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [runs, setRuns] = useState<Run[]>([]);
   const [swarms, setSwarms] = useState<SwarmLite[]>([]);
+  // Distinguishes "this account has no datasets" from "the fetch has not come
+  // back". Both render as an empty array.
+  const [loaded, setLoaded] = useState(false);
   const [sel, setSel] = useState<{ kind: "dataset" | "run"; id: string } | null>(null);
 
   const loadLists = useCallback(async () => {
@@ -158,6 +161,7 @@ function EvaluationsPage() {
     setDatasets((d.data as Dataset[]) ?? []);
     setRuns((r.data as unknown as Run[]) ?? []);
     setSwarms((s.data as SwarmLite[]) ?? []);
+    setLoaded(true);
   }, []);
   useEffect(() => {
     if (user?.id) void loadLists();
@@ -249,7 +253,7 @@ function EvaluationsPage() {
               Datasets
             </h2>
             <div className="space-y-1.5">
-              {datasets.length === 0 && (
+              {loaded && datasets.length === 0 && (
                 <p className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
                   No datasets yet — create one and add test cases.
                 </p>

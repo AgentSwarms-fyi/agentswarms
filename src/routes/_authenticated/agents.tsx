@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { identityHue } from "@/lib/identityHue";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
@@ -74,7 +75,6 @@ const PROVIDERS = [
   { value: "vertex", label: "Google Vertex AI" },
   { value: "anthropic", label: "Anthropic (direct)" },
   { value: "azure_openai", label: "Azure OpenAI" },
-  { value: "oci_genai", label: "OCI Generative AI" },
 ];
 
 function AgentsPage() {
@@ -82,6 +82,11 @@ function AgentsPage() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const [agents, setAgents] = useState<Agent[]>([]);
+  // "No agents yet" and "not fetched yet" are different facts and this page
+  // had no way to tell them apart, so the first paint always showed the empty
+  // state — a "Create your first agent" call to action, on an account with
+  // seven agents. The obvious response to that screen is to make another one.
+  const [loaded, setLoaded] = useState(false);
   const [query, setQuery] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Agent | null>(null);
@@ -113,6 +118,7 @@ function AgentsPage() {
       .select("*")
       .order("created_at", { ascending: false });
     if (data) setAgents(data as Agent[]);
+    setLoaded(true);
   }
 
   async function deleteAgent(agent: Agent) {
@@ -212,7 +218,13 @@ function AgentsPage() {
           </div>
         )}
 
-        {agents.length === 0 ? (
+        {!loaded ? (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {Array.from({ length: 4 }, (_, i) => (
+              <Skeleton key={i} className="h-40 rounded-xl" />
+            ))}
+          </div>
+        ) : agents.length === 0 ? (
           <EmptyState
             icon={Bot}
             title="No agents yet"

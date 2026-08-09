@@ -38,6 +38,9 @@ function usePyNotebooks(pathname: string) {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [pyNotebooks, setPyNotebooks] = useState<PyNotebookSummary[]>([]);
+  // An empty list means nothing until the fetch has returned; before that,
+  // "No notebooks yet" is a claim about the network, not about the account.
+  const [loaded, setLoaded] = useState(false);
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
@@ -46,7 +49,10 @@ function usePyNotebooks(pathname: string) {
       .from("user_python_notebooks")
       .select("id, title, updated_at")
       .order("updated_at", { ascending: false })
-      .then(({ data }) => setPyNotebooks(data ?? []));
+      .then(({ data }) => {
+        setPyNotebooks(data ?? []);
+        setLoaded(true);
+      });
     // Re-fetch on navigation so renames/creations from the editor show up.
   }, [user, pathname]);
 
@@ -77,14 +83,15 @@ function usePyNotebooks(pathname: string) {
     setPyNotebooks((prev) => prev.filter((n) => n.id !== id));
   };
 
-  return { pyNotebooks, createNotebook, deleteNotebook, creating };
+  return { pyNotebooks, loaded, createNotebook, deleteNotebook, creating };
 }
 
 function NotebooksLayout() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const hasNotebookSelected =
     pathname.startsWith("/notebooks/py/") || pathname.startsWith("/notebooks/sample/");
-  const { pyNotebooks, createNotebook, deleteNotebook, creating } = usePyNotebooks(pathname);
+  const { pyNotebooks, loaded, createNotebook, deleteNotebook, creating } =
+    usePyNotebooks(pathname);
 
   return (
     <div className="flex h-[calc(100vh-3rem)] w-full min-w-0">
@@ -160,7 +167,7 @@ function NotebooksLayout() {
               );
             })}
           </ul>
-          {pyNotebooks.length === 0 && (
+          {loaded && pyNotebooks.length === 0 && (
             <p className="px-2 py-3 text-xs text-muted-foreground">
               No notebooks yet — create one to start experimenting.
             </p>

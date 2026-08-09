@@ -287,7 +287,12 @@ function BudgetsPage() {
           </p>
         </CardHeader>
         <CardContent className="p-0">
-          {agents.length === 0 ? (
+          {loading ? (
+            <p className="p-6 text-center text-sm text-muted-foreground">Loading agents…</p>
+          ) : agents.length === 0 ? (
+            // Only once the fetch has returned. Sending someone to the Agent
+            // Builder to "create one first" while their agents are still in
+            // flight is worse than saying nothing.
             <p className="p-6 text-center text-sm text-muted-foreground">
               No agents yet. Create one in the Agent Builder first.
             </p>
