@@ -277,7 +277,8 @@ function AccountPage() {
             <UserCircle2 className="h-4 w-4 text-primary" /> Public Profile
           </CardTitle>
           <CardDescription>
-            Shown on your certification certificate, if you earn one.
+            How you appear across the app — the dashboard greeting, the user list, and the audit log
+            beside anything you do.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
@@ -363,7 +364,7 @@ function AccountPage() {
                   <Label htmlFor="display-name">
                     Display name{" "}
                     <span className="text-xs font-normal text-muted-foreground">
-                      (auto-set from first + last; used on your certificate)
+                      (auto-set from first + last; shown in the sidebar and user list)
                     </span>
                   </Label>
                   <Input

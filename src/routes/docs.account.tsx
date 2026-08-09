@@ -57,8 +57,10 @@ function AccountDoc() {
             name: "Public Profile",
             body: (
               <>
-                Display name, avatar, bio, role, designation, and organization. This is what appears
-                on your certification certificate if you earn one — it is not shown anywhere else.
+                Display name, avatar, bio, role, designation, and organization. The name is how the
+                app addresses you: the dashboard greeting, the sidebar, the admin user list, the
+                audit log&rsquo;s actor column and the per-person spend breakdown all read it.
+                Without one, each of those falls back to the local part of your email address.
               </>
             ),
           },

@@ -1,8 +1,12 @@
 // First-run onboarding dialog. Shown to any authenticated user whose profile
-// is missing first_name or last_name. We need these to print a real human
-// name on the certification certificate (instead of the email local-part)
-// and on community attributions. Cannot be dismissed without saving — both
-// fields are required.
+// is missing first_name or last_name.
+//
+// The name is what the rest of the app calls this person: the dashboard
+// greeting, the sidebar, the IAM user list, the audit log's actor column and
+// the per-person spend breakdown. Without it every one of those falls back to
+// the email local-part, so "Rohan Ghosh" shows up as "Rghosh044".
+//
+// Cannot be dismissed without saving — both fields are required.
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
@@ -120,8 +124,8 @@ export function OnboardingDialog() {
             <Sparkles className="h-4 w-4 text-primary" /> Welcome to AgentSwarms
           </DialogTitle>
           <DialogDescription>
-            Tell us your name so we can print it on your certificate when you pass the certification
-            exam.
+            Tell us your name so the app can address you properly — it appears in your dashboard,
+            the user list, and the audit log beside anything you do.
           </DialogDescription>
         </DialogHeader>
 
