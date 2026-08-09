@@ -418,6 +418,13 @@ type TraceContext = {
   traceId: string;
   userId: string | null;
   authToken?: string;
+  /**
+   * True when this turn was authenticated by the internal run secret rather
+   * than a user JWT — deployed API keys, schedules, evals and public embeds.
+   * Such a request has a SERVER-RESOLVED userId and no `auth.uid()`, so the
+   * trace has to be written with the service role or RLS refuses it.
+   */
+  internalRun?: boolean;
   agentId?: string;
   agentName: string;
   provider: string;
@@ -504,7 +511,29 @@ async function recordTrace(opts: {
     console.log("[trace] skipped — no userId (anonymous request)");
     return;
   }
-  const sb = getServerSupabase(trace.authToken);
+  // WHICH CLIENT WRITES THE TRACE DECIDES WHETHER SPEND IS COUNTED AT ALL.
+  //
+  // execution_traces is RLS'd to `auth.uid() = user_id`, and this used to
+  // always write through the anon key carrying the caller's JWT. A headless
+  // turn has no JWT — a deployed API key, a schedule, an eval or a public
+  // embed authenticates with the internal run secret and a server-resolved
+  // internalUserId — so `auth.uid()` was null, every insert was refused, and
+  // the only trace of it was a console line.
+  //
+  // The consequence was not just a missing row. budget_spend_since() sums
+  // execution_traces, so spend that never lands there is spend the monthly
+  // hard cap cannot see. Measured on this instance: four headless runs cost
+  // $0.0181 while budget_spend_since() reported $0.0000 for the same day — an
+  // API key or a public embed could run without ever moving the number that is
+  // supposed to stop it.
+  //
+  // Writing as the service role is safe here precisely because internalUserId
+  // is only honoured after a constant-time match on the internal run secret
+  // (see isInternalRun at the request handler), so the id is established by
+  // this server rather than supplied by whoever called it. The IAM model-rule
+  // lookup on the same request already uses supabaseAdmin for the same reason.
+  const sb =
+    trace.internalRun && !trace.authToken ? supabaseAdmin : getServerSupabase(trace.authToken);
   if (!sb) {
     console.warn("[trace] skipped — no supabase client");
     return;
@@ -1298,6 +1327,7 @@ export const Route = createFileRoute("/api/chat")({
             traceId: crypto.randomUUID(),
             userId,
             authToken,
+            internalRun: isInternalRun,
             agentId: body.agentId,
             agentName,
             provider,
