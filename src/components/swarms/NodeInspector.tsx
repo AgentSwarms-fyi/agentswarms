@@ -2879,11 +2879,11 @@ function A2APanel({
           className="font-mono text-xs"
         />
         <p className="text-[10px] text-muted-foreground mt-1">
-          The base URL of an A2A-compliant agent server. Try the public sample at{" "}
-          <code className="text-[10px]">
-            https://sample-a2a-agent-908687846511.us-central1.run.app
-          </code>
-          .
+          The agent's base URL, or its card URL directly. Discover tries{" "}
+          <code className="text-[10px]">/.well-known/agent-card.json</code> then{" "}
+          <code className="text-[10px]">/.well-known/agent.json</code>. The server must be reachable
+          on the public internet — private and loopback addresses are refused here, so an agent
+          running on localhost needs a tunnel.
         </p>
       </Section>
 
@@ -2976,11 +2976,13 @@ function A2APanel({
           type="password"
           value={data.a2aAuthHeader || ""}
           onChange={(e) => onChange({ a2aAuthHeader: e.target.value })}
-          placeholder="Bearer sk-... or just the token"
+          placeholder="Bearer {{secret:MY_AGENT_TOKEN}}"
           className="font-mono text-xs"
         />
         <p className="text-[10px] text-muted-foreground mt-1">
-          Forwarded only to the endpoint above. If you omit "Bearer ", we'll add it.
+          Forwarded only to the endpoint above. If you omit "Bearer ", we'll add it. Prefer{" "}
+          <code className="font-mono">{"{{secret:NAME}}"}</code> — it resolves on the server at call
+          time. A token typed here literally is stored in the swarm graph in plain text.
         </p>
       </Section>
 

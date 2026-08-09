@@ -15,6 +15,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import type { AgentCard, A2AMessage, Task } from "@/lib/a2aClient";
 import { assertPublicUrl, safeFetch } from "@/utils/ssrfGuard.server";
+import { resolveSecretRefs } from "@/utils/secrets.server";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -198,7 +199,7 @@ async function resolveRpcUrl(
   }
 }
 
-async function handleInvoke(payload: InvokePayload): Promise<Response> {
+async function handleInvoke(payload: InvokePayload, userId: string): Promise<Response> {
   if (!payload.endpoint) return jsonResponse({ error: "endpoint is required" }, 400);
   if (!payload.message || !Array.isArray(payload.message.parts)) {
     return jsonResponse({ error: "message with parts[] is required" }, 400);
@@ -223,12 +224,33 @@ async function handleInvoke(payload: InvokePayload): Promise<Response> {
     Accept: payload.stream ? "text/event-stream" : "application/json",
   };
   if (payload.remoteAuthHeader) {
-    // Trust the user's input — they entered this for their own remote agent.
+    // RESOLVE {{secret:NAME}} HERE.
+    //
+    // docs/swarms describes a2aAuthHeader as "Auth header value — use
+    // {{secret:NAME}}", but nothing on this path resolved it: the literal
+    // braces went out as the bearer token. Measured against the endpoint the
+    // node inspector recommends — `Bearer {{secret:NO_SUCH_SECRET_XYZ}}` was
+    // forwarded verbatim and the failure came back as the remote's own 404, so
+    // the credential problem was invisible.
+    //
+    // The alternative the inspector's placeholder suggests ("Bearer sk-…") is
+    // worse: a raw token typed into a node field is stored in plaintext in the
+    // swarm's `nodes` JSON, readable by anyone who can open the graph, despite
+    // the input being type="password". Resolution keeps it in the secrets
+    // table and enforces per-user access on every call.
+    //
+    // Resolution failures are loud and name the secret — the same contract the
+    // HTTP node has, and the reason this is not a silent empty string.
+    let authValue: string;
+    try {
+      authValue = await resolveSecretRefs(userId, payload.remoteAuthHeader);
+    } catch (e) {
+      return jsonResponse({ error: e instanceof Error ? e.message : "Secret lookup failed" }, 400);
+    }
     headers.Authorization =
-      payload.remoteAuthHeader.startsWith("Bearer ") ||
-      payload.remoteAuthHeader.startsWith("Basic ")
-        ? payload.remoteAuthHeader
-        : `Bearer ${payload.remoteAuthHeader}`;
+      authValue.startsWith("Bearer ") || authValue.startsWith("Basic ")
+        ? authValue
+        : `Bearer ${authValue}`;
   }
 
   const ctrl = new AbortController();
@@ -324,7 +346,7 @@ export const Route = createFileRoute("/api/a2a")({
           return handleDiscover(payload as { endpoint?: string });
         }
         if (action === "invoke") {
-          return handleInvoke(payload as InvokePayload);
+          return handleInvoke(payload as InvokePayload, userId);
         }
         return jsonResponse({ error: "Unknown action. Use ?action=discover|invoke" }, 400);
       },

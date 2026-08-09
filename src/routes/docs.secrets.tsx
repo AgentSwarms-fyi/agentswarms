@@ -141,6 +141,12 @@ function SecretsPage() {
           ],
           [
             <>
+              Swarm <strong>A2A remote-agent node</strong>
+            </>,
+            "The auth header value. The endpoint URL is not templated.",
+          ],
+          [
+            <>
               <DocLink key="d" to="/docs/data">
                 Warehouse and database connections
               </DocLink>
@@ -173,10 +179,11 @@ function SecretsPage() {
 
       <H3 id="resolution-failures">When a reference cannot be resolved</H3>
       <P>
-        On a swarm HTTP node, a connection or an integration it fails loudly: a missing secret, or
-        one you have not been granted, stops the call with an explicit error naming the secret. It
-        is never quietly replaced with an empty string, which would turn a credential problem into
-        an unauthenticated request that some APIs answer with a <C>200</C> and an empty result.
+        On a swarm HTTP or A2A node, a connection or an integration it fails loudly: a missing
+        secret, or one you have not been granted, stops the call with an explicit error naming the
+        secret. It is never quietly replaced with an empty string, which would turn a credential
+        problem into an unauthenticated request that some APIs answer with a <C>200</C> and an empty
+        result.
       </P>
       <Callout kind="warn" title="MCP environment bindings are the exception">
         A binding whose secret is missing or revoked is <em>skipped</em> rather than raised, so the

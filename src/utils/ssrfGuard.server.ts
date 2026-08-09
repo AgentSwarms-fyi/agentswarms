@@ -141,11 +141,21 @@ export async function assertPublicUrl(
   // deployment refuses. /api/a2a uses it: it proxies a remote agent's response
   // back to the browser, so a private-network fetch there is a read primitive
   // rather than a self-hosted convenience.
-  const strict = opts.blockPrivate === true || blockPrivateNetworks();
+  // Say WHY it was refused, accurately. The message used to blame
+  // BLOCK_PRIVATE_NETWORK_FETCH unconditionally, so /api/a2a — which passes
+  // blockPrivate itself and does not consult the env var — told users an
+  // environment variable was enabled when it was not set anywhere. The advice
+  // that message implies (go unset it) does nothing, and the real reason is
+  // invisible.
+  const strictFromEnv = blockPrivateNetworks();
+  const strict = opts.blockPrivate === true || strictFromEnv;
+  const whyStrict = strictFromEnv
+    ? "BLOCK_PRIVATE_NETWORK_FETCH is enabled"
+    : "this endpoint does not allow private-network targets";
   const classify = (host: string): string | null => {
     if (isBlockedAlways(host)) return `Refusing to fetch link-local/metadata address: ${host}`;
     if (strict && isPrivateNetwork(host)) {
-      return `Refusing to fetch private/internal host ${host} — BLOCK_PRIVATE_NETWORK_FETCH is enabled`;
+      return `Refusing to fetch private/internal host ${host} — ${whyStrict}`;
     }
     return null;
   };
