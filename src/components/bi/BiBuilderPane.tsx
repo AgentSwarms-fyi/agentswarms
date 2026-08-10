@@ -927,6 +927,12 @@ export function BiBuilderPane({
       chart: chartSpec,
       columns: preview.columns,
       rows: snapshotRows(preview.rows),
+      // The preview ALREADY knows whether the result was cut short — the
+      // editor prints "(truncated)" next to Run from this same flag. It was
+      // simply never carried onto the widget, so `syncWidgetResults` wrote
+      // `truncated: false` and the card's "Partial" badge could never fire.
+      // A chart missing rows with nothing saying so is the worst outcome here.
+      truncated: preview.capped || preview.rows.length > snapshotRows(preview.rows).length,
       narrative: initial?.narrative,
       // New widgets aggregate in SQL by default so their totals are complete
       // regardless of table size. An EXISTING widget keeps whatever it had:

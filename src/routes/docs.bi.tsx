@@ -148,6 +148,15 @@ GROUP BY region`}</Code>
         the <strong>Partial</strong> badge instead, so the owner sees the problem and makes the
         change themselves.
       </Callout>
+      <Callout kind="warn" title="Aggregating in SQL fixes the values, not the row count">
+        Pushdown makes each row&rsquo;s number complete. It does not shorten the result: a daily
+        series over a year still returns 365 rows, and if that exceeds the snapshot cap the tail of
+        the chart is simply absent. A cumulative line measured this way ended its year twelve times
+        short while every visible point was individually correct. So the <strong>Partial</strong>{" "}
+        badge appears whenever a snapshot hit the cap — <em>including</em> aggregated widgets, where
+        it means &ldquo;rows are missing from this chart&rdquo; rather than &ldquo;this total is a
+        subset&rdquo;. Narrow the query, or raise <C>VITE_BI_SNAPSHOT_ROWS_CAP</C>.
+      </Callout>
 
       <H3 id="incremental">Incremental refresh</H3>
       <P>

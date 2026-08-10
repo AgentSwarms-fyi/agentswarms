@@ -779,6 +779,10 @@ export function widgetFromBiTurn(
     chart: turn.chart ?? { type: "table" },
     columns: turn.result.columns,
     rows: snapshotRows(turn.result.rows, rowCap),
+    // Same reason as the manual builder: the turn's result carries `capped`,
+    // and a widget pinned from an AI answer must not present a cut-short
+    // result as the whole picture.
+    truncated: turn.result.capped || turn.result.rows.length > rowCap,
     narrative: turn.narrative,
     // Same default as builder-created widgets: aggregate in SQL when the chart
     // type supports it, so an AI-added widget starts with complete totals.

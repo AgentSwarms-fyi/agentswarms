@@ -155,7 +155,7 @@ describe("the widget says so when it is showing a partial total", () => {
   it("badges a truncated widget that is not aggregating in SQL", () => {
     // The only signal a viewer gets. Its absence would make the wrong number
     // completely undetectable from the dashboard.
-    expect(card).toContain("truncated && !widget.agg_pushdown");
+    expect(card).toMatch(/\{widget\.truncated\s*&&/);
     expect(card).toContain("Partial");
   });
 
@@ -165,10 +165,28 @@ describe("the widget says so when it is showing a partial total", () => {
     expect(card).toMatch(/totals are computed from part of the table|not all of it/i);
   });
 
-  it("does not badge a widget that IS aggregating in SQL", () => {
-    // Pushdown returns one row per category, so hitting the cap there means
-    // 500+ categories — a different problem, and not a wrong total.
-    expect(card).toMatch(/!widget\.agg_pushdown/);
+  it("badges an aggregated widget too, and says something different about it", () => {
+    // THIS ASSERTION USED TO BE ITS OWN OPPOSITE. It read:
+    //
+    //   it("does not badge a widget that IS aggregating in SQL", …)
+    //   // Pushdown returns one row per category, so hitting the cap there
+    //   // means 500+ categories — a different problem, and not a wrong total.
+    //
+    // The reasoning is half right and the conclusion was wrong. Pushdown makes
+    // each row's VALUE complete; it does nothing about the row COUNT. Measured
+    // against Snowflake: a cumulative daily line with agg_pushdown on, capped
+    // mid-series, ended 2001 at 767,527,521,677.20 against a real 9.19e12 —
+    // twelve times short, every visible point individually correct, and the
+    // badge suppressed by exactly this condition.
+    //
+    // "A different problem" is still a problem the viewer cannot see, so the
+    // badge now fires on truncation regardless, with wording that separates
+    // "this total is a subset" from "rows are missing from this chart".
+    expect(card, "the pushdown suppression is back").not.toMatch(
+      /widget\.truncated\s*&&\s*!widget\.agg_pushdown/,
+    );
+    expect(card).toMatch(/widget\.agg_pushdown\s*\?/);
+    expect(card).toMatch(/rows beyond the cap are missing/i);
   });
 });
 

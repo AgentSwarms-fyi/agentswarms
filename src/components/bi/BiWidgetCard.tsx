@@ -264,15 +264,24 @@ export function BiWidgetCard({
         >
           {widget.title}
         </span>
-        {/* A snapshot that filled to the row cap means the chart is summing a
-            SUBSET and showing it as the total. Silent wrongness is worse than a
-            visible caveat, so say it where the number is read. */}
-        {widget.truncated && !widget.agg_pushdown && (
+        {/* A snapshot that filled to the row cap means the chart is drawing a
+            SUBSET and presenting it as the whole. Silent wrongness is worse
+            than a visible caveat, so say it where the number is read.
+
+            NOT gated on `agg_pushdown` any more. Pushing the aggregation into
+            SQL makes each row's value complete; it does not make the row LIST
+            complete. A daily series that returns 364 rows under a 50-row cap
+            loses 314 points either way — measured: the cumulative line ended
+            the year 12x short while claiming to cover it. */}
+        {widget.truncated && (
           <span
             className="shrink-0 cursor-help rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400"
             title={
-              "This widget's data hit the snapshot row cap, so totals are computed from part of the " +
-              "table, not all of it. Edit the widget and turn on “Aggregate in SQL” to make them complete."
+              widget.agg_pushdown
+                ? "This widget's result hit the snapshot row cap, so rows beyond the cap are missing " +
+                  "from the chart. Narrow the query, or raise VITE_BI_SNAPSHOT_ROWS_CAP."
+                : "This widget's data hit the snapshot row cap, so totals are computed from part of the " +
+                  "table, not all of it. Edit the widget and turn on “Aggregate in SQL” to make them complete."
             }
           >
             Partial

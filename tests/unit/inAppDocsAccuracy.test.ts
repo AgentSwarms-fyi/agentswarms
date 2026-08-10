@@ -703,10 +703,18 @@ describe("the BI page states the numbers that decide whether a chart is right", 
     // The UI shows a "Partial" badge for exactly this; the page has to explain
     // what it means, because the badge alone does not say the number is wrong.
     const card = readFileSync("src/components/bi/BiWidgetCard.tsx", "utf8");
-    expect(card).toContain("truncated && !widget.agg_pushdown");
+    expect(card).toMatch(/\{widget\.truncated\s*&&/);
     expect(card).toContain("Partial");
     expect(page, "the Partial badge is unexplained").toContain("Partial");
     expect(page).toMatch(/sums a subset|part of it|arbitrary subset/i);
+    // The badge now also fires on aggregated widgets, where it means something
+    // different — missing rows rather than a subset total. If the page does not
+    // draw that distinction, a reader with pushdown on will assume the badge
+    // cannot apply to them, which is how the 12x-short cumulative line went
+    // unnoticed in the first place.
+    expect(page, "the aggregated case of the badge is undocumented").toMatch(
+      /does not shorten the result|rows are missing from this chart/i,
+    );
   });
 
   it("says public dashboards render the snapshot whatever the mode", () => {

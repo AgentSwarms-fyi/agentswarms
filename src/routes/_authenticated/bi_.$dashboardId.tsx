@@ -102,6 +102,7 @@ import {
   saveDashboardVersion,
   syncWidgetResults,
   snapshotRows,
+  widgetRowCap,
   touchDashboardView,
   updateDashboard,
   DashboardConflictError,
@@ -123,7 +124,12 @@ import { downloadCsv, downloadXlsx } from "@/lib/exportData";
 import { listPrepFlows } from "@/lib/dataPrep";
 import { fetchWarehouseSchema, runWarehouseQuery, runBiDirectQuery } from "@/lib/warehouseClient";
 import type { DirectFilter } from "@/lib/biDirectQuery";
-import { hydrateFromSupabase, runQuery, type DatasetMeta, type QueryResult } from "@/lib/sqlEngine";
+import {
+  hydrateFromSupabase,
+  runQueryUnlimited,
+  type DatasetMeta,
+  type QueryResult,
+} from "@/lib/sqlEngine";
 import { listWarehouseConnections } from "@/utils/warehouse.functions";
 import type { WarehouseConnectionSummary, WarehouseTable } from "@/utils/warehouse/types";
 
@@ -569,7 +575,23 @@ function BiProjectPage() {
         if (!token) throw new Error("Not signed in");
         return runWarehouseQuery(token, source.connection_id, sql);
       }
-      return runQuery(sql);
+      // NOT `runQuery` — that applies PLAYGROUND_ROW_CAP (50), which is a
+      // preview cap for the workbench, not a widget cap. A widget snapshot is
+      // governed by `widgetRowCap()` (500, raisable to 100k), and the SERVER's
+      // scheduled refresh already uses that number. Running the two paths at
+      // different caps meant a 364-day line chart drew 50 points here and 364
+      // after a scheduled refresh — the same widget telling two stories, with
+      // the browser's version ending the year 12x short of the real total.
+      const t0 = performance.now();
+      const res = await runQueryUnlimited(sql, widgetRowCap());
+      return {
+        columns: res.columns,
+        rows: res.rows,
+        row_count: res.rows.length,
+        total_matched: res.total,
+        capped: res.capped,
+        duration_ms: Math.round(performance.now() - t0),
+      };
     },
     [token],
   );
@@ -823,6 +845,10 @@ function BiProjectPage() {
           ...next[idx],
           columns: res.columns,
           rows: snapshotRows(res.rows),
+          // Carry the engine's own verdict. Refreshing used to clear nothing
+          // and set nothing, so a widget that came back capped was stored as
+          // complete and lost its badge.
+          truncated: res.capped || res.rows.length > widgetRowCap(),
           refreshed_at: new Date().toISOString(),
         };
       } catch (e) {

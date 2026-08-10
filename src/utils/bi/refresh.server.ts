@@ -323,14 +323,16 @@ function applyResult(
     const merged = mergeIncrementalRows(prior, result.rows, inc.column, inc.fromIso);
     w.rows = merged.slice(0, WIDGET_ROW_CAP);
     // Partial either when the merge overflowed the cap (rows dropped) or when
-    // a raw (non-pushdown) window itself came back capped.
-    w.truncated =
-      merged.length > WIDGET_ROW_CAP || (!w.agg_pushdown && result.rows.length >= WIDGET_ROW_CAP);
+    // the window itself came back capped.
+    w.truncated = merged.length > WIDGET_ROW_CAP || result.rows.length >= WIDGET_ROW_CAP;
   } else {
     w.rows = result.rows.slice(0, WIDGET_ROW_CAP);
-    // Only meaningful without pushdown: an aggregated result is complete by
-    // construction, but a truncated raw result makes client totals partial.
-    w.truncated = !w.agg_pushdown && result.rows.length >= WIDGET_ROW_CAP;
+    // The `!w.agg_pushdown` qualifier that used to be here was wrong. It read
+    // "an aggregated result is complete by construction" — true of each row's
+    // VALUE, false of the row LIST. A GROUP BY over 364 days still returns 364
+    // rows, and a cap drops the tail of the series whether or not the sums
+    // inside it were pushed down.
+    w.truncated = result.rows.length >= WIDGET_ROW_CAP;
   }
   w.columns = result.columns;
   w.refreshed_at = new Date().toISOString();
