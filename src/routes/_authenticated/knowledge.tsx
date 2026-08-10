@@ -342,6 +342,24 @@ function KnowledgePage() {
     [connectedProviders, openrouterAvailable, builtinConfigured],
   );
 
+  // How much of the selected base is actually searchable semantically.
+  //
+  // Everything on the Retrieval tab — search mode, the semantic/keyword slider,
+  // parent expansion, Q&A pairs — steers vector search, keyword search over
+  // chunks, and the fusion between them. All three read kb_chunks. With no
+  // chunks, retrieval falls through to a substring scan over whole documents
+  // that consults none of those settings.
+  //
+  // That is not hypothetical here. Measured on this instance: every one of the
+  // 17 shipped sample collections has zero chunks, and asking the same question
+  // of one at semanticWeight 1.0 and at 0.0 returned byte-identical citations.
+  // The panel looked like configuration and was decoration.
+  const indexCoverage = useMemo(() => {
+    const withContent = docs.filter((d) => (d.content?.trim().length ?? 0) > 0);
+    const indexed = withContent.filter((d) => (chunkCounts.get(d.id) ?? 0) > 0).length;
+    return { total: withContent.length, indexed };
+  }, [docs, chunkCounts]);
+
   const availableEmbeddingModels = useMemo(
     () =>
       ALL_EMBEDDING_MODELS.filter((m) => providerUsable(m.provider) || m.value === embeddingModel),
@@ -1143,6 +1161,24 @@ function KnowledgePage() {
                       </p>
                     ) : (
                       <>
+                        {indexCoverage.total > 0 && indexCoverage.indexed === 0 && (
+                          <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs leading-relaxed">
+                            <p className="font-medium text-foreground">
+                              Nothing in this collection is indexed yet — these settings are not in
+                              effect.
+                            </p>
+                            <p className="mt-1 text-muted-foreground">
+                              All {indexCoverage.total} document
+                              {indexCoverage.total === 1 ? " has" : "s have"} zero chunks, so
+                              searching it falls back to matching words in the raw text. Search
+                              mode, the semantic/keyword balance, parent expansion and Q&amp;A pairs
+                              all operate on chunks, so they change nothing until you{" "}
+                              <strong>Back-fill embeddings</strong> on the Embedding tab. The
+                              shipped sample collections start this way — indexing them costs
+                              embedding calls, so it is left to you.
+                            </p>
+                          </div>
+                        )}
                         <div className="space-y-2">
                           <Label>Search Mode</Label>
                           <Select
@@ -1547,22 +1583,28 @@ function KnowledgePage() {
 
                   <TabsContent value="documents" className="mt-3">
                     {docs.length > 0 &&
+                      indexCoverage.total > 0 &&
                       (() => {
-                        // Indexing coverage for this base — derived from data
-                        // already loaded (docs + chunkCounts), no extra query.
-                        const withContent = docs.filter((d) => (d.content?.trim().length ?? 0) > 0);
-                        const indexed = withContent.filter(
-                          (d) => (chunkCounts.get(d.id) ?? 0) > 0,
-                        ).length;
-                        if (withContent.length === 0) return null;
+                        const { indexed, total } = indexCoverage;
+                        // At zero, "Indexed 0/19 documents" beside an empty
+                        // grey bar reads as a progress indicator that has not
+                        // filled in yet — the same shape as a loading state.
+                        // It is a resting state, and it means semantic search
+                        // is off, so say that instead of implying it is coming.
+                        const none = indexed === 0;
                         return (
                           <div className="mb-3 flex items-center gap-3">
-                            <Progress
-                              value={(indexed / withContent.length) * 100}
-                              className="h-1.5 flex-1"
-                            />
-                            <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                              Indexed {indexed}/{withContent.length} documents
+                            <Progress value={(indexed / total) * 100} className="h-1.5 flex-1" />
+                            <span
+                              className={`shrink-0 text-xs tabular-nums ${
+                                none
+                                  ? "text-amber-600 dark:text-amber-400"
+                                  : "text-muted-foreground"
+                              }`}
+                            >
+                              {none
+                                ? `Not indexed — ${total} document${total === 1 ? "" : "s"}, keyword search only`
+                                : `Indexed ${indexed}/${total} documents`}
                             </span>
                           </div>
                         );
