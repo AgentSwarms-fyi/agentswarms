@@ -95,7 +95,7 @@
     "js-yaml": "^4.1.1",
     "langchain": "^1.4.4",
     "lucide-react": "^1.8.0",
-    "mammoth": "1.8.0",
+    "mammoth": "1.12.0",
     "mysql2": "^3.23.1",
     "nitro": "3.0.260603-beta",
     "node-sql-parser": "^5.4.0",
