@@ -249,7 +249,12 @@ export async function embedAndStoreDocuments(opts: {
     const base = {
       document_id: d.id,
       knowledge_base_id: d.knowledge_base_id,
-      user_id: d.user_id,
+      // A SAMPLE document has user_id = NULL — it belongs to the instance, not
+      // to a person — but kb_chunks.user_id is NOT NULL. Fall back to whoever
+      // ran the indexing, so the row records who paid for the embedding while
+      // is_sample keeps it readable by everyone (the SELECT policy is
+      // `is_sample = true OR auth.uid() = user_id`).
+      user_id: d.user_id ?? opts.userId ?? null,
       is_sample: !!d.is_sample,
       _model: model,
     };
@@ -287,7 +292,7 @@ export async function embedAndStoreDocuments(opts: {
         parents.push({
           document_id: d.id,
           knowledge_base_id: d.knowledge_base_id,
-          user_id: d.user_id,
+          user_id: d.user_id ?? opts.userId ?? null,
           is_sample: !!d.is_sample,
           parent_index: slot,
           content: pc.parent,

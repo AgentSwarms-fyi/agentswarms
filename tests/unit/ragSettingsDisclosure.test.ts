@@ -55,9 +55,12 @@ describe("an unindexed collection says its retrieval settings are inert", () => 
     expect(retrievalTab()).toMatch(/not in\s+effect/);
   });
 
-  it("names the way out rather than just the problem", () => {
-    // A warning with no action is a dead end; back-fill is the fix.
-    expect(retrievalTab()).toMatch(/Back-fill embeddings/);
+  it("offers the way out rather than just naming the problem", () => {
+    // This first said "Back-fill embeddings on the Embedding tab" — directions
+    // to a control two tabs away, which was itself hidden on every sample
+    // collection. The warning now carries the button, so assert the control,
+    // not the sentence that pointed at it.
+    expect(retrievalTab()).toContain("{indexButton}");
   });
 
   it("does not fire once something is indexed", () => {

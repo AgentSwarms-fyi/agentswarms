@@ -4,8 +4,39 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { embedAndStoreDocuments, type EmbedDocInput } from "./embedding.server";
 import { resolveEmbedTarget } from "./embedTarget.server";
+
+/**
+ * A caller may index a document they own, or a SAMPLE document.
+ *
+ * Both selects here used `.eq("user_id", userId)`, and every shipped sample
+ * document has `user_id = NULL` — a comparison NULL never satisfies. So a
+ * back-fill on a sample collection selected zero rows and returned
+ * `{ documentsProcessed: 0 }`, which the UI reported as "All documents are
+ * already indexed." Indexing a sample was not merely un-done; it could not be
+ * done, which is why kb_chunks held zero rows across all 17 shipped
+ * collections and 49 documents.
+ */
+const OWNED_OR_SAMPLE = (userId: string) => `user_id.eq.${userId},is_sample.eq.true`;
+
+/**
+ * Which client writes the chunks.
+ *
+ * kb_chunks' INSERT policy is `auth.uid() = user_id AND is_sample = false AND
+ * the knowledge base is yours` — so a client can never write into the shared
+ * sample index, deliberately: on a multi-user instance that would let anyone
+ * put arbitrary text in front of every other user's retrieval, which is a
+ * prompt-injection channel, not a feature.
+ *
+ * The fix is not to relax the policy. The server function already controls the
+ * content — it reads it out of the sample document itself — so the sample
+ * branch writes with the service role and the policy stays shut to clients.
+ * Same shape as the headless-run trace writes.
+ */
+const writerFor = (docs: { is_sample?: boolean | null }[], userClient: typeof supabaseAdmin) =>
+  docs.some((d) => d.is_sample) ? supabaseAdmin : userClient;
 
 export const embedKbDocuments = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -38,13 +69,13 @@ export const embedKbDocuments = createServerFn({ method: "POST" })
       .from("knowledge_documents")
       .select("id, knowledge_base_id, user_id, is_sample, content, metadata")
       .in("id", data.documentIds)
-      .eq("user_id", userId);
+      .or(OWNED_OR_SAMPLE(userId));
     if (error) throw new Error(error.message);
     if (!docs || docs.length === 0)
       return { documentsProcessed: 0, chunksInserted: 0, warnings: [] as string[] };
 
     const result = await embedAndStoreDocuments({
-      sb: supabase,
+      sb: writerFor(docs, supabase),
       docs: docs as EmbedDocInput[],
       openaiKey: target.apiKey,
       endpoint: target.endpoint,
@@ -102,11 +133,16 @@ export const backfillKbEmbeddings = createServerFn({ method: "POST" })
       .from("knowledge_documents")
       .select("id, knowledge_base_id, user_id, is_sample, content, metadata")
       .eq("knowledge_base_id", data.knowledgeBaseId)
-      .eq("user_id", userId)
+      .or(OWNED_OR_SAMPLE(userId))
       .limit(data.limit ?? 50);
     if (error) throw new Error(error.message);
     if (!docs || docs.length === 0)
       return { documentsProcessed: 0, chunksInserted: 0, warnings: [] as string[] };
+
+    // Everything below writes: the chunk probe, the metadata stamp, and the
+    // chunk rows themselves. A sample collection needs the service role for
+    // all three, for the reason on writerFor.
+    const writer = writerFor(docs, supabase);
 
     // Normally this is a BACKFILL: documents that already have chunks are left
     // alone. `force` turns it into a re-index, which is what changing the
@@ -117,7 +153,7 @@ export const backfillKbEmbeddings = createServerFn({ method: "POST" })
     if (!data.force) {
       const ids = docs.map((d) => d.id);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: existing } = await (supabase.from("kb_chunks" as any) as any)
+      const { data: existing } = await (writer.from("kb_chunks" as any) as any)
         .select("document_id")
         .in("document_id", ids);
       const have = new Set<string>(
@@ -147,7 +183,7 @@ export const backfillKbEmbeddings = createServerFn({ method: "POST" })
         },
       }));
       for (const d of pending) {
-        await supabase
+        await writer
           .from("knowledge_documents")
           .update({ metadata: d.metadata as never })
           .eq("id", d.id);
@@ -155,7 +191,7 @@ export const backfillKbEmbeddings = createServerFn({ method: "POST" })
     }
 
     const result = await embedAndStoreDocuments({
-      sb: supabase,
+      sb: writer,
       docs: pending as EmbedDocInput[],
       openaiKey: target.apiKey,
       endpoint: target.endpoint,

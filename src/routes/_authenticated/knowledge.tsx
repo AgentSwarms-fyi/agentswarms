@@ -859,6 +859,80 @@ function KnowledgePage() {
 
   const currentVectorStore = VECTOR_STORES.find((v) => v.id === vectorStore);
 
+  /**
+   * Index / re-index the selected collection.
+   *
+   * Lifted out of the owner-only action row. A sample collection is read-only
+   * in the sense that matters — you cannot add, edit or delete its documents —
+   * but indexing is not a content change, and hiding this button was the last
+   * of four reasons no sample could ever be searched semantically.
+   *
+   * Shown for collections you own and for samples. NOT shown for a collection
+   * shared with you by someone else: those chunks belong to its owner and the
+   * kb_chunks insert policy refuses them, so the button would only ever fail.
+   */
+  async function runIndex(force: boolean) {
+    if (!selectedBase) return;
+    const pending = docs.filter(
+      (d) => (d.content?.trim().length ?? 0) > 0 && !chunkCounts.has(d.id),
+    ).length;
+    setBackfilling(true);
+    const t = toast.loading(
+      force
+        ? `Re-indexing ${docs.length} document${docs.length === 1 ? "" : "s"}…`
+        : pending > 0
+          ? `Embedding ${pending} pending document${pending === 1 ? "" : "s"}…`
+          : "Checking for pending documents…",
+    );
+    try {
+      const r = await backfillFn({
+        data: {
+          knowledgeBaseId: selectedBase.id,
+          limit: 100,
+          provider: embedProvider,
+          model: effectiveEmbedModel,
+          ...(force ? { force: true } : {}),
+        },
+      });
+      if (r.skipped) toast.error("Embeddings are unavailable on this workspace.", { id: t });
+      else if (r.documentsProcessed === 0)
+        toast.success("All documents are already indexed.", { id: t });
+      else
+        toast.success(
+          `Indexed ${r.documentsProcessed} document(s) into ${r.chunksInserted} chunks.`,
+          { id: t },
+        );
+      await loadChunkCounts(selectedBase.id);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Re-index failed", { id: t });
+    } finally {
+      setBackfilling(false);
+    }
+  }
+
+  const canIndexSelected =
+    !!selectedBase && (selectedBase.is_sample || selectedBase.user_id === user?.id);
+
+  const indexButton = canIndexSelected ? (
+    <Button
+      size="sm"
+      variant="outline"
+      disabled={backfilling}
+      onClick={() => void runIndex(indexCoverage.indexed >= indexCoverage.total)}
+    >
+      {backfilling ? (
+        <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+      ) : (
+        <RefreshCw className="h-3 w-3 mr-1" />
+      )}
+      {indexCoverage.indexed === 0
+        ? `Index ${indexCoverage.total} document${indexCoverage.total === 1 ? "" : "s"}`
+        : indexCoverage.indexed < indexCoverage.total
+          ? `Embed ${indexCoverage.total - indexCoverage.indexed} pending`
+          : "Re-index"}
+    </Button>
+  ) : null;
+
   return (
     <div className="flex">
       <div className="flex-1 p-6 space-y-6">
@@ -1172,11 +1246,11 @@ function KnowledgePage() {
                               {indexCoverage.total === 1 ? " has" : "s have"} zero chunks, so
                               searching it falls back to matching words in the raw text. Search
                               mode, the semantic/keyword balance, parent expansion and Q&amp;A pairs
-                              all operate on chunks, so they change nothing until you{" "}
-                              <strong>Back-fill embeddings</strong> on the Embedding tab. The
+                              all operate on chunks, so they change nothing until it is indexed. The
                               shipped sample collections start this way — indexing them costs
                               embedding calls, so it is left to you.
                             </p>
+                            {indexButton && <div className="mt-2">{indexButton}</div>}
                           </div>
                         )}
                         <div className="space-y-2">
@@ -1377,70 +1451,19 @@ function KnowledgePage() {
                     )}
                   </div>
                   {selectedBase.is_sample ? (
-                    <p className="text-xs text-muted-foreground">Read-only sample knowledge base</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs text-muted-foreground">
+                        Sample content is read-only — indexing is not
+                      </p>
+                      {indexButton}
+                    </div>
                   ) : selectedBase.user_id !== user?.id ? (
                     <p className="text-xs text-muted-foreground">
                       Shared with you (read-only) by an administrator
                     </p>
                   ) : (
                     <div className="flex items-center gap-2">
-                      {(() => {
-                        const pending = docs.filter(
-                          (d) => (d.content?.trim().length ?? 0) > 0 && !chunkCounts.has(d.id),
-                        ).length;
-                        return (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={backfilling}
-                            onClick={async () => {
-                              if (!selectedBase) return;
-                              setBackfilling(true);
-                              const t = toast.loading(
-                                pending > 0
-                                  ? `Embedding ${pending} pending document${pending === 1 ? "" : "s"}…`
-                                  : "Checking for pending documents…",
-                              );
-                              try {
-                                const r = await backfillFn({
-                                  data: {
-                                    knowledgeBaseId: selectedBase.id,
-                                    limit: 100,
-                                    provider: embedProvider,
-                                    model: effectiveEmbedModel,
-                                  },
-                                });
-                                if (r.skipped)
-                                  toast.error("Embeddings are unavailable on this workspace.", {
-                                    id: t,
-                                  });
-                                else if (r.documentsProcessed === 0)
-                                  toast.success("All documents are already indexed.", { id: t });
-                                else
-                                  toast.success(
-                                    `Indexed ${r.documentsProcessed} document(s) into ${r.chunksInserted} chunks.`,
-                                    { id: t },
-                                  );
-                                await loadChunkCounts(selectedBase.id);
-                              } catch (err) {
-                                toast.error(
-                                  err instanceof Error ? err.message : "Re-index failed",
-                                  { id: t },
-                                );
-                              } finally {
-                                setBackfilling(false);
-                              }
-                            }}
-                          >
-                            {backfilling ? (
-                              <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                            ) : (
-                              <RefreshCw className="h-3 w-3 mr-1" />
-                            )}
-                            {pending > 0 ? `Embed ${pending} pending` : "Re-index"}
-                          </Button>
-                        );
-                      })()}
+                      {indexButton}
                       <Button size="sm" variant="outline" onClick={() => setAddSourceOpen(true)}>
                         <Plus className="h-3 w-3 mr-1" /> Add Source
                       </Button>
