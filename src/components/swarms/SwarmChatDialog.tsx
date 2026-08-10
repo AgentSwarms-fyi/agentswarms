@@ -112,9 +112,31 @@ export function SwarmChatDialog({
       void loadChats();
       newChat();
     }
-    if (!open) abortRef.current?.abort();
+    // CLOSING THE DIALOG NO LONGER KILLS THE TURN.
+    //
+    // This used to abort the run whenever `open` went false, which made a
+    // swarm containing an approval node impossible to use here: the run pauses,
+    // the only way to approve is the approvals panel, opening that panel closes
+    // this dialog, the abort fires, and the turn is gone. runSwarm then threw,
+    // so the failure path persisted the user's message alone — the conversation
+    // was left holding one message and state {} for good.
+    //
+    // Measured: approved at 16:57:09, last trace 16:56:02 — nothing ran after
+    // the approval. Approving from a SECOND TAB, with this dialog still open,
+    // resumed the run correctly, which is what identified the abort as the
+    // cause rather than the approval plumbing.
+    //
+    // A run in flight now survives the dialog being closed and persists its
+    // result when it finishes, so reopening shows the reply. Cancelling is
+    // still available and still explicit — that is what the Stop button is for.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, swarmId]);
+
+  // Abort only when the component really goes away (leaving the canvas), so an
+  // in-flight turn is not left running against a page that no longer exists.
+  useEffect(() => {
+    return () => abortRef.current?.abort();
+  }, []);
 
   // Keep the thread scrolled to the newest message / streaming tokens.
   useEffect(() => {

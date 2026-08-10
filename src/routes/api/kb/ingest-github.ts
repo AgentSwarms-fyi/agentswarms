@@ -18,6 +18,7 @@ import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { embedAndStoreDocuments } from "@/utils/tools/embedding.server";
 import { resolveEmbedArgs } from "@/utils/tools/embedTarget.server";
+import { reconcileSourceDocuments, type IncomingDoc } from "@/utils/kb/reconcileDocs.server";
 
 const Body = z.object({
   knowledge_base_id: z.string().uuid(),
@@ -175,14 +176,7 @@ export const Route = createFileRoute("/api/kb/ingest-github")({
 
           // Fetch each file's raw content. Done sequentially to be polite to
           // the unauthenticated rate limit; for typical doc repos this is fast.
-          const docs: {
-            knowledge_base_id: string;
-            user_id: string;
-            source_id: string;
-            name: string;
-            content: string;
-            metadata: Record<string, unknown>;
-          }[] = [];
+          const docs: IncomingDoc[] = [];
           for (const b of subset) {
             if (!b.path) continue;
             if (typeof b.size === "number" && b.size > MAX_FILE_BYTES) continue;
@@ -192,9 +186,9 @@ export const Route = createFileRoute("/api/kb/ingest-github")({
             const text = await fileRes.text();
             if (!text.trim()) continue;
             docs.push({
-              knowledge_base_id: body.knowledge_base_id,
-              user_id: user.id,
-              source_id: sourceId!,
+              // The repo path is the remote item's stable identity, so a
+              // re-sync updates the same document row rather than replacing it.
+              externalId: b.path,
               name: `${body.repo}/${b.path}`,
               content: text.slice(0, 500_000), // hard cap per row
               metadata: {
@@ -212,12 +206,16 @@ export const Route = createFileRoute("/api/kb/ingest-github")({
             throw new Error("All matched files were empty or unfetchable.");
           }
 
-          await admin.from("knowledge_documents").delete().eq("source_id", sourceId);
-          const { data: insertedDocs, error: insErr } = await admin
-            .from("knowledge_documents")
-            .insert(docs)
-            .select("id, knowledge_base_id, user_id, is_sample, content");
-          if (insErr) throw new Error(insErr.message);
+          // Reconcile rather than delete-and-reinsert, so document ids (and
+          // anything keyed to them, notably acl_principals) survive a re-sync
+          // and unchanged files are not re-embedded.
+          const { stats, toEmbed } = await reconcileSourceDocuments(admin, {
+            sourceId: sourceId!,
+            knowledgeBaseId: body.knowledge_base_id,
+            userId: user.id,
+            incoming: docs,
+          });
+          const insertedDocs = toEmbed;
 
           // Embed + index. If embedding fails the source is marked
           // `embedding_failed` (not `ok`) so the UI / re-sync surfaces it
@@ -251,6 +249,9 @@ export const Route = createFileRoute("/api/kb/ingest-github")({
               status: embedError ? "embedding_failed" : "ok",
               last_synced_at: new Date().toISOString(),
               error: embedError,
+              // The source card renders "+added ~updated =unchanged −removed"
+              // from this; it was null on every github sync.
+              last_sync_stats: stats,
               config: {
                 ...sourceConfig,
                 branch,

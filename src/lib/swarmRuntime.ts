@@ -510,7 +510,32 @@ export function gatherInputs(
   if (names.length === 1) {
     return ctx[names[0]] ?? fallback;
   }
-  return names.map((n) => `${n}: ${ctx[n] ?? ""}`).join("\n\n");
+  // SKIP VARIABLES THAT WERE NEVER SET.
+  //
+  // This used to be `names.map((n) => \`${n}: ${ctx[n] ?? ""}\`)`, which turns
+  // an unset variable into a label with nothing after it. On a branching graph
+  // that is the normal case, not an edge case: a node downstream of a router
+  // lists inputs from several branches and only the taken branch produced any.
+  //
+  // The shipped Support Copilot template hit exactly this. Routed to
+  // "sensitive", its approval node gathered draft_answer and account_reply —
+  // both belonging to branches that did not run — and the swarm's answer to a
+  // customer was the literal string:
+  //
+  //     approved_reply: draft_answer:
+  //
+  //     account_reply:
+  //
+  //     draft_answer:
+  //
+  // An empty label is worse than an omission: it tells the model the variable
+  // exists and is blank, so it answers about nothing rather than about what it
+  // does have. When nothing at all is set, fall back to the previous node's
+  // output, which is what the single-input case already does.
+  const present = names.filter((n) => (ctx[n] ?? "").trim().length > 0);
+  if (present.length === 0) return fallback;
+  if (present.length === 1) return ctx[present[0]];
+  return present.map((n) => `${n}: ${ctx[n]}`).join("\n\n");
 }
 
 // Stream a chat completion through /api/chat. Returns the final assistant text

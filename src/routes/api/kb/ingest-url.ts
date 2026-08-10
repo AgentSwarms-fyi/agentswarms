@@ -19,6 +19,7 @@ import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { embedAndStoreDocuments } from "@/utils/tools/embedding.server";
 import { resolveEmbedArgs } from "@/utils/tools/embedTarget.server";
+import { reconcileSourceDocuments, type IncomingDoc } from "@/utils/kb/reconcileDocs.server";
 
 const Body = z.object({
   knowledge_base_id: z.string().uuid(),
@@ -176,27 +177,33 @@ export const Route = createFileRoute("/api/kb/ingest-url")({
           );
         }
 
-        // Replace any prior docs from this source.
-        await admin.from("knowledge_documents").delete().eq("source_id", sourceId);
-        const { data: insertedDoc, error: insErr } = await admin
-          .from("knowledge_documents")
-          .insert({
-            knowledge_base_id: body.knowledge_base_id,
-            user_id: user.id,
-            source_id: sourceId,
-            name: title,
-            content: markdown,
-            metadata: { source: "url", url: body.url, ingested_at: new Date().toISOString() },
-          })
-          .select("id, knowledge_base_id, user_id, is_sample, content")
-          .single();
-        if (insErr || !insertedDoc) {
+        // Reconcile rather than delete-and-reinsert: a re-scrape of the same
+        // URL must update the same document row, so its id — and the
+        // acl_principals keyed to it — survive, and identical text is not
+        // re-embedded.
+        const { stats, toEmbed } = await reconcileSourceDocuments(admin, {
+          sourceId: sourceId!,
+          knowledgeBaseId: body.knowledge_base_id,
+          userId: user.id,
+          incoming: [
+            {
+              externalId: body.url,
+              name: title,
+              content: markdown,
+              metadata: { source: "url", url: body.url, ingested_at: new Date().toISOString() },
+            },
+          ],
+        });
+        // Nothing to embed AND nothing recorded as unchanged means the write
+        // did not happen at all.
+        const insertedDoc = toEmbed[0] ?? null;
+        if (!insertedDoc && stats.unchanged === 0) {
           await admin
             .from("kb_sources")
-            .update({ status: "error", error: insErr?.message || "insert failed" })
+            .update({ status: "error", error: "document write failed" })
             .eq("id", sourceId)
             .eq("user_id", user.id);
-          return Response.json({ error: insErr?.message || "insert failed" }, { status: 500 });
+          return Response.json({ error: "document write failed" }, { status: 500 });
         }
 
         // Embed + index into kb_chunks. If embedding fails the source is
@@ -207,8 +214,8 @@ export const Route = createFileRoute("/api/kb/ingest-url")({
         let embedError: string | null = null;
         // Resolve the provider rather than reaching for OPENAI_API_KEY, so
         // this honours the OpenRouter-first preference like every other path.
-        const embed = await resolveEmbedArgs(user.id);
-        if (embed) {
+        const embed = insertedDoc ? await resolveEmbedArgs(user.id) : null;
+        if (embed && insertedDoc) {
           try {
             const r = await embedAndStoreDocuments({
               sb: admin,
@@ -222,9 +229,11 @@ export const Route = createFileRoute("/api/kb/ingest-url")({
             embedError = err instanceof Error ? err.message : String(err);
             console.warn("[ingest-url] embedding failed:", err);
           }
-        } else {
+        } else if (insertedDoc) {
           embedError = "No embedding provider is connected";
         }
+        // insertedDoc === null means the page is byte-identical to last time:
+        // nothing to embed, and the existing chunks still describe it.
 
         await admin
           .from("kb_sources")
@@ -232,6 +241,7 @@ export const Route = createFileRoute("/api/kb/ingest-url")({
             status: embedError ? "embedding_failed" : "ok",
             last_synced_at: new Date().toISOString(),
             error: embedError,
+            last_sync_stats: stats,
           })
           .eq("id", sourceId)
           .eq("user_id", user.id);

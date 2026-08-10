@@ -228,9 +228,13 @@ export function DatasetQualityPanel({
         {loading ? (
           <p className="text-xs text-muted-foreground">Loading checks…</p>
         ) : tests.length === 0 ? (
+          // Don't tell a reader to "add one" when the panel is read-only and
+          // the Add check button is hidden — a sample dataset showed exactly
+          // that instruction with no control anywhere to follow it.
           <p className="text-xs text-muted-foreground">
-            No checks yet. Add one to be told when “{tableName}” goes empty, gains duplicates, or
-            stops refreshing.
+            {readOnly
+              ? `No checks. Sample datasets are read-only, so checks can't be added to “${tableName}” — copy it into a dataset of your own first.`
+              : `No checks yet. Add one to be told when “${tableName}” goes empty, gains duplicates, or stops refreshing.`}
           </p>
         ) : (
           <div className="space-y-1">
