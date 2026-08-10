@@ -58,7 +58,19 @@ const CREDENTIALS: Item[] = [
   },
   {
     title: "Secret references",
-    body: "Configuration can hold {{secret:NAME}} pointers resolved per-user at read time, so a shared configuration never embeds the secret itself.",
+    body: "Configuration can hold {{secret:NAME}} pointers resolved per-user at read time, so a shared configuration never embeds the secret itself. A reference that cannot be resolved stops the call and names the secret — it is never silently replaced with an empty string, which would turn a credential problem into an unauthenticated request some APIs answer with a 200.",
+  },
+  {
+    title: "The key can be rotated without downtime",
+    body: "Every ciphertext carries a fingerprint of the key that wrote it, so the deployment can accept a previous key for decryption while writing everything new with the current one. Put the new secret in PROVIDER_CREDS_SECRET, the outgoing one in PROVIDER_CREDS_SECRET_OLD, restart, then run the re-encrypt sweep in Admin → IAM → Settings. Nothing breaks mid-rotation.",
+  },
+  {
+    title: "The fingerprint is not key material",
+    body: "The key id is a separately domain-separated hash, not a slice of the AES key, so showing it in a database row and in the admin UI reveals which key wrote a value and nothing more.",
+  },
+  {
+    title: "Re-encryption fails safe",
+    body: "The sweep is idempotent — values already on the current key are skipped — and a value that cannot be decrypted under any configured key is counted and reported, then left byte-identical. A wrong keyring costs an error message, not a credential. The sweep is instance-wide, so check the counts on the Settings card before running it.",
   },
 ];
 
@@ -114,8 +126,16 @@ const NOT_CLAIMED: Item[] = [
     body: "There is no third-party penetration test to share. The source is available for your own review, which for many buyers is a stronger position than a summary letter.",
   },
   {
-    title: "Key management is yours",
-    body: "PROVIDER_CREDS_SECRET is an environment variable you set. There is no managed KMS integration, and rotating it re-encrypts nothing automatically — plan a rotation as a deliberate operation.",
+    title: "The master key lives in your environment",
+    body: "PROVIDER_CREDS_SECRET is an environment variable you set and back up. There is no external KMS integration yet — sourcing it from AWS KMS, GCP KMS, Azure Key Vault, OCI Vault or HashiCorp Vault is designed in docs/KEY_MANAGEMENT.md and not built. Rotation itself is supported and operator-initiated: the app never rotates on a schedule by itself.",
+  },
+  {
+    title: "Encryption at rest is not end-to-end",
+    body: "The server decrypts credentials in order to use them, so a compromised server process can read them in memory. Encryption at rest protects a stolen database dump; it is not a defence against code running on your own host.",
+  },
+  {
+    title: "No hardware-backed key storage",
+    body: "Keys are derived in software from an environment variable. There is no HSM or secure-enclave path.",
   },
 ];
 

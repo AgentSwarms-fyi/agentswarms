@@ -18,6 +18,7 @@ import {
   EyeOff,
   Filter,
   KeyRound,
+  Loader2,
   Plus,
   RefreshCw,
   Settings2,
@@ -126,6 +127,11 @@ import {
   type IamSsoProvider,
   type IamUserRow,
 } from "@/utils/iam.functions";
+import {
+  getKeyEncryptionStatus,
+  reEncryptCredentials,
+  type KeyStatusPayload,
+} from "@/utils/providers/keyRotation.functions";
 
 export const Route = createFileRoute("/_authenticated/admin/iam")({
   component: AdminIamPage,
@@ -1709,6 +1715,8 @@ function SettingsTab({
         </CardContent>
       </Card>
 
+      <CredentialKeyCard token={token} />
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Superadmins</CardTitle>
@@ -1728,6 +1736,165 @@ function SettingsTab({
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+/**
+ * Credential encryption key — status and the re-encrypt sweep.
+ *
+ * Rotation is deliberately split. Swapping the secret itself is the operator's
+ * job (edit the env, restart) because a self-hosted app cannot rewrite its own
+ * environment, and pretending otherwise would be the kind of button that looks
+ * like it worked. What software CAN do is the sweep: move every stored
+ * ciphertext onto the current key, which is what this card runs and reports.
+ */
+function CredentialKeyCard({ token }: { token: string }) {
+  const statusFn = useServerFn(getKeyEncryptionStatus);
+  const rotateFn = useServerFn(reEncryptCredentials);
+  const [status, setStatus] = useState<KeyStatusPayload | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    const res = await statusFn({ data: { access_token: token } });
+    if (!res.ok) {
+      setError(res.error);
+      setStatus(null);
+      return;
+    }
+    setError(null);
+    setStatus(res);
+  }, [statusFn, token]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const totals = status?.totals;
+  const pending = totals ? totals.onOther + totals.legacy : 0;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Credential encryption key</CardTitle>
+        <CardDescription>
+          Provider keys, warehouse passwords and stored secrets are encrypted with AES-256-GCM under{" "}
+          <code className="text-xs">PROVIDER_CREDS_SECRET</code>. To rotate: put the new secret in{" "}
+          <code className="text-xs">PROVIDER_CREDS_SECRET</code>, move the old one to{" "}
+          <code className="text-xs">PROVIDER_CREDS_SECRET_OLD</code>, restart, then run the sweep
+          below. Both keys decrypt in the meantime, so nothing breaks mid-rotation. Remove the old
+          secret once nothing is left on it.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {error ? (
+          <p className="text-sm text-destructive">{error}</p>
+        ) : !status ? (
+          <p className="text-sm text-muted-foreground">Checking…</p>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-muted-foreground">Current key</span>
+              <code className="rounded bg-muted px-1.5 py-0.5 font-mono">{status.current}</code>
+              {status.previous.length > 0 && (
+                <>
+                  <span className="text-muted-foreground">· also accepting</span>
+                  {status.previous.map((p) => (
+                    <code key={p} className="rounded bg-muted px-1.5 py-0.5 font-mono">
+                      {p}
+                    </code>
+                  ))}
+                </>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              A fingerprint, not the key — a separate hash that identifies which key wrote a row
+              without revealing anything about the key itself.
+            </p>
+
+            {totals && totals.blobs === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No encrypted credentials stored yet — nothing to rotate.
+              </p>
+            ) : (
+              totals && (
+                <div className="rounded-md border border-border/60 p-3 text-sm">
+                  <div className="flex flex-wrap gap-x-5 gap-y-1">
+                    <span>
+                      <strong>{totals.blobs}</strong> encrypted value
+                      {totals.blobs === 1 ? "" : "s"}
+                    </span>
+                    <span className="text-emerald-600 dark:text-emerald-400">
+                      {totals.onCurrent} on the current key
+                    </span>
+                    {totals.onOther > 0 && (
+                      <span className="text-amber-600 dark:text-amber-400">
+                        {totals.onOther} on an older key
+                      </span>
+                    )}
+                    {totals.legacy > 0 && (
+                      <span className="text-amber-600 dark:text-amber-400">
+                        {totals.legacy} unstamped (written before key ids)
+                      </span>
+                    )}
+                  </div>
+                  {pending > 0 && (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      These still decrypt. Sweeping moves them onto the current key so the old
+                      secret can be retired.
+                    </p>
+                  )}
+                </div>
+              )
+            )}
+
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy || !totals || totals.blobs === 0}
+                onClick={async () => {
+                  setBusy(true);
+                  const t = toast.loading("Re-encrypting stored credentials…");
+                  const res = await rotateFn({ data: { access_token: token } });
+                  setBusy(false);
+                  if (!res.ok) {
+                    toast.error(res.error, { id: t });
+                    return;
+                  }
+                  if (res.totalFailed > 0) {
+                    toast.error(
+                      `Re-encrypted ${res.totalMigrated}; ${res.totalFailed} could not be read with any configured key — they were left untouched.`,
+                      { id: t },
+                    );
+                  } else if (res.totalMigrated === 0) {
+                    toast.success("Everything is already on the current key.", { id: t });
+                  } else {
+                    toast.success(`Re-encrypted ${res.totalMigrated} value(s).`, { id: t });
+                  }
+                  await load();
+                }}
+              >
+                {busy ? (
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                )}
+                Re-encrypt to current key
+              </Button>
+              <Button size="sm" variant="ghost" disabled={busy} onClick={() => void load()}>
+                Refresh
+              </Button>
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              Safe to run at any time: values already on the current key are skipped, and anything
+              that cannot be decrypted is reported and left exactly as it was rather than replaced.
+            </p>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
