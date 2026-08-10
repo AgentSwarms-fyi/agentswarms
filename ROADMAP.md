@@ -35,14 +35,22 @@ Nothing here is a commitment or a delivery date. Items move.
   `listStreams` + `fetchRows` pair rather than new architecture. Next
   candidates by demand: Google Analytics, Zendesk, Jira, NetSuite, QuickBooks,
   Xero, Klaviyo, Intercom.
-- **NL-to-SQL accuracy: 75.4% (46/61) on DuckDB, v3, single pass.** This
-  replaces the old 88.9%, which was AlaSQL against a 45-question set with no
-  joins and no window functions — the engine's limits had become the
-  measurement's limits. v3 adds 7 join and 6 window/CTE questions, with floors
-  in `tests/unit/nl2sqlEval.test.ts` so it cannot narrow again.
+- **NL-to-SQL accuracy: needs re-running — the last figure was 75.4% (46/61) on
+  DuckDB, v3, single pass.** That replaced the old 88.9%, which was AlaSQL
+  against a 45-question set with no joins and no window functions — the engine's
+  limits had become the measurement's limits. v3 added 7 join and 6 window/CTE
+  questions, with category floors in `tests/unit/nl2sqlEval.test.ts` so the set
+  cannot narrow again.
 
-  **Provisional until someone runs `EVAL_REPEATS=3`** — both v3 passes so far
-  are single runs, and the 1.6-point gap between them is inside the noise.
+  **The denominator has moved.** `evals/nl2sql/questions.ts` now holds **66**
+  questions, not the 61 the percentage was computed against, so 75.4% is
+  arithmetic on a set that no longer exists. The category shape the entry cites
+  is still right — ratio 3, window 6, join 7, all confirmed — but the headline
+  number is stale and is deliberately not re-derived here, because 46/66 would
+  be inventing a numerator from a run nobody did.
+
+  Re-run it, ideally with `EVAL_REPEATS=3`: both v3 passes were single runs and
+  the 1.6-point gap between them was already inside the noise.
 
   Known work, in rough order of value:
   - `ratio` (1/3) and `window` (3/6) are the weak categories. Two failures are
