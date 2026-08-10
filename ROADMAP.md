@@ -1,13 +1,23 @@
 # Roadmap
 
-Last reviewed: **2 August 2026**.
+Last reviewed: **11 August 2026**.
 
 > Recently completed and no longer listed below: connection sharing through
 > IAM, connection pooling, retry/backoff, corporate proxy support, scheduled
 > connection health checks, credential-age surfacing, the admin UI for trace
 > retention, and **one SQL engine everywhere** — the browser now runs
 > DuckDB-Wasm instead of AlaSQL, closing a divergence that returned silently
-> wrong answers for window functions. See [CHANGELOG.md](./CHANGELOG.md).
+> wrong answers for window functions.
+>
+> Since 10 August, from driving the UI rather than reading it: sample knowledge
+> bases can be indexed at all (four separate barriers made it impossible);
+> embedding resolves its provider on every ingestion path instead of reaching
+> for the operator's OpenAI key on four of them; re-syncing a URL or GitHub
+> source updates documents in place instead of deleting and recreating them,
+> which was silently dropping per-document ACLs and re-embedding unchanged
+> files; a swarm-chat turn paused for approval can now finish; and
+> `{{secret:NAME}}` resolves on the A2A auth header. See
+> [CHANGELOG.md](./CHANGELOG.md).
 
 A roadmap is worth more to someone evaluating this project than to someone
 using it: it is how they judge whether the gaps they just found are known.
@@ -107,31 +117,52 @@ Stated because you will find them anyway.
   idiom. Corrected after seeing `CatchBoundaryImpl` actually catch a throw in
   the browser.)_
 
-- **44% of the data/BI library has no tests, and has not been audited.** Being
-  specific rather than reassuring, because two audit passes over the parts that
-  _were_ checked turned up four real bugs — three of them silent — so the
-  untouched half should not be assumed clean. By line count, of 9,181 lines in
-  `src/lib`'s data/BI modules, 4,046 have no test file naming them:
+- **A large part of the data/BI library still has no tests and has not been
+  audited.** Being specific rather than reassuring, because two audit passes
+  over the parts that _were_ checked turned up four real bugs — three of them
+  silent — so the untouched part should not be assumed clean.
 
-  | Module                                                                                                     | Lines | What it does                      |
-  | ---------------------------------------------------------------------------------------------------------- | ----- | --------------------------------- |
-  | `biAgent`                                                                                                  | 1,105 | the NL→SQL→chart agent loop       |
-  | `biOntology`                                                                                               | 808   | ontology inference and build      |
-  | `dataCatalog`                                                                                              | 441   | catalog model, PII classification |
-  | `sqlEngine`                                                                                                | 424   | browser query entry point         |
-  | `biWorkspaces`                                                                                             | 281   | workspace/dashboard organisation  |
-  | `biPdf`, `dataPrep`, `dataQuality`, `biVizMeta`, `exportData`, `warehouseClient`, `biFreshness`, `sqlRefs` | 987   |                                   |
+  **The aggregate figure needs re-measuring.** It read "44% … of 9,181 lines,
+  4,046 have no test file naming them", and the per-module rows behind it have
+  drifted enough that the total can no longer be trusted. Two of the largest
+  entries have since gained coverage, and the rest have grown. The rows below
+  were each checked individually on 11 August; the percentage is deliberately
+  not restated until someone measures it properly, rather than carried forward
+  because it sounds precise.
+
+  | Module                                                                           | Lines | Tests?                                       |
+  | -------------------------------------------------------------------------------- | ----- | -------------------------------------------- |
+  | `biAgent`                                                                        | 1,333 | now covered — `biSqlDialect`, `chartChoice`  |
+  | `biOntology`                                                                     | 831   | now covered — `ontologySpec`                 |
+  | `sqlEngine`                                                                      | 451   | **none** — browser query entry point         |
+  | `dataCatalog`                                                                    | 437   | **none** — catalog model, PII classification |
+  | `biWorkspaces`                                                                   | 282   | **none** — workspace/dashboard organisation  |
+  | `biPdf`, `dataQuality`, `biVizMeta`, `warehouseClient`, `biFreshness`, `sqlRefs` | 703   | **none**                                     |
 
   Audited and covered so far: the read-only SQL guard, browser-engine quoting,
   shared-dataset masking, server-function authorisation across the data/BI
   space, the public share/embed sanitiser, the catalog crawler's SSRF guard,
   chart analytics, and the semantic compiler's refusals and escaping.
 
-- **Nothing in the BI or data UI has been verified in a browser recently.**
-  Typechecks, 1,139 unit tests and a production build all pass, and the BI
-  component split moved no logic — but a rendering or wiring fault would not
-  show up in any of those. Claims about this codebase's UI should be treated as
-  unverified until someone clicks through it.
+- **The BI builder pane and its widgets are still unverified in a browser** —
+  but much of the rest of the data UI no longer is. Driven and checked in a
+  browser on 10–11 August: the Data Catalog asset list and dataset panel;
+  quality checks added and run, both a passing one and a deliberately failing
+  one; the Knowledge Base list and all four RAG-settings tabs; source ingestion
+  and re-sync; the swarm canvas, node palette and inspector; multi-turn swarm
+  chat through an approval pause; and every IAM tab.
+
+  What that did **not** cover is the BI Workspace beyond loading it. Dashboard
+  editing, the field-slot mapping and widget rendering were opened, not
+  exercised, and a rendering or wiring fault there would still not show up in
+  typechecks, the 2,494 unit tests or a production build.
+
+  _(This entry previously read "Nothing in the BI or data UI has been verified
+  in a browser recently", alongside a test count of 1,139. Both were true when
+  written and neither was any longer. A claim phrased as "nothing, recently"
+  decays silently — it never trips a test — so it is worth stating what was
+  covered and when instead.)_
+
 - **Visual BI on a public embed defaults to every dataset the owner has.** The
   agent's `sql_query` allow-list is now applied there (it was not, and that was
   a bug), but an absent list still means unrestricted — deliberately, because
@@ -140,17 +171,54 @@ Stated because you will find them anyway.
   anyone can load. Making it deny-by-default for embeds specifically is worth
   considering and would be a behaviour change, so it is a decision rather than
   a fix.
-- **365 lint warnings** (0 errors), tracked as debt. Previously recorded here
-  as "~360 `no-explicit-any`", which was wrong — that is one of three rules and
-  not the largest:
-  - `react-refresh/only-export-components` — 210. Cosmetic: it costs
-    HMR granularity in dev, nothing at runtime. Mostly files that export a
+- **188 lint warnings** (0 errors), tracked as debt — down from 365:
+  - `@typescript-eslint/no-explicit-any` — 136. The real type debt, and now the
+    largest by a wide margin.
+  - `react-refresh/only-export-components` — 37, down from 210. Cosmetic: it
+    costs HMR granularity in dev, nothing at runtime. Mostly files that export a
     lookup table alongside their components.
-  - `@typescript-eslint/no-explicit-any` — 139. The real type debt.
-  - `react-hooks/exhaustive-deps` — 16. The ones worth a human: mostly a
+  - `react-hooks/exhaustive-deps` — 15. The ones worth a human: mostly a
     `load()` deliberately omitted so an effect runs once, which is usually
     right, but each needs checking individually rather than a blanket fix that
     could turn one into a render loop.
+
+  This entry has now been wrong twice, in opposite directions. It first read
+  "~360 `no-explicit-any`"; that was corrected to "one of three rules and not
+  the largest", which was true when written and is not now — the react-refresh
+  count fell by 173 while `no-explicit-any` barely moved, so the original claim
+  came back around to being right. The lesson is not about which rule leads: a
+  count is only true on the day it is taken, and a correction dates as fast as
+  what it corrected.
+
+- **Sample knowledge bases ship un-indexed.** Every shipped sample collection
+  arrives with no embeddings, because indexing costs embedding calls and that is
+  the operator's money to spend. Retrieval still works — it falls back to a
+  keyword scan over whole documents — but the RAG-settings panel steers vector
+  search, chunk-keyword search and the fusion between them, all of which read
+  `kb_chunks`. With none, those settings change nothing, which the Retrieval tab
+  now says outright rather than presenting them as live configuration. Indexing
+  a sample is a one-click Back-fill.
+
+- **A swarm template can wire an approval node to variables that only exist on
+  another branch.** The runtime no longer turns unset inputs into empty labels —
+  it skips them and falls back to the previous node's output — but the shipped
+  Support Copilot template still routes "sensitive" into an approval node whose
+  declared inputs belong to branches that did not run, so the answer is the
+  router's own label rather than anything useful. Fixing the template is a graph
+  edit; catching the shape generally would mean validating, at save time, that
+  every declared input is reachable on every path that reaches the node.
+
+- **Per-principal budget caps can be set but not enforced by default.** IAM →
+  Budgets writes a monthly ceiling per group, and enforcement is opt-in per
+  instance via `ENFORCE_BUDGET_CAP`. Off, a cap is a number that refuses
+  nothing. The tab says so; whether opt-in is the right default for a governance
+  control is a decision, not an oversight.
+
+- **`user_data_table_versions` is written only on overwrite.** A dataset version
+  is recorded when an upload or a prep flow replaces the data, so a collection
+  that is never overwritten shows "No previous versions" indefinitely. That is
+  the design; it is listed because the empty state reads like something is
+  missing.
 
 ## Not planned
 
