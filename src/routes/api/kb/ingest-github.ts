@@ -17,6 +17,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { embedAndStoreDocuments } from "@/utils/tools/embedding.server";
+import { resolveEmbedArgs } from "@/utils/tools/embedTarget.server";
 
 const Body = z.object({
   knowledge_base_id: z.string().uuid(),
@@ -223,13 +224,15 @@ export const Route = createFileRoute("/api/kb/ingest-github")({
           // instead of silently falling back to keyword search.
           let chunksInserted = 0;
           let embedError: string | null = null;
-          const openaiKey = process.env.OPENAI_API_KEY;
-          if (openaiKey && insertedDocs && insertedDocs.length > 0) {
+          // Resolve the provider rather than reaching for OPENAI_API_KEY, so
+          // this honours the OpenRouter-first preference like every other path.
+          const embed = await resolveEmbedArgs(user.id);
+          if (embed && insertedDocs && insertedDocs.length > 0) {
             try {
               const r = await embedAndStoreDocuments({
                 sb: admin,
                 docs: insertedDocs,
-                openaiKey,
+                ...embed,
                 userId: user.id,
                 surface: "KB: Ingest GitHub",
               });
@@ -238,8 +241,8 @@ export const Route = createFileRoute("/api/kb/ingest-github")({
               embedError = err instanceof Error ? err.message : String(err);
               console.warn("[ingest-github] embedding failed:", err);
             }
-          } else if (!openaiKey) {
-            embedError = "OPENAI_API_KEY not configured";
+          } else if (!embed) {
+            embedError = "No embedding provider is connected";
           }
 
           await admin

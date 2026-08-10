@@ -910,8 +910,12 @@ function KnowledgePage() {
     }
   }
 
+  // Nothing with content means nothing to index — an "Index 0 documents"
+  // button is an action that cannot do anything.
   const canIndexSelected =
-    !!selectedBase && (selectedBase.is_sample || selectedBase.user_id === user?.id);
+    !!selectedBase &&
+    indexCoverage.total > 0 &&
+    (selectedBase.is_sample || selectedBase.user_id === user?.id);
 
   const indexButton = canIndexSelected ? (
     <Button

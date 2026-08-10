@@ -10,6 +10,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { getRealTemplate, type RealTemplate } from "@/lib/realTemplates";
 import { embedAndStoreDocuments } from "@/utils/tools/embedding.server";
+import { resolveEmbedArgs } from "@/utils/tools/embedTarget.server";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -93,10 +94,12 @@ async function ensureKnowledgeBase(
     }
   }
   // Embed seeded docs so RAG works immediately for the demo. Best-effort.
-  const openaiKey = process.env.OPENAI_API_KEY;
-  if (openaiKey && insertedDocs.length > 0) {
+  // Resolved rather than hardcoded to OPENAI_API_KEY, so a user with only
+  // OpenRouter connected still gets a working demo.
+  const embed = insertedDocs.length > 0 ? await resolveEmbedArgs(userId) : null;
+  if (embed) {
     try {
-      await embedAndStoreDocuments({ sb, docs: insertedDocs, openaiKey });
+      await embedAndStoreDocuments({ sb, docs: insertedDocs, ...embed, userId });
     } catch (err) {
       console.warn("[templates.provision] embedding failed:", err);
     }

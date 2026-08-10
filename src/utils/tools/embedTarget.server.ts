@@ -100,6 +100,56 @@ export async function resolveEmbedTarget(
   userId: string,
   opts: { provider?: string | null; model?: string | null } = {},
 ): Promise<EmbedTarget | null> {
+  return resolveEmbedTargetInner(userId, opts);
+}
+
+/**
+ * The arguments every ingestion path needs to embed, resolved the same way.
+ *
+ * Four callers used to skip resolveEmbedTarget and read
+ * `process.env.OPENAI_API_KEY` directly: the URL and GitHub ingest routes, the
+ * connector sync engine, and template provisioning. So the ONLY path that
+ * honoured the OpenRouter preference was the manual Back-fill button — every
+ * automatic one went straight to the operator's OpenAI quota.
+ *
+ * That is the exact failure this module's own comment warns about, and it
+ * happened here: a GitHub source ingested 4 files and then died with
+ * `429 insufficient_quota / credit_balance_exhausted` on an instance where
+ * OpenRouter was connected and would have worked.
+ *
+ * Returns null when nothing is available, so callers keep their existing
+ * "documents saved, semantic search not updated" behaviour.
+ */
+export async function resolveEmbedArgs(
+  userId: string | undefined,
+  opts: { provider?: string | null; model?: string | null } = {},
+): Promise<
+  | (Pick<EmbedTarget, "endpoint" | "allowCustomModel"> & {
+      /** embedAndStoreDocuments' parameter name; the value is whichever
+       *  provider won, not necessarily an OpenAI key. */
+      openaiKey: string;
+      defaults: { model: string };
+      stampProvider: string;
+    })
+  | null
+> {
+  const target = userId
+    ? await resolveEmbedTargetInner(userId, opts)
+    : builtinTarget(opts.model || undefined);
+  if (!target) return null;
+  return {
+    openaiKey: target.apiKey,
+    endpoint: target.endpoint,
+    allowCustomModel: target.allowCustomModel,
+    defaults: { model: target.model },
+    stampProvider: target.provider,
+  };
+}
+
+async function resolveEmbedTargetInner(
+  userId: string,
+  opts: { provider?: string | null; model?: string | null } = {},
+): Promise<EmbedTarget | null> {
   const model = opts.model || undefined;
   const requested = opts.provider || undefined;
 

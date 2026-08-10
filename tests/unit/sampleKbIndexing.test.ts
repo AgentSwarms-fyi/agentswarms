@@ -148,8 +148,14 @@ describe("the insert policy stays shut to clients", () => {
 describe("the button is reachable on the collections that need it", () => {
   it("offers indexing for samples as well as for what you own", () => {
     expect(page).toMatch(
-      /const canIndexSelected =\s*\n?\s*!!selectedBase && \(selectedBase\.is_sample \|\| selectedBase\.user_id === user\?\.id\)/,
+      /const canIndexSelected =[\s\S]{0,200}selectedBase\.is_sample \|\| selectedBase\.user_id === user\?\.id/,
     );
+  });
+
+  it("hides the button when there is nothing to index", () => {
+    // An empty collection rendered "Index 0 documents" — an action that
+    // cannot do anything. Regression I introduced with the button itself.
+    expect(page).toMatch(/const canIndexSelected =[\s\S]{0,120}indexCoverage\.total > 0/);
   });
 
   it("does not offer it on a collection someone else shared with you", () => {

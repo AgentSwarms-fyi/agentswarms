@@ -25,6 +25,7 @@ import type { Database, Json } from "@/integrations/supabase/types";
 import { decryptJson } from "@/utils/providers/crypto.server";
 import { nextSyncAt } from "@/utils/saas/sync.server";
 import { embedAndStoreDocuments } from "@/utils/tools/embedding.server";
+import { resolveEmbedArgs } from "@/utils/tools/embedTarget.server";
 import { KB_CONNECTORS, isConnectorKind } from "./connectors.server";
 import { diffRemoteItems, sha256Hex } from "./dedup";
 
@@ -245,16 +246,19 @@ export async function syncKbSource(
     // Embed only what changed — the whole point of the content hash.
     let embedError: string | null = null;
     if (docsToEmbed.length > 0) {
-      const openaiKey = process.env.OPENAI_API_KEY;
-      if (!openaiKey) {
+      // Resolve the provider rather than reaching for OPENAI_API_KEY. A
+      // scheduled sync is the path most likely to run into an exhausted quota,
+      // because it runs unattended and repeatedly.
+      const embed = await resolveEmbedArgs(source.user_id ?? undefined);
+      if (!embed) {
         embedError =
-          "OPENAI_API_KEY not configured — documents saved, semantic search not updated.";
+          "No embedding provider is connected — documents saved, semantic search not updated.";
       } else {
         try {
           await embedAndStoreDocuments({
             sb,
             docs: docsToEmbed,
-            openaiKey,
+            ...embed,
             userId: source.user_id ?? undefined,
             surface: `KB: Sync ${connector.label}`,
           });
