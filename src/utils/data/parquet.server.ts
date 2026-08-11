@@ -58,7 +58,16 @@ export function parquetEnabled(): boolean {
   return !/^(0|false|no)$/i.test(process.env.PARQUET_MIRROR ?? "1");
 }
 
-function cacheDir(): string {
+/**
+ * Where mirrors live on local disk.
+ *
+ * Exported because it is also the ONLY directory the local DuckDB engine is
+ * permitted to touch — `duckdb.server.configureSandbox` passes it to
+ * `allowed_directories`. Two definitions of "the cache" would mean the engine
+ * being allowed to read a directory the mirror does not use, or refusing to
+ * read the one it does.
+ */
+export function cacheDir(): string {
   return process.env.PARQUET_CACHE_DIR || path.join(tmpdir(), "agentswarms-parquet");
 }
 

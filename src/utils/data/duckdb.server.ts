@@ -93,11 +93,74 @@ let sharedInstance: Promise<
   Awaited<ReturnType<typeof import("@duckdb/node-api").DuckDBInstance.create>>
 > | null = null;
 
+/**
+ * The sandbox every query on this instance runs inside.
+ *
+ * THE READ-ONLY GUARD DOES NOT COVER THIS. It rejects INSERT/UPDATE/DROP/
+ * ATTACH and stacked statements, and every one of DuckDB's file-reading table
+ * functions is an ordinary SELECT that sails past it. Measured against this
+ * exact build (v1.5.5) with the settings the engine used to run with:
+ *
+ *   SELECT content FROM read_text('/path/to/.env')   -> returned the file
+ *   SELECT * FROM read_csv('/path/to/.env')          -> returned the file
+ *   SELECT file FROM glob('/some/dir/*')             -> listed the directory
+ *
+ * That is reachable from scheduled BI widget refresh, prep flows, the semantic
+ * runner and — worst — the agent's `sql_query` tool, which executes SQL a
+ * language model wrote. A prompt injection that gets a model to emit
+ * `read_text` is an arbitrary file read on the server.
+ *
+ * The fix is three settings, applied once, in this order:
+ *
+ *   allowed_directories   the Parquet mirror cache, and nothing else. The
+ *                         mirror is a legitimate local-file read, so a blanket
+ *                         ban would trade a security hole for a 250x slowdown.
+ *   enable_external_access=false   everything outside those directories, plus
+ *                         all network access, is refused. Note the second
+ *                         half: this also closes SSRF via read_csv('http://…').
+ *   lock_configuration=true        so nothing can turn the first two back on.
+ *
+ * Verified after locking: reads inside the cache work, reads outside fail,
+ * `../` traversal out of the cache fails, glob fails, https fails, and both
+ * re-opening external access and widening allowed_directories are refused.
+ * Writes into the cache still work, so the mirror writer is unaffected.
+ *
+ * ORDER MATTERS. lock_configuration also freezes memory_limit and threads, so
+ * they are set first. They were already effectively instance-wide — a value
+ * set on one connection is visible from another on the same instance, which
+ * this file's own sharing makes true — so hoisting them here changes nothing
+ * except that they are now honest about their scope.
+ */
+async function configureSandbox(
+  instance: Awaited<ReturnType<typeof import("@duckdb/node-api").DuckDBInstance.create>>,
+) {
+  const { cacheDir } = await import("@/utils/data/parquet.server");
+  const conn = await instance.connect();
+  try {
+    await conn.run(`SET memory_limit='${memoryLimitMb()}MB'`);
+    await conn.run(`SET threads=${threadCount()}`);
+    // Forward slashes and doubled quotes: a Windows path is full of
+    // backslashes and this value is interpolated into SQL.
+    const dir = cacheDir().split("\\").join("/").replace(/'/g, "''");
+    await conn.run(`SET allowed_directories=['${dir}']`);
+    await conn.run("SET enable_external_access=false");
+    await conn.run("SET lock_configuration=true");
+  } finally {
+    conn.closeSync();
+  }
+}
+
 async function getInstance() {
   if (!sharedInstance) {
-    sharedInstance = import("@duckdb/node-api").then(({ DuckDBInstance }) =>
-      DuckDBInstance.create(":memory:"),
-    );
+    sharedInstance = import("@duckdb/node-api")
+      .then(({ DuckDBInstance }) => DuckDBInstance.create(":memory:"))
+      .then(async (instance) => {
+        // If the sandbox cannot be applied the engine must not start. Running
+        // unsandboxed is the state this whole block exists to end, and a
+        // half-configured instance would be indistinguishable from a safe one.
+        await configureSandbox(instance);
+        return instance;
+      });
     // A failed create must not poison every later call with the same rejection.
     sharedInstance.catch(() => {
       sharedInstance = null;
@@ -241,8 +304,8 @@ export async function runLocalSqlDuckDB(
   let timer: NodeJS.Timeout | undefined;
   let timedOut = false;
   try {
-    await connection.run(`SET memory_limit='${memoryLimitMb()}MB'`);
-    await connection.run(`SET threads=${threadCount()}`);
+    // memory_limit and threads are set once, in configureSandbox — they are
+    // instance-wide anyway, and lock_configuration refuses them here.
 
     let coercionFailures = 0;
     for (const table of tables) {
@@ -305,7 +368,7 @@ export async function writeTableToParquet(table: DuckTable, filePath: string): P
   const instance = await getInstance();
   const connection = await instance.connect();
   try {
-    await connection.run(`SET memory_limit='${memoryLimitMb()}MB'`);
+    // See configureSandbox: memory_limit is instance-wide and frozen there.
     await loadTable(connection, { ...table, parquetPath: undefined });
     await connection.run(
       `COPY (SELECT * FROM ${quoteIdent(table.name)}) TO ${sqlLiteral(filePath)} ` +

@@ -36,6 +36,13 @@ const source: DuckTable = {
 
 beforeAll(async () => {
   dir = await mkdtemp(path.join(tmpdir(), "parquet-test-"));
+  // The engine is sandboxed to cacheDir() and nothing else (see
+  // duckdbSandbox.test.ts), so the fixture has to live where a real mirror
+  // lives. This test used to write to a bare temp directory — production never
+  // does, because mirrorPath() always joins onto cacheDir(), so the test was
+  // the only caller putting a mirror somewhere the engine would not be allowed
+  // to read. Point the cache at the temp dir instead of widening the sandbox.
+  process.env.PARQUET_CACHE_DIR = dir;
   parquetPath = path.join(dir, "orders.parquet");
   await writeTableToParquet(source, parquetPath);
 });
