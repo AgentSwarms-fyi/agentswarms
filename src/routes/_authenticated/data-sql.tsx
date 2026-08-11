@@ -809,12 +809,28 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
     })();
   }, [datasets]);
 
-  async function refreshSuggestions() {
-    if (datasets.length === 0) return;
+  // The SAME tables the turn will actually run against.
+  //
+  // These used to be generated from `datasets` — the LOCAL tables — regardless
+  // of the selected source, while handleBiSend below runs the question against
+  // `activeWarehouse ? warehouseDatasets : datasets`. Select a warehouse and
+  // the chips still offered questions about the local HR sample. Clicking one
+  // sent "How many hires were made in Engineering this year?" to a connection
+  // holding only TPC-DS and TPC-H, and the model did what models do with an
+  // unanswerable question: it invented a plausible query. The observed result
+  // was C_CUSTKEY (a TPC-H column) selected from TPCDS_SF10TCL.CUSTOMER (whose
+  // key is C_CUSTOMER_SK) — `customer` exists in six schemas on that
+  // connection with two different key columns, so the wrong guess was an easy
+  // one. Snowflake rejected it, which is the honest outcome, but the question
+  // should never have been offered.
+  const suggestionDatasets = activeWarehouse ? warehouseDatasets : datasets;
+
+  const refreshSuggestions = useCallback(async () => {
+    if (suggestionDatasets.length === 0) return;
     setSuggestionsLoading(true);
     try {
       const qs = await generateSuggestedQuestions({
-        datasets,
+        datasets: suggestionDatasets,
         semantics,
         metrics: savedMetrics,
         model: biModel ?? undefined,
@@ -825,14 +841,22 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
     } finally {
       setSuggestionsLoading(false);
     }
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suggestionDatasets, semantics, savedMetrics, biModel]);
+
+  // Switching source invalidates the chips immediately, rather than leaving
+  // the previous source's questions on screen while new ones are fetched —
+  // that window is exactly when one gets clicked.
+  useEffect(() => {
+    setSuggestions([]);
+  }, [dataSource]);
 
   useEffect(() => {
-    if (datasets.length > 0 && suggestions.length === 0 && !suggestionsLoading) {
-      refreshSuggestions();
+    if (suggestionDatasets.length > 0 && suggestions.length === 0 && !suggestionsLoading) {
+      void refreshSuggestions();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [datasets.length]);
+  }, [suggestionDatasets.length, suggestions.length]);
 
   async function handleBiSend(question?: string) {
     const q = (question ?? biInput).trim();
