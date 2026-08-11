@@ -2979,75 +2979,6 @@ export type Database = {
         };
         Relationships: [];
       };
-      quiz_attempts: {
-        Row: {
-          answers: Json;
-          created_at: string;
-          id: string;
-          passed: boolean;
-          score: number;
-          total: number;
-          track_id: string;
-          user_id: string;
-        };
-        Insert: {
-          answers?: Json;
-          created_at?: string;
-          id?: string;
-          passed?: boolean;
-          score?: number;
-          total?: number;
-          track_id: string;
-          user_id: string;
-        };
-        Update: {
-          answers?: Json;
-          created_at?: string;
-          id?: string;
-          passed?: boolean;
-          score?: number;
-          total?: number;
-          track_id?: string;
-          user_id?: string;
-        };
-        Relationships: [];
-      };
-      quiz_questions: {
-        Row: {
-          correct_index: number;
-          created_at: string;
-          difficulty: string;
-          explanation: string | null;
-          id: string;
-          options: Json;
-          position: number;
-          question: string;
-          track_id: string;
-        };
-        Insert: {
-          correct_index: number;
-          created_at?: string;
-          difficulty?: string;
-          explanation?: string | null;
-          id?: string;
-          options?: Json;
-          position?: number;
-          question: string;
-          track_id: string;
-        };
-        Update: {
-          correct_index?: number;
-          created_at?: string;
-          difficulty?: string;
-          explanation?: string | null;
-          id?: string;
-          options?: Json;
-          position?: number;
-          question?: string;
-          track_id?: string;
-        };
-        Relationships: [];
-      };
       suppressed_emails: {
         Row: {
           created_at: string;
@@ -3603,24 +3534,6 @@ export type Database = {
           published_nodes?: Json | null;
           published_version_id?: string | null;
           updated_at?: string;
-          user_id?: string;
-        };
-        Relationships: [];
-      };
-      user_announcements_dismissed: {
-        Row: {
-          announcement_key: string;
-          dismissed_at: string;
-          user_id: string;
-        };
-        Insert: {
-          announcement_key: string;
-          dismissed_at?: string;
-          user_id: string;
-        };
-        Update: {
-          announcement_key?: string;
-          dismissed_at?: string;
           user_id?: string;
         };
         Relationships: [];
