@@ -160,7 +160,13 @@ function DataCatalogRoute() {
       </div>
       <div className="min-h-0 flex-1">
         <div className={view === "catalog" ? "h-full" : "hidden"}>
+          {/* Both panes stay MOUNTED and are toggled with `hidden`, so the
+              Catalog never re-runs its mount effect. Uploading a dataset in
+              the Workbench then switching back showed the pre-upload row count
+              for the rest of the session. `active` lets it re-read on the way
+              in. */}
           <CatalogView
+            active={view === "catalog"}
             onQueryAsset={(s) => {
               setSeed({ ...s, nonce: Date.now() });
               setWbMounted(true);

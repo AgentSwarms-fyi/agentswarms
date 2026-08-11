@@ -97,12 +97,19 @@ export function DatasetQualityPanel({
   tableName,
   columns,
   readOnly,
+  onDatasetChanged,
 }: {
   tableId: string;
   tableName: string;
   columns: { name: string }[];
   /** Sample datasets are shared and read-only — no tests, no restores. */
   readOnly?: boolean;
+  /**
+   * Called after a restore replaces the dataset's contents. Without it the
+   * drawer keeps displaying the row count it was opened with — restoring 364
+   * rows over 10 left "ROWS 10" on screen next to a success toast saying 364.
+   */
+  onDatasetChanged?: () => void | Promise<void>;
 }) {
   const { user, session } = useAuth();
   const [tests, setTests] = useState<QualityTest[]>([]);
@@ -181,6 +188,7 @@ export function DatasetQualityPanel({
       if (!res.ok) throw new Error(res.error);
       toast.success(`Restored ${res.rowCount.toLocaleString()} rows to "${res.tableName}".`);
       await reloadVersions();
+      await onDatasetChanged?.();
     } catch (e) {
       toast.error((e as Error).message);
     } finally {

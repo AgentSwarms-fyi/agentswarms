@@ -5,7 +5,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 // Local CSV tables appear automatically as a built-in source; warehouse
 // and object-storage sources are added through the wizard and crawled
 // on demand.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { formatDistanceToNow } from "date-fns";
@@ -119,9 +119,16 @@ type UnifiedAsset = CatalogAsset & { local?: boolean };
 
 export function CatalogView({
   onQueryAsset,
+  active = true,
 }: {
   /** Open an asset in the Workbench tab with a seeded query (auto-executed). */
   onQueryAsset?: (seed: { sql: string; dataSource: string; autorun?: boolean }) => void;
+  /**
+   * Whether this pane is the one on screen. The parent keeps both panes mounted
+   * and toggles `hidden`, so without this the catalog would show whatever it
+   * read when the page first loaded, for as long as the tab stayed open.
+   */
+  active?: boolean;
 }) {
   const { session } = useAuth();
   const token = session?.access_token ?? "";
@@ -152,6 +159,60 @@ export function CatalogView({
   const [glossary, setGlossary] = useState<GlossaryTerm[]>([]);
   const [glossaryOpen, setGlossaryOpen] = useState(false);
 
+  /**
+   * Re-read the LOCAL datasets from Supabase.
+   *
+   * Lives outside the mount effect because local assets go stale within a
+   * session: uploading in the Workbench tab, or restoring a version from this
+   * very drawer, changes the row count while the Catalog keeps showing the
+   * number it read at mount. Observed: a dataset replaced with 10 rows still
+   * read "ROWS 364", and Refresh did not correct it because `reload` only
+   * refetched CRAWLED assets.
+   */
+  const reloadLocal = useCallback(async (): Promise<UnifiedAsset[]> => {
+    try {
+      const tables = await hydrateFromSupabase();
+      const mapped: UnifiedAsset[] = tables.map((d) => {
+        const columns = d.columns.map((c) => ({
+          name: c.name,
+          type: c.type,
+          pii: isPiiColumnName(c.name) || undefined,
+        }));
+        return {
+          id: `local:${d.id}`,
+          user_id: myId,
+          source_id: LOCAL_SOURCE_ID,
+          asset_type: "table" as const,
+          schema_name: null,
+          name: d.name,
+          fqn: d.name,
+          columns,
+          row_count: d.row_count,
+          size_bytes: null,
+          format: d.is_sample ? "sample" : "csv",
+          file_count: null,
+          description: null,
+          tags: d.is_sample ? ["sample"] : [],
+          owner: null,
+          status: "draft" as const,
+          pii: columns.some((c) => c.pii),
+          last_crawled_at: new Date().toISOString(),
+          local: true,
+        };
+      });
+      setLocalAssets(mapped);
+      return mapped;
+    } catch (e) {
+      // Local tables disappearing from the catalog while the Workbench and
+      // the agent can still query the same dataset is a hydration failure,
+      // not an empty account. Bare, this catch reported the two as the same
+      // thing: an empty "Local tables" filter and no way to tell which.
+      console.warn("[Catalog] local table hydration failed", e);
+      setLocalAssets([]);
+      return [];
+    }
+  }, [myId]);
+
   const reload = useCallback(async () => {
     try {
       const [src, ast, lin, terms, srcLin] = await Promise.all([
@@ -160,6 +221,9 @@ export function CatalogView({
         loadLineageIndex(),
         listGlossaryTerms(),
         loadCatalogLineage(),
+        // Refresh has to cover local datasets too, or it silently refreshes
+        // only half the list the user is looking at.
+        reloadLocal(),
       ]);
       setSources(src);
       setAssets(ast);
@@ -169,7 +233,7 @@ export function CatalogView({
     } catch (e) {
       toast.error((e as Error).message);
     }
-  }, []);
+  }, [reloadLocal]);
 
   const termDefs = useMemo(
     () => new Map(glossary.map((t) => [t.term.toLowerCase(), t.definition])),
@@ -179,50 +243,20 @@ export function CatalogView({
   useEffect(() => {
     (async () => {
       setLoading(true);
+      // `reload` now hydrates local datasets as part of the same pass.
       await reload();
-      try {
-        const tables = await hydrateFromSupabase();
-        setLocalAssets(
-          tables.map((d) => {
-            const columns = d.columns.map((c) => ({
-              name: c.name,
-              type: c.type,
-              pii: isPiiColumnName(c.name) || undefined,
-            }));
-            return {
-              id: `local:${d.id}`,
-              user_id: myId,
-              source_id: LOCAL_SOURCE_ID,
-              asset_type: "table" as const,
-              schema_name: null,
-              name: d.name,
-              fqn: d.name,
-              columns,
-              row_count: d.row_count,
-              size_bytes: null,
-              format: d.is_sample ? "sample" : "csv",
-              file_count: null,
-              description: null,
-              tags: d.is_sample ? ["sample"] : [],
-              owner: null,
-              status: "draft" as const,
-              pii: columns.some((c) => c.pii),
-              last_crawled_at: new Date().toISOString(),
-              local: true,
-            };
-          }),
-        );
-      } catch (e) {
-        // Local tables disappearing from the catalog while the Workbench and
-        // the agent can still query the same dataset is a hydration failure,
-        // not an empty account. Bare, this catch reported the two as the same
-        // thing: an empty "Local tables" filter and no way to tell which.
-        console.warn("[Catalog] local table hydration failed", e);
-        setLocalAssets([]);
-      }
       setLoading(false);
     })();
   }, [reload]);
+
+  // Re-read local datasets each time this pane comes back into view. Only the
+  // local half: crawled assets change on a schedule, not because someone
+  // switched tabs, and re-crawling on every toggle would be wasteful.
+  const wasActive = useRef(active);
+  useEffect(() => {
+    if (active && !wasActive.current) void reloadLocal();
+    wasActive.current = active;
+  }, [active, reloadLocal]);
 
   // Latest quality verdict per local dataset, so the list can badge assets
   // without opening each one. Failures here are non-fatal: an unbadged asset
@@ -797,6 +831,13 @@ export function CatalogView({
           setAssets((prev) => prev.map((x) => (x.id === selected?.id ? { ...x, ...patch } : x)));
           setSelected((prev) => (prev ? { ...prev, ...patch } : prev));
         }}
+        onDatasetChanged={async () => {
+          // A restore replaces the dataset's rows. Re-read them AND re-point
+          // the open sheet at the fresh asset, or the drawer keeps showing the
+          // pre-restore row count while the toast says otherwise.
+          const fresh = await reloadLocal();
+          setSelected((prev) => (prev ? (fresh.find((a) => a.id === prev.id) ?? prev) : prev));
+        }}
       />
 
       <AddSourceWizard
@@ -835,6 +876,7 @@ function AssetSheet({
   onQuery,
   onClose,
   onSaved,
+  onDatasetChanged,
 }: {
   asset: UnifiedAsset | null;
   sourceName: string;
@@ -847,6 +889,8 @@ function AssetSheet({
   onQuery: () => void;
   onClose: () => void;
   onSaved: (patch: Partial<CatalogAsset>) => void;
+  /** A restore replaced the dataset's rows — re-read them and re-point the sheet. */
+  onDatasetChanged: () => void | Promise<void>;
 }) {
   const { session } = useAuth();
   const [biModel] = useBiModelPref();
@@ -1075,6 +1119,7 @@ function AssetSheet({
                 tableName={asset.name}
                 columns={asset.columns}
                 readOnly={asset.tags.includes("sample")}
+                onDatasetChanged={onDatasetChanged}
               />
             )}
 
