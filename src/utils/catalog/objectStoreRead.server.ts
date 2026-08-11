@@ -21,6 +21,7 @@
 // no predicate push-down into Parquet; the same bounded-materialisation shape
 // the warehouse and prep paths already use.
 import type { ObjectStoreConfig } from "./objectStore.server";
+import { toJsValue } from "@/lib/duckdbValues";
 import { isBlockedAlways, isPrivateNetwork } from "@/utils/ssrfGuard.server";
 
 /** Rows pulled per object when materialising for a query. */
@@ -225,12 +226,21 @@ export async function readObjectRows(
     // One row over the cap, so "there were more" is observed and not guessed.
     const rows = await run(`SELECT * FROM ${src} LIMIT ${cap + 1}`);
     const capped = rows.length > cap;
+    // Normalise through the SAME converter the local engine and the browser
+    // engine use. Without it a DATE column reaches the results grid as the raw
+    // DuckDB object and renders as `{"days":20468}` — caught by looking at the
+    // actual screen, not by any of the type assertions, which were all happy.
+    const clean = (capped ? rows.slice(0, cap) : rows).map((row) => {
+      const out: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(row)) out[k] = toJsValue(v);
+      return out;
+    });
     return {
       columns: described.map((r) => ({
         name: String(r.column_name),
         type: String(r.column_type),
       })),
-      rows: capped ? rows.slice(0, cap) : rows,
+      rows: clean,
       capped,
     };
   });

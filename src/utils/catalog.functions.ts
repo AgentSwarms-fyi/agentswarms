@@ -21,6 +21,7 @@ import {
 } from "@/utils/catalog/crawler.server";
 import { nextCrawlAt } from "@/utils/catalog/schedule.server";
 import { testObjectStore, type ObjectStoreConfig } from "@/utils/catalog/objectStore.server";
+import type { ObjectStoreTable } from "@/utils/catalog/objectStoreQuery.server";
 
 function userClient(accessToken: string) {
   const url = process.env.SUPABASE_URL;
@@ -246,6 +247,26 @@ export const catalogDeleteSource = createServerFn({ method: "POST" })
       if (error) return { ok: false, error: error.message };
       if (!count) return { ok: false, error: "Only the owner can delete this source" };
       return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : "Failed" };
+    }
+  });
+
+/**
+ * Tables a bucket exposes to SQL — the crawled files, with the names to type.
+ *
+ * Cheap: reads catalog_assets, never the bucket. The Workbench calls it to
+ * populate its explorer, so it must not cost an S3 round trip per keystroke.
+ */
+export const catalogListStorageTables = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z.object({ access_token: z.string().min(1), source_id: z.string().uuid() }).parse(input),
+  )
+  .handler(async ({ data }): Promise<CatalogError | { ok: true; tables: ObjectStoreTable[] }> => {
+    try {
+      const { userId } = await requireUser(data.access_token);
+      const { listObjectStoreTables } = await import("@/utils/catalog/objectStoreQuery.server");
+      return { ok: true, tables: await listObjectStoreTables(userId, data.source_id) };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : "Failed" };
     }

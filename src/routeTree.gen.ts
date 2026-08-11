@@ -97,6 +97,7 @@ import { Route as ApiWarehouseQueryRouteImport } from './routes/api/warehouse/qu
 import { Route as ApiTemplatesProvisionRouteImport } from './routes/api/templates.provision'
 import { Route as ApiSwarmRunRouteImport } from './routes/api/swarm.run'
 import { Route as ApiSkillsGenerateRouteImport } from './routes/api/skills.generate'
+import { Route as ApiObjectstoreQueryRouteImport } from './routes/api/objectstore/query'
 import { Route as ApiNotebookRuntimeRouteImport } from './routes/api/notebook.runtime'
 import { Route as ApiNotebookRunRouteImport } from './routes/api/notebook.run'
 import { Route as ApiKbSourcesRouteImport } from './routes/api/kb/sources'
@@ -575,6 +576,11 @@ const ApiSkillsGenerateRoute = ApiSkillsGenerateRouteImport.update({
   path: '/api/skills/generate',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiObjectstoreQueryRoute = ApiObjectstoreQueryRouteImport.update({
+  id: '/api/objectstore/query',
+  path: '/api/objectstore/query',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiNotebookRuntimeRoute = ApiNotebookRuntimeRouteImport.update({
   id: '/api/notebook/runtime',
   path: '/api/notebook/runtime',
@@ -853,6 +859,7 @@ export interface FileRoutesByFullPath {
   '/api/kb/sources': typeof ApiKbSourcesRouteWithChildren
   '/api/notebook/run': typeof ApiNotebookRunRouteWithChildren
   '/api/notebook/runtime': typeof ApiNotebookRuntimeRouteWithChildren
+  '/api/objectstore/query': typeof ApiObjectstoreQueryRoute
   '/api/skills/generate': typeof ApiSkillsGenerateRoute
   '/api/swarm/run': typeof ApiSwarmRunRoute
   '/api/templates/provision': typeof ApiTemplatesProvisionRoute
@@ -974,6 +981,7 @@ export interface FileRoutesByTo {
   '/api/kb/sources': typeof ApiKbSourcesRouteWithChildren
   '/api/notebook/run': typeof ApiNotebookRunRouteWithChildren
   '/api/notebook/runtime': typeof ApiNotebookRuntimeRouteWithChildren
+  '/api/objectstore/query': typeof ApiObjectstoreQueryRoute
   '/api/skills/generate': typeof ApiSkillsGenerateRoute
   '/api/swarm/run': typeof ApiSwarmRunRoute
   '/api/templates/provision': typeof ApiTemplatesProvisionRoute
@@ -1098,6 +1106,7 @@ export interface FileRoutesById {
   '/api/kb/sources': typeof ApiKbSourcesRouteWithChildren
   '/api/notebook/run': typeof ApiNotebookRunRouteWithChildren
   '/api/notebook/runtime': typeof ApiNotebookRuntimeRouteWithChildren
+  '/api/objectstore/query': typeof ApiObjectstoreQueryRoute
   '/api/skills/generate': typeof ApiSkillsGenerateRoute
   '/api/swarm/run': typeof ApiSwarmRunRoute
   '/api/templates/provision': typeof ApiTemplatesProvisionRoute
@@ -1222,6 +1231,7 @@ export interface FileRouteTypes {
     | '/api/kb/sources'
     | '/api/notebook/run'
     | '/api/notebook/runtime'
+    | '/api/objectstore/query'
     | '/api/skills/generate'
     | '/api/swarm/run'
     | '/api/templates/provision'
@@ -1343,6 +1353,7 @@ export interface FileRouteTypes {
     | '/api/kb/sources'
     | '/api/notebook/run'
     | '/api/notebook/runtime'
+    | '/api/objectstore/query'
     | '/api/skills/generate'
     | '/api/swarm/run'
     | '/api/templates/provision'
@@ -1466,6 +1477,7 @@ export interface FileRouteTypes {
     | '/api/kb/sources'
     | '/api/notebook/run'
     | '/api/notebook/runtime'
+    | '/api/objectstore/query'
     | '/api/skills/generate'
     | '/api/swarm/run'
     | '/api/templates/provision'
@@ -1528,6 +1540,7 @@ export interface RootRouteChildren {
   ApiKbSourcesRoute: typeof ApiKbSourcesRouteWithChildren
   ApiNotebookRunRoute: typeof ApiNotebookRunRouteWithChildren
   ApiNotebookRuntimeRoute: typeof ApiNotebookRuntimeRouteWithChildren
+  ApiObjectstoreQueryRoute: typeof ApiObjectstoreQueryRoute
   ApiSkillsGenerateRoute: typeof ApiSkillsGenerateRoute
   ApiSwarmRunRoute: typeof ApiSwarmRunRoute
   ApiTemplatesProvisionRoute: typeof ApiTemplatesProvisionRoute
@@ -2159,6 +2172,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiSkillsGenerateRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/objectstore/query': {
+      id: '/api/objectstore/query'
+      path: '/api/objectstore/query'
+      fullPath: '/api/objectstore/query'
+      preLoaderRoute: typeof ApiObjectstoreQueryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/notebook/runtime': {
       id: '/api/notebook/runtime'
       path: '/api/notebook/runtime'
@@ -2677,6 +2697,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiKbSourcesRoute: ApiKbSourcesRouteWithChildren,
   ApiNotebookRunRoute: ApiNotebookRunRouteWithChildren,
   ApiNotebookRuntimeRoute: ApiNotebookRuntimeRouteWithChildren,
+  ApiObjectstoreQueryRoute: ApiObjectstoreQueryRoute,
   ApiSkillsGenerateRoute: ApiSkillsGenerateRoute,
   ApiSwarmRunRoute: ApiSwarmRunRoute,
   ApiTemplatesProvisionRoute: ApiTemplatesProvisionRoute,

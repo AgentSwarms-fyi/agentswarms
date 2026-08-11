@@ -177,6 +177,25 @@ them go through `assertPublicUrl` / `safeFetch` in `utils/ssrfGuard.server.ts`.
   `SELECT *` over a huge table is refused rather than materialised.
 - Both successful and **refused** queries are audited, so an attempted `DROP`
   against production appears in the log.
+- **The local SQL engine is sandboxed.** DuckDB's file-reading table functions
+  (`read_text`, `read_csv`, `glob`) are ordinary `SELECT`s and pass any
+  read-only check, so the engine that runs user- and model-authored SQL is
+  started with `enable_external_access=false`, `allowed_directories` limited to
+  its own Parquet cache, and `lock_configuration=true` so neither can be turned
+  back on. That closes local file reads **and** outbound HTTP from inside a
+  query — `read_csv('http://169.254.169.254/…')` cannot reach cloud metadata.
+  Pinned by `tests/unit/duckdbSandbox.test.ts`, which drives the real engine.
+- **Object-store queries never reach the networked engine.** Reading `s3://`
+  requires network access, and there is no DuckDB setting that grants it while
+  denying the local filesystem. So the engine that reads a bucket runs only
+  statements the platform composes; your SQL runs in the sandboxed engine over
+  rows fetched for it. A query naming a file the catalog has not crawled is
+  refused by name rather than attempted, which makes the file list an
+  allow-list rather than a denylist of dangerous functions.
+- **Bucket endpoints are checked before use.** DuckDB's `httpfs` makes its own
+  HTTP calls and does not go through `safeFetch`, so the endpoint is validated
+  once at configuration time: link-local and instance-metadata addresses are
+  refused outright, and private ranges follow `BLOCK_PRIVATE_NETWORK_FETCH`.
 
 ## Code execution
 

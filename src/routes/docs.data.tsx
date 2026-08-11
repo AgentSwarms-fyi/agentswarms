@@ -432,11 +432,41 @@ function DataPage() {
 
       <H3 id="c-other">Object stores and lakehouse catalogs</H3>
       <P>
-        S3, GCS and compatible endpoints are added as <strong>catalog sources</strong> rather than
-        query connections — they are crawled and their files registered as datasets. Iceberg REST
-        and Unity Catalog are connected for metadata. Both are configured through{" "}
-        <strong>Data Catalog → Add source</strong>.
+        S3, Cloudflare R2, MinIO, DigitalOcean Spaces, Backblaze B2, GCS over its S3 API and any
+        other S3-compatible endpoint are added as <strong>catalog sources</strong> through{" "}
+        <strong>Data Catalog → Add source</strong>. A crawl lists the bucket, groups a folder of
+        same-format files into one dataset, and records each file&rsquo;s columns. Iceberg REST and
+        Unity Catalog are connected for metadata only.
       </P>
+      <P>
+        <strong>Parquet, CSV, JSON and NDJSON files are queryable.</strong> Press{" "}
+        <strong>Query data</strong> on a file in the catalog and it opens in the Workbench with the
+        bucket selected as the engine. The SQL name is the file&rsquo;s basename without its
+        extension, so <C>data/orders.parquet</C> is <C>orders</C>; a partitioned folder{" "}
+        <C>sales/*.parquet</C> is <C>sales</C>. Files in the same bucket can be joined, including
+        across formats — a Parquet fact table against a CSV lookup is an ordinary query.
+      </P>
+      <Callout kind="why" title="Where a Parquet schema comes from">
+        A Parquet file keeps its schema in the FOOTER, so the head-of-file sample that infers
+        columns for CSV cannot see it — Parquet files used to appear in the catalog as a name and a
+        size with no columns at all. The crawler now reads the footer directly, which also gives an
+        exact row count without scanning the file. Nothing is downloaded to do it.
+      </Callout>
+      <Callout kind="warn" title="Bucket queries read up to 50,000 rows per file">
+        A bucket query is not pushed down. The referenced files are read up to a per-file cap and
+        the query runs locally, so a filter does not reduce what is fetched. When a file hits that
+        cap the Workbench says which one, because the answer is then over a prefix of the file
+        rather than all of it — narrow the source data, or use a warehouse connection, if you need a
+        query over more than that.
+      </Callout>
+      <Callout kind="why" title="Why bucket SQL does not run against the bucket">
+        The engine that can reach <C>s3://</C> needs network access, and DuckDB offers no setting
+        that grants that while denying the local filesystem — so an engine able to read your bucket
+        could also read the server&rsquo;s own files. Your SQL therefore runs in the sandboxed
+        engine over rows fetched for it, and only queries the platform composes itself ever reach
+        the networked one. That is also why a query naming a file the catalog has not crawled is
+        refused by name rather than attempted.
+      </Callout>
 
       <Callout kind="warn" title="Create a read-only user">
         Every connector above will happily accept an admin credential. Don't give it one — the

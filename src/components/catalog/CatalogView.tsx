@@ -101,6 +101,7 @@ import {
   type LineageIndex,
 } from "@/lib/dataCatalog";
 import { hydrateFromSupabase } from "@/lib/sqlEngine";
+import { objectSqlName } from "@/lib/objectSqlName";
 import {
   catalogCrawlSource,
   catalogDeleteSource,
@@ -401,8 +402,21 @@ export function CatalogView({
   const sourceName = (a: UnifiedAsset) =>
     a.source_id === LOCAL_SOURCE_ID ? "Local tables" : (sourceById.get(a.source_id)?.name ?? "—");
 
-  const queryable = (a: UnifiedAsset) =>
-    a.local || sourceById.get(a.source_id)?.kind === "warehouse";
+  /**
+   * Formats the object-store engine can open. A bucket can hold anything —
+   * images, logs, ORC — and offering "Query in Workbench" on a PNG would be a
+   * button that only ever produces an error.
+   */
+  const QUERYABLE_OBJECT = /\.(parquet|csv|tsv|json|ndjson|jsonl)$/i;
+
+  const queryable = (a: UnifiedAsset) => {
+    if (a.local) return true;
+    const kind = sourceById.get(a.source_id)?.kind;
+    if (kind === "warehouse") return true;
+    // A crawled folder of same-format files has a fqn like `sales/*.parquet`,
+    // which the extension test still matches.
+    return kind === "object_storage" && QUERYABLE_OBJECT.test(a.fqn);
+  };
 
   const lineageFor = useCallback(
     (a: UnifiedAsset): AssetLineage =>
@@ -425,6 +439,18 @@ export function CatalogView({
       onQueryAsset({
         sql: `SELECT * FROM ${a.fqn} LIMIT 10`,
         dataSource: src.connection_id,
+        autorun: true,
+      });
+      return;
+    }
+    if (src?.kind === "object_storage") {
+      // The SQL name is derived the same way the server derives it
+      // (objectStoreQuery.sqlNameFor): the file's basename without its
+      // extension. Seeding `SELECT * FROM data/orders.parquet` would be a
+      // syntax error and would teach the wrong thing about how to write these.
+      onQueryAsset({
+        sql: `SELECT * FROM ${objectSqlName(a.fqn)} LIMIT 10`,
+        dataSource: `storage:${src.id}`,
         autorun: true,
       });
     }
@@ -786,7 +812,13 @@ export function CatalogView({
                       </div>
                     </TableCell>
                     <TableCell className="text-right">
-                      {(a.asset_type === "table" || a.asset_type === "view") &&
+                      {/* `file` is here because that is what the crawler calls
+                          an object in a bucket. Without it the button was
+                          hidden for every Parquet and CSV in an object store —
+                          `queryable` said yes and this said no. */}
+                      {(a.asset_type === "table" ||
+                        a.asset_type === "view" ||
+                        a.asset_type === "file") &&
                         queryable(a) &&
                         onQueryAsset && (
                           <Button

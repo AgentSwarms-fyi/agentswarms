@@ -28,6 +28,8 @@ import {
   type ObjectStoreConfig,
 } from "@/utils/catalog/objectStore.server";
 import { crawlObjectStorage, duckTypeToCatalogType } from "@/utils/catalog/crawler.server";
+import { objectSqlName } from "@/lib/objectSqlName";
+import { sqlNameFor } from "@/utils/catalog/objectStoreQuery.server";
 import {
   assertEndpointAllowed,
   countObjectRows,
@@ -264,6 +266,18 @@ describe("rows come back with their values and types intact", () => {
     expect(res.rows[0].region).toBe("EMEA");
   });
 
+  withMinio("returns a DATE as a readable date, not a DuckDB internal", async () => {
+    // FOUND BY LOOKING AT THE SCREEN. Every type assertion passed while the
+    // results grid rendered order_date as {"days":20468} — the raw DuckDB DATE
+    // object, because this reader returned getRowObjects() values untouched
+    // instead of putting them through the same converter the local and browser
+    // engines use.
+    const res = await readObjectRows(CFG, "data/orders.parquet", "parquet");
+    const first = res.rows.find((r) => Number(r.order_id) === 1)!;
+    expect(typeof first.order_date, `got ${JSON.stringify(first.order_date)}`).not.toBe("object");
+    expect(String(first.order_date)).toContain("2026-01-15");
+  });
+
   withMinio("preserves NULL as NULL, not as an empty string", async () => {
     const res = await readObjectRows(CFG, "data/orders.parquet", "parquet");
     const row4 = res.rows.find((r) => Number(r.order_id) === 4)!;
@@ -339,5 +353,43 @@ describe("the endpoint is checked before DuckDB is pointed at it", () => {
       if (prev === undefined) delete process.env.BLOCK_PRIVATE_NETWORK_FETCH;
       else process.env.BLOCK_PRIVATE_NETWORK_FETCH = prev;
     }
+  });
+});
+
+describe("the SQL name a bucket file gets", () => {
+  // The Catalog seeds `SELECT * FROM orders LIMIT 10` in the BROWSER and the
+  // server resolves `orders` back to `data/orders.parquet` when the query
+  // runs. Two copies of that rule would drift and the symptom would be a
+  // seeded query answering "does not reference any file" — a dead button.
+  it("is the basename without its extension", () => {
+    expect(objectSqlName("data/orders.parquet")).toBe("orders");
+    expect(objectSqlName("orders.parquet")).toBe("orders");
+    expect(objectSqlName("a/b/c/sales_2026.csv")).toBe("sales_2026");
+  });
+
+  it("uses the folder for a partitioned group", () => {
+    // A crawled folder of same-format files has a fqn like `sales/*.parquet`.
+    expect(objectSqlName("warehouse/sales/*.parquet")).toBe("sales");
+  });
+
+  it("survives characters that are not valid in an identifier", () => {
+    expect(objectSqlName("raw/2026-01 orders (final).parquet")).toMatch(/^[a-z][a-z0-9_]*$/);
+  });
+
+  it("the server's resolver agrees with it when there is no clash", () => {
+    expect(sqlNameFor("data/orders.parquet", new Set())).toBe(objectSqlName("data/orders.parquet"));
+  });
+
+  it("disambiguates two files with the same basename", () => {
+    // Two `orders.parquet` in different folders is ordinary. Pointing both at
+    // one of them would answer the wrong question, silently.
+    const taken = new Set<string>();
+    const a = sqlNameFor("eu/orders.parquet", taken);
+    taken.add(a);
+    const b = sqlNameFor("us/orders.parquet", taken);
+    taken.add(b);
+    expect(a).toBe("orders");
+    expect(b).not.toBe(a);
+    expect(b).toMatch(/us/);
   });
 });

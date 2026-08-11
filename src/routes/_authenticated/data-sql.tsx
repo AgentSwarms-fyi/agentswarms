@@ -53,6 +53,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { listWarehouseConnections } from "@/utils/warehouse.functions";
+import { catalogListStorageTables } from "@/utils/catalog.functions";
+import { listCatalogSources } from "@/lib/dataCatalog";
+import type { ObjectStoreTable } from "@/utils/catalog/objectStoreQuery.server";
 import {
   WAREHOUSE_LABELS,
   type WarehouseConnectionSummary,
@@ -330,9 +333,13 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
   // External data warehouses (connected under /integrations → Data Warehouses).
   // dataSource: "local" (in-browser AlaSQL) or a warehouse connection id.
   const listWarehousesFn = useServerFn(listWarehouseConnections);
+  const listStorageTablesFn = useServerFn(catalogListStorageTables);
   const dependentsFn = useServerFn(datasetDependents);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [warehouses, setWarehouses] = useState<WarehouseConnectionSummary[]>([]);
+  /** Object-store sources the catalog has crawled, offered as a query engine. */
+  const [buckets, setBuckets] = useState<{ id: string; name: string; provider: string }[]>([]);
+  const [bucketTables, setBucketTables] = useState<Record<string, ObjectStoreTable[]>>({});
   const [whTables, setWhTables] = useState<Record<string, WarehouseTable[] | "loading" | "error">>(
     {},
   );
@@ -340,12 +347,45 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
   // Bumped after each run so the history panel refetches.
   const [historyNonce, setHistoryNonce] = useState(0);
 
+  // The explorer needs to show what a bucket exposes, or the user is typing
+  // table names blind. Fetched once per source and cached — this reads
+  // catalog_assets, not S3, but a request per keystroke would still be rude.
+  useEffect(() => {
+    const token = session?.access_token;
+    const id = dataSource.startsWith("storage:") ? dataSource.slice("storage:".length) : null;
+    if (!token || !id || bucketTables[id]) return;
+    listStorageTablesFn({ data: { access_token: token, source_id: id } })
+      .then((res) => {
+        if (res.ok) setBucketTables((prev) => ({ ...prev, [id]: res.tables }));
+      })
+      .catch(() => {});
+  }, [dataSource, session?.access_token, listStorageTablesFn, bucketTables]);
+
   useEffect(() => {
     const token = session?.access_token;
     if (!token) return;
     listWarehousesFn({ data: { access_token: token } }).then((res) => {
       if (res.ok) setWarehouses(res.connections.filter((c) => c.is_active));
     });
+    // Object-store sources become a query engine too. Only the caller's own —
+    // listCatalogSources goes through RLS — and only those already crawled,
+    // since the queryable tables come from catalog_assets.
+    listCatalogSources()
+      .then((sources) =>
+        setBuckets(
+          sources
+            .filter((src) => src.kind === "object_storage")
+            .map((src) => ({
+              id: src.id,
+              name: src.name,
+              provider: (src.config as { provider?: string } | null)?.provider ?? "s3",
+            })),
+        ),
+      )
+      .catch(() => {
+        // A failed source list must not break the Workbench; the engine picker
+        // simply offers one fewer option.
+      });
   }, [session?.access_token, listWarehousesFn]);
 
   // Session hydration can lag the first render — arriving straight from the
@@ -387,6 +427,50 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
     }
   }
 
+  /** `storage:<id>` identifies a bucket; anything else is local or a warehouse. */
+  const bucketIdOf = (v: string) => (v.startsWith("storage:") ? v.slice("storage:".length) : null);
+
+  /**
+   * Run SQL against an object-store source.
+   *
+   * The server materialises bounded rows from the referenced files and runs the
+   * query in the SANDBOXED engine — see utils/catalog/objectStoreQuery.server
+   * for why the engine that can reach s3:// must never see user SQL.
+   */
+  async function runBucketSql(sourceId: string, sqlText: string): Promise<QueryResult> {
+    const t0 = performance.now();
+    const resp = await fetch("/api/objectstore/query", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${await authToken()}`,
+      },
+      body: JSON.stringify({ source_id: sourceId, sql: sqlText }),
+    });
+    const j = (await resp.json()) as {
+      columns?: string[];
+      rows?: Record<string, unknown>[];
+      truncated?: string[];
+      error?: string;
+    };
+    if (!resp.ok) throw new Error(j.error || "Object store query failed");
+    // A file whose read hit the per-object cap makes the ANSWER partial, not
+    // just the display. Say which file, where the user is looking.
+    if (j.truncated?.length) {
+      toast.warning(
+        `Read only the first rows of ${j.truncated.join(", ")} — this result is over a prefix, not the whole file.`,
+      );
+    }
+    return {
+      columns: j.columns ?? [],
+      rows: j.rows ?? [],
+      row_count: (j.rows ?? []).length,
+      total_matched: (j.rows ?? []).length,
+      capped: Boolean(j.truncated?.length),
+      duration_ms: Math.round(performance.now() - t0),
+    };
+  }
+
   async function runWarehouseSql(connId: string, sqlText: string): Promise<QueryResult> {
     const resp = await fetch("/api/warehouse/query", {
       method: "POST",
@@ -422,7 +506,9 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
     if (!seed) return;
     setDataSource(seed.dataSource);
     setSql(seed.sql);
-    if (seed.dataSource !== "local") void loadWarehouseSchema(seed.dataSource);
+    if (seed.dataSource !== "local" && !bucketIdOf(seed.dataSource)) {
+      void loadWarehouseSchema(seed.dataSource);
+    }
     if (!seed.autorun) return;
     (async () => {
       setRunning(true);
@@ -437,7 +523,10 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
           r = await runQuery(seed.sql);
           auditLocalQuery(seed.sql);
         } else {
-          r = await runWarehouseSql(seed.dataSource, seed.sql);
+          const bucket = bucketIdOf(seed.dataSource);
+          r = bucket
+            ? await runBucketSql(bucket, seed.sql)
+            : await runWarehouseSql(seed.dataSource, seed.sql);
         }
         setResult(r);
       } catch (e) {
@@ -573,7 +662,11 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
     const started = Date.now();
     try {
       const r =
-        dataSource === "local" ? await runQuery(sql) : await runWarehouseSql(dataSource, sql);
+        dataSource === "local"
+          ? await runQuery(sql)
+          : bucketIdOf(dataSource)
+            ? await runBucketSql(bucketIdOf(dataSource)!, sql)
+            : await runWarehouseSql(dataSource, sql);
       if (dataSource === "local") auditLocalQuery(sql);
       setResult(r);
       remember(sql, {
@@ -1235,12 +1328,12 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
               width-capped and allowed to shrink.
             */}
             <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
-              {warehouses.length > 0 && (
+              {(warehouses.length > 0 || buckets.length > 0) && (
                 <Select
                   value={dataSource}
                   onValueChange={(v) => {
                     setDataSource(v);
-                    if (v !== "local") void loadWarehouseSchema(v);
+                    if (v !== "local" && !bucketIdOf(v)) void loadWarehouseSchema(v);
                   }}
                 >
                   <SelectTrigger className="h-8 w-48 min-w-0 max-w-full shrink text-xs">
@@ -1251,6 +1344,11 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
                     {warehouses.map((w) => (
                       <SelectItem key={w.id} value={w.id}>
                         {w.name} · {WAREHOUSE_LABELS[w.provider].split(" ")[0]}
+                      </SelectItem>
+                    ))}
+                    {buckets.map((b) => (
+                      <SelectItem key={b.id} value={`storage:${b.id}`}>
+                        {b.name} · {b.provider}
                       </SelectItem>
                     ))}
                   </SelectContent>

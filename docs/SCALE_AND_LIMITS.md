@@ -147,6 +147,32 @@ The catalog reads **metadata only** — row counts come from stored statistics,
 never a scan, so a billion-row table costs the same to browse as an empty one.
 The asset table renders the first **500** matches of the current filter.
 
+A crawl lists at most **2,000 objects** per bucket and infers a schema for the
+**20** largest groups. CSV/JSON schemas come from a **128 KB** head-of-file
+sample; Parquet schemas come from the file's **footer**, which is also where
+its exact row count is read from — neither downloads the file.
+
+### Object-store queries — `src/utils/catalog/objectStoreQuery.server.ts`
+
+| Setting           | Default  | What it bounds                              |
+| ----------------- | -------- | ------------------------------------------- |
+| `OBJECT_ROWS_CAP` | `50,000` | Rows read from EACH file a query references |
+
+**Bucket queries are not pushed down.** The engine that can reach `s3://` needs
+network access, and DuckDB has no setting that grants that while denying the
+local filesystem — so it never sees user SQL. The referenced files are read up
+to the cap and the query runs in the sandboxed engine over those rows, which
+means a `WHERE` clause does not reduce what is fetched.
+
+Only files the query names are read: a bucket with two hundred objects costs
+one read, not two hundred, to select from one of them. A file that hits the cap
+is named back to the caller, because the answer is then over a prefix of that
+file rather than all of it.
+
+Formats: **Parquet, CSV, JSON, NDJSON**. ORC and Avro are cataloged and listed
+but not queryable — DuckDB does not read them without extensions this project
+does not ship.
+
 ### Knowledge bases (RAG)
 
 Per synced source: **500 items**, **400,000 characters** per document, and a
