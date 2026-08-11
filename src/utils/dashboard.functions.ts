@@ -32,8 +32,23 @@ import {
   type DashboardScope,
 } from "@/utils/dashboard/scope";
 
+/**
+ * Bucket key for spend whose owning account no longer exists.
+ *
+ * Not a UUID on purpose — it must never collide with a real id, and it has to
+ * survive the name lookup (which resolves ids to emails) as something a person
+ * reading a chargeback table can act on.
+ */
+const DETACHED_OWNER = "__detached__";
+
 type TraceRow = {
-  user_id: string;
+  /**
+   * Null when the owning account was deleted — the trace is detached rather
+   * than destroyed, so instance-wide spend still reflects money that was
+   * actually spent (20260818000000). Anything that groups BY user has to skip
+   * these instead of bucketing them together.
+   */
+  user_id: string | null;
   cost_usd: number | null;
   tokens_in: number | null;
   tokens_out: number | null;
@@ -200,11 +215,17 @@ export const dashboardOverview = createServerFn({ method: "POST" })
     };
 
     // ── Per person ─────────────────────────────────────────────────────────
+    // A trace whose owner was deleted has `user_id = null` (ON DELETE SET NULL,
+    // 20260818000000). Its cost was really spent and belongs in the instance
+    // total, so it is BUCKETED rather than dropped — dropping it would make the
+    // per-person rows fail to sum to the headline figure, which is the quiet
+    // kind of wrong this dashboard has been bitten by before.
     const perUser = new Map<string, SpendRow>();
     for (const r of rows) {
-      const e = perUser.get(r.user_id) ?? {
-        id: r.user_id,
-        label: r.user_id,
+      const key = r.user_id ?? DETACHED_OWNER;
+      const e = perUser.get(key) ?? {
+        id: key,
+        label: key,
         runs: 0,
         cost_usd: 0,
         tokens: 0,
@@ -212,7 +233,7 @@ export const dashboardOverview = createServerFn({ method: "POST" })
       e.runs++;
       e.cost_usd += cost(r);
       e.tokens += tokens(r);
-      perUser.set(r.user_id, e);
+      perUser.set(key, e);
     }
 
     // Names come from the admin auth API, not from a profile table that may not
@@ -232,7 +253,7 @@ export const dashboardOverview = createServerFn({ method: "POST" })
         const { data: list } = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 1000 });
         const emails = new Map((list?.users ?? []).map((u) => [u.id, u.email ?? u.id]));
         for (const [id, row] of perUser) {
-          row.label = personLabel(id, emails.get(id));
+          row.label = id === DETACHED_OWNER ? "Removed account" : personLabel(id, emails.get(id));
         }
       } catch {
         // Falling back to ids is ugly but honest; failing the whole dashboard
@@ -252,7 +273,8 @@ export const dashboardOverview = createServerFn({ method: "POST" })
       }
       for (const gid of groups.groupIds) {
         const ids = new Set(membersOf.get(gid) ?? []);
-        const mine = rows.filter((r) => ids.has(r.user_id));
+        // A detached trace (null owner) is in no team by definition.
+        const mine = rows.filter((r) => r.user_id !== null && ids.has(r.user_id));
         byGroup.push({
           id: gid,
           label: groups.names.get(gid) ?? gid,

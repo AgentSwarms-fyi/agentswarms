@@ -76,6 +76,11 @@ export function GroupBudgetsTab({ groups }: { groups: GroupOption[] }) {
     ]);
     const costByUser = new Map<string, number>();
     for (const t of traces ?? []) {
+      // A trace whose owner was deleted keeps its cost but loses its user_id
+      // (ON DELETE SET NULL — see 20260818000000). It belongs to no group, so
+      // it must not be bucketed; keying a Map on null would have quietly
+      // attributed every detached trace to one phantom "user".
+      if (!t.user_id) continue;
       costByUser.set(t.user_id, (costByUser.get(t.user_id) ?? 0) + Number(t.cost_usd ?? 0));
     }
     const totals: Record<string, number> = {};

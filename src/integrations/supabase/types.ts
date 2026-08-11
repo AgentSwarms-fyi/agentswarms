@@ -1306,7 +1306,9 @@ export type Database = {
           tokens_in: number;
           tokens_out: number;
           tool_calls: Json;
-          user_id: string;
+          // Nullable since 20260818000000: deleting an account detaches its
+          // traces (ON DELETE SET NULL) rather than destroying spend history.
+          user_id: string | null;
           cost_scope_type: string | null;
           cost_scope_id: string | null;
         };
