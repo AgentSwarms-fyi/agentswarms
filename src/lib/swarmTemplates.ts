@@ -425,7 +425,21 @@ export const SWARM_TEMPLATES: SwarmTemplate[] = [
           avatar: "🛡️",
           approvalTitle: "Send reply to customer",
           approvalRisk: "medium",
-          inputs: ["draft_answer", "account_reply"],
+          // `input` FIRST, and it is the one that is always set.
+          //
+          // Three edges reach this node — router/"sensitive", gate/"no", and
+          // the account branch — and each sets a different variable. On the
+          // sensitive route NEITHER draft_answer nor account_reply exists,
+          // because both belong to branches that were skipped. gatherInputs
+          // then falls back to the previous node's output, which for that
+          // route is the ROUTER's output: the literal word "sensitive". The
+          // approver was being asked to approve the string "sensitive".
+          //
+          // Listing the customer's own message means every route arrives with
+          // something real to approve: the request alone when it was escalated
+          // as sensitive, the request plus the draft when the judge was
+          // unsure, the request plus the account reply otherwise.
+          inputs: ["input", "draft_answer", "account_reply"],
           outputVar: "approved_reply",
         },
       },
@@ -437,7 +451,11 @@ export const SWARM_TEMPLATES: SwarmTemplate[] = [
           kind: "output",
           label: "Reply sent",
           avatar: "✅",
-          inputs: ["approved_reply", "draft_answer"],
+          // account_reply was missing. Two edges reach this node: the gate's
+          // "yes" (draft_answer set) and the approval (approved_reply set) —
+          // and the account branch reaches it THROUGH the approval, so its
+          // reply would only ever have surfaced second-hand.
+          inputs: ["approved_reply", "draft_answer", "account_reply"],
         },
       },
     ],
