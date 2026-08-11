@@ -30,6 +30,29 @@ import {
   type ObjectStoreConfig,
   type StoredObject,
 } from "./objectStore.server";
+import { countObjectRows, describeObject, duckReadableFormat } from "./objectStoreRead.server";
+
+/**
+ * DuckDB's type names, reduced to the catalog's vocabulary.
+ *
+ * The catalog stores "number" / "string" / "date" / "boolean" because that is
+ * what the CSV inference produces and what every consumer downstream expects.
+ * A DESCRIBE gives real SQL types instead, and passing DECIMAL(18,2) straight
+ * through would put a type in the catalog that no other code path can produce.
+ */
+export function duckTypeToCatalogType(t: string): string {
+  const u = t.toUpperCase();
+  // CONTAINERS FIRST, and this order is not cosmetic. A Parquet file with a
+  // nested column reports `STRUCT(a INTEGER)`, which contains "INT" — matching
+  // the numeric branch below and cataloging a struct as a number. Caught by a
+  // test that fed the mapper the type names it will actually meet.
+  // INTERVAL is here for the same reason.
+  if (/^(STRUCT|LIST|MAP|ARRAY|UNION)|\[\]|INTERVAL/.test(u)) return "string";
+  if (/BOOL/.test(u)) return "boolean";
+  if (/INT|DECIMAL|NUMERIC|DOUBLE|FLOAT|REAL/.test(u)) return "number";
+  if (/DATE|TIME/.test(u)) return "date";
+  return "string";
+}
 
 const MAX_OBJECTS = 2000;
 const MAX_SAMPLES = 20;
@@ -394,12 +417,19 @@ export async function crawlObjectStorage(
     // hold its inferred schema (incremental crawl: no GETs re-issued).
     let inferred: InferredColumn[] = [];
     let rowEstimate: number | null = null;
-    const canInfer = g.format === "csv" || g.format === "json" || g.format === "ndjson";
+    // Head-of-file text sampling. Works for anything line-oriented.
+    const canSample = g.format === "csv" || g.format === "json" || g.format === "ndjson";
+    // Formats DuckDB opens directly from the bucket. Parquet is here and not
+    // above because its schema is in the FOOTER: a head-of-file sample cannot
+    // see it, which is why inferColumns returns [] for it and every Parquet
+    // asset used to be cataloged as a filename with a size and no columns.
+    const canDescribe = duckReadableFormat(g.format) !== null;
+    const canInfer = canSample || canDescribe;
     const reuse = canInfer && unchangedSince(g) ? prior?.get(groupFqn(g)) : undefined;
     if (reuse && reuse.columns.length > 0) {
       inferred = reuse.columns;
       rowEstimate = reuse.row_count;
-    } else if (canInfer && sampleBudget.has(g) && sampled < MAX_SAMPLES) {
+    } else if (canSample && sampleBudget.has(g) && sampled < MAX_SAMPLES) {
       const biggest = [...g.objects].sort((a, b) => b.size - a.size)[0];
       try {
         const buf = await sampleObject(cfg, biggest.key, SAMPLE_BYTES);
@@ -412,6 +442,33 @@ export async function crawlObjectStorage(
         sampled++;
       } catch {
         // Sampling is best-effort; the asset still gets listed.
+      }
+    } else if (canDescribe && sampleBudget.has(g) && sampled < MAX_SAMPLES) {
+      // Metadata only: DESCRIBE reads the Parquet footer and
+      // parquet_file_metadata reads the row count from it, so this stays cheap
+      // on a multi-gigabyte object. No profile stats (null %, distinct,
+      // min/max) — those need a scan, and a crawl is not the place to pay for
+      // one. Better an honest schema than a schema plus invented statistics.
+      const biggest = [...g.objects].sort((a, b) => b.size - a.size)[0];
+      const format = duckReadableFormat(g.format)!;
+      try {
+        inferred = (await describeObject(cfg, biggest.key, format)).map((c) => ({
+          name: c.name,
+          type: duckTypeToCatalogType(c.type),
+        }));
+        const perFile = await countObjectRows(cfg, biggest.key, format);
+        if (perFile !== null) {
+          rowEstimate =
+            g.objects.length > 1
+              ? Math.round((perFile / Math.max(biggest.size, 1)) * totalSize)
+              : perFile;
+        }
+        sampled++;
+      } catch (e) {
+        // A bucket the crawler can LIST but not READ is a normal permission
+        // shape (s3:ListBucket without s3:GetObject). Log once and keep the
+        // asset, rather than failing the whole crawl over one object.
+        console.warn(`[catalog] could not describe ${biggest.key}: ${(e as Error).message}`);
       }
     }
     const { columns, pii } = classify(inferred);
