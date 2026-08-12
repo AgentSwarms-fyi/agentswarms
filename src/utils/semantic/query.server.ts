@@ -35,10 +35,24 @@ export function rowToModel(row: SemanticModelRow): SemanticModel {
       : { kind: "data_table", table: row.source_table };
   return {
     id: row.id,
+    ownerId: row.user_id,
     name: row.name,
     label: row.label ?? undefined,
     description: row.description ?? undefined,
+    status: (["draft", "certified", "deprecated"].includes(row.status)
+      ? row.status
+      : undefined) as SemanticModel["status"],
     source,
+    // The fan-out compile guard reads primaryKey and each join's cardinality;
+    // dropping either here would silently disarm it for every DB-loaded model.
+    primaryKey: row.primary_key ?? undefined,
+    fiscalYearStartMonth: row.fiscal_year_start_month ?? undefined,
+    parameters: Array.isArray(row.parameters)
+      ? (row.parameters as unknown as SemanticModel["parameters"])
+      : [],
+    hierarchies: Array.isArray(row.hierarchies)
+      ? (row.hierarchies as unknown as SemanticModel["hierarchies"])
+      : [],
     joins: Array.isArray(row.joins) ? (row.joins as unknown as SemanticJoin[]) : [],
     dimensions: Array.isArray(row.dimensions)
       ? (row.dimensions as unknown as SemanticDimension[])
@@ -96,6 +110,15 @@ export type SemanticResult = {
   rows: Record<string, unknown>[];
   /** The compiled SQL — surfaced for explainability/trust. */
   sql: string;
+  /**
+   * Present when the requester is a GRANTEE whose share carries restrictions:
+   * a human-readable description of the enforced scope. Surfaced so a scoped
+   * view is never mistaken for the global truth.
+   */
+  access_note?: string;
+  /** Synonym resolutions applied to the request, e.g. `"turnover" resolved
+   *  to "revenue" via synonym` — disclosed so the mapping is visible. */
+  resolution_notes?: string[];
 };
 
 export async function runSemanticQuery(opts: {
@@ -121,6 +144,49 @@ export async function runSemanticQuery(opts: {
   // the owner's data (not the grantee's, which would be wrong/empty).
   const ownerId = row.user_id;
 
+  // A GRANTEE's share may carry a row filter and a field mask. Both are
+  // enforced HERE — the single choke point every consumer flows through
+  // (metric_query, the runner UI, BI widget refresh) — by rewriting the query
+  // BEFORE compilation, so the restriction lands inside the compiled SQL
+  // itself rather than being filtered after the owner's data came back.
+  const requesterId = opts.scopeUserId ?? opts.userId;
+  let query = opts.query;
+  let accessNote: string | undefined;
+
+  // Resolve business-vocabulary synonyms to canonical field names BEFORE
+  // policy and compilation, so "turnover" maps to "revenue" here — once, for
+  // every consumer — and a synonym of a MASKED field is still refused by the
+  // policy check below (which sees the canonical name).
+  const resolutionNotes: string[] = [];
+  {
+    const { resolveFieldName } = await import("@/lib/semanticLayer");
+    const mapName = (n: string): string => {
+      const r = resolveFieldName(model, n);
+      if (r.note) resolutionNotes.push(r.note);
+      return r.name;
+    };
+    query = {
+      ...query,
+      metrics: (query.metrics ?? []).map(mapName),
+      dimensions: (query.dimensions ?? []).map(mapName),
+      filters: (query.filters ?? []).map((f) => ({ ...f, field: mapName(f.field) })),
+      orderBy: (query.orderBy ?? []).map((o) => ({ ...o, field: mapName(o.field) })),
+      grains: query.grains
+        ? Object.fromEntries(Object.entries(query.grains).map(([k, v]) => [mapName(k), v]))
+        : undefined,
+    };
+  }
+  if (requesterId && requesterId !== ownerId) {
+    const { semanticPolicyFor } = await import("@/utils/semantic/policy.server");
+    const { applyAccessPolicy, describePolicy, policyIsRestrictive } =
+      await import("@/lib/semanticPolicy");
+    const policy = await semanticPolicyFor(requesterId, row.id);
+    if (policyIsRestrictive(policy)) {
+      query = applyAccessPolicy(model, query, policy);
+      accessNote = describePolicy(policy);
+    }
+  }
+
   if (model.source.kind === "warehouse") {
     if (!model.source.connectionId) {
       throw new Error(`Model "${model.name}" is a warehouse model but has no connection`);
@@ -139,11 +205,18 @@ export async function runSemanticQuery(opts: {
       { connectionId: model.source.connectionId },
       ownerId,
     );
-    const compiled = compileSemanticQuery(model, opts.query, {
+    const compiled = compileSemanticQuery(model, query, {
       dialect: conn.config.provider as SqlDialect,
     });
     const res = await executeWarehouseQuery(conn.config, compiled.sql, opts.maxRows ?? 1000);
-    return { model: model.name, columns: compiled.columns, rows: res.rows, sql: compiled.sql };
+    return {
+      model: model.name,
+      columns: compiled.columns,
+      rows: res.rows,
+      sql: compiled.sql,
+      ...(accessNote ? { access_note: accessNote } : {}),
+      ...(resolutionNotes.length > 0 ? { resolution_notes: resolutionNotes } : {}),
+    };
   }
 
   // Local datasets (AlaSQL over the OWNER's user_data_tables + samples).
@@ -151,7 +224,14 @@ export async function runSemanticQuery(opts: {
   // "alasql" emitted backtick identifiers and YEAR()/MONTH() over text
   // columns, both of which DuckDB rejects outright.
   const { localEngineName } = await import("@/utils/data/localEngine.server");
-  const compiled = compileSemanticQuery(model, opts.query, { dialect: await localEngineName() });
+  const compiled = compileSemanticQuery(model, query, { dialect: await localEngineName() });
   const res = await runLocalSqlForUser(ownerId, compiled.sql);
-  return { model: model.name, columns: compiled.columns, rows: res.rows, sql: compiled.sql };
+  return {
+    model: model.name,
+    columns: compiled.columns,
+    rows: res.rows,
+    sql: compiled.sql,
+    ...(accessNote ? { access_note: accessNote } : {}),
+    ...(resolutionNotes.length > 0 ? { resolution_notes: resolutionNotes } : {}),
+  };
 }

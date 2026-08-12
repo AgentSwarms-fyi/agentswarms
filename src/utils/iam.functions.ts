@@ -880,16 +880,25 @@ export const iamCreateGrant = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<IamError | { ok: true }> => {
     const guard = await requireSuperadmin(data.access_token);
     if (!guard.ok) return guard;
-    // Row filters and column masks apply to the two resource types that
-    // actually serve rows: dashboards and datasets. Granting a masked
+    // Row filters and column masks apply to the resource types that actually
+    // serve rows: dashboards, datasets and semantic models. Granting a masked
     // dashboard while the underlying dataset stayed all-or-nothing was a hole
-    // — the same person could read past the mask through SQL.
-    const RESTRICTABLE = new Set(["bi_dashboard", "data_table"]);
+    // — the same person could read past the mask through SQL. For a SEMANTIC
+    // MODEL the filter names a dimension (not a raw column) and is compiled
+    // into the governed query itself; the grantee has no other path to the
+    // owner's data, so the restriction is complete on its own.
+    const RESTRICTABLE = new Set(["bi_dashboard", "data_table", "semantic_model"]);
     if (data.row_filter && !RESTRICTABLE.has(data.resource_type)) {
-      return { ok: false, error: "Row filters only apply to BI dashboard and dataset grants" };
+      return {
+        ok: false,
+        error: "Row filters only apply to BI dashboard, dataset and semantic model grants",
+      };
     }
     if (data.column_mask?.length && !RESTRICTABLE.has(data.resource_type)) {
-      return { ok: false, error: "Column masks only apply to BI dashboard and dataset grants" };
+      return {
+        ok: false,
+        error: "Column masks only apply to BI dashboard, dataset and semantic model grants",
+      };
     }
     // Merge on conflict so re-granting updates the row filter in place.
     const { error } = await supabaseAdmin.from("iam_resource_grants").upsert(

@@ -45,7 +45,9 @@ export const metricQueryTool: ToolDef = {
             "op ∈ =,!=,>,>=,<,<=,in,not_in,contains. " +
             "For dates prefer a RELATIVE op over a hard-coded range — " +
             "last_n_days (value = number of days, today included), this_month, last_month, " +
-            "this_quarter, last_quarter, ytd. These take no value except last_n_days, " +
+            "this_quarter, last_quarter, ytd; for FISCAL periods (when the model declares a " +
+            "fiscal year start): this_fiscal_year, last_fiscal_year, this_fiscal_quarter, " +
+            "last_fiscal_quarter, fiscal_ytd. These take no value except last_n_days, " +
             "apply only to a TIME dimension, and resolve against today at query time.",
           items: {
             type: "object",
@@ -63,8 +65,17 @@ export const metricQueryTool: ToolDef = {
         grains: {
           type: "object",
           description:
-            'Optional time rollup per TIME dimension, e.g. {"order_date":"month"}. Values: day|week|month|quarter|year.',
+            'Optional time rollup per TIME dimension, e.g. {"order_date":"month"}. Values: ' +
+            "day|week|month|quarter|year|fiscal_year|fiscal_quarter (fiscal buckets are numbers: " +
+            "2026 = FY2026, 20261 = FY2026 Q1).",
           additionalProperties: { type: "string" },
+        },
+        params: {
+          type: "object",
+          description:
+            "Values for the model's declared parameters (see the catalog), by name — " +
+            'e.g. {"min_amount": 500}. Omitted parameters use their defaults.',
+          additionalProperties: {},
         },
         compare: {
           type: "string",
@@ -120,8 +131,28 @@ export async function semanticCatalogForCtx(
   const scope = ctx.scopeUserId
     ? { ownerId: ctx.scopeUserId, grantedIds: await grantedModelIdsFor(ctx) }
     : undefined;
-  const models = (await listSemanticModels(ctx.sb, scope)).filter((m) => allow.has(m.name));
-  return { count: models.length, text: formatSemanticCatalog(models) };
+  let models = (await listSemanticModels(ctx.sb, scope)).filter((m) => allow.has(m.name));
+
+  // SHARED models may carry a share policy: masked fields disappear from the
+  // catalog (the query path would refuse them anyway — never advertise a name
+  // that cannot run), and a row filter is disclosed so the agent knows the
+  // numbers are a scoped view, not the global truth.
+  const requesterId = ctx.scopeUserId ?? ctx.userId;
+  const notes = new Map<string, string>();
+  const sharedIds = models.filter((m) => m.id && m.ownerId !== requesterId).map((m) => m.id!);
+  if (requesterId && sharedIds.length > 0) {
+    const { semanticPoliciesFor } = await import("@/utils/semantic/policy.server");
+    const { maskCatalogModel, describePolicy, policyIsRestrictive } =
+      await import("@/lib/semanticPolicy");
+    const policies = await semanticPoliciesFor(requesterId, sharedIds);
+    models = models.map((m) => {
+      const p = m.id ? policies.get(m.id) : undefined;
+      if (!policyIsRestrictive(p ?? null)) return m;
+      notes.set(m.name, `restricted share — ${describePolicy(p!)}`);
+      return maskCatalogModel(m, p!.maskedFields);
+    });
+  }
+  return { count: models.length, text: formatSemanticCatalog(models, { notes }) };
 }
 
 /**
@@ -147,8 +178,19 @@ type MetricArgs = {
   filters?: unknown;
   grains?: unknown;
   compare?: unknown;
+  params?: unknown;
   limit?: number;
 };
+
+/** Scalar {name: value} entries only — the compiler refuses undeclared names. */
+function sanitizeParams(v: unknown): Record<string, string | number> | undefined {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return undefined;
+  const out: Record<string, string | number> = {};
+  for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+    if (typeof val === "string" || typeof val === "number") out[k] = val;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
 
 /** A comparison the compiler knows, or nothing — never a guess. */
 function sanitizeCompare(v: unknown): ComparePeriod | undefined {
@@ -225,15 +267,54 @@ export async function runMetricQuery(
         filters,
         grains: sanitizeGrains(args.grains),
         compare: sanitizeCompare(args.compare),
+        params: sanitizeParams(args.params),
         limit: args.limit,
       },
-      maxRows: RESULT_ROW_CAP,
+      // One PAST the cap, so "exactly cap rows" and "more than cap rows" are
+      // distinguishable. The old code capped the fetch AT the limit and then
+      // reported `rows.length` — a 60-region result read as "50 row(s)" with
+      // no marker, and the agent answered as if that were the whole list.
+      maxRows: RESULT_ROW_CAP + 1,
     });
-    const rows = res.rows.slice(0, RESULT_ROW_CAP);
-    return (
-      `model: ${res.model}\nsql: ${res.sql}\n` + `${rows.length} row(s):\n${JSON.stringify(rows)}`
-    );
+    return renderMetricResult(res, RESULT_ROW_CAP);
   } catch (e) {
     return `metric_query failed: ${e instanceof Error ? e.message : String(e)}`;
   }
+}
+
+/**
+ * The tool's result text. Exported for tests — the truncation sentence is a
+ * truth claim, and its exact wording is what keeps an agent from summarising
+ * a partial list as a complete one.
+ */
+export function renderMetricResult(
+  res: {
+    model: string;
+    sql: string;
+    rows: Record<string, unknown>[];
+    access_note?: string;
+    resolution_notes?: string[];
+  },
+  cap: number,
+): string {
+  const notes: string[] = [];
+  for (const n of res.resolution_notes ?? []) notes.push(`note: ${n}.`);
+  // A grantee's scoped view must be LABELLED as one — an agent that reports
+  // filtered revenue as "revenue" is confidently wrong to whoever reads it.
+  if (res.access_note) {
+    notes.push(
+      `note: this data is a restricted share — ${res.access_note}. Say so when you report it.`,
+    );
+  }
+  const truncated = res.rows.length > cap;
+  const rows = truncated ? res.rows.slice(0, cap) : res.rows;
+  const count = truncated
+    ? `first ${cap} row(s) of a LARGER result — narrow with filters or a coarser grain before ` +
+      `summarising, and say the list is partial if you report it as-is`
+    : `${rows.length} row(s)`;
+  return (
+    `model: ${res.model}\nsql: ${res.sql}\n` +
+    (notes.length > 0 ? `${notes.join("\n")}\n` : "") +
+    `${count}:\n${JSON.stringify(rows)}`
+  );
 }

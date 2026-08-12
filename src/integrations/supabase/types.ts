@@ -3992,6 +3992,12 @@ export type Database = {
       };
       semantic_models: {
         Row: {
+          assertions: Json;
+          fiscal_year_start_month: number | null;
+          hierarchies: Json;
+          parameters: Json;
+          certified_at: string | null;
+          certified_by: string | null;
           connection_id: string | null;
           created_at: string;
           description: string | null;
@@ -4001,13 +4007,21 @@ export type Database = {
           label: string | null;
           metrics: Json;
           name: string;
+          primary_key: string | null;
           source_kind: string;
           source_table: string;
+          status: string;
           table_id: string | null;
           updated_at: string;
           user_id: string;
         };
         Insert: {
+          assertions?: Json;
+          certified_at?: string | null;
+          fiscal_year_start_month?: number | null;
+          hierarchies?: Json;
+          parameters?: Json;
+          certified_by?: string | null;
           connection_id?: string | null;
           created_at?: string;
           description?: string | null;
@@ -4017,26 +4031,63 @@ export type Database = {
           label?: string | null;
           metrics?: Json;
           name: string;
+          primary_key?: string | null;
           source_kind: string;
           source_table: string;
+          status?: string;
           table_id?: string | null;
           updated_at?: string;
           user_id: string;
         };
         Update: {
+          assertions?: Json;
+          certified_at?: string | null;
+          certified_by?: string | null;
           connection_id?: string | null;
           created_at?: string;
           description?: string | null;
           dimensions?: Json;
+          fiscal_year_start_month?: number | null;
+          hierarchies?: Json;
           joins?: Json;
           id?: string;
           label?: string | null;
           metrics?: Json;
           name?: string;
+          parameters?: Json;
+          primary_key?: string | null;
           source_kind?: string;
           source_table?: string;
+          status?: string;
           table_id?: string | null;
           updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      semantic_model_versions: {
+        Row: {
+          changed_by: string | null;
+          created_at: string;
+          definition: Json;
+          id: string;
+          model_id: string;
+          user_id: string;
+        };
+        Insert: {
+          changed_by?: string | null;
+          created_at?: string;
+          definition: Json;
+          id?: string;
+          model_id: string;
+          user_id: string;
+        };
+        Update: {
+          changed_by?: string | null;
+          created_at?: string;
+          definition?: Json;
+          id?: string;
+          model_id?: string;
           user_id?: string;
         };
         Relationships: [];

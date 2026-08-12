@@ -260,7 +260,7 @@ describe("the semantic layer's vocabulary matches the code", () => {
     );
   };
 
-  for (const name of ["RELATIVE_DATE_OPS", "COMPARE_PERIODS", "COMPARE_SUFFIXES"]) {
+  for (const name of ["RELATIVE_DATE_OPS", "COMPARE_PERIODS", "COMPARE_SUFFIXES", "TIME_GRAINS"]) {
     it(`documents every ${name} member`, () => {
       const members = listOf(name);
       expect(members.length, `${name} was not parsed`).toBeGreaterThan(1);

@@ -49,6 +49,9 @@ export type SemanticWidgetPayload = {
   rows: Record<string, unknown>[];
   sql: string;
   defaultTitle: string;
+  /** Lead metric display format, straight from the semantic model. */
+  format?: "number" | "currency" | "percent";
+  currency?: string;
 };
 
 export function AddMetricToDashboardDialog({
@@ -106,6 +109,8 @@ export function AddMetricToDashboardDialog({
         columns: payload.columns,
         rows: payload.rows,
         sql: payload.sql,
+        format: payload.format,
+        currency: payload.currency,
       });
       let dashboardId = target;
       let dashboardName = dashboards?.find((d) => d.id === target)?.name ?? "";

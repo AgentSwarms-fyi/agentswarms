@@ -806,17 +806,34 @@ export function widgetFromSemantic(args: {
   columns: string[];
   rows: Record<string, unknown>[];
   sql: string;
+  /**
+   * The lead metric's declared display format — authored on the semantic
+   * model, carried onto the chart so a currency metric renders as currency
+   * on the dashboard instead of a bare number. `currency` was authored,
+   * validated, stored… and read by nothing until here.
+   */
+  format?: "number" | "currency" | "percent";
+  currency?: string;
 }): BiWidget {
   const dim0 = args.dimensions[0] ?? args.columns[0];
   const dim1 = args.dimensions[1];
   const met0 = args.metrics[0] ?? args.columns[args.dimensions.length] ?? args.columns[0];
+  // Chart specs render "number" as the default; only the two real display
+  // formats travel.
+  const fmt: Pick<ChartSpec, "format" | "currency"> =
+    args.format === "currency" || args.format === "percent"
+      ? {
+          format: args.format,
+          ...(args.format === "currency" && args.currency ? { currency: args.currency } : {}),
+        }
+      : {};
   let chart: ChartSpec;
   switch (args.chartType) {
     case "kpi":
-      chart = { type: "kpi", valueField: met0 };
+      chart = { type: "kpi", valueField: met0, ...fmt };
       break;
     case "pie":
-      chart = { type: "pie", nameField: dim0, valueField: met0 };
+      chart = { type: "pie", nameField: dim0, valueField: met0, ...fmt };
       break;
     case "bar":
     case "line":
@@ -826,6 +843,7 @@ export function widgetFromSemantic(args: {
         xField: dim0,
         yField: met0,
         ...(dim1 ? { seriesField: dim1 } : {}),
+        ...fmt,
       };
       break;
     default:

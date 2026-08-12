@@ -21,6 +21,20 @@ export type SemanticDimension = {
   /** Trusted SQL expression: a column, or e.g. DATE_TRUNC('month', created_at). */
   sql: string;
   type?: SemanticFieldType;
+  /**
+   * Business words that mean this field ("turnover", "GMV" for revenue).
+   * Shown in the agent catalog AND resolved server-side by metric_query, so
+   * an agent asking in the business's own vocabulary still lands on the
+   * governed field instead of being refused.
+   */
+  synonyms?: string[];
+  /**
+   * Sampled distinct values for a LOW-CARDINALITY categorical dimension,
+   * refreshed by Validate (measured from the live source, never authored
+   * folklore). What turns the agent's `region = "Europe"` guess — zero rows,
+   * no error — into `region = "EMEA"`.
+   */
+  values?: string[];
 };
 
 export type MetricAgg =
@@ -53,6 +67,8 @@ export type SemanticMetric = {
   filters?: string[];
   format?: "number" | "currency" | "percent";
   currency?: string;
+  /** Business words that mean this metric — see SemanticDimension.synonyms. */
+  synonyms?: string[];
 };
 
 export type SemanticSource =
@@ -70,6 +86,28 @@ export type SemanticSource =
  * strict identifier shapes, because they are also used to build the query's
  * structure.
  */
+/**
+ * Declared relationship from the model's SOURCE rows to the joined table.
+ *
+ * This exists because of a measured failure, not a hypothetical one: orders
+ * (A=100, B=50) LEFT JOINed to order_items (A has three lines) compiles
+ * SUM(orders.amount) to 350 against a truth of 150 — each base row is repeated
+ * per matching joined row, and every duplicate-sensitive aggregate silently
+ * inflates. Declaring the cardinality lets the compiler REFUSE that query
+ * instead of returning a wrong number that looks right.
+ *
+ * Direction is source → joined: `many_to_one` means many source rows share one
+ * joined row (orders → customers, a lookup — safe), `one_to_many` means one
+ * source row matches many joined rows (orders → order_items — FANS OUT).
+ */
+export const JOIN_CARDINALITIES = [
+  "many_to_one",
+  "one_to_one",
+  "one_to_many",
+  "many_to_many",
+] as const;
+export type JoinCardinality = (typeof JOIN_CARDINALITIES)[number];
+
 export type SemanticJoin = {
   /** Table to join (bare or dotted identifier, validated). */
   table: string;
@@ -79,16 +117,78 @@ export type SemanticJoin = {
   type?: "left" | "inner";
   /** Trusted boolean SQL fragment: the ON condition. */
   on: string;
+  /**
+   * Declared source→joined cardinality. Optional for backwards compatibility:
+   * models saved before this existed compile exactly as before, and
+   * semanticValidateModel MEASURES the real cardinality either way, so an
+   * undeclared fanning join is reported at authoring time rather than
+   * silently trusted.
+   */
+  cardinality?: JoinCardinality;
 };
 
 export const MAX_JOINS = 8;
 
+/** Certification states — the same vocabulary catalog assets use. */
+export const SEMANTIC_STATUSES = ["draft", "certified", "deprecated"] as const;
+export type SemanticStatus = (typeof SEMANTIC_STATUSES)[number];
+
+/**
+ * A declared what-if input. Authored SQL fragments reference it as
+ * `{{name}}`; the compiler substitutes a literal-escaped value — the query's,
+ * else the default — and REFUSES an undeclared or missing-with-no-default
+ * parameter. Same trust story as filter values: the NAME is validated, the
+ * VALUE is escaped, and no caller-supplied SQL ever passes through.
+ */
+export type SemanticParameter = {
+  /** ^[a-zA-Z_][a-zA-Z0-9_]*$ — how fragments reference it: {{name}}. */
+  name: string;
+  type: "number" | "string";
+  /** Used when the query supplies nothing. Omit to make the parameter required. */
+  default?: string | number;
+  label?: string;
+  description?: string;
+};
+
+/** A declared drill path: ordered dimension names, coarsest first. */
+export type SemanticHierarchy = {
+  name: string;
+  /** 2+ existing dimension names, e.g. ["region", "subregion", "city"]. */
+  levels: string[];
+};
+
 export type SemanticModel = {
   id?: string;
+  /** Owner's user id — consumers use it to tell own from shared models. */
+  ownerId?: string;
   name: string;
   label?: string;
   description?: string;
+  /**
+   * Month the fiscal year starts (1–12). Unset = January = calendar. The
+   * fiscal grains and fiscal relative windows read this; a fiscal year is
+   * NAMED BY THE CALENDAR YEAR IT ENDS IN (July start: Jul 2025–Jun 2026 is
+   * FY2026).
+   */
+  fiscalYearStartMonth?: number;
+  parameters?: SemanticParameter[];
+  hierarchies?: SemanticHierarchy[];
+  /**
+   * Certification state. "certified" is set only by a server fn that re-ran
+   * the full validation pipeline clean, and a DB trigger drops it back to
+   * draft when the definition changes — so the badge always refers to the
+   * definition that was actually validated.
+   */
+  status?: SemanticStatus;
   source: SemanticSource;
+  /**
+   * Column (or expression) that uniquely identifies one row of the SOURCE
+   * table — the model's grain, e.g. `order_id`. Owner-trusted fragment, same
+   * class as dimension SQL. Optional; when set, Validate measures that it
+   * really is unique, and fan-out refusals can name the right count_distinct
+   * fix.
+   */
+  primaryKey?: string;
   joins?: SemanticJoin[];
   dimensions: SemanticDimension[];
   metrics: SemanticMetric[];
@@ -112,6 +212,13 @@ export const RELATIVE_DATE_OPS = [
   "this_quarter",
   "last_quarter",
   "ytd",
+  // Fiscal windows roll along the model's fiscal year (fiscal_year_start_month,
+  // default January — in which case they equal their calendar counterparts).
+  "this_fiscal_year",
+  "last_fiscal_year",
+  "this_fiscal_quarter",
+  "last_fiscal_quarter",
+  "fiscal_ytd",
 ] as const;
 
 export type RelativeDateOp = (typeof RELATIVE_DATE_OPS)[number];
@@ -140,7 +247,19 @@ export type SemanticFilter = {
   value?: string | number | boolean | Array<string | number>;
 };
 
-export const TIME_GRAINS = ["day", "week", "month", "quarter", "year"] as const;
+export const TIME_GRAINS = [
+  "day",
+  "week",
+  "month",
+  "quarter",
+  "year",
+  // Fiscal buckets are NUMBERS, not dates: fiscal_year → 2026 (the calendar
+  // year the fiscal year ENDS in), fiscal_quarter → 20261 (FY2026 Q1) — a
+  // sortable composite, the same trick the AlaSQL grains already use. With a
+  // January fiscal start they equal the calendar year/quarter numbers.
+  "fiscal_year",
+  "fiscal_quarter",
+] as const;
 export type TimeGrain = (typeof TIME_GRAINS)[number];
 
 /**
@@ -181,6 +300,38 @@ export type SemanticQuery = {
    * and a dialect with CTEs and date arithmetic, which excludes AlaSQL.
    */
   compare?: ComparePeriod;
+  /**
+   * Values for the model's declared parameters, by name. Undeclared names
+   * are refused; a declared parameter with no value and no default is too.
+   */
+  params?: Record<string, string | number>;
+};
+
+/**
+ * A pinned metric value: "this metric, under these filters, equals this".
+ *
+ * Assertions are what turn Validate from "the SQL still runs" into "revenue
+ * still means what the board was told". Each one is re-computed on Validate
+ * and fails loudly when a definition edit moves a signed-off number.
+ *
+ * Filters must be ABSOLUTE (no relative-date ops): "ytd = 1.2M" is false by
+ * itself next week, and an assertion that goes stale on its own teaches
+ * people to ignore assertions.
+ */
+export type MetricAssertion = {
+  /** Metric name on the same model. */
+  metric: string;
+  /** Absolute filters pinning the window/slice (validated: no relative ops). */
+  filters?: SemanticFilter[];
+  /** The value the metric must produce. */
+  expected: number;
+  /**
+   * Absolute tolerance. Defaults to |expected| × 1e-9 — enough to absorb
+   * float-sum noise across engines, far too small to hide definition drift.
+   */
+  tolerance?: number;
+  /** Why this value is trusted, e.g. "Q1-2025 board deck". */
+  label?: string;
 };
 
 export type CompiledQuery = { sql: string; columns: string[] };
@@ -321,7 +472,16 @@ function literal(v: string | number | boolean, dialect: SqlDialect): string {
  * engine. Week starts Monday everywhere it's supported; AlaSQL refuses the
  * week grain outright rather than shipping a wrong bucket.
  */
-export function truncateExpr(sql: string, grain: TimeGrain, dialect: SqlDialect): string {
+export function truncateExpr(
+  sql: string,
+  grain: TimeGrain,
+  dialect: SqlDialect,
+  /** Fiscal year start month (1–12); only the fiscal grains read it. */
+  fiscalStartMonth?: number,
+): string {
+  if (grain === "fiscal_year" || grain === "fiscal_quarter") {
+    return fiscalBucketExpr(sql, grain, dialect, fiscalStartMonth ?? 1);
+  }
   if (dialect === "alasql") {
     switch (grain) {
       case "year":
@@ -403,13 +563,58 @@ function utcDay(year: number, monthIndex: number, day: number): Date {
  */
 export function relativeDateRange(
   op: RelativeDateOp,
-  opts: { n?: number; now?: Date } = {},
+  opts: { n?: number; now?: Date; fiscalStartMonth?: number } = {},
 ): { start: string; end: string } {
   const now = opts.now ?? new Date();
   const y = now.getUTCFullYear();
   const m = now.getUTCMonth();
   const today = utcDay(y, m, now.getUTCDate());
   const tomorrow = utcDay(y, m, now.getUTCDate() + 1);
+
+  // Fiscal windows anchor on the model's fiscal year start (default January,
+  // in which case they equal the calendar ops). Start of the CURRENT fiscal
+  // year: the most recent occurrence of the start month on the 1st.
+  const fsm = opts.fiscalStartMonth ?? 1;
+  if (!Number.isInteger(fsm) || fsm < 1 || fsm > 12) {
+    throw new Error(`Fiscal year start month must be 1–12, got ${String(opts.fiscalStartMonth)}`);
+  }
+  const fyStart = m >= fsm - 1 ? utcDay(y, fsm - 1, 1) : utcDay(y - 1, fsm - 1, 1);
+  /** Months elapsed since the fiscal year started (0–11). */
+  const monthsIntoFy = (m - (fsm - 1) + 12) % 12;
+
+  switch (op) {
+    case "this_fiscal_year":
+      return {
+        start: isoDay(fyStart),
+        end: isoDay(utcDay(fyStart.getUTCFullYear(), fyStart.getUTCMonth() + 12, 1)),
+      };
+    case "last_fiscal_year":
+      return {
+        start: isoDay(utcDay(fyStart.getUTCFullYear() - 1, fyStart.getUTCMonth(), 1)),
+        end: isoDay(fyStart),
+      };
+    case "fiscal_ytd":
+      // To DATE — fiscal year start through today, half-open like ytd.
+      return { start: isoDay(fyStart), end: isoDay(tomorrow) };
+    case "this_fiscal_quarter": {
+      const qStartMonths = Math.floor(monthsIntoFy / 3) * 3;
+      const qs = utcDay(fyStart.getUTCFullYear(), fyStart.getUTCMonth() + qStartMonths, 1);
+      return {
+        start: isoDay(qs),
+        end: isoDay(utcDay(qs.getUTCFullYear(), qs.getUTCMonth() + 3, 1)),
+      };
+    }
+    case "last_fiscal_quarter": {
+      const qStartMonths = Math.floor(monthsIntoFy / 3) * 3;
+      const qs = utcDay(fyStart.getUTCFullYear(), fyStart.getUTCMonth() + qStartMonths, 1);
+      return {
+        start: isoDay(utcDay(qs.getUTCFullYear(), qs.getUTCMonth() - 3, 1)),
+        end: isoDay(qs),
+      };
+    }
+    default:
+      break;
+  }
 
   switch (op) {
     case "last_n_days": {
@@ -475,7 +680,7 @@ export function relativeDateExpr(
   sql: string,
   op: RelativeDateOp,
   dialect: SqlDialect,
-  opts: { n?: number; now?: Date } = {},
+  opts: { n?: number; now?: Date; fiscalStartMonth?: number } = {},
 ): string {
   const { start, end } = relativeDateRange(op, opts);
   return `(${sql} >= ${dateLiteral(start, dialect)} AND ${sql} < ${dateLiteral(end, dialect)})`;
@@ -525,6 +730,74 @@ function dateAddExpr(sql: string, n: number, unit: DateAddUnit, dialect: SqlDial
   }
 }
 
+/** Per-dialect YEAR(x) over a date expression. */
+function yearExpr(sql: string, dialect: SqlDialect): string {
+  switch (dialect) {
+    case "azure_synapse":
+    case "mysql":
+    case "snowflake":
+    case "databricks":
+      return `YEAR(${sql})`;
+    default:
+      // duckdb / postgres / redshift / bigquery.
+      return `EXTRACT(YEAR FROM ${sql})`;
+  }
+}
+
+/** Per-dialect QUARTER(x) (1–4) over a date expression. */
+function quarterExpr(sql: string, dialect: SqlDialect): string {
+  switch (dialect) {
+    case "azure_synapse":
+      return `DATEPART(QUARTER, ${sql})`;
+    case "mysql":
+    case "snowflake":
+    case "databricks":
+      return `QUARTER(${sql})`;
+    case "redshift":
+      return `DATE_PART(qtr, ${sql})`;
+    default:
+      // duckdb / postgres / bigquery.
+      return `EXTRACT(QUARTER FROM ${sql})`;
+  }
+}
+
+/**
+ * A FISCAL bucket as a sortable NUMBER: fiscal_year → 2026, fiscal_quarter →
+ * 20261 (FY2026 Q1).
+ *
+ * The trick: shift the date FORWARD by the months remaining to the next
+ * fiscal-year boundary, then read the CALENDAR year/quarter of the shifted
+ * date. With a July start, 2025-07-15 + 6 months lands in Jan 2026 → FY2026 —
+ * the fiscal year is named by the calendar year it ENDS in, and each fiscal
+ * quarter maps onto a calendar quarter of the shifted date exactly. With a
+ * January start the shift is zero months and the buckets equal the calendar
+ * numbers, so a model that never sets a fiscal start is unaffected.
+ *
+ * Numbers rather than dates or labels because they sort correctly in every
+ * engine and chart with zero per-dialect string formatting.
+ */
+function fiscalBucketExpr(
+  sql: string,
+  grain: "fiscal_year" | "fiscal_quarter",
+  dialect: SqlDialect,
+  startMonth: number,
+): string {
+  if (dialect === "alasql") {
+    throw new Error(
+      "Fiscal grains need date arithmetic, which the AlaSQL engine does not have. " +
+        "Remove LOCAL_ENGINE=alasql to use the default engine.",
+    );
+  }
+  if (!Number.isInteger(startMonth) || startMonth < 1 || startMonth > 12) {
+    throw new Error(`Fiscal year start month must be 1–12, got ${String(startMonth)}`);
+  }
+  const offset = (13 - startMonth) % 12;
+  const shifted = dateAddExpr(sql, offset, "month", dialect);
+  return grain === "fiscal_year"
+    ? yearExpr(shifted, dialect)
+    : `(${yearExpr(shifted, dialect)} * 10 + ${quarterExpr(shifted, dialect)})`;
+}
+
 /** How far back a comparison looks, as a unit `dateAddExpr` understands. */
 function compareShift(period: ComparePeriod, grain: TimeGrain): { n: number; unit: DateAddUnit } {
   if (period === "yoy") return { n: 1, unit: "year" };
@@ -537,8 +810,13 @@ function compareShift(period: ComparePeriod, grain: TimeGrain): { n: number; uni
     case "month":
       return { n: 1, unit: "month" };
     case "quarter":
+    // One fiscal quarter back is three months back whatever the start month —
+    // shifting the raw date moves the fiscal bucket by exactly one, so the
+    // calendar shifts carry over unchanged.
+    case "fiscal_quarter":
       return { n: 3, unit: "month" };
     case "year":
+    case "fiscal_year":
       return { n: 1, unit: "year" };
   }
 }
@@ -637,7 +915,7 @@ function compileFilter(
   f: SemanticFilter,
   exprByField: Map<string, string>,
   dialect: SqlDialect,
-  opts: { dim?: SemanticDimension; now?: Date } = {},
+  opts: { dim?: SemanticDimension; now?: Date; fiscalStartMonth?: number } = {},
 ): string {
   const expr = exprByField.get(f.field);
   if (!expr) throw new Error(`Filter references unknown field "${f.field}"`);
@@ -662,7 +940,11 @@ function compileFilter(
     // label rather than the row's date, so a query grouped by month would
     // silently filter by month — right-looking output, wrong rows.
     const n = typeof f.value === "number" ? f.value : Number(f.value);
-    return relativeDateExpr(dim.sql, f.op, dialect, { n, now: opts.now });
+    return relativeDateExpr(dim.sql, f.op, dialect, {
+      n,
+      now: opts.now,
+      fiscalStartMonth: opts.fiscalStartMonth,
+    });
   }
 
   switch (f.op) {
@@ -724,9 +1006,307 @@ function compileJoins(joins: SemanticJoin[] | undefined, dialect: SqlDialect): s
     const on = normaliseIdentQuotes((j.on ?? "").trim(), dialect);
     if (!on) throw new Error(`Join on "${j.table}" is missing its ON condition`);
     if (on.length > 500) throw new Error(`Join ON condition too long (max 500 chars)`);
+    // {{parameters}} are for dimension/metric fragments. A parameterised join
+    // would change the GRAPH per caller — cardinality declarations, fan-out
+    // refusals and measured probes would all be describing a different query.
+    // Refused here with a real message, not left to die as an engine syntax
+    // error on the literal braces. (match(), not test() — the shared regex is
+    // /g and test() would carry lastIndex state between joins.)
+    if (on.match(PARAM_TOKEN_RE)) {
+      throw new Error(
+        `Join on "${j.table}" uses a {{parameter}} — join conditions must stay structural.`,
+      );
+    }
     out += ` ${kw} ${table}${j.alias ? ` AS ${j.alias}` : ""} ON (${on})`;
   }
   return out;
+}
+
+// ── Fan-out safety ─────────────────────────────────────────────────────────
+//
+// A join declared one_to_many/many_to_many repeats each source row per match,
+// so SUM/AVG/COUNT over source-side columns double-counts — measured: 350
+// against a truth of 150 on a two-line fixture. These checks make that query
+// impossible to COMPILE rather than merely unwise. Joins with no declared
+// cardinality are exempt here (existing models must keep compiling) and are
+// measured by semanticValidateModel instead.
+
+/** Does this join multiply source rows? */
+function isFanningJoin(j: SemanticJoin): boolean {
+  return j.cardinality === "one_to_many" || j.cardinality === "many_to_many";
+}
+
+/** How authored SQL refers to a joined table: alias, else last name segment. */
+export function joinQualifier(j: SemanticJoin): string {
+  return (j.alias ?? j.table.split(".").pop() ?? j.table).toLowerCase();
+}
+
+/**
+ * The bare identifiers used as `qualifier.` prefixes in an authored fragment.
+ *
+ * String literals and quoted identifiers are stripped first, so `'a.b'` in a
+ * literal and a dot inside a quoted name are not misread as references. A
+ * QUOTED qualifier therefore reads as "no reference", which errs toward
+ * refusal — the safe direction — and the refusal message says how to qualify.
+ */
+export function qualifiedRefsIn(sql: string): string[] {
+  const cleaned = sql
+    .replace(/'(?:[^']|'')*'/g, " ")
+    .replace(/"[^"]*"/g, " ")
+    .replace(/`[^`]*`/g, " ");
+  const refs = new Set<string>();
+  const re = /([A-Za-z_][A-Za-z0-9_]*)\s*\./g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(cleaned))) refs.add(m[1].toLowerCase());
+  return [...refs];
+}
+
+type FanoutContext = {
+  /** Joins declared one_to_many / many_to_many. */
+  fanning: SemanticJoin[];
+  fanningQuals: Set<string>;
+  /** Every qualifier the model defines: source table + all join qualifiers. */
+  knownQuals: Set<string>;
+  primaryKey?: string;
+};
+
+function fanoutContext(model: SemanticModel): FanoutContext | null {
+  const joins = model.joins ?? [];
+  const fanning = joins.filter(isFanningJoin);
+  if (fanning.length === 0) return null;
+  const knownQuals = new Set<string>([
+    (model.source.table.split(".").pop() ?? model.source.table).toLowerCase(),
+    ...joins.map(joinQualifier),
+  ]);
+  return {
+    fanning,
+    fanningQuals: new Set(fanning.map(joinQualifier)),
+    knownQuals,
+    primaryKey: model.primaryKey,
+  };
+}
+
+/** Metric names referenced by a derived formula (non-recursive). */
+function metricRefsIn(sql: string): string[] {
+  const out: string[] = [];
+  for (const m of sql.matchAll(METRIC_REF_RE)) out.push(m[1]);
+  return out;
+}
+
+/**
+ * Throw unless `m` is safe to aggregate over this model's fanned join result.
+ *
+ * Duplicate-INSENSITIVE aggregations (count_distinct, min, max) pass — a
+ * repeated value changes none of them. `custom` passes because it is the
+ * documented owner-trusted escape hatch (e.g. an author who pre-aggregates in
+ * a subquery); `derived` is checked at its leaves. SUM/AVG must reference the
+ * fanning table's columns ONLY, and COUNT must count something on the fanning
+ * side (a filtered count over its columns) — never raw joined rows.
+ */
+function assertMetricFanoutSafe(
+  m: SemanticMetric,
+  ctx: FanoutContext,
+  byName: Map<string, SemanticMetric>,
+  resolving: Set<string> = new Set(),
+): void {
+  if (m.agg === "count_distinct" || m.agg === "min" || m.agg === "max") return;
+  if (m.agg === "custom") return;
+  if (m.agg === "derived") {
+    if (resolving.has(m.name)) return; // cycle — resolveMetricExpr reports it properly
+    resolving.add(m.name);
+    for (const ref of metricRefsIn(m.sql ?? "")) {
+      const target = byName.get(ref);
+      if (target) assertMetricFanoutSafe(target, ctx, byName, resolving);
+    }
+    resolving.delete(m.name);
+    return;
+  }
+
+  // sum / avg / count — duplicate-sensitive from here on.
+  const joinList = ctx.fanning.map((j) => `"${joinQualifier(j)}"`).join(" and ");
+  if (ctx.fanning.length > 1) {
+    throw new Error(
+      `Metric "${m.name}" (${m.agg}) cannot be computed on this model: joins ${joinList} ` +
+        `both fan out, so their matches multiply each other and any SUM/AVG/COUNT ` +
+        `double-counts whichever table it reads. Use count_distinct/min/max, a custom ` +
+        `metric that pre-aggregates, or split the model.`,
+    );
+  }
+  const fan = joinQualifier(ctx.fanning[0]);
+
+  // For SUM/AVG the aggregated EXPRESSION decides; a metric filter is a
+  // per-row condition and cannot duplicate values. For COUNT there is no
+  // expression, so the filter is what places the count on the fanning side.
+  const frags = m.agg === "count" ? (m.filters ?? []) : [m.sql ?? ""];
+  const refs = frags.flatMap(qualifiedRefsIn);
+  const known = refs.filter((r) => ctx.knownQuals.has(r));
+
+  if (m.agg === "count") {
+    if (known.length > 0 && known.every((r) => ctx.fanningQuals.has(r))) return;
+    throw new Error(
+      `Metric "${m.name}" (count) counts JOINED rows — with the fanning join "${fan}" that ` +
+        `is once per match, not once per ${srcName(ctx)} row (and once even with no match). ` +
+        `Count the source with count_distinct${ctx.primaryKey ? ` over ${ctx.primaryKey}` : " over its key"}, ` +
+        `or count "${fan}" rows with a filtered count over its columns (e.g. ${fan}.id IS NOT NULL).`,
+    );
+  }
+
+  if (known.length === 0) {
+    throw new Error(
+      `Metric "${m.name}" (${m.agg}) is ambiguous with the fanning join "${fan}": qualify the ` +
+        `column(s) in ${JSON.stringify(m.sql ?? "")} (e.g. ${fan}.amount or ${srcName(ctx)}.amount) ` +
+        `so the compiler can verify it does not double-count.`,
+    );
+  }
+  if (!known.every((r) => ctx.fanningQuals.has(r))) {
+    const offender = known.find((r) => !ctx.fanningQuals.has(r));
+    throw new Error(
+      `Metric "${m.name}" (${m.agg} over ${JSON.stringify(m.sql ?? "")}) would double-count: ` +
+        `the join "${fan}" is one-to-many, so each "${offender}" row is repeated once per ` +
+        `matching "${fan}" row before aggregation. Aggregate "${fan}" columns instead, use ` +
+        `count_distinct/min/max, or make it a custom metric that pre-aggregates "${offender}".`,
+    );
+  }
+}
+
+function srcName(ctx: FanoutContext): string {
+  for (const q of ctx.knownQuals) if (!ctx.fanningQuals.has(q)) return q;
+  return "source";
+}
+
+/**
+ * The COUNT probes semanticValidateModel runs to MEASURE a model instead of
+ * trusting it: the base row count (plus COUNT(DISTINCT primary_key), which is
+ * the grain check), then the same count after each join cumulatively — the
+ * step where the count jumps is the join that fans out, whatever its
+ * declaration says.
+ *
+ * When a primary key is declared the probes also count DISTINCT keys through
+ * the joins, which catches fan-out that an INNER join's row-dropping would
+ * hide from a bare COUNT(*).
+ *
+ * Built here because it must render joins EXACTLY as compiled queries do
+ * (same compileJoins, same quoting) — a measurement of slightly different SQL
+ * would measure a slightly different question.
+ */
+export function fanoutProbeSql(
+  model: SemanticModel,
+  dialect: SqlDialect,
+): { baseSql: string; steps: Array<{ join: SemanticJoin; sql: string }> } | null {
+  const joins = model.joins ?? [];
+  const pk = model.primaryKey?.trim();
+  if (joins.length === 0 && !pk) return null;
+  const from = assertTableRef(model.source.table);
+  const baseQual = from.startsWith('"') ? from : (from.split(".").pop() ?? from);
+  // A bare-identifier key is qualified with the source table so it stays
+  // unambiguous once joins are added; an expression (or already-qualified
+  // key) is trusted as authored.
+  const qpk = pk
+    ? IDENT_RE.test(pk)
+      ? `${baseQual}.${pk}`
+      : normaliseIdentQuotes(pk, dialect)
+    : null;
+  const select =
+    `SELECT COUNT(*) AS ${quoteIdent("n", dialect)}` +
+    (qpk ? `, COUNT(DISTINCT ${qpk}) AS ${quoteIdent("d", dialect)}` : "") +
+    ` FROM ${from}`;
+  return {
+    baseSql: select,
+    steps: joins.map((j, i) => ({
+      join: j,
+      sql: select + compileJoins(joins.slice(0, i + 1), dialect),
+    })),
+  };
+}
+
+/**
+ * The DISTINCT-values probe Validate runs per CATEGORICAL dimension.
+ *
+ * Asks for `cap + 1` values so the caller can tell "exactly cap" from "more
+ * than cap" — a dimension with more distinct values than the cap is
+ * high-cardinality and gets NO stored values, because a partial value list in
+ * the agent catalog reads as a complete one.
+ *
+ * Built here because it must render the dimension expression, FROM and joins
+ * EXACTLY as compiled queries do — a probe of slightly different SQL would
+ * sample a slightly different question.
+ */
+export function sampleValuesSql(
+  model: SemanticModel,
+  dimensionName: string,
+  dialect: SqlDialect,
+  cap: number,
+): string {
+  const dim = model.dimensions.find((d) => d.name === dimensionName);
+  if (!dim) throw new Error(`Unknown dimension "${dimensionName}"`);
+  const expr = normaliseIdentQuotes(dim.sql, dialect);
+  const from = assertTableRef(model.source.table);
+  return (
+    `SELECT DISTINCT ${expr} AS ${quoteIdent("v", dialect)} FROM ${from}` +
+    `${compileJoins(model.joins, dialect)} WHERE ${expr} IS NOT NULL LIMIT ${Math.max(1, Math.trunc(cap)) + 1}`
+  );
+}
+
+const PARAM_TOKEN_RE = /\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g;
+
+/**
+ * Resolve the model's declared parameters against a query's `params` into
+ * SQL literals, refusing everything undeclared or unusable.
+ *
+ * The trust model matches filter values exactly: parameter NAMES are
+ * validated identifiers, VALUES are literal-escaped (numbers must be finite
+ * numbers; strings go through the dialect's escaping), and a caller can only
+ * set parameters the model DECLARED — a query naming an unknown parameter is
+ * refused with the declared list, and a declared parameter with neither a
+ * value nor a default is refused rather than silently compiled as an empty
+ * token. Applies to dimension/metric fragments only; join ON conditions stay
+ * purely structural.
+ */
+export function resolveParamValues(
+  model: SemanticModel,
+  q: SemanticQuery,
+  dialect: SqlDialect,
+): Map<string, string> {
+  const declared = model.parameters ?? [];
+  const supplied = q.params ?? {};
+  for (const name of Object.keys(supplied)) {
+    if (!declared.some((p) => p.name === name)) {
+      throw new Error(
+        `Unknown parameter "${name}" (declared: ${declared.map((p) => p.name).join(", ") || "none"})`,
+      );
+    }
+  }
+  const out = new Map<string, string>();
+  for (const p of declared) {
+    if (!isValidFieldName(p.name)) throw new Error(`Invalid parameter name "${p.name}"`);
+    const raw = supplied[p.name] ?? p.default;
+    if (raw === undefined || raw === null || raw === "") {
+      throw new Error(`Parameter "${p.name}" needs a value — it has no default.`);
+    }
+    if (p.type === "number") {
+      const n = Number(raw);
+      if (!Number.isFinite(n)) {
+        throw new Error(`Parameter "${p.name}" must be a number, got ${JSON.stringify(raw)}`);
+      }
+      out.set(p.name, String(n));
+    } else {
+      out.set(p.name, `'${escapeString(String(raw), dialect)}'`);
+    }
+  }
+  return out;
+}
+
+/** Replace every {{name}} token; an unresolved token is a refusal, not SQL. */
+export function substituteParams(sql: string, values: Map<string, string>): string {
+  return sql.replace(PARAM_TOKEN_RE, (_full, name: string) => {
+    const v = values.get(name);
+    if (v === undefined) {
+      throw new Error(
+        `Fragment references undeclared parameter "{{${name}}}" — declare it on the model.`,
+      );
+    }
+    return v;
+  });
 }
 
 /**
@@ -747,7 +1327,13 @@ export function compileSemanticQuery(
   // joins) inherits it. A model authored against a local dataset stores
   // `` `Order Date` ``, which DuckDB rejects outright; normalising at the point
   // of use in eight places would have been eight chances to miss one.
-  const q0 = (sql: string) => normaliseIdentQuotes(sql, dialect);
+  //
+  // Parameter substitution rides the same single point: every {{name}} token
+  // in a dimension/metric fragment becomes a literal-escaped value here, so
+  // no fragment below can carry an unresolved token — and a fragment that
+  // references an undeclared parameter is refused, not passed through.
+  const paramValues = resolveParamValues(model, q, dialect);
+  const q0 = (sql: string) => substituteParams(normaliseIdentQuotes(sql, dialect), paramValues);
 
   const dimByName = new Map<string, SemanticDimension>();
   for (const d of model.dimensions) {
@@ -772,6 +1358,19 @@ export function compileSemanticQuery(
     throw new Error("A query needs at least one metric or dimension");
   }
 
+  // Refuse duplicate-sensitive metrics over a declared fanning join BEFORE
+  // building any SQL — a wrong number must be impossible to compile, not
+  // merely inadvisable. Checked per REQUESTED metric (derived ones at their
+  // leaves); unknown names still fall through to the authoritative "Unknown
+  // metric" error below.
+  const fanCtx = fanoutContext(model);
+  if (fanCtx) {
+    for (const name of metrics) {
+      const m = metricByName.get(name);
+      if (m) assertMetricFanoutSafe(m, fanCtx, metricByName);
+    }
+  }
+
   /**
    * The aggregate SELECT, with every reference to the comparison axis
    * optionally shifted FORWARD by one period.
@@ -786,7 +1385,13 @@ export function compileSemanticQuery(
   const buildAggregate = (shift?: { name: string; n: number; unit: DateAddUnit }) => {
     const dimFor = (name: string): SemanticDimension => {
       const d = dimByName.get(name);
-      if (!d) throw new Error(`Unknown dimension "${name}"`);
+      // Name the alternatives: the caller is usually an LLM, and "unknown"
+      // without options costs a full round trip to discover what exists.
+      if (!d) {
+        throw new Error(
+          `Unknown dimension "${name}" (available: ${[...dimByName.keys()].join(", ") || "none"})`,
+        );
+      }
       return shift && shift.name === name
         ? { ...d, sql: dateAddExpr(d.sql, shift.n, shift.unit, dialect) }
         : d;
@@ -804,7 +1409,7 @@ export function compileSemanticQuery(
       if (d.type !== "time") {
         throw new Error(`Grain "${grain}" set on "${name}", which is not a time dimension`);
       }
-      return truncateExpr(d.sql, grain, dialect);
+      return truncateExpr(d.sql, grain, dialect, model.fiscalYearStartMonth);
     };
 
     // Expression map for filters/order (grained dim exprs; compiled metric aggs).
@@ -820,7 +1425,11 @@ export function compileSemanticQuery(
     }
     for (const name of metrics) {
       const m = metricByName.get(name);
-      if (!m) throw new Error(`Unknown metric "${name}"`);
+      if (!m) {
+        throw new Error(
+          `Unknown metric "${name}" (available: ${[...metricByName.keys()].join(", ") || "none"})`,
+        );
+      }
       const expr = resolveMetricExpr(m, metricByName);
       exprByField.set(name, expr);
       selectParts.push(`${expr} AS ${quoteIdent(name, dialect)}`);
@@ -838,7 +1447,11 @@ export function compileSemanticQuery(
         // its type and its ungrained SQL — shifted here when this is the prior
         // period, so the window moves with it.
         whereParts.push(
-          compileFilter(f, exprByField, dialect, { dim: dimFor(f.field), now: opts?.now }),
+          compileFilter(f, exprByField, dialect, {
+            dim: dimFor(f.field),
+            now: opts?.now,
+            fiscalStartMonth: model.fiscalYearStartMonth,
+          }),
         );
       } else throw new Error(`Filter references unknown field "${f.field}"`);
     }
@@ -979,8 +1592,68 @@ export function compileSemanticQuery(
   return { sql, columns };
 }
 
-/** A compact catalog string an LLM can read to author semantic queries. */
-export function formatSemanticCatalog(models: SemanticModel[]): string {
+/**
+ * Resolve a requested field name against a model's names AND synonyms.
+ *
+ * Agents ask in the business's vocabulary — "turnover", "GMV" — and refusing
+ * a word the owner explicitly declared as a synonym costs a round trip at
+ * best and a wrong ad-hoc query at worst. Resolution order: exact name,
+ * case-insensitive name, then case-insensitive synonym. An AMBIGUOUS synonym
+ * (declared on two fields) throws rather than guessing — picking one silently
+ * would answer a different question than the one asked. An unknown name is
+ * returned unchanged so the compiler's own error (which lists what exists)
+ * stays the single source of refusal.
+ */
+export function resolveFieldName(
+  model: SemanticModel,
+  requested: string,
+): { name: string; note?: string } {
+  const fields: Array<{ name: string; synonyms?: string[] }> = [
+    ...model.dimensions,
+    ...model.metrics,
+  ];
+  if (fields.some((f) => f.name === requested)) return { name: requested };
+  const lower = requested.trim().toLowerCase();
+  const byCase = fields.filter((f) => f.name.toLowerCase() === lower);
+  if (byCase.length === 1) return { name: byCase[0].name };
+  const bySynonym = fields.filter((f) =>
+    (f.synonyms ?? []).some((s) => s.trim().toLowerCase() === lower),
+  );
+  if (bySynonym.length === 1) {
+    return {
+      name: bySynonym[0].name,
+      note: `"${requested}" resolved to "${bySynonym[0].name}" via synonym`,
+    };
+  }
+  if (bySynonym.length > 1) {
+    throw new Error(
+      `"${requested}" is a synonym of ${bySynonym.length} fields on "${model.name}" ` +
+        `(${bySynonym.map((f) => f.name).join(", ")}) — use the field name itself.`,
+    );
+  }
+  return { name: requested };
+}
+
+/** Clip free text for the catalog — it rides in the system prompt every turn. */
+function clip(s: string, max: number): string {
+  const t = s.replace(/\s+/g, " ").trim();
+  return t.length <= max ? t : `${t.slice(0, max - 1)}…`;
+}
+
+/**
+ * A compact catalog string an LLM can read to author semantic queries.
+ *
+ * One line per FIELD (not per model): the description the owner wrote
+ * ("excludes refunds"), the governed formula, the synonyms and the sampled
+ * values are exactly what separates an agent that queries the right field
+ * with the right filter value from one that guesses — and they were being
+ * authored, validated, stored… and then discarded here.
+ */
+export function formatSemanticCatalog(
+  models: SemanticModel[],
+  /** `notes` adds a per-model disclosure line (e.g. a share restriction). */
+  opts: { notes?: Map<string, string> } = {},
+): string {
   if (models.length === 0) return "(no semantic models defined)";
   const hasTimeDim = models.some((m) => m.dimensions.some((d) => d.type === "time"));
   const grainNote = hasTimeDim
@@ -991,23 +1664,75 @@ export function formatSemanticCatalog(models: SemanticModel[]): string {
       `\nFor date ranges prefer a relative filter op (last_n_days, this_month, last_month, this_quarter,` +
       ` last_quarter, ytd) over hard-coded dates.`
     : "";
+  const aka = (syn?: string[]) =>
+    syn && syn.length > 0 ? ` aka: ${syn.slice(0, 6).join(", ")}` : "";
   return models
     .map((m) => {
-      const dims = m.dimensions
-        .map((d) => `${d.name}${d.type ? `:${d.type}` : ""}${d.label ? ` (${d.label})` : ""}`)
-        .join(", ");
-      const mets = m.metrics
-        .map((x) => `${x.name}${x.label ? ` (${x.label})` : ""}${x.format ? ` [${x.format}]` : ""}`)
-        .join(", ");
+      const dims = m.dimensions.map((d) => {
+        const vals =
+          d.values && d.values.length > 0
+            ? ` values: ${d.values
+                .slice(0, 8)
+                .map((v) => clip(v, 24))
+                .join("|")}`
+            : "";
+        const desc = d.description ? ` — ${clip(d.description, 120)}` : "";
+        return `  - ${d.name}${d.type ? `:${d.type}` : ""}${d.label ? ` (${d.label})` : ""}${aka(d.synonyms)}${vals}${desc}`;
+      });
+      const mets = m.metrics.map((x) => {
+        // The governed formula — the SAME rendering the BI analyst gets. A
+        // malformed metric must not take the whole catalog down.
+        let formula = "";
+        try {
+          formula = ` = ${clip(metricExpression(x, m.metrics), 100)}`;
+        } catch {
+          /* skip formula, keep the field listed */
+        }
+        const desc = x.description ? ` — ${clip(x.description, 120)}` : "";
+        return `  - ${x.name}${x.label ? ` (${x.label})` : ""}${formula}${x.format ? ` [${x.format}]` : ""}${aka(x.synonyms)}${desc}`;
+      });
       const joins = (m.joins ?? [])
         .map((j) => `${j.table}${j.alias ? ` AS ${j.alias}` : ""}`)
         .join(", ");
+      // Certification is signal an agent should weigh: prefer certified
+      // models; treat deprecated ones as answers of last resort.
+      const statusTag =
+        m.status === "certified"
+          ? " [certified]"
+          : m.status === "deprecated"
+            ? " [DEPRECATED — prefer another model]"
+            : "";
+      const note = opts.notes?.get(m.name);
+      // Declared drill paths — so "drill into EMEA" has a governed next level
+      // instead of a guess.
+      const hierarchies = (m.hierarchies ?? []).map(
+        (h) => `  hierarchy ${h.name}: ${h.levels.join(" → ")}`,
+      );
+      // What-if inputs the agent may set via "params": {name: value}.
+      const params = (m.parameters ?? []).map(
+        (p) =>
+          `  param {{${p.name}}}:${p.type} (default ${JSON.stringify(p.default ?? null)})` +
+          (p.description ? ` — ${clip(p.description, 100)}` : ""),
+      );
+      const fiscalNote =
+        m.fiscalYearStartMonth && m.fiscalYearStartMonth !== 1
+          ? `  fiscal year starts in month ${m.fiscalYearStartMonth}; use fiscal_year/fiscal_quarter grains ` +
+            `and fiscal_ytd / this_fiscal_year / last_fiscal_year / this_fiscal_quarter / ` +
+            `last_fiscal_quarter windows for FY questions (a fiscal year is named by the calendar ` +
+            `year it ends in).`
+          : "";
       return [
-        `MODEL ${m.name}${m.label ? ` — ${m.label}` : ""}`,
-        m.description ? `  ${m.description}` : "",
+        `MODEL ${m.name}${m.label ? ` — ${m.label}` : ""}${statusTag}`,
+        m.description ? `  ${clip(m.description, 200)}` : "",
+        note ? `  ${note}` : "",
+        fiscalNote,
         joins ? `  joined tables: ${joins}` : "",
-        `  dimensions: ${dims || "(none)"}`,
-        `  metrics: ${mets || "(none)"}`,
+        `  dimensions:${dims.length ? "" : " (none)"}`,
+        ...dims,
+        `  metrics:${mets.length ? "" : " (none)"}`,
+        ...mets,
+        ...hierarchies,
+        ...params,
       ]
         .filter(Boolean)
         .join("\n");

@@ -248,7 +248,7 @@ export async function llmJson<T>(opts: {
 // per minute under RLS (own + IAM-shared models) and filtered to models over
 // the tables actually in context.
 
-type GovernedModelRow = {
+export type GovernedModelRow = {
   name: string;
   label: string | null;
   source_kind: string;
@@ -284,28 +284,56 @@ export async function ensureGovernedCatalog(): Promise<void> {
   }
 }
 
-function governedLines(datasets: DatasetMeta[]): string[] {
+/**
+ * Governed definitions for the tables in context. Exported for tests (the
+ * cache-fed wrapper below is what prompts call).
+ *
+ * Matches models to context tables BY SOURCE TABLE NAME regardless of source
+ * kind — the old `source_kind === "data_table"` filter meant WAREHOUSE-backed
+ * models contributed nothing at all, so the analyst improvised formulas for
+ * exactly the tables where a wrong formula is most expensive. A warehouse
+ * model's `schema.table` and a local dataset's bare name cannot collide.
+ *
+ * Every cap DISCLOSES what it dropped: a silently truncated list of governed
+ * definitions reads as a complete one, and the analyst then treats an omitted
+ * metric as fair game to reinvent.
+ */
+export function governedLinesFor(datasets: DatasetMeta[], rows: GovernedModelRow[]): string[] {
   const tables = new Set(datasets.map((d) => d.name.toLowerCase()));
-  const rows = (governedCache?.rows ?? []).filter(
-    (m) => m.source_kind === "data_table" && tables.has(m.source_table.toLowerCase()),
-  );
+  const matched = rows.filter((m) => tables.has(m.source_table.toLowerCase()));
   const lines: string[] = [];
-  for (const m of rows.slice(0, 8)) {
+  const MODEL_CAP = 8;
+  const FIELD_CAP = 16;
+  for (const m of matched.slice(0, MODEL_CAP)) {
     lines.push(`MODEL ${m.name}${m.label ? ` (${m.label})` : ""} over TABLE ${m.source_table}:`);
-    for (const met of m.metrics.slice(0, 16)) {
+    for (const met of m.metrics.slice(0, FIELD_CAP)) {
       try {
         lines.push(
-          `  ${met.name} = ${metricExpression(met, m.metrics)}${met.format ? `  [${met.format}]` : ""}`,
+          `  ${met.name} = ${metricExpression(met, m.metrics)}${met.format ? `  [${met.format}]` : ""}` +
+            (met.description ? `  -- ${met.description.slice(0, 100)}` : ""),
         );
       } catch {
         /* skip malformed metric rather than break the prompt */
       }
     }
-    for (const d of m.dimensions.slice(0, 16)) {
+    if (m.metrics.length > FIELD_CAP) {
+      lines.push(`  … ${m.metrics.length - FIELD_CAP} more metric(s) not shown`);
+    }
+    for (const d of m.dimensions.slice(0, FIELD_CAP)) {
       lines.push(`  dim ${d.name} = ${d.sql}${d.type ? ` (${d.type})` : ""}`);
     }
+    if (m.dimensions.length > FIELD_CAP) {
+      lines.push(`  … ${m.dimensions.length - FIELD_CAP} more dimension(s) not shown`);
+    }
+  }
+  if (matched.length > MODEL_CAP) {
+    lines.push(`… ${matched.length - MODEL_CAP} more governed model(s) not shown`);
   }
   return lines;
+}
+
+function governedLines(datasets: DatasetMeta[]): string[] {
+  return governedLinesFor(datasets, governedCache?.rows ?? []);
 }
 
 // ── Schema description for the LLM ────────────────────────────────────────

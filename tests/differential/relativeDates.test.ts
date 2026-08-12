@@ -74,6 +74,19 @@ const EXPECTED: Record<RelativeDateOp, number[]> = {
   last_quarter: [],
   // 2026-01-01 .. 2026-03-16 — to DATE, so 03-19 is excluded.
   ytd: [1, 2, 3, 4],
+  // No fiscalStartMonth here, so the fiscal ops must equal their calendar
+  // counterparts (a January fiscal year IS the calendar year). Shifted fiscal
+  // years get their own suite in fiscalCalendar.test.ts.
+  // 2026-01-01 .. 2027-01-01
+  this_fiscal_year: [1, 2, 3, 4, 5, 6, 7, 8, 9],
+  // 2025-01-01 .. 2026-01-01 — before every fixture row.
+  last_fiscal_year: [],
+  // = this_quarter
+  this_fiscal_quarter: [1, 2, 3, 4, 5],
+  // = last_quarter
+  last_fiscal_quarter: [],
+  // = ytd
+  fiscal_ytd: [1, 2, 3, 4],
 };
 
 describe.each(LOCAL_DIALECTS)("relative date filters on $dialect", ({ dialect, run }) => {

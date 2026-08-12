@@ -1134,10 +1134,15 @@ function AccessTab({
   const [shareFilterColumn, setShareFilterColumn] = useState("");
   const [shareFilterValues, setShareFilterValues] = useState("");
   const [shareMaskColumns, setShareMaskColumns] = useState("");
-  // Dashboards and datasets both serve rows, so both accept a row filter and
-  // a column mask. Restricting one without the other left a way around it.
+  // Dashboards, datasets and semantic models all serve rows, so all three
+  // accept a row filter and a column mask. Restricting one without the others
+  // left a way around it. For a semantic model the filter names a DIMENSION
+  // and is compiled into the governed query itself; the mask hides fields
+  // (metrics or dimensions) by name.
   const shareIsDashboard =
-    shareResourceType === "bi_dashboard" || shareResourceType === "data_table";
+    shareResourceType === "bi_dashboard" ||
+    shareResourceType === "data_table" ||
+    shareResourceType === "semantic_model";
   const shareTypeOptions: { value: ShareResourceType; label: string }[] = [
     { value: "knowledge_base", label: "📚 Knowledge base" },
     { value: "data_table", label: "🗃 SQL data table" },
@@ -1445,7 +1450,11 @@ function AccessTab({
                 className="h-8 w-44 text-xs"
                 value={shareFilterColumn}
                 onChange={(e) => setShareFilterColumn(e.target.value)}
-                placeholder="Column, e.g. Region"
+                placeholder={
+                  shareResourceType === "semantic_model"
+                    ? "Dimension name, e.g. region"
+                    : "Column, e.g. Region"
+                }
               />
               <Input
                 className="h-8 w-72 text-xs"
