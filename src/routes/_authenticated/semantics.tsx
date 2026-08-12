@@ -6,16 +6,20 @@ import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import {
   BadgeCheck,
+  Database,
   History,
-  Info,
   Layers,
   LayoutDashboard,
   Link2,
+  Network,
   Play,
   Plus,
   Save,
   ShieldCheck,
+  SlidersHorizontal,
   Sparkles,
+  SquarePen,
+  Target,
   Trash2,
   Sigma,
 } from "lucide-react";
@@ -986,11 +990,24 @@ function SemanticsPage() {
               return (
                 <Card
                   key={m.id as string}
-                  className={`cursor-pointer transition-colors ${draft?.id === m.id ? "border-primary" : ""}`}
+                  className={`cursor-pointer transition-all hover:shadow-sm ${
+                    draft?.id === m.id
+                      ? "border-primary bg-primary/[0.03]"
+                      : "hover:border-primary/40"
+                  }`}
                   {...clickable(() => editModel(m), `Semantic model ${m.name}`)}
                 >
                   <CardContent className="flex items-center justify-between gap-2 p-3">
-                    <div className="min-w-0">
+                    <div
+                      className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${
+                        draft?.id === m.id
+                          ? "bg-gradient-to-br from-primary/25 to-primary/10 text-primary"
+                          : "bg-gradient-to-br from-primary/15 to-primary/5 text-primary/80"
+                      }`}
+                    >
+                      <Layers className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0 flex-1">
                       <p className="flex items-center gap-1.5 truncate text-sm font-medium">
                         {(m.label as string) || (m.name as string)}
                         {shared && (
@@ -1041,8 +1058,17 @@ function SemanticsPage() {
         {/* Editor */}
         {!draft ? (
           <Card>
-            <CardContent className="p-10 text-center text-sm text-muted-foreground">
-              Select a model to edit, or create a new one.
+            <CardContent className="flex flex-col items-center gap-3 p-14 text-center">
+              <div className="grid h-14 w-14 place-items-center rounded-2xl bg-gradient-to-br from-primary/15 to-primary/5">
+                <Layers className="h-7 w-7 text-primary/70" />
+              </div>
+              <div>
+                <p className="text-sm font-medium">Pick a model to open it here</p>
+                <p className="mt-1 max-w-sm text-xs text-muted-foreground">
+                  Or create a new one — point it at a dataset or warehouse table, define metrics
+                  once, and every dashboard and agent inherits the same numbers.
+                </p>
+              </div>
             </CardContent>
           </Card>
         ) : (
@@ -1058,6 +1084,31 @@ function SemanticsPage() {
                   {draft.name || "unnamed"}
                   {draft.source_table ? ` · ${draft.source_table}` : " · no source yet"}
                 </p>
+              </div>
+              {/* At-a-glance shape of the model, in the field-class colors
+                  used everywhere else on this page. */}
+              <div className="hidden items-center gap-3 text-[11px] tabular-nums text-muted-foreground lg:flex">
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-sky-500/80" aria-hidden />
+                  {draft.dimensions.length} dimension{draft.dimensions.length === 1 ? "" : "s"}
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500/80" aria-hidden />
+                  {draft.metrics.length} metric{draft.metrics.length === 1 ? "" : "s"}
+                </span>
+                {draft.joins.length > 0 && (
+                  <span className="inline-flex items-center gap-1.5">
+                    <Link2 className="h-3 w-3" aria-hidden />
+                    {draft.joins.length} join{draft.joins.length === 1 ? "" : "s"}
+                  </span>
+                )}
+                {draft.hierarchies.length > 0 && (
+                  <span className="inline-flex items-center gap-1.5">
+                    <Network className="h-3 w-3" aria-hidden />
+                    {draft.hierarchies.length}{" "}
+                    {draft.hierarchies.length === 1 ? "hierarchy" : "hierarchies"}
+                  </span>
+                )}
               </div>
               {draftRow?.status === "certified" && (
                 <span
@@ -1190,22 +1241,28 @@ function SemanticsPage() {
               onValueChange={(v) => setEditorTab(v as typeof editorTab)}
               className="space-y-4"
             >
+              {/* Ordered as the authoring flow runs: pick a source, define
+                  fields over it, query them, then look back. Opening an
+                  existing model still lands on Fields — the daily work
+                  surface — but the strip reads in build order. */}
               <TabsList>
-                <TabsTrigger value="fields" className="gap-1.5">
-                  Fields
-                  <span className="rounded-full bg-muted px-1.5 text-[10px] tabular-nums text-muted-foreground">
-                    {draft.dimensions.length + draft.metrics.length}
-                  </span>
-                </TabsTrigger>
                 <TabsTrigger value="source" className="gap-1.5">
-                  Source &amp; joins
+                  <Database className="h-3.5 w-3.5" /> Source &amp; joins
                   {draft.joins.length > 0 && (
                     <span className="rounded-full bg-muted px-1.5 text-[10px] tabular-nums text-muted-foreground">
                       {draft.joins.length}
                     </span>
                   )}
                 </TabsTrigger>
-                <TabsTrigger value="query">Query</TabsTrigger>
+                <TabsTrigger value="fields" className="gap-1.5">
+                  <Layers className="h-3.5 w-3.5" /> Fields
+                  <span className="rounded-full bg-muted px-1.5 text-[10px] tabular-nums text-muted-foreground">
+                    {draft.dimensions.length + draft.metrics.length}
+                  </span>
+                </TabsTrigger>
+                <TabsTrigger value="query" className="gap-1.5">
+                  <Play className="h-3.5 w-3.5" /> Query
+                </TabsTrigger>
                 <TabsTrigger value="history" className="gap-1.5">
                   <History className="h-3.5 w-3.5" /> History &amp; usage
                 </TabsTrigger>
@@ -1213,7 +1270,14 @@ function SemanticsPage() {
 
               <TabsContent value="source" className="space-y-4">
                 <Card>
-                  <CardContent className="space-y-4 p-4">
+                  <CardHeader className="pb-3">
+                    <SectionTitle
+                      icon={Database}
+                      title="Model & source"
+                      hint="What this model is called and which table it reads — plus the grain and fiscal calendar everything else builds on."
+                    />
+                  </CardHeader>
+                  <CardContent className="space-y-4 p-4 pt-0">
                     {isShared && (
                       <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs">
                         <strong>Shared with you — read-only.</strong> Run it and add it to
@@ -1481,12 +1545,18 @@ function SemanticsPage() {
                 metrics can span a star schema without pre-joining. */}
                 <Card>
                   <CardHeader className="pb-3">
-                    <CardTitle className="text-sm">Joins</CardTitle>
-                    <p className="text-xs text-muted-foreground">
-                      Relate other tables to <code>{draft.source_table || "the source"}</code> so
-                      dimensions and metrics can reference their columns. Qualify column names in
-                      your SQL (e.g. <code>customers.segment</code>) once a join exists.
-                    </p>
+                    <SectionTitle
+                      icon={Link2}
+                      title="Joins"
+                      hint={
+                        <>
+                          Relate other tables to <code>{draft.source_table || "the source"}</code>{" "}
+                          so dimensions and metrics can reference their columns. Qualify column
+                          names in your SQL (e.g. <code>customers.segment</code>) once a join
+                          exists.
+                        </>
+                      }
+                    />
                   </CardHeader>
                   <CardContent className="space-y-2">
                     {draft.joins.map((j, i) => (
@@ -1608,16 +1678,21 @@ function SemanticsPage() {
                     refreshes can always compile without a caller. */}
                 <Card>
                   <CardHeader className="pb-3">
-                    <CardTitle className="text-sm">Parameters</CardTitle>
-                    <p className="text-xs text-muted-foreground">
-                      Named values your SQL references as{" "}
-                      <code>
-                        {"{{"}name{"}}"}
-                      </code>{" "}
-                      — e.g. a commission rate or a status filter. Callers (the runner, agents,
-                      dashboards) may override them per query; the default applies otherwise. Not
-                      allowed in join conditions.
-                    </p>
+                    <SectionTitle
+                      icon={SlidersHorizontal}
+                      title="Parameters"
+                      hint={
+                        <>
+                          Named values your SQL references as{" "}
+                          <code>
+                            {"{{"}name{"}}"}
+                          </code>{" "}
+                          — e.g. a commission rate or a status filter. Callers (the runner, agents,
+                          dashboards) may override them per query; the default applies otherwise.
+                          Not allowed in join conditions.
+                        </>
+                      }
+                    />
                   </CardHeader>
                   <CardContent className="space-y-2">
                     {draft.parameters.map((p, i) => {
@@ -1721,12 +1796,17 @@ function SemanticsPage() {
                     Validate refuses unknown or duplicate levels. */}
                 <Card>
                   <CardHeader className="pb-3">
-                    <CardTitle className="text-sm">Hierarchies</CardTitle>
-                    <p className="text-xs text-muted-foreground">
-                      Ordered drill paths over existing dimensions — e.g.{" "}
-                      <code>region → country → city</code>. Agents use them to answer &ldquo;break
-                      that down&rdquo; with the next level instead of guessing.
-                    </p>
+                    <SectionTitle
+                      icon={Network}
+                      title="Hierarchies"
+                      hint={
+                        <>
+                          Ordered drill paths over existing dimensions — e.g.{" "}
+                          <code>region → country → city</code>. Agents use them to answer
+                          &ldquo;break that down&rdquo; with the next level instead of guessing.
+                        </>
+                      }
+                    />
                   </CardHeader>
                   <CardContent className="space-y-2">
                     {draft.hierarchies.map((h, i) => {
@@ -1797,13 +1877,18 @@ function SemanticsPage() {
                     means what the board was told". */}
                 <Card>
                   <CardHeader className="pb-3">
-                    <CardTitle className="text-sm">Assertions</CardTitle>
-                    <p className="text-xs text-muted-foreground">
-                      Pin a metric&apos;s value under fixed filters. Every <strong>Validate</strong>{" "}
-                      re-computes it and fails if a definition edit (or a data change) moves a
-                      number someone signed off. Use absolute date ranges — a relative window would
-                      drift stale on its own.
-                    </p>
+                    <SectionTitle
+                      icon={Target}
+                      title="Assertions"
+                      hint={
+                        <>
+                          Pin a metric&apos;s value under fixed filters. Every{" "}
+                          <strong>Validate</strong> re-computes it and fails if a definition edit
+                          (or a data change) moves a number someone signed off. Use absolute date
+                          ranges — a relative window would drift stale on its own.
+                        </>
+                      }
+                    />
                   </CardHeader>
                   <CardContent className="space-y-3">
                     {draft.assertions.map((a, i) => {
@@ -2036,6 +2121,7 @@ function SemanticsPage() {
                 <div className="grid items-start gap-4 xl:grid-cols-2">
                   <FieldSection
                     title="Dimensions"
+                    tone="sky"
                     hint="How you slice — a column or SQL expression."
                     count={draft.dimensions.length}
                     icon={Layers}
@@ -2051,8 +2137,18 @@ function SemanticsPage() {
                       })
                     }
                   >
+                    <FieldColumnHeader
+                      cols={[
+                        { label: "Field name", className: "min-w-32 flex-1" },
+                        { label: "SQL expression", className: "flex-[1.4]" },
+                        { label: "Type", className: "w-[120px] shrink-0" },
+                      ]}
+                    />
                     {draft.dimensions.map((d, i) => (
-                      <div key={i} className="space-y-1.5">
+                      <div
+                        key={i}
+                        className="space-y-1.5 rounded-lg border border-transparent p-1.5 transition-colors hover:border-border/60 hover:bg-muted/30"
+                      >
                         <div className="@container/row flex flex-wrap items-center gap-2">
                           <Input
                             value={d.name}
@@ -2112,7 +2208,7 @@ function SemanticsPage() {
                             title="Label, description and synonyms — what agents read"
                             onClick={() => toggleDetails(`d-${i}`)}
                           >
-                            <Info className="h-3.5 w-3.5" />
+                            <SquarePen className="h-3.5 w-3.5" />
                           </Button>
                           <Button
                             variant="ghost"
@@ -2189,6 +2285,7 @@ function SemanticsPage() {
                   {/* Metrics */}
                   <FieldSection
                     title="Metrics"
+                    tone="emerald"
                     hint="What you measure — an aggregation over a column."
                     count={draft.metrics.length}
                     icon={Sigma}
@@ -2199,8 +2296,18 @@ function SemanticsPage() {
                       patch({ metrics: [...draft.metrics, { name: "", agg: "sum", sql: "" }] })
                     }
                   >
+                    <FieldColumnHeader
+                      cols={[
+                        { label: "Metric name", className: "min-w-32 flex-1" },
+                        { label: "SQL expression", className: "flex-[1.3]" },
+                        { label: "Aggregation", className: "w-[130px] shrink-0" },
+                      ]}
+                    />
                     {draft.metrics.map((m, i) => (
-                      <div key={i} className="space-y-1.5">
+                      <div
+                        key={i}
+                        className="space-y-1.5 rounded-lg border border-transparent p-1.5 transition-colors hover:border-border/60 hover:bg-muted/30"
+                      >
                         <div className="@container/row flex flex-wrap items-center gap-2">
                           <Input
                             value={m.name}
@@ -2226,7 +2333,7 @@ function SemanticsPage() {
                             }
                           >
                             <SelectTrigger
-                              className="order-2 h-8 w-[104px] shrink-0 @[30rem]/row:w-[130px]"
+                              className="order-2 h-8 w-[104px] shrink-0 @[30rem]/row:order-3 @[30rem]/row:w-[130px]"
                               aria-label="Aggregation"
                             >
                               <SelectValue />
@@ -2254,7 +2361,7 @@ function SemanticsPage() {
                                 : undefined
                             }
                             aria-label="Metric SQL expression"
-                            className="order-4 h-8 w-full basis-full font-mono @[30rem]/row:order-3 @[30rem]/row:w-auto @[30rem]/row:flex-[1.3] @[30rem]/row:basis-auto"
+                            className="order-4 h-8 w-full basis-full font-mono @[30rem]/row:order-2 @[30rem]/row:w-auto @[30rem]/row:flex-[1.3] @[30rem]/row:basis-auto"
                             onChange={(e) =>
                               patch({
                                 metrics: draft.metrics.map((x, j) =>
@@ -2271,7 +2378,7 @@ function SemanticsPage() {
                             title="Label, description, synonyms and format — what agents read"
                             onClick={() => toggleDetails(`m-${i}`)}
                           >
-                            <Info className="h-3.5 w-3.5" />
+                            <SquarePen className="h-3.5 w-3.5" />
                           </Button>
                           <Button
                             variant="ghost"
@@ -2403,8 +2510,12 @@ function SemanticsPage() {
               <TabsContent value="query">
                 <Card>
                   <CardContent className="space-y-3 p-4">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-sm font-semibold">Query runner</h3>
+                    <div className="flex items-start justify-between gap-3">
+                      <SectionTitle
+                        icon={Play}
+                        title="Query runner"
+                        hint="Slice governed metrics without writing SQL — the compiled statement ships with every result."
+                      />
                       <Button size="sm" onClick={run} disabled={running || !draft.id}>
                         <Play className="mr-1 h-4 w-4" /> {running ? "Running…" : "Run"}
                       </Button>
@@ -2428,6 +2539,7 @@ function SemanticsPage() {
                     <div className="grid gap-3 sm:grid-cols-2">
                       <Picker
                         label="Metrics"
+                        tone="emerald"
                         options={draft.metrics.map((m) => m.name).filter(Boolean)}
                         picked={pickedMetrics}
                         onToggle={(n) =>
@@ -2438,6 +2550,7 @@ function SemanticsPage() {
                       />
                       <Picker
                         label="Dimensions"
+                        tone="sky"
                         options={draft.dimensions.map((d) => d.name).filter(Boolean)}
                         picked={pickedDims}
                         onToggle={(n) =>
@@ -2738,7 +2851,7 @@ function SemanticsPage() {
                             </TableHeader>
                             <TableBody>
                               {result.rows.map((r, i) => (
-                                <TableRow key={i}>
+                                <TableRow key={i} className="even:bg-muted/20">
                                   {result.columns.map((c) => (
                                     <TableCell key={c} className="font-mono text-xs">
                                       {String(r[c] ?? "")}
@@ -2983,11 +3096,83 @@ function SemanticsPage() {
   );
 }
 
+/**
+ * One visual voice for every section of the editor: icon chip, title, hint.
+ * The Fields tab already spoke this way (FieldSection); the other cards were
+ * bare text headings, which is what made the page read flat.
+ */
+function SectionTitle({
+  icon: Icon,
+  title,
+  hint,
+}: {
+  icon: LucideIcon;
+  title: string;
+  hint?: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-start gap-2.5">
+      <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-primary/15 to-primary/5 text-primary">
+        <Icon className="h-4 w-4" />
+      </div>
+      <div className="min-w-0">
+        <CardTitle className="text-sm">{title}</CardTitle>
+        {hint ? <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p> : null}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Column labels for a field-editor row, shown only at the width where the
+ * row lays out as columns (below that the inputs wrap and stack, and each
+ * carries its own placeholder). Widths mirror the row exactly; the trailing
+ * spacer stands in for the two icon buttons.
+ */
+function FieldColumnHeader({ cols }: { cols: Array<{ label: string; className: string }> }) {
+  return (
+    <div className="@container/rowhead">
+      <div className="hidden items-center gap-2 px-1 pb-0.5 @[30rem]/rowhead:flex">
+        {cols.map((c) => (
+          <span
+            key={c.label || c.className}
+            className={`text-[10px] font-medium uppercase tracking-wider text-muted-foreground ${c.className}`}
+          >
+            {c.label}
+          </span>
+        ))}
+        <span className="w-[72px] shrink-0" aria-hidden />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The two field classes wear the colors BI users already know — QuickSight
+ * and ThoughtSpot both paint dimensions blue and measures green, so the
+ * palette carries meaning here instead of decoration. TONES must stay in
+ * sync with the picker chips in the Query tab.
+ */
+const FIELD_TONES = {
+  sky: {
+    chip: "bg-gradient-to-br from-sky-500/20 to-sky-500/5 text-sky-600 dark:text-sky-400",
+    pill: "bg-sky-500/10 text-sky-600 dark:text-sky-400",
+    topline: "border-t-2 border-t-sky-500/50",
+  },
+  emerald: {
+    chip: "bg-gradient-to-br from-emerald-500/20 to-emerald-500/5 text-emerald-600 dark:text-emerald-400",
+    pill: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+    topline: "border-t-2 border-t-emerald-500/50",
+  },
+} as const;
+type FieldTone = keyof typeof FIELD_TONES;
+
 function FieldSection({
   title,
   hint,
   count,
   icon: Icon,
+  tone,
   cols,
   onAddFromColumn,
   onAddBlank,
@@ -2998,25 +3183,29 @@ function FieldSection({
   hint: string;
   count: number;
   icon: LucideIcon;
+  tone: FieldTone;
   cols: string[];
   onAddFromColumn: (c: string) => void;
   onAddBlank: () => void;
   disabled?: boolean;
   children: React.ReactNode;
 }) {
+  const t = FIELD_TONES[tone];
   return (
-    <Card className="flex max-h-[calc(100vh-15rem)] flex-col">
+    <Card className={`flex max-h-[calc(100vh-15rem)] flex-col ${t.topline}`}>
       {/* The header stays put while the list scrolls: with 20+ fields the
           Add control used to leave the screen exactly when you needed it. */}
       <div className="@container/head flex flex-wrap items-center justify-between gap-2 border-b border-border/60 p-4">
         <div className="flex min-w-0 flex-1 items-center gap-2.5">
-          <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+          <div className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${t.chip}`}>
             <Icon className="h-4 w-4" />
           </div>
           <div className="min-w-0">
             <h3 className="flex items-center gap-1.5 text-sm font-semibold">
               {title}
-              <span className="rounded-full bg-muted px-1.5 text-[10px] font-medium tabular-nums text-muted-foreground">
+              <span
+                className={`rounded-full px-1.5 text-[10px] font-medium tabular-nums ${t.pill}`}
+              >
                 {count}
               </span>
             </h3>
@@ -3062,20 +3251,36 @@ function FieldSection({
   );
 }
 
+/** Picked chips wear their field-class color — the same sky/emerald the
+ *  Fields tab uses, so "what am I querying" reads at a glance. */
+const PICKER_TONES: Record<FieldTone, string> = {
+  sky: "border-sky-500/50 bg-sky-500/15 text-sky-700 hover:bg-sky-500/20 dark:text-sky-300",
+  emerald:
+    "border-emerald-500/50 bg-emerald-500/15 text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300",
+};
+
 function Picker({
   label,
+  tone,
   options,
   picked,
   onToggle,
 }: {
   label: string;
+  tone: FieldTone;
   options: string[];
   picked: string[];
   onToggle: (n: string) => void;
 }) {
   return (
     <div className="space-y-1">
-      <Label className="text-xs">{label}</Label>
+      <Label className="flex items-center gap-1.5 text-xs">
+        <span
+          className={`h-2 w-2 rounded-full ${tone === "sky" ? "bg-sky-500/80" : "bg-emerald-500/80"}`}
+          aria-hidden
+        />
+        {label}
+      </Label>
       <div className="flex flex-wrap gap-1">
         {options.length === 0 ? (
           <span className="text-xs text-muted-foreground">none defined</span>
@@ -3083,8 +3288,10 @@ function Picker({
           options.map((o) => (
             <Badge
               key={o}
-              variant={picked.includes(o) ? "default" : "outline"}
-              className="cursor-pointer font-mono text-[10px]"
+              variant="outline"
+              className={`cursor-pointer font-mono text-[10px] transition-colors ${
+                picked.includes(o) ? PICKER_TONES[tone] : "hover:bg-muted"
+              }`}
               onClick={() => onToggle(o)}
             >
               {o}
