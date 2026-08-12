@@ -1174,6 +1174,234 @@ function srcName(ctx: FanoutContext): string {
   return "source";
 }
 
+// ── Chasm resolution ───────────────────────────────────────────────────────
+//
+// When the fan-out check above would refuse a query, the compiler now tries a
+// MULTI-FACT PLAN before giving up: each metric is aggregated inside its own
+// branch — the source plus only the fanning join its columns actually need —
+// at the grain of the requested dimensions, and the per-branch aggregates are
+// stitched back together on a dimension spine. Measured on the two-order
+// fixture that motivated the refusal: SUM(orders.amount) joined to line items
+// said 350 against a truth of 150; the same query now compiles to a plan
+// where orders total 150 AND the item metrics are right, in one result.
+//
+// The envelope is deliberately explicit, and everything outside it still
+// REFUSES with the original error plus the reason resolution did not apply:
+//   - every declared fanning join must be LEFT (an INNER fanning join is a
+//     row filter that cannot be kept without duplicating source rows);
+//   - dimensions must not read from a fanning join's columns (grouping base
+//     metrics by a fanning table needs primary-key deduplication — roadmap);
+//   - a metric may reference at most ONE fanning join (an expression over two
+//     facts has no single grain to aggregate at);
+//   - period-over-period over a multi-fact plan is not supported yet;
+//   - AlaSQL is refused (no CTEs), matching the comparison path.
+
+/**
+ * A derived metric's formula with every non-derived leaf rendered by
+ * `leafRef` instead of inlined — the multi-fact plan computes leaves inside
+ * their branches and evaluates the formula OVER the branch columns, which is
+ * algebraically the single-pass inlining evaluated in two steps.
+ */
+function expandDerivedFormula(
+  m: SemanticMetric,
+  byName: Map<string, SemanticMetric>,
+  leafRef: (name: string) => string,
+  resolving: Set<string> = new Set(),
+): string {
+  if (!m.sql) throw new Error(`Derived metric "${m.name}" needs an sql formula`);
+  if (resolving.has(m.name)) {
+    throw new Error(`Derived metric "${m.name}" has a circular reference`);
+  }
+  resolving.add(m.name);
+  let referenced = false;
+  const out = m.sql.replace(METRIC_REF_RE, (_full, ref: string) => {
+    referenced = true;
+    const target = byName.get(ref);
+    if (!target) throw new Error(`Derived metric "${m.name}" references unknown metric "${ref}"`);
+    return target.agg === "derived"
+      ? `(${expandDerivedFormula(target, byName, leafRef, resolving)})`
+      : leafRef(target.name);
+  });
+  resolving.delete(m.name);
+  if (!referenced) {
+    throw new Error(
+      `Derived metric "${m.name}" references no other metric — use {metric_name} tokens.`,
+    );
+  }
+  return out;
+}
+
+/** The non-derived metrics a metric ultimately computes from (itself if a leaf). */
+function chasmLeaves(
+  m: SemanticMetric,
+  byName: Map<string, SemanticMetric>,
+  resolving: Set<string> = new Set(),
+): SemanticMetric[] {
+  if (m.agg !== "derived") return [m];
+  if (resolving.has(m.name)) {
+    throw new Error(`Derived metric "${m.name}" has a circular reference`);
+  }
+  resolving.add(m.name);
+  const out: SemanticMetric[] = [];
+  for (const ref of metricRefsIn(m.sql ?? "")) {
+    const target = byName.get(ref);
+    if (!target) throw new Error(`Derived metric "${m.name}" references unknown metric "${ref}"`);
+    out.push(...chasmLeaves(target, byName, resolving));
+  }
+  resolving.delete(m.name);
+  return out;
+}
+
+/**
+ * Which branch computes a leaf metric.
+ *
+ * Keys: "" is the base branch (source + non-fanning joins only), a fanning
+ * join's qualifier is its own branch (base joins + that join), and "*" is the
+ * FULL single-pass scope (every join) — reserved for duplicate-insensitive
+ * and custom metrics whose binding today's single pass already accepts, so a
+ * multi-fact plan never changes what an already-legal metric computes.
+ *
+ * The rules resolve only what is PROVABLY unambiguous:
+ *   - sum/avg reading exactly one fanning join → that branch, at that fact's
+ *     grain (a mixed source×fact expression evaluates once per fact row —
+ *     the parent column is an attribute there, not a duplication);
+ *   - sum/avg reading only source/lookup columns → the base branch;
+ *   - sum/avg with NO qualified reference stays REFUSED: assigning a branch
+ *     would silently choose which table an ambiguous column binds to;
+ *   - count is anchored by its FILTERS (it has no expression): fanning-side
+ *     filters → that branch, source-side filters → base, and a bare count
+ *     stays refused — "count of what" has no provable answer on this model;
+ *   - count_distinct/min/max/custom keep their single-pass scope ("*") unless
+ *     they name exactly one side, in which case the cheaper branch is
+ *     equivalent (duplicates change none of them; custom is owner-trusted).
+ */
+function chasmBranchOf(m: SemanticMetric, ctx: FanoutContext): string {
+  const dupSensitive = m.agg === "sum" || m.agg === "avg" || m.agg === "count";
+  const frags = m.agg === "count" ? (m.filters ?? []) : [m.sql ?? "", ...(m.filters ?? [])];
+  const known = [...new Set(frags.flatMap(qualifiedRefsIn).filter((r) => ctx.knownQuals.has(r)))];
+  const fanRefs = known.filter((r) => ctx.fanningQuals.has(r));
+
+  if (fanRefs.length > 1) {
+    if (!dupSensitive) return "*";
+    throw new Error(
+      `Metric "${m.name}" reads from ${fanRefs.map((r) => `"${r}"`).join(" and ")}, which both ` +
+        `fan out — an expression across two facts has no single grain to aggregate at. ` +
+        `Split it into per-fact metrics and combine them with a derived metric.`,
+    );
+  }
+  if (dupSensitive && known.length === 0) {
+    const what = m.agg === "count" ? "a bare count has no anchor" : "an unqualified column";
+    throw new Error(
+      `Metric "${m.name}" (${m.agg}) is ambiguous on this model: ${what}, so no branch of a ` +
+        `multi-fact plan can prove which table it aggregates. Qualify the column(s) ` +
+        `(e.g. ${srcName(ctx)}.amount or ${[...ctx.fanningQuals][0]}.amount)` +
+        (m.agg === "count"
+          ? `, or use count_distinct over ${ctx.primaryKey ?? "the source key"}.`
+          : `.`),
+    );
+  }
+  if (fanRefs.length === 1) return fanRefs[0];
+  return dupSensitive ? "" : known.length > 0 ? "" : "*";
+}
+
+type ChasmPlan = {
+  /** Branch key ("" = base) → the leaf metrics that branch computes. */
+  branches: Array<{ key: string; join: SemanticJoin | null; metricNames: string[] }>;
+  /** Requested metrics in order, with how the outer SELECT renders each. */
+  outer: Array<{ name: string; leaf: boolean }>;
+};
+
+/**
+ * Decide whether the refused query fits the multi-fact envelope, and lay out
+ * its branches if so. Throws the ORIGINAL refusal — with the reason
+ * resolution could not apply appended — whenever it does not.
+ */
+function planChasm(args: {
+  model: SemanticModel;
+  q: SemanticQuery;
+  dims: string[];
+  metrics: string[];
+  dimByName: Map<string, SemanticDimension>;
+  metricByName: Map<string, SemanticMetric>;
+  ctx: FanoutContext;
+  dialect: SqlDialect;
+  refusal: Error;
+}): ChasmPlan {
+  const { model, q, dims, metrics, dimByName, metricByName, ctx, dialect, refusal } = args;
+  const blocked = (why: string): never => {
+    throw new Error(`${refusal.message} A multi-fact plan could not resolve this: ${why}`);
+  };
+
+  if (dialect === "alasql") {
+    blocked("the AlaSQL engine has no CTEs. Remove LOCAL_ENGINE=alasql to use the default engine.");
+  }
+  if (q.compare) {
+    blocked(
+      "period-over-period over a multi-fact plan is not supported yet — drop the comparison " +
+        "or the conflicting metrics.",
+    );
+  }
+  for (const j of ctx.fanning) {
+    if (j.type === "inner") {
+      blocked(
+        `join "${joinQualifier(j)}" is INNER and fans out; its row filter cannot be kept ` +
+          `without duplicating source rows. Make it LEFT, or pre-aggregate in a custom metric.`,
+      );
+    }
+  }
+  // A non-fanning join whose ON reads a fanning alias cannot be compiled into
+  // a branch that lacks that fanning join.
+  for (const j of model.joins ?? []) {
+    if (isFanningJoin(j)) continue;
+    const onRefs = qualifiedRefsIn(j.on ?? "");
+    const bad = onRefs.find((r) => ctx.fanningQuals.has(r));
+    if (bad) {
+      blocked(
+        `join "${joinQualifier(j)}" is chained through the fanning join "${bad}", so no ` +
+          `branch can include it alone.`,
+      );
+    }
+  }
+  for (const name of dims) {
+    const d = dimByName.get(name);
+    if (!d) continue; // authoritative unknown-dimension error comes from the builder
+    const bad = qualifiedRefsIn(d.sql).find((r) => ctx.fanningQuals.has(r));
+    if (bad) {
+      blocked(
+        `dimension "${name}" reads from the fanning join "${bad}"; grouping the other ` +
+          `metrics by it would need primary-key deduplication, which is not supported yet.`,
+      );
+    }
+  }
+
+  // Assign every leaf metric a branch; requested order is preserved.
+  const byBranch = new Map<string, string[]>();
+  const outer: ChasmPlan["outer"] = [];
+  for (const name of metrics) {
+    const m = metricByName.get(name);
+    if (!m) {
+      throw new Error(
+        `Unknown metric "${name}" (available: ${[...metricByName.keys()].join(", ") || "none"})`,
+      );
+    }
+    outer.push({ name, leaf: m.agg !== "derived" });
+    for (const leaf of chasmLeaves(m, metricByName)) {
+      const key = chasmBranchOf(leaf, ctx);
+      const list = byBranch.get(key) ?? [];
+      if (!list.includes(leaf.name)) list.push(leaf.name);
+      byBranch.set(key, list);
+    }
+  }
+
+  const joinByQual = new Map((model.joins ?? []).map((j) => [joinQualifier(j), j]));
+  const branches: ChasmPlan["branches"] = [...byBranch.entries()].map(([key, metricNames]) => ({
+    key,
+    join: key === "" ? null : (joinByQual.get(key) ?? null),
+    metricNames,
+  }));
+  return { branches, outer };
+}
+
 /**
  * The COUNT probes semanticValidateModel runs to MEASURE a model instead of
  * trusting it: the base row count (plus COUNT(DISTINCT primary_key), which is
@@ -1358,16 +1586,39 @@ export function compileSemanticQuery(
     throw new Error("A query needs at least one metric or dimension");
   }
 
-  // Refuse duplicate-sensitive metrics over a declared fanning join BEFORE
-  // building any SQL — a wrong number must be impossible to compile, not
-  // merely inadvisable. Checked per REQUESTED metric (derived ones at their
-  // leaves); unknown names still fall through to the authoritative "Unknown
-  // metric" error below.
+  // Check duplicate-sensitive metrics over a declared fanning join BEFORE
+  // building any SQL. A single-pass compile of such a metric is a wrong
+  // number, so it is never emitted; where the check fires, the compiler now
+  // attempts a MULTI-FACT PLAN (per-branch aggregation, see planChasm) and
+  // only if the query is outside that envelope does the refusal reach the
+  // caller — with the reason resolution did not apply appended. Unknown
+  // names still fall through to the authoritative "Unknown metric" error.
   const fanCtx = fanoutContext(model);
+  let chasm: ChasmPlan | null = null;
   if (fanCtx) {
+    let refusal: Error | null = null;
     for (const name of metrics) {
       const m = metricByName.get(name);
-      if (m) assertMetricFanoutSafe(m, fanCtx, metricByName);
+      if (!m) continue;
+      try {
+        assertMetricFanoutSafe(m, fanCtx, metricByName);
+      } catch (e) {
+        refusal = e as Error;
+        break;
+      }
+    }
+    if (refusal) {
+      chasm = planChasm({
+        model,
+        q,
+        dims,
+        metrics,
+        dimByName,
+        metricByName,
+        ctx: fanCtx,
+        dialect,
+        refusal,
+      });
     }
   }
 
@@ -1382,7 +1633,16 @@ export function compileSemanticQuery(
    * construction, so "this year, compared to last" cannot end up comparing
    * against rows the filter excluded.
    */
-  const buildAggregate = (shift?: { name: string; n: number; unit: DateAddUnit }) => {
+  const buildAggregate = (
+    shift?: { name: string; n: number; unit: DateAddUnit },
+    /**
+     * Multi-fact branch mode: compile with only `joins`, only `metricNames`,
+     * and leave metric filters to the outer stitch (dimension filters still
+     * apply — every branch must see the same row scope). `distinct` builds
+     * the dimension spine.
+     */
+    branch?: { joins: SemanticJoin[]; metricNames: string[]; distinct?: boolean },
+  ) => {
     const dimFor = (name: string): SemanticDimension => {
       const d = dimByName.get(name);
       // Name the alternatives: the caller is usually an LLM, and "unknown"
@@ -1423,7 +1683,8 @@ export function compileSemanticQuery(
       selectParts.push(`${dimExpr(name)} AS ${quoteIdent(name, dialect)}`);
       cols.push(name);
     }
-    for (const name of metrics) {
+    const activeMetrics = branch ? branch.metricNames : metrics;
+    for (const name of activeMetrics) {
       const m = metricByName.get(name);
       if (!m) {
         throw new Error(
@@ -1436,12 +1697,14 @@ export function compileSemanticQuery(
       cols.push(name);
     }
 
-    // Filters: dimension filters → WHERE; metric filters → HAVING.
+    // Filters: dimension filters → WHERE; metric filters → HAVING (in branch
+    // mode metric filters are the outer stitch's job — a branch does not
+    // compute the other branches' metrics).
     const whereParts: string[] = [];
     const havingParts: string[] = [];
     for (const f of q.filters ?? []) {
       if (metricByName.has(f.field)) {
-        havingParts.push(compileFilter(f, exprByField, dialect, { now: opts?.now }));
+        if (!branch) havingParts.push(compileFilter(f, exprByField, dialect, { now: opts?.now }));
       } else if (dimByName.has(f.field)) {
         // The dimension itself goes through so a relative-date filter can reach
         // its type and its ungrained SQL — shifted here when this is the prior
@@ -1457,10 +1720,13 @@ export function compileSemanticQuery(
     }
 
     const from = assertTableRef(model.source.table);
-    let out = `SELECT ${selectParts.join(", ")} FROM ${from}${compileJoins(model.joins, dialect)}`;
+    const joins = branch ? branch.joins : model.joins;
+    let out =
+      `SELECT ${branch?.distinct ? "DISTINCT " : ""}${selectParts.join(", ")}` +
+      ` FROM ${from}${compileJoins(joins, dialect)}`;
     if (whereParts.length) out += ` WHERE ${whereParts.join(" AND ")}`;
     // Group by dimension expressions (grain-wrapped) when aggregating.
-    if (metrics.length && dims.length) {
+    if (activeMetrics.length && dims.length) {
       out += ` GROUP BY ${dims.map(dimExpr).join(", ")}`;
     }
     if (havingParts.length) out += ` HAVING ${havingParts.join(" AND ")}`;
@@ -1521,6 +1787,111 @@ export function compileSemanticQuery(
     );
     return `${parts.length ? ` ORDER BY ${parts.join(", ")}` : ""} LIMIT ${limit}`;
   };
+
+  // ── Multi-fact plan (chasm resolution) ────────────────────────────────
+  if (chasm) {
+    const qi = (name: string) => quoteIdent(name, dialect);
+    const nonFanning = (model.joins ?? []).filter((j) => !isFanningJoin(j));
+    // Every branch keeps ALL non-fanning joins in model order — lookups do
+    // not multiply rows and INNER lookups are row filters that must scope
+    // every branch (and the spine) identically — plus its own fanning join.
+    // The "*" branch is the untouched single-pass scope, reserved for
+    // duplicate-insensitive and custom metrics.
+    const branchJoins = (b: ChasmPlan["branches"][number]): SemanticJoin[] =>
+      b.key === "*"
+        ? (model.joins ?? [])
+        : (model.joins ?? []).filter((j) => !isFanningJoin(j) || j === b.join);
+
+    const aliasOf = new Map<string, string>();
+    chasm.branches.forEach((b, i) => aliasOf.set(b.key, `semantic_f${i}`));
+    const leafAlias = (name: string): string => {
+      for (const b of chasm.branches) {
+        if (b.metricNames.includes(name)) return aliasOf.get(b.key)!;
+      }
+      // Unreachable: planChasm assigned every leaf a branch.
+      throw new Error(`Leaf metric "${name}" was not assigned a branch`);
+    };
+    const leafRef = (name: string) => `${leafAlias(name)}.${qi(name)}`;
+
+    const ctes: string[] = [];
+    for (const b of chasm.branches) {
+      ctes.push(
+        `${aliasOf.get(b.key)} AS (` +
+          buildAggregate(undefined, { joins: branchJoins(b), metricNames: b.metricNames }).sql +
+          `)`,
+      );
+    }
+
+    const SP = "semantic_spine";
+    const selectParts: string[] = [];
+    const columns: string[] = [];
+    let fromClause: string;
+    if (dims.length > 0) {
+      // The spine enumerates every dimension combination the source produces
+      // under the same joins and dimension filters, so a group missing from
+      // one fact still appears — with NULL for that fact's metrics, the same
+      // honesty rule the comparison path uses for a missing period.
+      ctes.unshift(
+        `${SP} AS (` +
+          buildAggregate(undefined, { joins: nonFanning, metricNames: [], distinct: true }).sql +
+          `)`,
+      );
+      for (const d of dims) {
+        selectParts.push(`${SP}.${qi(d)} AS ${qi(d)}`);
+        columns.push(d);
+      }
+      fromClause =
+        `${SP}` +
+        chasm.branches
+          .map((b) => {
+            const a = aliasOf.get(b.key)!;
+            const on = dims
+              .map((d) => nullSafeEq(`${SP}.${qi(d)}`, `${a}.${qi(d)}`, dialect))
+              .join(" AND ");
+            return ` LEFT JOIN ${a} ON ${on}`;
+          })
+          .join("");
+    } else {
+      // Grand total: each branch is a single aggregate row.
+      fromClause = chasm.branches
+        .map((b, i) => (i === 0 ? aliasOf.get(b.key)! : ` CROSS JOIN ${aliasOf.get(b.key)!}`))
+        .join("");
+    }
+
+    // Requested metrics in order: leaves project their branch column; derived
+    // formulas evaluate OVER the branch columns — the single-pass inlining,
+    // evaluated in two steps.
+    const outerExpr = new Map<string, string>();
+    for (const om of chasm.outer) {
+      const expr = om.leaf
+        ? leafRef(om.name)
+        : expandDerivedFormula(metricByName.get(om.name)!, metricByName, leafRef);
+      outerExpr.set(om.name, expr);
+      selectParts.push(`${expr} AS ${qi(om.name)}`);
+      columns.push(om.name);
+    }
+
+    // Metric filters land here — post-aggregation, so a plain WHERE over the
+    // stitched columns is the HAVING of this plan.
+    const outerWhere: string[] = [];
+    for (const f of q.filters ?? []) {
+      if (!metricByName.has(f.field)) continue; // dimension filters ran inside every branch
+      const expr = outerExpr.get(f.field);
+      if (!expr) {
+        throw new Error(
+          `A multi-fact plan can only filter on metrics the query returns — add "${f.field}" ` +
+            `to the requested metrics or drop the filter.`,
+        );
+      }
+      outerWhere.push(compileFilter(f, outerExpr, dialect, { now: opts?.now }));
+    }
+
+    const sql =
+      `WITH ${ctes.join(", ")} SELECT ${selectParts.join(", ")} FROM ${fromClause}` +
+      (outerWhere.length ? ` WHERE ${outerWhere.join(" AND ")}` : "") +
+      tail(columns);
+    return { sql, columns };
+  }
 
   if (!q.compare) {
     const base = buildAggregate();

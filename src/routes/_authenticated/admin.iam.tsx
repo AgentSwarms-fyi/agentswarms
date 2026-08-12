@@ -17,6 +17,7 @@ import {
   FolderTree,
   EyeOff,
   Filter,
+  Fingerprint,
   KeyRound,
   Loader2,
   Plus,
@@ -106,14 +107,17 @@ import {
   iamDeleteSsoProvider,
   iamDeleteUser,
   iamGetSettings,
+  iamDeleteUserAttribute,
   iamGrantSuperadmin,
   iamListGrantableResources,
   iamListGrants,
   iamListGroups,
   iamListModelRules,
   iamListSsoProviders,
+  iamListUserAttributes,
   iamListUsers,
   iamRemoveGroupMember,
+  iamSetUserAttribute,
   iamRevokeSuperadmin,
   iamSetModelRules,
   iamSetUserBan,
@@ -288,6 +292,9 @@ function AdminIamPage() {
           <TabsTrigger value="access" className="gap-1.5">
             <KeyRound className="h-3.5 w-3.5" /> Access
           </TabsTrigger>
+          <TabsTrigger value="attributes" className="gap-1.5">
+            <Fingerprint className="h-3.5 w-3.5" /> Attributes
+          </TabsTrigger>
           <TabsTrigger value="budgets" className="gap-1.5">
             <Wallet className="h-3.5 w-3.5" /> Budgets
           </TabsTrigger>
@@ -318,6 +325,9 @@ function AdminIamPage() {
             groupById={groupById}
             reload={reload}
           />
+        </TabsContent>
+        <TabsContent value="attributes" className="mt-4">
+          <AttributesTab token={token!} users={users} userById={userById} />
         </TabsContent>
         <TabsContent value="budgets" className="mt-4">
           <GroupBudgetsTab groups={groups} />
@@ -1460,10 +1470,18 @@ function AccessTab({
                 className="h-8 w-72 text-xs"
                 value={shareFilterValues}
                 onChange={(e) => setShareFilterValues(e.target.value)}
-                placeholder="Allowed values, comma-separated — e.g. EMEA, APAC"
+                placeholder="Values or {{user.region}} — comma-separated"
               />
               <span className="text-[11px] text-muted-foreground">
-                The grantee only sees dashboard rows where the column matches one of these values.
+                The grantee only sees rows where the column matches one of these values.
+                {shareResourceType === "semantic_model" && (
+                  <>
+                    {" "}
+                    A value like <code className="font-mono">{"{{user.region}}"}</code> resolves to
+                    each viewer&apos;s own values from the Attributes tab — one grant, per-viewer
+                    rows; a viewer missing the attribute is refused, never unfiltered.
+                  </>
+                )}{" "}
                 Re-sharing with the same principal updates the filter.
               </span>
               <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -2254,5 +2272,164 @@ function SsoTab({
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+// ─── Attributes tab ──────────────────────────────────────────────────────────
+//
+// Key/values pairs pinned on a user, referenced from share grants as
+// {{user.<key>}} — one grant rule, per-viewer rows. Admin-written only; the
+// enforcement path (semantic queries) REFUSES when a referenced attribute is
+// missing, so setting these is what makes an attribute-scoped share usable.
+
+type AttributeRow = { user_id: string; key: string; values: string[]; updated_at: string };
+
+function AttributesTab({
+  token,
+  users,
+  userById,
+}: {
+  token: string;
+  users: IamUserRow[];
+  userById: Map<string, IamUserRow>;
+}) {
+  const listFn = useServerFn(iamListUserAttributes);
+  const setFn = useServerFn(iamSetUserAttribute);
+  const deleteFn = useServerFn(iamDeleteUserAttribute);
+
+  const [rows, setRows] = useState<AttributeRow[] | null>(null);
+  const [userId, setUserId] = useState("");
+  const [key, setKey] = useState("");
+  const [values, setValues] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    const res = await listFn({ data: { access_token: token } });
+    if ("attributes" in res) setRows(res.attributes);
+    else toast.error(res.error);
+  }, [listFn, token]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const save = async () => {
+    const list = values
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (!userId) return toast.error("Pick a user");
+    if (!key.trim()) return toast.error("Attribute key is required");
+    if (list.length === 0) return toast.error("At least one value is required");
+    setBusy(true);
+    try {
+      const res = await setFn({
+        data: { access_token: token, user_id: userId, key: key.trim(), values: list },
+      });
+      if ("error" in res && res.error) return toast.error(String(res.error));
+      toast.success(`Set ${key.trim()} for ${userById.get(userId)?.email ?? "user"}`);
+      setKey("");
+      setValues("");
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (r: AttributeRow) => {
+    const res = await deleteFn({
+      data: { access_token: token, user_id: r.user_id, key: r.key },
+    });
+    if ("error" in res && res.error) return toast.error(String(res.error));
+    toast.success(`Removed ${r.key}`);
+    await load();
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Fingerprint className="h-4 w-4 text-primary" /> User attributes
+        </CardTitle>
+        <CardDescription>
+          Values a share grant can reference as{" "}
+          <code className="font-mono text-xs">{"{{user.<key>}}"}</code> in its row filter — e.g.
+          grant a group access filtered by <code className="font-mono text-xs">region</code> equals{" "}
+          <code className="font-mono text-xs">{"{{user.region}}"}</code>, and every member sees only
+          their own region&apos;s rows. A query whose grant references an attribute the user does
+          not have is <strong>refused</strong>, never run unfiltered.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-2 sm:grid-cols-[1.4fr_1fr_1.6fr_auto]">
+          <Select value={userId || undefined} onValueChange={setUserId}>
+            <SelectTrigger className="h-9" aria-label="Attribute user">
+              <SelectValue placeholder="User…" />
+            </SelectTrigger>
+            <SelectContent>
+              {users.map((u) => (
+                <SelectItem key={u.user_id} value={u.user_id}>
+                  {u.email ?? u.user_id}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Input
+            value={key}
+            onChange={(e) => setKey(e.target.value)}
+            placeholder="key, e.g. region"
+            aria-label="Attribute key"
+            className="h-9 font-mono"
+          />
+          <Input
+            value={values}
+            onChange={(e) => setValues(e.target.value)}
+            placeholder="values, comma-separated — e.g. EMEA, APAC"
+            aria-label="Attribute values"
+            className="h-9 font-mono"
+          />
+          <Button size="sm" className="h-9" onClick={save} disabled={busy}>
+            <Plus className="mr-1 h-3.5 w-3.5" /> Set
+          </Button>
+        </div>
+
+        {rows === null ? (
+          <p className="text-sm text-muted-foreground">Loading…</p>
+        ) : rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No attributes yet. Set one above, then reference it from an Access grant&apos;s row
+            filter as <code className="font-mono text-xs">{"{{user.<key>}}"}</code>.
+          </p>
+        ) : (
+          <div className="divide-y divide-border rounded-md border">
+            {rows.map((r) => (
+              <div
+                key={`${r.user_id}-${r.key}`}
+                className="flex flex-wrap items-center gap-2 px-3 py-2"
+              >
+                <span className="min-w-0 flex-1 truncate text-sm">
+                  {userById.get(r.user_id)?.email ?? r.user_id}
+                </span>
+                <Badge variant="outline" className="font-mono text-[10px]">
+                  {r.key}
+                </Badge>
+                <span className="max-w-[40%] truncate font-mono text-xs text-muted-foreground">
+                  {r.values.join(", ")}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                  aria-label={`Remove attribute ${r.key}`}
+                  onClick={() => void remove(r)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

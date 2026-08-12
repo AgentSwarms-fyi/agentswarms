@@ -38,6 +38,75 @@ export function applicableGrants<G extends GrantRow>(
   );
 }
 
+// ── Attribute-driven row filters ───────────────────────────────────────────
+//
+// A grant's row-filter VALUES may be the token {{user.<key>}} instead of a
+// literal. At enforcement time the token resolves to the CALLING user's
+// values for <key> from iam_user_attributes — one grant on a group can scope
+// every member to their own region. Resolution happens per grant, BEFORE the
+// permissive-union merge, so two grants resolving to different values union
+// exactly like two literal grants would.
+//
+// FAIL CLOSED, with the attribute named: a token whose attribute the user
+// does not have (or has empty) REFUSES the query rather than compiling an
+// empty filter — silent zero rows would read as "there is no data", and an
+// unresolved token passed through as a literal would match nothing while
+// LOOKING like a value. Both are the quiet failure this layer refuses.
+
+/** Matches a whole-value attribute token: {{user.region}} (trimmed). */
+export const USER_ATTR_TOKEN_RE = /^\{\{\s*user\.([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}$/;
+
+/** The attribute keys any of these grants' row filters reference. */
+export function attributeKeysInGrants(grants: GrantRow[]): string[] {
+  const keys = new Set<string>();
+  for (const g of grants) {
+    const rf = g.row_filter as { values?: unknown } | null;
+    if (!rf || !Array.isArray(rf.values)) continue;
+    for (const v of rf.values) {
+      const m = typeof v === "string" ? USER_ATTR_TOKEN_RE.exec(v.trim()) : null;
+      if (m) keys.add(m[1]);
+    }
+  }
+  return [...keys];
+}
+
+/**
+ * Substitute every {{user.<key>}} token in these grants' row filters with the
+ * caller's attribute values. Literal values pass through untouched; a token
+ * expands to ALL of the user's values for that key (an attribute is a list —
+ * a manager may hold two regions). Throws — refusing the query — when a
+ * referenced attribute is missing or empty for this user.
+ */
+export function resolveAttributeGrants<G extends GrantRow>(
+  grants: G[],
+  attributes: Map<string, string[]>,
+): G[] {
+  return grants.map((g) => {
+    const rf = g.row_filter as { column?: unknown; values?: unknown } | null;
+    if (!rf || !Array.isArray(rf.values)) return g;
+    let touched = false;
+    const values: string[] = [];
+    for (const v of rf.values) {
+      const m = typeof v === "string" ? USER_ATTR_TOKEN_RE.exec(v.trim()) : null;
+      if (!m) {
+        if (typeof v === "string") values.push(v);
+        continue;
+      }
+      touched = true;
+      const mine = attributes.get(m[1]) ?? [];
+      if (mine.length === 0) {
+        throw new Error(
+          `Your access is filtered by the attribute "${m[1]}" ({{user.${m[1]}}}), but your ` +
+            `account has no value for it. Ask an admin to set it under IAM → Attributes.`,
+        );
+      }
+      values.push(...mine);
+    }
+    if (!touched) return g;
+    return { ...g, row_filter: { ...rf, values } as G["row_filter"] };
+  });
+}
+
 export type SemanticAccessPolicy = {
   /** null = unrestricted (at least one grant carries no filter). */
   rowFilters: BiRowFilter[] | null;

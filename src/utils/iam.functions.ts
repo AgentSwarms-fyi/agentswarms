@@ -5,8 +5,17 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { USER_ATTR_TOKEN_RE } from "@/lib/semanticPolicy";
 import { auditEvent } from "@/utils/audit.server";
 import { isBootstrapAdmin, requireSuperadmin } from "@/utils/iam.server";
+
+/**
+ * A row-filter value is either a plain literal or a WELL-FORMED attribute
+ * token — the same grammar the enforcement resolver uses, imported so the
+ * writer and the enforcer can never drift. Exported for tests.
+ */
+export const rowFilterValueOk = (v: string): boolean =>
+  !v.includes("{{") || USER_ATTR_TOKEN_RE.test(v);
 
 // --- Shared types --------------------------------------------------------
 
@@ -520,6 +529,106 @@ export const iamRemoveGroupMember = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+// --- User attributes (attribute-driven row security) ---------------------
+//
+// Key/values pairs an admin pins on a user; a share grant's row filter may
+// reference them as {{user.<key>}} and resolves per caller at query time
+// (src/lib/semanticPolicy). Admin-written only — a user who could write
+// their own attributes could widen their own scope.
+
+const ATTRIBUTE_KEY_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+
+export const iamListUserAttributes = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .handler(async ({ data }) => {
+    const guard = await requireSuperadmin(data.access_token);
+    if (!guard.ok) return guard;
+    const { data: rows, error } = await supabaseAdmin
+      .from("iam_user_attributes")
+      .select("user_id, key, attr_values, updated_at")
+      .order("key");
+    if (error) return { ok: false as const, error: error.message };
+    return {
+      ok: true as const,
+      attributes: (rows ?? []).map((r) => ({
+        user_id: r.user_id as string,
+        key: r.key as string,
+        values: Array.isArray(r.attr_values)
+          ? (r.attr_values as unknown[]).filter((v): v is string => typeof v === "string")
+          : [],
+        updated_at: r.updated_at as string,
+      })),
+    };
+  });
+
+export const iamSetUserAttribute = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        access_token: z.string().min(1),
+        user_id: z.string().uuid(),
+        key: z
+          .string()
+          .trim()
+          .max(64)
+          .regex(ATTRIBUTE_KEY_RE, "Attribute keys are letters/digits/underscore"),
+        values: z.array(z.string().trim().min(1).max(200)).min(1).max(100),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }): Promise<IamError | { ok: true }> => {
+    const guard = await requireSuperadmin(data.access_token);
+    if (!guard.ok) return guard;
+    const { error } = await supabaseAdmin.from("iam_user_attributes").upsert(
+      {
+        user_id: data.user_id,
+        key: data.key,
+        attr_values: data.values,
+        updated_at: new Date().toISOString(),
+        updated_by: guard.userId,
+      },
+      { onConflict: "user_id,key" },
+    );
+    if (error) return { ok: false, error: error.message };
+    auditEvent({
+      userId: guard.userId,
+      action: "iam.attributes.set",
+      resourceType: "iam_user",
+      resourceId: data.user_id,
+      detail: { key: data.key, values: data.values },
+    });
+    return { ok: true };
+  });
+
+export const iamDeleteUserAttribute = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        access_token: z.string().min(1),
+        user_id: z.string().uuid(),
+        key: z.string().trim().min(1).max(64),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }): Promise<IamError | { ok: true }> => {
+    const guard = await requireSuperadmin(data.access_token);
+    if (!guard.ok) return guard;
+    const { error } = await supabaseAdmin
+      .from("iam_user_attributes")
+      .delete()
+      .eq("user_id", data.user_id)
+      .eq("key", data.key);
+    if (error) return { ok: false, error: error.message };
+    auditEvent({
+      userId: guard.userId,
+      action: "iam.attributes.delete",
+      resourceType: "iam_user",
+      resourceId: data.user_id,
+      detail: { key: data.key },
+    });
+    return { ok: true };
+  });
+
 // --- Model rules ---------------------------------------------------------
 
 export const iamListModelRules = createServerFn({ method: "POST" })
@@ -870,7 +979,20 @@ export const iamCreateGrant = createServerFn({ method: "POST" })
         row_filter: z
           .object({
             column: z.string().trim().min(1),
-            values: z.array(z.string().trim().min(1)).min(1).max(100),
+            // A value may be a literal OR the attribute token {{user.<key>}},
+            // which resolves to the querying user's own values at enforcement
+            // time. Anything that LOOKS like a token but is malformed is
+            // refused here — stored as a literal it would silently match
+            // nothing while reading like a rule.
+            values: z
+              .array(
+                z.string().trim().min(1).refine(rowFilterValueOk, {
+                  message:
+                    'Attribute tokens must be exactly {{user.<key>}} (e.g. "{{user.region}}")',
+                }),
+              )
+              .min(1)
+              .max(100),
           })
           .nullish(),
         column_mask: z.array(z.string().trim().min(1).max(128)).max(100).optional(),

@@ -48,31 +48,58 @@ Open **Semantic Layer** in the sidebar:
 3. **Save**, then use the **Query runner** to pick metrics + dimensions and see
    the rows and the compiled SQL.
 
-## Join safety — declared cardinality, refused fan-out
+## Join safety — declared cardinality, resolved fan-out
 
 A join's **cardinality** declares how many joined rows one source row matches,
 source → joined:
 
-| cardinality                    | meaning                       | effect                                      |
-| ------------------------------ | ----------------------------- | ------------------------------------------- |
-| `many_to_one` / `one_to_one`   | lookup (orders → customers)   | safe, compiles as always                    |
-| `one_to_many` / `many_to_many` | **fans out** (orders → items) | duplicate-sensitive metrics are **refused** |
+| cardinality                    | meaning                       | effect                                     |
+| ------------------------------ | ----------------------------- | ------------------------------------------ |
+| `many_to_one` / `one_to_one`   | lookup (orders → customers)   | safe, compiles as always                   |
+| `one_to_many` / `many_to_many` | **fans out** (orders → items) | duplicate-sensitive metrics get a **plan** |
 
 A fanning join repeats each source row per match, so `SUM`/`AVG`/`COUNT` over
 source-side columns silently inflates — measured: orders A (100) + B (50)
 joined to A's three line items returns `SUM(orders.amount) = 350` against a
-truth of 150. With the cardinality declared, that query **cannot compile**:
+truth of 150. With the cardinality declared, the compiler emits a
+**multi-fact plan** instead of that wrong number: each metric aggregates in
+its own **branch** — the source plus only the fanning join its columns
+reference — at the requested dimension grain, and the branch aggregates are
+stitched on a dimension **spine** with NULL-safe joins. The same query now
+returns 150, and `SUM(order_items.qty)` beside it returns the line-item
+truth, in one result. This is the classic **chasm** schema (orders → items,
+orders → shipments) handled the way Tableau's relationships handle it:
+per-fact aggregation, never a refusal — where the plan can be proven.
 
-- `sum`/`avg` must reference the fanning table's columns only (qualify them,
-  e.g. `order_items.qty`); anything touching a repeated table is refused with
-  the reason and the fix.
-- Plain `count` is refused (it counts joined rows); use `count_distinct` over
-  the primary key, or a filtered count over the fanning table's columns.
-- `count_distinct`, `min`, `max` are duplicate-insensitive and always pass.
-- `custom` stays the documented owner-trusted escape hatch (e.g. an expression
-  that pre-aggregates); `derived` metrics are checked at their leaves.
-- **Two** fanning joins multiply each other (the chasm trap), so
-  duplicate-sensitive metrics are refused outright there.
+The rules, per metric:
+
+- `sum`/`avg` reading **one** fanning table → that table's branch, at that
+  fact's grain (a mixed `items.qty * orders.amount` evaluates once per item,
+  with the order's amount as an attribute — standard related-table
+  semantics).
+- `sum`/`avg` reading only source/lookup columns → the base branch, which
+  never sees a fanning join.
+- A group missing from one fact shows **NULL** for that fact's metrics — the
+  same honesty rule period-over-period uses for a missing period.
+- `count_distinct`, `min`, `max` are duplicate-insensitive; they keep their
+  full single-pass scope so resolution never changes an already-legal metric.
+  `custom` stays the owner-trusted escape hatch, same scope; `derived`
+  formulas compute over their leaves' branch columns.
+
+**What still refuses** — everything the plan cannot prove, with the original
+error plus the reason resolution did not apply:
+
+- an **unqualified** `sum`/`avg` (`amount` with no table prefix) — a branch
+  would silently choose which table it binds to; qualify it.
+- a plain `count` — "count of what" has no provable answer on a fanned model;
+  use `count_distinct` over the key or a filtered count.
+- a metric reading **two** fanning tables — no single grain to aggregate at;
+  split it and combine with a derived metric.
+- a **dimension** from a fanning table mixed with base metrics (needs
+  primary-key deduplication — roadmap), an **INNER** fanning join (a row
+  filter the plan cannot keep without duplicating), a lookup **chained
+  through** a fanning join, period-over-period across a plan (roadmap), and
+  the AlaSQL escape hatch (no CTEs).
 
 Models saved before cardinality existed keep compiling unchanged — breaking
 every existing model on upgrade was not an option. They are protected by
@@ -348,6 +375,19 @@ the query runner, BI widget refresh):
   warehouse dialect. If the grant names a dimension the model no longer has,
   the query **fails closed** with a message pointing at the grant — "filter
   didn't apply" never degrades to "grantee saw everything".
+- **Attribute-driven row filter** — a filter value may be the token
+  `{{user.<key>}}` instead of a literal. At query time it resolves to the
+  **calling viewer's** values for that key from **Admin → IAM → Attributes**
+  (admin-written; users cannot widen their own scope). One grant on a group —
+  `region ∈ [{{user.region}}]` — scopes every member to their own region; an
+  attribute holding two values widens that viewer to both. A viewer whose
+  account **lacks** the referenced attribute is **refused with the attribute
+  named**, never run unfiltered and never silently empty — and a malformed
+  token is refused at grant-writing time with the same grammar the enforcer
+  uses, so a broken rule can never be stored as a literal that matches
+  nothing. The disclosure banner shows the **resolved** values, so the viewer
+  knows the scope they are actually seeing. (Tokens apply to semantic-model
+  grants; a token in a BI-dashboard grant is treated as a literal today.)
 - **Field mask** — metric/dimension names the grantee may not use. Masked
   fields are refused at query time AND hidden from the grantee's catalog,
   editor and agent prompt, so no surface offers a name the query path would
@@ -408,8 +448,14 @@ Deleting a model warns with that list first.
   rather than choosing one.
 - A native metric option **inside the BI visual builder** (today you author +
   run here and Add to dashboard; the builder's own source picker is next).
-- **Chasm resolution** — two fanning joins are refused rather than resolved by
-  aggregating each fact separately and joining the results.
+- **Multi-fact plan extensions** — the chasm itself is resolved (see Join
+  safety); still deferred: grouping base metrics by a fanning table's
+  dimension (needs primary-key deduplication), period-over-period across a
+  plan, and INNER fanning joins (an EXISTS-style row filter would keep the
+  scope without the duplication).
+- **Attribute tokens on BI-dashboard grants** — {{user.<key>}} resolves on
+  semantic-model grants today; the dashboard direct-query path still reads
+  tokens as literals.
 - **Per-widget parameter overrides** — a dashboard widget built from a
   parameterised model refreshes with the declared defaults today; pinning an
   override onto a specific widget is a follow-up.

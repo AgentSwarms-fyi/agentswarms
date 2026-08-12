@@ -1885,6 +1885,30 @@ export type Database = {
         };
         Relationships: [];
       };
+      iam_user_attributes: {
+        Row: {
+          attr_values: Json;
+          key: string;
+          updated_at: string;
+          updated_by: string | null;
+          user_id: string;
+        };
+        Insert: {
+          attr_values?: Json;
+          key: string;
+          updated_at?: string;
+          updated_by?: string | null;
+          user_id: string;
+        };
+        Update: {
+          attr_values?: Json;
+          key?: string;
+          updated_at?: string;
+          updated_by?: string | null;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       iam_group_members: {
         Row: {
           added_by: string | null;

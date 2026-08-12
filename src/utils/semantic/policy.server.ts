@@ -8,9 +8,38 @@
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import {
   applicableGrants,
+  attributeKeysInGrants,
   policyFromGrants,
+  resolveAttributeGrants,
   type SemanticAccessPolicy,
 } from "@/lib/semanticPolicy";
+
+/**
+ * The caller's attribute values for `keys`, fetched only when a grant
+ * actually references one. Explicitly user-scoped on the service role, like
+ * the groups lookup above it.
+ */
+async function attributesFor(userId: string, keys: string[]): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  if (keys.length === 0) return out;
+  const { data, error } = await supabaseAdmin
+    .from("iam_user_attributes")
+    .select("key, attr_values")
+    .eq("user_id", userId)
+    .in("key", keys);
+  if (error) {
+    // FAIL CLOSED — an unreadable attribute store must refuse the query, not
+    // run it unfiltered or silently empty.
+    throw new Error(`Could not load user attributes: ${error.message}`);
+  }
+  for (const row of data ?? []) {
+    const vals = Array.isArray(row.attr_values)
+      ? (row.attr_values as unknown[]).filter((v): v is string => typeof v === "string")
+      : [];
+    out.set(row.key as string, vals);
+  }
+  return out;
+}
 
 /**
  * Policies for `userId` on each of `modelIds`, batched (one groups query, one
@@ -44,10 +73,19 @@ export async function semanticPoliciesFor(
     throw new Error(`Could not load access grants: ${error.message}`);
   }
 
+  // Attribute tokens resolve per grant BEFORE the merge — one attributes
+  // fetch covers every model in the batch.
+  type FetchedGrant = NonNullable<typeof grants>[number];
+  const allMine = new Map<string, FetchedGrant[]>();
   for (const id of new Set(modelIds)) {
     const forModel = (grants ?? []).filter((g) => g.resource_id === id);
-    const mine = applicableGrants(forModel, userId, groupIds);
-    if (mine.length > 0) out.set(id, policyFromGrants(mine));
+    allMine.set(id, applicableGrants(forModel, userId, groupIds));
+  }
+  const keys = attributeKeysInGrants([...allMine.values()].flat());
+  const attrs = await attributesFor(userId, keys);
+
+  for (const [id, mine] of allMine) {
+    if (mine.length > 0) out.set(id, policyFromGrants(resolveAttributeGrants(mine, attrs)));
   }
   return out;
 }

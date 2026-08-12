@@ -199,18 +199,23 @@ GROUP BY 1, 2`}</Code>
         matches. A lookup (<C>many_to_one</C>, <C>one_to_one</C>) is safe; a fanning join (
         <C>one_to_many</C>, <C>many_to_many</C>) repeats each source row per match, which silently
         inflates any <C>sum</C>/<C>avg</C>/<C>count</C> over source columns. With the cardinality
-        declared, the compiler <strong>refuses</strong> such metrics instead of returning a wrong
-        number: aggregate the fanning table's own columns, use the duplicate-insensitive{" "}
-        <C>count_distinct</C>/<C>min</C>/<C>max</C>, or write a <C>custom</C> metric that
-        pre-aggregates. Two fanning joins multiply each other, so duplicate-sensitive metrics are
-        refused entirely there. Models saved before cardinality existed keep compiling unchanged —
-        Validate measures them instead.
+        declared, the compiler builds a <strong>multi-fact plan</strong> instead of that wrong
+        number: each metric aggregates in its own branch — the source plus only the fanning join its
+        columns reference — at the requested dimension grain, and the branches are stitched on a
+        dimension spine. Base metrics and fact metrics come back correct <em>side by side</em>, two
+        fanning facts (the classic chasm: orders → items, orders → shipments) each aggregate at
+        their own grain, and a group missing from one fact shows blank for that fact rather than
+        vanishing. What the plan cannot prove still <strong>refuses</strong> with the reason: an
+        unqualified column (no branch may guess its table), a bare <C>count</C>, a metric reading
+        two facts at once, a dimension taken from a fanning table, an <C>INNER</C> fanning join, and
+        period-over-period across a plan. Models saved before cardinality existed keep compiling
+        unchanged — Validate measures them instead.
       </P>
       <Callout kind="why">
         Measured on a two-order fixture: orders A (100) and B (50), where A has three line items.
         Joined to the items table, <C>SUM(orders.amount)</C> returns 350 against a truth of 150 — no
-        error, no caveat. That query is now impossible to compile once the join says{" "}
-        <C>one_to_many</C>.
+        error, no caveat. Once the join declares <C>one_to_many</C>, the same query compiles to a
+        per-fact plan and returns 150 — with the line-item metrics right beside it, also correct.
       </Callout>
 
       <H2 id="trust">Trust checks — grain, measurement, assertions</H2>
@@ -427,6 +432,17 @@ LEFT JOIN semantic_prev ON semantic_cur."month" IS NOT DISTINCT FROM semantic_pr
         <strong>fails closed</strong>. And the restriction is disclosed everywhere: the grantee's
         editor, the runner's results and the agent's tool output all say the numbers are a scoped
         view — a restricted share must never pass for the global truth.
+      </P>
+      <P>
+        A row-filter value can also be the <strong>attribute token</strong>{" "}
+        <C>{"{{user.<key>}}"}</C> instead of a literal. It resolves at query time to the{" "}
+        <em>calling viewer&apos;s</em> values for that key, set by an admin under{" "}
+        <strong>Admin → IAM → Attributes</strong> — so one grant on a group,{" "}
+        <C>{"region ∈ [{{user.region}}]"}</C>, scopes every member to their own region. A viewer
+        whose account lacks the attribute is <strong>refused with the attribute named</strong> —
+        never run unfiltered, never silently empty — and a malformed token is refused when the grant
+        is written, using the same grammar the enforcer applies. The disclosure shows the{" "}
+        <em>resolved</em> values, so a viewer always knows the scope they are actually seeing.
       </P>
 
       <H3 id="certification">Certification, history and dependents</H3>

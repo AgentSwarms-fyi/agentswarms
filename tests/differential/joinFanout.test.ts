@@ -4,14 +4,17 @@
 // to order_items (A has three lines, B has one). Truth: revenue 150, orders 2.
 // Before cardinality existed the compiler emitted SUM(orders.amount) over the
 // joined result and DuckDB returned 350 and 4 — no error, no caveat, a wrong
-// number wearing a right number's clothes. semanticValidateModel's LIMIT 1
-// probe certified it ("all fields compile and run").
+// number wearing a right number's clothes.
 //
-// With the join DECLARED one_to_many, the same query must now REFUSE at
-// compile time; metrics on the fanning side must still run and be RIGHT; and
-// a model with no declared cardinality must compile exactly as before —
-// breaking every existing saved model on upgrade is not an option, which is
-// why Validate measures undeclared joins instead (see semanticMeasure tests).
+// The contract has two eras. First the declared fan-out made that query
+// REFUSE at compile time. Now the compiler goes one better: where the refusal
+// used to stand, it builds a MULTI-FACT PLAN — each metric aggregated in its
+// own branch at the dimension grain, stitched on a spine — and the same query
+// returns 150. The refusal REMAINS for everything the plan cannot prove:
+// unqualified columns, bare counts, cross-fact expressions. A model with no
+// declared cardinality still compiles exactly as before — breaking every
+// existing saved model on upgrade is not an option, which is why Validate
+// measures undeclared joins instead (see semanticMeasure tests).
 import { describe, expect, it } from "vitest";
 
 import { compileSemanticQuery, qualifiedRefsIn, type SemanticModel } from "@/lib/semanticLayer";
@@ -43,6 +46,19 @@ const items: DuckTable = {
     { order_id: "A", sku: "s2", qty: 2 },
     { order_id: "A", sku: "s3", qty: 4 },
     { order_id: "B", sku: "s1", qty: 5 },
+  ],
+};
+
+const shipments: DuckTable = {
+  name: "shipments",
+  columns: [
+    { name: "order_id", type: "string" },
+    { name: "weight", type: "number" },
+  ],
+  rows: [
+    { order_id: "A", weight: 9 },
+    { order_id: "B", weight: 1 },
+    { order_id: "B", weight: 2 },
   ],
 };
 
@@ -88,56 +104,69 @@ const q = (metrics: string[], dims: string[] = ["region"]) => ({
   dimensions: dims,
 });
 
-describe("declared one_to_many: duplicate-sensitive metrics over the source REFUSE", () => {
-  it("sum over a source column refuses, naming the join, the metric and the fix", () => {
-    expect(() => compileSemanticQuery(model(true), q(["revenue"]), { dialect: "duckdb" })).toThrow(
-      /revenue.*double-count.*order_items.*repeated once per/is,
-    );
+const run = async (m: SemanticModel, metrics: string[]) => {
+  const c = compileSemanticQuery(m, q(metrics), { dialect: "duckdb" });
+  return (await runLocalSqlDuckDB(c.sql, [orders, items, shipments])).rows;
+};
+
+describe("declared one_to_many: the query that used to say 350 now says 150", () => {
+  it("sum over a source column RESOLVES via a multi-fact plan and is right", async () => {
+    // The exact query the refusal was built for. It no longer refuses — it
+    // compiles to a base branch that never sees the fanning join.
+    expect(await run(model(true), ["revenue"])).toEqual([{ region: "EMEA", revenue: 150 }]);
   });
 
-  it("plain count refuses and points at count_distinct over the declared key", () => {
+  it("base and fact metrics in ONE query are BOTH right", async () => {
+    // The chasm poster child at one-join scale: 150 and 12 side by side,
+    // where the single pass could only ever get one of them right.
+    expect(await run(model(true), ["revenue", "units"])).toEqual([
+      { region: "EMEA", revenue: 150, units: 12 },
+    ]);
+  });
+
+  it("a plain count still refuses — 'count of what' has no provable answer", () => {
     expect(() =>
       compileSemanticQuery(model(true), q(["order_count"]), { dialect: "duckdb" }),
-    ).toThrow(/order_count.*counts JOINED rows.*count_distinct over order_id/is);
+    ).toThrow(/order_count.*ambiguous.*bare count.*count_distinct over order_id/is);
   });
 
-  it("an unqualified sum refuses as ambiguous rather than guessing the table", () => {
+  it("an unqualified sum still refuses as ambiguous rather than guessing the table", () => {
     expect(() => compileSemanticQuery(model(true), q(["bare_sum"]), { dialect: "duckdb" })).toThrow(
       /bare_sum.*ambiguous.*qualify/is,
     );
   });
 
-  it("a mixed source×fanning expression refuses — the source factor is repeated", () => {
-    expect(() => compileSemanticQuery(model(true), q(["mixed"]), { dialect: "duckdb" })).toThrow(
-      /mixed.*double-count/is,
-    );
+  it("a mixed source×fact expression aggregates at the FACT's grain", async () => {
+    // qty * amount evaluates once per line item, with the order's amount as
+    // an attribute of the line: A → (1+2+4)×100, B → 5×50. This is the
+    // standard related-table semantics (a price on the parent, a quantity on
+    // the line), not double-counting — the metric's own grain is the fact.
+    expect(await run(model(true), ["mixed"])).toEqual([{ region: "EMEA", mixed: 950 }]);
   });
 
-  it("a count filtered on SOURCE columns refuses — it still counts joined rows", () => {
-    expect(() =>
-      compileSemanticQuery(model(true), q(["paid_rows"]), { dialect: "duckdb" }),
-    ).toThrow(/paid_rows.*counts JOINED rows/is);
+  it("a count filtered on SOURCE columns counts SOURCE rows", async () => {
+    // The filter anchors the count to the base branch, where a row is an
+    // order — 2, not the 4 joined rows the single pass counted.
+    expect(await run(model(true), ["paid_rows"])).toEqual([{ region: "EMEA", paid_rows: 2 }]);
   });
 
-  it("a derived metric is checked at its leaves and names the unsafe one", () => {
-    expect(() => compileSemanticQuery(model(true), q(["aov"]), { dialect: "duckdb" })).toThrow(
-      /revenue.*double-count/is,
-    );
+  it("a derived metric resolves through its leaves", async () => {
+    // revenue (base) / distinct_orders (base): 150 / 2.
+    expect(await run(model(true), ["aov"])).toEqual([{ region: "EMEA", aov: 75 }]);
   });
 
-  it("many_to_many fans exactly like one_to_many", () => {
+  it("many_to_many resolves exactly like one_to_many", async () => {
     const m2m: SemanticModel = {
       ...model(false),
       joins: [{ ...model(false).joins![0], cardinality: "many_to_many" }],
     };
-    expect(() => compileSemanticQuery(m2m, q(["revenue"]), { dialect: "duckdb" })).toThrow(
-      /double-count/,
-    );
+    expect(await run(m2m, ["revenue"])).toEqual([{ region: "EMEA", revenue: 150 }]);
   });
 
-  it("the refusal reaches a model loaded from a DB ROW (jsonb round-trip)", () => {
+  it("the plan reaches a model loaded from a DB ROW (jsonb round-trip)", async () => {
     // Cardinality lives inside the joins jsonb; if rowToModel ever narrowed
-    // the join shape it would silently drop the declaration and the guard.
+    // the join shape it would silently drop the declaration — and with it
+    // both the plan and the remaining refusals.
     const row = {
       id: "00000000-0000-0000-0000-000000000000",
       user_id: "00000000-0000-0000-0000-000000000000",
@@ -156,18 +185,18 @@ describe("declared one_to_many: duplicate-sensitive metrics over the source REFU
       created_at: "",
       updated_at: "",
     } as unknown as SemanticModelRow;
-    expect(() =>
-      compileSemanticQuery(rowToModel(row), q(["revenue"]), { dialect: "duckdb" }),
-    ).toThrow(/double-count/);
+    expect(await run(rowToModel(row), ["revenue"])).toEqual([{ region: "EMEA", revenue: 150 }]);
     expect(() =>
       compileSemanticQuery(rowToModel(row), q(["order_count"]), { dialect: "duckdb" }),
     ).toThrow(/count_distinct over order_id/);
   });
 });
 
-describe("declared one_to_many: fan-side and duplicate-insensitive metrics still run — and are RIGHT", () => {
-  it("sum over the fanning table's column is allowed and correct", async () => {
+describe("declared one_to_many: fan-side and duplicate-insensitive metrics run single-pass, unchanged", () => {
+  it("sum over the fanning table's column stays a single pass and correct", async () => {
     const c = compileSemanticQuery(model(true), q(["units"]), { dialect: "duckdb" });
+    // No plan, no CTEs — the safe query compiles exactly as it always did.
+    expect(c.sql).not.toContain("semantic_spine");
     const res = await runLocalSqlDuckDB(c.sql, [orders, items]);
     expect(res.rows).toEqual([{ region: "EMEA", units: 12 }]);
   });
@@ -203,7 +232,7 @@ describe("declared one_to_many: fan-side and duplicate-insensitive metrics still
   });
 });
 
-describe("chasm: two fanning joins refuse every duplicate-sensitive metric", () => {
+describe("chasm: two fanning joins, each fact aggregated at its own grain", () => {
   const chasm: SemanticModel = {
     ...model(true),
     joins: [
@@ -217,15 +246,26 @@ describe("chasm: two fanning joins refuse every duplicate-sensitive metric", () 
     ],
   };
 
-  it("even a fan-side sum refuses — the OTHER fanning join multiplies it", () => {
-    expect(() => compileSemanticQuery(chasm, q(["units"]), { dialect: "duckdb" })).toThrow(
-      /units.*"order_items" and "shipments".*multiply/is,
-    );
+  it("a fan-side sum is shielded from the OTHER fanning join", async () => {
+    // Single-pass, shipments would multiply the item rows (A×1, B×2 →
+    // 1+2+4+5+5 = 17). The plan's items branch never joins shipments: 12.
+    expect(await run(chasm, ["units"])).toEqual([{ region: "EMEA", units: 12 }]);
   });
 
-  it("count_distinct is still fine across a chasm", () => {
+  it("three facts in one query, every number at its own grain", async () => {
+    const c = compileSemanticQuery(
+      chasm,
+      { ...q(["revenue", "units"]), metrics: ["revenue", "units"] },
+      { dialect: "duckdb" },
+    );
+    const res = await runLocalSqlDuckDB(c.sql, [orders, items, shipments]);
+    expect(res.rows).toEqual([{ region: "EMEA", revenue: 150, units: 12 }]);
+  });
+
+  it("count_distinct is still fine across a chasm — and stays single-pass", () => {
     const c = compileSemanticQuery(chasm, q(["distinct_orders"]), { dialect: "duckdb" });
     expect(c.sql).toContain("COUNT(DISTINCT orders.order_id)");
+    expect(c.sql).not.toContain("semantic_spine");
   });
 });
 
