@@ -1228,6 +1228,13 @@ export const Route = createFileRoute("/api/chat")({
             if (t.datetime) out.push("datetime");
             if (t.weather) out.push("weather");
             if (t.sql_query) out.push("sql_query");
+            // FOUND FROM THE UI: this mapping omitted metric_query entirely,
+            // so an agent with Semantic Metrics toggled on (and models
+            // selected) still never received the tool in agent chat — it fell
+            // back to raw sql_query and told the user "there's no semantic
+            // layer definition". Every toggle the builder can save must map
+            // here, or saving it is theater.
+            if (t.metric_query) out.push("metric_query");
             if (t.n8n || t.n8n_run_workflow) out.push("n8n_run_workflow");
             if (t.mcp || t.mcp_call_tool) out.push("mcp_call_tool");
             if (t.send_notification || t.notifications) out.push("send_notification");

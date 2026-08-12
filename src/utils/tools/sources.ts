@@ -176,6 +176,13 @@ function webSources(result: Record<string, unknown>, tool: string): RawSource[] 
  */
 export function extractToolSources(name: string, args: string, result: string): RawSource[] {
   if (NON_RETRIEVAL_TOOLS.has(name)) return [];
+  // metric_query returns structured TEXT, not JSON — it must be handled
+  // before the JSON guard below. It wasn't, so the guard silently dropped it:
+  // a governed answer showed NO data source, and buildSources — seeing no
+  // tool sources at all — fell back to listing every auto-RAG KB document.
+  // The one source that produced the numbers was hidden and five unused ones
+  // were shown, under the platform's most trustworthy answers.
+  if (name === "metric_query") return metricQuerySources(args, result, name);
   const res = parse(result);
   // A failed call grounded nothing.
   if (!res || typeof res.error === "string") return [];
@@ -218,12 +225,6 @@ export function extractToolSources(name: string, args: string, result: string): 
       return sqlTableSources(sql, rowCount, name);
     }
 
-    case "metric_query": {
-      const metrics = Array.isArray(a.metrics) ? a.metrics.map(str).filter(Boolean) : [];
-      const title = metrics.length ? metrics.join(", ") : str(a.metric) || "Metric";
-      return [{ kind: "table", title, detail: "Semantic layer", tool: name }];
-    }
-
     case "mcp_call_tool": {
       const server = str(a.server_name) || "MCP server";
       const remote = str(a.tool_name) || "tool";
@@ -235,6 +236,46 @@ export function extractToolSources(name: string, args: string, result: string): 
       // answer in something, so it is named rather than hidden.
       return [{ kind: "tool", title: prettyToolName(name), tool: name }];
   }
+}
+
+/**
+ * Cite a governed metric query.
+ *
+ * metric_query's result is the structured TEXT renderMetricResult produces
+ * (`model: …\nsql: …\n[note: …]\nN row(s):`), so the fields are read from
+ * that shape rather than JSON. The source names the metrics and marks them as
+ * coming from the semantic layer — the platform's most trustworthy answers
+ * were the only ones showing no provenance at all.
+ */
+export function metricQuerySources(args: string, result: string, tool: string): RawSource[] {
+  // A refusal or failure grounded nothing.
+  if (/^(metric_query failed|Error:)/.test(result.trim())) return [];
+  const model = /^model: (.+)$/m.exec(result)?.[1]?.trim();
+  const sql = /^sql: (.+)$/m.exec(result)?.[1]?.trim();
+  if (!model || !sql) return [];
+
+  const exact = /^(\d+) row\(s\):$/m.exec(result)?.[1];
+  const partial = /^first (\d+) row\(s\) of a LARGER result/m.exec(result)?.[1];
+  const rowLabel = partial
+    ? `first ${partial} rows of a larger result`
+    : exact
+      ? `${exact} row${exact === "1" ? "" : "s"}`
+      : undefined;
+
+  const a = parse(args) ?? {};
+  const metrics = (Array.isArray(a.metrics) ? a.metrics : [])
+    .map(str)
+    .filter(Boolean)
+    .slice(0, MAX_PER_TOOL);
+  return [
+    {
+      kind: "table",
+      title: metrics.length > 0 ? metrics.join(", ") : model,
+      detail: ["Governed metric", model, rowLabel].filter(Boolean).join(" · "),
+      snippet: clip(sql),
+      tool,
+    },
+  ];
 }
 
 /** "n8n_run_workflow" → "N8n run workflow" — a label, not an identifier. */
