@@ -466,7 +466,12 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
       rows: j.rows ?? [],
       row_count: (j.rows ?? []).length,
       total_matched: (j.rows ?? []).length,
-      capped: Boolean(j.truncated?.length),
+      // NOT `capped` — that renders "truncated from N", where N is the result
+      // size, and the observed output was the nonsense "10 rows · truncated
+      // from 10". The result was complete; it was the SOURCE FILE that was
+      // read only in part, which is a different fact and the toast above says
+      // it precisely, naming the file.
+      capped: false,
       duration_ms: Math.round(performance.now() - t0),
     };
   }

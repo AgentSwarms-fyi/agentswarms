@@ -35,17 +35,50 @@ export type ObjectRead = {
   capped: boolean;
 };
 
-/** Formats DuckDB can open directly from object storage. */
-export function duckReadableFormat(format: string | null): "parquet" | "csv" | "ndjson" | null {
+export type ReadableFormat = "parquet" | "csv" | "ndjson" | "orc";
+
+/** Formats this deployment can open from object storage. */
+export function duckReadableFormat(format: string | null): ReadableFormat | null {
   if (format === "parquet") return "parquet";
   if (format === "csv") return "csv";
   if (format === "ndjson" || format === "json") return "ndjson";
+  if (format === "orc") return "orc";
+  // Avro is deliberately absent — see avroUnavailableReason().
   return null;
 }
 
-function readerFor(format: "parquet" | "csv" | "ndjson"): string {
+/**
+ * Why Avro is listed but not readable.
+ *
+ * There is no built-in Avro reader; it is a DuckDB COMMUNITY extension, and no
+ * build has been published since v1.1.3. Checked against the community
+ * repository for this build (v1.5.5) on every platform this project targets —
+ * windows_amd64, linux_amd64, linux_arm64, osx_arm64 — all 404. It is not a
+ * platform gap and not a network problem: ORC downloads fine from the same
+ * host for all four.
+ *
+ * The format is still RECOGNISED, so an .avro file appears in the catalog with
+ * its name and size rather than vanishing, and the reason it cannot be opened
+ * is stated instead of being a silent absence. If a build appears, adding
+ * "avro" to duckReadableFormat and its reader below is the whole change.
+ */
+export function avroUnavailableReason(): string {
+  return (
+    "Avro needs the DuckDB `avro` community extension, which has no published build for this " +
+    "DuckDB version (last released for v1.1.3). The file is cataloged but cannot be read. " +
+    "Convert it to Parquet to query it."
+  );
+}
+
+/** ORC is the one format that must not run in this process — see orcIsolated. */
+export function needsIsolation(format: ReadableFormat): boolean {
+  return format === "orc";
+}
+
+function readerFor(format: ReadableFormat): string {
   if (format === "parquet") return "read_parquet";
   if (format === "csv") return "read_csv_auto";
+  if (format === "orc") return "read_orc";
   return "read_json_auto";
 }
 
@@ -168,25 +201,46 @@ async function withConnection<T>(
 export async function describeObject(
   cfg: ObjectStoreConfig,
   key: string,
-  format: "parquet" | "csv" | "ndjson",
+  format: ReadableFormat,
 ): Promise<ObjectColumn[]> {
-  return withConnection(cfg, async (run) => {
-    const url = lit(objectUrl(cfg, key));
-    const rows = await run(`DESCRIBE SELECT * FROM ${readerFor(format)}(${url})`);
-    return rows.map((r) => ({
-      name: String(r.column_name),
-      type: String(r.column_type),
-    }));
-  });
+  const sql = `DESCRIBE SELECT * FROM ${readerFor(format)}('${objectUrl(cfg, key).replace(/'/g, "''")}')`;
+  const toColumns = (rows: Record<string, unknown>[]) =>
+    rows.map((r) => ({ name: String(r.column_name), type: String(r.column_type) }));
+
+  if (needsIsolation(format)) {
+    // DESCRIBE was reliable on every ORC sample tested, including the one that
+    // panics on read — but "reliable on four files" is not a guarantee, and the
+    // failure mode is a process abort, so it runs in the child regardless.
+    const { runOrcIsolated } = await import("./orcIsolated.server");
+    const res = await runOrcIsolated(
+      cfg,
+      key,
+      (local) => `DESCRIBE SELECT * FROM read_orc('${local}')`,
+    );
+    if (!res.ok) throw new Error(res.error);
+    return toColumns(res.rows);
+  }
+  return withConnection(cfg, async (run) => toColumns(await run(sql)));
 }
 
 /** Row count from Parquet metadata — no scan. Null when unavailable. */
 export async function countObjectRows(
   cfg: ObjectStoreConfig,
   key: string,
-  format: "parquet" | "csv" | "ndjson",
+  format: ReadableFormat,
 ): Promise<number | null> {
   try {
+    if (needsIsolation(format)) {
+      // No footer metadata function for ORC, so this is a scan — bounded by the
+      // child's timeout, and a null count is an acceptable outcome.
+      const { runOrcIsolated } = await import("./orcIsolated.server");
+      const res = await runOrcIsolated(
+        cfg,
+        key,
+        (local) => `SELECT count(*) AS n FROM read_orc('${local}')`,
+      );
+      return res.ok ? Number(res.rows[0]?.n ?? 0) : null;
+    }
     return await withConnection(cfg, async (run) => {
       const url = lit(objectUrl(cfg, key));
       if (format === "parquet") {
@@ -215,10 +269,41 @@ export async function countObjectRows(
 export async function readObjectRows(
   cfg: ObjectStoreConfig,
   key: string,
-  format: "parquet" | "csv" | "ndjson",
+  format: ReadableFormat,
   rowCap: number = OBJECT_ROWS_CAP,
 ): Promise<ObjectRead> {
   const cap = Math.max(1, Math.trunc(rowCap));
+
+  if (needsIsolation(format)) {
+    const { runOrcIsolated } = await import("./orcIsolated.server");
+    // ONE child, not two: each call downloads the object again, and an ORC
+    // read already pays a full download that Parquet does not. The schema and
+    // the rows come back from a single statement.
+    //
+    // One row past the cap, so "there were more" is observed rather than
+    // guessed — the same rule as the in-process path.
+    const read = await runOrcIsolated(
+      cfg,
+      key,
+      (local) => `SELECT * FROM read_orc('${local}') LIMIT ${cap + 1}`,
+    );
+    if (!read.ok) throw new Error(read.error);
+    const capped = read.rows.length > cap;
+    // Column names come from the rows themselves. DESCRIBE would mean a second
+    // download for information the first read already carries, and an empty
+    // file legitimately has no columns to report.
+    const names = read.rows.length > 0 ? Object.keys(read.rows[0]) : [];
+    return {
+      columns: names.map((name) => ({ name, type: "" })),
+      rows: (capped ? read.rows.slice(0, cap) : read.rows).map((row) => {
+        const out: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(row)) out[k] = toJsValue(v);
+        return out;
+      }),
+      capped,
+    };
+  }
+
   return withConnection(cfg, async (run) => {
     const url = lit(objectUrl(cfg, key));
     const src = `${readerFor(format)}(${url})`;

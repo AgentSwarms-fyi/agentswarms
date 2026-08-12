@@ -407,15 +407,22 @@ export function CatalogView({
    * images, logs, ORC — and offering "Query in Workbench" on a PNG would be a
    * button that only ever produces an error.
    */
-  const QUERYABLE_OBJECT = /\.(parquet|csv|tsv|json|ndjson|jsonl)$/i;
+  // `.avro` is deliberately absent: the file is cataloged, but DuckDB has no
+  // Avro build for this version, so the button would only ever error.
+  const QUERYABLE_OBJECT = /\.(parquet|csv|tsv|json|ndjson|jsonl|orc)$/i;
 
   const queryable = (a: UnifiedAsset) => {
     if (a.local) return true;
     const kind = sourceById.get(a.source_id)?.kind;
     if (kind === "warehouse") return true;
-    // A crawled folder of same-format files has a fqn like `sales/*.parquet`,
-    // which the extension test still matches.
-    return kind === "object_storage" && QUERYABLE_OBJECT.test(a.fqn);
+    if (kind !== "object_storage" || !QUERYABLE_OBJECT.test(a.fqn)) return false;
+    // A crawled folder of same-format files is ONE asset with a glob fqn
+    // (`sales/*.parquet`). DuckDB expands that over s3 for Parquet, CSV and
+    // JSON — verified — but ORC is read by downloading an object, and a glob
+    // is not an object key. Offering the button on an ORC folder would open
+    // the Workbench on a query that cannot succeed.
+    if (a.asset_type === "dataset" && a.format === "orc") return false;
+    return true;
   };
 
   const lineageFor = useCallback(
@@ -812,13 +819,16 @@ export function CatalogView({
                       </div>
                     </TableCell>
                     <TableCell className="text-right">
-                      {/* `file` is here because that is what the crawler calls
-                          an object in a bucket. Without it the button was
-                          hidden for every Parquet and CSV in an object store —
-                          `queryable` said yes and this said no. */}
+                      {/* `file` and `dataset` are here because those are what
+                          the crawler calls an object and a folder-of-objects in
+                          a bucket. Without them the button was hidden for every
+                          Parquet and CSV in an object store — `queryable` said
+                          yes and this said no. `dataset` covers a partitioned
+                          folder, which is the common shape for real data. */}
                       {(a.asset_type === "table" ||
                         a.asset_type === "view" ||
-                        a.asset_type === "file") &&
+                        a.asset_type === "file" ||
+                        a.asset_type === "dataset") &&
                         queryable(a) &&
                         onQueryAsset && (
                           <Button

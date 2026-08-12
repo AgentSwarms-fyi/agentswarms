@@ -117,6 +117,12 @@ const UNDOCUMENTED_ON_PURPOSE = new Map<string, string>([
   ["ANTHROPIC_API_KEY", "text inside an exported agent scaffold"],
   ["GEMINI_API_KEY", "text inside an exported agent scaffold"],
   ["WEATHER_KEY", "placeholder in a slide deck's sample code"],
+  // Internal plumbing between a process and a child it spawned, not a knob.
+  [
+    "AS_ORC_SQL",
+    "how orcIsolated.server passes the statement to its child — env rather " +
+      "than argv so nothing sensitive shows in the process list",
+  ],
   // Developer tooling, documented in the script/file that reads them.
   ["BENCH_N", "scripts/bench-pool.ts, documented in its header"],
   ["BENCH_PG_HOST", "scripts/bench-pool.ts"],

@@ -65,3 +65,29 @@ describe("suggestions and answers read the same tables", () => {
     expect(PAGE).toMatch(/const refreshSuggestions = useCallback\(async \(\) => \{/);
   });
 });
+
+describe("a bucket query reports the right kind of truncation", () => {
+  // Observed in the UI: "10 rows · truncated from 10". The result was
+  // complete — 10 of 10 — while the SOURCE FILE had been read only in part
+  // (50,000 of 1.9M rows). Mapping the source truncation onto the result's
+  // `capped` flag produced a sentence that is simply false.
+  const PAGE_SRC = readFileSync("src/routes/_authenticated/data-sql.tsx", "utf8");
+  const bucketRunner = PAGE_SRC.slice(
+    PAGE_SRC.indexOf("async function runBucketSql"),
+    PAGE_SRC.indexOf("async function runWarehouseSql"),
+  );
+
+  it("does not claim the RESULT was truncated when it was not", () => {
+    expect(bucketRunner, "runBucketSql was not found").toBeTruthy();
+    expect(bucketRunner).toMatch(/capped: false/);
+    expect(bucketRunner, "source truncation is being reported as a capped result").not.toMatch(
+      /capped: Boolean\(j\.truncated/,
+    );
+  });
+
+  it("but still tells the user which file was only partly read", () => {
+    // Dropping the flag must not drop the fact. The toast names the file.
+    expect(bucketRunner).toMatch(/j\.truncated\?\.length/);
+    expect(bucketRunner).toMatch(/over a prefix|only the first rows/i);
+  });
+});

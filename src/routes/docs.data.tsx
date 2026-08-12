@@ -439,13 +439,50 @@ function DataPage() {
         Unity Catalog are connected for metadata only.
       </P>
       <P>
-        <strong>Parquet, CSV, JSON and NDJSON files are queryable.</strong> Press{" "}
+        <strong>Parquet, CSV, JSON, NDJSON and ORC files are queryable.</strong> Press{" "}
         <strong>Query data</strong> on a file in the catalog and it opens in the Workbench with the
         bucket selected as the engine. The SQL name is the file&rsquo;s basename without its
         extension, so <C>data/orders.parquet</C> is <C>orders</C>; a partitioned folder{" "}
         <C>sales/*.parquet</C> is <C>sales</C>. Files in the same bucket can be joined, including
         across formats — a Parquet fact table against a CSV lookup is an ordinary query.
       </P>
+      <Table
+        headers={["Format", "Schema", "Query", "Notes"]}
+        rows={[
+          ["Parquet", "Yes", "Yes", "Read in place; schema and row count from the footer"],
+          ["CSV / TSV", "Yes", "Yes", "Schema and profile stats from a head-of-file sample"],
+          ["JSON / NDJSON", "Yes", "Yes", "—"],
+          [
+            "ORC",
+            "Yes",
+            "Yes",
+            <>
+              Downloaded whole and read in a separate process — see below. Capped by{" "}
+              <C key="o">ORC_MAX_DOWNLOAD_BYTES</C> (256 MB).
+            </>,
+          ],
+          ["Avro", "No", "No", "Cataloged with its name and size; there is no reader for it"],
+        ]}
+      />
+      <Callout kind="warn" title="ORC is read differently, and sometimes cannot be read at all">
+        Two things are true of ORC that are not true of Parquet, both measured rather than assumed.
+        First, <C>read_orc</C> cannot open <C>s3://</C> — on the same connection,{" "}
+        <C>read_parquet(&apos;s3://…&apos;)</C> works and <C>read_orc(&apos;s3://…&apos;)</C>{" "}
+        reports &ldquo;no files found&rdquo; — so the object is downloaded whole before it is read,
+        which is what the size cap bounds. Second, the ORC extension can{" "}
+        <strong>crash the process</strong> on files with nested <C>STRUCT</C>/<C>LIST</C>/<C>MAP</C>{" "}
+        columns, including conformance files published by the Apache ORC project. It therefore
+        always runs in a child process: the read fails with a message saying the reader crashed, and
+        your server keeps serving. Flat ORC files read normally, and schemas are read for all of
+        them — a nested file is still cataloged with its columns even though it cannot be queried.
+      </Callout>
+      <Callout kind="info" title="Why Avro is listed but cannot be opened">
+        Avro needs a DuckDB community extension with no published build for the DuckDB version this
+        project uses — checked across every platform it targets; the last release was for DuckDB
+        v1.1.3. Rather than hiding <C>.avro</C> files, the catalog lists them with their name and
+        size and says why they have no columns. If a build appears, enabling it is a one-line
+        change.
+      </Callout>
       <Callout kind="why" title="Where a Parquet schema comes from">
         A Parquet file keeps its schema in the FOOTER, so the head-of-file sample that infers
         columns for CSV cannot see it — Parquet files used to appear in the catalog as a name and a

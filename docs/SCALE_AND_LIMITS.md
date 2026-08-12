@@ -169,9 +169,50 @@ one read, not two hundred, to select from one of them. A file that hits the cap
 is named back to the caller, because the answer is then over a prefix of that
 file rather than all of it.
 
-Formats: **Parquet, CSV, JSON, NDJSON**. ORC and Avro are cataloged and listed
-but not queryable — DuckDB does not read them without extensions this project
-does not ship.
+### Formats
+
+| Format        | Schema | Query | How                                       |
+| ------------- | ------ | ----- | ----------------------------------------- |
+| Parquet       | ✅     | ✅    | Built in. Footer read in place            |
+| CSV / TSV     | ✅     | ✅    | Built in                                  |
+| JSON / NDJSON | ✅     | ✅    | Built in                                  |
+| **ORC**       | ✅     | ✅    | Community extension, downloaded, isolated |
+| **Avro**      | ❌     | ❌    | No extension build exists — see below     |
+
+**ORC is handled differently from everything else**, for two measured reasons.
+
+`read_orc` does not use DuckDB's virtual filesystem. On the same connection,
+one statement apart: `read_parquet('s3://…')` returns 4 columns and
+`read_orc('s3://…')` returns "no files found matching". `http://` fails the
+same way; a local path works. So an ORC object is **downloaded whole** before
+it is read, bounded by:
+
+| Setting                  | Default              | What it bounds                       |
+| ------------------------ | -------------------- | ------------------------------------ |
+| `ORC_MAX_DOWNLOAD_BYTES` | `268435456` (256 MB) | Largest ORC object that will be read |
+
+A partial download is not a smaller ORC — the footer is at the end — so a file
+over the ceiling is refused with its size rather than fetched and then failed.
+
+And **ORC runs in a child process**, because the extension can abort the host.
+On `TestOrcFile.test1.orc`, a conformance file published by the Apache ORC
+project, `DESCRIBE` succeeds and reading rows panics inside the extension's
+Arrow bridge in a function that cannot unwind — it calls `abort()`. That is
+reachable by putting a file with a nested column in a bucket the crawler reads,
+so it is never given the chance to run in the server. A crashed read kills the
+child, and the message says the reader failed rather than blaming the file.
+
+Flat ORC files read fine; nested `STRUCT`/`LIST`/`MAP` columns are where it
+breaks. Schemas are read for both, so a nested file is still cataloged with its
+columns even though it cannot be queried.
+
+**Avro is cataloged but cannot be read.** It needs the DuckDB `avro` community
+extension, which has no published build for the DuckDB version this project
+uses — checked against the community repository for `windows_amd64`,
+`linux_amd64`, `linux_arm64` and `osx_arm64`, all 404, while ORC returns 200
+from the same host. The last release was for DuckDB v1.1.3. An `.avro` file
+still appears in the catalog with its name and size, and the reason it has no
+columns is stated rather than left as a silent gap.
 
 ### Knowledge bases (RAG)
 

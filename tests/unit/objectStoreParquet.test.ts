@@ -17,7 +17,7 @@
 // Skipped, loudly, when that is not running — a suite that silently passes
 // because its subject was absent is worse than one that fails.
 import { createHash, createHmac } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 
 import { beforeAll, describe, expect, it } from "vitest";
@@ -36,6 +36,8 @@ import {
   describeObject,
   duckReadableFormat,
   readObjectRows,
+  avroUnavailableReason,
+  needsIsolation,
 } from "@/utils/catalog/objectStoreRead.server";
 
 const CFG: ObjectStoreConfig = {
@@ -153,8 +155,9 @@ describe("the crawler can see a Parquet object at all", () => {
     expect(duckReadableFormat("parquet")).toBe("parquet");
     expect(duckReadableFormat("csv")).toBe("csv");
     expect(duckReadableFormat("ndjson")).toBe("ndjson");
-    // Left alone deliberately — DuckDB does not read these without extensions.
-    expect(duckReadableFormat("orc")).toBeNull();
+    // ORC arrived with the community extension — see the ORC/Avro block below
+    // for why it is readable but isolated, and why Avro is not readable at all.
+    expect(duckReadableFormat("orc")).toBe("orc");
     expect(duckReadableFormat("avro")).toBeNull();
     expect(duckReadableFormat(null)).toBeNull();
   });
@@ -391,5 +394,202 @@ describe("the SQL name a bucket file gets", () => {
     expect(a).toBe("orders");
     expect(b).not.toBe(a);
     expect(b).toMatch(/us/);
+  });
+});
+
+describe("ORC and Avro", () => {
+  // Neither has a built-in DuckDB reader, and they fail in opposite ways.
+  //
+  // ORC has a community extension that works — until it does not. Measured on
+  // files published by the Apache ORC project itself:
+  //
+  //   demo-11-none.orc       flat, 9 cols   DESCRIBE ok, rows ok
+  //   TestOrcFile.test1.orc  nested STRUCT  DESCRIBE ok, rows -> PANIC
+  //
+  // That panic is a Rust abort inside the extension's Arrow bridge, in a
+  // function that cannot unwind, so it kills the whole process. Reachable by
+  // putting such a file in a bucket the crawler reads — a denial of service.
+  // ORC therefore only ever runs in a child process.
+  //
+  // Avro's extension has no build published since DuckDB v1.1.3; checked
+  // against the community repository for v1.5.5 on windows_amd64,
+  // linux_amd64, linux_arm64 and osx_arm64 — all 404, while ORC returns 200
+  // from the same host. So the format is recognised and cataloged, and the
+  // reason it cannot be read is stated rather than implied.
+
+  it("recognises ORC as readable and Avro as not", () => {
+    expect(duckReadableFormat("orc")).toBe("orc");
+    expect(duckReadableFormat("avro"), "Avro has no reader — do not claim one").toBeNull();
+  });
+
+  it("isolates ORC and nothing else", () => {
+    // Parquet and CSV are built-in and stable; a process spawn each would be a
+    // real cost paid against a risk that does not exist there.
+    expect(needsIsolation("orc")).toBe(true);
+    for (const f of ["parquet", "csv", "ndjson"] as const) {
+      expect(needsIsolation(f), f).toBe(false);
+    }
+  });
+
+  it("says WHY Avro cannot be read, not merely that it cannot", () => {
+    const why = avroUnavailableReason();
+    expect(why).toMatch(/community extension/i);
+    expect(why).toMatch(/v1\.1\.3/);
+    expect(why, "should tell the user what to do about it").toMatch(/parquet/i);
+  });
+
+  withMinio("describes a flat ORC file with real columns and types", async () => {
+    const cols = await describeObject(CFG, "data/flat.orc", "orc");
+    expect(cols.length).toBe(9);
+    expect(cols.map((c) => c.name)).toContain("_col0");
+    expect(cols.some((c) => /INT|BIGINT/i.test(c.type))).toBe(true);
+  });
+
+  withMinio("reads rows from a flat ORC file", async () => {
+    const res = await readObjectRows(CFG, "data/flat.orc", "orc", 5);
+    expect(res.rows).toHaveLength(5);
+    expect(res.capped, "5 of ~1.9M rows is a truncated read").toBe(true);
+  });
+
+  withMinio("describes a NESTED ORC file — DESCRIBE survives what reading does not", async () => {
+    const cols = await describeObject(CFG, "data/nested.orc", "orc");
+    expect(cols.map((c) => c.name)).toContain("boolean1");
+    expect(
+      cols.some((c) => /STRUCT|LIST|MAP/i.test(c.type)),
+      "no nested column found",
+    ).toBe(true);
+  });
+
+  withMinio(
+    "survives the file that aborts the ORC reader",
+    async () => {
+      // THE TEST THAT MATTERS. Without the child process this call takes the
+      // whole vitest worker with it and the run reports a crash, not a failure.
+      // Reaching the next line at all is the assertion.
+      await expect(readObjectRows(CFG, "data/nested.orc", "orc", 10)).rejects.toThrow();
+      // And the process is still here to say so.
+      expect(1 + 1).toBe(2);
+    },
+    90_000,
+  );
+
+  withMinio(
+    "blames the reader, not the file",
+    async () => {
+      // "Could not read this file" would send someone looking for corruption in
+      // a file the Apache ORC project publishes as a conformance test.
+      const err = await readObjectRows(CFG, "data/nested.orc", "orc", 10).catch((e: Error) => e);
+      expect((err as Error).message).toMatch(/ORC reader crashed|nested types are not supported/i);
+    },
+    90_000,
+  );
+
+  withMinio(
+    "crawls a bucket holding all of them without dying",
+    async () => {
+      // The crawl is where an unreadable file is most dangerous: it runs
+      // unattended and touches every object in the bucket.
+      const { assets } = await crawlObjectStorage(CFG);
+      const byName = Object.fromEntries(assets.map((a) => [a.fqn, a]));
+
+      // Same-format files in one folder become a single DATASET asset —
+      // existing grouping behaviour, so the two ORC files land as `data/*.orc`
+      // rather than separately. Asserting what the product actually produces.
+      const orc = byName["data/*.orc"];
+      expect(orc, `no ORC dataset; got ${Object.keys(byName).join(", ")}`).toBeTruthy();
+      expect(orc.file_count).toBe(2);
+      expect(orc.columns.length, "the ORC group was cataloged with no schema").toBe(9);
+      expect(orc.row_count ?? 0).toBeGreaterThan(1_000_000);
+
+      // Avro appears with NO columns rather than not appearing at all. A file
+      // the platform cannot open is still a file the operator owns, and a
+      // catalog that hides it is lying by omission.
+      expect(byName["data/events.avro"], "the Avro file vanished from the catalog").toBeTruthy();
+      expect(byName["data/events.avro"].columns).toHaveLength(0);
+
+      // The formats that already worked still do.
+      expect(byName["data/orders.parquet"].columns.length).toBe(4);
+      expect(byName["data/regions.csv"].columns.length).toBe(2);
+    },
+    180_000,
+  );
+});
+
+describe("the ORC download has a ceiling and leaves nothing behind", () => {
+  // read_orc cannot stream from object storage — measured, it opens local
+  // paths only — so the whole object is downloaded. That makes two things
+  // load-bearing that Parquet never needs: a size limit, and cleanup.
+  const orcTmpDirs = () => readdirSync(tmpdir()).filter((d) => d.startsWith("as-orc-")).length;
+
+  withMinio("refuses a file bigger than the limit instead of pulling it", async () => {
+    // flat.orc is ~5 MB. With the ceiling at 1 KB the read must be refused
+    // BEFORE the bytes are fetched, and say so in a way that names the fix.
+    const prev = process.env.ORC_MAX_DOWNLOAD_BYTES;
+    process.env.ORC_MAX_DOWNLOAD_BYTES = "1024";
+    try {
+      const err = await readObjectRows(CFG, "data/flat.orc", "orc", 5).catch((e: Error) => e);
+      expect(err).toBeInstanceOf(Error);
+      expect((err as Error).message).toMatch(/larger than|MB ORC limit/i);
+      expect((err as Error).message, "should name the knob").toMatch(/ORC_MAX_DOWNLOAD_BYTES/);
+    } finally {
+      if (prev === undefined) delete process.env.ORC_MAX_DOWNLOAD_BYTES;
+      else process.env.ORC_MAX_DOWNLOAD_BYTES = prev;
+    }
+  });
+
+  withMinio("still reads the same file once the limit allows it", async () => {
+    // Guard on the guard: without this, a ceiling of zero would pass the test
+    // above and break the feature.
+    const res = await readObjectRows(CFG, "data/flat.orc", "orc", 3);
+    expect(res.rows).toHaveLength(3);
+  });
+
+  withMinio(
+    "deletes the temporary copy, including when the reader crashes",
+    async () => {
+      const before = orcTmpDirs();
+      await readObjectRows(CFG, "data/flat.orc", "orc", 3);
+      expect(orcTmpDirs(), "a successful read leaked its download").toBe(before);
+      // The crash path runs through the same finally, and is the one most likely
+      // to skip cleanup — the child dies rather than returning.
+      await readObjectRows(CFG, "data/nested.orc", "orc", 3).catch(() => {});
+      expect(orcTmpDirs(), "a crashed read leaked its download").toBe(before);
+    },
+    120_000,
+  );
+});
+
+describe("a folder of files is one asset, and the formats differ there too", () => {
+  // The crawler groups same-format files in a folder into ONE asset with a
+  // glob fqn (`data/*.orc`). Found from the UI: that asset had no "Query data"
+  // button, because the button's gate allowed table/view/file and the crawler
+  // calls a group a `dataset`. Partitioned Parquet — the common shape for real
+  // data — was hidden by the same line.
+  const CATALOG = readFileSync("src/components/catalog/CatalogView.tsx", "utf8");
+
+  it("the button is offered for a grouped dataset, not only single files", () => {
+    expect(CATALOG).toMatch(/a\.asset_type === "dataset"/);
+  });
+
+  it("but never for a grouped ORC folder", () => {
+    // Verified: read_parquet and read_csv_auto both expand `s3://…/*.ext`.
+    // ORC is read by downloading one object, so a glob cannot work — and a
+    // button that always errors is worse than no button.
+    expect(CATALOG).toMatch(/a\.asset_type === "dataset" && a\.format === "orc"/);
+  });
+
+  withMinio("and the server refuses an ORC glob by name, not with a 404", async () => {
+    // Defence for anyone calling the API directly rather than clicking.
+    const err = await readObjectRows(CFG, "data/*.orc", "orc", 5).catch((e: Error) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toMatch(/folder of ORC files|cannot expand/i);
+    expect((err as Error).message, "should say what to do instead").toMatch(/Parquet/);
+  });
+
+  withMinio("while a Parquet glob is read normally", async () => {
+    // Guard on the guard: the ORC refusal must not have blocked the case that
+    // works. `data/*.parquet` matches the one Parquet file in the bucket.
+    const res = await readObjectRows(CFG, "data/*.parquet", "parquet", 10);
+    expect(res.rows).toHaveLength(5);
   });
 });

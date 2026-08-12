@@ -26,14 +26,19 @@ import { assertLocalReadOnlySql } from "@/lib/sqlSafety";
 import { runLocalSqlDuckDB } from "@/utils/data/duckdb.server";
 import { loadStorageConfig } from "./crawler.server";
 import { fileFormat } from "./objectStore.server";
-import { duckReadableFormat, readObjectRows, OBJECT_ROWS_CAP } from "./objectStoreRead.server";
+import {
+  duckReadableFormat,
+  readObjectRows,
+  OBJECT_ROWS_CAP,
+  type ReadableFormat,
+} from "./objectStoreRead.server";
 
 export type ObjectStoreTable = {
   /** The name to write in SQL. */
   table: string;
   /** Object key, or the group's glob when the asset is a partitioned folder. */
   key: string;
-  format: "parquet" | "csv" | "ndjson";
+  format: ReadableFormat;
   columns: { name: string; type: string }[];
   row_count: number | null;
 };
