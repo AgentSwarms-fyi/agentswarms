@@ -133,7 +133,8 @@ import {
   type QueryResult,
 } from "@/lib/sqlEngine";
 import { listWarehouseConnections } from "@/utils/warehouse.functions";
-import { semanticRunQuery } from "@/utils/semantic.functions";
+import { semanticListModels, semanticRunQuery } from "@/utils/semantic.functions";
+import type { SemanticQuery } from "@/lib/semanticLayer";
 import type { WarehouseConnectionSummary, WarehouseTable } from "@/utils/warehouse/types";
 
 export const Route = createFileRoute("/_authenticated/bi_/$dashboardId")({
@@ -599,6 +600,47 @@ function BiProjectPage() {
     [token],
   );
 
+  // Governed metric source for the builder: list models + run a metric
+  // query, both under the caller's JWT — the same server functions the
+  // Semantic Layer runner uses, so the builder can never answer differently.
+  const runSemanticFn = useServerFn(semanticRunQuery);
+  const listModelsFn = useServerFn(semanticListModels);
+  const runMetricFn = runSemanticFn;
+  const listMetricModels = useCallback(async () => {
+    if (!token) throw new Error("Not signed in");
+    const rows = (await listModelsFn({ data: { accessToken: token } })) as Array<
+      Record<string, unknown>
+    >;
+    return rows.map((r) => ({
+      name: String(r.name ?? ""),
+      label: (r.label as string) ?? null,
+      dimensions: Array.isArray(r.dimensions)
+        ? (r.dimensions as Array<{ name: string; type?: string }>).map((d) => ({
+            name: d.name,
+            type: d.type,
+          }))
+        : [],
+      metrics: Array.isArray(r.metrics)
+        ? (
+            r.metrics as Array<{ name: string; agg: string; format?: string; currency?: string }>
+          ).map((m) => ({ name: m.name, agg: m.agg, format: m.format, currency: m.currency }))
+        : [],
+    }));
+  }, [token, listModelsFn]);
+
+  const runMetric = useCallback(
+    async (query: SemanticQuery) => {
+      if (!token) throw new Error("Not signed in");
+      return (await runMetricFn({ data: { accessToken: token, query } })) as {
+        columns: string[];
+        rows: Record<string, unknown>[];
+        sql: string;
+        rollup?: string;
+      };
+    },
+    [token, runMetricFn],
+  );
+
   const ctx: BiDataContext = useMemo(
     () => ({
       userId: user?.id ?? null,
@@ -612,6 +654,8 @@ function BiProjectPage() {
       whTables,
       ensureSchema,
       runSql,
+      listMetricModels,
+      runMetric,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
@@ -625,6 +669,8 @@ function BiProjectPage() {
       whTables,
       ensureSchema,
       runSql,
+      listMetricModels,
+      runMetric,
     ],
   );
 
@@ -841,7 +887,6 @@ function BiProjectPage() {
   const [paramsWidget, setParamsWidget] = useState<BiWidget | null>(null);
   const [paramsDraft, setParamsDraft] = useState<Record<string, string>>({});
   const [paramsBusy, setParamsBusy] = useState(false);
-  const runSemanticFn = useServerFn(semanticRunQuery);
 
   const openWidgetParams = (w: BiWidget) => {
     if (w.source?.kind !== "semantic" || !w.source.params) return;

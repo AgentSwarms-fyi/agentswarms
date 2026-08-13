@@ -42,6 +42,7 @@ import {
 } from "lucide-react";
 
 import { BiVizPicker, type ChartType } from "@/components/bi/BiVizPicker";
+import { BiMetricSource, type MetricPreview } from "@/components/bi/BiMetricSource";
 import { BiAiTab, type KbDocOption } from "@/components/bi/BiAiTab";
 import { BiOntologyTab } from "@/components/bi/BiOntologyTab";
 import { BiTablePicker } from "@/components/bi/BiTablePicker";
@@ -69,7 +70,12 @@ import {
 import { BiChatMessage } from "@/components/data-sql/BiChatMessage";
 import { BiChartRender, fmtBiValue } from "@/components/bi/BiChartRender";
 import { BiModelSelect } from "@/components/bi/BiModelSelect";
-import { keyFromSource, sourceFromKey, type BiDataContext } from "@/components/bi/biDataContext";
+import {
+  keyFromSource,
+  sourceFromKey,
+  type BiDataContext,
+  type MetricModelOption,
+} from "@/components/bi/biDataContext";
 import { OntologyGraph } from "@/components/bi/OntologyGraph";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
@@ -82,7 +88,15 @@ import {
   type ChartSpec,
 } from "@/lib/biAgent";
 import type { BiColumnFormat, SavedMetric } from "@/lib/biAgent";
-import { snapshotRows, widgetFromBiTurn, type BiWidget } from "@/lib/biDashboards";
+import {
+  coerceSemanticChart,
+  snapshotRows,
+  widgetFromBiTurn,
+  widgetFromSemantic,
+  type BiWidget,
+  type SemanticChartType,
+} from "@/lib/biDashboards";
+import type { SemanticQuery, TimeGrain } from "@/lib/semanticLayer";
 import { isAggregatableChart } from "@/lib/biAggregate";
 import { buildOntology, type OntologyBuildStage, type OntologySpec } from "@/lib/biOntology";
 import { listPrepFlows, parsePrepConfig, prepTables } from "@/lib/dataPrep";
@@ -147,6 +161,17 @@ export function BiBuilderPane({
 }) {
   // Shared source across both tabs.
   const [sourceKey, setSourceKey] = useState("local");
+
+  // ── Governed metric source (Semantic Layer) ─────────────────────────
+  const [metricModels, setMetricModels] = useState<
+    MetricModelOption[] | "loading" | "error" | null
+  >(null);
+  const [mmName, setMmName] = useState("");
+  const [mmMetrics, setMmMetrics] = useState<string[]>([]);
+  const [mmDims, setMmDims] = useState<string[]>([]);
+  const [mmGrains, setMmGrains] = useState<Record<string, TimeGrain>>({});
+  const [mmPreview, setMmPreview] = useState<MetricPreview | null>(null);
+  const [mmRunning, setMmRunning] = useState(false);
 
   // ── Build tab state ─────────────────────────────────────────────────
   const [selectedTables, setSelectedTables] = useState<string[]>([]);
@@ -414,17 +439,38 @@ export function BiBuilderPane({
     sourceKey !== "local" &&
     (ctx.whTables[sourceKey] === "loading" || ctx.whTables[sourceKey] === undefined);
 
+  function loadMetricModels() {
+    if (!ctx.listMetricModels) return;
+    setMetricModels("loading");
+    ctx
+      .listMetricModels()
+      .then(setMetricModels)
+      .catch(() => setMetricModels("error"));
+  }
+
   function changeSource(v: string) {
     setSourceKey(v);
     setSelectedTables([]);
     setAiTables([]);
     setPreview(null);
+    setMmPreview(null);
+    // Lazy-load the governed models the first time the source is chosen.
+    if (v === "semantic" && metricModels === null) loadMetricModels();
     if (sql === lastSeeded.current) {
       setSql("");
       lastSeeded.current = "";
     }
-    if (v !== "local") ctx.ensureSchema(v);
+    if (v !== "local" && v !== "semantic") ctx.ensureSchema(v);
   }
+
+  // The AI analyst works on tables, not governed metrics — fall back to the
+  // local source if the tab switches while "Governed metrics" is selected.
+  useEffect(() => {
+    if (tab === "ai" && sourceKey === "semantic") {
+      setSourceKey("local");
+      setMmPreview(null);
+    }
+  }, [tab, sourceKey]);
 
   function toggleTable(name: string) {
     const next = selectedTables.includes(name)
@@ -949,6 +995,69 @@ export function BiBuilderPane({
     toast.success(initial ? "Widget updated" : "Widget added to the dashboard");
   }
 
+  // ── Governed metric source: picks → preview → insert ────────────────
+  // The picking UI (and its handlers) live in BiMetricSource; the parent
+  // keeps the state, the query and the submit path the footer calls.
+  /** The governed query the current picks describe (preview and insert run the same one). */
+  function mmQuery(): SemanticQuery {
+    const grains: Record<string, TimeGrain> = {};
+    for (const d of mmDims) if (mmGrains[d]) grains[d] = mmGrains[d];
+    return {
+      model: mmName,
+      metrics: mmMetrics,
+      dimensions: mmDims,
+      ...(Object.keys(grains).length > 0 ? { grains } : {}),
+      limit: 100,
+    };
+  }
+
+  async function runMetricPreview() {
+    if (!ctx.runMetric || !mmName || mmMetrics.length === 0) return;
+    setMmRunning(true);
+    try {
+      setMmPreview(await ctx.runMetric(mmQuery()));
+    } catch (e) {
+      setMmPreview(null);
+      toast.error(e instanceof Error ? e.message : "The governed query failed");
+    } finally {
+      setMmRunning(false);
+    }
+  }
+
+  const mmChart: SemanticChartType = coerceSemanticChart(chartType);
+
+  const canSubmitMetric = Boolean(title.trim() && mmName && mmMetrics.length > 0 && mmPreview);
+
+  function submitMetric() {
+    if (!canSubmitMetric || !mmPreview) return;
+    // The lead metric's declared display format travels onto the chart, same
+    // as inserts from the Semantic Layer page.
+    const lead = (Array.isArray(metricModels) ? metricModels : [])
+      .find((m) => m.name === mmName)
+      ?.metrics.find((m) => m.name === mmMetrics[0]);
+    const q = mmQuery();
+    onSubmit(
+      widgetFromSemantic({
+        title: title.trim(),
+        model: q.model,
+        metrics: q.metrics,
+        dimensions: q.dimensions ?? [],
+        ...(q.grains ? { grains: q.grains } : {}),
+        chartType: mmChart,
+        columns: mmPreview.columns,
+        rows: mmPreview.rows,
+        sql: mmPreview.sql,
+        ...(lead?.format === "currency" || lead?.format === "percent"
+          ? {
+              format: lead.format,
+              ...(lead.format === "currency" && lead.currency ? { currency: lead.currency } : {}),
+            }
+          : {}),
+      }),
+    );
+    toast.success("Widget added to the dashboard");
+  }
+
   // ── AI analyst ──────────────────────────────────────────────────────
   const activeWarehouse =
     sourceKey !== "local" ? (ctx.warehouses.find((w) => w.id === sourceKey) ?? null) : null;
@@ -1280,6 +1389,15 @@ export function BiBuilderPane({
           <SelectItem value="local" className="text-xs">
             Local datasets (Data &amp; SQL)
           </SelectItem>
+          {/* Governed metrics need the semantic-layer hooks, the Build tab
+              (the AI analyst reasons over tables), and a fresh widget —
+              editing an existing chart widget must keep its id, which the
+              semantic insert path does not. */}
+          {ctx.listMetricModels && ctx.runMetric && tab === "build" && !initial && (
+            <SelectItem value="semantic" className="text-xs">
+              Governed metrics (Semantic Layer)
+            </SelectItem>
+          )}
           {ctx.warehouses.map((w) => (
             <SelectItem key={w.id} value={w.id} className="text-xs">
               {w.name} — {WAREHOUSE_LABELS[w.provider]}
@@ -1372,352 +1490,382 @@ export function BiBuilderPane({
               <>
                 {sourceSelect}
 
-                {/* Tables — above the SQL, multi-select for joins */}
-                <BiTablePicker
-                  sourceTables={sourceTables}
-                  selectedTables={selectedTables}
-                  schemaLoading={schemaLoading}
-                  preparedTables={ctx.preparedTables}
-                  toggleTable={toggleTable}
-                />
-
-                {/* SQL */}
-                <BiSqlEditor
-                  sql={sql}
-                  setSql={setSql}
-                  sourceKey={sourceKey}
-                  metrics={ctx.metrics}
-                  insertMetric={insertMetric}
-                  runPreview={() => void runPreview()}
-                  running={running}
-                  preview={preview}
-                  runError={runError}
-                />
-
-                {preview && (
+                {sourceKey === "semantic" && ctx.runMetric ? (
+                  <BiMetricSource
+                    metricModels={metricModels}
+                    reload={loadMetricModels}
+                    mmName={mmName}
+                    setMmName={setMmName}
+                    mmMetrics={mmMetrics}
+                    setMmMetrics={setMmMetrics}
+                    mmDims={mmDims}
+                    setMmDims={setMmDims}
+                    mmGrains={mmGrains}
+                    setMmGrains={setMmGrains}
+                    setMmPreview={setMmPreview}
+                    chartType={chartType}
+                    mmRunning={mmRunning}
+                    runPreview={() => void runMetricPreview()}
+                    mmPreview={mmPreview}
+                    title={title}
+                    setTitle={setTitle}
+                  />
+                ) : (
                   <>
-                    <div className="grid grid-cols-2 gap-2">
-                      {(chartType === "bar" ||
-                        chartType === "hbar" ||
-                        chartType === "line" ||
-                        chartType === "area") && (
-                        <>
-                          {fieldSelect(
-                            chartType === "hbar" ? "Category" : "X axis",
-                            xField,
-                            setXField,
-                          )}
-                          {fieldSelect("Value (numeric)", yField, setYField)}
-                          {chartType !== "hbar" &&
-                            optionalFieldSelect("Split by series", seriesField, setSeriesField)}
-                          {chartType === "bar" && seriesField && (
-                            <div className="flex items-end pb-1.5">
-                              <Label className="flex cursor-pointer items-center gap-2 text-xs font-normal normal-case tracking-normal text-foreground">
-                                <Checkbox
-                                  checked={stacked}
-                                  onCheckedChange={(v) => setStacked(Boolean(v))}
-                                />
-                                Stacked bars
-                              </Label>
-                            </div>
-                          )}
-                        </>
-                      )}
-                      {(chartType === "scolumn" || chartType === "shbar") && (
-                        <>
-                          {fieldSelect("Category", xField, setXField)}
-                          {fieldSelect("Value (numeric)", yField, setYField)}
-                          {fieldSelect("Split by (stack)", seriesField, setSeriesField)}
-                        </>
-                      )}
-                      {chartType === "barrace" && (
-                        <>
-                          {fieldSelect("Racing category", xField, setXField)}
-                          {fieldSelect("Value (numeric)", yField, setYField)}
-                          {fieldSelect("Time / frame", timeField, setTimeField)}
-                        </>
-                      )}
-                      {chartType === "radar" && (
-                        <>
-                          {fieldSelect("Metric (spoke)", xField, setXField)}
-                          {fieldSelect("Value (numeric)", yField, setYField)}
-                          {optionalFieldSelect("Split by series", seriesField, setSeriesField)}
-                        </>
-                      )}
-                      {chartType === "sankey" && (
-                        <>
-                          {fieldSelect("Source (from)", xField, setXField)}
-                          {fieldSelect("Target (to)", yField, setYField)}
-                          {fieldSelect("Value (numeric)", valueField, setValueField)}
-                        </>
-                      )}
-                      {chartType === "waterfall" && (
-                        <>
-                          {fieldSelect("Stage / step", xField, setXField)}
-                          {fieldSelect("Change (+/- numeric)", yField, setYField)}
-                        </>
-                      )}
-                      {chartType === "boxplot" && (
-                        <>
-                          {fieldSelect("Category", xField, setXField)}
-                          {fieldSelect("Value (numeric)", yField, setYField)}
-                        </>
-                      )}
-                      {(chartType === "pie" ||
-                        chartType === "funnel" ||
-                        chartType === "treemap" ||
-                        chartType === "nightingale") && (
-                        <>
-                          {fieldSelect(
-                            chartType === "funnel" ? "Stage" : "Category",
-                            nameField,
-                            setNameField,
-                          )}
-                          {fieldSelect("Value (numeric)", valueField, setValueField)}
-                        </>
-                      )}
-                      {chartType === "wordcloud" && (
-                        <>
-                          {fieldSelect("Text / words", nameField, setNameField)}
-                          {optionalFieldSelect("Weight by (numeric)", valueField, setValueField)}
-                        </>
-                      )}
-                      {chartType === "combo" && (
-                        <>
-                          {fieldSelect("X axis", xField, setXField)}
-                          {fieldSelect("Bars (numeric)", yField, setYField)}
-                          {fieldSelect("Line (numeric)", lineField, setLineField)}
-                        </>
-                      )}
-                      {chartType === "scatter" && (
-                        <>
-                          {fieldSelect("X (numeric)", xField, setXField)}
-                          {fieldSelect("Y (numeric)", yField, setYField)}
-                          {optionalFieldSelect("Bubble size", sizeField, setSizeField)}
-                        </>
-                      )}
-                      {chartType === "heatmap" && (
-                        <>
-                          {fieldSelect("Columns (X)", xField, setXField)}
-                          {fieldSelect("Rows (Y)", yField, setYField)}
-                          {fieldSelect("Value (numeric)", valueField, setValueField)}
-                        </>
-                      )}
-                      {chartType === "matrix" && (
-                        <>
-                          {fieldSelect("Rows", rowField, setRowField)}
-                          {fieldSelect("Columns", colField, setColField)}
-                          {fieldSelect("Value (numeric)", valueField, setValueField)}
-                          {optionalFieldSelect(
-                            "Row detail (expandable)",
-                            rowSubField,
-                            setRowSubField,
-                          )}
-                          <BiCondFormatEditor
-                            matFmtMode={matFmtMode}
-                            setMatFmtMode={setMatFmtMode}
-                            matScaleColor={matScaleColor}
-                            setMatScaleColor={setMatScaleColor}
-                            matRules={matRules}
-                            setMatRules={setMatRules}
-                          />
-                        </>
-                      )}
-                      {(chartType === "map" || chartType === "bubblemap") && (
-                        <>
-                          {fieldSelect("Location (country)", locationField, setLocationField)}
-                          {fieldSelect("Value (numeric)", valueField, setValueField)}
-                        </>
-                      )}
+                    {/* Tables — above the SQL, multi-select for joins */}
+                    <BiTablePicker
+                      sourceTables={sourceTables}
+                      selectedTables={selectedTables}
+                      schemaLoading={schemaLoading}
+                      preparedTables={ctx.preparedTables}
+                      toggleTable={toggleTable}
+                    />
 
-                      {/* Drill hierarchy (bar/hbar/pie/treemap) */}
-                      {(chartType === "bar" ||
-                        chartType === "hbar" ||
-                        chartType === "pie" ||
-                        chartType === "treemap") && (
-                        <BiDrillHierarchy
-                          drillList={drillList}
-                          setDrillList={setDrillList}
-                          columns={preview?.columns ?? []}
-                        />
-                      )}
+                    {/* SQL */}
+                    <BiSqlEditor
+                      sql={sql}
+                      setSql={setSql}
+                      sourceKey={sourceKey}
+                      metrics={ctx.metrics}
+                      insertMetric={insertMetric}
+                      runPreview={() => void runPreview()}
+                      running={running}
+                      preview={preview}
+                      runError={runError}
+                    />
 
-                      {/* Time intelligence (line/area) */}
-                      {(chartType === "line" || chartType === "area") && (
-                        <BiTimeSeriesOptions
-                          chartType={chartType}
-                          seriesField={seriesField}
-                          grainSel={grainSel}
-                          setGrainSel={setGrainSel}
-                          compareSel={compareSel}
-                          setCompareSel={setCompareSel}
-                          runningB={runningB}
-                          setRunningB={setRunningB}
-                          trendB={trendB}
-                          setTrendB={setTrendB}
-                          forecastN={forecastN}
-                          setForecastN={setForecastN}
-                        />
-                      )}
-
-                      {/* Reference line (bar/line/area) */}
-                      {(chartType === "bar" || chartType === "line" || chartType === "area") && (
-                        <BiRefLineOptions
-                          refMode={refMode}
-                          setRefMode={setRefMode}
-                          refValue={refValue}
-                          setRefValue={setRefValue}
-                          refLabel={refLabel}
-                          setRefLabel={setRefLabel}
-                        />
-                      )}
-                      {chartType !== "table" &&
-                        chartType !== "heatmap" &&
-                        chartType !== "boxplot" &&
-                        chartType !== "map" &&
-                        chartType !== "bubblemap" &&
-                        chartType !== "kpi" &&
-                        chartType !== "gauge" &&
-                        formatSelect}
-                      {columnFormatEditor}
-                      {(chartType === "kpi" || chartType === "gauge") && (
-                        <>
-                          {fieldSelect("Value column", valueField, setValueField)}
-                          {optionalFieldSelect("Target column", targetField, setTargetField)}
-                          {chartType === "gauge" && (
-                            <div className="space-y-1">
-                              <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                                Max (optional)
-                              </Label>
-                              <Input
-                                value={maxInput}
-                                onChange={(e) => setMaxInput(e.target.value)}
-                                className="h-8 text-xs"
-                                placeholder="auto"
-                                inputMode="decimal"
-                              />
-                            </div>
-                          )}
-                          <div className="space-y-1">
-                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                              Label
-                            </Label>
-                            <Input
-                              value={kpiLabel}
-                              onChange={(e) => setKpiLabel(e.target.value)}
-                              className="h-8 text-xs"
-                              placeholder="Total revenue"
-                            />
-                          </div>
-                          {formatSelect}
-                        </>
-                      )}
-                    </div>
-                    {(chartType === "map" || chartType === "bubblemap") && (
-                      <p className="text-[10px] text-muted-foreground">
-                        Locations are matched to countries by name or common shorthand (USA, UK…).
-                        Unmatched rows are counted on the map.
-                      </p>
-                    )}
-
-                    {/* Preview */}
-                    <div className="rounded-lg border border-border/60 bg-card p-2">
-                      {chartSpec && chartSpec.type !== "table" ? (
-                        <BiChartRender chart={chartSpec} rows={preview.rows} />
-                      ) : (
-                        <div className="max-h-48 overflow-auto rounded border border-border/50">
-                          <table className="w-full text-left">
-                            <thead>
-                              <tr>
-                                {preview.columns.map((c) => (
-                                  <th
-                                    key={c}
-                                    className="sticky top-0 bg-muted px-2 py-1 text-[9px] font-medium uppercase tracking-wider text-muted-foreground"
-                                  >
-                                    {c}
-                                  </th>
-                                ))}
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {preview.rows.slice(0, 20).map((row, i) => (
-                                <tr key={i} className="border-t border-border/40">
-                                  {preview.columns.map((c) => (
-                                    <td key={c} className="px-2 py-1 font-mono text-[10px]">
-                                      {row[c] === null || row[c] === undefined
-                                        ? "null"
-                                        : typeof row[c] === "number"
-                                          ? fmtBiValue(row[c], colFormats[c])
-                                          : String(row[c])}
-                                    </td>
-                                  ))}
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                        Widget title
-                      </Label>
-                      <Input
-                        value={title}
-                        onChange={(e) => setTitle(e.target.value)}
-                        placeholder="Revenue by month"
-                        className="h-8 text-xs"
-                      />
-                    </div>
-
-                    {dateColumns.length > 0 && (
-                      <div className="space-y-1.5">
-                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                          Scheduled refresh
-                        </Label>
+                    {preview && (
+                      <>
                         <div className="grid grid-cols-2 gap-2">
-                          <Select
-                            value={incDays || "full"}
-                            onValueChange={(v) => {
-                              setIncDays(v === "full" ? "" : v);
-                              if (v !== "full" && !incColumn) setIncColumn(dateColumns[0]);
-                            }}
-                          >
-                            <SelectTrigger className="h-8 text-xs">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="full">Full re-query</SelectItem>
-                              <SelectItem value="7">Last 7 days only</SelectItem>
-                              <SelectItem value="30">Last 30 days only</SelectItem>
-                              <SelectItem value="90">Last 90 days only</SelectItem>
-                              <SelectItem value="365">Last 365 days only</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <Select
-                            value={incColumn || dateColumns[0]}
-                            onValueChange={setIncColumn}
-                            disabled={!incDays}
-                          >
-                            <SelectTrigger className="h-8 text-xs">
-                              <SelectValue placeholder="Date column" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {dateColumns.map((c) => (
-                                <SelectItem key={c} value={c}>
-                                  {c}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          {(chartType === "bar" ||
+                            chartType === "hbar" ||
+                            chartType === "line" ||
+                            chartType === "area") && (
+                            <>
+                              {fieldSelect(
+                                chartType === "hbar" ? "Category" : "X axis",
+                                xField,
+                                setXField,
+                              )}
+                              {fieldSelect("Value (numeric)", yField, setYField)}
+                              {chartType !== "hbar" &&
+                                optionalFieldSelect("Split by series", seriesField, setSeriesField)}
+                              {chartType === "bar" && seriesField && (
+                                <div className="flex items-end pb-1.5">
+                                  <Label className="flex cursor-pointer items-center gap-2 text-xs font-normal normal-case tracking-normal text-foreground">
+                                    <Checkbox
+                                      checked={stacked}
+                                      onCheckedChange={(v) => setStacked(Boolean(v))}
+                                    />
+                                    Stacked bars
+                                  </Label>
+                                </div>
+                              )}
+                            </>
+                          )}
+                          {(chartType === "scolumn" || chartType === "shbar") && (
+                            <>
+                              {fieldSelect("Category", xField, setXField)}
+                              {fieldSelect("Value (numeric)", yField, setYField)}
+                              {fieldSelect("Split by (stack)", seriesField, setSeriesField)}
+                            </>
+                          )}
+                          {chartType === "barrace" && (
+                            <>
+                              {fieldSelect("Racing category", xField, setXField)}
+                              {fieldSelect("Value (numeric)", yField, setYField)}
+                              {fieldSelect("Time / frame", timeField, setTimeField)}
+                            </>
+                          )}
+                          {chartType === "radar" && (
+                            <>
+                              {fieldSelect("Metric (spoke)", xField, setXField)}
+                              {fieldSelect("Value (numeric)", yField, setYField)}
+                              {optionalFieldSelect("Split by series", seriesField, setSeriesField)}
+                            </>
+                          )}
+                          {chartType === "sankey" && (
+                            <>
+                              {fieldSelect("Source (from)", xField, setXField)}
+                              {fieldSelect("Target (to)", yField, setYField)}
+                              {fieldSelect("Value (numeric)", valueField, setValueField)}
+                            </>
+                          )}
+                          {chartType === "waterfall" && (
+                            <>
+                              {fieldSelect("Stage / step", xField, setXField)}
+                              {fieldSelect("Change (+/- numeric)", yField, setYField)}
+                            </>
+                          )}
+                          {chartType === "boxplot" && (
+                            <>
+                              {fieldSelect("Category", xField, setXField)}
+                              {fieldSelect("Value (numeric)", yField, setYField)}
+                            </>
+                          )}
+                          {(chartType === "pie" ||
+                            chartType === "funnel" ||
+                            chartType === "treemap" ||
+                            chartType === "nightingale") && (
+                            <>
+                              {fieldSelect(
+                                chartType === "funnel" ? "Stage" : "Category",
+                                nameField,
+                                setNameField,
+                              )}
+                              {fieldSelect("Value (numeric)", valueField, setValueField)}
+                            </>
+                          )}
+                          {chartType === "wordcloud" && (
+                            <>
+                              {fieldSelect("Text / words", nameField, setNameField)}
+                              {optionalFieldSelect(
+                                "Weight by (numeric)",
+                                valueField,
+                                setValueField,
+                              )}
+                            </>
+                          )}
+                          {chartType === "combo" && (
+                            <>
+                              {fieldSelect("X axis", xField, setXField)}
+                              {fieldSelect("Bars (numeric)", yField, setYField)}
+                              {fieldSelect("Line (numeric)", lineField, setLineField)}
+                            </>
+                          )}
+                          {chartType === "scatter" && (
+                            <>
+                              {fieldSelect("X (numeric)", xField, setXField)}
+                              {fieldSelect("Y (numeric)", yField, setYField)}
+                              {optionalFieldSelect("Bubble size", sizeField, setSizeField)}
+                            </>
+                          )}
+                          {chartType === "heatmap" && (
+                            <>
+                              {fieldSelect("Columns (X)", xField, setXField)}
+                              {fieldSelect("Rows (Y)", yField, setYField)}
+                              {fieldSelect("Value (numeric)", valueField, setValueField)}
+                            </>
+                          )}
+                          {chartType === "matrix" && (
+                            <>
+                              {fieldSelect("Rows", rowField, setRowField)}
+                              {fieldSelect("Columns", colField, setColField)}
+                              {fieldSelect("Value (numeric)", valueField, setValueField)}
+                              {optionalFieldSelect(
+                                "Row detail (expandable)",
+                                rowSubField,
+                                setRowSubField,
+                              )}
+                              <BiCondFormatEditor
+                                matFmtMode={matFmtMode}
+                                setMatFmtMode={setMatFmtMode}
+                                matScaleColor={matScaleColor}
+                                setMatScaleColor={setMatScaleColor}
+                                matRules={matRules}
+                                setMatRules={setMatRules}
+                              />
+                            </>
+                          )}
+                          {(chartType === "map" || chartType === "bubblemap") && (
+                            <>
+                              {fieldSelect("Location (country)", locationField, setLocationField)}
+                              {fieldSelect("Value (numeric)", valueField, setValueField)}
+                            </>
+                          )}
+
+                          {/* Drill hierarchy (bar/hbar/pie/treemap) */}
+                          {(chartType === "bar" ||
+                            chartType === "hbar" ||
+                            chartType === "pie" ||
+                            chartType === "treemap") && (
+                            <BiDrillHierarchy
+                              drillList={drillList}
+                              setDrillList={setDrillList}
+                              columns={preview?.columns ?? []}
+                            />
+                          )}
+
+                          {/* Time intelligence (line/area) */}
+                          {(chartType === "line" || chartType === "area") && (
+                            <BiTimeSeriesOptions
+                              chartType={chartType}
+                              seriesField={seriesField}
+                              grainSel={grainSel}
+                              setGrainSel={setGrainSel}
+                              compareSel={compareSel}
+                              setCompareSel={setCompareSel}
+                              runningB={runningB}
+                              setRunningB={setRunningB}
+                              trendB={trendB}
+                              setTrendB={setTrendB}
+                              forecastN={forecastN}
+                              setForecastN={setForecastN}
+                            />
+                          )}
+
+                          {/* Reference line (bar/line/area) */}
+                          {(chartType === "bar" ||
+                            chartType === "line" ||
+                            chartType === "area") && (
+                            <BiRefLineOptions
+                              refMode={refMode}
+                              setRefMode={setRefMode}
+                              refValue={refValue}
+                              setRefValue={setRefValue}
+                              refLabel={refLabel}
+                              setRefLabel={setRefLabel}
+                            />
+                          )}
+                          {chartType !== "table" &&
+                            chartType !== "heatmap" &&
+                            chartType !== "boxplot" &&
+                            chartType !== "map" &&
+                            chartType !== "bubblemap" &&
+                            chartType !== "kpi" &&
+                            chartType !== "gauge" &&
+                            formatSelect}
+                          {columnFormatEditor}
+                          {(chartType === "kpi" || chartType === "gauge") && (
+                            <>
+                              {fieldSelect("Value column", valueField, setValueField)}
+                              {optionalFieldSelect("Target column", targetField, setTargetField)}
+                              {chartType === "gauge" && (
+                                <div className="space-y-1">
+                                  <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                                    Max (optional)
+                                  </Label>
+                                  <Input
+                                    value={maxInput}
+                                    onChange={(e) => setMaxInput(e.target.value)}
+                                    className="h-8 text-xs"
+                                    placeholder="auto"
+                                    inputMode="decimal"
+                                  />
+                                </div>
+                              )}
+                              <div className="space-y-1">
+                                <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                                  Label
+                                </Label>
+                                <Input
+                                  value={kpiLabel}
+                                  onChange={(e) => setKpiLabel(e.target.value)}
+                                  className="h-8 text-xs"
+                                  placeholder="Total revenue"
+                                />
+                              </div>
+                              {formatSelect}
+                            </>
+                          )}
                         </div>
-                        <p className="text-[10px] leading-relaxed text-muted-foreground">
-                          Incremental: each scheduled refresh re-queries only the window and keeps
-                          older rows from the last snapshot. Assumes history outside the window no
-                          longer changes — pick Full re-query if old rows get edited.
-                        </p>
-                      </div>
+                        {(chartType === "map" || chartType === "bubblemap") && (
+                          <p className="text-[10px] text-muted-foreground">
+                            Locations are matched to countries by name or common shorthand (USA,
+                            UK…). Unmatched rows are counted on the map.
+                          </p>
+                        )}
+
+                        {/* Preview */}
+                        <div className="rounded-lg border border-border/60 bg-card p-2">
+                          {chartSpec && chartSpec.type !== "table" ? (
+                            <BiChartRender chart={chartSpec} rows={preview.rows} />
+                          ) : (
+                            <div className="max-h-48 overflow-auto rounded border border-border/50">
+                              <table className="w-full text-left">
+                                <thead>
+                                  <tr>
+                                    {preview.columns.map((c) => (
+                                      <th
+                                        key={c}
+                                        className="sticky top-0 bg-muted px-2 py-1 text-[9px] font-medium uppercase tracking-wider text-muted-foreground"
+                                      >
+                                        {c}
+                                      </th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {preview.rows.slice(0, 20).map((row, i) => (
+                                    <tr key={i} className="border-t border-border/40">
+                                      {preview.columns.map((c) => (
+                                        <td key={c} className="px-2 py-1 font-mono text-[10px]">
+                                          {row[c] === null || row[c] === undefined
+                                            ? "null"
+                                            : typeof row[c] === "number"
+                                              ? fmtBiValue(row[c], colFormats[c])
+                                              : String(row[c])}
+                                        </td>
+                                      ))}
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                            Widget title
+                          </Label>
+                          <Input
+                            value={title}
+                            onChange={(e) => setTitle(e.target.value)}
+                            placeholder="Revenue by month"
+                            className="h-8 text-xs"
+                          />
+                        </div>
+
+                        {dateColumns.length > 0 && (
+                          <div className="space-y-1.5">
+                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                              Scheduled refresh
+                            </Label>
+                            <div className="grid grid-cols-2 gap-2">
+                              <Select
+                                value={incDays || "full"}
+                                onValueChange={(v) => {
+                                  setIncDays(v === "full" ? "" : v);
+                                  if (v !== "full" && !incColumn) setIncColumn(dateColumns[0]);
+                                }}
+                              >
+                                <SelectTrigger className="h-8 text-xs">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="full">Full re-query</SelectItem>
+                                  <SelectItem value="7">Last 7 days only</SelectItem>
+                                  <SelectItem value="30">Last 30 days only</SelectItem>
+                                  <SelectItem value="90">Last 90 days only</SelectItem>
+                                  <SelectItem value="365">Last 365 days only</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <Select
+                                value={incColumn || dateColumns[0]}
+                                onValueChange={setIncColumn}
+                                disabled={!incDays}
+                              >
+                                <SelectTrigger className="h-8 text-xs">
+                                  <SelectValue placeholder="Date column" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {dateColumns.map((c) => (
+                                    <SelectItem key={c} value={c}>
+                                      {c}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <p className="text-[10px] leading-relaxed text-muted-foreground">
+                              Incremental: each scheduled refresh re-queries only the window and
+                              keeps older rows from the last snapshot. Assumes history outside the
+                              window no longer changes — pick Full re-query if old rows get edited.
+                            </p>
+                          </div>
+                        )}
+                      </>
                     )}
                   </>
                 )}
@@ -1725,10 +1873,17 @@ export function BiBuilderPane({
             )}
           </div>
           <div className="border-t border-border p-3">
-            <Button className="w-full gap-1.5" onClick={submit} disabled={!canSubmit}>
-              <Plus className="h-4 w-4" />
-              {initial ? "Save widget" : "Add to dashboard"}
-            </Button>
+            {sourceKey === "semantic" && chartType !== "ontology" ? (
+              <Button className="w-full gap-1.5" onClick={submitMetric} disabled={!canSubmitMetric}>
+                <Plus className="h-4 w-4" />
+                Add to dashboard
+              </Button>
+            ) : (
+              <Button className="w-full gap-1.5" onClick={submit} disabled={!canSubmit}>
+                <Plus className="h-4 w-4" />
+                {initial ? "Save widget" : "Add to dashboard"}
+              </Button>
+            )}
           </div>
         </>
       ) : (

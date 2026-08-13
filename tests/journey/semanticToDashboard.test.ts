@@ -32,6 +32,8 @@ import {
   parseLayout,
   parsePages,
   parseWidgets,
+  coerceSemanticChart,
+  SEMANTIC_CHART_KINDS,
   snapshotRows,
   stripPagesData,
   widgetFromSemantic,
@@ -583,5 +585,155 @@ describe("journey regressions the suite must never lose", () => {
       parseLayout(out.layout as unknown as Json, rereadMirror),
     );
     expect(rereadPages[0].widgets.map((x) => x.id)).toEqual(rereadMirror.map((x) => x.id));
+  });
+});
+
+describe("the builder's governed-metric source", () => {
+  // The BI builder's "Governed metrics" source is three hops of wiring
+  // (page provides hooks -> pane gates the option -> pane inserts via
+  // widgetFromSemantic) around one real chain (compile -> run -> widget ->
+  // stored source -> recompile). The chain is tested for real below; each
+  // hop is pinned as a source guard, because dropping any single one leaves
+  // every unit green while the feature quietly vanishes or lies.
+
+  it("a builder-shaped query round-trips: preview, stored source, refresh recompile", async () => {
+    // Exactly what the metric section sends: metrics + dims + a time grain,
+    // preview-capped at 100 (mmQuery pins the same shape — see source guard).
+    const query = {
+      model: "saas",
+      metrics: ["total_discount"],
+      dimensions: ["country", "order_date"],
+      grains: { order_date: "month" as const },
+      limit: 100,
+    };
+    const compiled = compileSemanticQuery(model, query, { dialect: "duckdb" });
+    const res = await runOn("duckdb", compiled.sql);
+    expect(res.rows.length).toBeGreaterThan(0);
+
+    // What submitMetric builds from the PREVIEW (no second run).
+    const widget = widgetFromSemantic({
+      title: "Discount by country by month",
+      model: query.model,
+      metrics: query.metrics,
+      dimensions: query.dimensions,
+      grains: query.grains,
+      chartType: "table",
+      columns: compiled.columns,
+      rows: res.rows as Record<string, unknown>[],
+      sql: compiled.sql,
+    });
+    const added = appendWidgetToPages([makeEmptyPage("Page 1")], widget);
+    const loaded = roundTrip(added.pages, [resultRowFor(widget)]);
+    const stored = loaded[0].widgets.find((w) => w.id === widget.id)!;
+    const src = stored.source as {
+      kind: string;
+      model: string;
+      metrics: string[];
+      dimensions?: string[];
+      grains?: Record<string, "month">;
+    };
+    expect(src.kind).toBe("semantic");
+    expect(src.model).toBe("saas");
+    expect(src.metrics).toEqual(["total_discount"]);
+    expect(src.dimensions).toEqual(["country", "order_date"]);
+    // The grain is part of the QUESTION. A stored source without it re-runs
+    // at raw dates on the next scheduled refresh — same title, finer rows.
+    expect(src.grains).toEqual({ order_date: "month" });
+
+    const recompiled = compileSemanticQuery(
+      model,
+      {
+        model: src.model,
+        metrics: src.metrics,
+        dimensions: src.dimensions,
+        grains: src.grains,
+        limit: 100,
+      },
+      { dialect: "duckdb" },
+    );
+    expect(recompiled.sql).toBe(compiled.sql);
+  });
+
+  it("chart kinds outside the governed set insert as tables", async () => {
+    for (const k of ["table", "bar", "line", "area", "kpi", "pie"] as const) {
+      expect(SEMANTIC_CHART_KINDS).toContain(k);
+    }
+    // The picker offers these; a governed widget cannot take them.
+    expect(SEMANTIC_CHART_KINDS).not.toContain("hbar");
+    expect(SEMANTIC_CHART_KINDS).not.toContain("scatter");
+    expect(SEMANTIC_CHART_KINDS).not.toContain("ontology");
+    // The coercion is the REAL function both the pane's submit and the
+    // metric section's notice go through, not a private copy in either.
+    expect(coerceSemanticChart("bar")).toBe("bar");
+    expect(coerceSemanticChart("pie")).toBe("pie");
+    expect(coerceSemanticChart("hbar")).toBe("table");
+    expect(coerceSemanticChart("ontology")).toBe("table");
+    const { readFileSync } = await import("node:fs");
+    const pane = readFileSync("src/components/bi/BiBuilderPane.tsx", "utf8");
+    expect(pane).toContain("coerceSemanticChart(chartType)");
+    const section = readFileSync("src/components/bi/BiMetricSource.tsx", "utf8");
+    expect(section).toContain("coerceSemanticChart(chartType) !== chartType");
+  });
+
+  it("the lead metric's declared format survives the builder hop", async () => {
+    const w = widgetFromSemantic({
+      title: "MRR",
+      model: "saas",
+      metrics: ["total_discount"],
+      dimensions: [],
+      chartType: "kpi",
+      columns: ["total_discount"],
+      rows: [{ total_discount: 42 }],
+      sql: "SELECT 1",
+      format: "currency",
+      currency: "EUR",
+    });
+    expect((w.chart as { format?: string }).format).toBe("currency");
+    expect((w.chart as { currency?: string }).currency).toBe("EUR");
+    // The pane reads it off the LEAD metric of the model listing.
+    const { readFileSync } = await import("node:fs");
+    const pane = readFileSync("src/components/bi/BiBuilderPane.tsx", "utf8");
+    expect(pane).toMatch(/lead\?\.format === "currency" \|\| lead\?\.format === "percent"/);
+  });
+
+  it("the wiring hops exist end to end (source guards)", async () => {
+    const { readFileSync } = await import("node:fs");
+
+    // The contract: both hooks are optional and offered TOGETHER.
+    const ctxSrc = readFileSync("src/components/bi/biDataContext.ts", "utf8");
+    expect(ctxSrc).toMatch(/listMetricModels\?: \(\) => Promise<MetricModelOption\[\]>/);
+    expect(ctxSrc).toMatch(/runMetric\?: \(query: SemanticQuery\)/);
+
+    // The dashboard page provides both, under the caller's JWT, through the
+    // SAME server functions the Semantic Layer runner uses.
+    const page = readFileSync("src/routes/_authenticated/bi_.$dashboardId.tsx", "utf8");
+    expect(page).toContain("useServerFn(semanticListModels)");
+    expect(page).toContain("runMetricFn({ data: { accessToken: token, query } })");
+    expect(page).toMatch(/listMetricModels,\s*runMetric,\s*\}\)/);
+
+    const pane = readFileSync("src/components/bi/BiBuilderPane.tsx", "utf8");
+    // Offered only when the page wired both hooks, on the Build tab, and not
+    // while editing an existing widget (the semantic insert path mints a new
+    // id — offering it in edit mode would duplicate instead of update).
+    expect(pane).toContain('ctx.listMetricModels && ctx.runMetric && tab === "build" && !initial');
+    // Metric mode replaces the table picker + SQL editor…
+    expect(pane).toMatch(/sourceKey === "semantic" && ctx\.runMetric \? \(/);
+    // …and inserts the PREVIEW's rows and sql via the real constructor.
+    expect(pane).toMatch(/onSubmit\(\s*widgetFromSemantic\(\{/);
+    expect(pane).toMatch(/rows: mmPreview\.rows,\s*sql: mmPreview\.sql,/);
+    // Preview and insert describe the SAME query.
+    expect(pane).toMatch(/ctx\.runMetric\(mmQuery\(\)\)/);
+    expect(pane).toContain("limit: 100,");
+    // The footer submit swaps to the governed path, gated on a real preview.
+    expect(pane).toContain("onClick={submitMetric} disabled={!canSubmitMetric}");
+    expect(pane).toContain("Boolean(title.trim() && mmName && mmMetrics.length > 0 && mmPreview)");
+    // "semantic" is not a warehouse id: schema fetch must skip it, and the
+    // AI tab (tables only) falls back to local.
+    expect(pane).toContain('v !== "local" && v !== "semantic"');
+    expect(pane).toContain('tab === "ai" && sourceKey === "semantic"');
+    // Rollup routing is DISCLOSED on the preview, same as the semantic
+    // runner. The picking UI lives in its own child (see biBuilderSplit).
+    const section = readFileSync("src/components/bi/BiMetricSource.tsx", "utf8");
+    expect(section).toContain("rollup: {mmPreview.rollup}");
   });
 });

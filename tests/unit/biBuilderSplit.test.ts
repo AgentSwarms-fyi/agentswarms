@@ -30,6 +30,10 @@ const CHILDREN = {
   "BiSqlEditor.tsx": readFileSync("src/components/bi/BiSqlEditor.tsx", "utf8"),
   "BiCondFormatEditor.tsx": readFileSync("src/components/bi/BiCondFormatEditor.tsx", "utf8"),
   "BiChartOptions.tsx": readFileSync("src/components/bi/BiChartOptions.tsx", "utf8"),
+  // Born extracted rather than split out: the governed-metric source landed
+  // as a child from day one BECAUSE this file's ceiling flagged the inlined
+  // draft. Same contract as the others — no hooks, values and setters in.
+  "BiMetricSource.tsx": readFileSync("src/components/bi/BiMetricSource.tsx", "utf8"),
 };
 
 describe("no hook moved out of the parent", () => {
@@ -61,15 +65,20 @@ describe("the extracted regions are gone from the parent", () => {
       "<BiDrillHierarchy",
       "<BiTimeSeriesOptions",
       "<BiRefLineOptions",
+      "<BiMetricSource",
     ]) {
       expect(parent, `${tag} is not rendered`).toContain(tag);
     }
   });
 
   it("shrank the parent substantially", () => {
-    // 2,664 before, 1,754 now. A ceiling rather than an exact number so
-    // ordinary edits do not fail this, but a wholesale re-inlining would.
-    expect(parent.split("\n").length).toBeLessThan(1900);
+    // 2,664 before the split, 1,754 after. The governed-metric source then
+    // added its parent-side share — state, the query, the submit path the
+    // footer calls — and sits at 1,915 with its UI extracted to
+    // BiMetricSource (this ceiling is what flagged the inlined draft at
+    // 2,138). Re-baselined with the same ~135-line headroom as the original:
+    // ordinary edits do not fail this, but re-inlining a child would.
+    expect(parent.split("\n").length).toBeLessThan(2050);
   });
 });
 

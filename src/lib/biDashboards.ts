@@ -801,6 +801,27 @@ export function widgetFromBiTurn(
 
 export type SemanticChartType = "table" | "bar" | "line" | "area" | "kpi" | "pie";
 
+/**
+ * The chart shapes a governed (semantic-source) widget can take. The BI
+ * builder's visual picker offers more; its governed-metric source coerces
+ * anything outside this set to "table" and says so before inserting.
+ */
+export const SEMANTIC_CHART_KINDS: readonly SemanticChartType[] = [
+  "table",
+  "bar",
+  "line",
+  "area",
+  "kpi",
+  "pie",
+];
+
+/** The chart shape a governed widget takes for a picker chart type. */
+export function coerceSemanticChart(chartType: string): SemanticChartType {
+  return (SEMANTIC_CHART_KINDS as readonly string[]).includes(chartType)
+    ? (chartType as SemanticChartType)
+    : "table";
+}
+
 /** Build a dashboard widget backed by a governed semantic metric query. */
 export function widgetFromSemantic(args: {
   title: string;

@@ -4,7 +4,16 @@
 import type { DatasetMeta, QueryResult } from "@/lib/sqlEngine";
 import type { SavedMetric, SemanticEntry } from "@/lib/biAgent";
 import type { BiWidgetSource } from "@/lib/biDashboards";
+import type { SemanticQuery } from "@/lib/semanticLayer";
 import type { WarehouseConnectionSummary, WarehouseTable } from "@/utils/warehouse/types";
+
+/** A governed semantic model, as the builder's metric source offers it. */
+export type MetricModelOption = {
+  name: string;
+  label: string | null;
+  dimensions: Array<{ name: string; type?: string }>;
+  metrics: Array<{ name: string; agg: string; format?: string; currency?: string }>;
+};
 
 export type BiDataContext = {
   userId: string | null;
@@ -22,6 +31,18 @@ export type BiDataContext = {
   ensureSchema: (connectionId: string) => void;
   /** Run read-only SQL against a widget source (local engine or warehouse). */
   runSql: (source: BiWidgetSource, sql: string) => Promise<QueryResult>;
+  /**
+   * Governed metric source (Semantic Layer). Both are provided together by
+   * the project editor; their presence is what makes the builder offer
+   * "Governed metrics" as a data source.
+   */
+  listMetricModels?: () => Promise<MetricModelOption[]>;
+  runMetric?: (query: SemanticQuery) => Promise<{
+    columns: string[];
+    rows: Record<string, unknown>[];
+    sql: string;
+    rollup?: string;
+  }>;
 };
 
 export function sourceFromKey(
