@@ -213,12 +213,16 @@ GROUP BY 1, 2`}</Code>
         <strong>dimension from a fanning table</strong> groups base metrics too, when the model
         declares a primary key: the base branch deduplicates by the key — each source row counts
         once per distinct dimension combination it relates to, the standard related-table
-        attribution. What the plan cannot prove still <strong>refuses</strong> with the reason: an
+        attribution. An <C>INNER</C> fanning join resolves too: INNER both multiplies and{" "}
+        <em>filters</em> (a source row with no match vanishes), so the branch that reads the fanning
+        table keeps the real join while every other branch — and the spine — keeps the filter as a
+        correlated <C>EXISTS</C> instead. The scope holds everywhere; the multiplication stays
+        contained. What the plan cannot prove still <strong>refuses</strong> with the reason: an
         unqualified column (no branch may guess its table), a bare <C>count</C>, a metric reading
         two facts at once, dimensions from two different fanning tables, a fanning-table dimension
         without a declared primary key, a duplicate-sensitive metric reading a different fact than
-        the dimensions group by, and an <C>INNER</C> fanning join. Models saved before cardinality
-        existed keep compiling unchanged — Validate measures them instead.
+        the dimensions group by, and a lookup chained through a fanning join. Models saved before
+        cardinality existed keep compiling unchanged — Validate measures them instead.
       </P>
       <Callout kind="why">
         Measured on a two-order fixture: orders A (100) and B (50), where A has three line items.
@@ -406,7 +410,7 @@ LEFT JOIN semantic_prev ON semantic_cur."month" IS NOT DISTINCT FROM semantic_pr
             <DocLink key="bi" to="/docs/bi">
               Dashboards
             </DocLink>,
-            "Pick a metric in the builder instead of writing a query. The tile inherits the definition and updates if it changes — including its display format, so a currency metric charts as currency, not a bare number.",
+            "Two doors to the same tile. From the runner here, Add to dashboard. Or from the builder's Data source picker, choose Governed metrics (Semantic Layer): pick a model, tick metrics and group-bys (time dimensions take a grain), preview — a rollup-answered preview says so — and insert, no SQL involved. Either way the tile inherits the definition and updates if it changes, including its display format, so a currency metric charts as currency, not a bare number.",
           ],
           [
             "Agents",

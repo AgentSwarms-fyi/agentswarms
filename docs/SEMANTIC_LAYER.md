@@ -98,6 +98,16 @@ The rules, per metric:
   counts once per line-item bucket it relates to, Tableau's related-table
   attribution. The spine and base branch carry that one fanning join;
   filtered measures keep their filters as carried flags.
+- **An INNER fanning join resolves by EXISTS-scoping.** INNER does two things
+  at once: it multiplies (each source row repeats per match) and it
+  **filters** (a source row with no match vanishes). The plan keeps the
+  filter and contains the multiplication — the branch that reads the fanning
+  table keeps the real INNER join; every other branch, and the dimension
+  spine, gets a correlated `EXISTS (SELECT 1 FROM items WHERE …on…)`
+  instead. Measured: an itemless order's solo region never
+  appears on the spine (no ghost groups), and its shipment weight drops out
+  of the shipment branch — the INNER scope holds everywhere, and nothing
+  double-counts. Composes with deduplication and period-over-period.
 
 **What still refuses** — everything the plan cannot prove, with the original
 error plus the reason resolution did not apply:
@@ -115,9 +125,8 @@ error plus the reason resolution did not apply:
 - under deduplication, a duplicate-sensitive metric reading a **different**
   fact than the dimensions — its rows have no key under that grouping; split
   the query or add a dimension from that fact.
-- an **INNER** fanning join (a row filter the plan cannot keep without
-  duplicating), a lookup **chained through** a fanning join, and the AlaSQL
-  escape hatch (no CTEs).
+- a lookup **chained through** a fanning join, and the AlaSQL escape hatch
+  (no CTEs).
 
 Models saved before cardinality existed keep compiling unchanged — breaking
 every existing model on upgrade was not an option. They are protected by
@@ -357,6 +366,19 @@ bare number, on KPI, pie, bar, line and area tiles alike. Scheduled refreshes
 of a parameterised model re-run with the declared **defaults** — a widget is an
 unattended caller, which is exactly why defaults are required.
 
+It also works from the other end: the BI builder's **Data source** picker
+offers **Governed metrics (Semantic Layer)** next to local datasets and
+warehouse connections. Pick a model, tick metrics and group-bys (time
+dimensions get a per-dimension grain — day/week/month/quarter/year), preview,
+and insert — no SQL is written or shown, because the semantic layer writes it
+under the caller's own JWT: share grants, row filters, field masks and
+attribute tokens all apply exactly as they do in the query runner, and a
+preview answered by a declared rollup says so with a `rollup:` badge. The
+inserted widget is the same metric-backed widget the runner creates — it
+re-runs against the current model definition on refresh. Chart types beyond
+the governed set (table, bar, line, area, KPI, pie) insert as a table, and
+the builder says so before you commit.
+
 ## What the agent actually sees
 
 The catalog injected into `metric_query`'s description carries, per field:
@@ -569,10 +591,3 @@ to the fact.
 - **Multiple comparison axes** — a query compares along exactly one grained time
   dimension. Two would have no single "previous period", so the compiler refuses
   rather than choosing one.
-- A native metric option **inside the BI visual builder** (today you author +
-  run here and Add to dashboard; the builder's own source picker is next).
-- **Multi-fact plan extensions** — the chasm is resolved, and so are
-  period-over-period across a plan and primary-key deduplication for
-  fact-side dimensions (see Join safety); the one residual is INNER fanning
-  joins (an EXISTS-style row filter would keep the scope without the
-  duplication).
