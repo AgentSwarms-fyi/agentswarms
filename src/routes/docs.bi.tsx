@@ -58,12 +58,18 @@ function BiPage() {
         surface. An analyst is exactly two choices: a <strong>reasoning model</strong> from your
         connected providers (the dialog suggests reasoning families and nudges you when a pick
         doesn&apos;t look like one) and <strong>the data</strong> it analyses — local datasets and
-        uploads, one table, or a warehouse connection. Every question runs a transparent loop: plan
-        the steps, write and run the SQL (the same generator and governed metric definitions the BI
-        analyst uses, SELECT-only), <em>check its own work</em> — a wrong step re-runs with
-        corrected SQL, a doubtful one is presented flagged — then write up findings where every
-        number cites the step it came from. Analyses persist per analyst, follow-up questions see
-        the earlier answers, and the whole trace exports as a <strong>PDF</strong>.
+        uploads, one table, or a warehouse connection. Both stay <strong>editable</strong> from the
+        pencil on the analyst&apos;s card, and an edit applies to your next question: earlier
+        analyses are not re-run and each keeps a record of the model that produced it, so an
+        exported report never attributes old numbers to a newly-chosen model. Reasoning models are
+        also given a longer request deadline than chat models, because their time goes on thinking
+        rather than output — sized for chat models, the analyst&apos;s required model class was the
+        one that timed out. Every question runs a transparent loop: plan the steps, write and run
+        the SQL (the same generator and governed metric definitions the BI analyst uses,
+        SELECT-only), <em>check its own work</em> — a wrong step re-runs with corrected SQL, a
+        doubtful one is presented flagged — then write up findings where every number cites the step
+        it came from. Analyses persist per analyst, follow-up questions see the earlier answers, and
+        the whole trace exports as a <strong>PDF</strong>.
       </P>
       <P>
         <strong>Every step that has something to show gets its own chart</strong>, so a three-query

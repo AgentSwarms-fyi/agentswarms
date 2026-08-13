@@ -252,6 +252,25 @@ pick doesn't look like one) and **the data** it is scoped to (all local
 datasets &amp; uploads, one dataset, or one warehouse connection). Create as
 many analysts as you have jobs for them.
 
+Both choices stay **editable** — the pencil on an analyst's card reopens the
+same dialog, so a model that turns out too slow, or data that moved, is a
+two-click change rather than a new analyst. Editing applies to your next
+question: analyses already on the thread are **not** re-run, and they keep
+saying which model produced them. Each turn records the model that answered
+it, so a report exported after a model change still names the model behind
+its numbers rather than whatever the analyst is set to now. A name you typed
+yourself survives an edit; one we derived from the old data source is
+re-derived, so an analyst never keeps a label describing data it no longer
+reads.
+
+**Reasoning models get a longer clock.** Their wall-clock time is dominated
+by thinking that counts against the completion budget, and they generate far
+slower per token than chat models — a measured DeepSeek-R1 call produced
+1,785 tokens in 59.8s (~33ms/token) against the 8ms/token a chat model
+manages. The request deadline scales with both the completion budget and the
+model class; sized for chat models it was the analyst's *required* model
+class that timed out. See `src/lib/llmDeadline.ts`.
+
 Ask one a question and it runs a transparent loop:
 
 1. **Plan** — decomposes the question into 1–4 concrete steps and states its

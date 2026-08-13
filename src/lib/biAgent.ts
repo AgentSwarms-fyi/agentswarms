@@ -25,6 +25,7 @@ import type { ColumnDef, DatasetMeta, QueryResult } from "@/lib/sqlEngine";
 import type { OntologySpec } from "@/lib/biOntology";
 import { metricExpression, type SemanticDimension, type SemanticMetric } from "@/lib/semanticLayer";
 import { parseModelChoice } from "@/utils/providers/modelChoice";
+import { clientDeadlineMs } from "@/lib/llmDeadline";
 
 export type ColumnMeta = {
   description?: string;
@@ -193,11 +194,12 @@ export async function llmJson<T>(opts: {
   // Hard deadline: without it a stalled provider leaves every AI spinner
   // (analyst, insights, ontology, generate) hanging forever.
   //
-  // Must outlast the server's own deadline, which scales with maxTokens — at a
-  // flat 120s the client gave up first on any large plan, so the server's much
-  // more specific timeout message never reached the user.
+  // DERIVED from the server's, so it always outlasts it — at a flat 120s the
+  // client gave up first on any large plan and the server's much more
+  // specific message never reached the user. Reasoning models get a longer
+  // clock on both sides; see src/lib/llmDeadline.ts.
   const ctrl = new AbortController();
-  const clientTimeoutMs = Math.min(270_000, 90_000 + Math.min(opts.maxTokens ?? 0, 16000) * 8);
+  const clientTimeoutMs = clientDeadlineMs(opts.maxTokens, choice?.model ?? opts.model);
   const timer = setTimeout(() => ctrl.abort(), clientTimeoutMs);
   let resp: Response;
   try {

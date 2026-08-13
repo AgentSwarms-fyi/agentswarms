@@ -24,6 +24,7 @@ import {
 } from "@/utils/providers/credentials.server";
 import { isBiCompatProvider } from "@/utils/providers/modelChoice";
 import { describeJsonFault, repairJsonGlitches } from "@/utils/jsonFault";
+import { isSlowReasoningModel, upstreamDeadlineMs } from "@/lib/llmDeadline";
 import type { ProviderId } from "@/utils/providers/types";
 
 const DEFAULT_MODEL = "google/gemini-2.5-flash";
@@ -155,18 +156,15 @@ export const Route = createFileRoute("/api/bi")({
         const gatewayModelLabel = provider === "openrouter" ? model : `${provider}/${model}`;
 
         // Deadline on the upstream call — a hung provider must surface as a
-        // clear error, not an infinite client spinner.
-        //
-        // Scaled by the completion budget, because a flat deadline is wrong at
-        // both ends: a Deep deck plan asks for ~16k tokens of JSON, which no
-        // model emits in 100s, so it always timed out; a small insight call
-        // should not be allowed to hang for four minutes. ~8ms/token is a
-        // pessimistic-but-real rate for a slow free-tier router.
+        // clear error, not an infinite client spinner. Scaled by the
+        // completion budget AND the model class; see src/lib/llmDeadline.ts
+        // for the measured rates and why the client's deadline is derived
+        // from this one rather than written out separately.
         const completionCap = Math.min(
           typeof body.maxTokens === "number" && body.maxTokens > 0 ? body.maxTokens : 0,
           16000,
         );
-        const upstreamMs = Math.min(240_000, 60_000 + completionCap * 8);
+        const upstreamMs = upstreamDeadlineMs(completionCap, model);
         // A TOTAL budget across attempts, not a per-attempt one: a retry must
         // never push this handler past the client's own (slightly longer)
         // deadline, or the client aborts first and the specific server-side
@@ -253,7 +251,11 @@ export const Route = createFileRoute("/api/bi")({
                     `${gatewayModelLabel} did not finish within ${Math.round(upstreamMs / 1000)}s. ` +
                     (completionCap >= 12000
                       ? "This is a large document plan — a faster model usually finishes it, or use Browser (Fast) mode."
-                      : "Try again, or pick a different model."),
+                      : isSlowReasoningModel(model)
+                        ? "Reasoning models spend most of that time thinking, and this one ran out " +
+                          "of clock rather than failing. Ask again, or switch the analyst to a " +
+                          "faster reasoning model — its Edit button is on the analyst card."
+                        : "Try again, or pick a different model."),
                 },
                 504,
               );
