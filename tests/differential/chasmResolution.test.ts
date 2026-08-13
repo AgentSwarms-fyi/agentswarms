@@ -299,19 +299,8 @@ describe("the envelope — what still refuses, and why", () => {
     ).toThrow(/exactly one time dimension with a grain/is);
   });
 
-  it("an INNER fanning join is a row filter the plan cannot keep", () => {
-    const inner: SemanticModel = {
-      ...model,
-      joins: model.joins!.map((j) => (j.table === "items" ? { ...j, type: "inner" as const } : j)),
-    };
-    expect(() =>
-      compileSemanticQuery(
-        inner,
-        { model: "m", metrics: ["total_amount", "total_qty"], dimensions: ["region"] },
-        { dialect: "duckdb" },
-      ),
-    ).toThrow(/INNER and fans out.*Make it LEFT/is);
-  });
+  // (An INNER fanning join used to be refused here; it now resolves via
+  // correlated EXISTS scoping — see the dedicated describe below.)
 
   it("a lookup chained THROUGH a fanning join cannot stand alone in a branch", () => {
     const chained: SemanticModel = {
@@ -357,13 +346,23 @@ describe("the envelope — what still refuses, and why", () => {
   });
 
   it("the refusal carries BOTH stories: the original error and why no plan applied", () => {
-    const inner: SemanticModel = {
+    // The vehicle is a lookup chained THROUGH a fanning join — still refused.
+    const chained: SemanticModel = {
       ...model,
-      joins: model.joins!.map((j) => (j.table === "items" ? { ...j, type: "inner" as const } : j)),
+      joins: [
+        ...model.joins!,
+        {
+          table: "customers",
+          alias: "chained_owner",
+          on: "chained_owner.id = items.order_id",
+          type: "left",
+          cardinality: "many_to_one",
+        },
+      ],
     };
     try {
       compileSemanticQuery(
-        inner,
+        chained,
         { model: "m", metrics: ["total_amount", "total_qty"], dimensions: ["region"] },
         { dialect: "duckdb" },
       );
@@ -373,6 +372,156 @@ describe("the envelope — what still refuses, and why", () => {
       expect(msg).toMatch(/double-count/); // the original fan-out refusal
       expect(msg).toMatch(/multi-fact plan could not resolve/); // and the reason
     }
+  });
+});
+
+describe("INNER fanning joins: the scope survives, the multiplication does not", () => {
+  // An INNER fanning join FILTERS (source rows without a match vanish) and
+  // MULTIPLIES (rows repeat per match). The plan keeps the filter everywhere
+  // — every branch and the spine that do not carry the join get its ON as a
+  // correlated EXISTS — while only the join's own branch pays the
+  // multiplication, at its own grain. The micro-fixture makes scope leaks
+  // VISIBLE: an itemless order shares a region with itemed ones (its amount
+  // must not creep back in), another itemless order owns a region alone (its
+  // region must not appear at all), and an itemless order owns a SHIPMENT
+  // (the other fact must exclude it too).
+  const iOrders: DuckTable = {
+    name: "orders",
+    columns: [
+      { name: "id", type: "number" },
+      { name: "region", type: "string" },
+      { name: "day", type: "date" },
+      { name: "amount", type: "number" },
+    ],
+    rows: [
+      { id: 1, region: "EMEA", day: "2026-01-10", amount: 100 },
+      { id: 2, region: "EMEA", day: "2026-01-20", amount: 50 }, // NO items
+      { id: 3, region: "APAC", day: "2026-02-05", amount: 70 },
+      { id: 4, region: "LATAM", day: "2026-02-15", amount: 10 }, // NO items
+    ],
+  };
+  const iItems: DuckTable = {
+    name: "items",
+    columns: [
+      { name: "order_id", type: "number" },
+      { name: "qty", type: "number" },
+    ],
+    rows: [
+      { order_id: 1, qty: 2 },
+      { order_id: 1, qty: 3 },
+      { order_id: 3, qty: 4 },
+    ],
+  };
+  const iShipments: DuckTable = {
+    name: "shipments",
+    columns: [
+      { name: "order_id", type: "number" },
+      { name: "weight", type: "number" },
+    ],
+    rows: [
+      { order_id: 1, weight: 9 },
+      { order_id: 2, weight: 7 }, // its order has no items — must vanish
+    ],
+  };
+  const iModel: SemanticModel = {
+    name: "inner_m",
+    source: { kind: "data_table", table: "orders" },
+    primaryKey: "id",
+    joins: [
+      {
+        table: "items",
+        on: "orders.id = items.order_id",
+        type: "inner",
+        cardinality: "one_to_many",
+      },
+      {
+        table: "shipments",
+        on: "orders.id = shipments.order_id",
+        type: "left",
+        cardinality: "one_to_many",
+      },
+    ],
+    dimensions: [
+      { name: "region", sql: "orders.region", type: "categorical" },
+      { name: "day", sql: "orders.day", type: "time" },
+      {
+        name: "item_bucket",
+        sql: "CASE WHEN items.qty > 3 THEN 'big' ELSE 'small' END",
+        type: "categorical",
+      },
+    ],
+    metrics: [
+      { name: "total_amount", agg: "sum", sql: "orders.amount" },
+      { name: "total_qty", agg: "sum", sql: "items.qty" },
+      { name: "total_weight", agg: "sum", sql: "shipments.weight" },
+      { name: "order_n", agg: "count_distinct", sql: "orders.id" },
+    ],
+  } as SemanticModel;
+
+  const iexec = async (q: Partial<SemanticQuery>) => {
+    const c = compileSemanticQuery(iModel, { model: "inner_m", ...q } as SemanticQuery, {
+      dialect: "duckdb",
+    });
+    return { c, rows: (await runLocalSqlDuckDB(c.sql, [iOrders, iItems, iShipments])).rows };
+  };
+
+  it("every branch and the spine agree on which orders EXIST", async () => {
+    // By hand, INNER items: orders 2 and 4 do not exist anywhere.
+    //   amount: EMEA 100 (not 150 — order 2 stays out), APAC 70; LATAM: NO ROW.
+    //   qty: EMEA 5, APAC 4.
+    //   weight: EMEA 9 — order 2's 7 is excluded FROM THE OTHER FACT TOO.
+    const { c, rows } = await iexec({
+      metrics: ["total_amount", "total_qty", "total_weight"],
+      dimensions: ["region"],
+      orderBy: [{ field: "region", dir: "asc" }],
+    });
+    expect(c.sql).toMatch(/EXISTS \(SELECT 1 FROM items/);
+    expect(rows).toEqual([
+      { region: "APAC", total_amount: 70, total_qty: 4, total_weight: null },
+      { region: "EMEA", total_amount: 100, total_qty: 5, total_weight: 9 },
+    ]);
+  });
+
+  it("primary-key deduplication composes with the INNER scope", async () => {
+    // Buckets exist only for orders WITH items: small ← order 1 (qty 2,3),
+    // big ← order 3 (qty 4). Orders 2 and 4 appear in neither.
+    const { rows } = await iexec({
+      metrics: ["total_amount", "total_qty", "order_n"],
+      dimensions: ["item_bucket"],
+      orderBy: [{ field: "item_bucket", dir: "asc" }],
+    });
+    expect(rows).toEqual([
+      { item_bucket: "big", total_amount: 70, total_qty: 4, order_n: 1 },
+      { item_bucket: "small", total_amount: 100, total_qty: 5, order_n: 1 },
+    ]);
+  });
+
+  it("period-over-period keeps the INNER scope on both sides", async () => {
+    // Jan: order 1 only (order 2 has no items) = 100. Feb: order 3 = 70
+    // (order 4 has no items). Feb vs Jan: −30.
+    const { rows } = await iexec({
+      metrics: ["total_amount"],
+      dimensions: ["day"],
+      grains: { day: "month" },
+      compare: "prior_period",
+      orderBy: [{ field: "day", dir: "asc" }],
+    });
+    expect(rows).toEqual([
+      {
+        day: "2026-01-01",
+        total_amount: 100,
+        total_amount_prev: null,
+        total_amount_change: null,
+        total_amount_pct_change: null,
+      },
+      {
+        day: "2026-02-01",
+        total_amount: 70,
+        total_amount_prev: 100,
+        total_amount_change: -30,
+        total_amount_pct_change: -0.3,
+      },
+    ]);
   });
 });
 

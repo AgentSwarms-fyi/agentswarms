@@ -1365,6 +1365,24 @@ function compileJoins(joins: SemanticJoin[] | undefined, dialect: SqlDialect): s
   return out;
 }
 
+/**
+ * An INNER fanning join's ROW SCOPE, without its row multiplication: a
+ * correlated `EXISTS (SELECT 1 FROM t WHERE on)` over the same ON condition.
+ * Applied by the multi-fact plan to every branch, the spine and the dedup
+ * inner that do NOT carry the join itself — INNER means "only source rows
+ * with a match", and every part of one plan must agree on which source rows
+ * exist, or the same query returns metrics computed over different worlds.
+ */
+function existsScopeSql(j: SemanticJoin, dialect: SqlDialect): string {
+  const table = assertTableRef(j.table);
+  if (j.alias !== undefined && !IDENT_RE.test(j.alias)) {
+    throw new Error(`Invalid join alias ${JSON.stringify(j.alias)}`);
+  }
+  const on = normaliseIdentQuotes((j.on ?? "").trim(), dialect);
+  if (!on) throw new Error(`Join on "${j.table}" is missing its ON condition`);
+  return `EXISTS (SELECT 1 FROM ${table}${j.alias ? ` AS ${j.alias}` : ""} WHERE (${on}))`;
+}
+
 // ── Fan-out safety ─────────────────────────────────────────────────────────
 //
 // A join declared one_to_many/many_to_many repeats each source row per match,
@@ -1737,14 +1755,14 @@ function planChasm(args: {
   if (dialect === "alasql") {
     blocked("the AlaSQL engine has no CTEs. Remove LOCAL_ENGINE=alasql to use the default engine.");
   }
-  for (const j of ctx.fanning) {
-    if (j.type === "inner") {
-      blocked(
-        `join "${joinQualifier(j)}" is INNER and fans out; its row filter cannot be kept ` +
-          `without duplicating source rows. Make it LEFT, or pre-aggregate in a custom metric.`,
-      );
-    }
-  }
+  // An INNER fanning join does two things at once: it MULTIPLIES rows per
+  // match and it FILTERS OUT source rows with no match. The multiplication is
+  // what branches exist to contain; the filter is preserved by giving every
+  // part of the plan that does NOT carry the join a correlated
+  // EXISTS(SELECT 1 …) on its ON condition — the row scope without the row
+  // multiplication. Assembly (existsScopeSql + branch.existsFilters) does
+  // this for every branch, the spine and the dedup inner, so it is no longer
+  // a refusal.
   // A non-fanning join whose ON reads a fanning alias cannot be compiled into
   // a branch that lacks that fanning join.
   for (const j of model.joins ?? []) {
@@ -2397,6 +2415,11 @@ export function compileSemanticQuery(
       distinct?: boolean;
       /** Primary-key expression: aggregate over SELECT DISTINCT (dims, pk, inputs). */
       dedupPk?: string;
+      /**
+       * Correlated EXISTS predicates for INNER fanning joins this part of the
+       * plan does NOT carry — the join's row scope without its multiplication.
+       */
+      existsFilters?: string[];
     },
   ) => {
     const dimFor = (name: string): SemanticDimension => {
@@ -2499,6 +2522,9 @@ export function compileSemanticQuery(
         );
       } else throw new Error(`Filter references unknown field "${f.field}"`);
     }
+    // INNER-fanning scope: whereParts feeds the normal WHERE and the dedup
+    // inner's WHERE alike, so one push covers both shapes.
+    if (branch?.existsFilters?.length) whereParts.push(...branch.existsFilters);
 
     const from = assertTableRef(model.source.table);
     const joins = branch ? branch.joins : model.joins;
@@ -2640,6 +2666,17 @@ export function compileSemanticQuery(
             (j) => !isFanningJoin(j) || j === b.join || (b.key === "" && j === chasm!.dedupJoin),
           );
 
+    // Every part of one plan must agree on WHICH SOURCE ROWS EXIST. An INNER
+    // fanning join filters rows out wherever it is present, so every part
+    // that does NOT carry it gets the join's scope as a correlated EXISTS —
+    // the filter without the multiplication. (Carried INNER joins need
+    // nothing: they filter natively.)
+    const innerFanning = (model.joins ?? []).filter(
+      (j) => isFanningJoin(j) && j.type === "inner",
+    );
+    const existsFor = (carried: SemanticJoin[]): string[] =>
+      innerFanning.filter((j) => !carried.includes(j)).map((j) => existsScopeSql(j, dialect));
+
     /**
      * One full plan — branch CTEs, spine, stitched SELECT — under a CTE name
      * prefix, with every reference to the comparison axis optionally shifted.
@@ -2672,6 +2709,7 @@ export function compileSemanticQuery(
               joins: branchJoins(b),
               metricNames: b.metricNames,
               dedupPk: b.key === "" ? dedupPk : undefined,
+              existsFilters: existsFor(branchJoins(b)),
             }).sql +
             `)`,
         );
@@ -2688,7 +2726,12 @@ export function compileSemanticQuery(
         // honesty rule the comparison path uses for a missing period.
         ctes.unshift(
           `${SP} AS (` +
-            buildAggregate(shift, { joins: spineJoins, metricNames: [], distinct: true }).sql +
+            buildAggregate(shift, {
+              joins: spineJoins,
+              metricNames: [],
+              distinct: true,
+              existsFilters: existsFor(spineJoins),
+            }).sql +
             `)`,
         );
         for (const d of dims) {
