@@ -338,7 +338,11 @@ function governedLines(datasets: DatasetMeta[]): string[] {
 
 // ── Schema description for the LLM ────────────────────────────────────────
 
-function describeSchema(
+// Exported for the dedicated AI Analyst (lib/aiAnalyst), whose plan and
+// self-check prompts must describe the schema EXACTLY as SQL generation
+// does — two schema texts drifting apart is how a plan asks for a column
+// the SQL step cannot see.
+export function describeSchema(
   datasets: DatasetMeta[],
   semantics: Map<string, SemanticEntry>,
   metrics: SavedMetric[],

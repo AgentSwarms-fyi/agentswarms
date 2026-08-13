@@ -1,6 +1,7 @@
 // The app's navigation map — single source of truth shared by the sidebar
 // and the command palette, so a new page added here appears in both.
 import {
+  BrainCircuit,
   LayoutDashboard,
   Layers,
   Puzzle,
@@ -57,6 +58,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Data & BI",
     items: [
+      { title: "AI Analyst", url: "/ai-analyst", icon: BrainCircuit },
       { title: "Data Catalog", url: "/data-sql", icon: Database },
       { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
       { title: "Semantic Layer", url: "/semantics", icon: Layers },

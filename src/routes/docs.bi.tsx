@@ -52,6 +52,20 @@ function BiPage() {
         is a grid of resizable widgets you drag into place.
       </P>
 
+      <H2 id="ai-analyst">AI Analyst — conversational analysis</H2>
+      <P>
+        <strong>AI Analyst</strong> (first under Data &amp; BI) is the dedicated ask-anything
+        surface. An analyst is exactly two choices: a <strong>reasoning model</strong> from your
+        connected providers (the dialog suggests reasoning families and nudges you when a pick
+        doesn&apos;t look like one) and <strong>the data</strong> it analyses — local datasets and
+        uploads, one table, or a warehouse connection. Every question runs a transparent loop: plan
+        the steps, write and run the SQL (the same generator and governed metric definitions the BI
+        analyst uses, SELECT-only), <em>check its own work</em> — a wrong step re-runs with
+        corrected SQL, a doubtful one is presented flagged — then write up findings where every
+        number cites the step it came from. Analyses persist per analyst, follow-up questions see
+        the earlier answers, and the whole trace exports as a <strong>PDF</strong>.
+      </P>
+
       <H2 id="build">Building a dashboard</H2>
       <Steps
         items={[

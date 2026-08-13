@@ -221,6 +221,43 @@ and reports. An editable dashboard is called a **BI project**:
   as one commit for review/versioning. Only definitions are exported — widget
   **data rows are stripped**, never the snapshots.
 
+## AI Analyst — your analytical partner
+
+**AI Analyst** (`/ai-analyst`, first under Data &amp; BI) is the dedicated
+conversational-analysis surface — the Spotter/conversational-BI equivalent,
+built on this stack's own discipline: every answer shows its work.
+
+An **analyst** is two choices and nothing else: a **reasoning model** (picked
+from your connected providers — the dialog suggests reasoning families like
+o3, GPT-5, Claude Opus, DeepSeek-R1, Gemini 2.5 Pro, and nudges you if the
+pick doesn't look like one) and **the data** it is scoped to (all local
+datasets &amp; uploads, one dataset, or one warehouse connection). Create as
+many analysts as you have jobs for them.
+
+Ask one a question and it runs a transparent loop:
+
+1. **Plan** — decomposes the question into 1–4 concrete steps and states its
+   approach before running anything.
+2. **Query** — each step's SQL comes from the same battle-tested generator
+   the BI analyst uses (identifier quoting per engine, null-ordering rules,
+   window-function rules — all measured), runs on the analyst's scope
+   (local DuckDB or the warehouse under your JWT), and repairs itself once
+   on an engine error. Governed semantic-model definitions are injected, so
+   "revenue" computes the governed way here too. Every statement passes a
+   SELECT-only gate.
+3. **Self-check** — the analyst reviews its own results before presenting
+   them: empty results, wrong magnitudes, case-split groupings, truncated
+   rankings. A wrong step gets corrected SQL that re-runs; a doubtful one is
+   presented **flagged**, never silently.
+4. **Write-up** — the findings cite steps by number, and every number in the
+   answer appears in a step result. A headline chart accompanies it.
+
+The whole trace — approach, per-step SQL, result samples, check verdicts,
+findings — renders in the thread, persists (owner-only rows; result samples
+capped at 50 rows per step), carries across questions ("what about that top
+region?" resolves from earlier turns), and **exports as a PDF** with one
+click.
+
 ## Theming
 
 Every dashboard has a **Theme** (editor toolbar): upload a **background

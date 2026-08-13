@@ -256,6 +256,74 @@ export type Database = {
           },
         ];
       };
+      ai_analyst_threads: {
+        Row: {
+          analyst_id: string;
+          created_at: string;
+          id: string;
+          title: string;
+          turns: Json;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          analyst_id: string;
+          created_at?: string;
+          id?: string;
+          title?: string;
+          turns?: Json;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          analyst_id?: string;
+          created_at?: string;
+          id?: string;
+          title?: string;
+          turns?: Json;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "ai_analyst_threads_analyst_id_fkey";
+            columns: ["analyst_id"];
+            isOneToOne: false;
+            referencedRelation: "ai_analysts";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      ai_analysts: {
+        Row: {
+          created_at: string;
+          id: string;
+          model: string;
+          name: string;
+          source: Json;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          id?: string;
+          model: string;
+          name: string;
+          source: Json;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          model?: string;
+          name?: string;
+          source?: Json;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       approvals: {
         Row: {
           action_title: string;
