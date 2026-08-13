@@ -169,20 +169,33 @@ async function readAll(body: ReadableStream<Uint8Array>, maxBytes: number): Prom
 
 // ── Per-format readers ───────────────────────────────────────────────────
 
-/** CSV / TSV via PapaParse's Node stream interface (quoted newlines included). */
-async function streamDelimited(
+/**
+ * CSV / TSV via PapaParse's Node stream interface (quoted newlines included).
+ *
+ * `header: false` ON PURPOSE, with the mapping done here. Papa's own header
+ * mode runs its duplicate-HEADER rename against rows it re-enters at chunk
+ * boundaries — measured: a DATA row holding the same value in two columns
+ * ("2025-01-14" as both a year start and a period start) came out of a
+ * single-chunk stream as "2025-01-14_1". Which rows get rewritten depends on
+ * where the network split the upload: silent, nondeterministic value
+ * corruption. Mapping array rows onto normaliseHeaders() keeps the same
+ * blank/duplicate-header handling and leaves values untouched.
+ *
+ * Exported for tests: the corruption above is chunk-boundary behavior, and a
+ * test must drive THIS function with adversarial chunkings, not a copy.
+ */
+export async function streamDelimited(
   body: ReadableStream<Uint8Array>,
   format: DatasetFormat,
-  sink: RowSink,
+  sink: { push(raw: Record<string, unknown>): Promise<void> },
   maxBytes: number,
 ): Promise<void> {
   const parser = Papa.parse(Papa.NODE_STREAM_INPUT, {
-    header: true,
+    header: false,
     skipEmptyLines: true,
     // We coerce ourselves, so date-looking strings must stay strings.
     dynamicTyping: false,
     delimiter: delimiterFor(format),
-    transformHeader: (h, i) => (String(h ?? "").trim() ? String(h).trim() : `column_${i + 1}`),
   });
 
   const node = Readable.fromWeb(
@@ -196,7 +209,19 @@ async function streamDelimited(
   // Iterating the stream is what makes this genuinely streamed: the loop pulls
   // the next row only once the previous batch has been written, so Papa cannot
   // outrun the database and peak memory stays at one batch.
-  for await (const row of parser as AsyncIterable<Record<string, unknown>>) {
+  let headers: string[] | null = null;
+  for await (const cells of parser as AsyncIterable<unknown[]>) {
+    if (!headers) {
+      headers = normaliseHeaders(cells);
+      continue;
+    }
+    const row: Record<string, unknown> = {};
+    headers.forEach((name, i) => {
+      row[name] = cells[i] ?? "";
+    });
+    // A data row longer than the header keeps its tail — dropping cells is
+    // data loss; the extra columns get positional names.
+    for (let i = headers.length; i < cells.length; i++) row[`column_${i + 1}`] = cells[i];
     await sink.push(row);
   }
 }
