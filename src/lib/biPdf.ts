@@ -336,8 +336,8 @@ export async function buildAnalysisPdfBytes(args: {
   model: string;
   sourceText: string;
   turns: AnalystTurn[];
-  /** Rasterised chart per turn index (PNG data URL + pixel size). */
-  charts?: Map<number, { dataUrl: string; wPx: number; hPx: number }>;
+  /** Rasterised charts keyed "turnIndex-stepIndex" (PNG + pixel size). */
+  charts?: Map<string, { dataUrl: string; wPx: number; hPx: number }>;
 }): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
   pdf.setTitle(args.title);
@@ -669,6 +669,29 @@ export async function buildAnalysisPdfBytes(args: {
         wrapped(`Failed: ${s.error}`, { size: 8.5, color: WARN_C, leading: 12 });
         gap(6);
       } else if (s.rows && s.columns) {
+        // The step's own visual, above its numbers — the same order the
+        // thread shows, and every step that has one gets one.
+        const chart = args.charts?.get(`${ti}-${si}`);
+        if (chart) {
+          const w = contentW;
+          const h = Math.min((chart.hPx / Math.max(1, chart.wPx)) * w, 260);
+          ensure(h + 8);
+          try {
+            const png = await pdf.embedPng(chart.dataUrl);
+            page.drawImage(png, { x: RM, y: y - h, width: w, height: h });
+            page.drawRectangle({
+              x: RM,
+              y: y - h,
+              width: w,
+              height: h,
+              borderColor: HAIRLINE,
+              borderWidth: 0.6,
+            });
+            y -= h + 8;
+          } catch {
+            /* a chart that fails to embed must not sink the report */
+          }
+        }
         table(s.columns, s.rows, s.rowCount);
         gap(6);
       }
@@ -716,29 +739,6 @@ export async function buildAnalysisPdfBytes(args: {
       findings(turn.answer);
       gap(6);
     }
-
-    const chart = args.charts?.get(ti);
-    if (chart) {
-      const w = contentW;
-      const h = Math.min((chart.hPx / Math.max(1, chart.wPx)) * w, 300);
-      ensure(h + 26);
-      label("Chart");
-      try {
-        const png = await pdf.embedPng(chart.dataUrl);
-        page.drawImage(png, { x: RM, y: y - h, width: w, height: h });
-        page.drawRectangle({
-          x: RM,
-          y: y - h,
-          width: w,
-          height: h,
-          borderColor: HAIRLINE,
-          borderWidth: 0.6,
-        });
-        y -= h + 10;
-      } catch {
-        /* a chart that fails to embed must not sink the report */
-      }
-    }
   }
 
   // ── Footer on every page ──
@@ -775,26 +775,32 @@ export async function exportAnalysisPdf(args: {
   model: string;
   sourceText: string;
   turns: AnalystTurn[];
-  /** Resolve the rendered chart element for a turn index, if any. */
-  chartElFor?: (turnIndex: number) => HTMLElement | null;
+  /** Resolve a step's rendered chart element, if it has one. */
+  chartElFor?: (turnIndex: number, stepIndex: number) => HTMLElement | null;
 }): Promise<void> {
   if (args.turns.length === 0) {
     throw new Error("Nothing to export — ask the analyst something first");
   }
-  const charts = new Map<number, { dataUrl: string; wPx: number; hPx: number }>();
+  const charts = new Map<string, { dataUrl: string; wPx: number; hPx: number }>();
   if (args.chartElFor) {
     const html2canvas = await loadHtml2canvas();
     for (let i = 0; i < args.turns.length; i++) {
-      const el = args.chartElFor(i);
-      if (!el) continue;
-      const canvas = await html2canvas(el, {
-        scale: 3,
-        backgroundColor: "#ffffff",
-        logging: false,
-        onclone: (doc) => doc.documentElement.classList.remove("dark"),
-      });
-      const rect = el.getBoundingClientRect();
-      charts.set(i, { dataUrl: canvas.toDataURL("image/png"), wPx: rect.width, hPx: rect.height });
+      for (let j = 0; j < args.turns[i].steps.length; j++) {
+        const el = args.chartElFor(i, j);
+        if (!el) continue;
+        const canvas = await html2canvas(el, {
+          scale: 3,
+          backgroundColor: "#ffffff",
+          logging: false,
+          onclone: (doc) => doc.documentElement.classList.remove("dark"),
+        });
+        const rect = el.getBoundingClientRect();
+        charts.set(`${i}-${j}`, {
+          dataUrl: canvas.toDataURL("image/png"),
+          wPx: rect.width,
+          hPx: rect.height,
+        });
+      }
     }
   }
   const bytes = await buildAnalysisPdfBytes({ ...args, charts });

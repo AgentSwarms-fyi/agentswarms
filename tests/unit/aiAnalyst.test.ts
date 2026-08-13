@@ -17,12 +17,21 @@ import {
   buildAnalysisPlanPrompt,
   buildCheckPrompt,
   buildSynthesisPrompt,
+  chartEveryStep,
+  isChartableShape,
   isReasoningModelId,
+  leadChartStep,
   MAX_ANALYSIS_STEPS,
+  MAX_FOLLOW_UPS,
   parseAnalysisPlan,
   parseCheckResponse,
   parseSynthesis,
+  parseSynthesisReply,
   priorContext,
+  QUOTE_ROWS_UP_TO,
+  describeStepResult,
+  rerunStep,
+  withStaleAnswer,
   trimStepForStorage,
   trimTurnForStorage,
   type AnalystStep,
@@ -568,5 +577,387 @@ describe("the report's tables stay legible", () => {
     expect(runs.some((r) => r.startsWith("  SUM("))).toBe(true); // indentation kept
     // Findings bullets render as bullets, not one paragraph.
     expect(runs).toContain("•");
+  });
+});
+
+describe("Tier 1 — an answer with several visuals", () => {
+  it("charts every step whose result has a shape worth drawing", () => {
+    // The rule that decides WHICH steps get a chart, before any model is
+    // asked. One visual per answer was the whole complaint: three queries
+    // ran, two had plottable results, and the reader saw one picture.
+    expect(
+      isChartableShape({ columns: ["region", "sales"], rows: [{ region: "EMEA", sales: 1 }] }),
+    ).toBe(true);
+    expect(
+      isChartableShape({
+        columns: ["month", "sales", "orders"],
+        rows: [
+          { month: "Jan", sales: 5, orders: 2 },
+          { month: "Feb", sales: 7, orders: 3 },
+        ],
+      }),
+    ).toBe(true);
+    // A single total is a KPI — still worth showing.
+    expect(isChartableShape({ columns: ["total"], rows: [{ total: 42 }] })).toBe(true);
+    // Nothing to plot: no rows, or no numbers at all.
+    expect(isChartableShape({ columns: ["region"], rows: [] })).toBe(false);
+    expect(
+      isChartableShape({
+        columns: ["region", "country"],
+        rows: [{ region: "EMEA", country: "UK" }],
+      }),
+    ).toBe(false);
+  });
+
+  it("the lead visual is the self-check's headline — when that step drew one", () => {
+    const step = (chart?: { type: string }): AnalystStep => ({
+      goal: "g",
+      status: "done",
+      ...(chart ? { chart: chart as AnalystStep["chart"] } : {}),
+    });
+    // Headline drew a chart: it leads.
+    expect(leadChartStep([step({ type: "bar" }), step({ type: "line" })], 1)).toBe(1);
+    // Headline has no chart (or only a table): the first real chart leads.
+    expect(leadChartStep([step({ type: "bar" }), step({ type: "table" })], 1)).toBe(0);
+    expect(leadChartStep([step(), step({ type: "pie" })], 0)).toBe(1);
+    // Nothing drew anything: no lead, and the caller must cope with that.
+    expect(leadChartStep([step(), step({ type: "table" })], 0)).toBeUndefined();
+  });
+});
+
+describe("Tier 1 — pinning a step to a dashboard", () => {
+  const step: AnalystStep = {
+    goal: "Total sales by region",
+    sql: "SELECT region, SUM(sales) AS total FROM t GROUP BY region",
+    columns: ["region", "total"],
+    rows: [{ region: "EMEA", total: 100 }],
+    rowCount: 3,
+    chart: { type: "bar", xField: "region", yField: "total" },
+    status: "done",
+  };
+
+  it("carries the SQL, chart and source so refresh re-runs the same query", async () => {
+    const { widgetFromAnalystStep } = await import("@/lib/biDashboards");
+    const w = widgetFromAnalystStep(step, { kind: "local" }, "Which region leads?");
+    expect(w).not.toBeNull();
+    expect(w!.sql).toBe(step.sql);
+    expect(w!.chart).toEqual(step.chart);
+    expect(w!.source).toEqual({ kind: "local" });
+    expect(w!.title).toBe("Total sales by region");
+    expect(w!.narrative).toBe("Which region leads?"); // the question is the context
+  });
+
+  it("marks the widget truncated when the step kept only a sample", async () => {
+    // The analyst caps what it stores. A pinned chart drawing 1 of 3 rows
+    // while claiming to be the whole picture is the failure to avoid.
+    const { widgetFromAnalystStep } = await import("@/lib/biDashboards");
+    expect(widgetFromAnalystStep(step, { kind: "local" })!.truncated).toBe(true);
+    const whole = { ...step, rowCount: 1 };
+    expect(widgetFromAnalystStep(whole, { kind: "local" })!.truncated).toBe(false);
+  });
+
+  it("refuses a step that has no result to pin", async () => {
+    const { widgetFromAnalystStep } = await import("@/lib/biDashboards");
+    expect(widgetFromAnalystStep({ goal: "g", status: "error" }, { kind: "local" })).toBeNull();
+    expect(widgetFromAnalystStep({ ...step, rows: undefined }, { kind: "local" })).toBeNull();
+  });
+});
+
+describe("Tier 1 — follow-ups", () => {
+  it("reads the shapes a model returns them in, and stays optional", () => {
+    expect(parseSynthesisReply({ answer: "A", follow_ups: ["Why?", "By segment?"] })).toEqual({
+      answer: "A",
+      followUps: ["Why?", "By segment?"],
+    });
+    expect(parseSynthesisReply({ answer: "A", followUps: ["Why?"] }).followUps).toEqual(["Why?"]);
+    expect(parseSynthesisReply({ answer: "A", next_questions: ["Why?"] }).followUps).toEqual([
+      "Why?",
+    ]);
+    // An answer with no usable follow-ups is still a complete answer.
+    expect(parseSynthesisReply({ answer: "A" })).toEqual({ answer: "A", followUps: [] });
+    expect(parseSynthesisReply({ answer: "A", follow_ups: "nope" }).followUps).toEqual([]);
+    expect(parseSynthesisReply({ answer: "A", follow_ups: [1, "", "  "] }).followUps).toEqual([]);
+  });
+
+  it("caps the list and drops essays", () => {
+    const many = parseSynthesisReply({
+      answer: "A",
+      follow_ups: ["a?", "b?", "c?", "d?", "e?", "x".repeat(200)],
+    });
+    expect(many.followUps).toHaveLength(MAX_FOLLOW_UPS);
+    expect(many.followUps.every((q) => q.length <= 160)).toBe(true);
+  });
+
+  it("the synthesis prompt actually asks for them", () => {
+    const p = buildSynthesisPrompt({ question: "q", approach: "a", prior: "", steps: [] });
+    expect(p.userPrompt).toContain("follow_ups");
+  });
+});
+
+describe("Tier 1 — an edited step, and the findings above it", () => {
+  const turn: AnalystTurn = {
+    question: "Which region leads?",
+    approach: "Aggregate by region.",
+    steps: [
+      {
+        goal: "Total by region",
+        sql: "SELECT 1",
+        columns: ["region"],
+        rows: [{ region: "EMEA" }],
+        rowCount: 1,
+        chart: { type: "bar", xField: "region", yField: "x" },
+        check: { verdict: "pass", note: "Looks right." },
+        status: "done",
+      },
+    ],
+    answer: "EMEA leads (step 1).",
+    chartStep: 0,
+    status: "done",
+  };
+
+  it("re-running a step drops the verdict and the chart that judged the OLD query", async () => {
+    const patched = await rerunStep({
+      step: turn.steps[0],
+      sql: "SELECT region, SUM(sales) AS total FROM t GROUP BY region",
+      execute: async () => ({
+        columns: ["region", "total"],
+        rows: [{ region: "AMER", total: 9 }],
+        row_count: 1,
+        total_matched: 1,
+        capped: false,
+        duration_ms: 1,
+      }),
+    });
+    expect(patched.edited).toBe(true);
+    expect(patched.rows).toEqual([{ region: "AMER", total: 9 }]);
+    // A green "Check passed" from the previous query must not vouch for SQL
+    // the analyst never saw, and the old chart was chosen for the old shape.
+    expect(patched.check?.verdict).toBe("suspect");
+    expect(patched.check?.note).toMatch(/not self-checked/i);
+    expect(patched.chart).toBeUndefined();
+  });
+
+  it("still refuses anything that is not a single SELECT", async () => {
+    await expect(
+      rerunStep({ step: turn.steps[0], sql: "DROP TABLE t", execute: async () => ({}) as never }),
+    ).rejects.toThrow(/only run SELECT/);
+  });
+
+  it("marks the findings stale, and they STAY marked until rewritten", () => {
+    const stale = withStaleAnswer(turn, [{ ...turn.steps[0], edited: true }]);
+    expect(stale.answerStale).toBe(true);
+    expect(stale.answer).toBe(turn.answer); // the old prose is kept, not deleted
+    expect(stale.steps[0].edited).toBe(true);
+    // The original is untouched — the caller decides where the patch lands.
+    expect(turn.answerStale).toBeUndefined();
+  });
+});
+
+describe("what the write-up is actually shown", () => {
+  const result = (n: number) => ({
+    columns: ["segment", "total_sales"],
+    rows: Array.from({ length: n }, (_, i) => ({ segment: `S${i}`, total_sales: 1000 + i })),
+    row_count: n,
+    total_matched: n,
+    capped: false,
+    duration_ms: 1,
+  });
+
+  it("quotes a small result ROW BY ROW, so findings can cite real values", () => {
+    // Measured on two live runs: fed only summary statistics, the model
+    // wrote "the per-segment totals are missing" with three per-segment
+    // totals sitting in the table directly above the sentence. It was being
+    // honest about what it had been given — which was the bug.
+    const text = describeStepResult(result(3));
+    expect(text).toContain("segment=S0 | total_sales=1000");
+    expect(text).toContain("segment=S2 | total_sales=1002");
+    expect(text).toContain("3 rows");
+  });
+
+  it("falls back to summarised facts once a result is too big to quote", () => {
+    const text = describeStepResult(result(QUOTE_ROWS_UP_TO + 1));
+    expect(text).not.toContain("segment=S0 | total_sales=1000");
+    expect(text.length).toBeLessThan(600); // a summary, not a data dump
+  });
+
+  it("an empty result stays summarised — there is nothing to quote", () => {
+    expect(describeStepResult(result(0))).not.toContain("segment=");
+  });
+
+  it("every prompt that judges or writes about a result uses it", async () => {
+    // The check and the synthesis both reason about step results; feeding
+    // one rows and the other statistics would have them disagree about what
+    // the query returned.
+    const { readFileSync } = await import("node:fs");
+    const lib = readFileSync("src/lib/aiAnalyst.ts", "utf8");
+    expect(lib.match(/describeStepResult\(results\[i\]!\)/g) ?? []).toHaveLength(3);
+  });
+});
+
+describe("every chartable step really does get its own chart", () => {
+  // The pure helpers above decide WHICH steps qualify; this proves the loop
+  // then charts all of them. Testing only the helpers let a "chart the
+  // headline and nothing else" regression pass unnoticed.
+  const res = (rows: Record<string, unknown>[]) => ({
+    columns: Object.keys(rows[0] ?? { x: 1 }),
+    rows,
+    row_count: rows.length,
+    total_matched: rows.length,
+    capped: false,
+    duration_ms: 1,
+  });
+
+  it("charts all of them, not just the first", async () => {
+    const turn: AnalystTurn = {
+      question: "q",
+      steps: [
+        { goal: "by segment", status: "done" },
+        { goal: "by region", status: "done" },
+        { goal: "labels only", status: "done" },
+      ],
+      status: "done",
+    };
+    const asked: string[] = [];
+    await chartEveryStep({
+      turn,
+      question: "q",
+      results: [
+        res([{ segment: "SMB", total: 3 }]),
+        res([{ region: "EMEA", total: 4 }]),
+        res([{ country: "UK", city: "London" }]), // nothing numeric to plot
+      ],
+      suggest: async (a) => {
+        asked.push(a.question);
+        return { type: "bar", xField: "x", yField: "y" };
+      },
+    });
+    expect(turn.steps[0].chart?.type).toBe("bar");
+    expect(turn.steps[1].chart?.type).toBe("bar");
+    expect(turn.steps[2].chart).toBeUndefined(); // correctly skipped
+    // Each chart is chosen for its OWN step's goal, not the whole question.
+    expect(asked).toEqual(["by segment", "by region"]);
+  });
+
+  it("a chart that fails to suggest costs the step its picture, nothing more", async () => {
+    const turn: AnalystTurn = {
+      question: "q",
+      steps: [
+        { goal: "a", status: "done" },
+        { goal: "b", status: "done" },
+      ],
+      status: "done",
+    };
+    await chartEveryStep({
+      turn,
+      question: "q",
+      results: [res([{ k: "x", v: 1 }]), res([{ k: "y", v: 2 }])],
+      suggest: async (a) => {
+        if (a.question === "a") throw new Error("model hiccup");
+        return { type: "pie", nameField: "k", valueField: "v" };
+      },
+    });
+    expect(turn.steps[0].chart).toBeUndefined();
+    expect(turn.steps[1].chart?.type).toBe("pie"); // the other still lands
+  });
+});
+
+describe("Tier 2 — the analysis the model is not trusted to do", () => {
+  const res = (columns: string[], rows: Record<string, unknown>[]) => ({
+    columns,
+    rows,
+    row_count: rows.length,
+    total_matched: rows.length,
+    capped: false,
+    duration_ms: 1,
+  });
+
+  it("attaches CONTRIBUTION arithmetic to a two-period breakdown", () => {
+    // The write-up must cite computed shares, not eyeball two columns.
+    const text = describeStepResult(
+      res(
+        ["region", "prev_sales", "curr_sales"],
+        [
+          { region: "EMEA", prev_sales: 500, curr_sales: 380 },
+          { region: "AMER", prev_sales: 300, curr_sales: 330 },
+        ],
+      ),
+    );
+    expect(text).toContain("CONTRIBUTION ANALYSIS");
+    expect(text).toContain("DRIVERS");
+    expect(text).toContain("OFFSETS"); // AMER moved against the fall
+  });
+
+  it("leaves an ordinary breakdown alone", () => {
+    const text = describeStepResult(
+      res(
+        ["segment", "total"],
+        [
+          { segment: "SMB", total: 3 },
+          { segment: "Enterprise", total: 4 },
+        ],
+      ),
+    );
+    expect(text).not.toContain("CONTRIBUTION ANALYSIS");
+    expect(text).not.toContain("SERIES:");
+  });
+
+  it("attaches TREND, OUTLIERS and a labelled projection to a time series", () => {
+    const rows = Array.from({ length: 10 }, (_, i) => ({
+      month: `2026-${String(i + 1).padStart(2, "0")}`,
+      total: 100 + i * 10 + (i === 6 ? 900 : 0),
+    }));
+    const text = describeStepResult(res(["month", "total"], rows));
+    expect(text).toContain("SERIES: 10 periods");
+    expect(text).toContain("OUTLIERS");
+    expect(text).toContain("PROJECTION (ESTIMATE, NOT MEASURED DATA)");
+    expect(text).toContain("projections, not measurements");
+  });
+
+  it("says why it will NOT project when the history is too short", () => {
+    const rows = Array.from({ length: 6 }, (_, i) => ({
+      month: `2026-0${i + 1}`,
+      total: 100 + i,
+    }));
+    const text = describeStepResult(res(["month", "total"], rows));
+    expect(text).toContain("SERIES: 6 periods");
+    expect(text).toMatch(/Too few periods to project responsibly/);
+    expect(text).not.toContain("PROJECTION (ESTIMATE");
+  });
+
+  it("the plan prompt asks BEFORE guessing, with the limits on when", () => {
+    const p = buildAnalysisPlanPrompt({ schema: "TABLE t (x)", question: "sales?", prior: "" });
+    expect(p.systemPrompt).toContain("ASK BEFORE GUESSING");
+    expect(p.systemPrompt).toContain("clarify");
+    expect(p.systemPrompt).toContain("assumption");
+    // And it is bounded — a tool that asks about sort order is a nag.
+    expect(p.systemPrompt).toMatch(/Do NOT ask about/);
+    expect(p.userPrompt).toContain("clarify");
+  });
+
+  it("a clarification stops the analysis; a hedged one does not", () => {
+    const asked = parseAnalysisPlan({
+      clarify: "Which quarter do you mean — calendar or fiscal?",
+      assumption: "the current calendar quarter",
+    });
+    expect(asked.clarify).toBe("Which quarter do you mean — calendar or fiscal?");
+    expect(asked.assumption).toBe("the current calendar quarter");
+    expect(asked.steps).toEqual([]);
+
+    // Both a plan AND a question means it knew how to proceed. Honouring the
+    // question there would make the analyst stop for things it had already
+    // decided, which is how "it asks first" becomes "it nags".
+    const hedged = parseAnalysisPlan({
+      clarify: "Shall I sort ascending?",
+      steps: [{ goal: "total by region" }],
+    });
+    expect(hedged.clarify).toBeUndefined();
+    expect(hedged.steps).toEqual([{ goal: "total by region" }]);
+  });
+
+  it("the loop stops at a clarification instead of querying (source guard)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const lib = readFileSync("src/lib/aiAnalyst.ts", "utf8");
+    expect(lib).toMatch(/if \(plan\.clarify\) \{/);
+    expect(lib).toContain('turn.status = "clarifying"');
   });
 });

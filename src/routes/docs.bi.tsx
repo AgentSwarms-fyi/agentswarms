@@ -65,6 +65,31 @@ function BiPage() {
         number cites the step it came from. Analyses persist per analyst, follow-up questions see
         the earlier answers, and the whole trace exports as a <strong>PDF</strong>.
       </P>
+      <P>
+        <strong>Every step that has something to show gets its own chart</strong>, so a three-query
+        answer arrives as three visuals rather than one headline picture. Any step can be{" "}
+        <strong>pinned to a dashboard</strong> — the widget keeps that step&apos;s SQL and chart,
+        and re-runs it on refresh — or <strong>edited and re-run</strong> with your own SQL. When
+        you edit one, the findings above are marked <em>written before a step was re-run</em> until
+        you rewrite them, and the step drops the check verdict that judged the previous query: a
+        green &ldquo;Check passed&rdquo; must never vouch for SQL the analyst never saw. After each
+        answer it offers <strong>follow-up questions</strong>, and a brand-new analyst offers{" "}
+        <strong>starter questions</strong> written from its own schema.
+      </P>
+      <P>
+        Three kinds of reasoning are <strong>computed in code, not narrated</strong>, because a
+        plausible number reads exactly as confident as a correct one. A step returning two periods
+        side by side gets <strong>contribution analysis</strong> — each member&apos;s change and its
+        share of the total change, with drivers separated from the <em>offsets</em> a headline
+        hides, and shares left above 100% when winners and losers cancel. A time-series step gets
+        its <strong>trend and outliers</strong> (median-based, so the spike does not hide inside the
+        statistic judging it) and, with at least eight periods, a{" "}
+        <strong>projection labelled as an estimate</strong> carrying its method and fit error — with
+        less history it refuses to extrapolate at all. And when a question genuinely cannot be
+        answered without knowing something — an unstated time range, a word your schema defines two
+        ways — it <strong>asks before querying</strong>, offering the assumption it would otherwise
+        make so accepting takes one click.
+      </P>
 
       <H2 id="build">Building a dashboard</H2>
       <Steps

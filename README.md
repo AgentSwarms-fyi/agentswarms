@@ -66,8 +66,11 @@ until you promote it.
 **AI Analyst** — a dedicated conversational-analysis surface: create
 analysts (a reasoning model pinned to your data, nothing else to configure)
 that plan each question into steps, write and run the SQL, check their own
-work, and write up findings where every number cites its step — the whole
-trace exportable as a PDF.
+work, and write up findings where every number cites its step. Every step
+gets its own chart, can be pinned to a dashboard or edited and re-run, and
+the whole trace exports as a branded PDF. Contribution analysis, trends,
+outliers and projections are computed in code rather than narrated — and it
+asks a clarifying question instead of guessing when one is genuinely needed.
 
 **BI Workspace** — multi-page dashboards over your connected tables and
 warehouses, with KPIs, cross-filtering, scheduled refresh, PDF export and

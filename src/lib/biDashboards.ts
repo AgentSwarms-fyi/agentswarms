@@ -799,6 +799,50 @@ export function widgetFromBiTurn(
   };
 }
 
+/**
+ * Pin one AI Analyst step onto a dashboard.
+ *
+ * The step already holds everything a widget needs — the SQL it ran, the
+ * columns, a row sample and the chart chosen for that result's shape — so
+ * the widget IS the step, re-runnable: refresh re-executes the same SQL
+ * against the same source the analyst used.
+ *
+ * The row sample is a SAMPLE (the analyst caps what it keeps), so the
+ * widget is marked truncated whenever the true count exceeded it. A pinned
+ * chart that quietly draws 50 of 900 rows is the failure mode this avoids;
+ * the card shows "Partial" until the first refresh fills it in.
+ */
+export function widgetFromAnalystStep(
+  step: {
+    goal: string;
+    sql?: string;
+    columns?: string[];
+    rows?: Record<string, unknown>[];
+    rowCount?: number;
+    chart?: ChartSpec;
+  },
+  source: BiWidgetSource,
+  /** The question the step belongs to — context for the widget's title. */
+  question?: string,
+): BiWidget | null {
+  if (!step.sql || !step.columns || !step.rows) return null;
+  const chart = step.chart ?? { type: "table" };
+  return {
+    id: crypto.randomUUID(),
+    kind: "chart",
+    title: step.goal.length <= 80 ? step.goal : `${step.goal.slice(0, 77)}…`,
+    source,
+    sql: step.sql,
+    chart,
+    columns: step.columns,
+    rows: snapshotRows(step.rows),
+    truncated: (step.rowCount ?? step.rows.length) > step.rows.length,
+    narrative: question,
+    agg_pushdown: isAggregatableChart(chart),
+    refreshed_at: new Date().toISOString(),
+  };
+}
+
 export type SemanticChartType = "table" | "bar" | "line" | "area" | "kpi" | "pie";
 
 /**

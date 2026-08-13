@@ -35,6 +35,13 @@ import {
   type SavedMetric,
   type SemanticEntry,
 } from "@/lib/biAgent";
+import {
+  analyseDrivers,
+  describeDrivers,
+  driverInputsFrom,
+  type DriverAnalysis,
+} from "@/lib/analystDrivers";
+import { describeSeries, forecastSeries, readSeries, seriesFrom } from "@/lib/analystSeries";
 import type { DatasetMeta, QueryResult } from "@/lib/sqlEngine";
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -53,8 +60,20 @@ export type AnalystStep = {
   rows?: Record<string, unknown>[];
   /** True row count before trimming. */
   rowCount?: number;
+  /**
+   * This step's own visual.
+   *
+   * An analysis that ran three queries has three things to show; charting
+   * only the headline threw the other two away and left the reader a table
+   * of numbers to squint at. Every step whose result has a chartable SHAPE
+   * gets its own chart — `{ type: "table" }` means the shape did not
+   * support one, and the result table below it is the honest rendering.
+   */
+  chart?: ChartSpec;
   check?: { verdict: AnalystCheckVerdict; note: string };
   error?: string;
+  /** The user edited this step's SQL and re-ran it (shown, and it matters). */
+  edited?: boolean;
   status: "pending" | "writing_sql" | "running" | "checking" | "done" | "error";
 };
 
@@ -65,10 +84,25 @@ export type AnalystTurn = {
   steps: AnalystStep[];
   /** Final synthesis, markdown. */
   answer?: string;
-  chart?: ChartSpec;
-  /** Which step the chart draws (index into steps). */
+  /** The LEAD visual's step — the one that best answers the question. */
   chartStep?: number;
-  status: "planning" | "working" | "checking" | "synthesizing" | "done" | "error";
+  /** Questions this analysis makes worth asking next. */
+  followUps?: string[];
+  /**
+   * The analyst stopped BEFORE querying to ask something it could not
+   * sensibly decide. The assumption is what it would proceed with, so the
+   * user can accept it in one click instead of retyping the question.
+   */
+  clarify?: string;
+  assumption?: string;
+  /**
+   * The findings predate the step results below them, because a step was
+   * edited and re-run after they were written. Shown as a warning until the
+   * user rewrites them — silently keeping stale prose next to fresh numbers
+   * is the exact dishonesty this feature exists to avoid.
+   */
+  answerStale?: boolean;
+  status: "planning" | "working" | "checking" | "synthesizing" | "done" | "clarifying" | "error";
   error?: string;
   at?: string;
 };
@@ -83,6 +117,9 @@ export const ANALYST_ROW_CAP = 50;
 
 /** Prior Q/A pairs carried into the next question's context. */
 export const ANALYST_MEMORY_TURNS = 4;
+
+/** Follow-up questions offered after an answer. Three fit; six is a menu. */
+export const MAX_FOLLOW_UPS = 3;
 
 /**
  * Completion budgets, sized for REASONING models — which is what this
@@ -161,11 +198,23 @@ export function buildAnalysisPlanPrompt(args: {
       '"total sales by region", not "explore the data". Prefer ONE step when one query ' +
       "answers the question; add steps only when the answer genuinely needs several angles " +
       "(a total plus a breakdown, a trend plus its outliers, a comparison of two segments). " +
-      "Only use tables and columns that exist in the schema. Do not write SQL here.",
+      "Only use tables and columns that exist in the schema. Do not write SQL here.\n\n" +
+      // A guess that runs is worse than a question that doesn't: a wrong
+      // assumption comes back as confident numbers nobody can see the
+      // assumption behind. Measured: "…this quarter" ran against a quarter
+      // with no rows and reported an empty breakdown as the answer.
+      "ASK BEFORE GUESSING, but only when the question cannot be answered WELL without an " +
+      'answer: an unstated time range on a time-sensitive question, a word ("churn", "active") ' +
+      "the schema defines two plausible ways, or a metric the schema does not have under any " +
+      "name. Do NOT ask about things you can decide sensibly yourself — sort order, chart type, " +
+      "row limits, which of two equivalent columns to group by. When you must ask, return " +
+      '{ "clarify": "one specific question", "assumption": "what you would assume if told to ' +
+      'proceed" } and NOTHING else.',
     userPrompt:
       `${args.schema}\n\n${args.prior}QUESTION: ${args.question}\n\n` +
       `Return JSON: { "approach": "1-3 sentences on how you'll answer and why these steps", ` +
-      `"steps": [ { "goal": "concrete, measurable step goal" } ] }`,
+      `"steps": [ { "goal": "concrete, measurable step goal" } ] } ` +
+      `— OR { "clarify": "...", "assumption": "..." } if you genuinely cannot proceed well.`,
   };
 }
 
@@ -224,13 +273,22 @@ export function buildSynthesisPrompt(args: {
       "question, say exactly what is missing instead of guessing.",
     userPrompt:
       `${args.prior}QUESTION: ${args.question}\nAPPROACH: ${args.approach}\n\n${stepBlocks}\n\n` +
-      `Return JSON: { "answer": "markdown" }`,
+      `Return JSON: { "answer": "markdown", "follow_ups": ` +
+      `["up to ${MAX_FOLLOW_UPS} short questions THIS analysis makes worth asking next — ` +
+      `each answerable from the same data, each a real next step rather than a restatement"] }`,
   };
 }
 
 // ── Parsers (validated, exported) ────────────────────────────────────────
 
-export function parseAnalysisPlan(raw: unknown): { approach: string; steps: { goal: string }[] } {
+export function parseAnalysisPlan(raw: unknown): {
+  approach: string;
+  steps: { goal: string }[];
+  /** Set INSTEAD of steps when the analyst needs an answer before it can plan. */
+  clarify?: string;
+  /** What it would assume if told to proceed anyway. */
+  assumption?: string;
+} {
   // Tolerant by measurement, like parseSynthesis: models in JSON mode wrap
   // the plan, name the goal key differently, or return plain strings.
   const root = (raw ?? {}) as Record<string, unknown>;
@@ -256,6 +314,18 @@ export function parseAnalysisPlan(raw: unknown): { approach: string; steps: { go
     .map((s) => ({ goal: goalOf(s) }))
     .filter((s) => s.goal.length > 0)
     .slice(0, MAX_ANALYSIS_STEPS);
+  // A clarification is only honoured when the model ALSO produced no plan.
+  // Both together means it hedged: it knew how to proceed and asked anyway,
+  // and stopping there would make the feature a nag.
+  const clarify = typeof o.clarify === "string" ? o.clarify.trim() : "";
+  if (steps.length === 0 && clarify) {
+    return {
+      approach: "",
+      steps: [],
+      clarify,
+      assumption: typeof o.assumption === "string" ? o.assumption.trim() : "",
+    };
+  }
   if (steps.length === 0) {
     // An EMPTY reply and a badly-shaped one are different failures, and the
     // empty one has a specific cause worth naming: a reasoning model that
@@ -292,6 +362,24 @@ export function parseSynthesis(raw: unknown): string {
   return strings.length === 1 ? strings[0].trim() : "";
 }
 
+/**
+ * The synthesis reply: the write-up AND the questions it makes worth asking
+ * next. Follow-ups are optional — an analysis with none is still complete,
+ * so a missing or malformed list never costs the user their answer.
+ */
+export function parseSynthesisReply(raw: unknown): { answer: string; followUps: string[] } {
+  const answer = parseSynthesis(raw);
+  const o = (raw ?? {}) as Record<string, unknown>;
+  const list = ["follow_ups", "followUps", "next_questions", "suggestions"]
+    .map((k) => o[k])
+    .find(Array.isArray) as unknown[] | undefined;
+  const followUps = (list ?? [])
+    .map((q) => (typeof q === "string" ? q.trim() : ""))
+    .filter((q) => q.length > 0 && q.length <= 160)
+    .slice(0, MAX_FOLLOW_UPS);
+  return { answer, followUps };
+}
+
 export function parseCheckResponse(
   raw: unknown,
   stepCount: number,
@@ -314,6 +402,153 @@ export function parseCheckResponse(
   const h = typeof o.headline === "number" ? Math.trunc(o.headline) : 0;
   const headline = h >= 0 && h < stepCount ? h : 0;
   return { checks, headline };
+}
+
+/** Rows small enough to hand the model verbatim rather than summarised. */
+export const QUOTE_ROWS_UP_TO = 12;
+
+/**
+ * When a step's result compares two periods by dimension, decompose it.
+ *
+ * "Why did it move" is the question every BI tool gets asked and few
+ * answer. The model already writes SQL that fetches both periods side by
+ * side; recognising that shape and doing the CONTRIBUTION ARITHMETIC here
+ * turns it into an answer — computed, ranked and reproducible, rather than
+ * a paragraph of plausible attributions. Returns null whenever the shape is
+ * anything else, and the ordinary path continues untouched.
+ */
+export function driversForStep(step: {
+  columns?: string[];
+  rows?: Record<string, unknown>[];
+}): DriverAnalysis | null {
+  if (!step.columns || !step.rows) return null;
+  const inputs = driverInputsFrom(step.columns, step.rows);
+  if (!inputs || inputs.length === 0) return null;
+  const analysis = analyseDrivers(inputs);
+  // Two periods that are identical everywhere are not a change story, and
+  // labelling them one would invent significance the data does not have.
+  if (analysis.contributions.every((c) => c.change === 0)) return null;
+  return analysis;
+}
+
+/**
+ * What the check and the write-up are TOLD a step returned.
+ *
+ * describeResultFacts summarises — total, max, min, row count — which is
+ * right for a thousand rows and actively harmful for three. Fed only
+ * summaries, the model wrote "the per-segment totals are missing" while the
+ * three per-segment totals sat in the table directly above it, and hedged
+ * the same way on every small result. Measured on two live runs before
+ * anyone noticed the write-up was under-reporting its own evidence.
+ *
+ * So: quote small results in full, summarise big ones, and say which.
+ */
+export function describeStepResult(result: QueryResult, maxRows = QUOTE_ROWS_UP_TO): string {
+  // Two shapes get arithmetic attached before the model ever sees them, so
+  // the write-up cites computed values instead of eyeballing columns: a
+  // two-period breakdown gets contribution analysis, and a time series gets
+  // its trend, outliers and (only when the history supports one) a labelled
+  // projection.
+  const drivers = driversForStep({ columns: result.columns, rows: result.rows });
+  const driverBlock = drivers ? `\n\nCONTRIBUTION ANALYSIS:\n${describeDrivers(drivers)}` : "";
+  const series = seriesFrom(result.columns, result.rows);
+  const reading = series ? readSeries(series) : null;
+  const seriesBlock = reading ? `\n\n${describeSeries(reading, forecastSeries(series!))}` : "";
+  const extra = driverBlock + seriesBlock;
+  if (result.rows.length === 0 || result.rows.length > maxRows) {
+    return describeResultFacts(result) + extra;
+  }
+  const cell = (v: unknown) => {
+    if (v === null || v === undefined) return "null";
+    const s = typeof v === "number" ? String(Number(v.toFixed(4))) : String(v);
+    return s.length > 60 ? `${s.slice(0, 57)}…` : s;
+  };
+  const rows = result.rows
+    .map((r) => result.columns.map((c) => `${c}=${cell(r[c])}`).join(" | "))
+    .join("\n");
+  return (
+    `${result.rows.length} row${result.rows.length === 1 ? "" : "s"}, ` +
+    `columns: ${result.columns.join(", ")}\n${rows}${extra}`
+  );
+}
+
+/**
+ * Does this result have a shape worth drawing?
+ *
+ * Cheap and honest, and it runs BEFORE any LLM call: a step with no rows,
+ * or with nothing but labels, has nothing to plot, and asking a model to
+ * chart it wastes a call to be told "table". Everything else is offered to
+ * suggestChart, which makes the actual choice.
+ */
+export function isChartableShape(result: {
+  columns: string[];
+  rows: Record<string, unknown>[];
+}): boolean {
+  if (result.rows.length === 0) return false;
+  const numeric = result.columns.filter((c) =>
+    result.rows.some((r) => typeof r[c] === "number" && Number.isFinite(r[c] as number)),
+  );
+  if (numeric.length === 0) return false;
+  // One row and one number is a KPI; anything more needs a category to plot
+  // against, which is any non-numeric column.
+  if (result.rows.length === 1) return result.columns.length <= 3;
+  return numeric.length > 0 && result.columns.length >= 2;
+}
+
+/**
+ * Which step's visual leads the answer.
+ *
+ * The self-check nominates a headline; it only counts if that step actually
+ * produced a chart. Otherwise the first step that did leads, and if none
+ * did the turn simply has no lead visual.
+ */
+export function leadChartStep(steps: AnalystStep[], headline: number): number | undefined {
+  const drawable = (i: number) => steps[i]?.chart && steps[i].chart.type !== "table";
+  if (drawable(headline)) return headline;
+  const first = steps.findIndex((_, i) => drawable(i));
+  return first >= 0 ? first : undefined;
+}
+
+/**
+ * Suggest a chart for EVERY chartable step, concurrently.
+ *
+ * Exported with an injectable suggester so a test can prove that all of
+ * them get one — the version that charted only the headline is exactly the
+ * regression this guards, and it is invisible to a test of the pure
+ * helpers alone.
+ */
+export async function chartEveryStep(args: {
+  turn: AnalystTurn;
+  results: (QueryResult | null)[];
+  question: string;
+  model?: string;
+  suggest?: (a: {
+    question: string;
+    result: QueryResult;
+    plan: BiPlan;
+    model?: string;
+  }) => Promise<ChartSpec>;
+}): Promise<void> {
+  const suggest = args.suggest ?? suggestChart;
+  await Promise.all(
+    args.turn.steps.map(async (step, i) => {
+      const res = args.results[i];
+      if (!res || !isChartableShape(res)) return;
+      try {
+        step.chart = await suggest({
+          // The STEP's goal, not the whole question: the chart has to fit
+          // what this query returned, and the overall question describes
+          // something wider than any single step.
+          question: step.goal,
+          result: res,
+          plan: { intent: step.goal, tables: [], metrics: [], breakdowns: [] },
+          model: args.model,
+        });
+      } catch {
+        /* a chart is a nice-to-have; the result table still stands */
+      }
+    }),
+  );
 }
 
 // ── The loop ─────────────────────────────────────────────────────────────
@@ -366,6 +601,18 @@ export async function runAnalystTurn(args: {
     const plan = parseAnalysisPlan(
       await llmJson<unknown>({ ...planPrompt, model: args.model, maxTokens: ANALYST_TOKENS.plan }),
     );
+    // 1b. STOP AND ASK, when proceeding would mean inventing the question.
+    // A guess that runs produces confident numbers with the assumption
+    // buried in SQL nobody reads; a question costs one exchange and leaves
+    // the analysis defensible. The assumption is offered alongside so the
+    // usual answer is one click, not a retyped question.
+    if (plan.clarify) {
+      turn.clarify = plan.clarify;
+      turn.assumption = plan.assumption;
+      turn.status = "clarifying";
+      emit();
+      return turn;
+    }
     turn.approach = plan.approach;
     turn.steps = plan.steps.map((s) => ({ goal: s.goal, status: "pending" as const }));
     turn.status = "working";
@@ -439,7 +686,7 @@ export async function runAnalystTurn(args: {
       steps: turn.steps.map((s, i) => ({
         goal: s.goal,
         sql: s.sql,
-        facts: results[i] ? describeResultFacts(results[i]!) : "(no result)",
+        facts: results[i] ? describeStepResult(results[i]!) : "(no result)",
         error: s.error,
       })),
     });
@@ -490,7 +737,7 @@ export async function runAnalystTurn(args: {
     }
     emit();
 
-    // 4. SYNTHESIZE + headline chart
+    // 4. SYNTHESIZE, and chart EVERY step that has something to show
     turn.status = "synthesizing";
     emit();
     const synthPrompt = buildSynthesisPrompt({
@@ -499,31 +746,22 @@ export async function runAnalystTurn(args: {
       prior,
       steps: turn.steps.map((s, i) => ({
         goal: s.goal,
-        facts: results[i] ? describeResultFacts(results[i]!) : "(no result)",
+        facts: results[i] ? describeStepResult(results[i]!) : "(no result)",
         verdict: s.check?.verdict,
         note: s.check?.note,
         error: s.error,
       })),
     });
-    const headlineResult = results[headline] ?? results.find((r) => r) ?? null;
-    const [synth, chart] = await Promise.all([
+    const [synth] = await Promise.all([
       llmJson<unknown>({ ...synthPrompt, model: args.model, maxTokens: ANALYST_TOKENS.synthesis }),
-      headlineResult
-        ? suggestChart({
-            question: args.question,
-            result: headlineResult,
-            plan: { intent: args.question, tables: [], metrics: [], breakdowns: [] },
-            model: args.model,
-          }).catch(() => undefined)
-        : Promise.resolve(undefined),
+      chartEveryStep({ turn, results, question: args.question, model: args.model }),
     ]);
+    const parsed = parseSynthesisReply(synth);
     turn.answer =
-      parseSynthesis(synth) ||
+      parsed.answer ||
       "The analysis completed but produced no write-up — the step results above stand on their own.";
-    if (chart) {
-      turn.chart = chart;
-      turn.chartStep = results[headline] ? headline : results.findIndex((r) => r);
-    }
+    if (parsed.followUps.length > 0) turn.followUps = parsed.followUps;
+    turn.chartStep = leadChartStep(turn.steps, headline);
     turn.status = "done";
     emit();
     return turn;
@@ -533,4 +771,111 @@ export async function runAnalystTurn(args: {
     emit();
     return turn;
   }
+}
+
+// ── Editing a step, and rewriting the findings ───────────────────────────
+//
+// Showing the SQL and refusing to let anyone change it is half a promise.
+// An analyst who reads a step, spots the wrong filter, and can only start
+// the whole question over is not a partner. So a step's SQL is editable and
+// re-runnable ON ITS OWN — and because the findings above were written from
+// the OLD numbers, the turn is marked stale until they are rewritten.
+
+/**
+ * Re-run one step with the user's SQL. Returns the patched step; the caller
+ * decides where it lands. Never mutates its input.
+ */
+export async function rerunStep(args: {
+  step: AnalystStep;
+  sql: string;
+  execute?: (sql: string) => Promise<QueryResult>;
+}): Promise<AnalystStep> {
+  const clean = assertSelectOnly(args.sql);
+  const run = args.execute ?? (await import("@/lib/sqlEngine")).runQuery;
+  const res = await run(clean);
+  return {
+    ...args.step,
+    sql: clean,
+    columns: res.columns,
+    rows: res.rows.slice(0, ANALYST_ROW_CAP),
+    rowCount: res.rows.length,
+    edited: true,
+    error: undefined,
+    status: "done",
+    // The previous verdict judged the previous query. Keeping it would let a
+    // green "Check passed" vouch for SQL the analyst never saw.
+    check: { verdict: "suspect", note: "Edited and re-run by hand — not self-checked." },
+    // Same for the chart: it was chosen for the old result's shape.
+    chart: undefined,
+  };
+}
+
+/** Mark a turn's findings as predating its results (after a step re-run). */
+export function withStaleAnswer(turn: AnalystTurn, steps: AnalystStep[]): AnalystTurn {
+  return { ...turn, steps, answerStale: true };
+}
+
+/**
+ * Rewrite the findings from the CURRENT step results, and re-chart the steps
+ * whose results changed. This is the same synthesis the loop runs — not a
+ * lighter one — so a rewritten answer is worth exactly as much as the first.
+ */
+export async function resynthesizeTurn(args: {
+  turn: AnalystTurn;
+  priorTurns: AnalystTurn[];
+  model?: string;
+  onUpdate?: (turn: AnalystTurn) => void;
+}): Promise<AnalystTurn> {
+  const turn: AnalystTurn = {
+    ...args.turn,
+    steps: args.turn.steps.map((s) => ({ ...s })),
+    status: "synthesizing",
+  };
+  args.onUpdate?.({ ...turn });
+  // The stored trace is the only source here: a step's sample IS what the
+  // reader can see, so the write-up is grounded in exactly that.
+  const asResult = (s: AnalystStep): QueryResult | null =>
+    s.rows && s.columns
+      ? {
+          columns: s.columns,
+          rows: s.rows,
+          row_count: s.rowCount ?? s.rows.length,
+          total_matched: s.rowCount ?? s.rows.length,
+          capped: (s.rowCount ?? 0) > s.rows.length,
+          duration_ms: 0,
+        }
+      : null;
+  const results = turn.steps.map(asResult);
+  try {
+    const prompt = buildSynthesisPrompt({
+      question: turn.question,
+      approach: turn.approach ?? "",
+      prior: priorContext(args.priorTurns),
+      steps: turn.steps.map((s, i) => ({
+        goal: s.goal,
+        facts: results[i] ? describeStepResult(results[i]!) : "(no result)",
+        verdict: s.check?.verdict,
+        note: s.check?.note,
+        error: s.error,
+      })),
+    });
+    const [synth] = await Promise.all([
+      llmJson<unknown>({ ...prompt, model: args.model, maxTokens: ANALYST_TOKENS.synthesis }),
+      chartEveryStep({ turn, results, question: turn.question, model: args.model }),
+    ]);
+    const parsed = parseSynthesisReply(synth);
+    if (parsed.answer) turn.answer = parsed.answer;
+    turn.followUps = parsed.followUps.length > 0 ? parsed.followUps : undefined;
+    turn.chartStep = leadChartStep(turn.steps, turn.chartStep ?? 0);
+    turn.answerStale = false;
+    turn.status = "done";
+  } catch (e) {
+    // The old findings stay, and stay MARKED stale — the failure must not
+    // quietly re-bless prose written for different numbers.
+    turn.status = "done";
+    turn.answerStale = true;
+    turn.error = `Could not rewrite the findings: ${(e as Error).message}`;
+  }
+  args.onUpdate?.({ ...turn });
+  return turn;
 }

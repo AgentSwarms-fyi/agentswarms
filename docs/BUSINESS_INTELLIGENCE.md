@@ -252,11 +252,66 @@ Ask one a question and it runs a transparent loop:
 4. **Write-up** — the findings cite steps by number, and every number in the
    answer appears in a step result. A headline chart accompanies it.
 
-The whole trace — approach, per-step SQL, result samples, check verdicts,
-findings — renders in the thread, persists (owner-only rows; result samples
-capped at 50 rows per step), carries across questions ("what about that top
-region?" resolves from earlier turns), and **exports as a PDF** with one
-click.
+**Every step that has something to show gets its own visual.** A question
+answered by three queries produces three charts — one per step, each chosen
+for that result's shape — not a single headline picture with the rest left
+as raw tables. Steps whose results have nothing plottable (no numbers, no
+rows) show their table alone, which is the honest rendering.
+
+Each step is also **actionable**:
+
+- **Add to dashboard** pins that step as a BI widget carrying its SQL,
+  chart and source, so a scheduled refresh re-runs exactly that query.
+- **Edit and re-run** opens the step's SQL, runs your version (SELECT-only),
+  and replaces the result. Because the write-up above was written from the
+  old numbers, the findings are marked **"written before a step was
+  re-run"** until you press **Rewrite findings**, which re-synthesizes from
+  the current results. The edited step also loses its previous check verdict
+  — a green "Check passed" must never vouch for SQL the analyst never saw.
+
+After an answer, the analyst offers **follow-up questions** this analysis
+makes worth asking; a brand-new analyst offers **starter questions** written
+from its own schema.
+
+### Analysis the model is not trusted to do
+
+Three kinds of reasoning are computed in code rather than narrated by the
+model, because a plausible-sounding number reads exactly as confident as a
+correct one:
+
+- **Why it moved.** When a step returns two periods side by side, the
+  contribution of each dimension value is computed: its change, its percent
+  change, and its **share of the total change** — which may exceed 100% and
+  is left that way, because a region accounting for 150% of a fall that
+  others partly offset is the story, not a rounding embarrassment. Drivers
+  (moving with the total) and **offsets** (moving against it, which the
+  headline hides) are separated, and members present in only one period are
+  named rather than shown as infinite growth.
+- **Trends and outliers.** A time-series step gets its slope per period and
+  its outliers, found with **median and MAD** rather than mean and standard
+  deviation — the outlier inflates the very standard deviation used to judge
+  it, which is how the naive test misses the spike it was written to find.
+- **Projections, labelled as such.** With enough history (8+ periods) the
+  fitted trend is extended up to 6 periods, carrying its method, its mean
+  fit error, and an explicit statement that it assumes the trend continues
+  and knows nothing about seasonality. **With less history it refuses** —
+  the analysis says what the data shows and does not extrapolate.
+
+### It asks before it guesses
+
+When a question cannot be answered well without an answer from you — an
+unstated time range, a word the schema defines two ways, a metric that does
+not exist under any name — the analyst **stops before querying** and asks,
+offering the assumption it would otherwise make so accepting is one click.
+It does not ask about things it can decide sensibly itself (sort order, row
+limits, chart type); a tool that asks about everything is a tool nobody
+uses.
+
+The whole trace — approach, per-step SQL, result samples, per-step charts,
+check verdicts, findings — renders in the thread, persists (owner-only rows;
+result samples capped at 50 rows per step), carries across questions ("what
+about that top region?" resolves from earlier turns), and **exports as a
+branded PDF** with one click: real vector text, every step's chart included.
 
 ## Theming
 
