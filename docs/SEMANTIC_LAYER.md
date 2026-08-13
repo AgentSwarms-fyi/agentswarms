@@ -373,7 +373,10 @@ dimensions get a per-dimension grain — day/week/month/quarter/year), preview,
 and insert — no SQL is written or shown, because the semantic layer writes it
 under the caller's own JWT: share grants, row filters, field masks and
 attribute tokens all apply exactly as they do in the query runner, and a
-preview answered by a declared rollup says so with a `rollup:` badge. The
+preview answered by a declared rollup says so with a `rollup:` badge. A
+restricted share is disclosed twice, same as the runner — a notice when you
+pick the model, and the "your scoped view, not the global total" note on
+the preview itself. The
 inserted widget is the same metric-backed widget the runner creates — it
 re-runs against the current model definition on refresh. Chart types beyond
 the governed set (table, bar, line, area, KPI, pie) insert as a table, and

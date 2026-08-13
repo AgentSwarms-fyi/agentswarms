@@ -625,6 +625,10 @@ function BiProjectPage() {
             r.metrics as Array<{ name: string; agg: string; format?: string; currency?: string }>
           ).map((m) => ({ name: m.name, agg: m.agg, format: m.format, currency: m.currency }))
         : [],
+      // The server attaches viewer_policy to SHARED models with a restrictive
+      // policy so consumers can disclose the scoping; dropping it here would
+      // leave a grantee previewing scoped numbers with nothing saying so.
+      scoped: Boolean(r.viewer_policy),
     }));
   }, [token, listModelsFn]);
 
@@ -636,6 +640,7 @@ function BiProjectPage() {
         rows: Record<string, unknown>[];
         sql: string;
         rollup?: string;
+        access_note?: string;
       };
     },
     [token, runMetricFn],

@@ -32,6 +32,8 @@ export type MetricPreview = {
   rows: Record<string, unknown>[];
   sql: string;
   rollup?: string;
+  /** Present when a share policy scoped the rows (see runMetric). */
+  access_note?: string;
 };
 
 export function BiMetricSource({
@@ -146,6 +148,14 @@ export function BiMetricSource({
 
       {mmModel && (
         <>
+          {/* Same disclosure the runner shows: a grantee looking at scoped
+              numbers should never have to guess that they are scoped. */}
+          {mmModel.scoped && (
+            <p className="rounded-md border border-sky-500/40 bg-sky-500/10 p-2 text-[10px] leading-relaxed">
+              Shared with you under a <strong>restricted policy</strong> — every preview and
+              inserted widget is your scoped view, not the global total.
+            </p>
+          )}
           <div className="space-y-1.5">
             <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               Metrics
@@ -253,6 +263,12 @@ export function BiMetricSource({
                   </Badge>
                 )}
               </div>
+              {mmPreview.access_note && (
+                <p className="rounded border border-sky-500/40 bg-sky-500/10 px-2 py-1 text-[10px] leading-relaxed">
+                  Restricted share — {mmPreview.access_note}. These numbers are your scoped view,
+                  not the global total.
+                </p>
+              )}
               <div className="max-h-48 overflow-auto rounded border border-border/50">
                 <table className="w-full text-left">
                   <thead>

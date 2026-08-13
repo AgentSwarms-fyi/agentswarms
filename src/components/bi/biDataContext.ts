@@ -13,6 +13,12 @@ export type MetricModelOption = {
   label: string | null;
   dimensions: Array<{ name: string; type?: string }>;
   metrics: Array<{ name: string; agg: string; format?: string; currency?: string }>;
+  /**
+   * Shared with the viewer under a restrictive policy (row filters or field
+   * masks). Enforcement lives server-side; this flag exists so the picker can
+   * SAY the numbers will be a scoped view before the first preview runs.
+   */
+  scoped?: boolean;
 };
 
 export type BiDataContext = {
@@ -42,6 +48,8 @@ export type BiDataContext = {
     rows: Record<string, unknown>[];
     sql: string;
     rollup?: string;
+    /** Present when a share policy scoped the rows — disclosed on the preview. */
+    access_note?: string;
   }>;
 };
 

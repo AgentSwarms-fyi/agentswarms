@@ -735,5 +735,17 @@ describe("the builder's governed-metric source", () => {
     // runner. The picking UI lives in its own child (see biBuilderSplit).
     const section = readFileSync("src/components/bi/BiMetricSource.tsx", "utf8");
     expect(section).toContain("rollup: {mmPreview.rollup}");
+    // A restricted share is disclosed at BOTH hops, like the runner: the
+    // model list carries the flag (pick-time warning), the run result
+    // carries the note (scoped numbers marked as scoped). The server
+    // attaches viewer_policy/access_note precisely so consumers can say
+    // this; a mapping that drops either leaves a grantee guessing.
+    expect(ctxSrc).toMatch(/scoped\?: boolean/);
+    expect(ctxSrc).toMatch(/access_note\?: string/);
+    expect(page).toContain("scoped: Boolean(r.viewer_policy)");
+    expect(page).toContain("access_note?: string");
+    expect(section).toContain("{mmModel.scoped && (");
+    expect(section).toContain("Restricted share — {mmPreview.access_note}");
+    expect(section).toContain("not the global total");
   });
 });
