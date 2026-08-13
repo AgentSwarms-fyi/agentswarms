@@ -47,6 +47,7 @@ export function rowToModel(row: SemanticModelRow): SemanticModel {
     // dropping either here would silently disarm it for every DB-loaded model.
     primaryKey: row.primary_key ?? undefined,
     fiscalYearStartMonth: row.fiscal_year_start_month ?? undefined,
+    calendar: (row.calendar as unknown as SemanticModel["calendar"]) ?? undefined,
     parameters: Array.isArray(row.parameters)
       ? (row.parameters as unknown as SemanticModel["parameters"])
       : [],

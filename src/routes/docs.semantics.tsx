@@ -141,14 +141,16 @@ function SemanticsPage() {
               Field type. A <C key="t2">time</C> dimension can be rolled up to a{" "}
               <strong>grain</strong> at query time — <C key="g1">day</C>, <C key="g2">week</C>,{" "}
               <C key="g3">month</C>, <C key="g4">quarter</C>, <C key="g5">year</C>, plus{" "}
-              <C key="g6">fiscal_year</C> and <C key="g7">fiscal_quarter</C> (see{" "}
+              <C key="g6">fiscal_year</C> and <C key="g7">fiscal_quarter</C>, and — on a model with
+              a fiscal calendar table — <C key="g8">fiscal_period</C> and{" "}
+              <C key="g9">fiscal_week</C> (see{" "}
               <a className="underline underline-offset-2" href="#fiscal">
                 fiscal calendars
               </a>
               ) — the compiler emits the right truncation per warehouse dialect, so you write the
               raw column once and get monthly or quarterly buckets on demand. Local datasets support
               every grain on DuckDB, the default engine; on the <C key="t3">LOCAL_ENGINE=alasql</C>{" "}
-              escape hatch, every grain except week and the fiscal pair.
+              escape hatch, every grain except week and the fiscal ones.
             </>,
           ],
         ]}
@@ -205,11 +207,18 @@ GROUP BY 1, 2`}</Code>
         dimension spine. Base metrics and fact metrics come back correct <em>side by side</em>, two
         fanning facts (the classic chasm: orders → items, orders → shipments) each aggregate at
         their own grain, and a group missing from one fact shows blank for that fact rather than
-        vanishing. What the plan cannot prove still <strong>refuses</strong> with the reason: an
+        vanishing. <strong>Period-over-period composes with the plan</strong> — the comparison
+        builds the whole plan twice, current and shifted, and stitches them with the same{" "}
+        <C>_prev</C>/<C>_change</C>/<C>_pct_change</C> columns as a single-pass comparison. And a{" "}
+        <strong>dimension from a fanning table</strong> groups base metrics too, when the model
+        declares a primary key: the base branch deduplicates by the key — each source row counts
+        once per distinct dimension combination it relates to, the standard related-table
+        attribution. What the plan cannot prove still <strong>refuses</strong> with the reason: an
         unqualified column (no branch may guess its table), a bare <C>count</C>, a metric reading
-        two facts at once, a dimension taken from a fanning table, an <C>INNER</C> fanning join, and
-        period-over-period across a plan. Models saved before cardinality existed keep compiling
-        unchanged — Validate measures them instead.
+        two facts at once, dimensions from two different fanning tables, a fanning-table dimension
+        without a declared primary key, a duplicate-sensitive metric reading a different fact than
+        the dimensions group by, and an <C>INNER</C> fanning join. Models saved before cardinality
+        existed keep compiling unchanged — Validate measures them instead.
       </P>
       <Callout kind="why">
         Measured on a two-order fixture: orders A (100) and B (50), where A has three line items.
@@ -269,6 +278,29 @@ GROUP BY 1, 2`}</Code>
         not have. Fiscal grains refuse on <C>LOCAL_ENGINE=alasql</C> with that message rather than
         bucketing into the wrong year.
       </Callout>
+      <P>
+        Calendars month arithmetic cannot express — retail <strong>4-4-5</strong>, 13-period,
+        ISO-week years — are declared as a <strong>fiscal calendar table</strong> instead (Source
+        tab): one row per day, mapping the day to each grain&apos;s period via a{" "}
+        <em>sequence number</em> (a dense integer that steps by one per period, across year
+        boundaries) and the period&apos;s <em>start date</em>. That unlocks two further rollups —{" "}
+        <C>fiscal_period</C> and <C>fiscal_week</C> — and two further windows,{" "}
+        <C>this_fiscal_period</C> and <C>last_fiscal_period</C>; the year/quarter vocabulary now
+        resolves against the table too, so a 53-week year is honoured exactly. Buckets come back as
+        the period&apos;s <em>start date</em>, and comparisons step the <em>sequence</em> — which is
+        what makes &ldquo;vs previous period&rdquo; exact when a 4-week period follows a 5-week one,
+        across year boundaries included. <C>yoy</C> is allowed only where the step is provably
+        constant (a year is one year back, a quarter four quarters); a fiscal year holds no fixed
+        number of periods or weeks, so those refuse with the reason rather than guess. Declaring a
+        calendar table replaces the start-month setting — two sources of truth for the same fiscal
+        year would disagree quietly, so the model refuses both at once.
+      </P>
+      <Callout kind="why" title="A dirty calendar cannot multiply your numbers">
+        The calendar joins as a grouped derived table — one row per day <em>by construction</em> —
+        so duplicate day rows can mislabel those days but can never fan out a metric. Validate
+        measures the rest: one row per day, no coverage gaps, coverage through today, and sequences
+        whose start dates actually increase — each reported with counts, none of it trusted.
+      </Callout>
 
       <H3 id="parameters">Parameters — governed what-ifs</H3>
       <P>
@@ -282,7 +314,12 @@ GROUP BY 1, 2`}</Code>
         parameter, or a fragment referencing one the model never declared, is refused with the
         declared list. Join <C>ON</C> conditions cannot use parameters: a parameterised join would
         change the query graph per caller, and every cardinality declaration and measured probe
-        would be describing a different query.
+        would be describing a different query. A dashboard widget <strong>pins</strong> the
+        overrides it was built with: Add to dashboard stores the runner&apos;s values on the widget,
+        the scheduled refresh re-runs with exactly those values rather than reverting to the
+        defaults, and the widget&apos;s <strong>Parameters…</strong> menu edits the pinned values —
+        saving re-runs the governed query immediately, so the stored SQL, rows and parameters always
+        tell one story.
       </P>
       <Code lang="Metric SQL">{`-- metric big_sales, with parameter {{min_amount}} (number, default 100)
 SUM(CASE WHEN amount >= {{min_amount}} THEN amount ELSE 0 END)`}</Code>
@@ -443,6 +480,9 @@ LEFT JOIN semantic_prev ON semantic_cur."month" IS NOT DISTINCT FROM semantic_pr
         never run unfiltered, never silently empty — and a malformed token is refused when the grant
         is written, using the same grammar the enforcer applies. The disclosure shows the{" "}
         <em>resolved</em> values, so a viewer always knows the scope they are actually seeing.
+        Tokens resolve on <strong>every grant surface</strong> — semantic models, BI dashboards
+        (stored results and live direct-query) and shared datasets — through the one shared
+        resolver, so the same grant means the same rows wherever it is enforced.
       </P>
 
       <H3 id="certification">Certification, history and dependents</H3>

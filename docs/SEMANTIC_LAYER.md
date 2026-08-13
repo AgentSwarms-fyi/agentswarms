@@ -85,6 +85,19 @@ The rules, per metric:
   full single-pass scope so resolution never changes an already-legal metric.
   `custom` stays the owner-trusted escape hatch, same scope; `derived`
   formulas compute over their leaves' branch columns.
+- **Period-over-period composes with the plan.** The comparison builds the
+  whole multi-fact plan twice — current and shifted — as flat CTEs under one
+  `WITH` (Synapse rejects nested `WITH`), stitches them NULL-safe on the
+  dimensions, and projects the same `_prev`/`_change`/`_pct_change` columns
+  as a single-pass comparison. Same contract: exactly one grained time axis,
+  NULL where a period has no predecessor.
+- **Dimensions from a fanning table** group base metrics via **primary-key
+  deduplication** when the model declares a primary key: the base branch
+  reduces to one row per source row per distinct dimension combination
+  (`SELECT DISTINCT` over dims + key + values), then aggregates — each order
+  counts once per line-item bucket it relates to, Tableau's related-table
+  attribution. The spine and base branch carry that one fanning join;
+  filtered measures keep their filters as carried flags.
 
 **What still refuses** — everything the plan cannot prove, with the original
 error plus the reason resolution did not apply:
@@ -95,11 +108,16 @@ error plus the reason resolution did not apply:
   use `count_distinct` over the key or a filtered count.
 - a metric reading **two** fanning tables — no single grain to aggregate at;
   split it and combine with a derived metric.
-- a **dimension** from a fanning table mixed with base metrics (needs
-  primary-key deduplication — roadmap), an **INNER** fanning join (a row
-  filter the plan cannot keep without duplicating), a lookup **chained
-  through** a fanning join, period-over-period across a plan (roadmap), and
-  the AlaSQL escape hatch (no CTEs).
+- dimensions from **two different** fanning tables — no shared row identity
+  to deduplicate on.
+- a fanning-table dimension **without a declared primary key** — nothing to
+  deduplicate by; declare the key (Source tab).
+- under deduplication, a duplicate-sensitive metric reading a **different**
+  fact than the dimensions — its rows have no key under that grouping; split
+  the query or add a dimension from that fact.
+- an **INNER** fanning join (a row filter the plan cannot keep without
+  duplicating), a lookup **chained through** a fanning join, and the AlaSQL
+  escape hatch (no CTEs).
 
 Models saved before cardinality existed keep compiling unchanged — breaking
 every existing model on upgrade was not an option. They are protected by
@@ -192,6 +210,55 @@ _windows_ compile to literal date ranges and run everywhere; fiscal _grains_
 need date arithmetic in SQL and therefore **refuse on `LOCAL_ENGINE=alasql`**
 rather than bucketing into the wrong year.
 
+### Fiscal calendar TABLES — 4-4-5 and friends
+
+Calendars month arithmetic cannot express — retail **4-4-5**, 13-period,
+ISO-week years — are DATA, not a formula: neighbouring periods have different
+lengths, so "previous period" is not a fixed interval. A model declares a
+**fiscal calendar table** instead of a start month (Source tab): one row per
+day, and per grain a **sequence column** (a dense integer stepping by one per
+period, across year boundaries) and the period's **start-date column**:
+
+```
+calendar: { table, dateColumn, grains: { fiscal_period: { seq, start }, … } }
+```
+
+That unlocks two further grains — `fiscal_period` and `fiscal_week` — and two
+further windows — `this_fiscal_period` and `last_fiscal_period`; the
+year/quarter vocabulary resolves against the table too, so a 53-week year is
+honoured exactly. Buckets come back as the period's **start date**; the
+windows compile to `day IN (SELECT day FROM calendar WHERE seq = today's)`,
+so the window is exactly the days the calendar assigns — a `now` outside the
+calendar yields an honest empty result, and Validate warns about the coverage.
+
+**Comparisons step the sequence, not an interval.** The compiler joins the
+calendar per day (a _grouped_ derived table — one row per day by construction,
+so a dirty calendar can mislabel days but can NEVER multiply fact rows), and
+the prior side of a comparison additionally joins the DISTINCT (seq, start)
+period list `n` periods ahead — each prior row buckets into its successor's
+start date, the existing equality stitch works untouched, and no window
+functions are needed (Synapse compiles this). A 4-day period compares against
+its 5-day predecessor, across the year boundary, exactly. Because relative
+windows read the raw date column (which a sequence step cannot shift), the
+prior side **skips the axis dimension's filters** and lets the stitch keep
+only the buckets the filtered current side has — "this fiscal year vs
+previous period" still finds January's predecessor in LAST year. `yoy` is
+allowed only where the step is provably constant — a fiscal year (+1) or
+fiscal quarter (+4); a year holds no fixed number of periods (12 in 4-4-5, 13
+in four-week calendars) or weeks (52 vs 53), so those refuse with the reason.
+`mom` has no meaning on a calendar grain and refuses too.
+
+Declaring a calendar table **replaces** the start-month setting — two sources
+of truth for the same fiscal year would disagree quietly, so both at once
+refuse at save AND at compile. **Validate measures the table**: one row per
+day, no coverage gaps, coverage through today, per-grain sequences with
+exactly one start date each, and sequences whose starts actually increase —
+each reported with counts. The differential suite executes a miniature 4-4-5
+(4/4/5-day periods, two years) against hand-computed truth, including the
+year-boundary comparison and a duplicate-day calendar that must not change a
+single sum; fifteen mutations over the join shape, the sequence step, the
+window subqueries and every probe are all killed.
+
 ### Parameters — governed what-ifs
 
 A model can declare **parameters** its dimension/metric SQL references as
@@ -208,8 +275,15 @@ of which is a refusal rather than a degradation:
 
 - **Every parameter must carry a default.** Validate, assertions and scheduled
   refreshes compile with no caller present; a parameter that breaks every
-  unattended compile is a footgun, not a feature. (Scheduled widget refreshes
-  deliberately re-run with defaults.)
+  unattended compile is a footgun, not a feature.
+- **A dashboard widget PINS the overrides it was built with.** Add to
+  dashboard stores the runner's parameter values on the widget's source, the
+  scheduled refresh re-runs with exactly those values (a refresh that quietly
+  reverted to the defaults would keep the widget's title and change its
+  number), and the widget's **Parameters…** menu edits the pinned values —
+  saving re-runs the governed query immediately, so the stored SQL, rows and
+  parameters can never disagree. A widget added without overrides keeps
+  meaning the declared defaults, as before.
 - Values substitute as **literals** — numbers must be finite, strings are
   escaped exactly like filter values — so a parameter can never inject SQL.
 - A query setting an **undeclared parameter** is refused with the declared
@@ -386,8 +460,10 @@ the query runner, BI widget refresh):
   token is refused at grant-writing time with the same grammar the enforcer
   uses, so a broken rule can never be stored as a literal that matches
   nothing. The disclosure banner shows the **resolved** values, so the viewer
-  knows the scope they are actually seeing. (Tokens apply to semantic-model
-  grants; a token in a BI-dashboard grant is treated as a literal today.)
+  knows the scope they are actually seeing. Tokens resolve on **every grant
+  surface** — semantic models, BI dashboards (stored results and live
+  direct-query), and shared datasets — through the one shared resolver, so
+  the same grant means the same rows wherever it is enforced.
 - **Field mask** — metric/dimension names the grantee may not use. Masked
   fields are refused at query time AND hidden from the grantee's catalog,
   editor and agent prompt, so no surface offers a name the query path would
@@ -448,14 +524,8 @@ Deleting a model warns with that list first.
   rather than choosing one.
 - A native metric option **inside the BI visual builder** (today you author +
   run here and Add to dashboard; the builder's own source picker is next).
-- **Multi-fact plan extensions** — the chasm itself is resolved (see Join
-  safety); still deferred: grouping base metrics by a fanning table's
-  dimension (needs primary-key deduplication), period-over-period across a
-  plan, and INNER fanning joins (an EXISTS-style row filter would keep the
-  scope without the duplication).
-- **Attribute tokens on BI-dashboard grants** — {{user.<key>}} resolves on
-  semantic-model grants today; the dashboard direct-query path still reads
-  tokens as literals.
-- **Per-widget parameter overrides** — a dashboard widget built from a
-  parameterised model refreshes with the declared defaults today; pinning an
-  override onto a specific widget is a follow-up.
+- **Multi-fact plan extensions** — the chasm is resolved, and so are
+  period-over-period across a plan and primary-key deduplication for
+  fact-side dimensions (see Join safety); the one residual is INNER fanning
+  joins (an EXISTS-style row filter would keep the scope without the
+  duplication).

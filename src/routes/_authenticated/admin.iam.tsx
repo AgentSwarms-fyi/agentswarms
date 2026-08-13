@@ -1473,16 +1473,11 @@ function AccessTab({
                 placeholder="Values or {{user.region}} — comma-separated"
               />
               <span className="text-[11px] text-muted-foreground">
-                The grantee only sees rows where the column matches one of these values.
-                {shareResourceType === "semantic_model" && (
-                  <>
-                    {" "}
-                    A value like <code className="font-mono">{"{{user.region}}"}</code> resolves to
-                    each viewer&apos;s own values from the Attributes tab — one grant, per-viewer
-                    rows; a viewer missing the attribute is refused, never unfiltered.
-                  </>
-                )}{" "}
-                Re-sharing with the same principal updates the filter.
+                The grantee only sees rows where the column matches one of these values. A value
+                like <code className="font-mono">{"{{user.region}}"}</code> resolves to each
+                viewer&apos;s own values from the Attributes tab — one grant, per-viewer rows; a
+                viewer missing the attribute is refused, never unfiltered. Re-sharing with the same
+                principal updates the filter.
               </span>
               <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <EyeOff className="h-3.5 w-3.5" /> Hidden columns (optional)

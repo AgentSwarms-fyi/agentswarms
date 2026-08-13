@@ -415,6 +415,113 @@ describe("a period-over-period widget", () => {
   });
 });
 
+/**
+ * Same seam as the comparison above, for PARAMETERS. A widget added from a
+ * runner query that overrode {{min_discount}} must refresh with THAT value —
+ * a refresh that quietly reverts to the model's declared default keeps the
+ * widget's title and changes its number.
+ */
+describe("a parameterised widget", () => {
+  const pModel: SemanticModel = {
+    name: "psaas",
+    source: { kind: "data_table", table: "saas_sales" },
+    parameters: [{ name: "min_discount", type: "number", default: 5 }],
+    dimensions: [{ name: "country", sql: "`Country`", type: "categorical" }],
+    metrics: [
+      {
+        name: "big",
+        agg: "sum",
+        sql: "`Discount`",
+        filters: ["`Discount` >= {{min_discount}}"],
+      },
+    ],
+  } as SemanticModel;
+  const orderBy = [{ field: "country", dir: "asc" as const }];
+
+  it("keeps its override through save and reopen, and the default answers differently", async () => {
+    // Override 8: US keeps only the 10; UK's 7 drops out (NULL, not zero).
+    const compiled = compileSemanticQuery(
+      pModel,
+      {
+        model: "psaas",
+        metrics: ["big"],
+        dimensions: ["country"],
+        params: { min_discount: 8 },
+        orderBy,
+      },
+      { dialect: "duckdb" },
+    );
+    const result = await runOn("duckdb", compiled.sql);
+    expect(result.rows).toEqual([
+      { country: "UK", big: null },
+      { country: "US", big: 10 },
+    ]);
+
+    const widget = widgetFromSemantic({
+      title: "Big discounts (min 8)",
+      model: "psaas",
+      metrics: ["big"],
+      dimensions: ["country"],
+      params: { min_discount: 8 },
+      chartType: "bar",
+      columns: compiled.columns,
+      rows: snapshotRows(result.rows),
+      sql: compiled.sql,
+    });
+    const added = appendWidgetToPages([makeEmptyPage("Page 1")], widget);
+    const loaded = roundTrip(added.pages, [resultRowFor(widget)]);
+    const reloaded = loaded[0].widgets.find((w) => w.id === widget.id)!;
+
+    // THE SEAM: the stored source must still carry the override — it is the
+    // only thing the scheduled refresh has to go on.
+    const source = reloaded.source as { kind: string; params?: Record<string, number> };
+    expect(source.kind).toBe("semantic");
+    expect(source.params).toEqual({ min_discount: 8 });
+
+    // Recompiling from the stored source (what refresh does) reproduces the
+    // query; recompiling WITHOUT the params answers the DEFAULT's question.
+    const recompiled = compileSemanticQuery(
+      pModel,
+      { model: "psaas", metrics: ["big"], dimensions: ["country"], params: source.params, orderBy },
+      { dialect: "duckdb" },
+    );
+    expect(recompiled.sql).toBe(compiled.sql);
+
+    const defaulted = compileSemanticQuery(
+      pModel,
+      { model: "psaas", metrics: ["big"], dimensions: ["country"], orderBy },
+      { dialect: "duckdb" },
+    );
+    expect(defaulted.sql).not.toBe(compiled.sql);
+    const defaultRows = await runOn("duckdb", defaulted.sql);
+    expect(defaultRows.rows).toEqual([
+      { country: "UK", big: 7 },
+      { country: "US", big: 10 },
+    ]);
+  });
+
+  it("the scheduled refresh passes the stored params (source guard)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync("src/utils/bi/refresh.server.ts", "utf8");
+    expect(src).toMatch(/params: w\.source\.params/);
+  });
+
+  it("the runner → dialog → widget chain carries the overrides (source guard)", async () => {
+    // Three hops between the run and the stored widget; dropping any one of
+    // them silently reverts the widget to the model's defaults on refresh.
+    const { readFileSync } = await import("node:fs");
+    const runner = readFileSync("src/routes/_authenticated/semantics.tsx", "utf8");
+    // The setResult tail specifically — the runFn call carries the same
+    // expression, so an unanchored match would let the stored-result hop drop.
+    expect(runner).toMatch(
+      /compare,\s*params: Object\.keys\(params\)\.length > 0 \? params : undefined,\s*\}\);/,
+    );
+    expect(runner).toMatch(/params: result\.params/);
+    const dialog = readFileSync("src/components/bi/AddMetricToDashboardDialog.tsx", "utf8");
+    expect(dialog).toMatch(/params: payload\.params/);
+  });
+});
+
 describe("journey regressions the suite must never lose", () => {
   it("a widget stored WITHOUT its results reloads empty — why sync must run first", () => {
     // appendWidgetToDashboard calls syncWidgetResults BEFORE updateDashboard.

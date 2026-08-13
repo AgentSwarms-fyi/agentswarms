@@ -89,8 +89,15 @@ const EXPECTED: Record<RelativeDateOp, number[]> = {
   fiscal_ytd: [1, 2, 3, 4],
 };
 
+// The period windows exist ONLY on calendar-table models — this fixture has
+// no calendar, so they refuse rather than run (calendarTable.test.ts covers
+// both the refusal and the executed windows against a real calendar).
+const COMPUTABLE_OPS = RELATIVE_DATE_OPS.filter(
+  (op) => op !== "this_fiscal_period" && op !== "last_fiscal_period",
+);
+
 describe.each(LOCAL_DIALECTS)("relative date filters on $dialect", ({ dialect, run }) => {
-  it.each(RELATIVE_DATE_OPS)("%s selects exactly the rows in its window", async (op) => {
+  it.each(COMPUTABLE_OPS)("%s selects exactly the rows in its window", async (op) => {
     const compiled = compileSemanticQuery(
       model,
       {
@@ -157,7 +164,7 @@ describe.each(LOCAL_DIALECTS)("relative date filters on $dialect", ({ dialect, r
 });
 
 describe("both engines agree, row for row", () => {
-  it.each(RELATIVE_DATE_OPS)("%s", async (op) => {
+  it.each(COMPUTABLE_OPS)("%s", async (op) => {
     const results = await Promise.all(
       LOCAL_DIALECTS.map(async ({ dialect, run }) => {
         const compiled = compileSemanticQuery(

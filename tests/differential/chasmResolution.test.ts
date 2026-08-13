@@ -23,13 +23,14 @@ const orders: DuckTable = {
     { name: "region", type: "string" },
     { name: "customer_id", type: "number" },
     { name: "amount", type: "number" },
+    { name: "day", type: "date" },
   ],
   rows: [
-    { id: 1, region: "EMEA", customer_id: 1, amount: 100 },
-    { id: 2, region: "EMEA", customer_id: 2, amount: 50 },
-    { id: 3, region: "APAC", customer_id: 1, amount: 70 },
-    { id: 4, region: "AMER", customer_id: 3, amount: 10 },
-    { id: 5, region: null, customer_id: 2, amount: 40 },
+    { id: 1, region: "EMEA", customer_id: 1, amount: 100, day: "2026-01-10" },
+    { id: 2, region: "EMEA", customer_id: 2, amount: 50, day: "2026-01-20" },
+    { id: 3, region: "APAC", customer_id: 1, amount: 70, day: "2026-02-05" },
+    { id: 4, region: "AMER", customer_id: 3, amount: 10, day: "2026-02-15" },
+    { id: 5, region: null, customer_id: 2, amount: 40, day: "2026-02-25" },
   ],
 };
 
@@ -99,6 +100,19 @@ const model: SemanticModel = {
     { name: "region", sql: "orders.region", type: "categorical" },
     { name: "tier", sql: "customers.tier", type: "categorical" },
     { name: "item_qty_dim", sql: "items.qty", type: "number" },
+    { name: "day", sql: "orders.day", type: "time" },
+    // Buckets several fact rows of one order into ONE value — the case where
+    // primary-key deduplication is the difference between right and 3×.
+    {
+      name: "item_bucket",
+      sql: "CASE WHEN items.qty > 3 THEN 'big' ELSE 'small' END",
+      type: "categorical",
+    },
+    {
+      name: "ship_bucket",
+      sql: "CASE WHEN shipments.weight > 5 THEN 'heavy' ELSE 'light' END",
+      type: "categorical",
+    },
   ],
   metrics: [
     { name: "total_amount", agg: "sum", sql: "orders.amount" },
@@ -251,13 +265,30 @@ describe("the envelope — what still refuses, and why", () => {
     );
   });
 
-  it("a dimension from a fanning table cannot group the other facts", () => {
-    expect(() => compile({ metrics: ["total_amount"], dimensions: ["item_qty_dim"] })).toThrow(
-      /item_qty_dim.*fanning join "items".*deduplication/is,
+  it("a fact-side dimension without a primary key stays refused, naming the fix", () => {
+    const noPk: SemanticModel = { ...model, primaryKey: undefined } as SemanticModel;
+    expect(() =>
+      compileSemanticQuery(
+        noPk,
+        { model: "m", metrics: ["total_amount"], dimensions: ["item_bucket"] },
+        { dialect: "duckdb" },
+      ),
+    ).toThrow(/fanning join "items".*primary-key deduplication.*declare the model's primary key/is);
+  });
+
+  it("dimensions from TWO facts stay refused — no shared row identity", () => {
+    expect(() =>
+      compile({ metrics: ["total_amount"], dimensions: ["item_bucket", "ship_bucket"] }),
+    ).toThrow(/"items" and "shipments".*no shared row identity/is);
+  });
+
+  it("a metric from the OTHER fact cannot be grouped by this fact's dimension", () => {
+    expect(() => compile({ metrics: ["total_weight"], dimensions: ["item_bucket"] })).toThrow(
+      /total_weight.*"shipments".*no key to deduplicate/is,
     );
   });
 
-  it("period-over-period over a multi-fact plan refuses, naming both causes", () => {
+  it("compare still demands exactly one grained time axis, plan or no plan", () => {
     expect(() =>
       compile({
         metrics: ["total_amount", "total_qty"],
@@ -265,7 +296,7 @@ describe("the envelope — what still refuses, and why", () => {
         compare: "prior_period",
         grains: {},
       }),
-    ).toThrow(/multi-fact plan.*not supported yet/is);
+    ).toThrow(/exactly one time dimension with a grain/is);
   });
 
   it("an INNER fanning join is a row filter the plan cannot keep", () => {
@@ -326,15 +357,14 @@ describe("the envelope — what still refuses, and why", () => {
   });
 
   it("the refusal carries BOTH stories: the original error and why no plan applied", () => {
+    const inner: SemanticModel = {
+      ...model,
+      joins: model.joins!.map((j) => (j.table === "items" ? { ...j, type: "inner" as const } : j)),
+    };
     try {
       compileSemanticQuery(
-        model,
-        {
-          model: "m",
-          metrics: ["total_amount", "total_qty"],
-          dimensions: ["region"],
-          compare: "prior_period",
-        },
+        inner,
+        { model: "m", metrics: ["total_amount", "total_qty"], dimensions: ["region"] },
         { dialect: "duckdb" },
       );
       expect.unreachable("should have thrown");
@@ -343,6 +373,370 @@ describe("the envelope — what still refuses, and why", () => {
       expect(msg).toMatch(/double-count/); // the original fan-out refusal
       expect(msg).toMatch(/multi-fact plan could not resolve/); // and the reason
     }
+  });
+});
+
+describe("primary-key deduplication: base metrics grouped by a fact-side dimension", () => {
+  it("each order counts ONCE per bucket, however many fact rows land there", async () => {
+    // Order 1 has THREE items in the 'small' bucket — the naive fanned sum
+    // says small = 300; the key collapses it to one row per (order, bucket).
+    // By hand: big ← o2(50)+o3(70)+o5(40)=160; small ← o1(100) AND o4(10):
+    // o4 has no items, so items.qty is NULL and the CASE's ELSE catches it —
+    // NULL > 3 is NULL, not false-into-a-NULL-bucket. Fact metric at its own
+    // grain: big qty 5+4+6=15, small 2+3+1=6 (o4's NULL qty adds nothing).
+    // Distinct orders: big {2,3,5}=3, small {1,4}=2.
+    const rows = await exec({
+      metrics: ["total_amount", "total_qty", "order_n"],
+      dimensions: ["item_bucket"],
+      orderBy: [{ field: "total_amount", dir: "desc" }],
+    });
+    expect(rows).toEqual([
+      { item_bucket: "big", total_amount: 160, total_qty: 15, order_n: 3 },
+      { item_bucket: "small", total_amount: 110, total_qty: 6, order_n: 2 },
+    ]);
+  });
+
+  it("a filter on the fact-side dimension scopes the deduplicated branch too", async () => {
+    const rows = await exec({
+      metrics: ["total_amount", "total_qty"],
+      dimensions: ["item_bucket"],
+      filters: [{ field: "item_bucket", op: "=", value: "big" }],
+    });
+    expect(rows).toEqual([{ item_bucket: "big", total_amount: 160, total_qty: 15 }]);
+  });
+
+  it("deduplication composes with period-over-period", async () => {
+    // big by month: Jan ← o2(50); Feb ← o3(70)+o5(40)=110, prev 50.
+    const rows = await exec({
+      metrics: ["total_amount"],
+      dimensions: ["day", "item_bucket"],
+      grains: { day: "month" },
+      compare: "prior_period",
+      filters: [{ field: "item_bucket", op: "=", value: "big" }],
+      orderBy: [{ field: "day", dir: "asc" }],
+    });
+    expect(rows).toEqual([
+      {
+        day: "2026-01-01",
+        item_bucket: "big",
+        total_amount: 50,
+        total_amount_prev: null,
+        total_amount_change: null,
+        total_amount_pct_change: null,
+      },
+      {
+        day: "2026-02-01",
+        item_bucket: "big",
+        total_amount: 110,
+        total_amount_prev: 50,
+        total_amount_change: 60,
+        total_amount_pct_change: 1.2,
+      },
+    ]);
+  });
+
+  it("a filtered measure keeps its filter inside the deduplicated aggregate", async () => {
+    // amount for EMEA orders only, attributed per bucket: o1 (EMEA, small)
+    // and o2 (EMEA, big) — the region condition rides as a flag column.
+    const emeaModel: SemanticModel = {
+      ...model,
+      metrics: [
+        ...model.metrics,
+        {
+          name: "emea_amount",
+          agg: "sum",
+          sql: "orders.amount",
+          filters: ["orders.region = 'EMEA'"],
+        },
+      ],
+    } as SemanticModel;
+    const c = compileSemanticQuery(
+      emeaModel,
+      {
+        model: "m",
+        metrics: ["emea_amount"],
+        dimensions: ["item_bucket"],
+        orderBy: [{ field: "item_bucket", dir: "asc" }],
+      },
+      { dialect: "duckdb" },
+    );
+    const rows = (await runLocalSqlDuckDB(c.sql, [orders, items, shipments, customers])).rows;
+    // o4 (no items) lands in 'small' via the CASE's ELSE and is not EMEA,
+    // so it contributes nothing there.
+    expect(rows).toEqual([
+      { item_bucket: "big", emea_amount: 50 },
+      { item_bucket: "small", emea_amount: 100 },
+    ]);
+  });
+});
+
+describe("sharp edges with purpose-built micro-fixtures", () => {
+  it("two orders with IDENTICAL values still count twice — the key is load-bearing", async () => {
+    // Without the pk in the DISTINCT, these two rows collapse into one and
+    // the sum silently halves.
+    const o2x: DuckTable = {
+      name: "orders",
+      columns: [
+        { name: "id", type: "number" },
+        { name: "amount", type: "number" },
+      ],
+      rows: [
+        { id: 1, amount: 50 },
+        { id: 2, amount: 50 },
+      ],
+    };
+    const it2: DuckTable = {
+      name: "items",
+      columns: [
+        { name: "order_id", type: "number" },
+        { name: "qty", type: "number" },
+      ],
+      rows: [
+        // Order 1 relates to the SAME bucket twice: the DISTINCT must
+        // collapse that (one row per order per bucket) while the key keeps
+        // order 2's identical values apart.
+        { order_id: 1, qty: 9 },
+        { order_id: 1, qty: 9 },
+        { order_id: 2, qty: 9 },
+      ],
+    };
+    const m2: SemanticModel = {
+      name: "m2",
+      source: { kind: "data_table", table: "orders" },
+      primaryKey: "id",
+      joins: [
+        {
+          table: "items",
+          on: "orders.id = items.order_id",
+          type: "left",
+          cardinality: "one_to_many",
+        },
+      ],
+      dimensions: [{ name: "qty_bucket", sql: "items.qty", type: "number" }],
+      metrics: [{ name: "amt", agg: "sum", sql: "orders.amount" }],
+    } as SemanticModel;
+    const c = compileSemanticQuery(
+      m2,
+      { model: "m2", metrics: ["amt"], dimensions: ["qty_bucket"] },
+      { dialect: "duckdb" },
+    );
+    const rows = (await runLocalSqlDuckDB(c.sql, [o2x, it2])).rows;
+    expect(rows).toEqual([{ qty_bucket: 9, amt: 100 }]);
+  });
+
+  it("the plan comparison keeps the divide-by-zero guard (structural)", () => {
+    // DuckDB tolerates x/0; Snowflake and Postgres do not. The guard's
+    // absence is invisible to a local run, so it is pinned structurally.
+    const mG: SemanticModel = {
+      name: "mg",
+      source: { kind: "data_table", table: "orders" },
+      joins: [
+        {
+          table: "items",
+          on: "orders.id = items.order_id",
+          type: "left",
+          cardinality: "one_to_many",
+        },
+      ],
+      dimensions: [{ name: "day", sql: "orders.day", type: "time" }],
+      metrics: [
+        { name: "amt", agg: "sum", sql: "orders.amount" },
+        { name: "qty", agg: "sum", sql: "items.qty" },
+      ],
+    } as SemanticModel;
+    const c = compileSemanticQuery(
+      mG,
+      {
+        model: "mg",
+        metrics: ["amt"],
+        dimensions: ["day"],
+        grains: { day: "month" },
+        compare: "prior_period",
+      },
+      { dialect: "duckdb" },
+    );
+    expect(c.sql).toContain("= 0 THEN NULL");
+    expect(c.sql).toContain("semantic_cur");
+    expect(c.sql).toContain("semantic_prev");
+    expect(c.sql).toContain("semantic_p");
+  });
+
+  it("a NULL dimension group finds ITS OWN prior period across the plan", async () => {
+    // Both months have a NULL-region group; the cur/prev stitch must be
+    // NULL-safe or February's NULL group silently loses its comparison.
+    const oN: DuckTable = {
+      name: "orders",
+      columns: [
+        { name: "id", type: "number" },
+        { name: "region", type: "string" },
+        { name: "amount", type: "number" },
+        { name: "day", type: "date" },
+      ],
+      rows: [
+        { id: 1, region: null, amount: 10, day: "2026-01-05" },
+        { id: 2, region: null, amount: 20, day: "2026-02-05" },
+      ],
+    };
+    const iN: DuckTable = {
+      name: "items",
+      columns: [
+        { name: "order_id", type: "number" },
+        { name: "qty", type: "number" },
+      ],
+      rows: [{ order_id: 1, qty: 3 }],
+    };
+    const mN: SemanticModel = {
+      name: "mn",
+      source: { kind: "data_table", table: "orders" },
+      primaryKey: "id",
+      joins: [
+        {
+          table: "items",
+          on: "orders.id = items.order_id",
+          type: "left",
+          cardinality: "one_to_many",
+        },
+      ],
+      dimensions: [
+        { name: "region", sql: "orders.region", type: "categorical" },
+        { name: "day", sql: "orders.day", type: "time" },
+      ],
+      metrics: [
+        { name: "amt", agg: "sum", sql: "orders.amount" },
+        { name: "qty", agg: "sum", sql: "items.qty" },
+      ],
+    } as SemanticModel;
+    const c = compileSemanticQuery(
+      mN,
+      {
+        model: "mn",
+        metrics: ["amt"],
+        dimensions: ["day", "region"],
+        grains: { day: "month" },
+        compare: "prior_period",
+        orderBy: [{ field: "day", dir: "asc" }],
+      },
+      { dialect: "duckdb" },
+    );
+    const rows = (await runLocalSqlDuckDB(c.sql, [oN, iN])).rows;
+    expect(rows).toEqual([
+      {
+        day: "2026-01-01",
+        region: null,
+        amt: 10,
+        amt_prev: null,
+        amt_change: null,
+        amt_pct_change: null,
+      },
+      {
+        day: "2026-02-01",
+        region: null,
+        amt: 20,
+        amt_prev: 10,
+        amt_change: 10,
+        amt_pct_change: 1,
+      },
+    ]);
+  });
+});
+
+describe("period-over-period ACROSS the plan", () => {
+  it("each month's _prev is last month's value, per fact, hand-computed", async () => {
+    const rows = await exec({
+      metrics: ["total_amount", "total_qty", "total_weight"],
+      dimensions: ["day"],
+      grains: { day: "month" },
+      compare: "prior_period",
+      orderBy: [{ field: "day", dir: "asc" }],
+    });
+    // By hand: Jan (o1,o2) amount 150, qty 2+3+1+5=11, weight 9+1+2=12;
+    //          Feb (o3,o4,o5) amount 120, qty 4+6=10, weight 7.
+    // January has no predecessor — NULL comparisons, not zero.
+    expect(rows).toEqual([
+      {
+        day: "2026-01-01",
+        total_amount: 150,
+        total_qty: 11,
+        total_weight: 12,
+        total_amount_prev: null,
+        total_amount_change: null,
+        total_amount_pct_change: null,
+        total_qty_prev: null,
+        total_qty_change: null,
+        total_qty_pct_change: null,
+        total_weight_prev: null,
+        total_weight_change: null,
+        total_weight_pct_change: null,
+      },
+      {
+        day: "2026-02-01",
+        total_amount: 120,
+        total_qty: 10,
+        total_weight: 7,
+        total_amount_prev: 150,
+        total_amount_change: -30,
+        total_amount_pct_change: -30 / 150,
+        total_qty_prev: 11,
+        total_qty_change: -1,
+        total_qty_pct_change: -1 / 11,
+        total_weight_prev: 12,
+        total_weight_change: -5,
+        total_weight_pct_change: -5 / 12,
+      },
+    ]);
+  });
+
+  it("a derived metric compares too — its _prev comes from the prior plan's columns", async () => {
+    const rows = await exec({
+      metrics: ["qty_per_amount"],
+      dimensions: ["day"],
+      grains: { day: "month" },
+      compare: "prior_period",
+      orderBy: [{ field: "day", dir: "asc" }],
+    });
+    expect(rows).toEqual([
+      {
+        day: "2026-01-01",
+        qty_per_amount: 11 / 150,
+        qty_per_amount_prev: null,
+        qty_per_amount_change: null,
+        qty_per_amount_pct_change: null,
+      },
+      {
+        day: "2026-02-01",
+        qty_per_amount: 10 / 120,
+        qty_per_amount_prev: 11 / 150,
+        qty_per_amount_change: 10 / 120 - 11 / 150,
+        qty_per_amount_pct_change: (10 / 120 - 11 / 150) / (11 / 150),
+      },
+    ]);
+  });
+
+  it("a second grouping dimension rides along and lines up with ITS prior bucket", async () => {
+    const rows = await exec({
+      metrics: ["total_amount", "total_qty"],
+      dimensions: ["day", "region"],
+      grains: { day: "month" },
+      compare: "prior_period",
+      filters: [{ field: "region", op: "=", value: "EMEA" }],
+      orderBy: [{ field: "day", dir: "asc" }],
+    });
+    // EMEA exists only in January — its February row does not exist, and
+    // January's EMEA has no EMEA predecessor.
+    expect(rows).toEqual([
+      {
+        day: "2026-01-01",
+        region: "EMEA",
+        total_amount: 150,
+        total_qty: 11,
+        total_amount_prev: null,
+        total_amount_change: null,
+        total_amount_pct_change: null,
+        total_qty_prev: null,
+        total_qty_change: null,
+        total_qty_pct_change: null,
+      },
+    ]);
   });
 });
 
@@ -362,12 +756,8 @@ describe("plan shape — claims about the SQL itself", () => {
   });
 
   it("the time-grain expression is identical in spine and branches", () => {
-    const timeModel: SemanticModel = {
-      ...model,
-      dimensions: [...model.dimensions, { name: "day", sql: "orders.day", type: "time" }],
-    } as SemanticModel;
     const c = compileSemanticQuery(
-      timeModel,
+      model,
       {
         model: "m",
         metrics: ["total_amount", "total_qty"],

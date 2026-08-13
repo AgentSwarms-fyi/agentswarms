@@ -45,6 +45,8 @@ export type SemanticWidgetPayload = {
   filters?: SemanticFilter[];
   grains?: Record<string, TimeGrain>;
   compare?: ComparePeriod;
+  /** Parameter overrides the runner query used — pinned onto the widget. */
+  params?: Record<string, string | number>;
   columns: string[];
   rows: Record<string, unknown>[];
   sql: string;
@@ -105,6 +107,7 @@ export function AddMetricToDashboardDialog({
         filters: payload.filters,
         grains: payload.grains,
         compare: payload.compare,
+        params: payload.params,
         chartType,
         columns: payload.columns,
         rows: payload.rows,

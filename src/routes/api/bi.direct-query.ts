@@ -37,6 +37,7 @@ import {
 } from "@/lib/biDirectQuery";
 import { aggregationPlan } from "@/lib/biAggregate";
 import { applyColumnMask, intersectColumnMasks, mergeGrantRowFilters } from "@/lib/biDashboards";
+import { attributeKeysInGrants, resolveAttributeGrants } from "@/lib/semanticPolicy";
 import type { ChartSpec } from "@/lib/biAgent";
 import type { SqlDialect } from "@/lib/semanticLayer";
 import { rateLimitedGlobal, envInt } from "@/utils/rateLimit.server";
@@ -153,6 +154,21 @@ export const Route = createFileRoute("/api/bi/direct-query")({
               (g.principal_type === "user" && g.principal_id === userId) ||
               (g.principal_type === "group" && groupIds.has(g.principal_id)),
           );
+          // {{user.<key>}} tokens resolve to THIS viewer's attribute values
+          // BEFORE the merge — the same resolver, fetch and refusal the
+          // semantic-model path uses. A missing attribute is a 403 with the
+          // attribute named, never an unfiltered query and never silent
+          // emptiness.
+          let resolved = mine;
+          try {
+            const keys = attributeKeysInGrants(mine);
+            if (keys.length > 0) {
+              const { attributesFor } = await import("@/utils/semantic/policy.server");
+              resolved = resolveAttributeGrants(mine, await attributesFor(userId, keys));
+            }
+          } catch (e) {
+            return json(403, { error: e instanceof Error ? e.message : "Attribute lookup failed" });
+          }
           // An unfiltered grant admits every row, so it makes the filtered ones
           // irrelevant. This loop used to keep only the grants that HAD a
           // filter and silently drop the unrestricted one, so a user granted
@@ -162,8 +178,8 @@ export const Route = createFileRoute("/api/bi/direct-query")({
           // dataset and snapshot paths call. Four private copies of one access
           // rule is what let the snapshot path fail open for months while the
           // other three failed closed.
-          rowFilters.push(...(mergeGrantRowFilters(mine) ?? []));
-          maskedColumns = intersectColumnMasks(mine.map((g) => g.column_mask));
+          rowFilters.push(...(mergeGrantRowFilters(resolved) ?? []));
+          maskedColumns = intersectColumnMasks(resolved.map((g) => g.column_mask));
         }
 
         // A COLUMN MASK IS NOT A MASK IF YOU CAN STILL FILTER ON IT.

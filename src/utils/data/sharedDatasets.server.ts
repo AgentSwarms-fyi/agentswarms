@@ -60,12 +60,24 @@ export async function restrictSharedDataset(
         .eq("resource_id", tableId),
     ]);
     const groups = new Set((memberships ?? []).map((m) => m.group_id));
-    const mine = (grants ?? []).filter(
+    let mine = (grants ?? []).filter(
       (g) =>
         (g.principal_type === "user" && g.principal_id === viewerId) ||
         (g.principal_type === "group" && groups.has(g.principal_id)),
     );
     if (mine.length === 0) return { columns: [], rows: [] };
+
+    // {{user.<key>}} tokens resolve to THIS viewer's attribute values before
+    // the merge — the same resolver, fetch and refusal every other grant
+    // surface uses. The refusal is rethrown past the fail-closed catch below:
+    // "your region attribute is missing" shown as an EMPTY dataset would read
+    // as "there is no data".
+    const { attributeKeysInGrants, resolveAttributeGrants } = await import("@/lib/semanticPolicy");
+    const keys = attributeKeysInGrants(mine);
+    if (keys.length > 0) {
+      const { attributesFor } = await import("@/utils/semantic/policy.server");
+      mine = resolveAttributeGrants(mine, await attributesFor(viewerId, keys));
+    }
 
     const mask = intersectColumnMasks(mine.map((g) => g.column_mask));
     const maskSet = new Set(mask.map((m) => m.toLowerCase()));
@@ -88,7 +100,11 @@ export async function restrictSharedDataset(
         return out;
       }),
     };
-  } catch {
+  } catch (e) {
+    // The attribute refusal carries an instruction ("ask an admin to set your
+    // region") and must reach the viewer; everything else fails closed to an
+    // empty dataset as before.
+    if (e instanceof Error && e.name === "AttributeRefusalError") throw e;
     return { columns: [], rows: [] };
   }
 }

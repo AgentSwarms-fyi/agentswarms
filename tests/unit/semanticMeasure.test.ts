@@ -334,7 +334,11 @@ describe("semanticValidateModel wiring (source guard)", () => {
     expect(src).toMatch(/issues\.push\(\.\.\.health\.issues\)/);
     expect(src).toMatch(/await checkAssertions\(exec, model, m\.assertions \?\? \[\], dialect\)/);
     expect(src).toMatch(/issues\.push\(\.\.\.asserted\.issues\)/);
-    expect(src).toMatch(/warnings: health\.warnings/);
+    // The calendar table is measured too, and BOTH helpers' warnings surface —
+    // dropping either half silently narrows what Validate reports.
+    expect(src).toMatch(/await measureCalendarHealth\(exec, model, dialect\)/);
+    expect(src).toMatch(/issues\.push\(\.\.\.calHealth\.issues\)/);
+    expect(src).toMatch(/warnings: \[\.\.\.health\.warnings, \.\.\.calHealth\.warnings\]/);
     expect(src).toMatch(/measured: health\.measured/);
   });
 

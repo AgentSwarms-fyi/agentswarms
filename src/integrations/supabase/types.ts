@@ -4017,6 +4017,7 @@ export type Database = {
       semantic_models: {
         Row: {
           assertions: Json;
+          calendar: Json | null;
           fiscal_year_start_month: number | null;
           hierarchies: Json;
           parameters: Json;
@@ -4041,6 +4042,7 @@ export type Database = {
         };
         Insert: {
           assertions?: Json;
+          calendar?: Json | null;
           certified_at?: string | null;
           fiscal_year_start_month?: number | null;
           hierarchies?: Json;
@@ -4068,6 +4070,7 @@ export type Database = {
           certified_at?: string | null;
           certified_by?: string | null;
           connection_id?: string | null;
+          calendar?: Json | null;
           created_at?: string;
           description?: string | null;
           dimensions?: Json;

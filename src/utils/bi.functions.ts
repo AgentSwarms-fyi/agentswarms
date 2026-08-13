@@ -16,6 +16,9 @@ import {
   applyRowFilters,
   intersectColumnMasks,
   mergeGrantRowFilters,
+} from "@/lib/biDashboards";
+import { attributeKeysInGrants, resolveAttributeGrants } from "@/lib/semanticPolicy";
+import {
   sanitizePublicPages,
   sanitizePublicWidgets,
   type WidgetResultRow,
@@ -368,8 +371,24 @@ export const biGetSharedWidgetResults = createServerFn({ method: "POST" })
           if (applicable.length === 0) {
             return { ok: false, error: "This dashboard is not shared with you" };
           }
-          rowFilters = mergeGrantRowFilters(applicable);
-          mask = intersectColumnMasks(applicable.map((g) => g.column_mask));
+          // {{user.<key>}} tokens resolve to THIS viewer's attribute values
+          // before the merge — same resolver and refusal as the semantic and
+          // direct-query paths. A missing attribute refuses with the name.
+          let resolved = applicable;
+          try {
+            const keys = attributeKeysInGrants(applicable);
+            if (keys.length > 0) {
+              const { attributesFor } = await import("@/utils/semantic/policy.server");
+              resolved = resolveAttributeGrants(applicable, await attributesFor(userId, keys));
+            }
+          } catch (e) {
+            return {
+              ok: false,
+              error: e instanceof Error ? e.message : "Attribute lookup failed",
+            };
+          }
+          rowFilters = mergeGrantRowFilters(resolved);
+          mask = intersectColumnMasks(resolved.map((g) => g.column_mask));
         }
 
         const { data: stored, error } = await supabaseAdmin

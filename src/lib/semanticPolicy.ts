@@ -56,6 +56,17 @@ export function applicableGrants<G extends GrantRow>(
 /** Matches a whole-value attribute token: {{user.region}} (trimmed). */
 export const USER_ATTR_TOKEN_RE = /^\{\{\s*user\.([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}$/;
 
+/**
+ * The refusal an unresolvable attribute token raises. A distinct class so
+ * surfaces with a swallow-everything fallback (shared datasets fail closed to
+ * EMPTY on unexpected errors) can rethrow THIS one — an attribute refusal
+ * shown as silently-empty data would read as "there is no data", the exact
+ * quiet failure the token contract exists to prevent.
+ */
+export class AttributeRefusalError extends Error {
+  override name = "AttributeRefusalError";
+}
+
 /** The attribute keys any of these grants' row filters reference. */
 export function attributeKeysInGrants(grants: GrantRow[]): string[] {
   const keys = new Set<string>();
@@ -95,7 +106,7 @@ export function resolveAttributeGrants<G extends GrantRow>(
       touched = true;
       const mine = attributes.get(m[1]) ?? [];
       if (mine.length === 0) {
-        throw new Error(
+        throw new AttributeRefusalError(
           `Your access is filtered by the attribute "${m[1]}" ({{user.${m[1]}}}), but your ` +
             `account has no value for it. Ask an admin to set it under IAM → Attributes.`,
         );

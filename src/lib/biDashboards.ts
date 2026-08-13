@@ -67,6 +67,14 @@ export type BiWidgetSource =
        * loses its numbers.
        */
       compare?: ComparePeriod;
+      /**
+       * Parameter overrides pinned to THIS widget ({{name}} tokens in the
+       * model's SQL). Same rule as `compare`: the widget was built from a
+       * query with these values, so a refresh without them would answer the
+       * model's DEFAULTS — a different question wearing the same title.
+       * Absent/empty = the declared defaults, exactly as before.
+       */
+      params?: Record<string, string | number>;
     };
 
 /** Content of an image widget: an uploaded data-URI OR an external URL. */
@@ -802,6 +810,8 @@ export function widgetFromSemantic(args: {
   filters?: SemanticFilter[];
   grains?: Record<string, TimeGrain>;
   compare?: ComparePeriod;
+  /** Parameter overrides the query ran with — pinned onto the widget. */
+  params?: Record<string, string | number>;
   chartType: SemanticChartType;
   columns: string[];
   rows: Record<string, unknown>[];
@@ -861,6 +871,7 @@ export function widgetFromSemantic(args: {
       filters: args.filters,
       grains: args.grains,
       compare: args.compare,
+      ...(args.params && Object.keys(args.params).length > 0 ? { params: args.params } : {}),
     },
     sql: args.sql,
     chart,

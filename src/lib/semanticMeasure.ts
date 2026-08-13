@@ -9,6 +9,7 @@
 // real local/warehouse runner, tests pass a DuckDB closure; nobody
 // re-implements anybody.
 import {
+  calendarProbeSql,
   compileSemanticQuery,
   fanoutProbeSql,
   joinQualifier,
@@ -21,10 +22,10 @@ import {
 /** Runs one read-only statement and returns its rows. */
 export type ExecRows = (sql: string) => Promise<Record<string, unknown>[]>;
 
-export type ModelIssueKind = "dimension" | "metric" | "model" | "join" | "assertion";
+export type ModelIssueKind = "dimension" | "metric" | "model" | "join" | "assertion" | "calendar";
 export type ModelIssue = { kind: ModelIssueKind; name: string; error: string };
 /** Non-fatal findings: things worth declaring, not things that are wrong. */
-export type ModelWarning = { kind: "join" | "assertion"; name: string; note: string };
+export type ModelWarning = { kind: "join" | "assertion" | "calendar"; name: string; note: string };
 
 /** COUNT() arrives as number, bigint or decimal-string depending on engine. */
 function num(v: unknown): number {
@@ -173,6 +174,110 @@ export async function measureModelHealth(
   }
 
   return { issues, warnings, measured };
+}
+
+/**
+ * Measure the declared fiscal calendar table.
+ *
+ * The compiler already makes a dirty calendar UNABLE to multiply fact rows
+ * (its join is grouped per day) — what dirt can still do is mislabel days
+ * (duplicate rows: MIN wins arbitrarily), leave days unmapped (facts bucket
+ * NULL), end before today (relative windows go empty), or break the sequence
+ * order comparisons step along. Each is measured, none is trusted.
+ */
+export async function measureCalendarHealth(
+  exec: ExecRows,
+  model: SemanticModel,
+  dialect: SqlDialect,
+  /** Reference day for the coverage check; tests pin it. */
+  now: Date = new Date(),
+): Promise<{ issues: ModelIssue[]; warnings: ModelWarning[] }> {
+  const issues: ModelIssue[] = [];
+  const warnings: ModelWarning[] = [];
+  const probe = calendarProbeSql(model, dialect);
+  if (!probe) return { issues, warnings };
+  const name = model.calendar!.table;
+
+  let shape: Record<string, unknown>;
+  try {
+    shape = (await exec(probe.shapeSql))[0] ?? {};
+  } catch (e) {
+    issues.push({
+      kind: "calendar",
+      name,
+      error: `Calendar table could not be measured: ${(e as Error).message}`.slice(0, 300),
+    });
+    return { issues, warnings };
+  }
+  const n = num(shape.n);
+  const days = num(shape.days);
+  const span = num(shape.span) + 1;
+  if (n === 0) {
+    issues.push({ kind: "calendar", name, error: "The calendar table is empty." });
+    return { issues, warnings };
+  }
+  if (n > days) {
+    issues.push({
+      kind: "calendar",
+      name,
+      error:
+        `${fmt(n)} rows over ${fmt(days)} distinct days — duplicate day rows. Queries keep ` +
+        `exactly one mapping per day (the smallest sequence), so rows never multiply, but ` +
+        `which period those days report is arbitrary until the duplicates are removed.`,
+    });
+  }
+  if (Number.isFinite(span) && days < span) {
+    warnings.push({
+      kind: "calendar",
+      name,
+      note:
+        `Covers ${fmt(days)} of the ${fmt(span)} days between ${String(shape.lo)} and ` +
+        `${String(shape.hi)} — facts on the missing days bucket as NULL.`,
+    });
+  }
+  const today = new Date(now).toISOString().slice(0, 10);
+  if (String(shape.hi) < today) {
+    warnings.push({
+      kind: "calendar",
+      name,
+      note:
+        `Ends ${String(shape.hi)}, before today (${today}) — relative fiscal windows ` +
+        `(this_fiscal_period, fiscal_ytd…) resolve against today and will be empty.`,
+    });
+  }
+
+  for (const g of probe.grains) {
+    try {
+      const conflicts = num(((await exec(g.conflictSql))[0] ?? {}).bad);
+      if (conflicts > 0) {
+        issues.push({
+          kind: "calendar",
+          name: g.grain,
+          error:
+            `${fmt(conflicts)} ${g.grain} sequence(s) map to more than one start date — ` +
+            `buckets and comparisons disagree about where those periods begin.`,
+        });
+      }
+      const misordered = num(((await exec(g.orderSql))[0] ?? {}).bad);
+      if (misordered > 0) {
+        issues.push({
+          kind: "calendar",
+          name: g.grain,
+          error:
+            `${fmt(misordered)} consecutive ${g.grain} sequence(s) whose start dates do not ` +
+            `increase — "previous period" steps the sequence, so comparisons would pair the ` +
+            `wrong periods.`,
+        });
+      }
+    } catch (e) {
+      issues.push({
+        kind: "calendar",
+        name: g.grain,
+        error: `Grain could not be measured: ${(e as Error).message}`.slice(0, 300),
+      });
+    }
+  }
+  return { issues, warnings };
 }
 
 /** Most distinct values a dimension may have and still list them for agents. */

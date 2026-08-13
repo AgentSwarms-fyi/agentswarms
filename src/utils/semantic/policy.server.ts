@@ -8,6 +8,7 @@
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import {
   applicableGrants,
+  AttributeRefusalError,
   attributeKeysInGrants,
   policyFromGrants,
   resolveAttributeGrants,
@@ -17,9 +18,14 @@ import {
 /**
  * The caller's attribute values for `keys`, fetched only when a grant
  * actually references one. Explicitly user-scoped on the service role, like
- * the groups lookup above it.
+ * the groups lookup above it. Exported: the BI dashboard and shared-dataset
+ * grant surfaces resolve the same tokens through the same fetch — a second
+ * private copy of this lookup is how one surface drifts from the others.
  */
-async function attributesFor(userId: string, keys: string[]): Promise<Map<string, string[]>> {
+export async function attributesFor(
+  userId: string,
+  keys: string[],
+): Promise<Map<string, string[]>> {
   const out = new Map<string, string[]>();
   if (keys.length === 0) return out;
   const { data, error } = await supabaseAdmin
@@ -30,7 +36,7 @@ async function attributesFor(userId: string, keys: string[]): Promise<Map<string
   if (error) {
     // FAIL CLOSED — an unreadable attribute store must refuse the query, not
     // run it unfiltered or silently empty.
-    throw new Error(`Could not load user attributes: ${error.message}`);
+    throw new AttributeRefusalError(`Could not load user attributes: ${error.message}`);
   }
   for (const row of data ?? []) {
     const vals = Array.isArray(row.attr_values)

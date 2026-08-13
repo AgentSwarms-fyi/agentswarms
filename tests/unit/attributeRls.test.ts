@@ -189,3 +189,63 @@ describe("the resolved policy, enforced and EXECUTED", () => {
     expect(res.rows).toEqual([{ total: 220 }]);
   });
 });
+
+describe("tokens are wired into EVERY grant surface (source guard)", () => {
+  // The server routes cannot run without live auth; what CAN be pinned is
+  // that each surface resolves tokens through the ONE shared resolver before
+  // its merge. A surface that skips this reads {{user.region}} as a literal —
+  // a filter that matches nothing while looking like a rule.
+  const read = async (p: string) => {
+    const { readFileSync } = await import("node:fs");
+    return readFileSync(p, "utf8");
+  };
+
+  it("the dashboard direct-query route resolves before merging", async () => {
+    const src = await read("src/routes/api/bi.direct-query.ts");
+    expect(src).toMatch(/attributeKeysInGrants\(mine\)/);
+    expect(src).toMatch(/resolveAttributeGrants\(mine, await attributesFor\(userId, keys\)\)/);
+    expect(src).toMatch(/mergeGrantRowFilters\(resolved\)/);
+    expect(src).toMatch(/intersectColumnMasks\(resolved\.map/);
+  });
+
+  it("the stored-results dashboard path resolves before merging", async () => {
+    const src = await read("src/utils/bi.functions.ts");
+    expect(src).toMatch(/attributeKeysInGrants\(applicable\)/);
+    expect(src).toMatch(
+      /resolveAttributeGrants\(applicable, await attributesFor\(userId, keys\)\)/,
+    );
+    expect(src).toMatch(/mergeGrantRowFilters\(resolved\)/);
+  });
+
+  it("shared datasets resolve before merging and RETHROW the refusal", async () => {
+    const src = await read("src/utils/data/sharedDatasets.server.ts");
+    expect(src).toMatch(/attributeKeysInGrants\(mine\)/);
+    expect(src).toMatch(/resolveAttributeGrants\(mine, await attributesFor\(viewerId, keys\)\)/);
+    // The fail-closed-to-empty catch must NOT swallow the attribute refusal —
+    // "ask an admin to set your region" shown as an empty dataset is the
+    // silent failure the token contract exists to prevent.
+    expect(src).toMatch(/e\.name === "AttributeRefusalError"\) throw e/);
+  });
+
+  it("the refusal is a distinct, rethrowable error class", async () => {
+    const { AttributeRefusalError, resolveAttributeGrants: resolve } =
+      await import("@/lib/semanticPolicy");
+    try {
+      resolve(
+        [
+          {
+            principal_type: "user",
+            principal_id: "u1",
+            row_filter: { column: "region", values: ["{{user.region}}"] },
+            column_mask: null,
+          },
+        ],
+        new Map(),
+      );
+      expect.unreachable("should have refused");
+    } catch (e) {
+      expect(e).toBeInstanceOf(AttributeRefusalError);
+      expect((e as Error).name).toBe("AttributeRefusalError");
+    }
+  });
+});

@@ -22,6 +22,7 @@ import {
 import { runSemanticQuery } from "@/utils/semantic/query.server";
 import {
   checkAssertions,
+  measureCalendarHealth,
   measureModelHealth,
   sampleDimensionValues,
   type ExecRows,
@@ -158,6 +159,36 @@ export const parameterSchema = z
     message: "Parameter default cannot be empty — Validate and refreshes compile with it",
   });
 
+// A fiscal calendar TABLE: one row per day, mapping each day to its period
+// per grain via a dense sequence number and the period's start date. Columns
+// are strict bare identifiers — they are embedded as SQL structure. Exported
+// for tests: the ≥1-grain rule and the exclusivity refine on the model are
+// behavior, and tests must exercise THIS schema, not a copy.
+const calendarIdent = z
+  .string()
+  .regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, "Calendar columns must be letters/digits/underscore");
+export const calendarSchema = z.object({
+  table: z
+    .string()
+    .min(1)
+    .max(200)
+    .regex(
+      /^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$/,
+      "Unsafe calendar table reference",
+    ),
+  dateColumn: calendarIdent,
+  grains: z
+    .object({
+      fiscal_year: z.object({ seq: calendarIdent, start: calendarIdent }).optional(),
+      fiscal_quarter: z.object({ seq: calendarIdent, start: calendarIdent }).optional(),
+      fiscal_period: z.object({ seq: calendarIdent, start: calendarIdent }).optional(),
+      fiscal_week: z.object({ seq: calendarIdent, start: calendarIdent }).optional(),
+    })
+    .refine((g) => Object.values(g).some(Boolean), {
+      message: "A fiscal calendar must map at least one grain",
+    }),
+});
+
 // A declared drill path — level names are checked against the model's
 // dimensions in validateNames-adjacent logic below, not here (zod can't see
 // the sibling arrays).
@@ -168,25 +199,36 @@ export const hierarchySchema = z.object({
   levels: z.array(z.string().min(1)).min(2).max(6),
 });
 
-const modelSchema = z.object({
-  id: z.string().uuid().optional(),
-  name: z.string().min(1).max(64),
-  label: z.string().optional(),
-  description: z.string().optional(),
-  source_kind: z.enum(["data_table", "warehouse"]),
-  table_id: z.string().uuid().nullable().optional(),
-  connection_id: z.string().uuid().nullable().optional(),
-  source_table: z.string().min(1),
-  // Owner-trusted fragment (same class as dimension sql); shape-limited only.
-  primary_key: z.string().max(200).nullable().optional(),
-  fiscal_year_start_month: z.number().int().min(1).max(12).nullable().optional(),
-  joins: z.array(joinSchema).max(MAX_JOINS).optional(),
-  dimensions: z.array(dimensionSchema),
-  metrics: z.array(metricSchema),
-  assertions: z.array(assertionSchema).max(50).optional(),
-  parameters: z.array(parameterSchema).max(20).optional(),
-  hierarchies: z.array(hierarchySchema).max(10).optional(),
-});
+const modelSchema = z
+  .object({
+    id: z.string().uuid().optional(),
+    name: z.string().min(1).max(64),
+    label: z.string().optional(),
+    description: z.string().optional(),
+    source_kind: z.enum(["data_table", "warehouse"]),
+    table_id: z.string().uuid().nullable().optional(),
+    connection_id: z.string().uuid().nullable().optional(),
+    source_table: z.string().min(1),
+    // Owner-trusted fragment (same class as dimension sql); shape-limited only.
+    primary_key: z.string().max(200).nullable().optional(),
+    fiscal_year_start_month: z.number().int().min(1).max(12).nullable().optional(),
+    calendar: calendarSchema.nullable().optional(),
+    joins: z.array(joinSchema).max(MAX_JOINS).optional(),
+    dimensions: z.array(dimensionSchema),
+    metrics: z.array(metricSchema),
+    assertions: z.array(assertionSchema).max(50).optional(),
+    parameters: z.array(parameterSchema).max(20).optional(),
+    hierarchies: z.array(hierarchySchema).max(10).optional(),
+  })
+  // Two fiscal declarations are two sources of truth for the same year;
+  // whichever silently won, some number would answer a different question
+  // than the model claims. (Month 1 is the UI's "calendar year" default and
+  // carries no fiscal meaning of its own.)
+  .refine((m) => !(m.calendar && m.fiscal_year_start_month && m.fiscal_year_start_month !== 1), {
+    message:
+      "Declare either a fiscal year start month or a fiscal calendar table, not both — " +
+      "the calendar table would silently win.",
+  });
 
 function validateNames(dims: SemanticDimension[], metrics: SemanticMetric[]) {
   const seen = new Set<string>();
@@ -278,6 +320,7 @@ export const semanticUpsertModel = createServerFn({ method: "POST" })
       source_table: m.source_table,
       primary_key: m.primary_key?.trim() ? m.primary_key.trim() : null,
       fiscal_year_start_month: m.fiscal_year_start_month ?? null,
+      calendar: (m.calendar ?? null) as never,
       parameters: (m.parameters ?? []) as never,
       hierarchies: (m.hierarchies ?? []) as never,
       joins: (m.joins ?? []) as never,
@@ -413,6 +456,7 @@ async function validateModelPayload(
         : { kind: "data_table", table: m.source_table },
     primaryKey: m.primary_key ?? undefined,
     fiscalYearStartMonth: m.fiscal_year_start_month ?? undefined,
+    calendar: m.calendar ?? undefined,
     parameters: m.parameters ?? [],
     hierarchies: m.hierarchies ?? [],
     joins: m.joins ?? [],
@@ -502,6 +546,10 @@ async function validateModelPayload(
   const health = await measureModelHealth(exec, model, dialect);
   issues.push(...health.issues);
   checked += health.measured.length;
+  // The fiscal calendar table is a declaration too — measured, not trusted.
+  const calHealth = await measureCalendarHealth(exec, model, dialect);
+  issues.push(...calHealth.issues);
+  if (model.calendar) checked += 1;
   const asserted = await checkAssertions(exec, model, m.assertions ?? [], dialect);
   issues.push(...asserted.issues);
   checked += asserted.checked;
@@ -512,7 +560,7 @@ async function validateModelPayload(
   return {
     ok: issues.length === 0,
     issues,
-    warnings: health.warnings,
+    warnings: [...health.warnings, ...calHealth.warnings],
     measured: health.measured,
     checked,
     sampledValues,
@@ -533,6 +581,7 @@ function rowToModelPayload(row: Record<string, unknown>): z.input<typeof modelSc
     source_table: String(row.source_table ?? ""),
     primary_key: (row.primary_key as string) ?? null,
     fiscal_year_start_month: (row.fiscal_year_start_month as number) ?? null,
+    calendar: (row.calendar as z.input<typeof calendarSchema>) ?? null,
     parameters: Array.isArray(row.parameters)
       ? (row.parameters as z.input<typeof parameterSchema>[])
       : [],
@@ -673,6 +722,7 @@ export const semanticRestoreVersion = createServerFn({ method: "POST" })
         source_table: m.source_table,
         primary_key: m.primary_key?.trim() ? m.primary_key.trim() : null,
         fiscal_year_start_month: m.fiscal_year_start_month ?? null,
+        calendar: (m.calendar ?? null) as never,
         parameters: (m.parameters ?? []) as never,
         hierarchies: (m.hierarchies ?? []) as never,
         joins: (m.joins ?? []) as never,

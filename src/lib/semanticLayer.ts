@@ -171,6 +171,17 @@ export type SemanticModel = {
    * FY2026).
    */
   fiscalYearStartMonth?: number;
+  /**
+   * A fiscal CALENDAR TABLE — for calendars month arithmetic cannot express
+   * (retail 4-4-5, 13-period, ISO-week years). One row per day, mapping the
+   * day to each declared grain's period via a sequence number (dense integer,
+   * increasing with time) and the period's start date. Buckets compile to the
+   * START DATE; comparisons step the SEQUENCE, so "previous period" is exact
+   * even when neighbouring periods have different lengths. Mutually exclusive
+   * with fiscalYearStartMonth — two sources of truth for the same fiscal year
+   * would disagree quietly.
+   */
+  calendar?: SemanticCalendar;
   parameters?: SemanticParameter[];
   hierarchies?: SemanticHierarchy[];
   /**
@@ -214,11 +225,18 @@ export const RELATIVE_DATE_OPS = [
   "ytd",
   // Fiscal windows roll along the model's fiscal year (fiscal_year_start_month,
   // default January — in which case they equal their calendar counterparts).
+  // On a model with a fiscal CALENDAR TABLE they resolve against that table
+  // instead — the window is the set of days the calendar assigns to the
+  // period, so a 53-week year or a 5-week period is honoured exactly.
   "this_fiscal_year",
   "last_fiscal_year",
   "this_fiscal_quarter",
   "last_fiscal_quarter",
   "fiscal_ytd",
+  // Period windows exist ONLY on calendar-table models — month arithmetic has
+  // no notion of a 4-4-5 period, so without a calendar they refuse.
+  "this_fiscal_period",
+  "last_fiscal_period",
 ] as const;
 
 export type RelativeDateOp = (typeof RELATIVE_DATE_OPS)[number];
@@ -257,10 +275,47 @@ export const TIME_GRAINS = [
   // year the fiscal year ENDS in), fiscal_quarter → 20261 (FY2026 Q1) — a
   // sortable composite, the same trick the AlaSQL grains already use. With a
   // January fiscal start they equal the calendar year/quarter numbers.
+  // On a model with a fiscal CALENDAR TABLE, fiscal grains bucket by the
+  // period's START DATE from that table instead — a 4-4-5 period has no
+  // honest number, but its first day is exact, sortable and chartable.
   "fiscal_year",
   "fiscal_quarter",
+  // Calendar-table-only grains: refuse without a declared fiscal calendar.
+  "fiscal_period",
+  "fiscal_week",
 ] as const;
 export type TimeGrain = (typeof TIME_GRAINS)[number];
+
+/** The grains a fiscal calendar table can define, finest to coarsest last. */
+export const CALENDAR_GRAINS = [
+  "fiscal_year",
+  "fiscal_quarter",
+  "fiscal_period",
+  "fiscal_week",
+] as const;
+export type CalendarGrain = (typeof CALENDAR_GRAINS)[number];
+
+/** How one calendar grain is stored: its sequence and start-date columns. */
+export type SemanticCalendarGrain = {
+  /**
+   * Column holding a DENSE INTEGER that increases by one per period, across
+   * year boundaries (FY2025 P12 → FY2026 P1 must be n → n+1). Comparisons
+   * step this number, which is what makes "previous period" exact when
+   * neighbouring periods have different lengths.
+   */
+  seq: string;
+  /** Column holding the period's first day, the value queries bucket by. */
+  start: string;
+};
+
+export type SemanticCalendar = {
+  /** The calendar table, one row per day (same reference rules as a join). */
+  table: string;
+  /** The day column queries join dimension dates against. */
+  dateColumn: string;
+  /** Grains this calendar defines; at least one. */
+  grains: Partial<Record<CalendarGrain, SemanticCalendarGrain>>;
+};
 
 /**
  * Period-over-period comparisons.
@@ -479,6 +534,14 @@ export function truncateExpr(
   /** Fiscal year start month (1–12); only the fiscal grains read it. */
   fiscalStartMonth?: number,
 ): string {
+  // The compiler resolves calendar-table grains BEFORE reaching here; a
+  // fiscal_period/fiscal_week that arrives means no calendar is declared, and
+  // month arithmetic has nothing honest to say about a 4-4-5 period.
+  if (grain === "fiscal_period" || grain === "fiscal_week") {
+    throw new Error(
+      `The "${grain}" grain needs a fiscal calendar table — declare one in the Source tab.`,
+    );
+  }
   if (grain === "fiscal_year" || grain === "fiscal_quarter") {
     return fiscalBucketExpr(sql, grain, dialect, fiscalStartMonth ?? 1);
   }
@@ -583,6 +646,14 @@ export function relativeDateRange(
   const monthsIntoFy = (m - (fsm - 1) + 12) % 12;
 
   switch (op) {
+    case "this_fiscal_period":
+    case "last_fiscal_period":
+      // A 4-4-5 period is calendar-table DATA; month arithmetic cannot place
+      // its boundaries, and guessing "a month" would answer with a different
+      // calendar than the one the question was about.
+      throw new Error(
+        `"${op}" needs a fiscal calendar table — declare one in the model's Source tab.`,
+      );
     case "this_fiscal_year":
       return {
         start: isoDay(fyStart),
@@ -798,6 +869,171 @@ function fiscalBucketExpr(
     : `(${yearExpr(shifted, dialect)} * 10 + ${quarterExpr(shifted, dialect)})`;
 }
 
+// ── Fiscal calendar tables ─────────────────────────────────────────────────
+//
+// A 4-4-5 (or 13-period, or ISO-week) calendar cannot be computed from a
+// date — it is DATA: one row per day, declaring which period the day belongs
+// to. The compiler joins that table and buckets by the period's START DATE.
+// Two properties are load-bearing:
+//
+//   * The base join is a GROUPED derived table (one row per day BY
+//     CONSTRUCTION), so a dirty calendar with duplicate days can surface as
+//     wrong period labels for those days but can never multiply fact rows —
+//     the layer's cardinal sin. Validate measures the duplication instead.
+//   * Comparisons step the period's SEQUENCE NUMBER via a second, DISTINCT
+//     (seq, start) derived table joined on `seq + n` — the prior side buckets
+//     each row into its successor period's start, so the existing equality
+//     stitch works untouched and no window functions are needed (Synapse has
+//     no WITH-in-derived-table; every dialect here accepts a plain subquery).
+
+/** `CAST(x AS DATE)` in the dialect's spelling (lossy-tolerant on DuckDB). */
+function castDateExpr(sql: string, dialect: SqlDialect): string {
+  switch (dialect) {
+    case "alasql":
+      throw new Error(
+        "Fiscal calendar tables need real SQL joins, which the AlaSQL engine does not have. " +
+          "Remove LOCAL_ENGINE=alasql to use the default engine.",
+      );
+    case "duckdb":
+      // Local date columns are ISO TEXT typed by inference; one unparseable
+      // value must become NULL, not abort the query.
+      return `TRY_CAST(${sql} AS DATE)`;
+    case "bigquery":
+      return `DATE(${sql})`;
+    default:
+      return `CAST(${sql} AS DATE)`;
+  }
+}
+
+/** A calendar column name: bare identifier only, checked before embedding. */
+function assertCalendarIdent(name: string, what: string): string {
+  if (!IDENT_RE.test(name)) {
+    throw new Error(`Fiscal calendar ${what} ${JSON.stringify(name)} must be a bare identifier`);
+  }
+  return name;
+}
+
+/**
+ * The calendar mapping for `grain`, or a refusal that names the fix — an
+ * unmapped grain must not fall back to month arithmetic, which would answer
+ * with a DIFFERENT calendar than the one the model declared.
+ */
+function calendarGrainCols(cal: SemanticCalendar, grain: CalendarGrain): SemanticCalendarGrain {
+  const cols = cal.grains[grain];
+  if (!cols) {
+    const mapped = Object.keys(cal.grains).join(", ") || "none";
+    throw new Error(
+      `The fiscal calendar does not define "${grain}" (defined: ${mapped}). ` +
+        `Map its sequence and start columns in the Source tab.`,
+    );
+  }
+  assertCalendarIdent(cols.seq, `"${grain}" sequence column`);
+  assertCalendarIdent(cols.start, `"${grain}" start column`);
+  return cols;
+}
+
+/** FROM-clause alias of the per-day calendar join for dimension `name`. */
+function calAlias(dimName: string): string {
+  return `semantic_cal__${dimName}`;
+}
+
+/** FROM-clause alias of the shifted (seq + n) period join for `name`. */
+function cal2Alias(dimName: string): string {
+  return `semantic_cal2__${dimName}`;
+}
+
+/**
+ * The per-day calendar join for one time dimension: a grouped derived table
+ * keyed on the day, projecting every mapped grain's seq/start via MIN() —
+ * one row per day whatever the table holds, so this join can never fan out.
+ */
+function calendarBaseJoin(
+  cal: SemanticCalendar,
+  dimName: string,
+  rawSql: string,
+  dialect: SqlDialect,
+): string {
+  const table = assertTableRef(cal.table);
+  const day = assertCalendarIdent(cal.dateColumn, "day column");
+  const cols = new Set<string>();
+  for (const grain of CALENDAR_GRAINS) {
+    const g = cal.grains[grain];
+    if (!g) continue;
+    cols.add(assertCalendarIdent(g.seq, `"${grain}" sequence column`));
+    cols.add(assertCalendarIdent(g.start, `"${grain}" start column`));
+  }
+  if (cols.size === 0) throw new Error("The fiscal calendar defines no grains.");
+  const projected = [...cols].map((c) => `MIN(${c}) AS ${c}`).join(", ");
+  const inner = `SELECT ${day} AS semantic_cal_day, ${projected} FROM ${table} GROUP BY ${day}`;
+  return ` LEFT JOIN (${inner}) AS ${calAlias(dimName)} ON ${calAlias(dimName)}.semantic_cal_day = ${castDateExpr(rawSql, dialect)}`;
+}
+
+/**
+ * The comparison join: the DISTINCT (seq, start) period list, joined `n`
+ * periods ahead of the row's own period. Reading its start buckets each prior
+ * row into the period it should be COMPARED AGAINST — the calendar-table
+ * analogue of the shift-forward date arithmetic below. A period beyond the
+ * calendar's edge finds no row and buckets NULL, which the stitch reads as
+ * "no predecessor", the same honesty rule as everywhere else.
+ */
+function calendarShiftJoin(
+  cal: SemanticCalendar,
+  dimName: string,
+  grain: CalendarGrain,
+  n: number,
+): string {
+  if (!Number.isInteger(n) || n < 1) {
+    throw new Error(`Calendar comparison shift must be a positive whole number, got ${String(n)}`);
+  }
+  const table = assertTableRef(cal.table);
+  const g = calendarGrainCols(cal, grain);
+  const inner = `SELECT DISTINCT ${g.seq} AS semantic_seq, ${g.start} AS semantic_start FROM ${table}`;
+  return ` LEFT JOIN (${inner}) AS ${cal2Alias(dimName)} ON ${cal2Alias(dimName)}.semantic_seq = ${calAlias(dimName)}.${g.seq} + ${n}`;
+}
+
+/**
+ * The relative fiscal windows, resolved against the CALENDAR TABLE: the
+ * window is the set of days the calendar assigns to the anchor period, found
+ * by an uncorrelated scalar subquery on today's sequence number. MIN() keeps
+ * the subquery scalar even on a dirty calendar; a `now` outside the calendar
+ * yields NULL → an empty window — an honest nothing, and Validate reports the
+ * coverage gap.
+ */
+function calendarWindowExpr(
+  rawSql: string,
+  op: RelativeDateOp,
+  cal: SemanticCalendar,
+  dialect: SqlDialect,
+  now: Date | undefined,
+): string {
+  const table = assertTableRef(cal.table);
+  const day = assertCalendarIdent(cal.dateColumn, "day column");
+  const spec: Partial<
+    Record<RelativeDateOp, { grain: CalendarGrain; back: number; toDate?: boolean }>
+  > = {
+    this_fiscal_year: { grain: "fiscal_year", back: 0 },
+    last_fiscal_year: { grain: "fiscal_year", back: 1 },
+    fiscal_ytd: { grain: "fiscal_year", back: 0, toDate: true },
+    this_fiscal_quarter: { grain: "fiscal_quarter", back: 0 },
+    last_fiscal_quarter: { grain: "fiscal_quarter", back: 1 },
+    this_fiscal_period: { grain: "fiscal_period", back: 0 },
+    last_fiscal_period: { grain: "fiscal_period", back: 1 },
+  };
+  const s = spec[op];
+  if (!s) throw new Error(`"${op}" is not a fiscal window`);
+  const g = calendarGrainCols(cal, s.grain);
+  const nowIso = isoDay(now ?? new Date());
+  const nowLit = dateLiteral(nowIso, dialect);
+  const nowSeq = `SELECT MIN(${g.seq}) FROM ${table} WHERE ${day} = ${nowLit}`;
+  const seqRef = s.back === 0 ? `(${nowSeq})` : `(${nowSeq}) - ${s.back}`;
+  // The projection is cast so the IN compares DATE to DATE everywhere — local
+  // datasets store days as ISO TEXT, and DuckDB coerces `=` but refuses a
+  // mixed-type IN.
+  let daysOfPeriod = `SELECT ${castDateExpr(day, dialect)} FROM ${table} WHERE ${g.seq} = ${seqRef}`;
+  if (s.toDate) daysOfPeriod += ` AND ${day} <= ${nowLit}`;
+  return `${castDateExpr(rawSql, dialect)} IN (${daysOfPeriod})`;
+}
+
 /** How far back a comparison looks, as a unit `dateAddExpr` understands. */
 function compareShift(period: ComparePeriod, grain: TimeGrain): { n: number; unit: DateAddUnit } {
   if (period === "yoy") return { n: 1, unit: "year" };
@@ -818,7 +1054,49 @@ function compareShift(period: ComparePeriod, grain: TimeGrain): { n: number; uni
     case "year":
     case "fiscal_year":
       return { n: 1, unit: "year" };
+    case "fiscal_period":
+    case "fiscal_week":
+      // Only reachable without a declared calendar (axisShiftSpec routes
+      // calendar models to a sequence shift); the grain itself needs one.
+      throw new Error(
+        `The "${grain}" grain needs a fiscal calendar table — declare one in the Source tab.`,
+      );
   }
+}
+
+/**
+ * How a comparison steps the axis: date arithmetic for computable calendars,
+ * a SEQUENCE step for calendar-table grains — where only steps with a
+ * provably constant length are allowed. `prior_period` is always one period.
+ * `yoy` is one fiscal year (seq +1) or four fiscal quarters (+4); a fiscal
+ * year holds no fixed number of PERIODS (12 in 4-4-5, 13 in four-week
+ * calendars) or WEEKS (52 vs 53), so those refuse rather than guess.
+ */
+function axisShiftSpec(
+  model: SemanticModel,
+  period: ComparePeriod,
+  grain: TimeGrain,
+): { n: number; unit: DateAddUnit } | { n: number; calendarGrain: CalendarGrain } {
+  if (model.calendar && (CALENDAR_GRAINS as readonly string[]).includes(grain)) {
+    const g = grain as CalendarGrain;
+    // Refuse an unmapped grain here with the naming error, not deeper in.
+    calendarGrainCols(model.calendar, g);
+    if (period === "prior_period") return { n: 1, calendarGrain: g };
+    if (period === "yoy") {
+      if (g === "fiscal_year") return { n: 1, calendarGrain: g };
+      if (g === "fiscal_quarter") return { n: 4, calendarGrain: g };
+      throw new Error(
+        `"yoy" cannot step a ${g === "fiscal_period" ? "fiscal period" : "fiscal week"} on a ` +
+          `calendar table — a fiscal year holds no fixed number of them ` +
+          `(${g === "fiscal_period" ? "12 in 4-4-5, 13 in four-week calendars" : "52 vs 53 weeks"}). ` +
+          `Use prior_period.`,
+      );
+    }
+    throw new Error(
+      `"mom" has no meaning on a fiscal calendar's ${g.replace(/_/g, " ")} — use prior_period.`,
+    );
+  }
+  return compareShift(period, grain);
 }
 
 /**
@@ -915,7 +1193,12 @@ function compileFilter(
   f: SemanticFilter,
   exprByField: Map<string, string>,
   dialect: SqlDialect,
-  opts: { dim?: SemanticDimension; now?: Date; fiscalStartMonth?: number } = {},
+  opts: {
+    dim?: SemanticDimension;
+    now?: Date;
+    fiscalStartMonth?: number;
+    calendar?: SemanticCalendar;
+  } = {},
 ): string {
   const expr = exprByField.get(f.field);
   if (!expr) throw new Error(`Filter references unknown field "${f.field}"`);
@@ -934,6 +1217,13 @@ function compileFilter(
     }
     if (dim.type !== "time") {
       throw new Error(`"${f.op}" needs a time dimension; "${f.field}" is ${dim.type}.`);
+    }
+    // Fiscal windows on a calendar-table model resolve against the TABLE —
+    // the window is the set of days the calendar assigns to the period, so a
+    // 53-week year or a 5-week period is honoured exactly. (Still the RAW
+    // column, same as below.)
+    if (opts.calendar && f.op.includes("fiscal")) {
+      return calendarWindowExpr(dim.sql, f.op, opts.calendar, dialect, opts.now);
     }
     // The RAW column, never the grain-wrapped expression. Filtering "last 30
     // days" against a dimension grained to month would compare the bucket
@@ -1304,11 +1594,70 @@ function chasmBranchOf(m: SemanticMetric, ctx: FanoutContext): string {
   return dupSensitive ? "" : known.length > 0 ? "" : "*";
 }
 
+/**
+ * The model's primary key as a query expression — a bare identifier is
+ * qualified with the source table so it stays unambiguous once joins are
+ * present; an authored expression is trusted as written. The same rule
+ * fanoutProbeSql applies, for the same reason.
+ */
+function qualifiedPkExpr(model: SemanticModel, dialect: SqlDialect): string {
+  const pk = (model.primaryKey ?? "").trim();
+  const from = assertTableRef(model.source.table);
+  const baseQual = from.startsWith('"') ? from : (from.split(".").pop() ?? from);
+  return IDENT_RE.test(pk) ? `${baseQual}.${pk}` : normaliseIdentQuotes(pk, dialect);
+}
+
+/**
+ * A duplicate-sensitive aggregate rebuilt to run OVER the deduplicated
+ * subquery's aliased columns: the inner SELECT DISTINCT carries the metric's
+ * value expression and each filter fragment as named columns, and the outer
+ * aggregate references only those names. Anything else reaching here is an
+ * internal error — planChasm routes duplicate-insensitive and custom
+ * metrics to the full-scope branch under deduplication.
+ */
+function dedupAggParts(
+  m: SemanticMetric,
+  idx: number,
+  qi: (name: string) => string,
+): { innerCols: string[]; outerExpr: string } {
+  const vAlias = qi(`semantic_v${idx}`);
+  const fAliases = (m.filters ?? []).map((_, j) => qi(`semantic_v${idx}_f${j}`));
+  const innerCols: string[] = [];
+  if (m.agg !== "count") innerCols.push(`(${m.sql ?? ""}) AS ${vAlias}`);
+  (m.filters ?? []).forEach((frag, j) => innerCols.push(`(${frag}) AS ${fAliases[j]}`));
+
+  const guard = fAliases.length ? fAliases.join(" AND ") : null;
+  let outerExpr: string;
+  switch (m.agg) {
+    case "sum":
+    case "avg": {
+      const arg = guard ? `CASE WHEN ${guard} THEN ${vAlias} END` : vAlias;
+      outerExpr = `${m.agg.toUpperCase()}(${arg})`;
+      break;
+    }
+    case "count":
+      // Anchored counts only — a bare count was refused long before here.
+      outerExpr = `COUNT(${guard ? `CASE WHEN ${guard} THEN 1 END` : "*"})`;
+      break;
+    default:
+      throw new Error(`Metric "${m.name}" (${m.agg}) cannot be deduplicated — internal error`);
+  }
+  return { innerCols, outerExpr };
+}
+
 type ChasmPlan = {
   /** Branch key ("" = base) → the leaf metrics that branch computes. */
   branches: Array<{ key: string; join: SemanticJoin | null; metricNames: string[] }>;
   /** Requested metrics in order, with how the outer SELECT renders each. */
   outer: Array<{ name: string; leaf: boolean }>;
+  /**
+   * Set when the requested dimensions read from ONE fanning join: the base
+   * branch (and the spine) must include this join, and the base branch
+   * deduplicates by the model's primary key — each source row counted once
+   * per distinct dimension combination it relates to, the standard
+   * related-table attribution semantics.
+   */
+  dedupJoin: SemanticJoin | null;
 };
 
 /**
@@ -1335,12 +1684,6 @@ function planChasm(args: {
   if (dialect === "alasql") {
     blocked("the AlaSQL engine has no CTEs. Remove LOCAL_ENGINE=alasql to use the default engine.");
   }
-  if (q.compare) {
-    blocked(
-      "period-over-period over a multi-fact plan is not supported yet — drop the comparison " +
-        "or the conflicting metrics.",
-    );
-  }
   for (const j of ctx.fanning) {
     if (j.type === "inner") {
       blocked(
@@ -1362,17 +1705,33 @@ function planChasm(args: {
       );
     }
   }
+  // Dimensions reading from a fanning join: allowed from exactly ONE such
+  // join, and only with a declared primary key — the base branch keeps that
+  // join and DEDUPLICATES by the key, so each source row counts once per
+  // distinct dimension combination it relates to (Tableau's related-table
+  // attribution). Two fact-side dimension sources have no shared row
+  // identity to deduplicate on, so they stay refused.
+  const joinByQual = new Map((model.joins ?? []).map((j) => [joinQualifier(j), j]));
+  const dimFanQuals = new Set<string>();
   for (const name of dims) {
     const d = dimByName.get(name);
     if (!d) continue; // authoritative unknown-dimension error comes from the builder
-    const bad = qualifiedRefsIn(d.sql).find((r) => ctx.fanningQuals.has(r));
-    if (bad) {
-      blocked(
-        `dimension "${name}" reads from the fanning join "${bad}"; grouping the other ` +
-          `metrics by it would need primary-key deduplication, which is not supported yet.`,
-      );
-    }
+    for (const r of qualifiedRefsIn(d.sql)) if (ctx.fanningQuals.has(r)) dimFanQuals.add(r);
   }
+  if (dimFanQuals.size > 1) {
+    blocked(
+      `the requested dimensions read from ${[...dimFanQuals].map((r) => `"${r}"`).join(" and ")}, ` +
+        `which both fan out — there is no shared row identity to deduplicate on.`,
+    );
+  }
+  const dedupQual = [...dimFanQuals][0] ?? null;
+  if (dedupQual && !model.primaryKey?.trim()) {
+    blocked(
+      `dimension(s) read from the fanning join "${dedupQual}", and grouping the other metrics ` +
+        `by it needs primary-key deduplication — declare the model's primary key (Source tab).`,
+    );
+  }
+  const dedupJoin = dedupQual ? (joinByQual.get(dedupQual) ?? null) : null;
 
   // Assign every leaf metric a branch; requested order is preserved.
   const byBranch = new Map<string, string[]>();
@@ -1386,20 +1745,35 @@ function planChasm(args: {
     }
     outer.push({ name, leaf: m.agg !== "derived" });
     for (const leaf of chasmLeaves(m, metricByName)) {
-      const key = chasmBranchOf(leaf, ctx);
+      let key = chasmBranchOf(leaf, ctx);
+      if (dedupQual) {
+        const dupSensitive = leaf.agg === "sum" || leaf.agg === "avg" || leaf.agg === "count";
+        if (!dupSensitive && key !== dedupQual) {
+          // Deduplication rewrites aggregates over aliased columns, which a
+          // custom expression cannot survive — and duplicate-insensitive
+          // metrics need no dedup at all. They take the full single-pass
+          // scope instead, which contains every join the dimensions need.
+          key = "*";
+        } else if (dupSensitive && key !== "" && key !== dedupQual) {
+          blocked(
+            `metric "${leaf.name}" reads from the fanning join "${key}", but the dimensions ` +
+              `group by "${dedupQual}" — "${key}" rows have no key to deduplicate by under ` +
+              `that grouping. Split the query, or add a dimension from "${key}" instead.`,
+          );
+        }
+      }
       const list = byBranch.get(key) ?? [];
       if (!list.includes(leaf.name)) list.push(leaf.name);
       byBranch.set(key, list);
     }
   }
 
-  const joinByQual = new Map((model.joins ?? []).map((j) => [joinQualifier(j), j]));
   const branches: ChasmPlan["branches"] = [...byBranch.entries()].map(([key, metricNames]) => ({
     key,
     join: key === "" ? null : (joinByQual.get(key) ?? null),
     metricNames,
   }));
-  return { branches, outer };
+  return { branches, outer, dedupJoin };
 }
 
 /**
@@ -1445,6 +1819,73 @@ export function fanoutProbeSql(
       sql: select + compileJoins(joins.slice(0, i + 1), dialect),
     })),
   };
+}
+
+/** `days between a and b` (b − a), in the dialect's spelling. */
+function dateDiffDaysExpr(a: string, b: string, dialect: SqlDialect): string {
+  switch (dialect) {
+    case "alasql":
+      throw new Error("The AlaSQL engine has no date arithmetic.");
+    case "snowflake":
+    case "azure_synapse":
+    case "databricks":
+      return `DATEDIFF(day, ${a}, ${b})`;
+    case "mysql":
+      return `DATEDIFF(${b}, ${a})`;
+    case "bigquery":
+      return `DATE_DIFF(${b}, ${a}, DAY)`;
+    default:
+      // duckdb / postgres / redshift: DATE − DATE is integer days.
+      return `(${b} - ${a})`;
+  }
+}
+
+/**
+ * The probes Validate runs against a declared FISCAL CALENDAR TABLE — the
+ * compiler already guarantees a dirty calendar cannot multiply rows (the join
+ * is grouped), so these measure what dirt CAN do: mislabel days, leave days
+ * unmapped, or break the sequence order comparisons step along.
+ */
+export function calendarProbeSql(
+  model: SemanticModel,
+  dialect: SqlDialect,
+): {
+  /** COUNT(*), COUNT(DISTINCT day), MIN(day), MAX(day), span in days. */
+  shapeSql: string;
+  grains: Array<{
+    grain: CalendarGrain;
+    /** Sequences mapped to MORE THAN ONE start date (must be 0). */
+    conflictSql: string;
+    /** Consecutive sequences whose starts are not strictly increasing (0). */
+    orderSql: string;
+  }>;
+} | null {
+  const cal = model.calendar;
+  if (!cal) return null;
+  const table = assertTableRef(cal.table);
+  const day = assertCalendarIdent(cal.dateColumn, "day column");
+  const qd = (name: string) => quoteIdent(name, dialect);
+  const dayDate = castDateExpr(day, dialect);
+  const shapeSql =
+    `SELECT COUNT(*) AS ${qd("n")}, COUNT(DISTINCT ${day}) AS ${qd("days")}, ` +
+    `MIN(${dayDate}) AS ${qd("lo")}, MAX(${dayDate}) AS ${qd("hi")}, ` +
+    `${dateDiffDaysExpr(`MIN(${dayDate})`, `MAX(${dayDate})`, dialect)} AS ${qd("span")} ` +
+    `FROM ${table}`;
+  const grains = CALENDAR_GRAINS.filter((g) => cal.grains[g]).map((grain) => {
+    const g = calendarGrainCols(cal, grain);
+    const periods = `SELECT DISTINCT ${g.seq} AS q, ${g.start} AS st FROM ${table}`;
+    return {
+      grain,
+      conflictSql:
+        `SELECT COUNT(*) AS ${qd("bad")} FROM (` +
+        `SELECT ${g.seq} AS q FROM ${table} GROUP BY ${g.seq} HAVING COUNT(DISTINCT ${g.start}) > 1` +
+        `) AS semantic_conflicts`,
+      orderSql:
+        `SELECT COUNT(*) AS ${qd("bad")} FROM (${periods}) AS a ` +
+        `JOIN (${periods}) AS b ON b.q = a.q + 1 WHERE b.st <= a.st`,
+    };
+  });
+  return { shapeSql, grains };
 }
 
 /**
@@ -1550,6 +1991,17 @@ export function compileSemanticQuery(
 ): CompiledQuery {
   const dialect: SqlDialect = opts?.dialect ?? "postgres";
 
+  // Two fiscal declarations are two sources of truth for the same year —
+  // whichever silently won, some number would be answering a different
+  // question than the model claims. Zod refuses this at save; refusing here
+  // too keeps every other caller (tests, direct compilers) equally honest.
+  if (model.calendar && model.fiscalYearStartMonth && model.fiscalYearStartMonth !== 1) {
+    throw new Error(
+      "This model declares BOTH a fiscal year start month and a fiscal calendar table — " +
+        "remove one; the calendar table would silently win otherwise.",
+    );
+  }
+
   // Authored fragments are re-quoted for the target dialect ONCE, here, so
   // every consumer below (dimExpr, aggExpr, derived formulas, filters, order,
   // joins) inherits it. A model authored against a local dataset stores
@@ -1634,14 +2086,22 @@ export function compileSemanticQuery(
    * against rows the filter excluded.
    */
   const buildAggregate = (
-    shift?: { name: string; n: number; unit: DateAddUnit },
+    shift?:
+      | { name: string; n: number; unit: DateAddUnit }
+      | { name: string; n: number; calendarGrain: CalendarGrain },
     /**
      * Multi-fact branch mode: compile with only `joins`, only `metricNames`,
      * and leave metric filters to the outer stitch (dimension filters still
      * apply — every branch must see the same row scope). `distinct` builds
      * the dimension spine.
      */
-    branch?: { joins: SemanticJoin[]; metricNames: string[]; distinct?: boolean },
+    branch?: {
+      joins: SemanticJoin[];
+      metricNames: string[];
+      distinct?: boolean;
+      /** Primary-key expression: aggregate over SELECT DISTINCT (dims, pk, inputs). */
+      dedupPk?: string;
+    },
   ) => {
     const dimFor = (name: string): SemanticDimension => {
       const d = dimByName.get(name);
@@ -1652,10 +2112,16 @@ export function compileSemanticQuery(
           `Unknown dimension "${name}" (available: ${[...dimByName.keys()].join(", ") || "none"})`,
         );
       }
-      return shift && shift.name === name
+      return shift && shift.name === name && "unit" in shift
         ? { ...d, sql: dateAddExpr(d.sql, shift.n, shift.unit, dialect) }
         : d;
     };
+
+    /** Does `grain` on this model resolve through the fiscal calendar table? */
+    const calendarGrainOf = (grain: TimeGrain | undefined): CalendarGrain | null =>
+      grain && model.calendar && (CALENDAR_GRAINS as readonly string[]).includes(grain)
+        ? (grain as CalendarGrain)
+        : null;
 
     // Effective dimension expression: the authored SQL, wrapped in the
     // dialect's time truncation when the query asks for a grain.
@@ -1668,6 +2134,16 @@ export function compileSemanticQuery(
       }
       if (d.type !== "time") {
         throw new Error(`Grain "${grain}" set on "${name}", which is not a time dimension`);
+      }
+      const calGrain = calendarGrainOf(grain);
+      if (calGrain) {
+        // Bucket by the period's start date from the calendar join. On the
+        // shifted side of a comparison the SUCCESSOR period's start is read
+        // instead — the sequence-step analogue of the date shift in dimFor.
+        const g = calendarGrainCols(model.calendar!, calGrain);
+        return shift && shift.name === name && "calendarGrain" in shift
+          ? `${cal2Alias(name)}.semantic_start`
+          : `${calAlias(name)}.${g.start}`;
       }
       return truncateExpr(d.sql, grain, dialect, model.fiscalYearStartMonth);
     };
@@ -1684,17 +2160,19 @@ export function compileSemanticQuery(
       cols.push(name);
     }
     const activeMetrics = branch ? branch.metricNames : metrics;
-    for (const name of activeMetrics) {
-      const m = metricByName.get(name);
-      if (!m) {
-        throw new Error(
-          `Unknown metric "${name}" (available: ${[...metricByName.keys()].join(", ") || "none"})`,
-        );
+    if (!branch?.dedupPk) {
+      for (const name of activeMetrics) {
+        const m = metricByName.get(name);
+        if (!m) {
+          throw new Error(
+            `Unknown metric "${name}" (available: ${[...metricByName.keys()].join(", ") || "none"})`,
+          );
+        }
+        const expr = resolveMetricExpr(m, metricByName);
+        exprByField.set(name, expr);
+        selectParts.push(`${expr} AS ${quoteIdent(name, dialect)}`);
+        cols.push(name);
       }
-      const expr = resolveMetricExpr(m, metricByName);
-      exprByField.set(name, expr);
-      selectParts.push(`${expr} AS ${quoteIdent(name, dialect)}`);
-      cols.push(name);
     }
 
     // Filters: dimension filters → WHERE; metric filters → HAVING (in branch
@@ -1706,6 +2184,12 @@ export function compileSemanticQuery(
       if (metricByName.has(f.field)) {
         if (!branch) havingParts.push(compileFilter(f, exprByField, dialect, { now: opts?.now }));
       } else if (dimByName.has(f.field)) {
+        // A calendar sequence cannot shift the RAW column the way date
+        // arithmetic can, so the prior side of a calendar comparison SKIPS
+        // the axis dimension's filters instead: it computes every bucket and
+        // the equality stitch keeps only the buckets the (filtered) current
+        // side has — the same rows the shifted-filter trick would have kept.
+        if (shift && "calendarGrain" in shift && f.field === shift.name) continue;
         // The dimension itself goes through so a relative-date filter can reach
         // its type and its ungrained SQL — shifted here when this is the prior
         // period, so the window moves with it.
@@ -1714,6 +2198,7 @@ export function compileSemanticQuery(
             dim: dimFor(f.field),
             now: opts?.now,
             fiscalStartMonth: model.fiscalYearStartMonth,
+            calendar: model.calendar,
           }),
         );
       } else throw new Error(`Filter references unknown field "${f.field}"`);
@@ -1721,9 +2206,58 @@ export function compileSemanticQuery(
 
     const from = assertTableRef(model.source.table);
     const joins = branch ? branch.joins : model.joins;
+
+    // ── Fiscal-calendar joins ────────────────────────────────────────────
+    // One per time dimension whose grain resolves through the calendar table
+    // and whose expression this query embeds (selected or filtered). The
+    // grouped derived table cannot fan out, so every branch, the spine and
+    // the dedup inner can carry it identically.
+    let calendarJoins = "";
+    if (model.calendar) {
+      const embedded = new Set<string>(dims);
+      for (const f of q.filters ?? []) if (dimByName.has(f.field)) embedded.add(f.field);
+      for (const name of embedded) {
+        const calGrain = calendarGrainOf(q.grains?.[name]);
+        if (!calGrain || dimByName.get(name)?.type !== "time") continue;
+        calendarGrainCols(model.calendar, calGrain); // refuse unmapped grains loudly
+        calendarJoins += calendarBaseJoin(model.calendar, name, dimByName.get(name)!.sql, dialect);
+        if (shift && shift.name === name && "calendarGrain" in shift) {
+          calendarJoins += calendarShiftJoin(model.calendar, name, shift.calendarGrain, shift.n);
+        }
+      }
+    }
+
+    // ── Primary-key deduplication ────────────────────────────────────────
+    // The inner SELECT DISTINCT carries (dims, pk, each metric's value
+    // expression and filter flags): the key collapses the fanning join's
+    // row multiplication to one row per source row per distinct dimension
+    // combination, and the outer aggregate reads only those named columns.
+    if (branch?.dedupPk) {
+      const qd = (name: string) => quoteIdent(name, dialect);
+      const innerCols = [...selectParts, `${branch.dedupPk} AS ${qd("semantic_pk")}`];
+      const outerParts: string[] = dims.map((d) => `${qd(d)} AS ${qd(d)}`);
+      activeMetrics.forEach((name, i) => {
+        const m = metricByName.get(name);
+        if (!m) {
+          throw new Error(
+            `Unknown metric "${name}" (available: ${[...metricByName.keys()].join(", ") || "none"})`,
+          );
+        }
+        const parts = dedupAggParts(m, i, qd);
+        innerCols.push(...parts.innerCols);
+        outerParts.push(`${parts.outerExpr} AS ${qd(name)}`);
+        cols.push(name);
+      });
+      let inner = `SELECT DISTINCT ${innerCols.join(", ")} FROM ${from}${compileJoins(joins, dialect)}${calendarJoins}`;
+      if (whereParts.length) inner += ` WHERE ${whereParts.join(" AND ")}`;
+      let out = `SELECT ${outerParts.join(", ")} FROM (${inner}) AS semantic_dedup`;
+      if (dims.length) out += ` GROUP BY ${dims.map(qd).join(", ")}`;
+      return { sql: out, columns: cols };
+    }
+
     let out =
       `SELECT ${branch?.distinct ? "DISTINCT " : ""}${selectParts.join(", ")}` +
-      ` FROM ${from}${compileJoins(joins, dialect)}`;
+      ` FROM ${from}${compileJoins(joins, dialect)}${calendarJoins}`;
     if (whereParts.length) out += ` WHERE ${whereParts.join(" AND ")}`;
     // Group by dimension expressions (grain-wrapped) when aggregating.
     if (activeMetrics.length && dims.length) {
@@ -1791,7 +2325,13 @@ export function compileSemanticQuery(
   // ── Multi-fact plan (chasm resolution) ────────────────────────────────
   if (chasm) {
     const qi = (name: string) => quoteIdent(name, dialect);
-    const nonFanning = (model.joins ?? []).filter((j) => !isFanningJoin(j));
+    // Under primary-key deduplication the dimensions read from one fanning
+    // join, so the spine and the base branch must carry it too — DISTINCT
+    // (spine) and the key (base) absorb the row multiplication.
+    const spineJoins = (model.joins ?? []).filter(
+      (j) => !isFanningJoin(j) || j === chasm!.dedupJoin,
+    );
+    const dedupPk = chasm.dedupJoin ? qualifiedPkExpr(model, dialect) : undefined;
     // Every branch keeps ALL non-fanning joins in model order — lookups do
     // not multiply rows and INNER lookups are row filters that must scope
     // every branch (and the spine) identically — plus its own fanning join.
@@ -1800,97 +2340,178 @@ export function compileSemanticQuery(
     const branchJoins = (b: ChasmPlan["branches"][number]): SemanticJoin[] =>
       b.key === "*"
         ? (model.joins ?? [])
-        : (model.joins ?? []).filter((j) => !isFanningJoin(j) || j === b.join);
+        : (model.joins ?? []).filter(
+            (j) => !isFanningJoin(j) || j === b.join || (b.key === "" && j === chasm!.dedupJoin),
+          );
 
-    const aliasOf = new Map<string, string>();
-    chasm.branches.forEach((b, i) => aliasOf.set(b.key, `semantic_f${i}`));
-    const leafAlias = (name: string): string => {
-      for (const b of chasm.branches) {
-        if (b.metricNames.includes(name)) return aliasOf.get(b.key)!;
-      }
-      // Unreachable: planChasm assigned every leaf a branch.
-      throw new Error(`Leaf metric "${name}" was not assigned a branch`);
-    };
-    const leafRef = (name: string) => `${leafAlias(name)}.${qi(name)}`;
+    /**
+     * One full plan — branch CTEs, spine, stitched SELECT — under a CTE name
+     * prefix, with every reference to the comparison axis optionally shifted.
+     * Prefixing is what lets the CURRENT and PRIOR plans coexist flat in one
+     * top-level WITH: Synapse rejects a WITH inside a derived table, so the
+     * comparison below hoists both plans' CTEs instead of nesting them.
+     */
+    const buildPlan = (
+      prefix: string,
+      shift?:
+        | { name: string; n: number; unit: DateAddUnit }
+        | { name: string; n: number; calendarGrain: CalendarGrain },
+    ): { ctes: string[]; select: string; columns: string[] } => {
+      const aliasOf = new Map<string, string>();
+      chasm!.branches.forEach((b, i) => aliasOf.set(b.key, `${prefix}f${i}`));
+      const leafAlias = (name: string): string => {
+        for (const b of chasm!.branches) {
+          if (b.metricNames.includes(name)) return aliasOf.get(b.key)!;
+        }
+        // Unreachable: planChasm assigned every leaf a branch.
+        throw new Error(`Leaf metric "${name}" was not assigned a branch`);
+      };
+      const leafRef = (name: string) => `${leafAlias(name)}.${qi(name)}`;
 
-    const ctes: string[] = [];
-    for (const b of chasm.branches) {
-      ctes.push(
-        `${aliasOf.get(b.key)} AS (` +
-          buildAggregate(undefined, { joins: branchJoins(b), metricNames: b.metricNames }).sql +
-          `)`,
-      );
-    }
-
-    const SP = "semantic_spine";
-    const selectParts: string[] = [];
-    const columns: string[] = [];
-    let fromClause: string;
-    if (dims.length > 0) {
-      // The spine enumerates every dimension combination the source produces
-      // under the same joins and dimension filters, so a group missing from
-      // one fact still appears — with NULL for that fact's metrics, the same
-      // honesty rule the comparison path uses for a missing period.
-      ctes.unshift(
-        `${SP} AS (` +
-          buildAggregate(undefined, { joins: nonFanning, metricNames: [], distinct: true }).sql +
-          `)`,
-      );
-      for (const d of dims) {
-        selectParts.push(`${SP}.${qi(d)} AS ${qi(d)}`);
-        columns.push(d);
-      }
-      fromClause =
-        `${SP}` +
-        chasm.branches
-          .map((b) => {
-            const a = aliasOf.get(b.key)!;
-            const on = dims
-              .map((d) => nullSafeEq(`${SP}.${qi(d)}`, `${a}.${qi(d)}`, dialect))
-              .join(" AND ");
-            return ` LEFT JOIN ${a} ON ${on}`;
-          })
-          .join("");
-    } else {
-      // Grand total: each branch is a single aggregate row.
-      fromClause = chasm.branches
-        .map((b, i) => (i === 0 ? aliasOf.get(b.key)! : ` CROSS JOIN ${aliasOf.get(b.key)!}`))
-        .join("");
-    }
-
-    // Requested metrics in order: leaves project their branch column; derived
-    // formulas evaluate OVER the branch columns — the single-pass inlining,
-    // evaluated in two steps.
-    const outerExpr = new Map<string, string>();
-    for (const om of chasm.outer) {
-      const expr = om.leaf
-        ? leafRef(om.name)
-        : expandDerivedFormula(metricByName.get(om.name)!, metricByName, leafRef);
-      outerExpr.set(om.name, expr);
-      selectParts.push(`${expr} AS ${qi(om.name)}`);
-      columns.push(om.name);
-    }
-
-    // Metric filters land here — post-aggregation, so a plain WHERE over the
-    // stitched columns is the HAVING of this plan.
-    const outerWhere: string[] = [];
-    for (const f of q.filters ?? []) {
-      if (!metricByName.has(f.field)) continue; // dimension filters ran inside every branch
-      const expr = outerExpr.get(f.field);
-      if (!expr) {
-        throw new Error(
-          `A multi-fact plan can only filter on metrics the query returns — add "${f.field}" ` +
-            `to the requested metrics or drop the filter.`,
+      const ctes: string[] = [];
+      for (const b of chasm!.branches) {
+        ctes.push(
+          `${aliasOf.get(b.key)} AS (` +
+            buildAggregate(shift, {
+              joins: branchJoins(b),
+              metricNames: b.metricNames,
+              dedupPk: b.key === "" ? dedupPk : undefined,
+            }).sql +
+            `)`,
         );
       }
-      outerWhere.push(compileFilter(f, outerExpr, dialect, { now: opts?.now }));
+
+      const SP = `${prefix}spine`;
+      const selectParts: string[] = [];
+      const columns: string[] = [];
+      let fromClause: string;
+      if (dims.length > 0) {
+        // The spine enumerates every dimension combination the source produces
+        // under the same joins and dimension filters, so a group missing from
+        // one fact still appears — with NULL for that fact's metrics, the same
+        // honesty rule the comparison path uses for a missing period.
+        ctes.unshift(
+          `${SP} AS (` +
+            buildAggregate(shift, { joins: spineJoins, metricNames: [], distinct: true }).sql +
+            `)`,
+        );
+        for (const d of dims) {
+          selectParts.push(`${SP}.${qi(d)} AS ${qi(d)}`);
+          columns.push(d);
+        }
+        fromClause =
+          `${SP}` +
+          chasm!.branches
+            .map((b) => {
+              const a = aliasOf.get(b.key)!;
+              const on = dims
+                .map((d) => nullSafeEq(`${SP}.${qi(d)}`, `${a}.${qi(d)}`, dialect))
+                .join(" AND ");
+              return ` LEFT JOIN ${a} ON ${on}`;
+            })
+            .join("");
+      } else {
+        // Grand total: each branch is a single aggregate row.
+        fromClause = chasm!.branches
+          .map((b, i) => (i === 0 ? aliasOf.get(b.key)! : ` CROSS JOIN ${aliasOf.get(b.key)!}`))
+          .join("");
+      }
+
+      // Requested metrics in order: leaves project their branch column;
+      // derived formulas evaluate OVER the branch columns — the single-pass
+      // inlining, evaluated in two steps.
+      const outerExpr = new Map<string, string>();
+      for (const om of chasm!.outer) {
+        const expr = om.leaf
+          ? leafRef(om.name)
+          : expandDerivedFormula(metricByName.get(om.name)!, metricByName, leafRef);
+        outerExpr.set(om.name, expr);
+        selectParts.push(`${expr} AS ${qi(om.name)}`);
+        columns.push(om.name);
+      }
+
+      // Metric filters land here — post-aggregation, so a plain WHERE over
+      // the stitched columns is the HAVING of this plan. Applied inside BOTH
+      // sides of a comparison, exactly as single-pass HAVING is.
+      const outerWhere: string[] = [];
+      for (const f of q.filters ?? []) {
+        if (!metricByName.has(f.field)) continue; // dimension filters ran inside every branch
+        const expr = outerExpr.get(f.field);
+        if (!expr) {
+          throw new Error(
+            `A multi-fact plan can only filter on metrics the query returns — add "${f.field}" ` +
+              `to the requested metrics or drop the filter.`,
+          );
+        }
+        outerWhere.push(compileFilter(f, outerExpr, dialect, { now: opts?.now }));
+      }
+
+      return {
+        ctes,
+        select:
+          `SELECT ${selectParts.join(", ")} FROM ${fromClause}` +
+          (outerWhere.length ? ` WHERE ${outerWhere.join(" AND ")}` : ""),
+        columns,
+      };
+    };
+
+    if (!q.compare) {
+      const plan = buildPlan("semantic_");
+      return {
+        sql: `WITH ${plan.ctes.join(", ")} ${plan.select}` + tail(plan.columns),
+        columns: plan.columns,
+      };
     }
 
+    // ── Period over period ACROSS the plan ─────────────────────────────
+    // The same contract as the single-pass comparison: one grained time
+    // axis, the prior side shifted FORWARD so the join is plain equality,
+    // NULL for a period with no predecessor. The axis is necessarily a
+    // base-side dimension — fanning-side dimensions were refused above.
+    if (!COMPARE_PERIODS.includes(q.compare)) {
+      throw new Error(`Unknown comparison "${q.compare as string}"`);
+    }
+    if (metrics.length === 0) {
+      throw new Error("A comparison needs at least one metric to compare.");
+    }
+    const planGrained = dims.filter((n) => q.grains?.[n] && dimByName.get(n)?.type === "time");
+    if (planGrained.length !== 1) {
+      throw new Error(
+        planGrained.length === 0
+          ? "A comparison needs exactly one time dimension with a grain — that is the axis being compared."
+          : `A comparison needs exactly one grained time dimension, but this query has ${planGrained.length} (${planGrained.join(", ")}).`,
+      );
+    }
+    const planAxis = planGrained[0];
+    const planShift = axisShiftSpec(model, q.compare, q.grains![planAxis]!);
+
+    const cur = buildPlan("semantic_c", undefined);
+    const prev = buildPlan("semantic_p", { name: planAxis, ...planShift });
+
+    const CUR = "semantic_cur";
+    const PREV = "semantic_prev";
+    const ref = (t: string, col: string) => `${t}.${qi(col)}`;
+    const cmpSelect = cur.columns.map((c) => `${ref(CUR, c)} AS ${qi(c)}`);
+    const cmpColumns = [...cur.columns];
+    for (const name of metrics) {
+      const c = ref(CUR, name);
+      const p = ref(PREV, name);
+      const delta = `(${c} - ${p})`;
+      cmpSelect.push(`${p} AS ${qi(`${name}_prev`)}`);
+      cmpSelect.push(`${delta} AS ${qi(`${name}_change`)}`);
+      cmpSelect.push(
+        `CASE WHEN ${p} IS NULL OR ${p} = 0 THEN NULL ELSE ${delta} * 1.0 / ${p} END ` +
+          `AS ${qi(`${name}_pct_change`)}`,
+      );
+      cmpColumns.push(`${name}_prev`, `${name}_change`, `${name}_pct_change`);
+    }
+    const cmpOn = dims.map((d) => nullSafeEq(ref(CUR, d), ref(PREV, d), dialect)).join(" AND ");
     const sql =
-      `WITH ${ctes.join(", ")} SELECT ${selectParts.join(", ")} FROM ${fromClause}` +
-      (outerWhere.length ? ` WHERE ${outerWhere.join(" AND ")}` : "") +
-      tail(columns);
-    return { sql, columns };
+      `WITH ${[...cur.ctes, ...prev.ctes].join(", ")}, ` +
+      `${CUR} AS (${cur.select}), ${PREV} AS (${prev.select}) ` +
+      `SELECT ${cmpSelect.join(", ")} FROM ${CUR} LEFT JOIN ${PREV} ON ${cmpOn}` +
+      tail(cmpColumns);
+    return { sql, columns: cmpColumns };
   }
 
   if (!q.compare) {
@@ -1925,10 +2546,10 @@ export function compileSemanticQuery(
     );
   }
   const axis = grainedTime[0];
-  const { n, unit } = compareShift(q.compare, q.grains![axis]!);
+  const shiftSpec = axisShiftSpec(model, q.compare, q.grains![axis]!);
 
   const cur = buildAggregate();
-  const prev = buildAggregate({ name: axis, n, unit });
+  const prev = buildAggregate({ name: axis, ...shiftSpec });
 
   const CUR = "semantic_cur";
   const PREV = "semantic_prev";

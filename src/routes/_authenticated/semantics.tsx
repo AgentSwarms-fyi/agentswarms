@@ -54,13 +54,16 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  CALENDAR_GRAINS,
   COMPARE_PERIODS,
   isRelativeDateOp,
   relativeDateRange,
   RELATIVE_DATE_OPS,
   TIME_GRAINS,
+  type CalendarGrain,
   type ComparePeriod,
   type RelativeDateOp,
+  type SemanticCalendar,
   type TimeGrain,
 } from "@/lib/semanticLayer";
 import type {
@@ -131,8 +134,58 @@ type Draft = {
   assertions: MetricAssertion[];
   /** null = calendar year (January). 1–12 = month the fiscal year starts. */
   fiscal_year_start_month: number | null;
+  /** Editable fiscal-calendar mapping; all four grain rows exist, "" = unmapped. */
+  calendar: CalendarDraft | null;
   parameters: SemanticParameter[];
   hierarchies: SemanticHierarchy[];
+};
+
+type CalendarDraft = {
+  table: string;
+  dateColumn: string;
+  grains: Record<CalendarGrain, { seq: string; start: string }>;
+};
+
+const emptyCalendarDraft = (): CalendarDraft => ({
+  table: "",
+  dateColumn: "",
+  grains: {
+    fiscal_year: { seq: "", start: "" },
+    fiscal_quarter: { seq: "", start: "" },
+    fiscal_period: { seq: "", start: "" },
+    fiscal_week: { seq: "", start: "" },
+  },
+});
+
+/** Stored shape → the fully-populated editable shape. */
+function calendarToDraft(cal: SemanticCalendar | null | undefined): CalendarDraft | null {
+  if (!cal) return null;
+  const d = emptyCalendarDraft();
+  d.table = cal.table;
+  d.dateColumn = cal.dateColumn;
+  for (const g of CALENDAR_GRAINS) {
+    const m = cal.grains[g];
+    if (m) d.grains[g] = { seq: m.seq, start: m.start };
+  }
+  return d;
+}
+
+/** Editable shape → the save payload: rows with BOTH columns keep, rest drop. */
+function calendarToPayload(cal: CalendarDraft | null): SemanticCalendar | null {
+  if (!cal || !cal.table.trim()) return null;
+  const grains: SemanticCalendar["grains"] = {};
+  for (const g of CALENDAR_GRAINS) {
+    const { seq, start } = cal.grains[g];
+    if (seq.trim() && start.trim()) grains[g] = { seq: seq.trim(), start: start.trim() };
+  }
+  return { table: cal.table.trim(), dateColumn: cal.dateColumn.trim(), grains };
+}
+
+const CALENDAR_GRAIN_LABELS: Record<CalendarGrain, string> = {
+  fiscal_year: "Fiscal year",
+  fiscal_quarter: "Fiscal quarter",
+  fiscal_period: "Fiscal period",
+  fiscal_week: "Fiscal week",
 };
 
 type WhConn = { id: string; name: string; provider: string };
@@ -185,6 +238,8 @@ const RELATIVE_OP_LABELS: Record<RelativeDateOp, string> = {
   this_fiscal_quarter: "this fiscal quarter",
   last_fiscal_quarter: "last fiscal quarter",
   fiscal_ytd: "fiscal year to date",
+  this_fiscal_period: "this fiscal period",
+  last_fiscal_period: "last fiscal period",
 };
 
 /** Month names for the fiscal-year-start picker — index 0 is January (month 1). */
@@ -227,6 +282,7 @@ function emptyDraft(): Draft {
     metrics: [],
     assertions: [],
     fiscal_year_start_month: null,
+    calendar: null,
     parameters: [],
     hierarchies: [],
   };
@@ -331,6 +387,8 @@ function SemanticsPage() {
     grains?: Record<string, TimeGrain>;
     filters?: SemanticFilter[];
     compare?: ComparePeriod;
+    /** Overrides this run used — pinned onto a widget by Add to dashboard. */
+    params?: Record<string, string | number>;
   } | null>(null);
   const [addOpen, setAddOpen] = useState(false);
 
@@ -421,6 +479,7 @@ function SemanticsPage() {
       assertions: Array.isArray(m.assertions) ? (m.assertions as MetricAssertion[]) : [],
       fiscal_year_start_month:
         typeof m.fiscal_year_start_month === "number" ? m.fiscal_year_start_month : null,
+      calendar: calendarToDraft((m.calendar as SemanticCalendar | null) ?? null),
       parameters: Array.isArray(m.parameters) ? (m.parameters as SemanticParameter[]) : [],
       hierarchies: Array.isArray(m.hierarchies) ? (m.hierarchies as SemanticHierarchy[]) : [],
     });
@@ -472,6 +531,7 @@ function SemanticsPage() {
             metrics: draft.metrics,
             assertions: draft.assertions,
             fiscal_year_start_month: draft.fiscal_year_start_month,
+            calendar: calendarToPayload(draft.calendar),
             parameters: draft.parameters.map((p) => ({ ...p, default: p.default ?? "" })),
             hierarchies: draft.hierarchies,
           },
@@ -582,6 +642,7 @@ function SemanticsPage() {
             metrics: draft.metrics,
             assertions: draft.assertions,
             fiscal_year_start_month: draft.fiscal_year_start_month,
+            calendar: calendarToPayload(draft.calendar),
             parameters: draft.parameters.map((p) => ({ ...p, default: p.default ?? "" })),
             hierarchies: draft.hierarchies,
           },
@@ -774,6 +835,7 @@ function SemanticsPage() {
         grains: Object.keys(grains).length > 0 ? grains : undefined,
         filters: filters.length > 0 ? filters : undefined,
         compare,
+        params: Object.keys(params).length > 0 ? params : undefined,
       });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Query failed");
@@ -1466,7 +1528,7 @@ function SemanticsPage() {
                             ? String(draft.fiscal_year_start_month)
                             : "calendar"
                         }
-                        disabled={isShared}
+                        disabled={isShared || !!draft.calendar}
                         onValueChange={(v) =>
                           patch({
                             fiscal_year_start_month: v === "calendar" ? null : Number(v),
@@ -1498,6 +1560,140 @@ function SemanticsPage() {
                         named by the calendar year it <em>ends</em> in — with a July start, July
                         2025 opens FY 2026.
                       </p>
+                    </div>
+                    <div className="space-y-2">
+                      {draft.calendar === null ? (
+                        <div className="space-y-1">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-xs"
+                            disabled={isShared}
+                            onClick={() =>
+                              patch({
+                                calendar: emptyCalendarDraft(),
+                                fiscal_year_start_month: null,
+                              })
+                            }
+                          >
+                            Use a fiscal calendar table (4-4-5 / custom periods)
+                          </Button>
+                          <p className="text-[11px] text-muted-foreground">
+                            For calendars month arithmetic cannot express — retail 4-4-5, 13-period,
+                            ISO weeks. One row per day; comparisons step the period&apos;s sequence
+                            number, so &ldquo;previous period&rdquo; is exact even when neighbouring
+                            periods differ in length.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-2 rounded-lg border p-3">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-medium">Fiscal calendar table</span>
+                            <span className="flex-1" />
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              className="h-6 text-[11px] text-muted-foreground"
+                              disabled={isShared}
+                              onClick={() => patch({ calendar: null })}
+                            >
+                              Remove
+                            </Button>
+                          </div>
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            <div className="space-y-1">
+                              <Label className="text-[11px]">Table</Label>
+                              <Input
+                                value={draft.calendar.table}
+                                disabled={isShared}
+                                placeholder="fiscal_calendar"
+                                className="h-8 font-mono text-xs"
+                                aria-label="Calendar table"
+                                onChange={(e) =>
+                                  patch({
+                                    calendar: { ...draft.calendar!, table: e.target.value },
+                                  })
+                                }
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-[11px]">Day column</Label>
+                              <Input
+                                value={draft.calendar.dateColumn}
+                                disabled={isShared}
+                                placeholder="cal_date"
+                                className="h-8 font-mono text-xs"
+                                aria-label="Calendar day column"
+                                onChange={(e) =>
+                                  patch({
+                                    calendar: { ...draft.calendar!, dateColumn: e.target.value },
+                                  })
+                                }
+                              />
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            {CALENDAR_GRAINS.map((g) => (
+                              <div key={g} className="flex items-center gap-2">
+                                <span className="w-24 shrink-0 text-[11px] text-muted-foreground">
+                                  {CALENDAR_GRAIN_LABELS[g]}
+                                </span>
+                                <Input
+                                  value={draft.calendar!.grains[g].seq}
+                                  disabled={isShared}
+                                  placeholder="seq column"
+                                  className="h-7 font-mono text-[11px]"
+                                  aria-label={`${CALENDAR_GRAIN_LABELS[g]} sequence column`}
+                                  onChange={(e) =>
+                                    patch({
+                                      calendar: {
+                                        ...draft.calendar!,
+                                        grains: {
+                                          ...draft.calendar!.grains,
+                                          [g]: {
+                                            ...draft.calendar!.grains[g],
+                                            seq: e.target.value,
+                                          },
+                                        },
+                                      },
+                                    })
+                                  }
+                                />
+                                <Input
+                                  value={draft.calendar!.grains[g].start}
+                                  disabled={isShared}
+                                  placeholder="start column"
+                                  className="h-7 font-mono text-[11px]"
+                                  aria-label={`${CALENDAR_GRAIN_LABELS[g]} start column`}
+                                  onChange={(e) =>
+                                    patch({
+                                      calendar: {
+                                        ...draft.calendar!,
+                                        grains: {
+                                          ...draft.calendar!.grains,
+                                          [g]: {
+                                            ...draft.calendar!.grains[g],
+                                            start: e.target.value,
+                                          },
+                                        },
+                                      },
+                                    })
+                                  }
+                                />
+                              </div>
+                            ))}
+                          </div>
+                          <p className="text-[11px] text-muted-foreground">
+                            One row per day. Per grain: a <em>sequence</em> column (a dense integer
+                            that steps by one per period, across year boundaries) and the
+                            period&apos;s <em>start date</em> column. Map at least one grain; leave
+                            the rest blank. Replaces the start-month setting — Validate measures the
+                            table (one row per day, no gaps, sequence in date order).
+                          </p>
+                        </div>
+                      )}
                     </div>
                     {sourceColumns && sourceColumns.length > 0 && (
                       <div className="flex flex-wrap gap-1 pt-1">
@@ -2637,14 +2833,20 @@ function SemanticsPage() {
                         // unable to reproduce a number they are disputing.
                         let windowHint = "";
                         if (isRelative) {
-                          try {
-                            const { start, end } = relativeDateRange(f.op as RelativeDateOp, {
-                              n: Number(f.value),
-                              fiscalStartMonth: draft.fiscal_year_start_month ?? undefined,
-                            });
-                            windowHint = `${start} → ${end} (end exclusive)`;
-                          } catch (e) {
-                            windowHint = e instanceof Error ? e.message : "invalid window";
+                          if (draft.calendar && f.op.includes("fiscal")) {
+                            // The window is calendar-table DATA — the days the
+                            // table assigns to the period. No date pair to show.
+                            windowHint = "resolved by the fiscal calendar table at run time";
+                          } else {
+                            try {
+                              const { start, end } = relativeDateRange(f.op as RelativeDateOp, {
+                                n: Number(f.value),
+                                fiscalStartMonth: draft.fiscal_year_start_month ?? undefined,
+                              });
+                              windowHint = `${start} → ${end} (end exclusive)`;
+                            } catch (e) {
+                              windowHint = e instanceof Error ? e.message : "invalid window";
+                            }
                           }
                         }
                         return (
@@ -2684,7 +2886,17 @@ function SemanticsPage() {
                                     </SelectItem>
                                   ))}
                                   {fieldIsTime &&
-                                    RELATIVE_DATE_OPS.map((op) => (
+                                    RELATIVE_DATE_OPS.filter(
+                                      // Period windows are calendar-table data;
+                                      // without a mapped fiscal_period grain the
+                                      // compiler refuses them, so don't offer.
+                                      (op) =>
+                                        !(
+                                          (op === "this_fiscal_period" ||
+                                            op === "last_fiscal_period") &&
+                                          !calendarToPayload(draft.calendar)?.grains.fiscal_period
+                                        ),
+                                    ).map((op) => (
                                       <SelectItem key={op} value={op}>
                                         {RELATIVE_OP_LABELS[op]}
                                       </SelectItem>
@@ -2771,7 +2983,16 @@ function SemanticsPage() {
                             </SelectTrigger>
                             <SelectContent>
                               <SelectItem value="raw">raw values</SelectItem>
-                              {TIME_GRAINS.map((g) => (
+                              {TIME_GRAINS.filter((g) => {
+                                // Calendar-table grains are offered only when
+                                // the model maps them; without a calendar the
+                                // month-math fiscal grains stay, period/week go.
+                                if (!(CALENDAR_GRAINS as readonly string[]).includes(g))
+                                  return true;
+                                const cal = calendarToPayload(draft.calendar);
+                                if (cal) return !!cal.grains[g as CalendarGrain];
+                                return g === "fiscal_year" || g === "fiscal_quarter";
+                              }).map((g) => (
                                 <SelectItem key={g} value={g}>
                                   by {g}
                                 </SelectItem>
@@ -3080,6 +3301,7 @@ function SemanticsPage() {
                 grains: result.grains,
                 filters: result.filters,
                 compare: result.compare,
+                params: result.params,
                 columns: result.columns,
                 rows: result.rows,
                 sql: result.sql,

@@ -15,6 +15,7 @@ import {
   History,
   Loader2,
   MoreVertical,
+  SlidersHorizontal,
   SearchCode,
   Sigma,
   Pencil,
@@ -36,6 +37,7 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -131,6 +133,7 @@ import {
   type QueryResult,
 } from "@/lib/sqlEngine";
 import { listWarehouseConnections } from "@/utils/warehouse.functions";
+import { semanticRunQuery } from "@/utils/semantic.functions";
 import type { WarehouseConnectionSummary, WarehouseTable } from "@/utils/warehouse/types";
 
 export const Route = createFileRoute("/_authenticated/bi_/$dashboardId")({
@@ -831,6 +834,77 @@ function BiProjectPage() {
     persist([...widgets, copy], addWidgetToLayout(layout, copy));
   };
 
+  // ── Per-widget parameter overrides (semantic widgets) ────────────────────
+  // The keys are the ones pinned when the widget was added; editing a value
+  // RE-RUNS the governed query with the new overrides, so the stored SQL,
+  // rows and the pinned params can never disagree with each other.
+  const [paramsWidget, setParamsWidget] = useState<BiWidget | null>(null);
+  const [paramsDraft, setParamsDraft] = useState<Record<string, string>>({});
+  const [paramsBusy, setParamsBusy] = useState(false);
+  const runSemanticFn = useServerFn(semanticRunQuery);
+
+  const openWidgetParams = (w: BiWidget) => {
+    if (w.source?.kind !== "semantic" || !w.source.params) return;
+    setParamsDraft(
+      Object.fromEntries(Object.entries(w.source.params).map(([k, v]) => [k, String(v)])),
+    );
+    setParamsWidget(w);
+  };
+
+  const saveWidgetParams = async () => {
+    const w = paramsWidget;
+    if (!w || w.source?.kind !== "semantic" || !token) return;
+    const orig = widgets.find((x) => x.id === w.id) ?? w;
+    if (orig.source?.kind !== "semantic") return;
+    const prior = orig.source.params ?? {};
+    // Keep each pinned key's declared type: a value that was a number stays
+    // numeric, so the compiler's number-parameter check still holds.
+    const params: Record<string, string | number> = {};
+    for (const [k, was] of Object.entries(prior)) {
+      const raw = (paramsDraft[k] ?? "").trim();
+      if (raw === "") return toast.error(`"${k}" needs a value — it is pinned on this widget`);
+      if (typeof was === "number") {
+        const n = Number(raw);
+        if (!Number.isFinite(n)) return toast.error(`"${k}" must be a number`);
+        params[k] = n;
+      } else {
+        params[k] = raw;
+      }
+    }
+    setParamsBusy(true);
+    try {
+      const res = (await runSemanticFn({
+        data: {
+          accessToken: token,
+          query: {
+            model: orig.source.model,
+            metrics: orig.source.metrics ?? [],
+            dimensions: orig.source.dimensions ?? [],
+            grains: orig.source.grains,
+            filters: orig.source.filters,
+            compare: orig.source.compare,
+            params,
+            limit: 100,
+          },
+        },
+      })) as { columns: string[]; rows: Record<string, unknown>[]; sql: string };
+      replaceWidget({
+        ...orig,
+        source: { ...orig.source, params },
+        sql: res.sql,
+        columns: res.columns,
+        rows: snapshotRows(res.rows),
+        refreshed_at: new Date().toISOString(),
+      });
+      setParamsWidget(null);
+      toast.success("Parameters updated — the widget re-ran with the new values");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Query failed");
+    } finally {
+      setParamsBusy(false);
+    }
+  };
+
   async function refreshAll() {
     const chartWidgets = widgets.filter((w) => w.kind === "chart" && w.sql);
     if (chartWidgets.length === 0) return toast.info("No chart widgets to refresh");
@@ -1424,6 +1498,14 @@ function BiProjectPage() {
                                   <Pencil className="mr-2 h-3.5 w-3.5" /> Edit
                                 </DropdownMenuItem>
                               )}
+                              {w.source?.kind === "semantic" &&
+                                w.source.params &&
+                                Object.keys(w.source.params).length > 0 && (
+                                  <DropdownMenuItem onClick={() => openWidgetParams(w)}>
+                                    <SlidersHorizontal className="mr-2 h-3.5 w-3.5" />
+                                    Parameters…
+                                  </DropdownMenuItem>
+                                )}
                               {w.source?.kind === "warehouse" && (
                                 <DropdownMenuItem
                                   onClick={() =>
@@ -1684,6 +1766,44 @@ function BiProjectPage() {
           onClose={() => setExploreWidget(null)}
         />
       )}
+
+      {/* Per-widget parameter overrides: edit the pinned {{name}} values and
+          re-run the governed query, so SQL, rows and params stay one story. */}
+      <Dialog open={paramsWidget !== null} onOpenChange={(o) => !o && setParamsWidget(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Widget parameters</DialogTitle>
+            <DialogDescription>
+              Pinned overrides for &ldquo;{paramsWidget?.title}&rdquo; — the scheduled refresh
+              re-runs the metric with these values.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            {Object.entries(paramsDraft).map(([k, v]) => (
+              <div key={k} className="space-y-1">
+                <Label htmlFor={`wp-${k}`} className="font-mono text-xs">
+                  {"{{" + k + "}}"}
+                </Label>
+                <Input
+                  id={`wp-${k}`}
+                  value={v}
+                  className="h-8 font-mono text-xs"
+                  onChange={(e) => setParamsDraft((d) => ({ ...d, [k]: e.target.value }))}
+                />
+              </div>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setParamsWidget(null)}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={() => void saveWidgetParams()} disabled={paramsBusy}>
+              {paramsBusy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+              Save & re-run
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
