@@ -13,6 +13,7 @@ import {
   ANALYST_MEMORY_TURNS,
   ANALYST_ROW_CAP,
   ANALYST_TOKENS,
+  analystNameOnEdit,
   assertSelectOnly,
   buildAnalysisPlanPrompt,
   buildCheckPrompt,
@@ -23,6 +24,7 @@ import {
   leadChartStep,
   MAX_ANALYSIS_STEPS,
   MAX_FOLLOW_UPS,
+  modelsUsedIn,
   parseAnalysisPlan,
   parseCheckResponse,
   parseSynthesis,
@@ -959,5 +961,95 @@ describe("Tier 2 — the analysis the model is not trusted to do", () => {
     const lib = readFileSync("src/lib/aiAnalyst.ts", "utf8");
     expect(lib).toMatch(/if \(plan\.clarify\) \{/);
     expect(lib).toContain('turn.status = "clarifying"');
+  });
+});
+
+describe("an analyst you can edit, without rewriting history", () => {
+  // Changing an analyst's model is the obvious response to a timeout that
+  // says "pick a different model". The risk is provenance: a report that
+  // reads the analyst's CURRENT model attributes every older analysis to a
+  // model that never saw the question.
+  it("names the model that ANSWERED, not the one now configured", () => {
+    const turns = [
+      { question: "q1", steps: [], status: "done", model: "openrouter::deepseek/deepseek-r1" },
+      { question: "q2", steps: [], status: "done", model: "openrouter::openai/gpt-5-mini" },
+    ] as AnalystTurn[];
+    expect(modelsUsedIn(turns, "openrouter::anthropic/claude-opus-4")).toBe(
+      "deepseek/deepseek-r1 + openai/gpt-5-mini",
+    );
+  });
+
+  it("falls back to the current model only for turns that predate the stamp", () => {
+    // Those turns necessarily ran on the analyst's model of the day, and
+    // before analysts were editable that is still the current one.
+    const old = [{ question: "q", steps: [], status: "done" }] as AnalystTurn[];
+    expect(modelsUsedIn(old, "openrouter::openai/o3")).toBe("openai/o3");
+    expect(modelsUsedIn([], "openrouter::openai/o3")).toBe("openai/o3");
+  });
+
+  it("summarises rather than listing every model in a long thread", () => {
+    const turns = ["a", "b", "c", "d"].map(
+      (m) => ({ question: m, steps: [], status: "done", model: m }) as AnalystTurn,
+    );
+    expect(modelsUsedIn(turns, "x")).toBe("a + 3 more");
+  });
+
+  it("collapses a thread that never changed model to just that model", () => {
+    const turns = [
+      { question: "q1", steps: [], status: "done", model: "openrouter::openai/o3" },
+      { question: "q2", steps: [], status: "done", model: "openrouter::openai/o3" },
+    ] as AnalystTurn[];
+    expect(modelsUsedIn(turns, "openrouter::other")).toBe("openai/o3");
+  });
+
+  it("keeps a name the user typed, re-derives one they never touched", () => {
+    // A name we generated describes the OLD data ("Snowflake · prod"); left
+    // alone after a source change it becomes a label that lies. A name the
+    // user chose is theirs.
+    expect(
+      analystNameOnEdit({
+        currentName: "Snowflake · prod",
+        autoNameForOldSource: "Snowflake · prod",
+        autoNameForNewSource: "saas_sales",
+      }),
+    ).toBe("saas_sales");
+    expect(
+      analystNameOnEdit({
+        currentName: "Q4 board pack",
+        autoNameForOldSource: "Snowflake · prod",
+        autoNameForNewSource: "saas_sales",
+      }),
+    ).toBe("Q4 board pack");
+  });
+
+  it("stamps the running model onto the turn itself (source guard)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const lib = readFileSync("src/lib/aiAnalyst.ts", "utf8");
+    // Scoped to the literal that BUILDS the turn. An unanchored search
+    // matched `model: args.model` anywhere in the file — including the
+    // llmJson calls — so removing the stamp left the guard green.
+    const start = lib.indexOf("const turn: AnalystTurn = {");
+    const literal = lib.slice(start, lib.indexOf("\n  };", start));
+    expect(start).toBeGreaterThan(-1);
+    expect(literal).toContain('status: "planning"');
+    expect(literal).toContain("model: args.model,");
+  });
+
+  it("the page offers edit, saves both fields, and reports honest provenance", async () => {
+    const { readFileSync } = await import("node:fs");
+    const page = readFileSync("src/routes/_authenticated/ai-analyst.tsx", "utf8");
+    // The affordance exists and prefills from the analyst.
+    expect(page).toContain("Change this analyst's model or data");
+    expect(page).toMatch(/function openEdit\(a: AnalystRow\)/);
+    expect(page).toMatch(/setDraftData\(dataTokenFor\(a\.source\)\)/);
+    // It UPDATES rather than inserting a second analyst. Whitespace-tolerant:
+    // prettier splits a long call chain across lines, and a source guard that
+    // breaks on reformatting is a guard nobody keeps.
+    expect(page).toMatch(/\.update\(patch\)\s*\.eq\(\s*"id",\s*editingAnalyst\.id\s*\)/);
+    // Naming goes through the pure rule, not a re-implementation.
+    expect(page).toContain("analystNameOnEdit({");
+    expect(page).toContain("autoNameForOldSource: analystNameFor(editingAnalyst.source");
+    // The report reads the turns, not the analyst's current setting.
+    expect(page).toContain("modelsUsedIn(turnsToRender, selected.model)");
   });
 });

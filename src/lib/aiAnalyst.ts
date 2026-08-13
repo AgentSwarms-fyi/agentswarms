@@ -105,7 +105,54 @@ export type AnalystTurn = {
   status: "planning" | "working" | "checking" | "synthesizing" | "done" | "clarifying" | "error";
   error?: string;
   at?: string;
+  /**
+   * The model that produced THIS turn, stamped when it ran.
+   *
+   * An analyst's model can be changed after the fact, and without this the
+   * report header reads the analyst's CURRENT model and attributes every
+   * older analysis to a model that never saw the question. Absent on turns
+   * recorded before analysts were editable — those necessarily ran on the
+   * analyst's model of the day, so falling back to it is accurate for them
+   * and only for them.
+   */
+  model?: string;
 };
+
+/**
+ * What to print as the model behind a set of turns.
+ *
+ * Several models can appear in one thread once the analyst is edited
+ * mid-conversation, and naming just one of them would be a guess. Turns
+ * with no stamp fall back to `current` — see AnalystTurn.model for why that
+ * is sound for exactly those turns.
+ */
+/**
+ * What an analyst should be called after its data source changes.
+ *
+ * A name the user typed is theirs and survives. A name they never touched is
+ * one WE derived from the old source, so leaving it alone would let an
+ * analyst go on describing data it no longer reads — "Snowflake · sales"
+ * pointing at a local upload. Compared against the auto-name of the OLD
+ * source, which is the only way to tell the two cases apart after the fact.
+ */
+export function analystNameOnEdit(args: {
+  currentName: string;
+  autoNameForOldSource: string;
+  autoNameForNewSource: string;
+}): string {
+  return args.currentName.trim() === args.autoNameForOldSource.trim()
+    ? args.autoNameForNewSource
+    : args.currentName;
+}
+
+export function modelsUsedIn(turns: AnalystTurn[], current: string): string {
+  const names = new Set<string>();
+  for (const t of turns ?? []) names.add((t.model ?? current).split("::").pop() ?? current);
+  const list = [...names].filter(Boolean);
+  if (list.length === 0) return current.split("::").pop() ?? current;
+  if (list.length <= 2) return list.join(" + ");
+  return `${list[0]} + ${list.length - 1} more`;
+}
 
 // ── Limits ───────────────────────────────────────────────────────────────
 
@@ -573,6 +620,10 @@ export async function runAnalystTurn(args: {
     steps: [],
     status: "planning",
     at: new Date().toISOString(),
+    // Stamped HERE, not read from the analyst at render time: the analyst's
+    // model is editable, and a turn must keep saying which model actually
+    // answered it.
+    model: args.model,
   };
   const emit = () => args.onUpdate({ ...turn, steps: turn.steps.map((s) => ({ ...s })) });
   emit();

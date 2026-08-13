@@ -60,7 +60,9 @@ import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
 import { clickable } from "@/lib/clickable";
 import {
+  analystNameOnEdit,
   isReasoningModelId,
+  modelsUsedIn,
   rerunStep,
   resynthesizeTurn,
   runAnalystTurn,
@@ -294,7 +296,16 @@ function AiAnalystPage() {
       }
     }
     const wanted = selected.source.tables;
-    const scoped = wanted.length === 0 ? datasets : datasets.filter((d) => wanted.includes(d.name));
+    // Datasets hydrate asynchronously, so `datasets` is EMPTY for the first
+    // moments after the page opens. Reading it then and reporting what we
+    // found was how an analyst scoped to a dataset that plainly exists got
+    // told, on every load, that its data had been deleted — a false alarm
+    // about the one thing that would make the analyst useless. Hydration is
+    // coordinated (an in-flight call is shared), so awaiting it here costs
+    // nothing when it has already run.
+    const available = datasets.length > 0 ? datasets : await hydrateFromSupabase();
+    const scoped =
+      wanted.length === 0 ? available : available.filter((d) => wanted.includes(d.name));
     if (scoped.length === 0) {
       toast.error(
         wanted.length === 0
@@ -502,14 +513,58 @@ function AiAnalystPage() {
 
   // ── Analyst CRUD ────────────────────────────────────────────────────
   const [createOpen, setCreateOpen] = useState(false);
+  /** Non-null while the dialog is EDITING that analyst rather than creating. */
+  const [editingAnalyst, setEditingAnalyst] = useState<AnalystRow | null>(null);
   const [draftModel, setDraftModel] = useState<string | null>(null);
   const [draftData, setDraftData] = useState("");
 
-  async function createAnalyst() {
+  /** The picker token ("wh:<id>" / "local:<name>" / "local:all") for a source. */
+  function dataTokenFor(source: AnalystSource): string {
+    if (source.kind === "warehouse") return `wh:${source.connection_id}`;
+    return source.tables.length === 0 ? "local:all" : `local:${source.tables[0]}`;
+  }
+
+  function openEdit(a: AnalystRow) {
+    setEditingAnalyst(a);
+    setDraftModel(a.model);
+    setDraftData(dataTokenFor(a.source));
+    setCreateOpen(true);
+  }
+
+  function openCreate() {
+    setEditingAnalyst(null);
+    setDraftModel(null);
+    setDraftData("");
+    setCreateOpen(true);
+  }
+
+  async function saveAnalyst() {
     if (!user?.id || !draftModel || !draftData) return;
     const source: AnalystSource = draftData.startsWith("wh:")
       ? { kind: "warehouse", connection_id: draftData.slice(3) }
       : { kind: "local", tables: draftData === "local:all" ? [] : [draftData.slice(6)] };
+
+    if (editingAnalyst) {
+      const name = analystNameOnEdit({
+        currentName: editingAnalyst.name,
+        autoNameForOldSource: analystNameFor(editingAnalyst.source, warehouses),
+        autoNameForNewSource: analystNameFor(source, warehouses),
+      });
+      const patch = { model: draftModel, source: source as never, name };
+      const { error } = await supabase
+        .from("ai_analysts")
+        .update(patch)
+        .eq("id", editingAnalyst.id);
+      if (error) return toast.error(error.message);
+      setAnalysts((cur) =>
+        (cur ?? []).map((x) => (x.id === editingAnalyst.id ? { ...x, ...patch, source } : x)),
+      );
+      setCreateOpen(false);
+      setEditingAnalyst(null);
+      toast.success(`${name} updated — it applies to your next question.`);
+      return;
+    }
+
     const name = analystNameFor(source, warehouses);
     const { data, error } = await supabase
       .from("ai_analysts")
@@ -563,7 +618,10 @@ function AiAnalystPage() {
       await exportAnalysisPdf({
         title: thread?.title ?? selected.name,
         analystName: selected.name,
-        model: selected.model.split("::").pop() ?? selected.model,
+        // The models that actually ANSWERED, not whatever the analyst is set
+        // to now — those differ the moment someone edits the analyst, and a
+        // report naming the wrong model is a citation nobody can check.
+        model: modelsUsedIn(turnsToRender, selected.model),
         sourceText: sourceLabel(selected.source, warehouses).text,
         turns: turnsToRender,
         // Every step's chart, not just the lead one — the report shows what
@@ -593,7 +651,7 @@ function AiAnalystPage() {
           <span className="flex items-center gap-1.5 text-sm font-semibold">
             <BrainCircuit className="h-4 w-4 text-primary" /> AI Analyst
           </span>
-          <Button size="sm" className="h-7 gap-1 px-2 text-xs" onClick={() => setCreateOpen(true)}>
+          <Button size="sm" className="h-7 gap-1 px-2 text-xs" onClick={openCreate}>
             <Plus className="h-3.5 w-3.5" /> New
           </Button>
         </div>
@@ -618,17 +676,30 @@ function AiAnalystPage() {
                 >
                   <div className="flex items-start justify-between gap-1">
                     <p className="truncate text-xs font-medium">{a.name}</p>
-                    <button
-                      type="button"
-                      title="Delete analyst"
-                      className="text-muted-foreground hover:text-destructive"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void deleteAnalyst(a.id);
-                      }}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <button
+                        type="button"
+                        title="Change this analyst's model or data"
+                        className="text-muted-foreground hover:text-foreground"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openEdit(a);
+                        }}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        title="Delete analyst"
+                        className="text-muted-foreground hover:text-destructive"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void deleteAnalyst(a.id);
+                        }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   </div>
                   <p className="mt-1 truncate font-mono text-[10px] text-muted-foreground">
                     {(a.model.split("::").pop() ?? a.model).slice(0, 40)}
@@ -656,7 +727,7 @@ function AiAnalystPage() {
                 traceable to a query. Create one to start.
               </p>
             </div>
-            <Button size="sm" className="gap-1.5" onClick={() => setCreateOpen(true)}>
+            <Button size="sm" className="gap-1.5" onClick={openCreate}>
               <Plus className="h-4 w-4" /> New analyst
             </Button>
           </div>
@@ -817,7 +888,7 @@ function AiAnalystPage() {
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>New analyst</DialogTitle>
+            <DialogTitle>{editingAnalyst ? "Edit analyst" : "New analyst"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-1.5">
@@ -866,12 +937,19 @@ function AiAnalystPage() {
               )}
             </div>
           </div>
+          {editingAnalyst && (thread?.turns?.length ?? 0) > 0 && (
+            <p className="rounded-md border border-border/60 bg-muted/40 p-2 text-[11px] leading-relaxed text-muted-foreground">
+              Applies to your next question. Analyses already on this thread keep the model and data
+              that produced them — they are not re-run, and their reports still name the model that
+              answered them.
+            </p>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={() => void createAnalyst()} disabled={!draftModel || !draftData}>
-              Create analyst
+            <Button onClick={() => void saveAnalyst()} disabled={!draftModel || !draftData}>
+              {editingAnalyst ? "Save changes" : "Create analyst"}
             </Button>
           </DialogFooter>
         </DialogContent>
