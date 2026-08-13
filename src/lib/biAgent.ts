@@ -711,6 +711,38 @@ export function buildSqlPrompt(args: {
   };
 }
 
+/**
+ * A single-row result that carries exactly ONE number is a KPI, whatever
+ * else is on the row.
+ *
+ * The old test was `columns.length === 1`, so `EMEA | 1,043,887` — one row,
+ * one label, one measure — fell through to the model and came back a bar
+ * chart containing a single bar. Correct, and useless: a bar exists to
+ * compare, and there is nothing to compare it with. The label column
+ * becomes the KPI's caption, which is the information the bar's lonely
+ * x-axis tick was carrying.
+ *
+ * Two or more numbers on one row still go to the model — that can be a
+ * legitimate combo or a small table, and guessing which would be worse
+ * than asking.
+ */
+export function singleValueKpi(result: QueryResult, intent: string): ChartSpec | null {
+  if (result.row_count !== 1 || result.rows.length !== 1) return null;
+  const row = result.rows[0];
+  const numeric = result.columns.filter(
+    (c) => typeof row[c] === "number" && Number.isFinite(row[c] as number),
+  );
+  if (numeric.length !== 1) return null;
+  const labels = result.columns.filter(
+    (c) => c !== numeric[0] && typeof row[c] === "string" && (row[c] as string).trim().length > 0,
+  );
+  // At most one label reads as a caption ("EMEA"); several ("EMEA", "SMB",
+  // "2026-01") describe a slice the caption cannot carry, so keep the
+  // step's intent instead of picking one arbitrarily.
+  const label = labels.length === 1 ? String(row[labels[0]]) : intent;
+  return { type: "kpi", valueField: numeric[0], label };
+}
+
 export async function suggestChart(args: {
   question: string;
   result: QueryResult;
@@ -720,17 +752,8 @@ export async function suggestChart(args: {
   preferChart?: string;
 }): Promise<ChartSpec> {
   if (args.result.row_count === 0) return { type: "table" };
-  if (
-    args.result.row_count === 1 &&
-    args.result.columns.length === 1 &&
-    args.preferChart !== "gauge"
-  ) {
-    return {
-      type: "kpi",
-      valueField: args.result.columns[0],
-      label: args.plan.intent,
-    };
-  }
+  const single = singleValueKpi(args.result, args.plan.intent);
+  if (single && args.preferChart !== "gauge") return single;
   const sample = args.result.rows.slice(0, 5);
   const preferLine = args.preferChart
     ? `\n\nThe dashboard planner proposed a '${args.preferChart}' chart for this question — ` +

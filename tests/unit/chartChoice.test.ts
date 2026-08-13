@@ -39,10 +39,42 @@ describe("the shapes that are decided without asking a model", () => {
     expect((spec as { valueField?: string }).valueField).toBe("total");
   });
 
-  it("does not short-circuit a single row that has several columns", async () => {
-    // One row of three numbers is a real chart question, not a KPI — the
-    // short-circuit must require BOTH one row and one column, or every
-    // single-row breakdown collapses to one number.
+  it("draws a labelled single value as a KPI captioned with its label", async () => {
+    // `EMEA | 1,043,887` — one row, one label, one measure — used to fall
+    // through to the model and come back a bar chart containing a single
+    // bar. A bar exists to compare, and there is nothing to compare with;
+    // the label carries the only extra information, so it becomes the
+    // caption. Measured in the AI Analyst after a step was narrowed to one
+    // region.
+    const spec = await suggestChart({
+      question: "Total sales in EMEA",
+      result: result(["region", "total_sales"], [{ region: "EMEA", total_sales: 1_043_887 }]),
+      plan,
+    });
+    expect(spec.type).toBe("kpi");
+    expect((spec as { valueField?: string }).valueField).toBe("total_sales");
+    expect((spec as { label?: string }).label).toBe("EMEA");
+  });
+
+  it("keeps the step's intent as the caption when several labels compete", async () => {
+    // "EMEA" alone reads as a caption; "EMEA, SMB, 2026-01" describes a
+    // slice no single label can carry, so picking one would editorialise.
+    const spec = await suggestChart({
+      question: "EMEA SMB sales in January",
+      result: result(
+        ["region", "segment", "month", "total_sales"],
+        [{ region: "EMEA", segment: "SMB", month: "2026-01", total_sales: 42 }],
+      ),
+      plan: { intent: "EMEA SMB sales in January", tables: [], steps: [] } as never,
+    });
+    expect(spec.type).toBe("kpi");
+    expect((spec as { label?: string }).label).toBe("EMEA SMB sales in January");
+  });
+
+  it("does not short-circuit a single row carrying several NUMBERS", async () => {
+    // One row of three numbers is a real chart question, not a KPI: it can
+    // legitimately be a combo or a small table, and guessing which would be
+    // worse than asking. The rule is one row and exactly one number.
     //
     // Asserted by the ROUTE TAKEN rather than the chart returned: both
     // short-circuits RETURN, and only the model path can throw, so a rejection
