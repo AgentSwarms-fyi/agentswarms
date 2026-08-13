@@ -35,8 +35,14 @@ export function safeIdent(name: string): string | null {
   return /^[A-Za-z_][A-Za-z0-9_$]*(\.[A-Za-z_][A-Za-z0-9_$]*)*$/.test(n) ? n : null;
 }
 
-/** Single-quote-escape a string literal. */
-function quoteStr(v: string): string {
+/**
+ * Single-quote-escape a string literal.
+ *
+ * Exported because drill-through (biDrillThrough.ts) builds predicates against
+ * the same warehouses from the same untrusted values. Two copies of an escaping
+ * rule is one copy that gets fixed.
+ */
+export function quoteStr(v: string): string {
   return `'${String(v).replace(/'/g, "''")}'`;
 }
 

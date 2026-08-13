@@ -469,7 +469,7 @@ GROUP BY region`}</Code>
           },
           {
             name: "Drill-through",
-            body: 'Open the underlying rows behind any data point — the answer to "is this number real?" and the fastest way to spot a broken join.',
+            body: "Open the underlying rows behind any data point — the answer to \"is this number real?\" and the fastest way to spot a broken join. Everything narrowing the view goes into the query: the widget's own filters, the drill level you clicked into, the active cross-filter. The 1,000-row cap applies after that, so the count is the real number of matching rows and the cap is disclosed when it bites. A category computed in the widget's SELECT list (DATE_TRUNC(…) AS month) has no column to trace back to, and that is refused rather than answered with the whole table.",
           },
           {
             name: "Ask AI (embeds)",

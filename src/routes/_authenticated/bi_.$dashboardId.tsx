@@ -59,6 +59,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { BiBuilderPane, type BuilderTab } from "@/components/bi/BiBuilderPane";
 import { BiExploreDialog, extractBaseTable } from "@/components/bi/BiExploreDialog";
+import type { DrillEntry } from "@/lib/biChartMath";
 import { BiFilterBar } from "@/components/bi/BiFilterBar";
 import { BiHistoryDialog } from "@/components/bi/BiHistoryDialog";
 import { useBiModelPref } from "@/components/bi/BiModelSelect";
@@ -334,6 +335,9 @@ function BiProjectPage() {
   // Drill-through target — non-null opens the explore dialog.
   const [exploreWidget, setExploreWidget] = useState<BiWidget | null>(null);
   const [crossFilter, setCrossFilter] = useState<BiCrossFilter>(null);
+  // Where each widget's chart is currently drilled to. Deliberately NOT
+  // persisted: it is where the reader is looking, not part of the dashboard.
+  const [drillPaths, setDrillPaths] = useState<Record<string, DrillEntry[]>>({});
 
   const dashTheme = useMemo(
     () => parseDashTheme(row !== null && row !== "missing" ? row.theme : undefined),
@@ -1517,6 +1521,18 @@ function BiProjectPage() {
                   <BiWidgetCard
                     widget={w}
                     onElementClick={handleElementClick(id)}
+                    onDrillChange={(path) =>
+                      setDrillPaths((prev) =>
+                        // Same path → same object, so an unchanged drill does
+                        // not re-render every widget on the page.
+                        (prev[id]?.length ?? 0) === path.length &&
+                        (prev[id] ?? []).every(
+                          (e, i) => e.field === path[i].field && e.value === path[i].value,
+                        )
+                          ? prev
+                          : { ...prev, [id]: path },
+                      )
+                    }
                     selectedValue={
                       crossFilter && crossFilter.widgetId === id ? crossFilter.value : null
                     }
@@ -1813,6 +1829,7 @@ function BiProjectPage() {
         <BiExploreDialog
           widget={exploreWidget}
           context={crossFilter}
+          drillPath={exploreWidget ? (drillPaths[exploreWidget.id] ?? []) : []}
           onClose={() => setExploreWidget(null)}
         />
       )}

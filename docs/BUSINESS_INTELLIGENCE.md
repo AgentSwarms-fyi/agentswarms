@@ -114,6 +114,24 @@ and reports. An editable dashboard is called a **BI project**:
   period / prior year** comparison overlays, **running totals**, a linear
   **trend line**, an N-period **forecast** with a ±1.96σ corridor, and
   **reference lines** (average or target value) on bar/line/area.
+- **Drill-through to the rows underneath** — a widget's **Explore data**
+  opens the raw rows behind an aggregate. Every narrowing you can see is
+  pushed into the QUERY: the widget's own filters, the drill level you
+  clicked into, and the active cross-filter. The row cap applies **after**
+  that, so "1,000 of 4,219 matching rows" means the first 1,000 of a real
+  4,219 — not 4,219 out of an arbitrary 1,000-row slice. When the result is
+  capped it says so, and says the rows came back in no particular order
+  rather than implying a ranked sample.
+
+  The base query is derived by taking the widget's own `FROM`/`JOIN`/`WHERE`
+  and dropping the aggregation, so joins, table aliases and CTEs survive
+  intact. Two cases are **refused** rather than approximated: a widget whose
+  query combines results with `UNION` (no single row grain to descend into —
+  its own rows are shown instead, labelled as such), and a drill on a
+  category computed in the select list, such as `DATE_TRUNC('month', d) AS
+  month`, since the rows underneath have no `month` column to filter on.
+  Dropping that predicate silently would show the whole table under a label
+  promising one bar's worth.
 - **Export PDF** — one click renders the dashboard (layout preserved) into a
   downloadable A4 PDF report, entirely client-side.
 - **Query history** — the workbench records every statement you run, local or

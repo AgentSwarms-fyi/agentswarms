@@ -15,6 +15,7 @@ import {
 import { BiChartRender, fmtBiValue, toBiNumber } from "@/components/bi/BiChartRender";
 import { MarkdownMessage } from "@/components/playground/MarkdownMessage";
 import type { BiColumnFormat } from "@/lib/biAgent";
+import type { DrillEntry } from "@/lib/biChartMath";
 import { WIDGET_ACCENTS, type BiImage, type BiWidget } from "@/lib/biDashboards";
 import { describeFreshness } from "@/lib/biFreshness";
 import { cn } from "@/lib/utils";
@@ -200,6 +201,7 @@ export function BiWidgetCard({
   widget,
   actions,
   onElementClick,
+  onDrillChange,
   selectedValue,
 }: {
   widget: BiWidget;
@@ -207,6 +209,8 @@ export function BiWidgetCard({
   actions?: React.ReactNode;
   /** Cross-filtering: bar/slice clicks bubble up as (column, value). */
   onElementClick?: (column: string, value: string) => void;
+  /** Drill position inside this widget — drill-through queries against it. */
+  onDrillChange?: (path: DrillEntry[]) => void;
   /** This widget's active cross-filter value (when it is the filter source) —
    *  forwarded so the map can outline the selected country. */
   selectedValue?: string | null;
@@ -329,6 +333,7 @@ export function BiWidgetCard({
             rows={rows}
             fill
             onElementClick={onElementClick}
+            onDrillChange={onDrillChange}
             selectedValue={selectedValue}
           />
         )}

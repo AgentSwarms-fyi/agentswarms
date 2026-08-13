@@ -9,7 +9,7 @@
 // every categorical mark (bars, slices, cells, countries, points, stages)
 // is clickable for dashboard cross-filtering, and bar/hbar/pie/treemap
 // support drill hierarchies.
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -1882,6 +1882,7 @@ export function BiChartRender({
   large = false,
   fill = false,
   onElementClick,
+  onDrillChange,
   selectedValue,
 }: {
   chart: ChartSpec;
@@ -1891,6 +1892,16 @@ export function BiChartRender({
   onElementClick?: (column: string, value: string) => void;
   /** Currently cross-filtered value — used by the map to outline the pick. */
   selectedValue?: string | null;
+  /**
+   * Reports the drill path outward on every change.
+   *
+   * The path is local state because the drill is a view concern, but
+   * drill-through needs it: "explore the rows behind this" means the rows
+   * behind what you are LOOKING at, two levels in — not behind the widget's
+   * top level. Without this the explore dialog could only ever see the
+   * dashboard's cross-filter.
+   */
+  onDrillChange?: (path: DrillEntry[]) => void;
 }) {
   const [drillPath, setDrillPath] = useState<DrillEntry[]>([]);
   const [grainOverride, setGrainOverride] = useState<"auto" | DateGrain | null>(null);
@@ -1909,6 +1920,16 @@ export function BiChartRender({
   // Reset the drill when the widget's hierarchy changes.
   const drillKey = drillFields.join("|");
   useEffect(() => setDrillPath([]), [drillKey]);
+
+  // Held in a ref so a parent that re-creates its callback each render cannot
+  // turn "report the path" into a render loop.
+  const drillCb = useRef(onDrillChange);
+  useEffect(() => {
+    drillCb.current = onDrillChange;
+  }, [onDrillChange]);
+  useEffect(() => {
+    drillCb.current?.(drillPath);
+  }, [drillPath]);
 
   const showGrainToggle = useMemo(
     () => Boolean(isTime && xKey && isMostlyDates(rows, xKey)),
