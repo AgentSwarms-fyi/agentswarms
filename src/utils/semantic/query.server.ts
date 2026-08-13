@@ -48,6 +48,9 @@ export function rowToModel(row: SemanticModelRow): SemanticModel {
     primaryKey: row.primary_key ?? undefined,
     fiscalYearStartMonth: row.fiscal_year_start_month ?? undefined,
     calendar: (row.calendar as unknown as SemanticModel["calendar"]) ?? undefined,
+    rollups: Array.isArray(row.rollups)
+      ? (row.rollups as unknown as SemanticModel["rollups"])
+      : undefined,
     parameters: Array.isArray(row.parameters)
       ? (row.parameters as unknown as SemanticModel["parameters"])
       : [],
@@ -120,6 +123,9 @@ export type SemanticResult = {
   /** Synonym resolutions applied to the request, e.g. `"turnover" resolved
    *  to "revenue" via synonym` — disclosed so the mapping is visible. */
   resolution_notes?: string[];
+  /** Present when a declared ROLLUP answered instead of the fact table —
+   *  the same fact the compiled SQL's leading comment states. */
+  rollup?: string;
 };
 
 export async function runSemanticQuery(opts: {
@@ -215,6 +221,7 @@ export async function runSemanticQuery(opts: {
       columns: compiled.columns,
       rows: res.rows,
       sql: compiled.sql,
+      ...(compiled.rollup ? { rollup: compiled.rollup } : {}),
       ...(accessNote ? { access_note: accessNote } : {}),
       ...(resolutionNotes.length > 0 ? { resolution_notes: resolutionNotes } : {}),
     };
@@ -232,6 +239,7 @@ export async function runSemanticQuery(opts: {
     columns: compiled.columns,
     rows: res.rows,
     sql: compiled.sql,
+    ...(compiled.rollup ? { rollup: compiled.rollup } : {}),
     ...(accessNote ? { access_note: accessNote } : {}),
     ...(resolutionNotes.length > 0 ? { resolution_notes: resolutionNotes } : {}),
   };

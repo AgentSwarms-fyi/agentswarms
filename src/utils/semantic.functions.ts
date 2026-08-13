@@ -12,7 +12,9 @@ import {
   isValidFieldName,
   JOIN_CARDINALITIES,
   MAX_JOINS,
+  MAX_ROLLUPS,
   RELATIVE_DATE_OPS,
+  TIME_GRAINS,
   type SemanticDimension,
   type SemanticMetric,
   type SemanticModel,
@@ -24,6 +26,7 @@ import {
   checkAssertions,
   measureCalendarHealth,
   measureModelHealth,
+  measureRollupHealth,
   sampleDimensionValues,
   type ExecRows,
   type JoinMeasurement,
@@ -189,6 +192,110 @@ export const calendarSchema = z.object({
     }),
 });
 
+// A declared PRE-AGGREGATED table (aggregate awareness). Structure is strict
+// — table refs and bare column identifiers become SQL — while the semantic
+// rules (names exist, aggregations re-aggregate, time dims carry grains)
+// live in validateRollups below, which can see the sibling arrays. Exported
+// for tests: the rules are behavior, and tests must exercise THESE.
+const rollupIdent = z
+  .string()
+  .regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, "Rollup columns must be letters/digits/underscore");
+export const rollupSchema = z.object({
+  table: z
+    .string()
+    .min(1)
+    .max(200)
+    .regex(/^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$/, "Unsafe rollup table reference"),
+  label: z.string().max(120).optional(),
+  dimensions: z
+    .array(
+      z.object({
+        dimension: z.string().min(1).max(64),
+        column: rollupIdent,
+        grain: z.enum(TIME_GRAINS).optional(),
+      }),
+    )
+    .max(30),
+  metrics: z
+    .array(z.object({ metric: z.string().min(1).max(64), column: rollupIdent }))
+    .min(1, "A rollup must map at least one metric — otherwise it can answer nothing"),
+});
+
+/**
+ * The semantic half of rollup validation — refused at SAVE, with the fix
+ * named, because a rollup that can never route is a claim the model makes
+ * and quietly breaks.
+ */
+export function validateRollups(
+  rollups: z.infer<typeof rollupSchema>[] | undefined,
+  dims: SemanticDimension[],
+  metrics: SemanticMetric[],
+  calendar?: z.infer<typeof calendarSchema> | null,
+) {
+  const dimByName = new Map(dims.map((d) => [d.name, d]));
+  const metricByName = new Map(metrics.map((m) => [m.name, m]));
+  for (const r of rollups ?? []) {
+    for (const rd of r.dimensions) {
+      const d = dimByName.get(rd.dimension);
+      if (!d) {
+        throw new Error(
+          `Rollup "${r.table}" maps "${rd.dimension}", which is not a dimension on this model ` +
+            `(dimensions: ${[...dimByName.keys()].join(", ") || "none"}).`,
+        );
+      }
+      if (d.type === "time" && !rd.grain) {
+        throw new Error(
+          `Rollup "${r.table}": "${rd.dimension}" is a time dimension, so its stored grain must ` +
+            `be declared — without it every routing decision would be a guess.`,
+        );
+      }
+      // Stored buckets must be DATES so filters and comparisons keep working:
+      // the month-math fiscal grains are numeric buckets (2026, 20261), and
+      // shifting a number by "one year" is a runtime error waiting in a
+      // dashboard. Calendar-table grains are start DATES, so a model that
+      // declares them may store them.
+      if (
+        (rd.grain === "fiscal_year" || rd.grain === "fiscal_quarter") &&
+        !calendar?.grains?.[rd.grain]
+      ) {
+        throw new Error(
+          `Rollup "${r.table}": store "${rd.dimension}" at month grain and let queries roll it ` +
+            `up to ${rd.grain} — the month-math fiscal buckets are numbers, not dates, and ` +
+            `cannot carry filters or comparisons. (A fiscal calendar TABLE's ${rd.grain} is a ` +
+            `start date and can be stored.)`,
+        );
+      }
+      if (
+        (rd.grain === "fiscal_period" || rd.grain === "fiscal_week") &&
+        !calendar?.grains?.[rd.grain]
+      ) {
+        throw new Error(
+          `Rollup "${r.table}": "${rd.dimension}" cannot be stored at ${rd.grain} — this model ` +
+            `declares no fiscal calendar table defining it.`,
+        );
+      }
+    }
+    for (const rm of r.metrics) {
+      const m = metricByName.get(rm.metric);
+      if (!m) {
+        throw new Error(
+          `Rollup "${r.table}" maps "${rm.metric}", which is not a metric on this model ` +
+            `(metrics: ${[...metricByName.keys()].join(", ") || "none"}).`,
+        );
+      }
+      if (!["sum", "count", "min", "max"].includes(m.agg)) {
+        throw new Error(
+          `Rollup "${r.table}": "${rm.metric}" is ${m.agg}, which cannot be re-aggregated from ` +
+            `partial aggregates — an avg of avgs answers a different question` +
+            (m.agg === "avg"
+              ? `. Declare sum and count columns and a derived ratio instead.`
+              : `.`),
+        );
+      }
+    }
+  }
+}
+
 // A declared drill path — level names are checked against the model's
 // dimensions in validateNames-adjacent logic below, not here (zod can't see
 // the sibling arrays).
@@ -213,6 +320,7 @@ const modelSchema = z
     primary_key: z.string().max(200).nullable().optional(),
     fiscal_year_start_month: z.number().int().min(1).max(12).nullable().optional(),
     calendar: calendarSchema.nullable().optional(),
+    rollups: z.array(rollupSchema).max(MAX_ROLLUPS).optional(),
     joins: z.array(joinSchema).max(MAX_JOINS).optional(),
     dimensions: z.array(dimensionSchema),
     metrics: z.array(metricSchema),
@@ -306,6 +414,7 @@ export const semanticUpsertModel = createServerFn({ method: "POST" })
     }
     validateNames(m.dimensions, m.metrics);
     validateHierarchies(m.hierarchies, m.dimensions);
+    validateRollups(m.rollups, m.dimensions, m.metrics, m.calendar);
     if (m.source_kind === "warehouse" && !m.connection_id) {
       throw new Error("Warehouse models need a connection.");
     }
@@ -321,6 +430,7 @@ export const semanticUpsertModel = createServerFn({ method: "POST" })
       primary_key: m.primary_key?.trim() ? m.primary_key.trim() : null,
       fiscal_year_start_month: m.fiscal_year_start_month ?? null,
       calendar: (m.calendar ?? null) as never,
+      rollups: (m.rollups ?? []) as never,
       parameters: (m.parameters ?? []) as never,
       hierarchies: (m.hierarchies ?? []) as never,
       joins: (m.joins ?? []) as never,
@@ -382,6 +492,7 @@ export const semanticRunQuery = createServerFn({ method: "POST" })
       sql: res.sql,
       rows,
       access_note: res.access_note,
+      rollup: res.rollup,
     };
   });
 
@@ -435,6 +546,7 @@ async function validateModelPayload(
     m = modelSchema.parse(payload);
     validateNames(m.dimensions, m.metrics);
     validateHierarchies(m.hierarchies, m.dimensions);
+    validateRollups(m.rollups, m.dimensions, m.metrics, m.calendar);
   } catch (e) {
     return {
       ok: false,
@@ -457,6 +569,7 @@ async function validateModelPayload(
     primaryKey: m.primary_key ?? undefined,
     fiscalYearStartMonth: m.fiscal_year_start_month ?? undefined,
     calendar: m.calendar ?? undefined,
+    rollups: m.rollups ?? undefined,
     parameters: m.parameters ?? [],
     hierarchies: m.hierarchies ?? [],
     joins: m.joins ?? [],
@@ -550,6 +663,12 @@ async function validateModelPayload(
   const calHealth = await measureCalendarHealth(exec, model, dialect);
   issues.push(...calHealth.issues);
   if (model.calendar) checked += 1;
+  // And so is every rollup: its grand totals are compared against the fact
+  // table's own answers, so a stale rollup surfaces as two disagreeing
+  // numbers rather than as quietly different dashboards.
+  const rollupHealth = await measureRollupHealth(exec, model, dialect);
+  issues.push(...rollupHealth.issues);
+  checked += rollupHealth.checked;
   const asserted = await checkAssertions(exec, model, m.assertions ?? [], dialect);
   issues.push(...asserted.issues);
   checked += asserted.checked;
@@ -582,6 +701,7 @@ function rowToModelPayload(row: Record<string, unknown>): z.input<typeof modelSc
     primary_key: (row.primary_key as string) ?? null,
     fiscal_year_start_month: (row.fiscal_year_start_month as number) ?? null,
     calendar: (row.calendar as z.input<typeof calendarSchema>) ?? null,
+    rollups: Array.isArray(row.rollups) ? (row.rollups as z.input<typeof rollupSchema>[]) : [],
     parameters: Array.isArray(row.parameters)
       ? (row.parameters as z.input<typeof parameterSchema>[])
       : [],
@@ -701,6 +821,7 @@ export const semanticRestoreVersion = createServerFn({ method: "POST" })
       m = modelSchema.parse(rowToModelPayload(version.definition as Record<string, unknown>));
       validateNames(m.dimensions, m.metrics);
       validateHierarchies(m.hierarchies, m.dimensions);
+      validateRollups(m.rollups, m.dimensions, m.metrics, m.calendar);
     } catch (e) {
       return {
         ok: false,
@@ -723,6 +844,7 @@ export const semanticRestoreVersion = createServerFn({ method: "POST" })
         primary_key: m.primary_key?.trim() ? m.primary_key.trim() : null,
         fiscal_year_start_month: m.fiscal_year_start_month ?? null,
         calendar: (m.calendar ?? null) as never,
+        rollups: (m.rollups ?? []) as never,
         parameters: (m.parameters ?? []) as never,
         hierarchies: (m.hierarchies ?? []) as never,
         joins: (m.joins ?? []) as never,

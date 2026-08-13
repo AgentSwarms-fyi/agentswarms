@@ -302,6 +302,23 @@ GROUP BY 1, 2`}</Code>
         whose start dates actually increase — each reported with counts, none of it trusted.
       </Callout>
 
+      <H3 id="rollups">Rollups — aggregate awareness</H3>
+      <P>
+        A model can declare up to five <strong>rollups</strong>: pre-aggregated tables mapping its
+        dimensions and metrics onto their columns (Source tab). A query is answered by the first
+        rollup that can <em>provably</em> answer it — every requested metric mapped and
+        re-aggregatable (<C>sum</C> of sums, <C>count</C> as a sum of pre-counts, <C>min</C>/
+        <C>max</C> of themselves), every grouped <em>and filtered</em> dimension present, and time
+        grains served by the stored grain (a <C>month</C> store answers month/quarter/year;{" "}
+        <C>day</C> answers everything; nothing serves a finer grain). <C>avg</C> never routes — an
+        avg of avgs answers a different question, so store sum and count and derive the ratio — and{" "}
+        <C>count_distinct</C> never routes. Anything unprovable falls back to the source table, and
+        a routed query <strong>says which table answered</strong>: a leading comment in its compiled
+        SQL and a banner on the result. Validate measures every mapped metric&apos;s total on the
+        rollup AND the source, so a stale rollup is a reported drift with both numbers, never a
+        quietly different dashboard.
+      </P>
+
       <H3 id="parameters">Parameters — governed what-ifs</H3>
       <P>
         A model can declare named <strong>parameters</strong> its SQL fragments reference as{" "}

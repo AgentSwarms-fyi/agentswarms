@@ -182,6 +182,15 @@ export type SemanticModel = {
    * would disagree quietly.
    */
   calendar?: SemanticCalendar;
+  /**
+   * Declared PRE-AGGREGATED tables this model's queries may be routed to —
+   * aggregate awareness, the declared-never-inferred kind. Each rollup names
+   * a table and maps model dimensions/metrics onto its columns; a query is
+   * answered by the FIRST rollup that can PROVABLY answer it (see
+   * routeToRollup), everything else falls back to the fact table, and a
+   * routed query says so in its compiled SQL.
+   */
+  rollups?: SemanticRollup[];
   parameters?: SemanticParameter[];
   hierarchies?: SemanticHierarchy[];
   /**
@@ -317,6 +326,43 @@ export type SemanticCalendar = {
   grains: Partial<Record<CalendarGrain, SemanticCalendarGrain>>;
 };
 
+// ── Aggregate awareness — declared rollups ─────────────────────────────────
+
+/** One model dimension as it appears in a rollup table. */
+export type SemanticRollupDimension = {
+  /** The model dimension this column holds. */
+  dimension: string;
+  /** Bare column name in the rollup table. */
+  column: string;
+  /**
+   * For TIME dimensions: the grain the column is stored at (a `month` rollup
+   * holds month-start dates). Required on time dimensions — an unknown
+   * storage grain makes every routing decision a guess.
+   */
+  grain?: TimeGrain;
+};
+
+/** One model metric as it appears, PRE-AGGREGATED, in a rollup table. */
+export type SemanticRollupMetric = {
+  /** The model metric this column holds (its filters were baked in when the
+   *  rollup was materialised — the owner's declaration, measured by
+   *  Validate's drift probe, never trusted blind). */
+  metric: string;
+  /** Bare column name in the rollup table. */
+  column: string;
+};
+
+export type SemanticRollup = {
+  /** The pre-aggregated table (same reference rules as a join table). */
+  table: string;
+  label?: string;
+  dimensions: SemanticRollupDimension[];
+  metrics: SemanticRollupMetric[];
+};
+
+/** Most rollups a model may declare. */
+export const MAX_ROLLUPS = 5;
+
 /**
  * Period-over-period comparisons.
  *
@@ -389,7 +435,14 @@ export type MetricAssertion = {
   label?: string;
 };
 
-export type CompiledQuery = { sql: string; columns: string[] };
+export type CompiledQuery = {
+  sql: string;
+  columns: string[];
+  /** Set when the query was ANSWERED BY A DECLARED ROLLUP instead of the
+   *  fact table — the same fact the compiled SQL's leading comment states.
+   *  Disclosure is part of the feature: a different table answered. */
+  rollup?: string;
+};
 
 /** SQL dialects we compile identifier-quoting for. */
 export type SqlDialect =
@@ -1846,6 +1899,47 @@ function dateDiffDaysExpr(a: string, b: string, dialect: SqlDialect): string {
  * is grouped), so these measure what dirt CAN do: mislabel days, leave days
  * unmapped, or break the sequence order comparisons step along.
  */
+/**
+ * The DRIFT probes Validate runs against each declared ROLLUP: the rollup's
+ * grand total per mapped metric, to compare against the fact table's own
+ * answer. A rollup is the owner's claim that a table holds pre-aggregated
+ * truth; this measures the claim — a stale or mis-built rollup shows up as a
+ * concrete pair of disagreeing numbers, not as quietly different dashboards.
+ * (The fact side is compiled by the caller with rollups stripped, so the
+ * comparison can never route into the thing it is checking.)
+ */
+export function rollupProbeSql(
+  model: SemanticModel,
+  dialect: SqlDialect,
+): Array<{ table: string; metric: string; sql: string }> {
+  const out: Array<{ table: string; metric: string; sql: string }> = [];
+  const metricByName = new Map(model.metrics.map((m) => [m.name, m]));
+  for (const rollup of model.rollups ?? []) {
+    const table = assertTableRef(rollup.table);
+    for (const rm of rollup.metrics) {
+      const orig = metricByName.get(rm.metric);
+      if (!orig || !IDENT_RE.test(rm.column)) continue;
+      // count re-aggregates by SUM; min/max by themselves; avg/others are
+      // not declarable mappings and are skipped rather than half-checked.
+      const agg =
+        orig.agg === "sum" || orig.agg === "count"
+          ? "SUM"
+          : orig.agg === "min"
+            ? "MIN"
+            : orig.agg === "max"
+              ? "MAX"
+              : null;
+      if (!agg) continue;
+      out.push({
+        table: rollup.table,
+        metric: rm.metric,
+        sql: `SELECT ${agg}(${rm.column}) AS ${quoteIdent("v", dialect)} FROM ${table}`,
+      });
+    }
+  }
+  return out;
+}
+
 export function calendarProbeSql(
   model: SemanticModel,
   dialect: SqlDialect,
@@ -1982,6 +2076,187 @@ export function substituteParams(sql: string, values: Map<string, string>): stri
  * Compile a structured semantic query against one model into a single read-only
  * SELECT. Throws on any unknown field name or unsafe input.
  */
+// ── Aggregate awareness — routing ──────────────────────────────────────────
+//
+// A rollup is a bet the owner made ("month × region answers most questions")
+// and routing is the compiler CASHING that bet only where it can prove the
+// answer is the same one the fact table would give. Everything else falls
+// back silently-to-the-FACT — never silently-to-the-rollup — and a routed
+// query discloses itself in its own SQL, because "which table answered" is
+// part of the answer.
+
+/**
+ * Can a rollup stored at `declared` grain answer a query asking for
+ * `requested`? Only provable coarsenings:
+ *
+ *   * identity always works (re-truncating a truncated date is idempotent);
+ *   * `day` serves everything — every bucket is computable from a date,
+ *     calendar-table grains included (the calendar join buckets any date);
+ *   * `month` serves month/quarter/year and the month-ALIGNED fiscal pair;
+ *   * `quarter` serves quarter/year.
+ *
+ * Weeks nest into nothing (they cross month and year boundaries), fiscal and
+ * calendar-table buckets are terminal, and nothing serves a FINER grain.
+ */
+export function grainServes(declared: TimeGrain, requested: TimeGrain): boolean {
+  if (declared === requested) return true;
+  switch (declared) {
+    case "day":
+      return true;
+    case "month":
+      return ["month", "quarter", "year", "fiscal_year", "fiscal_quarter"].includes(requested);
+    case "quarter":
+      return requested === "quarter" || requested === "year";
+    default:
+      return false;
+  }
+}
+
+/** Leaf aggregations that re-aggregate correctly from partial aggregates. */
+const REAGGREGATABLE: ReadonlySet<SemanticMetric["agg"]> = new Set(["sum", "count", "min", "max"]);
+
+/** Does an owner-authored fragment reference a {{parameter}}? (match(), not
+ *  test() — the shared regex is /g and test() carries lastIndex state.) */
+const hasParamToken = (sql: string | undefined | null): boolean =>
+  !!(sql ?? "").match(PARAM_TOKEN_RE);
+
+/**
+ * The first declared rollup that can PROVABLY answer `q`, as a synthetic
+ * single-table model to compile against — or null, which means the fact
+ * table answers exactly as before.
+ *
+ * The proof obligations, each of which refuses routing rather than degrading:
+ *
+ *   * every requested metric (derived formulas via their leaves) is MAPPED to
+ *     a rollup column and its leaf aggregation is re-aggregatable — `sum` of
+ *     sums, `count` as a SUM of pre-counts, `min`/`max` of themselves; `avg`
+ *     (an avg of avgs answers a different question), `count_distinct`
+ *     (distinctness does not survive partial aggregation) and `custom`
+ *     (opaque SQL) never route;
+ *   * every grouped or filtered dimension is mapped;
+ *   * a TIME dimension routes only WITH a requested grain the stored grain
+ *     provably serves (grainServes) — an ungrained time dimension groups raw
+ *     values, which a coarser store cannot reproduce;
+ *   * no routed fragment references a {{parameter}} — the rollup was
+ *     materialised with some value baked in, and a caller's override would be
+ *     silently ignored.
+ *
+ * The synthetic model inherits the calendar and fiscal declarations (so
+ * calendar-grain bucketing and comparisons work over the stored start dates)
+ * and the parameter DECLARATIONS (so `q.params` still validates), carries no
+ * joins and no rollups of its own, and maps every declared column — filters
+ * and comparisons then ride the ordinary compile path unchanged.
+ */
+export function routeToRollup(
+  model: SemanticModel,
+  q: SemanticQuery,
+): { model: SemanticModel; table: string } | null {
+  const rollups = model.rollups ?? [];
+  if (rollups.length === 0) return null;
+
+  const dimByName = new Map(model.dimensions.map((d) => [d.name, d]));
+  const metricByName = new Map(model.metrics.map((m) => [m.name, m]));
+
+  // Names the query touches. Unknown names are left for the compiler's own
+  // authoritative errors — routing must never preempt those messages.
+  const wantedMetrics = q.metrics ?? [];
+  const wantedDims = new Set<string>(q.dimensions ?? []);
+  for (const f of q.filters ?? []) if (dimByName.has(f.field)) wantedDims.add(f.field);
+  if (wantedMetrics.some((n) => !metricByName.has(n))) return null;
+  if ([...wantedDims].some((n) => !dimByName.has(n))) return null;
+
+  // Leaves of everything requested, derived formulas expanded.
+  const leaves = new Map<string, SemanticMetric>();
+  for (const name of wantedMetrics) {
+    for (const leaf of chasmLeaves(metricByName.get(name)!, metricByName)) {
+      leaves.set(leaf.name, leaf);
+    }
+    // A derived formula is itself an owner-authored fragment.
+    const m = metricByName.get(name)!;
+    if (m.agg === "derived" && hasParamToken(m.sql)) return null;
+  }
+  for (const leaf of leaves.values()) {
+    if (!REAGGREGATABLE.has(leaf.agg)) return null;
+    if (hasParamToken(leaf.sql) || (leaf.filters ?? []).some((f) => hasParamToken(f))) return null;
+  }
+  for (const name of wantedDims) {
+    // The ungrained-time refusal lives in the per-rollup check below (an
+    // absent requested grain fails `!!requested`); only the parameter rule
+    // needs the pre-pass.
+    if (hasParamToken(dimByName.get(name)!.sql)) return null;
+  }
+
+  for (const rollup of rollups) {
+    // Structural safety only (zod enforces the real rule at save): a rollup
+    // whose table reference is unusable is SKIPPED, never a compile error —
+    // the fact table still answers.
+    if (!/^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$/.test(rollup.table ?? "")) continue;
+    const dimMap = new Map(rollup.dimensions.map((rd) => [rd.dimension, rd]));
+    const metricMap = new Map(rollup.metrics.map((rm) => [rm.metric, rm]));
+
+    const eligible =
+      [...leaves.keys()].every((n) => {
+        const rm = metricMap.get(n);
+        return !!rm && IDENT_RE.test(rm.column);
+      }) &&
+      [...wantedDims].every((n) => {
+        const rd = dimMap.get(n);
+        if (!rd || !IDENT_RE.test(rd.column)) return false;
+        const d = dimByName.get(n)!;
+        if (d.type !== "time") return true;
+        const requested = q.grains?.[n];
+        return !!rd.grain && !!requested && grainServes(rd.grain, requested);
+      });
+    if (!eligible) continue;
+
+    // Build the synthetic model over the rollup table.
+    const dimensions: SemanticDimension[] = rollup.dimensions
+      .filter((rd) => dimByName.has(rd.dimension) && IDENT_RE.test(rd.column))
+      .map((rd) => {
+        const orig = dimByName.get(rd.dimension)!;
+        return { name: orig.name, label: orig.label, sql: rd.column, type: orig.type };
+      });
+    const metrics: SemanticMetric[] = [];
+    for (const rm of rollup.metrics) {
+      const orig = metricByName.get(rm.metric);
+      if (!orig || !REAGGREGATABLE.has(orig.agg) || !IDENT_RE.test(rm.column)) continue;
+      metrics.push({
+        name: orig.name,
+        label: orig.label,
+        // A pre-count re-aggregates by SUMMING the partial counts; the other
+        // three are closed under themselves. The metric's own filters were
+        // baked into the column at materialisation, so they do NOT reappear
+        // here — reapplying them to rollup columns would double-filter.
+        agg: orig.agg === "count" ? "sum" : orig.agg,
+        sql: rm.column,
+        format: orig.format,
+        currency: orig.currency,
+      });
+    }
+    // Derived formulas whose leaves all routed come along unchanged — they
+    // expand over the rewritten leaf expressions at compile time.
+    for (const m of model.metrics) {
+      if (m.agg !== "derived" || hasParamToken(m.sql)) continue;
+      const ls = chasmLeaves(m, metricByName);
+      if (ls.every((l) => metrics.some((sm) => sm.name === l.name))) metrics.push({ ...m });
+    }
+
+    return {
+      table: rollup.table,
+      model: {
+        name: model.name,
+        source: { ...model.source, table: rollup.table },
+        fiscalYearStartMonth: model.fiscalYearStartMonth,
+        calendar: model.calendar,
+        parameters: model.parameters,
+        dimensions,
+        metrics,
+      },
+    };
+  }
+  return null;
+}
+
 export function compileSemanticQuery(
   model: SemanticModel,
   q: SemanticQuery,
@@ -2000,6 +2275,27 @@ export function compileSemanticQuery(
       "This model declares BOTH a fiscal year start month and a fiscal calendar table — " +
         "remove one; the calendar table would silently win otherwise.",
     );
+  }
+
+  // ── Aggregate awareness ─────────────────────────────────────────────────
+  // The first declared rollup that can PROVABLY answer this query answers
+  // it: compile recurses into a synthetic single-table model (which carries
+  // no rollups, so recursion is one level deep) and the result SAYS which
+  // table answered — in a machine-readable field AND in the SQL itself,
+  // because "which table answered" is part of the answer. This runs before
+  // fan-out analysis on purpose: a rollup has no joins, so a query the fact
+  // table could only answer through a multi-fact plan may route here
+  // directly. Anything unprovable falls through to the fact table unchanged.
+  if (model.rollups?.length) {
+    const routed = routeToRollup(model, q);
+    if (routed) {
+      const inner = compileSemanticQuery(routed.model, q, opts);
+      return {
+        sql: `/* answered by rollup ${routed.table}, declared on model ${model.name} */ ${inner.sql}`,
+        columns: inner.columns,
+        rollup: routed.table,
+      };
+    }
   }
 
   // Authored fragments are re-quoted for the target dialect ONCE, here, so

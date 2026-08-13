@@ -13,6 +13,7 @@ import {
   compileSemanticQuery,
   fanoutProbeSql,
   joinQualifier,
+  rollupProbeSql,
   sampleValuesSql,
   type MetricAssertion,
   type SemanticModel,
@@ -22,10 +23,21 @@ import {
 /** Runs one read-only statement and returns its rows. */
 export type ExecRows = (sql: string) => Promise<Record<string, unknown>[]>;
 
-export type ModelIssueKind = "dimension" | "metric" | "model" | "join" | "assertion" | "calendar";
+export type ModelIssueKind =
+  | "dimension"
+  | "metric"
+  | "model"
+  | "join"
+  | "assertion"
+  | "calendar"
+  | "rollup";
 export type ModelIssue = { kind: ModelIssueKind; name: string; error: string };
 /** Non-fatal findings: things worth declaring, not things that are wrong. */
-export type ModelWarning = { kind: "join" | "assertion" | "calendar"; name: string; note: string };
+export type ModelWarning = {
+  kind: "join" | "assertion" | "calendar" | "rollup";
+  name: string;
+  note: string;
+};
 
 /** COUNT() arrives as number, bigint or decimal-string depending on engine. */
 function num(v: unknown): number {
@@ -278,6 +290,76 @@ export async function measureCalendarHealth(
     }
   }
   return { issues, warnings };
+}
+
+/**
+ * Measure each declared rollup against the fact table it claims to
+ * pre-aggregate: the grand total of every mapped metric, computed BOTH ways.
+ *
+ * The fact side compiles with rollups STRIPPED so the check can never route
+ * into the thing it is checking. A disagreement does not say which side is
+ * wrong — a stale rollup and a corrected fact look identical from here — so
+ * the message says to refresh the rollup or fix the mapping, not which.
+ * Tolerance matches assertions: |fact| × 1e-9, float-sum noise wide, a
+ * definition or staleness gap narrow.
+ */
+export async function measureRollupHealth(
+  exec: ExecRows,
+  model: SemanticModel,
+  dialect: SqlDialect,
+): Promise<{ issues: ModelIssue[]; checked: number }> {
+  const issues: ModelIssue[] = [];
+  let checked = 0;
+  const probes = rollupProbeSql(model, dialect);
+  if (probes.length === 0) return { issues, checked };
+  const factModel: SemanticModel = { ...model, rollups: undefined };
+
+  for (const p of probes) {
+    checked++;
+    const name = `${p.table} · ${p.metric}`;
+    try {
+      const { sql } = compileSemanticQuery(
+        factModel,
+        { model: model.name, metrics: [p.metric], limit: 1 },
+        { dialect },
+      );
+      const factRaw = (await exec(sql))[0]?.[p.metric];
+      const rollRaw = (await exec(p.sql))[0]?.v;
+      const fact = num(factRaw);
+      const roll = num(rollRaw);
+      if (factRaw === null || factRaw === undefined || Number.isNaN(fact)) {
+        // An empty fact against an empty rollup agrees; against numbers it
+        // does not.
+        if (rollRaw !== null && rollRaw !== undefined && !Number.isNaN(roll)) {
+          issues.push({
+            kind: "rollup",
+            name,
+            error: `The fact table computes no value for "${p.metric}" but the rollup holds ${fmt(roll)}.`,
+          });
+        }
+        continue;
+      }
+      const tol = Math.max(1e-9, Math.abs(fact) * 1e-9);
+      if (Number.isNaN(roll) || Math.abs(fact - roll) > tol) {
+        issues.push({
+          kind: "rollup",
+          name,
+          error:
+            `"${p.metric}" totals ${fmt(fact)} on the fact table but ${Number.isNaN(roll) ? "no value" : fmt(roll)} ` +
+            `in the rollup — the rollup is stale or its mapping is wrong. Queries it answers ` +
+            `disagree with the fact table by exactly this gap. Refresh the rollup table or fix ` +
+            `the column mapping.`,
+        });
+      }
+    } catch (e) {
+      issues.push({
+        kind: "rollup",
+        name,
+        error: `Rollup could not be measured: ${(e as Error).message}`.slice(0, 300),
+      });
+    }
+  }
+  return { issues, checked };
 }
 
 /** Most distinct values a dimension may have and still list them for agents. */

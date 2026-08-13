@@ -510,15 +510,62 @@ with metric-backed widgets (by widget title), agents and swarm nodes whose
 `metric_query` allow-list names it, and (owner only) who it is shared with.
 Deleting a model warns with that list first.
 
+## Aggregate awareness — declared rollups
+
+A model can declare up to five **rollups** (Source tab): pre-aggregated
+tables, each mapping model dimensions and metrics onto its columns:
+
+```
+{ table, dimensions: [{ dimension, column, grain? }], metrics: [{ metric, column }] }
+```
+
+A query is answered by the **first declared rollup that can provably answer
+it** — and a routed query SAYS SO, in a machine-readable field, in a leading
+comment inside its own compiled SQL, and as a banner in the runner, because
+"which table answered" is part of the answer. Everything unprovable falls
+back to the fact table unchanged. The proof obligations, each a refusal
+rather than a degradation:
+
+- every requested metric (derived formulas via their leaves) is **mapped**
+  and its aggregation **re-aggregates**: sums of sums, counts as a SUM of
+  pre-counts, min/max of themselves. `avg` never routes (an avg of avgs
+  answers a different question — declare sum and count and a derived ratio),
+  `count_distinct` never routes (distinctness does not survive partial
+  aggregation), `custom` never routes; the editor refuses those mappings at
+  save with the same reasons.
+- every grouped **and filtered** dimension is mapped — a filter on a
+  dimension the rollup lacks would blend filtered and unfiltered rows.
+- a time dimension routes only at a grain the **stored grain provably
+  serves**: identity always; `day` serves everything (calendar-table grains
+  included); `month` serves month/quarter/year and the month-aligned fiscal
+  pair; `quarter` serves quarter/year. Weeks nest into nothing, and nothing
+  serves a FINER grain. An ungrained time dimension groups raw values only
+  the fact holds — no routing.
+- no routed fragment references a `{{parameter}}` — the rollup was
+  materialised with some value baked in, and a caller's override would be
+  silently ignored.
+
+Comparisons and filters ride the routed table through the ordinary compile
+path, and a query the fact table could only answer through a multi-fact plan
+may route directly — the rollup has no joins, so there is nothing to fan
+out. Metric filters (filtered measures) were baked into the rollup's columns
+at materialisation; that is the owner's declaration, and **Validate measures
+it**: every mapped metric's grand total is computed on the rollup AND on the
+fact table (with rollups stripped, so the check can never route into the
+thing it is checking), and a disagreement is reported with both numbers —
+"revenue totals 115 on the fact table but 110 in the rollup" — because a
+stale rollup must be a reported drift, not a quietly different dashboard.
+
+Deliberately shipped LAST of the semantic-layer campaign: routing is a
+performance optimisation that changes which table answers, and the
+correctness half (fan-out refusal, measured grain, assertions, drift probes)
+had to be trustworthy first. Row-level share filters compose safely: a
+grantee's filter becomes an ordinary dimension filter before compilation, so
+it routes only when that dimension is in the rollup and otherwise falls back
+to the fact.
+
 ## Not yet (roadmap)
 
-- **Aggregate awareness** — routing a month-grain query to a pre-aggregated
-  rollup table instead of the raw fact. Deliberately deferred: it is a
-  _performance_ optimisation that silently changes which table answered, and
-  the correctness half of this layer (fan-out refusal, measured grain,
-  assertions) had to be trustworthy first. When it lands it will be declared
-  per model (fact ↔ rollup + match conditions) and **disclosed in the compiled
-  SQL**, never inferred.
 - **Multiple comparison axes** — a query compares along exactly one grained time
   dimension. Two would have no single "previous period", so the compiler refuses
   rather than choosing one.

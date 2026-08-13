@@ -4018,6 +4018,7 @@ export type Database = {
         Row: {
           assertions: Json;
           calendar: Json | null;
+          rollups: Json | null;
           fiscal_year_start_month: number | null;
           hierarchies: Json;
           parameters: Json;
@@ -4044,6 +4045,7 @@ export type Database = {
           assertions?: Json;
           calendar?: Json | null;
           certified_at?: string | null;
+          rollups?: Json | null;
           fiscal_year_start_month?: number | null;
           hierarchies?: Json;
           parameters?: Json;
@@ -4073,6 +4075,7 @@ export type Database = {
           calendar?: Json | null;
           created_at?: string;
           description?: string | null;
+          rollups?: Json | null;
           dimensions?: Json;
           fiscal_year_start_month?: number | null;
           hierarchies?: Json;

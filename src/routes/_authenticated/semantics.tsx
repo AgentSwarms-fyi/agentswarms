@@ -16,6 +16,7 @@ import {
   Plus,
   Save,
   ShieldCheck,
+  Gauge,
   SlidersHorizontal,
   Sparkles,
   SquarePen,
@@ -57,6 +58,7 @@ import {
   CALENDAR_GRAINS,
   COMPARE_PERIODS,
   isRelativeDateOp,
+  MAX_ROLLUPS,
   relativeDateRange,
   RELATIVE_DATE_OPS,
   TIME_GRAINS,
@@ -77,6 +79,7 @@ import type {
   SemanticJoin,
   SemanticMetric,
   SemanticParameter,
+  SemanticRollup,
 } from "@/lib/semanticLayer";
 import type { JoinMeasurement, ModelWarning } from "@/lib/semanticMeasure";
 import {
@@ -138,6 +141,8 @@ type Draft = {
   calendar: CalendarDraft | null;
   parameters: SemanticParameter[];
   hierarchies: SemanticHierarchy[];
+  /** Declared pre-aggregated tables (aggregate awareness), persisted shape. */
+  rollups: SemanticRollup[];
 };
 
 type CalendarDraft = {
@@ -179,6 +184,18 @@ function calendarToPayload(cal: CalendarDraft | null): SemanticCalendar | null {
     if (seq.trim() && start.trim()) grains[g] = { seq: seq.trim(), start: start.trim() };
   }
   return { table: cal.table.trim(), dateColumn: cal.dateColumn.trim(), grains };
+}
+
+/** Editable rollups -> save payload: blank tables and columns drop out. */
+function rollupsToPayload(rollups: SemanticRollup[]): SemanticRollup[] {
+  return rollups
+    .filter((r) => r.table.trim() !== "")
+    .map((r) => ({
+      table: r.table.trim(),
+      ...(r.label?.trim() ? { label: r.label.trim() } : {}),
+      dimensions: r.dimensions.filter((d) => d.column.trim() !== ""),
+      metrics: r.metrics.filter((m) => m.column.trim() !== ""),
+    }));
 }
 
 const CALENDAR_GRAIN_LABELS: Record<CalendarGrain, string> = {
@@ -285,6 +302,7 @@ function emptyDraft(): Draft {
     calendar: null,
     parameters: [],
     hierarchies: [],
+    rollups: [],
   };
 }
 
@@ -382,6 +400,8 @@ function SemanticsPage() {
     rows: Record<string, unknown>[];
     sql: string;
     access_note?: string;
+    /** Set when a declared rollup answered instead of the fact table. */
+    rollup?: string;
     metrics: string[];
     dimensions: string[];
     grains?: Record<string, TimeGrain>;
@@ -482,6 +502,7 @@ function SemanticsPage() {
       calendar: calendarToDraft((m.calendar as SemanticCalendar | null) ?? null),
       parameters: Array.isArray(m.parameters) ? (m.parameters as SemanticParameter[]) : [],
       hierarchies: Array.isArray(m.hierarchies) ? (m.hierarchies as SemanticHierarchy[]) : [],
+      rollups: Array.isArray(m.rollups) ? (m.rollups as SemanticRollup[]) : [],
     });
     setDraftRow(m);
     setViewerPolicy(policy);
@@ -534,6 +555,7 @@ function SemanticsPage() {
             calendar: calendarToPayload(draft.calendar),
             parameters: draft.parameters.map((p) => ({ ...p, default: p.default ?? "" })),
             hierarchies: draft.hierarchies,
+            rollups: rollupsToPayload(draft.rollups),
           },
         },
       })) as {
@@ -645,6 +667,7 @@ function SemanticsPage() {
             calendar: calendarToPayload(draft.calendar),
             parameters: draft.parameters.map((p) => ({ ...p, default: p.default ?? "" })),
             hierarchies: draft.hierarchies,
+            rollups: rollupsToPayload(draft.rollups),
           },
         },
       })) as { id: string };
@@ -827,6 +850,7 @@ function SemanticsPage() {
         rows: Record<string, unknown>[];
         sql: string;
         access_note?: string;
+        rollup?: string;
       };
       setResult({
         ...res,
@@ -1865,6 +1889,190 @@ function SemanticsPage() {
                       }
                     >
                       <Plus className="mr-1 h-3.5 w-3.5" /> Add join
+                    </Button>
+                  </CardContent>
+                </Card>
+
+                {/* Rollups — declared pre-aggregated tables. Routing is
+                    compile-time and provable; Validate measures each rollup
+                    against the fact table. */}
+                <Card>
+                  <CardHeader className="pb-3">
+                    <SectionTitle
+                      icon={Gauge}
+                      title="Rollups (aggregate awareness)"
+                      hint={
+                        <>
+                          Point queries at a <em>pre-aggregated</em> table when it can provably
+                          answer them — a month × region summary serves month, quarter and year
+                          questions without scanning the fact table. Map the columns; anything the
+                          rollup can&apos;t prove falls back to the source, and a routed query says
+                          so in its SQL. Validate compares the rollup&apos;s totals against the
+                          source so a stale rollup is a reported drift.
+                        </>
+                      }
+                    />
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {draft.rollups.map((r, i) => {
+                      const patchRollup = (p: Partial<SemanticRollup>) =>
+                        patch({
+                          rollups: draft.rollups.map((x, k) => (k === i ? { ...x, ...p } : x)),
+                        });
+                      const dimCol = (name: string) =>
+                        r.dimensions.find((d) => d.dimension === name);
+                      const metCol = (name: string) => r.metrics.find((m) => m.metric === name);
+                      const setDim = (name: string, p: { column?: string; grain?: TimeGrain }) => {
+                        const rest = r.dimensions.filter((d) => d.dimension !== name);
+                        const cur = dimCol(name) ?? { dimension: name, column: "" };
+                        const next = { ...cur, ...p };
+                        patchRollup({
+                          dimensions: next.column.trim() === "" ? rest : [...rest, next],
+                        });
+                      };
+                      const setMet = (name: string, column: string) => {
+                        const rest = r.metrics.filter((m) => m.metric !== name);
+                        patchRollup({
+                          metrics:
+                            column.trim() === "" ? rest : [...rest, { metric: name, column }],
+                        });
+                      };
+                      // Only leaf aggregations that re-aggregate are mappable;
+                      // offering avg here would bake in the avg-of-avgs lie.
+                      const mappable = draft.metrics.filter((m) =>
+                        ["sum", "count", "min", "max"].includes(m.agg),
+                      );
+                      return (
+                        <div key={i} className="space-y-2 rounded-lg border p-3">
+                          <div className="flex items-center gap-2">
+                            <Input
+                              value={r.table}
+                              disabled={isShared}
+                              placeholder="sales_by_month_region"
+                              className="h-8 max-w-xs font-mono text-xs"
+                              aria-label={`Rollup ${i + 1} table`}
+                              onChange={(e) => patchRollup({ table: e.target.value })}
+                            />
+                            <span className="flex-1" />
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 text-[11px] text-muted-foreground"
+                              disabled={isShared}
+                              aria-label={`Remove rollup ${i + 1}`}
+                              onClick={() =>
+                                patch({ rollups: draft.rollups.filter((_, k) => k !== i) })
+                              }
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <div className="space-y-1">
+                              <p className="text-[11px] font-medium text-muted-foreground">
+                                Dimension columns
+                              </p>
+                              {draft.dimensions.map((d) => (
+                                <div key={d.name} className="flex items-center gap-2">
+                                  <span className="w-24 shrink-0 truncate font-mono text-[11px] text-muted-foreground">
+                                    {d.name}
+                                  </span>
+                                  <Input
+                                    value={dimCol(d.name)?.column ?? ""}
+                                    disabled={isShared}
+                                    placeholder="column (blank = not stored)"
+                                    className="h-7 font-mono text-[11px]"
+                                    aria-label={`Rollup ${i + 1} ${d.name} column`}
+                                    onChange={(e) => setDim(d.name, { column: e.target.value })}
+                                  />
+                                  {d.type === "time" && (
+                                    <Select
+                                      value={dimCol(d.name)?.grain ?? ""}
+                                      disabled={isShared || !dimCol(d.name)}
+                                      onValueChange={(v) =>
+                                        setDim(d.name, { grain: v as TimeGrain })
+                                      }
+                                    >
+                                      <SelectTrigger
+                                        className="h-7 w-28 text-[11px]"
+                                        aria-label={`Rollup ${i + 1} ${d.name} stored grain`}
+                                      >
+                                        <SelectValue placeholder="stored grain" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {["day", "week", "month", "quarter", "year"].map((g) => (
+                                          <SelectItem key={g} value={g}>
+                                            {g}
+                                          </SelectItem>
+                                        ))}
+                                        {(CALENDAR_GRAINS as readonly string[])
+                                          .filter(
+                                            (g) =>
+                                              calendarToPayload(draft.calendar)?.grains[
+                                                g as CalendarGrain
+                                              ],
+                                          )
+                                          .map((g) => (
+                                            <SelectItem key={g} value={g}>
+                                              {g}
+                                            </SelectItem>
+                                          ))}
+                                      </SelectContent>
+                                    </Select>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                            <div className="space-y-1">
+                              <p className="text-[11px] font-medium text-muted-foreground">
+                                Metric columns (pre-aggregated)
+                              </p>
+                              {mappable.map((m) => (
+                                <div key={m.name} className="flex items-center gap-2">
+                                  <span className="w-24 shrink-0 truncate font-mono text-[11px] text-muted-foreground">
+                                    {m.name}
+                                  </span>
+                                  <Input
+                                    value={metCol(m.name)?.column ?? ""}
+                                    disabled={isShared}
+                                    placeholder="column (blank = not stored)"
+                                    className="h-7 font-mono text-[11px]"
+                                    aria-label={`Rollup ${i + 1} ${m.name} column`}
+                                    onChange={(e) => setMet(m.name, e.target.value)}
+                                  />
+                                  <span className="w-10 shrink-0 text-[10px] text-muted-foreground">
+                                    {m.agg}
+                                  </span>
+                                </div>
+                              ))}
+                              {mappable.length === 0 && (
+                                <p className="text-[11px] text-muted-foreground">
+                                  No re-aggregatable metrics (sum, count, min, max) to map yet.
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          <p className="text-[11px] text-muted-foreground">
+                            A time dimension needs its <em>stored grain</em> — a month store serves
+                            month/quarter/year queries; day serves everything. <em>avg</em> and{" "}
+                            <em>count_distinct</em> never route (an avg of avgs answers a different
+                            question) — store sum and count and derive the ratio.
+                          </p>
+                        </div>
+                      );
+                    })}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={isShared || draft.rollups.length >= MAX_ROLLUPS}
+                      onClick={() =>
+                        patch({
+                          rollups: [...draft.rollups, { table: "", dimensions: [], metrics: [] }],
+                        })
+                      }
+                    >
+                      <Plus className="mr-1 h-3.5 w-3.5" /> Add rollup
                     </Button>
                   </CardContent>
                 </Card>
@@ -3053,6 +3261,13 @@ function SemanticsPage() {
                         <pre className="overflow-x-auto rounded bg-muted p-2 font-mono text-[11px]">
                           {result.sql}
                         </pre>
+                        {result.rollup && (
+                          <p className="rounded border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-[11px]">
+                            Answered by rollup <code className="font-mono">{result.rollup}</code> —
+                            a pre-aggregated table this model declares, not the fact table. The SQL
+                            above says so too; Validate measures the rollup against the source.
+                          </p>
+                        )}
                         {result.access_note && (
                           <p className="rounded border border-sky-500/40 bg-sky-500/10 px-2 py-1 text-[11px]">
                             Restricted share — {result.access_note}. These numbers are your scoped
