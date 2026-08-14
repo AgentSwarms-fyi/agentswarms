@@ -156,6 +156,8 @@ export async function runObjectStoreQuery(args: {
 
   // Only what the query names. extractTableRefs is the same parser the lineage
   // index uses, so the Workbench and the catalog agree on what a query touches.
+  // It reads quoted identifiers (`FROM "orders"`) as well as bare ones — a
+  // parser that skipped them would fetch nothing and fail the query below.
   const referenced = new Set(
     extractTableRefs(safeSql).map((t) => t.split(".").pop()!.toLowerCase()),
   );

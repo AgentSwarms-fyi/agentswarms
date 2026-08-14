@@ -8,7 +8,7 @@
 // The query is built as a PostgREST filter string, so these read the source.
 // That is unusual in a test and it is the only way to check a decision that
 // otherwise needs a live database and two real tenants.
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const loaderSrc = readFileSync("src/utils/warehouse/connections.server.ts", "utf8");
@@ -120,15 +120,34 @@ describe("the grantable list does not drift from the database", () => {
   /**
    * The CHECK constraint is the authority on what may be granted.
    *
-   * Scoped to the IN list rather than the whole file — the migration's comments
+   * Read from the LAST migration that defines it, not a named one: the
+   * constraint is DROPped and re-ADDed by every feature that becomes
+   * shareable, so pinning one file means this guard silently describes an
+   * older database the moment another migration lands — which is the same rot
+   * it was written to catch.
+   *
+   * Scoped to the IN list rather than the whole file — the migrations' comments
    * name several of these types in prose, and a file-wide match would pick
    * those up and pass no matter what the constraint said.
    */
   const IN_LIST = "resource_type IN (";
-  const checkStart = migration.indexOf(IN_LIST);
-  const checkBody = migration.slice(
+  const constraintSql = (() => {
+    const files = readdirSync("supabase/migrations")
+      .filter((f) => f.endsWith(".sql"))
+      .sort();
+    let last: string | null = null;
+    for (const f of files) {
+      const sql = readFileSync(`supabase/migrations/${f}`, "utf8");
+      const at = sql.lastIndexOf("ADD CONSTRAINT iam_resource_grants_resource_type_check");
+      if (at >= 0) last = sql.slice(at);
+    }
+    expect(last, "no migration defines the grant-type constraint").not.toBeNull();
+    return last!;
+  })();
+  const checkStart = constraintSql.indexOf(IN_LIST);
+  const checkBody = constraintSql.slice(
     checkStart + IN_LIST.length,
-    migration.indexOf(")", checkStart),
+    constraintSql.indexOf(")", checkStart),
   );
   const dbTypes = new Set([...checkBody.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]));
 
@@ -172,6 +191,7 @@ describe("the grantable list does not drift from the database", () => {
       "eight",
       "nine",
       "ten",
+      "eleven",
     ];
     expect(stated![1].toLowerCase()).toBe(words[dbTypes.size]);
   });

@@ -99,80 +99,19 @@ export type DrillThroughPlan = {
 // scanner that knows what is a keyword and what merely looks like one inside a
 // string, a quoted identifier or a comment. `WHERE note = 'group by hand'` is
 // not a GROUP BY, and a column named "order" is not an ORDER BY.
+//
+// The scanner itself lives in lib/sqlRefs (import-free, so the server bundles
+// that extract table references can use it too). It EMITS quoted identifiers
+// rather than skipping them — table extraction needs `FROM "orders"` — but
+// marks them `quoted`, and every keyword test below ignores those. That is
+// what keeps a column named "order" from reading as an ORDER BY.
+import { scanWords } from "@/lib/sqlRefs";
 
-type Word = { word: string; start: number; end: number; depth: number };
+export { scanWords };
 
-const IDENT_START = /[A-Za-z_]/;
-const IDENT_PART = /[A-Za-z0-9_$]/;
-
-/** Bare words outside literals/comments, each tagged with its paren depth. */
-export function scanWords(sql: string): Word[] {
-  const out: Word[] = [];
-  const n = sql.length;
-  let depth = 0;
-  let i = 0;
-  while (i < n) {
-    const c = sql[i];
-    if (c === "-" && sql[i + 1] === "-") {
-      while (i < n && sql[i] !== "\n") i++;
-      continue;
-    }
-    if (c === "/" && sql[i + 1] === "*") {
-      i += 2;
-      while (i < n && !(sql[i] === "*" && sql[i + 1] === "/")) i++;
-      i += 2;
-      continue;
-    }
-    // Single quotes double to escape ('it''s'); so do double quotes.
-    if (c === "'" || c === '"') {
-      const q = c;
-      i++;
-      while (i < n) {
-        if (sql[i] === q) {
-          if (sql[i + 1] === q) {
-            i += 2;
-            continue;
-          }
-          i++;
-          break;
-        }
-        i++;
-      }
-      continue;
-    }
-    if (c === "`") {
-      i++;
-      while (i < n && sql[i] !== "`") i++;
-      i++;
-      continue;
-    }
-    // [bracketed] identifiers (AlaSQL / T-SQL). Treated as opaque either way:
-    // if it is array indexing instead, skipping it still finds no keywords.
-    if (c === "[") {
-      i++;
-      while (i < n && sql[i] !== "]") i++;
-      i++;
-      continue;
-    }
-    if (c === "(") {
-      depth++;
-      i++;
-      continue;
-    }
-    if (c === ")") {
-      depth--;
-      i++;
-      continue;
-    }
-    if (IDENT_START.test(c)) {
-      const start = i;
-      while (i < n && IDENT_PART.test(sql[i])) i++;
-      out.push({ word: sql.slice(start, i).toUpperCase(), start, end: i, depth });
-      continue;
-    }
-    i++;
-  }
-  return out;
+/** A keyword is a BARE word: quoting is how SQL says "this is a name". */
+function isKeyword(w: { word: string; quoted?: boolean }, set: Set<string>): boolean {
+  return !w.quoted && set.has(w.word);
 }
 
 /** Clauses that end the FROM/WHERE body we want to keep. */
@@ -205,17 +144,17 @@ export function unaggregateSql(sql: string): string | null {
 
   // The main SELECT is the first at depth 0: CTE bodies and subqueries are
   // parenthesised, so theirs sit deeper.
-  const select = words.find((w) => w.depth === 0 && w.word === "SELECT");
+  const select = words.find((w) => w.depth === 0 && !w.quoted && w.word === "SELECT");
   if (!select) return null;
 
   const after = words.filter((w) => w.start >= select.end);
-  if (after.some((w) => w.depth === 0 && SET_OPS.has(w.word))) return null;
+  if (after.some((w) => w.depth === 0 && isKeyword(w, SET_OPS))) return null;
 
-  const from = after.find((w) => w.depth === 0 && w.word === "FROM");
+  const from = after.find((w) => w.depth === 0 && !w.quoted && w.word === "FROM");
   if (!from) return null;
 
   const tail = after.find(
-    (w) => w.depth === 0 && w.start > from.start && TAIL_KEYWORDS.has(w.word),
+    (w) => w.depth === 0 && w.start > from.start && isKeyword(w, TAIL_KEYWORDS),
   );
   const body = src.slice(from.start, tail ? tail.start : src.length).trim();
   if (!body) return null;
