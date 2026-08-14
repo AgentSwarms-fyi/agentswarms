@@ -90,12 +90,24 @@ function BiPage() {
         delta is computed in code; where they are grouped the comparison is refused rather than
         matching rows by position. A scenario that varies nothing is refused too — re-running an
         identical query under a &ldquo;scenario&rdquo; heading invites the reader to conclude a
-        change was tested and made no difference. Every question runs a transparent loop: plan the
-        steps, write and run the SQL (the same generator and governed metric definitions the BI
-        analyst uses, SELECT-only), <em>check its own work</em> — a wrong step re-runs with
-        corrected SQL, a doubtful one is presented flagged — then write up findings where every
-        number cites the step it came from. Analyses persist per analyst, follow-up questions see
-        the earlier answers, and the whole trace exports as a <strong>PDF</strong>.
+        change was tested and made no difference.
+      </P>
+      <P>
+        <strong>Verified answers.</strong> Mark a finished analysis verified, or flag it wrong with
+        a reason — a flag without one leaves the next reader where they started. The verdict records
+        who and when, and is pinned to a fingerprint of the steps it judged: each step&apos;s SQL
+        and the governed model that compiled it. Edit a step, or let the self-check rewrite one, and
+        the verdict <strong>voids</strong> — shown as void rather than dropped, because the reader
+        needs to know a check existed and no longer covers these queries. Results and prose sit
+        outside the fingerprint: the same SQL over refreshed data is the same checked work. Ask a
+        question someone has already judged and the verdict is <em>offered, not applied</em> —
+        asking re-runs the queries against today&apos;s data, and only still-valid verdicts are
+        offered. Every question runs a transparent loop: plan the steps, write and run the SQL (the
+        same generator and governed metric definitions the BI analyst uses, SELECT-only),{" "}
+        <em>check its own work</em> — a wrong step re-runs with corrected SQL, a doubtful one is
+        presented flagged — then write up findings where every number cites the step it came from.
+        Analyses persist per analyst, follow-up questions see the earlier answers, and the whole
+        trace exports as a <strong>PDF</strong>.
       </P>
       <P>
         <strong>Every step that has something to show gets its own chart</strong>, so a three-query
@@ -121,6 +133,39 @@ function BiPage() {
         answered without knowing something — an unstated time range, a word your schema defines two
         ways — it <strong>asks before querying</strong>, offering the assumption it would otherwise
         make so accepting takes one click.
+      </P>
+      <P>
+        <strong>Sharing an analyst shares the analyst, not your data access.</strong> Grant it to
+        IAM groups and recipients can open it and ask their own questions — but every query they run
+        is authorised as <em>them</em>, with their dataset grants, their warehouse credentials and
+        their row filters. A shared analyst can therefore return different numbers to different
+        people, which the share dialog states before you grant, blocking problems first. An analyst
+        scoped to <em>all local datasets</em> resolves per reader, so shared it points at the
+        recipient&apos;s data rather than yours. <strong>Your saved analyses stay yours</strong> —
+        they hold rows fetched under your access — and renaming, editing and deleting remain
+        owner-only. A grant is refused outright if the recipients&apos; IAM model rules do not allow
+        the analyst&apos;s model.
+      </P>
+      <P>
+        Every step that ran a query carries a <strong>Where these numbers came from</strong>{" "}
+        disclosure. The tables it names come from <em>the SQL that actually ran</em>, never from the
+        model definition — models get edited, and a panel built from today&apos;s definition would
+        misdescribe a query that ran against yesterday&apos;s. So a step answered by a rollup names
+        the rollup and says the fact table was not read, and a step whose SQL you edited says no
+        governed definition vouches for it. Under each table, where the evidence exists, sits what a{" "}
+        <strong>prep flow</strong> combined to build it and what the warehouse&apos;s own lineage
+        records upstream — loaded only when you open the disclosure. A lookup that fails says so,
+        rather than reporting &ldquo;nothing upstream&rdquo;.
+      </P>
+      <P>
+        <strong>Export data</strong> gives you the analysis as a <strong>workbook</strong> rather
+        than a document: an overview sheet with the questions, findings and — per step — its
+        governed model, check verdict, human verdict and whether it was edited by hand, then one
+        sheet per step result. A spreadsheet gets mailed around and outlives the query behind it, so
+        the qualifiers travel in the cells: the file is stamped with its export date, and{" "}
+        <strong>what-if rows get their own sheet with the assumption in the first column</strong> —
+        an unlabelled hypothetical becomes a measurement the moment someone copies it. Steps that
+        returned no rows are skipped rather than exported as empty sheets.
       </P>
 
       <H2 id="build">Building a dashboard</H2>

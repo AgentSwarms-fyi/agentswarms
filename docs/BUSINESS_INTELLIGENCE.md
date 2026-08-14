@@ -335,6 +335,23 @@ Ask one a question and it runs a transparent loop:
 4. **Write-up** — the findings cite steps by number, and every number in the
    answer appears in a step result. A headline chart accompanies it.
 
+**Verified answers.** A finished analysis can be marked **verified** or
+**flagged as wrong** (a flag requires a reason — one without leaves the next
+reader where they started). The verdict records who and when, and it is
+pinned to a **fingerprint** of the steps it was given: each step's SQL and
+the governed model that compiled it. Edit a step, or let the self-check
+rewrite one, and the verdict **voids** — shown as void rather than quietly
+dropped, because the reader needs to know a check existed and no longer
+covers these queries. Results and prose are deliberately outside the
+fingerprint: the same SQL over refreshed data is the same checked work, and
+re-verifying on every refresh would make the mark meaningless.
+
+Ask a question someone has already judged and the verdict is **offered, not
+applied** — the data has moved since, and nothing here knows by how much.
+Asking re-runs the queries; the old check does not carry over. Only _active_
+verdicts are offered, and a later "this is wrong" beats an earlier
+"verified". Verdicts travel into the exported PDF, voided ones included.
+
 Analyses are kept per analyst and **all of them are reachable** — the picker
 beside "New analysis" lists the last 50 by title and date. It used to load
 only the newest, so every earlier analysis was stored and then hidden, which
@@ -400,6 +417,71 @@ check verdicts, findings — renders in the thread, persists (owner-only rows;
 result samples capped at 50 rows per step), carries across questions ("what
 about that top region?" resolves from earlier turns), and **exports as a
 branded PDF** with one click: real vector text, every step's chart included.
+
+**Sharing an analyst shares the analyst, not your data access.** An analyst
+can be granted to IAM groups; recipients open it and ask their own questions,
+and every query they run is authorised as **them** — their dataset grants,
+their warehouse credentials, their row filters and column masks. Which means
+a shared analyst can legitimately return **different numbers to different
+people**, so the share dialog says so before the grant is made, with blocking
+problems (datasets the recipients cannot reach; a warehouse connection they
+do not have) ranked above advisory ones. An analyst scoped to _all local
+datasets_ is called out specially: that scope resolves per reader, so shared
+it points at the recipient's datasets rather than yours.
+
+**Saved analyses are not shared.** Threads hold result samples fetched under
+the owner's access; showing them to a reader with narrower row filters would
+leak exactly the rows those filters exist to withhold. Recipients get the
+analyst and start their own conversations. Writes stay with the owner too —
+renaming, repointing and deleting are owner-only, and the list marks an
+analyst someone shared with you rather than offering controls that would fail.
+A grant is **refused** when the recipients' IAM model rules do not allow the
+analyst's pinned model: an analyst you can open and never run is a broken
+feature, not a policy decision, so the refusal names the model and the groups.
+
+**Where these numbers came from.** Every step that ran a query carries a
+lineage disclosure. The tables it names are read out of **the SQL that
+actually ran**, never out of the model definition — models get edited, and a
+panel built from today's definition would quietly misdescribe a query that ran
+against yesterday's. It is the same rule the verification fingerprint follows.
+So a step routed to a **rollup** names the rollup, and says the fact table was
+not read; a step whose SQL was **edited by hand** says no governed definition
+vouches for it, whatever compiled the original.
+
+The parsing is shared with the catalog's lineage index, the warehouse-query
+audit and the object-store query planner — one parser, because two of them
+drifting is how the Workbench and the catalog end up disagreeing about what a
+query touched. It used to be a regex, and a regex reports a comment reading
+`-- was: from legacy_orders`, a string containing `'imported from
+stripe_charges'`, and a CTE alias as tables. For catalog search that was
+noise; here it is an assertion, and a false one. It equally has to **find**
+quoted identifiers: a scanner that treats `"orders"` as opaque misses the
+table entirely, and on `FROM "orders" WHERE x` reports WHERE as the source.
+Quoted names are therefore read as names, and marked as quoted so a column
+called `"order"` is still not an ORDER BY. Underneath each table,
+where the evidence exists, sits what a **prep flow** combined to build it and
+what the **warehouse's own lineage** records upstream — loaded only when the
+disclosure is opened, since that read is not worth paying for on a page whose
+job is asking questions. A lookup that **fails** says so rather than reporting
+"nothing upstream", which would be a claim about the catalog that only a
+successful read can support.
+
+**Export data** produces the same analysis as a **workbook** for people who
+need to keep working on the numbers. It is not one flattened sheet: an
+_Analysis_ sheet carries the questions, the approach, the findings and — per
+step — which governed model compiled it, what the self-check said, whether a
+human verified it, and whether a step was edited by hand. Then one sheet per
+step result. A spreadsheet gets mailed around and outlives the query behind
+it, so everything that qualifies a number travels in the cells rather than in
+the app: the export is stamped with its date, a stale-findings caveat is
+carried across, and **what-if rows land on their own sheet with the
+assumption in the first column** — a hypothetical that reaches a spreadsheet
+unlabelled becomes a measurement the moment someone copies it. Steps that
+returned nothing are skipped rather than exported as empty sheets, which read
+as "this query found nothing" and are indistinguishable from a failure. Sheet
+names are de-duplicated **after** Excel's 31-character truncation, since that
+is where two long, similar step goals collide and a workbook with duplicate
+sheet names does not open at all.
 
 ## Theming
 

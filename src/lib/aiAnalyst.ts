@@ -45,6 +45,7 @@ import { describeSeries, forecastSeries, readSeries, seriesFrom } from "@/lib/an
 import type { DatasetMeta, QueryResult } from "@/lib/sqlEngine";
 import type { SemanticFilter, SemanticQuery, TimeGrain } from "@/lib/semanticLayer";
 import type { MetricDelta, ScenarioChange, ScenarioParameter } from "@/lib/analystScenario";
+import type { TurnVerification } from "@/lib/analystVerification";
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -157,6 +158,14 @@ export type AnalystTurn = {
    * is the exact dishonesty this feature exists to avoid.
    */
   answerStale?: boolean;
+  /**
+   * A human's verdict on this analysis, pinned to the steps it was given.
+   *
+   * See analystVerification: the fingerprint is what stops a green tick
+   * outliving the SQL it vouched for. An unverified answer is read with
+   * ordinary caution; a falsely verified one is read with none.
+   */
+  verification?: TurnVerification;
   status: "planning" | "working" | "checking" | "synthesizing" | "done" | "clarifying" | "error";
   error?: string;
   at?: string;

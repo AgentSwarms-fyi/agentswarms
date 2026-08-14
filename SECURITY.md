@@ -136,9 +136,19 @@ literal text.
 - **Model access** can be set to allow-by-default or **deny-by-default**, where
   a user with no rule can call no model until allow-listed. Superadmins bypass
   deny mode so you cannot lock yourself out.
-- **Shared resources are read-only** and run **as their owner** — a grantee's
-  query hits the owner's warehouse under the owner's credentials, and the
-  credential itself is never exposed.
+- **Shared resources are read-only** and, for the resources that carry a
+  credential, run **as their owner** — a grantee's query hits the owner's
+  warehouse under the owner's credentials, and the credential itself is never
+  exposed.
+- **A shared AI analyst is the exception, deliberately.** It carries no
+  credential of its own, so a grant conveys the right to USE it and nothing
+  else: the grantee's questions are compiled and run **as them**, under their
+  dataset grants, their warehouse access, their row filters and column masks.
+  A shared analyst can therefore return different numbers to different
+  readers, which the share dialog states before the grant is made. Saved
+  analyses are **not** shared — a thread holds result samples fetched under
+  the author's access, and exposing those to a narrower reader would leak
+  precisely the rows their row filters exist to withhold.
 - Admin server functions are gated by `requireSuperadmin` (`utils/iam.server.ts`).
 
 ## Outbound request protection (SSRF)

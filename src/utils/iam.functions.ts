@@ -84,7 +84,8 @@ export type IamResourceOption = {
     | "integration"
     | "provider_credential"
     | "warehouse_connection"
-    | "saas_connection";
+    | "saas_connection"
+    | "ai_analyst";
   id: string;
   name: string;
   owner_user_id: string | null;
@@ -712,6 +713,7 @@ export const iamListGrantableResources = createServerFn({ method: "POST" })
       { data: providerCreds },
       { data: warehouses },
       { data: saasSources },
+      { data: analysts },
     ] = await Promise.all([
       supabaseAdmin.from("knowledge_bases").select("id, name, user_id").order("name"),
       supabaseAdmin
@@ -738,6 +740,7 @@ export const iamListGrantableResources = createServerFn({ method: "POST" })
         .select("id, name, provider, user_id")
         .order("name"),
       supabaseAdmin.from("saas_connections").select("id, name, provider, user_id").order("name"),
+      supabaseAdmin.from("ai_analysts").select("id, name, user_id").order("name"),
     ]);
     const resources: IamResourceOption[] = [
       ...(kbs ?? []).map((k) => ({
@@ -802,6 +805,16 @@ export const iamListGrantableResources = createServerFn({ method: "POST" })
         id: c.id,
         name: `${c.name} (${c.provider})`,
         owner_user_id: c.user_id,
+      })),
+      // Sharing an analyst shares its USE, never the owner's data access: the
+      // grantee's questions are compiled and run as THEM, with their own
+      // dataset grants, row filters and column masks. Saved analyses stay with
+      // their author.
+      ...(analysts ?? []).map((a) => ({
+        resource_type: "ai_analyst" as const,
+        id: a.id,
+        name: a.name,
+        owner_user_id: a.user_id,
       })),
     ];
     return { ok: true, resources };
@@ -972,6 +985,7 @@ export const iamCreateGrant = createServerFn({ method: "POST" })
           "provider_credential",
           "warehouse_connection",
           "saas_connection",
+          "ai_analyst",
         ]),
         resource_id: z.string().uuid(),
         principal_type: z.enum(["user", "group"]),

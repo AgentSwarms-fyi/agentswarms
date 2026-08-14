@@ -150,7 +150,52 @@ export async function downloadXlsx(
     columns.map((c) => toXlsxCell(r[c], excelNumberFormat(opts?.columnFormats?.[c]))),
   );
   const data: SheetData = [header, ...body];
-  // Excel sheet names are capped at 31 chars and forbid a few characters.
-  const sheet = (opts?.sheet ?? "Sheet1").replace(/[\\/?*[\]:]/g, " ").slice(0, 31) || "Sheet1";
-  await writeXlsxFile(data, { sheet }).toFile(withExt(filename, "xlsx"));
+  await writeXlsxFile(data, { sheet: safeSheetName(opts?.sheet) }).toFile(
+    withExt(filename, "xlsx"),
+  );
+}
+
+/**
+ * Excel sheet names are capped at 31 characters and forbid `\ / ? * [ ] :`.
+ * Exported so multi-sheet callers can de-duplicate against the SAME rule the
+ * writer will apply — two names that differ only past character 31 collide
+ * once truncated, and the workbook is rejected rather than merely ugly.
+ */
+export function safeSheetName(name: string | undefined): string {
+  return (
+    (name ?? "Sheet1")
+      .replace(/[\\/?*[\]:]/g, " ")
+      .trim()
+      .slice(0, 31) || "Sheet1"
+  );
+}
+
+export type XlsxSheet = {
+  name: string;
+  columns: string[];
+  rows: Record<string, unknown>[];
+};
+
+/**
+ * Download several sheets as one workbook.
+ *
+ * An analysis is not one table — it is a question, a few queries and their
+ * results. Flattening that into a single sheet loses which rows answered
+ * which step, which is the part that makes the numbers checkable.
+ */
+export async function downloadXlsxWorkbook(sheets: XlsxSheet[], filename: string): Promise<void> {
+  if (sheets.length === 0) return;
+  const writeXlsxFile = (await import("write-excel-file/browser")).default;
+  // The multi-sheet overload takes {sheet, data} objects — one array, not a
+  // data array plus a parallel array of names, which is easy to assume and
+  // silently pairs the wrong name to the wrong rows if the two ever differ
+  // in length.
+  const payload = sheets.map((s) => ({
+    sheet: safeSheetName(s.name),
+    data: [
+      s.columns.map((c) => ({ type: String, value: c, fontWeight: "bold" }) as Cell),
+      ...s.rows.map((r) => s.columns.map((c) => toXlsxCell(r[c]))),
+    ] as SheetData,
+  }));
+  await writeXlsxFile(payload).toFile(withExt(filename, "xlsx"));
 }

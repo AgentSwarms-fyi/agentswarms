@@ -1135,7 +1135,8 @@ function AccessTab({
     | "integration"
     | "provider_credential"
     | "warehouse_connection"
-    | "saas_connection";
+    | "saas_connection"
+    | "ai_analyst";
   const [shareResourceType, setShareResourceType] = useState<ShareResourceType>("knowledge_base");
   const [shareResourceId, setShareResourceId] = useState("");
   const [sharePrincipalType, setSharePrincipalType] = useState<"group" | "user">("group");
@@ -1167,6 +1168,9 @@ function AccessTab({
     // decrypted server-side and never sent anywhere.
     { value: "warehouse_connection", label: "🏢 Database / warehouse connection" },
     { value: "saas_connection", label: "🔌 App source (Sheets, Stripe, CRM…)" },
+    // Sharing an analyst shares its USE, not the owner's data access: the
+    // grantee's questions run as them. Their saved analyses stay their own.
+    { value: "ai_analyst", label: "🧠 AI analyst" },
   ];
   const shareableOfType = resources.filter((r) => r.resource_type === shareResourceType);
 

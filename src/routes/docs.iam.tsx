@@ -173,8 +173,8 @@ function IamPage() {
       <H2 id="sharing">Resource sharing</H2>
       <P>
         Grant a user or group <strong>read-only</strong> access to a resource owned by someone else,
-        under <strong>Admin → IAM → Access</strong>. Ten resource types are grantable, enforced by a
-        database constraint:
+        under <strong>Admin → IAM → Access</strong>. Eleven resource types are grantable, enforced
+        by a database constraint:
       </P>
       <Table
         headers={["Type", "What the grantee gets"]}
@@ -188,6 +188,7 @@ function IamPage() {
           ["🤖 LLM key / ☁️ LLM credential", "Calls bill to the owner's key"],
           ["🏢 Database / warehouse connection", "Queryable — see below"],
           ["🔌 App source", "Syncable — see below"],
+          ["🧠 AI analyst", "Usable — but as the grantee, not the owner; see below"],
         ]}
       />
       <P>
@@ -281,6 +282,18 @@ function IamPage() {
         read the resulting data, share those datasets too. Grants are resolved fresh on every call,
         including scheduled runs, so revoking one takes effect on the next use.{" "}
         <DocLink to="/docs/data#sharing">Full details in Data sources</DocLink>.
+      </P>
+      <P>
+        A shared <strong>AI analyst</strong> runs the other way round, and deliberately. It carries
+        no credential of its own, so the grant conveys the right to <em>use</em> it and nothing
+        else: the grantee&apos;s questions are compiled and run <strong>as them</strong>, under
+        their own dataset grants, warehouse access, row filters and column masks. The same analyst
+        can therefore answer differently for different readers — the share dialog says so before the
+        grant is made, and warns when the recipients cannot reach the data it is scoped to.{" "}
+        <strong>Saved analyses are not shared</strong>: a thread holds result samples fetched under
+        its author&apos;s access, so recipients start their own. The grant is refused outright if
+        the recipients&apos; model rules do not allow the analyst&apos;s pinned model.{" "}
+        <DocLink to="/docs/bi#ai-analyst">Full details in BI Workspace</DocLink>.
       </P>
 
       <H2 id="signup">Signup policy and SSO</H2>

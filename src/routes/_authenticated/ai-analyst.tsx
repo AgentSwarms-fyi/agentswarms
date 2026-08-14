@@ -18,8 +18,10 @@ import {
   AlertTriangle,
   BrainCircuit,
   CheckCircle2,
+  BadgeCheck,
   Database,
   FlaskConical,
+  ThumbsDown,
   FileDown,
   HelpCircle,
   LayoutDashboard,
@@ -31,13 +33,16 @@ import {
   Plus,
   RefreshCw,
   Send,
+  Sheet,
   Trash2,
   ShieldCheck,
+  Users,
   Wrench,
 } from "lucide-react";
 
 import { BiChartRender, fmtBiValue } from "@/components/bi/BiChartRender";
 import { BiModelSelect } from "@/components/bi/BiModelSelect";
+import { ShareAnalystDialog } from "@/components/bi/ShareAnalystDialog";
 import { MarkdownMessage } from "@/components/playground/MarkdownMessage";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -77,6 +82,22 @@ import {
   type AnalystTurn,
   type GovernedModelFields,
 } from "@/lib/aiAnalyst";
+import { analystWorkbook, workbookFilename } from "@/lib/analystExport";
+import { describeLineage, stepLineage } from "@/lib/analystLineage";
+import {
+  loadCatalogLineage,
+  loadLineageIndex,
+  type CatalogLineageEdge,
+  type LineageIndex,
+} from "@/lib/dataCatalog";
+import { downloadXlsxWorkbook } from "@/lib/exportData";
+import {
+  describeVerification,
+  findPriorVerdict,
+  markTurn,
+  verificationStatus,
+  type VerificationState,
+} from "@/lib/analystVerification";
 import {
   buildScenario,
   describeScenario,
@@ -121,6 +142,8 @@ type AnalystRow = {
   model: string;
   source: AnalystSource;
   created_at: string;
+  /** Owner. RLS also returns analysts shared with you, which are not yours. */
+  user_id: string;
 };
 
 type ThreadRow = {
@@ -197,6 +220,33 @@ function AiAnalystPage() {
   const [warehouses, setWarehouses] = useState<WarehouseConnectionSummary[]>([]);
   const whSchemaCache = useRef<Map<string, WarehouseTable[]>>(new Map());
 
+  /**
+   * Upstream evidence for the lineage panel.
+   *
+   * Loaded ONLY when a reader opens a lineage disclosure: the catalog lineage
+   * table is read up to 20k rows, which is not a cost to pay on every visit to
+   * a page whose main job is asking questions. The lineage that matters most —
+   * which tables the SQL read — needs none of this and renders immediately.
+   */
+  const [lineageIndex, setLineageIndex] = useState<LineageIndex | null>(null);
+  const [catalogEdges, setCatalogEdges] = useState<CatalogLineageEdge[] | null>(null);
+  /**
+   * A FAILED lookup is not an empty one. Falling back to an empty index would
+   * make the panel say "nothing upstream records these tables" — a statement
+   * about the catalog — when what happened is that we never managed to read it.
+   */
+  const [lineageFailed, setLineageFailed] = useState(false);
+  const lineageRequested = useRef(false);
+  const ensureLineage = useCallback(() => {
+    if (lineageRequested.current) return;
+    lineageRequested.current = true;
+    (async () => {
+      const [idx, edges] = await Promise.all([loadLineageIndex(), loadCatalogLineage()]);
+      setLineageIndex(idx);
+      setCatalogEdges(edges);
+    })().catch(() => setLineageFailed(true));
+  }, []);
+
   useEffect(() => {
     if (!user?.id) return;
     (async () => {
@@ -229,12 +279,18 @@ function AiAnalystPage() {
   // ── Analysts (RLS owner-only) ───────────────────────────────────────
   const [analysts, setAnalysts] = useState<AnalystRow[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [sharingAnalyst, setSharingAnalyst] = useState<AnalystRow | null>(null);
 
   useEffect(() => {
     if (!user?.id) return;
     supabase
       .from("ai_analysts")
-      .select("id, name, model, source, created_at")
+      // user_id comes back so the list can tell OWNED from SHARED. RLS now
+      // returns both, and an analyst someone shared with you must not offer
+      // rename/edit/delete/share — controls that would fail at the policy and
+      // read as a bug rather than as "this one is not yours".
+      .select("id, name, model, source, created_at, user_id")
       .order("created_at", { ascending: false })
       .then(({ data, error }) => {
         if (error) {
@@ -549,6 +605,51 @@ function AiAnalystPage() {
     [thread, resolveScope, persistTurns, runSemanticFn, token],
   );
 
+  /** Record a human verdict on a finished analysis. */
+  const verifyTurn = useCallback(
+    async (turnIndex: number, state: VerificationState) => {
+      const turns = thread?.turns ?? [];
+      const turn = turns[turnIndex];
+      if (!turn) return;
+      // A flag needs a reason — markTurn refuses one without, so ask first
+      // rather than letting the refusal look like a broken button.
+      const note =
+        state === "wrong"
+          ? (window.prompt("What is wrong with this answer? (required)") ?? "").trim()
+          : (window.prompt("Anything to note about this check? (optional)") ?? "").trim();
+      if (state === "wrong" && !note) {
+        toast.error("A flag needs a reason — otherwise the next reader learns nothing from it.");
+        return;
+      }
+      const marked = markTurn({
+        turn,
+        state,
+        note,
+        by: user?.email ?? undefined,
+        at: new Date().toISOString(),
+      });
+      if (!marked) {
+        toast.error("This analysis has no steps to vouch for.");
+        return;
+      }
+      const next = turns.map((t, i) => (i === turnIndex ? marked : t));
+      await persistTurns(next, turn.question);
+      toast.success(state === "verified" ? "Marked verified." : "Flagged.");
+    },
+    [thread, persistTurns, user?.email],
+  );
+
+  /**
+   * A prior verdict on the question being typed, offered rather than applied.
+   *
+   * Answering from it automatically would turn one person's one-time check
+   * into a standing claim about data they have not seen since.
+   */
+  const priorVerdict = useMemo(
+    () => (question.trim() ? findPriorVerdict(question, threads) : null),
+    [question, threads],
+  );
+
   const rewriteTurn = useCallback(
     async (turnIndex: number) => {
       const turns = thread?.turns ?? [];
@@ -662,6 +763,11 @@ function AiAnalystPage() {
     setCreateOpen(true);
   }
 
+  function openShare(a: AnalystRow) {
+    setSharingAnalyst(a);
+    setShareOpen(true);
+  }
+
   function openCreate() {
     setEditingAnalyst(null);
     setDraftModel(null);
@@ -741,6 +847,26 @@ function AiAnalystPage() {
     return list;
   }, [thread, liveTurn]);
 
+  /**
+   * The step results as a workbook — for continuing the work, where the PDF
+   * is for reading it. Every qualifier travels in the cells, because a
+   * spreadsheet leaves this app and the badges do not go with it.
+   */
+  async function saveWorkbook() {
+    if (!selected) return;
+    try {
+      const sheets = analystWorkbook({
+        analystName: selected.name,
+        model: modelsUsedIn(turnsToRender, selected.model),
+        sourceText: sourceLabel(selected.source, warehouses).text,
+        turns: turnsToRender,
+      });
+      await downloadXlsxWorkbook(sheets, workbookFilename(thread?.title ?? selected.name));
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
   async function savePdf() {
     if (!selected) return;
     try {
@@ -807,30 +933,50 @@ function AiAnalystPage() {
                 >
                   <div className="flex items-start justify-between gap-1">
                     <p className="truncate text-xs font-medium">{a.name}</p>
-                    <div className="flex shrink-0 items-center gap-1.5">
-                      <button
-                        type="button"
-                        title="Change this analyst's model or data"
-                        className="text-muted-foreground hover:text-foreground"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openEdit(a);
-                        }}
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        title="Delete analyst"
-                        className="text-muted-foreground hover:text-destructive"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void deleteAnalyst(a.id);
-                        }}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
+                    {/* Owner-only controls. A recipient pressing these would
+                        hit the RLS policy and see a failure that reads like a
+                        bug instead of "this analyst is not yours". */}
+                    {a.user_id === user?.id ? (
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        <button
+                          type="button"
+                          title="Share this analyst"
+                          className="text-muted-foreground hover:text-foreground"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openShare(a);
+                          }}
+                        >
+                          <Users className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          title="Change this analyst's model or data"
+                          className="text-muted-foreground hover:text-foreground"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openEdit(a);
+                          }}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          title="Delete analyst"
+                          className="text-muted-foreground hover:text-destructive"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void deleteAnalyst(a.id);
+                          }}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <Badge variant="outline" className="shrink-0 text-[9px]">
+                        Shared
+                      </Badge>
+                    )}
                   </div>
                   <p className="mt-1 truncate font-mono text-[10px] text-muted-foreground">
                     {(a.model.split("::").pop() ?? a.model).slice(0, 40)}
@@ -865,12 +1011,16 @@ function AiAnalystPage() {
         ) : (
           <>
             <div className="flex items-center gap-2 border-b border-border px-4 py-2">
-              <Input
-                key={selected.id}
-                defaultValue={selected.name}
-                onBlur={(e) => void renameAnalyst(selected.id, e.target.value)}
-                className="h-7 w-56 border-transparent bg-transparent px-1 text-sm font-semibold focus-visible:border-input"
-              />
+              {selected.user_id === user?.id ? (
+                <Input
+                  key={selected.id}
+                  defaultValue={selected.name}
+                  onBlur={(e) => void renameAnalyst(selected.id, e.target.value)}
+                  className="h-7 w-56 border-transparent bg-transparent px-1 text-sm font-semibold focus-visible:border-input"
+                />
+              ) : (
+                <span className="truncate px-1 text-sm font-semibold">{selected.name}</span>
+              )}
               <Badge variant="secondary" className="max-w-48 truncate font-mono text-[10px]">
                 {selected.model.split("::").pop()}
               </Badge>
@@ -912,6 +1062,16 @@ function AiAnalystPage() {
                   title="Start a fresh analysis thread"
                 >
                   <MessageSquarePlus className="h-3.5 w-3.5" /> New analysis
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 gap-1 px-2 text-xs"
+                  onClick={() => void saveWorkbook()}
+                  disabled={busy || turnsToRender.length === 0}
+                  title="Export the step results as an Excel workbook"
+                >
+                  <Sheet className="h-3.5 w-3.5" /> Export data
                 </Button>
                 <Button
                   size="sm"
@@ -970,13 +1130,44 @@ function AiAnalystPage() {
                     onPin={openPin}
                     onAsk={(q) => void askQuestion(q)}
                     onScenario={runScenarioAt}
+                    onVerify={verifyTurn}
                     catalog={catalog}
+                    upstream={{
+                      index: lineageIndex,
+                      edges: catalogEdges,
+                      failed: lineageFailed,
+                      ensure: ensureLineage,
+                    }}
                   />
                 ))
               )}
             </div>
 
             <div className="border-t border-border p-3">
+              {/* Someone has already judged this exact question. Offered, not
+                  applied: the data has moved since, and nothing here knows by
+                  how much. */}
+              {priorVerdict && (
+                <p
+                  className={`mb-2 rounded-md border p-2 text-[11px] leading-relaxed ${
+                    priorVerdict.verification.state === "verified"
+                      ? "border-emerald-500/40 bg-emerald-500/5"
+                      : "border-destructive/40 bg-destructive/5"
+                  }`}
+                >
+                  <strong>
+                    {priorVerdict.verification.state === "verified"
+                      ? "You verified this question before."
+                      : "This question was flagged as answered wrongly before."}
+                  </strong>{" "}
+                  {describeVerification({
+                    kind: "active",
+                    verification: priorVerdict.verification,
+                  })}{" "}
+                  It is in “{priorVerdict.threadTitle}”. Asking again re-runs the queries against
+                  today&apos;s data — the earlier check does not carry over.
+                </p>
+              )}
               <form
                 className="flex gap-2"
                 onSubmit={(e) => {
@@ -1043,6 +1234,13 @@ function AiAnalystPage() {
       </Dialog>
 
       {/* New analyst — exactly two choices: the model and the data. */}
+      <ShareAnalystDialog
+        open={shareOpen}
+        onOpenChange={setShareOpen}
+        analyst={sharingAnalyst}
+        accessToken={token ?? null}
+      />
+
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -1150,7 +1348,9 @@ function TurnView({
   onPin,
   onAsk,
   onScenario,
+  onVerify,
   catalog,
+  upstream,
 }: {
   turn: AnalystTurn;
   index: number;
@@ -1172,6 +1372,15 @@ function TurnView({
   ) => Promise<void>;
   /** Governed models in scope — for their declared parameters. */
   catalog: GovernedModelFields[];
+  /** Record a human verdict on this analysis. */
+  onVerify: (turnIndex: number, state: VerificationState) => Promise<void>;
+  /** Upstream evidence, loaded once for the thread when a reader asks for it. */
+  upstream: {
+    index: LineageIndex | null;
+    edges: CatalogLineageEdge[] | null;
+    failed: boolean;
+    ensure: () => void;
+  };
 }) {
   const [editing, setEditing] = useState<number | null>(null);
   const [clarifyDraft, setClarifyDraft] = useState("");
@@ -1443,6 +1652,74 @@ function TurnView({
             </p>
           )}
 
+          {/* Where the numbers came from. The tables are read out of the SQL
+              that actually ran, so this cannot drift from the query the way a
+              panel built from the model definition would. Upstream evidence
+              (prep-flow inputs, warehouse lineage) costs a query, so it loads
+              only when a reader opens this. */}
+          {s.sql && (
+            <details
+              className="rounded-md border border-border/50 bg-muted/20 text-[10px]"
+              onToggle={(e) => {
+                if ((e.currentTarget as HTMLDetailsElement).open) upstream.ensure();
+              }}
+            >
+              <summary className={`px-2 py-1 text-muted-foreground ${clickable}`}>
+                Where these numbers came from
+              </summary>
+              <div className="space-y-1 border-t border-border/50 px-2 py-1.5">
+                {(() => {
+                  const lin = stepLineage(s, {
+                    lineageIndex: upstream.index ?? undefined,
+                    catalogEdges: upstream.edges ?? undefined,
+                  });
+                  return (
+                    <>
+                      <p className="leading-relaxed text-muted-foreground">
+                        {describeLineage(lin) || "This step ran no query."}
+                      </p>
+                      {lin.origins.map((o) => (
+                        <p key={o.table} className="leading-relaxed">
+                          <code className="font-mono">{o.table}</code>
+                          {o.derivedFrom.length > 0 && (
+                            <span className="text-muted-foreground">
+                              {" "}
+                              — prepared from {o.derivedFrom.join(", ")}
+                            </span>
+                          )}
+                          {o.upstream.length > 0 && (
+                            <span className="text-muted-foreground">
+                              {" "}
+                              — upstream: {o.upstream.join(", ")}
+                            </span>
+                          )}
+                        </p>
+                      ))}
+                      {/* Absence of evidence is not evidence of absence, and
+                          a failed lookup is neither. Three distinct states,
+                          because "nothing upstream" is a claim about the
+                          catalog that only a successful read can support. */}
+                      {upstream.failed ? (
+                        <p className="text-muted-foreground">
+                          Could not check for upstream sources.
+                        </p>
+                      ) : upstream.index === null ? (
+                        <p className="text-muted-foreground">Looking for upstream sources…</p>
+                      ) : (
+                        lin.origins.every((o) => !o.derivedFrom.length && !o.upstream.length) && (
+                          <p className="text-muted-foreground">
+                            No prep flow or warehouse lineage records anything upstream of these
+                            tables.
+                          </p>
+                        )
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+            </details>
+          )}
+
           {s.error ? (
             <p className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-[11px]">
               {s.error}
@@ -1590,6 +1867,50 @@ function TurnView({
           <div className="mt-1.5 text-sm">
             <MarkdownMessage content={turn.answer} />
           </div>
+
+          {/* A human's verdict, and whether it still applies. A voided one is
+              SHOWN rather than dropped: the reader needs to know a verdict
+              existed and no longer covers these queries. */}
+          {(() => {
+            const status = verificationStatus(turn);
+            const cls =
+              status.kind === "void"
+                ? "border-amber-500/40 bg-amber-500/5"
+                : status.kind === "active" && status.verification.state === "verified"
+                  ? "border-emerald-500/40 bg-emerald-500/5"
+                  : "border-destructive/40 bg-destructive/5";
+            return (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                {status.kind !== "none" && (
+                  <p className={`flex-1 rounded-md border p-2 text-[11px] leading-relaxed ${cls}`}>
+                    {describeVerification(status)}
+                  </p>
+                )}
+                {status.kind !== "active" && (
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 gap-1 px-2 text-[10px]"
+                      disabled={busy}
+                      onClick={() => void onVerify(index, "verified")}
+                    >
+                      <BadgeCheck className="h-3 w-3" /> Mark verified
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 gap-1 px-2 text-[10px]"
+                      disabled={busy}
+                      onClick={() => void onVerify(index, "wrong")}
+                    >
+                      <ThumbsDown className="h-3 w-3" /> Flag as wrong
+                    </Button>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
       )}
 

@@ -10,6 +10,7 @@ import { PDFDocument, type PDFFont, type PDFPage, StandardFonts, rgb } from "pdf
 
 import { AGENTSWARMS_LOGO_BASE64 } from "@/assets/agentswarms-logo-base64";
 import type { AnalystTurn } from "@/lib/aiAnalyst";
+import { describeVerification, verificationStatus } from "@/lib/analystVerification";
 
 // Loaded on demand: rasterising is a browser-only concern, and keeping it
 // out of module scope lets Node tests import the vector PDF builder below.
@@ -749,6 +750,20 @@ export async function buildAnalysisPdfBytes(args: {
       gap(2);
       label("Findings");
       findings(turn.answer);
+      gap(6);
+    }
+
+    // The verdict travels with the report, INCLUDING a voided one. A reader
+    // who receives the PDF cannot hover a badge, and "someone checked this"
+    // is exactly the claim a circulated answer carries furthest.
+    const vstatus = verificationStatus(turn);
+    if (vstatus.kind !== "none") {
+      wrapped(describeVerification(vstatus), {
+        size: 8.5,
+        color:
+          vstatus.kind === "active" && vstatus.verification.state === "verified" ? BRAND : WARN_C,
+        leading: 12,
+      });
       gap(6);
     }
   }

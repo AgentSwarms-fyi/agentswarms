@@ -68,6 +68,7 @@ describe("the app and the database permit the same grant types", () => {
       "provider_credential",
       "warehouse_connection",
       "saas_connection",
+      "ai_analyst",
     ]) {
       expect(app.has(t), `${t} is no longer grantable`).toBe(true);
     }
