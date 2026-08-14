@@ -24,6 +24,12 @@
 // heuristic) are exported and unit-tested directly — tests call THESE, not
 // re-implementations.
 import {
+  ANALYST_STEP_CONCURRENCY,
+  createTurnCache,
+  mapWithConcurrency,
+  resultCacheKey,
+} from "@/lib/analystParallel";
+import {
   describeResultFacts,
   describeSchema,
   ensureGovernedCatalog,
@@ -903,11 +909,18 @@ export async function runAnalystTurn(args: {
   const emit = () => args.onUpdate({ ...turn, steps: turn.steps.map((s) => ({ ...s })) });
   emit();
 
+  // De-duplicates identical SQL WITHIN this turn only. Same query, same
+  // instant, so the shared result needs no disclosure — and it is discarded
+  // when the turn ends, because between two questions the data can move.
+  const queryCache = createTurnCache<QueryResult>();
+  const sourceKey = args.execute ? `wh:${args.dialect ?? "warehouse"}` : "local";
   const runSql = async (sql: string): Promise<QueryResult> => {
     const clean = assertSelectOnly(sql);
-    return args.execute
-      ? await args.execute(clean)
-      : await (await import("@/lib/sqlEngine")).runQuery(clean);
+    return queryCache.run(resultCacheKey(sourceKey, clean), async () =>
+      args.execute
+        ? await args.execute(clean)
+        : await (await import("@/lib/sqlEngine")).runQuery(clean),
+    );
   };
   const captureResult = (step: AnalystStep, res: QueryResult) => {
     step.columns = res.columns;
@@ -955,9 +968,18 @@ export async function runAnalystTurn(args: {
     turn.status = "working";
     emit();
 
-    // 2. QUERY each step (sequentially — the trace reads top to bottom)
-    for (let i = 0; i < turn.steps.length; i++) {
-      const step = turn.steps[i];
+    // 2. QUERY each step, CONCURRENTLY.
+    //
+    // Safe because no step consumes another's output: each step's SQL is
+    // written from its own goal, and `results` is read only after this block.
+    // See lib/analystParallel — if a step ever comes to depend on an earlier
+    // step's rows, this has to become sequential again, because parallelism
+    // would not fail loudly, it would produce plausible numbers.
+    //
+    // The trace still reads top to bottom: steps keep their positions and each
+    // renders its own status, so the reader sees them finish out of order
+    // rather than seeing them reordered.
+    await mapWithConcurrency(turn.steps, ANALYST_STEP_CONCURRENCY, async (step, i) => {
       step.status = "writing_sql";
       emit();
       const stepPlan: BiPlan = {
@@ -1011,7 +1033,12 @@ export async function runAnalystTurn(args: {
             };
           }
         }
-        if (compiled) continue;
+        // `return` rather than `continue`: this is now a callback per step,
+        // and returning ends THIS step, not the whole batch.
+        if (compiled) {
+          emit();
+          return;
+        }
         step.sql = await generateSql({
           question: step.goal,
           plan: stepPlan,
@@ -1052,7 +1079,7 @@ export async function runAnalystTurn(args: {
         results[i] = null;
       }
       emit();
-    }
+    });
     if (turn.steps.every((s) => s.status === "error")) {
       throw new Error(`Every analysis step failed — last error: ${turn.steps.at(-1)?.error}`);
     }

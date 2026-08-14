@@ -19,6 +19,7 @@ import {
   BrainCircuit,
   CheckCircle2,
   BadgeCheck,
+  CalendarClock,
   Database,
   FlaskConical,
   ThumbsDown,
@@ -43,6 +44,7 @@ import {
 import { BiChartRender, fmtBiValue } from "@/components/bi/BiChartRender";
 import { BiModelSelect } from "@/components/bi/BiModelSelect";
 import { ShareAnalystDialog } from "@/components/bi/ShareAnalystDialog";
+import { ScheduleAnalysisDialog } from "@/components/bi/ScheduleAnalysisDialog";
 import { MarkdownMessage } from "@/components/playground/MarkdownMessage";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -281,6 +283,7 @@ function AiAnalystPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [sharingAnalyst, setSharingAnalyst] = useState<AnalystRow | null>(null);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -841,6 +844,25 @@ function AiAnalystPage() {
     setLiveTurn(null);
   }
 
+  /**
+   * Re-read the open thread from the database.
+   *
+   * A scheduled run (or "Run now") rewrites the stored turns SERVER-side, so
+   * the page is holding numbers that are no longer what is saved. Showing the
+   * old ones after telling the user it refreshed is the small lie that makes
+   * people distrust the feature.
+   */
+  async function reloadThread() {
+    if (!thread || thread.id === "unsaved") return;
+    const { data, error } = await supabase
+      .from("ai_analyst_threads")
+      .select("id, analyst_id, title, turns")
+      .eq("id", thread.id)
+      .maybeSingle();
+    if (error || !data) return;
+    setThread({ ...data, turns: (data.turns ?? []) as unknown as AnalystTurn[] } as ThreadRow);
+  }
+
   const turnsToRender = useMemo(() => {
     const list = [...(thread?.turns ?? [])];
     if (liveTurn) list.push(liveTurn);
@@ -1067,6 +1089,16 @@ function AiAnalystPage() {
                   size="sm"
                   variant="outline"
                   className="h-7 gap-1 px-2 text-xs"
+                  onClick={() => setScheduleOpen(true)}
+                  disabled={busy || !thread}
+                  title="Re-run this analysis's queries on a cadence"
+                >
+                  <CalendarClock className="h-3.5 w-3.5" /> Schedule
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 gap-1 px-2 text-xs"
                   onClick={() => void saveWorkbook()}
                   disabled={busy || turnsToRender.length === 0}
                   title="Export the step results as an Excel workbook"
@@ -1239,6 +1271,17 @@ function AiAnalystPage() {
         onOpenChange={setShareOpen}
         analyst={sharingAnalyst}
         accessToken={token ?? null}
+      />
+
+      <ScheduleAnalysisDialog
+        open={scheduleOpen}
+        onOpenChange={setScheduleOpen}
+        // An unsaved thread has no row to hang a schedule on.
+        threadId={thread && thread.id !== "unsaved" ? thread.id : null}
+        userId={user?.id}
+        turn={thread?.turns?.[(thread.turns?.length ?? 0) - 1]}
+        accessToken={token ?? null}
+        onRefreshed={() => void reloadThread()}
       />
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>

@@ -135,6 +135,29 @@ function BiPage() {
         make so accepting takes one click.
       </P>
       <P>
+        <strong>Steps run concurrently</strong> — a three-query analysis issues its queries at once,
+        bounded so one question cannot become everyone&apos;s rate limit. That is safe because no
+        step consumes another&apos;s output: each writes its SQL from its own goal, and results are
+        read only once every step has finished. Results are matched back to steps by index, never by
+        completion order, so the trace still reads top to bottom; you just see steps finish out of
+        order. Identical SQL inside one analysis runs <em>once</em> — the cache holds the in-flight
+        query, so two steps asking the same thing at the same moment share one round-trip. It is
+        never carried across questions, because between two questions the data can move and a cached
+        row served later is a number that is no longer true.
+      </P>
+      <P>
+        <strong>Schedule</strong> re-runs an analysis hourly, daily or weekly — and it re-runs{" "}
+        <em>the saved queries</em>, it does not ask the question again. Re-planning would let the
+        SQL differ between runs, so the number you watch over time would have a definition that
+        moves underneath you. The steps are pinned instead, no model is called, and the findings are
+        marked <em>written before a step was re-run</em> until you rewrite them. A human verdict
+        survives (the SQL it judged did not change); a what-if is dropped, because one computed
+        against last week is not a what-if against this week. The digest reports what moved —
+        precisely for a single-row result, as a row count where results are grouped, since matching
+        rows between runs would invent findings — and says so plainly when nothing changed.{" "}
+        <strong>Run now</strong> takes the identical path.
+      </P>
+      <P>
         <strong>Sharing an analyst shares the analyst, not your data access.</strong> Grant it to
         IAM groups and recipients can open it and ask their own questions — but every query they run
         is authorised as <em>them</em>, with their dataset grants, their warehouse credentials and

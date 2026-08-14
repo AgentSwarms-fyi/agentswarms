@@ -1188,10 +1188,16 @@ describe("governed steps — the compiler writes the SQL, not the model", () => 
   it("the loop compiles a governed step and never asks for SQL (source guard)", async () => {
     const { readFileSync } = await import("node:fs");
     const lib = readFileSync("src/lib/aiAnalyst.ts", "utf8");
-    // Compiled steps `continue` before generateSql — otherwise the model
-    // would be asked for SQL that is then thrown away, and worse, a failed
-    // compile would look identical to a successful one.
-    expect(lib).toMatch(/if \(compiled\) continue;/);
+    // A compiled step leaves before generateSql — otherwise the model would
+    // be asked for SQL that is then thrown away, and worse, a failed compile
+    // would look identical to a successful one. Steps now run through a
+    // per-step callback, so the exit is a `return`, not a `continue`; what
+    // matters is that it comes BEFORE the generator.
+    const exitAt = lib.indexOf("if (compiled) {");
+    expect(exitAt).toBeGreaterThan(-1);
+    expect(lib.slice(exitAt, lib.indexOf("step.sql = await generateSql", exitAt))).toContain(
+      "return;",
+    );
     expect(lib).toMatch(/step\.governed = \{/);
     // A failed compile drops the claim rather than keeping the badge. Scoped
     // to the catch block: the identical two lines also live in the refine
@@ -1199,7 +1205,7 @@ describe("governed steps — the compiler writes the SQL, not the model", () => 
     const attempt = lib.slice(lib.indexOf("if (step.semantic && args.runSemantic) {"));
     const onFailure = attempt.slice(
       attempt.indexOf("} catch (e) {"),
-      attempt.indexOf("if (compiled) continue;"),
+      attempt.indexOf("if (compiled) {"),
     );
     expect(onFailure).toContain("step.governed = undefined;");
     expect(onFailure).toContain("delete step.semantic;");

@@ -681,14 +681,21 @@ async function ownerEmail(userId: string): Promise<string | null> {
   }
 }
 
-function siteUrl(): string {
+// Exported: the analyst scheduler sends the same shape of digest, and two
+// email shells drifting apart is two products.
+export function siteUrl(): string {
   return (process.env.SITE_URL || "http://localhost:8080").replace(/\/+$/, "");
 }
 
 const EMAIL_STYLE =
   "font-family:ui-sans-serif,system-ui,-apple-system,sans-serif;color:#1a1a2e;line-height:1.5";
 
-function emailShell(title: string, bodyHtml: string, link: string, linkLabel: string): string {
+export function emailShell(
+  title: string,
+  bodyHtml: string,
+  link: string,
+  linkLabel: string,
+): string {
   return `<div style="${EMAIL_STYLE};max-width:560px;margin:0 auto;padding:24px">
   <p style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#6b7280;margin:0 0 4px">AgentSwarms BI</p>
   <h2 style="margin:0 0 12px;font-size:19px">${title}</h2>
@@ -1060,6 +1067,8 @@ export type CronPassResult = {
   ran: boolean;
   processed: number;
   prep_flows: number;
+  /** Saved analyses whose pinned SQL was re-run this pass. */
+  analyses: number;
   /** Datasets whose quality tests were re-evaluated this pass. */
   quality_checks: number;
   catalog_crawls: number;
@@ -1084,6 +1093,7 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
     ran: false,
     processed: 0,
     prep_flows: 0,
+    analyses: 0,
     quality_checks: 0,
     catalog_crawls: 0,
     swarm_schedules: 0,
@@ -1095,6 +1105,14 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
   try {
     const processed = await processDueSchedules(force);
     const prep_flows = await processDuePrepFlows(force);
+    // Scheduled analyses re-run their pinned SQL. Lazy import for the same
+    // reason as the others: it keeps the module graph out of server boot.
+    const analyses = await import("@/utils/analyst/schedule.server")
+      .then((m) => m.processDueAnalyses(force))
+      .catch((e) => {
+        console.warn("[analyst-schedule] sweep failed:", (e as Error).message);
+        return 0;
+      });
     // Freshness SLAs only mean something if they fire when nothing happens —
     // a table that stopped refreshing raises no event of its own.
     const quality_checks = await import("@/utils/bi/quality.server")
@@ -1185,6 +1203,7 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
       prep_flows,
       quality_checks,
       catalog_crawls,
+      analyses,
       swarm_schedules,
       kernels_reaped,
     };

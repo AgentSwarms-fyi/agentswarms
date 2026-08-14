@@ -418,6 +418,52 @@ result samples capped at 50 rows per step), carries across questions ("what
 about that top region?" resolves from earlier turns), and **exports as a
 branded PDF** with one click: real vector text, every step's chart included.
 
+**Steps run concurrently.** A three-query analysis issues its three queries at
+once rather than one after another, bounded so a single question cannot become
+everyone's rate limit. This is safe for a specific reason worth stating: no
+step consumes another's output — each step's SQL is written from its own goal,
+and results are read only after every step finishes. It is a property of the
+loop rather than a law, so if a step ever comes to depend on an earlier step's
+rows this has to become sequential again; parallelism there would not fail
+loudly, it would produce plausible numbers computed from missing context.
+Results are matched back to steps **by index**, never by completion order —
+the trace still reads top to bottom, you just see steps finish out of order.
+
+Identical SQL issued twice inside one analysis runs **once**. The cache holds
+the in-flight query rather than its value, so two steps asking the same thing
+at the same moment collapse into one round-trip instead of both missing. It is
+deliberately scoped to a single question and is never carried across
+questions: between two questions the data can move, and a cached row served
+later is a number that is no longer true with nothing on screen saying so. A
+failed query is not cached either — one warehouse timeout must not poison the
+rest of the analysis.
+
+**Scheduled analyses re-run the queries, they do not re-ask the question.**
+An analysis can refresh hourly, daily or weekly. The tempting design is to
+hand the question back to the model each morning, and it is wrong: the analyst
+re-plans, so consecutive runs can answer the same sentence with different SQL —
+a number you watch over time whose definition moves underneath you, which is
+the failure the semantic layer exists to prevent. So the **steps are pinned**:
+the SQL that ran is the SQL that runs again, and a genuinely new analysis is a
+question you ask. No model is called, which also removes a 6am dependency on
+someone else's inference uptime.
+
+The findings were written from the previous numbers, so a refreshed analysis
+is marked **"written before a step was re-run"** — the same marker an edited
+step uses — rather than being silently re-synthesized behind you. A human
+**verdict survives**, deliberately: the fingerprint covers each step's SQL and
+its governed model, neither changed, and the rule was always that the same SQL
+over refreshed data is the same checked work. A **what-if is dropped** — one
+computed against last week's numbers is not a what-if against this week's.
+
+What moved is computed rather than narrated: precise for a single-row result,
+a **row count** where results are grouped, because matching rows between runs
+is guesswork and a wrongly matched row is a fabricated finding. The digest
+says plainly when **nothing changed**, since a report that only ever arrives
+with news teaches people that silence means "did not run". A failing run still
+advances its schedule, so it recovers on the next tick instead of re-running a
+broken query forever. **Run now** goes through the identical code path.
+
 **Sharing an analyst shares the analyst, not your data access.** An analyst
 can be granted to IAM groups; recipients open it and ask their own questions,
 and every query they run is authorised as **them** — their dataset grants,

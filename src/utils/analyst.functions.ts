@@ -1,4 +1,5 @@
-// Server functions for sharing an AI analyst with IAM groups.
+// Server functions for sharing an AI analyst with IAM groups, and for running
+// a scheduled analysis on demand.
 //
 // Analyst CRUD happens client-side under RLS. These use the service role for
 // the one thing RLS cannot express: an analyst OWNER granting or revoking
@@ -162,3 +163,43 @@ export const analystSetShares = createServerFn({ method: "POST" })
       return { ok: false, error: e instanceof Error ? e.message : "Failed" };
     }
   });
+
+/**
+ * Re-run a saved analysis now, through the SAME path the scheduler uses.
+ *
+ * A "Run now" that took its own route would exercise code the nightly run
+ * never touches, which is how a button that works ships alongside a schedule
+ * that does not.
+ */
+export const analystRunNow = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z.object({ access_token: z.string().min(1), thread_id: z.string().uuid() }).parse(input),
+  )
+  .handler(
+    async ({
+      data,
+    }): Promise<
+      { ok: true; changes: string[]; failures: number } | { ok: false; error: string }
+    > => {
+      try {
+        const userId = await requireUserId(data.access_token);
+        const { data: thread, error } = await supabaseAdmin
+          .from("ai_analyst_threads")
+          .select("id, user_id")
+          .eq("id", data.thread_id)
+          .maybeSingle();
+        if (error) return { ok: false, error: error.message };
+        if (!thread) return { ok: false, error: "Analysis not found" };
+        // Threads are per-user even on a shared analyst, so this is the whole
+        // access check: you may refresh your own analysis and no other.
+        if (thread.user_id !== userId) {
+          return { ok: false, error: "Only the author can refresh this analysis" };
+        }
+        const { refreshAnalysisServer } = await import("@/utils/analyst/schedule.server");
+        const res = await refreshAnalysisServer(data.thread_id);
+        return { ok: true, changes: res.changes, failures: res.failures };
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : "Failed" };
+      }
+    },
+  );

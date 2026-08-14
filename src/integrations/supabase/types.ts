@@ -256,6 +256,62 @@ export type Database = {
           },
         ];
       };
+      ai_analyst_schedules: {
+        Row: {
+          at_hour: number;
+          cadence: string;
+          created_at: string;
+          email_report: boolean;
+          enabled: boolean;
+          id: string;
+          last_error: string | null;
+          last_run_at: string | null;
+          last_status: string | null;
+          next_run_at: string;
+          thread_id: string;
+          user_id: string;
+          weekday: number;
+        };
+        Insert: {
+          at_hour?: number;
+          cadence?: string;
+          created_at?: string;
+          email_report?: boolean;
+          enabled?: boolean;
+          id?: string;
+          last_error?: string | null;
+          last_run_at?: string | null;
+          last_status?: string | null;
+          next_run_at?: string;
+          thread_id: string;
+          user_id: string;
+          weekday?: number;
+        };
+        Update: {
+          at_hour?: number;
+          cadence?: string;
+          created_at?: string;
+          email_report?: boolean;
+          enabled?: boolean;
+          id?: string;
+          last_error?: string | null;
+          last_run_at?: string | null;
+          last_status?: string | null;
+          next_run_at?: string;
+          thread_id?: string;
+          user_id?: string;
+          weekday?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "ai_analyst_schedules_thread_id_fkey";
+            columns: ["thread_id"];
+            isOneToOne: true;
+            referencedRelation: "ai_analyst_threads";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       ai_analyst_threads: {
         Row: {
           analyst_id: string;
