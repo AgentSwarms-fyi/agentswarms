@@ -26,6 +26,8 @@ import type { OntologySpec } from "@/lib/biOntology";
 import { metricExpression, type SemanticDimension, type SemanticMetric } from "@/lib/semanticLayer";
 import { parseModelChoice } from "@/utils/providers/modelChoice";
 import { clientDeadlineMs } from "@/lib/llmDeadline";
+import type { GovernedModelFields } from "@/lib/aiAnalyst";
+import type { ScenarioParameter } from "@/lib/analystScenario";
 
 export type ColumnMeta = {
   description?: string;
@@ -257,6 +259,8 @@ export type GovernedModelRow = {
   source_table: string;
   dimensions: SemanticDimension[];
   metrics: SemanticMetric[];
+  /** Declared assumptions — what a what-if scenario is allowed to vary. */
+  parameters?: ScenarioParameter[];
 };
 
 let governedCache: { at: number; rows: GovernedModelRow[] } | null = null;
@@ -268,7 +272,7 @@ export async function ensureGovernedCatalog(): Promise<void> {
   try {
     const { data } = await supabase
       .from("semantic_models")
-      .select("name, label, source_kind, source_table, dimensions, metrics");
+      .select("name, label, source_kind, source_table, dimensions, metrics, parameters");
     governedCache = {
       at: Date.now(),
       rows: (data ?? []).map((r) => ({
@@ -278,6 +282,7 @@ export async function ensureGovernedCatalog(): Promise<void> {
         source_table: r.source_table,
         dimensions: Array.isArray(r.dimensions) ? (r.dimensions as SemanticDimension[]) : [],
         metrics: Array.isArray(r.metrics) ? (r.metrics as SemanticMetric[]) : [],
+        parameters: Array.isArray(r.parameters) ? (r.parameters as ScenarioParameter[]) : [],
       })),
     };
   } catch {
@@ -336,6 +341,41 @@ export function governedLinesFor(datasets: DatasetMeta[], rows: GovernedModelRow
 
 function governedLines(datasets: DatasetMeta[]): string[] {
   return governedLinesFor(datasets, governedCache?.rows ?? []);
+}
+
+/**
+ * The governed models over these tables, as plain field names.
+ *
+ * `governedLinesFor` renders definitions for a PROMPT; this returns the
+ * vocabulary a caller can validate against — which the AI Analyst needs in
+ * order to compile a step instead of describing one. Same cache, same
+ * table-matching rule, so what the model is offered and what it is allowed
+ * to name cannot drift apart.
+ */
+export function governedCatalogFrom(
+  datasets: DatasetMeta[],
+  rows: GovernedModelRow[],
+): GovernedModelFields[] {
+  // Scoped to the tables actually in play. A model over a table this analyst
+  // cannot see must not appear in its vocabulary: the plan would name it, the
+  // compile would run against data outside the analyst's scope, and the step
+  // would answer from somewhere the reader never agreed to.
+  const tables = new Set(datasets.map((d) => d.name.toLowerCase()));
+  return rows
+    .filter((m) => tables.has(m.source_table.toLowerCase()))
+    .map((m) => ({
+      name: m.name,
+      label: m.label ?? undefined,
+      table: m.source_table,
+      metrics: m.metrics.map((x) => x.name).filter(Boolean),
+      dimensions: m.dimensions.map((x) => x.name).filter(Boolean),
+      timeDimensions: m.dimensions.filter((x) => x.type === "time").map((x) => x.name),
+      parameters: m.parameters ?? [],
+    }));
+}
+
+export function governedCatalogFor(datasets: DatasetMeta[]): GovernedModelFields[] {
+  return governedCatalogFrom(datasets, governedCache?.rows ?? []);
 }
 
 // ── Schema description for the LLM ────────────────────────────────────────

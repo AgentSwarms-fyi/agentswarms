@@ -19,6 +19,9 @@ import {
   buildCheckPrompt,
   buildSynthesisPrompt,
   chartEveryStep,
+  describeGovernedVocabulary,
+  parseSemanticStep,
+  type GovernedModelFields,
   isChartableShape,
   isReasoningModelId,
   leadChartStep,
@@ -39,6 +42,7 @@ import {
   type AnalystStep,
   type AnalystTurn,
 } from "@/lib/aiAnalyst";
+import { governedCatalogFrom } from "@/lib/biAgent";
 import { NAV_GROUPS } from "@/lib/appNav";
 
 describe("the reasoning-model nudge", () => {
@@ -1051,5 +1055,335 @@ describe("an analyst you can edit, without rewriting history", () => {
     expect(page).toContain("autoNameForOldSource: analystNameFor(editingAnalyst.source");
     // The report reads the turns, not the analyst's current setting.
     expect(page).toContain("modelsUsedIn(turnsToRender, selected.model)");
+  });
+});
+
+describe("governed steps — the compiler writes the SQL, not the model", () => {
+  const catalog: GovernedModelFields[] = [
+    {
+      name: "sales",
+      label: "Global sales",
+      table: "saas_sales",
+      metrics: ["revenue", "profit"],
+      dimensions: ["region", "segment", "order_date"],
+      timeDimensions: ["order_date"],
+    },
+  ];
+
+  it("accepts a block that names only fields the model really has", () => {
+    const q = parseSemanticStep(
+      {
+        model: "sales",
+        metrics: ["revenue"],
+        dimensions: ["region"],
+        limit: 50,
+      },
+      catalog,
+    );
+    expect(q).toEqual({ model: "sales", metrics: ["revenue"], dimensions: ["region"], limit: 50 });
+  });
+
+  it("REFUSES a metric the model does not have, rather than compiling the rest", () => {
+    // The dangerous version silently drops `made_up_margin`, compiles
+    // `revenue` alone and shows a Governed badge over a DIFFERENT question.
+    expect(
+      parseSemanticStep({ model: "sales", metrics: ["revenue", "made_up_margin"] }, catalog),
+    ).toBeNull();
+    expect(
+      parseSemanticStep({ model: "sales", metrics: ["revenue"], dimensions: ["nope"] }, catalog),
+    ).toBeNull();
+  });
+
+  it("refuses an unknown model and a block with no metric at all", () => {
+    expect(parseSemanticStep({ model: "ghost", metrics: ["revenue"] }, catalog)).toBeNull();
+    expect(parseSemanticStep({ model: "sales", dimensions: ["region"] }, catalog)).toBeNull();
+    expect(parseSemanticStep({}, catalog)).toBeNull();
+    expect(parseSemanticStep({ model: "sales", metrics: ["revenue"] }, [])).toBeNull();
+  });
+
+  it("matches names case-insensitively but stores the model's own spelling", () => {
+    const q = parseSemanticStep({ model: "SALES", metrics: ["Revenue"] }, catalog)!;
+    expect(q.model).toBe("sales");
+    expect(q.metrics).toEqual(["revenue"]);
+  });
+
+  it("keeps only grains on selected time dimensions, and only real grains", () => {
+    const q = parseSemanticStep(
+      {
+        model: "sales",
+        metrics: ["revenue"],
+        dimensions: ["order_date"],
+        grains: { order_date: "month", region: "month", segment: "fortnight" },
+      },
+      catalog,
+    )!;
+    expect(q.grains).toEqual({ order_date: "month" });
+  });
+
+  it("refuses a filter on a field the model does not have", () => {
+    expect(
+      parseSemanticStep(
+        { model: "sales", metrics: ["revenue"], filters: [{ field: "nope", op: "=", value: "x" }] },
+        catalog,
+      ),
+    ).toBeNull();
+    const ok = parseSemanticStep(
+      {
+        model: "sales",
+        metrics: ["revenue"],
+        filters: [{ field: "region", op: "=", value: "EMEA" }],
+      },
+      catalog,
+    )!;
+    expect(ok.filters).toEqual([{ field: "region", op: "=", value: "EMEA" }]);
+  });
+
+  it("threads a valid block through the plan parser, and drops an invalid one", () => {
+    const plan = parseAnalysisPlan(
+      {
+        approach: "compile it",
+        steps: [
+          { goal: "revenue by region", semantic: { model: "sales", metrics: ["revenue"] } },
+          { goal: "something bespoke", semantic: { model: "sales", metrics: ["invented"] } },
+        ],
+      },
+      catalog,
+    );
+    expect(plan.steps[0].semantic).toEqual({ model: "sales", metrics: ["revenue"] });
+    // Still a step — just an ungoverned one, which is the honest description.
+    expect(plan.steps[1].semantic).toBeUndefined();
+    expect(plan.steps[1].goal).toBe("something bespoke");
+  });
+
+  it("cannot claim governance when no catalog was supplied", () => {
+    const plan = parseAnalysisPlan({
+      approach: "a",
+      steps: [{ goal: "g", semantic: { model: "sales", metrics: ["revenue"] } }],
+    });
+    expect(plan.steps[0].semantic).toBeUndefined();
+  });
+
+  it("offers the vocabulary by NAME, which is what the plan has to get right", () => {
+    const text = describeGovernedVocabulary(catalog);
+    expect(text).toContain("MODEL sales (Global sales) over saas_sales");
+    expect(text).toContain("metrics: revenue, profit");
+    expect(text).toContain("time dimensions: order_date");
+    expect(describeGovernedVocabulary([])).toBe("");
+  });
+
+  it("only asks for a governed step when there is something to govern", () => {
+    const withCatalog = buildAnalysisPlanPrompt({
+      schema: "s",
+      question: "q",
+      prior: "",
+      catalog,
+    });
+    expect(withCatalog.systemPrompt).toContain("PREFER A GOVERNED STEP");
+    expect(withCatalog.userPrompt).toContain("MODEL sales");
+    const without = buildAnalysisPlanPrompt({ schema: "s", question: "q", prior: "" });
+    expect(without.systemPrompt).not.toContain("PREFER A GOVERNED STEP");
+    expect(without.userPrompt).not.toContain('"semantic"');
+  });
+
+  it("the loop compiles a governed step and never asks for SQL (source guard)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const lib = readFileSync("src/lib/aiAnalyst.ts", "utf8");
+    // Compiled steps `continue` before generateSql — otherwise the model
+    // would be asked for SQL that is then thrown away, and worse, a failed
+    // compile would look identical to a successful one.
+    expect(lib).toMatch(/if \(compiled\) continue;/);
+    expect(lib).toMatch(/step\.governed = \{/);
+    // A failed compile drops the claim rather than keeping the badge. Scoped
+    // to the catch block: the identical two lines also live in the refine
+    // path, so an unscoped match stayed green with this one deleted.
+    const attempt = lib.slice(lib.indexOf("if (step.semantic && args.runSemantic) {"));
+    const onFailure = attempt.slice(
+      attempt.indexOf("} catch (e) {"),
+      attempt.indexOf("if (compiled) continue;"),
+    );
+    expect(onFailure).toContain("step.governed = undefined;");
+    expect(onFailure).toContain("delete step.semantic;");
+    expect(onFailure).toMatch(/written by the analyst instead of compiled/);
+  });
+
+  it("the page compiles SERVER-side and shows the model on the step", async () => {
+    const { readFileSync } = await import("node:fs");
+    const page = readFileSync("src/routes/_authenticated/ai-analyst.tsx", "utf8");
+    expect(page).toContain("runSemantic:");
+    // The catalog is the one RESOLVED at load, after ensureGovernedCatalog().
+    // This used to read the module cache at call time, which handed a cold
+    // first question an empty catalog — nothing could be governed and nothing
+    // said why. See the scenario suite for the race itself.
+    expect(page).toMatch(/^\s*catalog,$/m);
+    expect(page).toContain("setCatalog(governedCatalogFor(tables))");
+    expect(page).toContain("s.governed.model");
+    // The rollup and the row filter change what the number MEANS, so they
+    // are VISIBLE TEXT rather than a tooltip. Asserting the rendered wording,
+    // not the identifier — the identifier also appears in the badge's title,
+    // so a check for it alone stayed green with the disclosure block removed.
+    expect(page).toContain("Answered by the declared rollup");
+    expect(page).toMatch(/\{s\.governed\.rollup && \(/);
+    expect(page).toMatch(/\{s\.governed\.accessNote\}/);
+  });
+
+  it("scopes the vocabulary to tables the analyst can actually see", () => {
+    // A model over a table outside the analyst's scope must not be offered:
+    // the plan would name it and the compile would answer from data the
+    // reader never put in scope.
+    const rows = [
+      {
+        name: "sales",
+        label: null,
+        source_kind: "data_table",
+        source_table: "saas_sales",
+        dimensions: [
+          { name: "region", type: "categorical", sql: "region" },
+          { name: "order_date", type: "time", sql: "order_date" },
+        ],
+        metrics: [{ name: "revenue", type: "sum", sql: "amount" }],
+      },
+      {
+        name: "payroll",
+        label: null,
+        source_kind: "data_table",
+        source_table: "hr_salaries",
+        dimensions: [],
+        metrics: [{ name: "cost", type: "sum", sql: "salary" }],
+      },
+    ] as unknown as Parameters<typeof governedCatalogFrom>[1];
+    const scoped = governedCatalogFrom([{ name: "saas_sales" }] as never, rows);
+    expect(scoped.map((m) => m.name)).toEqual(["sales"]);
+    expect(scoped[0].metrics).toEqual(["revenue"]);
+    expect(scoped[0].timeDimensions).toEqual(["order_date"]);
+    expect(governedCatalogFrom([], rows)).toEqual([]);
+  });
+
+  it("the report carries the provenance too", async () => {
+    const { readFileSync } = await import("node:fs");
+    const pdf = readFileSync("src/lib/biPdf.ts", "utf8");
+    expect(pdf).toContain("Compiled from governed model");
+    expect(pdf).toMatch(/answered by rollup \$\{s\.governed\.rollup\}/);
+  });
+
+  it("past analyses are all loaded, not just the newest (source guard)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const page = readFileSync("src/routes/_authenticated/ai-analyst.tsx", "utf8");
+    // `.limit(1)` meant every earlier analysis was stored and unreachable.
+    expect(page).toContain("limit(ANALYST_THREAD_HISTORY)");
+    expect(page).not.toMatch(/ai_analyst_threads[\s\S]{0,400}\.limit\(1\)/);
+    // A new analysis joins the list, or the picker goes stale the moment you
+    // use it. ("setThreads" alone matched the loader and stayed green.)
+    expect(page).toMatch(/setThreads\(\(cur\) => \[created, \.\.\.cur\]\)/);
+  });
+});
+
+describe("two defects the live governed run exposed", () => {
+  const catalog: GovernedModelFields[] = [
+    {
+      name: "sales",
+      table: "saas_sales",
+      metrics: ["total_discount", "total_sales"],
+      dimensions: ["order_id", "customer", "city"],
+      timeDimensions: [],
+    },
+  ];
+
+  it("carries orderBy, because a LIMIT without one is N arbitrary rows", () => {
+    // Measured: a governed "5 orders with the largest discount" compiled to a
+    // LIMIT with no ordering and returned discounts of 0, 0.65, 0.2, 0.2, 0.
+    const q = parseSemanticStep(
+      {
+        model: "sales",
+        metrics: ["total_discount"],
+        dimensions: ["order_id", "customer", "city"],
+        orderBy: [{ field: "total_discount", dir: "desc" }],
+        limit: 5,
+      },
+      catalog,
+    )!;
+    expect(q.orderBy).toEqual([{ field: "total_discount", dir: "desc" }]);
+    expect(q.limit).toBe(5);
+  });
+
+  it("refuses an ordering by something the query does not select", () => {
+    expect(
+      parseSemanticStep(
+        { model: "sales", metrics: ["total_sales"], orderBy: [{ field: "total_discount" }] },
+        catalog,
+      ),
+    ).toBeNull();
+  });
+
+  it("defaults an ordering to descending and accepts asc when asked", () => {
+    const desc = parseSemanticStep(
+      { model: "sales", metrics: ["total_sales"], orderBy: [{ field: "total_sales" }] },
+      catalog,
+    )!;
+    expect(desc.orderBy).toEqual([{ field: "total_sales", dir: "desc" }]);
+    const asc = parseSemanticStep(
+      { model: "sales", metrics: ["total_sales"], orderBy: [{ field: "total_sales", dir: "ASC" }] },
+      catalog,
+    )!;
+    expect(asc.orderBy).toEqual([{ field: "total_sales", dir: "asc" }]);
+  });
+
+  it("tells the plan that a top-N step needs an ordering", () => {
+    const p = buildAnalysisPlanPrompt({ schema: "s", question: "q", prior: "", catalog });
+    expect(p.systemPrompt).toMatch(/ALWAYS give orderBy when the step asks for a top\/bottom N/);
+    // The instruction fragment must not be duplicated — it was, once.
+    expect(p.systemPrompt.match(/to that step\./g) ?? []).toHaveLength(1);
+  });
+
+  it("a self-corrected step STOPS claiming to be compiled (source guard)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const lib = readFileSync("src/lib/aiAnalyst.ts", "utf8");
+    // The check's refinement is SQL the model wrote. Keeping the badge would
+    // vouch for a query the semantic layer never produced — measured live.
+    const refine = lib.slice(lib.indexOf("if (c.refined_sql) {"));
+    const block = refine.slice(0, refine.indexOf("} catch (e) {"));
+    expect(block).toContain("step.governed = undefined;");
+    expect(block).toContain("delete step.semantic;");
+    expect(block).toMatch(/no longer compiled from \$\{wasGoverned\}/);
+  });
+});
+
+describe("the reviewer must not mistake a model for a table", () => {
+  const catalog: GovernedModelFields[] = [
+    {
+      name: "saas_sales_model",
+      table: "saas_sales",
+      metrics: ["total_sales"],
+      dimensions: ["product"],
+      timeDimensions: [],
+    },
+  ];
+
+  it("tells the reviewer which model maps to which table", () => {
+    // Measured live: a fallback step's goal said "From saas_sales_model,
+    // compute total_sales…", the reviewer read that as a table, rewrote
+    // correct SQL to `FROM saas_sales_model`, and the rewrite died on
+    // "Catalog Error: Table with name saas_sales_model does not exist!".
+    const p = buildCheckPrompt({
+      question: "top products",
+      steps: [{ goal: "From saas_sales_model, compute total_sales by product", facts: "3 rows" }],
+      catalog,
+    });
+    expect(p.systemPrompt).toContain("GOVERNED MODELS ARE NOT TABLES");
+    expect(p.systemPrompt).toContain(
+      '"saas_sales_model" is a semantic model over the table saas_sales',
+    );
+    expect(p.systemPrompt).toMatch(/Never rewrite a query to select from a model name/);
+  });
+
+  it("says nothing extra when there are no governed models", () => {
+    const p = buildCheckPrompt({ question: "q", steps: [{ goal: "g", facts: "f" }] });
+    expect(p.systemPrompt).not.toContain("GOVERNED MODELS ARE NOT TABLES");
+  });
+
+  it("the loop passes the catalog to the reviewer (source guard)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const lib = readFileSync("src/lib/aiAnalyst.ts", "utf8");
+    const call = lib.slice(lib.indexOf("const checkPrompt = buildCheckPrompt({"));
+    expect(call.slice(0, call.indexOf("});"))).toContain("catalog,");
   });
 });

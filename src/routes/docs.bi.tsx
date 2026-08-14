@@ -64,12 +64,38 @@ function BiPage() {
         exported report never attributes old numbers to a newly-chosen model. Reasoning models are
         also given a longer request deadline than chat models, because their time goes on thinking
         rather than output — sized for chat models, the analyst&apos;s required model class was the
-        one that timed out. Every question runs a transparent loop: plan the steps, write and run
-        the SQL (the same generator and governed metric definitions the BI analyst uses,
-        SELECT-only), <em>check its own work</em> — a wrong step re-runs with corrected SQL, a
-        doubtful one is presented flagged — then write up findings where every number cites the step
-        it came from. Analyses persist per analyst, follow-up questions see the earlier answers, and
-        the whole trace exports as a <strong>PDF</strong>.
+        one that timed out.
+      </P>
+      <P>
+        <strong>Governed steps are compiled, not described.</strong> When a step&apos;s numbers come
+        from a governed semantic model, the plan names the model, its metrics and its dimensions,
+        and the <strong>semantic compiler</strong> writes the SQL — with the fan-out refusals,
+        rollup routing, row filters and column masks a hand-written SELECT cannot honour. Every name
+        is checked against the catalog, and a block naming anything the model does not have is
+        dropped whole: compiling the half that matched would answer a different question under a
+        governance badge. A dropped block is not a refusal — the step falls back to written SQL and
+        appears <em>without</em> the badge. A step whose SQL is later corrected by the self-check
+        loses the badge too, because the correction is the analyst&apos;s SQL, not the
+        compiler&apos;s. Where a rollup answered instead of the fact table, or a row filter narrowed
+        the result, the step says so in words. Past analyses are all reachable from the picker
+        beside <strong>New analysis</strong>.
+      </P>
+      <P>
+        <strong>What-if scenarios</strong> ride the same compiler. A compiled step offers the two
+        things that can honestly vary — the model&apos;s <strong>declared parameters</strong> and
+        the values of filters the step already has — and recompiles the <em>same</em> query with one
+        thing changed, so the difference between the numbers is that change and nothing else. The
+        result is labelled with exactly what was assumed, shown beside the measured result rather
+        than replacing it, and never folded into the findings. Where both sides are a single row the
+        delta is computed in code; where they are grouped the comparison is refused rather than
+        matching rows by position. A scenario that varies nothing is refused too — re-running an
+        identical query under a &ldquo;scenario&rdquo; heading invites the reader to conclude a
+        change was tested and made no difference. Every question runs a transparent loop: plan the
+        steps, write and run the SQL (the same generator and governed metric definitions the BI
+        analyst uses, SELECT-only), <em>check its own work</em> — a wrong step re-runs with
+        corrected SQL, a doubtful one is presented flagged — then write up findings where every
+        number cites the step it came from. Analyses persist per analyst, follow-up questions see
+        the earlier answers, and the whole trace exports as a <strong>PDF</strong>.
       </P>
       <P>
         <strong>Every step that has something to show gets its own chart</strong>, so a three-query

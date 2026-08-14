@@ -43,6 +43,8 @@ import {
 } from "@/lib/analystDrivers";
 import { describeSeries, forecastSeries, readSeries, seriesFrom } from "@/lib/analystSeries";
 import type { DatasetMeta, QueryResult } from "@/lib/sqlEngine";
+import type { SemanticFilter, SemanticQuery, TimeGrain } from "@/lib/semanticLayer";
+import type { MetricDelta, ScenarioChange, ScenarioParameter } from "@/lib/analystScenario";
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -74,7 +76,60 @@ export type AnalystStep = {
   error?: string;
   /** The user edited this step's SQL and re-ran it (shown, and it matters). */
   edited?: boolean;
+  /**
+   * The governed query this step asked for, when the planner could express it
+   * against a semantic model. Present means the SQL below was COMPILED from
+   * the model's own definitions rather than written by the model.
+   *
+   * Until now governance was advisory: the definitions went into the prompt
+   * with "never improvise a different formula" attached, and nothing checked
+   * whether the SQL that came back obeyed. A metric that is authoritative
+   * only when the model feels like it is not a governed metric.
+   */
+  semantic?: SemanticQuery;
+  /** What the compile actually did — the disclosure half of `semantic`. */
+  governed?: {
+    model: string;
+    /** A declared rollup answered instead of the fact table. Say which. */
+    rollup?: string;
+    /** Row filters / column masks the server applied for this viewer. */
+    accessNote?: string;
+  };
+  /**
+   * A what-if run of this step under changed assumptions.
+   *
+   * Kept BESIDE the measured result rather than replacing it, and never fed
+   * into the findings: the write-up describes what was measured, and a
+   * scenario that quietly joins it becomes a number nobody can tell from one.
+   */
+  scenario?: {
+    changes: ScenarioChange[];
+    label: string;
+    sql: string;
+    columns: string[];
+    rows: Record<string, unknown>[];
+    delta: MetricDelta[];
+  };
   status: "pending" | "writing_sql" | "running" | "checking" | "done" | "error";
+};
+
+/**
+ * The governed fields a plan is allowed to name, flattened for validation.
+ *
+ * Kept as plain names rather than the full SemanticModel because the analyst
+ * only needs to answer one question here — "does this model really have a
+ * metric called that?" — and the full model lives on the server, which is
+ * where the SQL is actually compiled.
+ */
+export type GovernedModelFields = {
+  name: string;
+  label?: string;
+  table: string;
+  metrics: string[];
+  dimensions: string[];
+  timeDimensions: string[];
+  /** Declared assumptions a what-if scenario may vary. */
+  parameters?: ScenarioParameter[];
 };
 
 export type AnalystTurn = {
@@ -232,11 +287,50 @@ export function priorContext(turns: AnalystTurn[], max = ANALYST_MEMORY_TURNS): 
 
 // ── Prompts (pure, exported so tests read what the app actually sends) ───
 
+/**
+ * The governed vocabulary, written out so the plan can NAME it exactly.
+ *
+ * `describeSchema` already shows governed metrics as expressions, which tells
+ * the model what they mean. This tells it what they are CALLED, which is the
+ * part it has to get exactly right for the compiler to accept the block.
+ */
+export function describeGovernedVocabulary(catalog: GovernedModelFields[]): string {
+  if (catalog.length === 0) return "";
+  const lines = catalog.slice(0, 8).map((m) => {
+    const met = m.metrics.slice(0, 24).join(", ");
+    const dim = m.dimensions.slice(0, 24).join(", ");
+    const time = m.timeDimensions.length
+      ? `\n  time dimensions: ${m.timeDimensions.join(", ")}`
+      : "";
+    return `MODEL ${m.name}${m.label ? ` (${m.label})` : ""} over ${m.table}\n  metrics: ${met}\n  dimensions: ${dim}${time}`;
+  });
+  return (
+    "\n\nGOVERNED MODELS YOU CAN COMPILE AGAINST (preferred — these definitions are " +
+    "authoritative and the SQL is generated from them, not by you):\n" +
+    lines.join("\n")
+  );
+}
+
 export function buildAnalysisPlanPrompt(args: {
   schema: string;
   question: string;
   prior: string;
+  /** Governed models in scope; empty means the plan cannot claim governance. */
+  catalog?: GovernedModelFields[];
 }): { systemPrompt: string; userPrompt: string } {
+  const vocabulary = describeGovernedVocabulary(args.catalog ?? []);
+  const governedRule = vocabulary
+    ? "\n\nPREFER A GOVERNED STEP when the step's numbers come from a governed model's " +
+      'metrics. Add "semantic": { "model": "<model name>", "metrics": ["<metric>"], ' +
+      '"dimensions": ["<dimension>"], "grains": { "<time dimension>": "month" }, ' +
+      '"filters": [{ "field": "<field>", "op": "=", "value": "..." }], ' +
+      '"orderBy": [{ "field": "<metric or dimension>", "dir": "desc" }], "limit": 100 } ' +
+      "to that step. ALWAYS give orderBy when the step asks for a top/bottom N — a limit " +
+      "without an ordering returns arbitrary rows. " +
+      "Use the EXACT names listed — every name is checked against the model, " +
+      "and a step naming anything else silently loses its governed status and falls back to " +
+      "hand-written SQL. Omit `semantic` for steps a governed model cannot express."
+    : "";
   return {
     systemPrompt:
       "You are a senior data analyst planning an analysis. Decompose the question into the " +
@@ -256,11 +350,14 @@ export function buildAnalysisPlanPrompt(args: {
       "name. Do NOT ask about things you can decide sensibly yourself — sort order, chart type, " +
       "row limits, which of two equivalent columns to group by. When you must ask, return " +
       '{ "clarify": "one specific question", "assumption": "what you would assume if told to ' +
-      'proceed" } and NOTHING else.',
+      'proceed" } and NOTHING else.' +
+      governedRule,
     userPrompt:
-      `${args.schema}\n\n${args.prior}QUESTION: ${args.question}\n\n` +
+      `${args.schema}${vocabulary}\n\n${args.prior}QUESTION: ${args.question}\n\n` +
       `Return JSON: { "approach": "1-3 sentences on how you'll answer and why these steps", ` +
-      `"steps": [ { "goal": "concrete, measurable step goal" } ] } ` +
+      `"steps": [ { "goal": "concrete, measurable step goal"${
+        vocabulary ? ', "semantic": { ... } (optional)' : ""
+      } } ] } ` +
       `— OR { "clarify": "...", "assumption": "..." } if you genuinely cannot proceed well.`,
   };
 }
@@ -268,7 +365,25 @@ export function buildAnalysisPlanPrompt(args: {
 export function buildCheckPrompt(args: {
   question: string;
   steps: Array<{ goal: string; sql?: string; facts: string; error?: string }>;
+  /** Governed models in scope — named so the reviewer cannot mistake one for a table. */
+  catalog?: GovernedModelFields[];
 }): { systemPrompt: string; userPrompt: string } {
+  // A step that FELL BACK to hand-written SQL still carries a goal phrased
+  // around the governed model ("From saas_sales_model, compute total_sales…").
+  // Measured live: the reviewer read that as a table name, "corrected" correct
+  // SQL to `FROM saas_sales_model`, and the rewrite died on
+  // `Catalog Error: Table with name saas_sales_model does not exist!`. The
+  // original result survived and the step was flagged, so nothing wrong was
+  // shown — but the concern raised was fictional, and a reviewer that cries
+  // wolf is a reviewer people stop reading.
+  const modelsAreNotTables = (args.catalog ?? []).length
+    ? "\n\nGOVERNED MODELS ARE NOT TABLES. " +
+      (args.catalog ?? [])
+        .map((m) => `"${m.name}" is a semantic model over the table ${m.table}`)
+        .join("; ") +
+      ". A step's goal may name a model; the SQL must still select FROM the underlying " +
+      "table. Never rewrite a query to select from a model name."
+    : "";
   const stepBlocks = args.steps
     .map(
       (s, i) =>
@@ -286,7 +401,8 @@ export function buildCheckPrompt(args: {
       'the concern in the note). If a step is WRONG and you can fix it, return "refined_sql" ' +
       "with a corrected single SELECT statement — it will be re-executed and replace the " +
       "result. Be specific in notes: name the number or shape that concerns you. Never " +
-      "invent data.",
+      "invent data." +
+      modelsAreNotTables,
     userPrompt:
       `QUESTION: ${args.question}\n\n${stepBlocks}\n\n` +
       `Return JSON: { "checks": [ { "verdict": "pass|suspect", "note": "one sentence", ` +
@@ -328,9 +444,138 @@ export function buildSynthesisPrompt(args: {
 
 // ── Parsers (validated, exported) ────────────────────────────────────────
 
-export function parseAnalysisPlan(raw: unknown): {
+const GRAINS: readonly TimeGrain[] = [
+  "day",
+  "week",
+  "month",
+  "quarter",
+  "year",
+  "fiscal_quarter",
+  "fiscal_year",
+] as const;
+
+/**
+ * Turn a plan's governed block into a SemanticQuery, or return null.
+ *
+ * EVERY NAME IS CHECKED against the catalog the analyst actually loaded. A
+ * metric the model invented does not become a governed metric by being
+ * named in a JSON field called "metrics" — and the failure mode of letting
+ * it through is the worst kind: the step would carry a "Governed" badge over
+ * SQL that compiles from something nobody signed off, or fail on the server
+ * with an error the reader cannot connect to the claim.
+ *
+ * Returning null is not a refusal to answer. The caller falls back to
+ * model-written SQL and the step is shown as ungoverned, which is the honest
+ * description of what happened.
+ */
+export function parseSemanticStep(
+  raw: unknown,
+  catalog: GovernedModelFields[],
+): SemanticQuery | null {
+  const o = (raw ?? {}) as Record<string, unknown>;
+  const modelName = typeof o.model === "string" ? o.model.trim() : "";
+  if (!modelName) return null;
+  const model = catalog.find((m) => m.name.toLowerCase() === modelName.toLowerCase());
+  if (!model) return null;
+
+  const pick = (v: unknown, allowed: string[]): string[] => {
+    const want = Array.isArray(v) ? v : typeof v === "string" ? [v] : [];
+    const out: string[] = [];
+    for (const item of want) {
+      if (typeof item !== "string") continue;
+      const hit = allowed.find((a) => a.toLowerCase() === item.trim().toLowerCase());
+      if (hit && !out.includes(hit)) out.push(hit);
+    }
+    return out;
+  };
+
+  const metrics = pick(o.metrics, model.metrics);
+  const dimensions = pick(o.dimensions, model.dimensions);
+  // A governed query with no metric is not a governed query — it is a column
+  // listing that would be better served by ordinary SQL.
+  if (metrics.length === 0) return null;
+  // Any name the plan asked for that the model does not have means the plan
+  // was reasoning about a schema that does not exist. Compiling the subset
+  // that happened to match would answer a DIFFERENT question, silently.
+  const askedMetrics = Array.isArray(o.metrics) ? o.metrics.length : o.metrics ? 1 : 0;
+  const askedDims = Array.isArray(o.dimensions) ? o.dimensions.length : o.dimensions ? 1 : 0;
+  if (metrics.length !== askedMetrics || dimensions.length !== askedDims) return null;
+
+  const q: SemanticQuery = { model: model.name, metrics };
+  if (dimensions.length) q.dimensions = dimensions;
+
+  // Grains: only on dimensions this query actually selected, and only the
+  // grains the compiler knows.
+  if (o.grains && typeof o.grains === "object") {
+    const grains: Record<string, TimeGrain> = {};
+    for (const [k, v] of Object.entries(o.grains as Record<string, unknown>)) {
+      const dim = dimensions.find((d) => d.toLowerCase() === k.trim().toLowerCase());
+      const grain = GRAINS.find((g) => g === String(v).trim().toLowerCase());
+      if (dim && grain) grains[dim] = grain;
+    }
+    if (Object.keys(grains).length) q.grains = grains;
+  }
+
+  // Filters reference fields by name too, so they get the same treatment:
+  // a filter on a field the model does not have is dropped along with the
+  // whole block rather than quietly widening the result.
+  if (Array.isArray(o.filters) && o.filters.length) {
+    const fields = [...model.metrics, ...model.dimensions];
+    const filters: SemanticFilter[] = [];
+    for (const f of o.filters as unknown[]) {
+      const fo = (f ?? {}) as Record<string, unknown>;
+      const field = fields.find(
+        (a) =>
+          a.toLowerCase() ===
+          String(fo.field ?? "")
+            .trim()
+            .toLowerCase(),
+      );
+      const op = typeof fo.op === "string" ? fo.op.trim() : "";
+      if (!field || !op) return null;
+      filters.push({ field, op, value: fo.value } as SemanticFilter);
+    }
+    if (filters.length) q.filters = filters;
+  }
+
+  // ORDER BY, because "top 5" without it is five arbitrary rows.
+  //
+  // Measured live: a governed "the 5 orders with the largest discount"
+  // compiled to a LIMIT with no ordering and returned discounts of 0, 0.65,
+  // 0.2… The self-check spotted it and rewrote the SQL by hand, which
+  // rescued the answer at the cost of the step's compiled status. Supporting
+  // it here keeps the query governed AND correct.
+  if (Array.isArray(o.orderBy) && o.orderBy.length) {
+    const selectable = [...metrics, ...dimensions];
+    const orderBy: NonNullable<SemanticQuery["orderBy"]> = [];
+    for (const raw of o.orderBy as unknown[]) {
+      const ob = (raw ?? {}) as Record<string, unknown>;
+      const name = typeof ob === "string" ? ob : String(ob.field ?? "");
+      const field = selectable.find((f) => f.toLowerCase() === name.trim().toLowerCase());
+      // Ordering by something the query does not select is not a tidier
+      // result, it is a different one — refuse the block as with filters.
+      if (!field) return null;
+      orderBy.push({
+        field,
+        dir: String(ob.dir ?? "desc").toLowerCase() === "asc" ? "asc" : "desc",
+      });
+    }
+    if (orderBy.length) q.orderBy = orderBy;
+  }
+
+  if (typeof o.limit === "number" && Number.isFinite(o.limit) && o.limit > 0) {
+    q.limit = Math.min(Math.trunc(o.limit), ANALYST_ROW_CAP * 20);
+  }
+  return q;
+}
+
+export function parseAnalysisPlan(
+  raw: unknown,
+  /** Governed models in scope. Omitted → no step can claim to be governed. */
+  catalog: GovernedModelFields[] = [],
+): {
   approach: string;
-  steps: { goal: string }[];
+  steps: { goal: string; semantic?: SemanticQuery }[];
   /** Set INSTEAD of steps when the analyst needs an answer before it can plan. */
   clarify?: string;
   /** What it would assume if told to proceed anyway. */
@@ -358,7 +603,12 @@ export function parseAnalysisPlan(raw: unknown): {
     return "";
   };
   const steps = list
-    .map((s) => ({ goal: goalOf(s) }))
+    .map((s) => {
+      const goal = goalOf(s);
+      const obj = (s ?? {}) as Record<string, unknown>;
+      const semantic = parseSemanticStep(obj.semantic ?? obj.governed, catalog);
+      return semantic ? { goal, semantic } : { goal };
+    })
     .filter((s) => s.goal.length > 0)
     .slice(0, MAX_ANALYSIS_STEPS);
   // A clarification is only honoured when the model ALSO produced no plan.
@@ -613,6 +863,22 @@ export async function runAnalystTurn(args: {
   execute?: (sql: string) => Promise<QueryResult>;
   /** Human name of the engine when `execute` is provided. */
   dialect?: string;
+  /** Governed models the plan may compile against. Empty = none, and no
+   *  step can be marked governed. */
+  catalog?: GovernedModelFields[];
+  /**
+   * Run a compiled semantic query. Injected rather than imported so the loop
+   * stays testable and so compilation keeps happening SERVER-side, where the
+   * full model, its row filters and its column masks live — the browser only
+   * ever holds field names.
+   */
+  runSemantic?: (q: SemanticQuery) => Promise<{
+    sql: string;
+    columns: string[];
+    rows: Record<string, unknown>[];
+    rollup?: string;
+    access_note?: string;
+  }>;
   onUpdate: (turn: AnalystTurn) => void;
 }): Promise<AnalystTurn> {
   const turn: AnalystTurn = {
@@ -648,9 +914,16 @@ export async function runAnalystTurn(args: {
     await ensureGovernedCatalog();
     const schema = describeSchema(args.datasets, args.semantics, args.metrics);
     const prior = priorContext(args.priorTurns);
-    const planPrompt = buildAnalysisPlanPrompt({ schema, question: args.question, prior });
+    const catalog = args.catalog ?? [];
+    const planPrompt = buildAnalysisPlanPrompt({
+      schema,
+      question: args.question,
+      prior,
+      catalog,
+    });
     const plan = parseAnalysisPlan(
       await llmJson<unknown>({ ...planPrompt, model: args.model, maxTokens: ANALYST_TOKENS.plan }),
+      catalog,
     );
     // 1b. STOP AND ASK, when proceeding would mean inventing the question.
     // A guess that runs produces confident numbers with the assumption
@@ -665,7 +938,11 @@ export async function runAnalystTurn(args: {
       return turn;
     }
     turn.approach = plan.approach;
-    turn.steps = plan.steps.map((s) => ({ goal: s.goal, status: "pending" as const }));
+    turn.steps = plan.steps.map((s) => ({
+      goal: s.goal,
+      ...(s.semantic ? { semantic: s.semantic } : {}),
+      status: "pending" as const,
+    }));
     turn.status = "working";
     emit();
 
@@ -681,6 +958,51 @@ export async function runAnalystTurn(args: {
         breakdowns: [],
       };
       try {
+        // A GOVERNED STEP DOES NOT ASK THE MODEL FOR SQL. The compiler turns
+        // the model's own metric definitions into the query — including the
+        // fan-out refusals, rollup routing and row filters that a hand-written
+        // SELECT has no way to honour. If compiling fails, the step falls back
+        // to written SQL and LOSES its governed marking rather than keeping a
+        // badge it can no longer justify.
+        let compiled = false;
+        if (step.semantic && args.runSemantic) {
+          try {
+            const res = await args.runSemantic(step.semantic);
+            step.sql = res.sql;
+            step.governed = {
+              model: step.semantic.model,
+              rollup: res.rollup,
+              accessNote: res.access_note,
+            };
+            step.status = "running";
+            emit();
+            const governedResult: QueryResult = {
+              columns: res.columns,
+              rows: res.rows,
+              row_count: res.rows.length,
+              total_matched: res.rows.length,
+              capped: false,
+              duration_ms: 0,
+            };
+            captureResult(step, governedResult);
+            results[i] = governedResult;
+            step.status = "done";
+            emit();
+            compiled = true;
+          } catch (e) {
+            // Say what was attempted. A governed step that silently becomes an
+            // ungoverned one teaches people the badge means nothing.
+            step.governed = undefined;
+            delete step.semantic;
+            step.check = {
+              verdict: "suspect",
+              note:
+                `The governed model could not answer this step (${(e as Error).message}), ` +
+                `so the SQL below was written by the analyst instead of compiled.`,
+            };
+          }
+        }
+        if (compiled) continue;
         step.sql = await generateSql({
           question: step.goal,
           plan: stepPlan,
@@ -740,6 +1062,7 @@ export async function runAnalystTurn(args: {
         facts: results[i] ? describeStepResult(results[i]!) : "(no result)",
         error: s.error,
       })),
+      catalog,
     });
     let headline = 0;
     try {
@@ -760,9 +1083,25 @@ export async function runAnalystTurn(args: {
           try {
             const res = await runSql(c.refined_sql);
             step.sql = c.refined_sql;
+            // A REFINED STEP IS NO LONGER COMPILED. The correction is SQL the
+            // model wrote, replacing what the compiler produced, so the badge
+            // would now vouch for a query the semantic layer never saw —
+            // the same lie the edit path already refuses to tell. Measured
+            // live: a governed "top 5" compiled without ORDER BY, the check
+            // rewrote it correctly, and the step kept its governed marking.
+            const wasGoverned = step.governed?.model;
+            step.governed = undefined;
+            delete step.semantic;
             captureResult(step, res);
             results[i] = res;
-            step.check = { verdict: "refined", note: c.note || "Corrected on self-review." };
+            step.check = {
+              verdict: "refined",
+              note:
+                (c.note || "Corrected on self-review.") +
+                (wasGoverned
+                  ? ` The correction is hand-written SQL, so this step is no longer compiled from ${wasGoverned}.`
+                  : ""),
+            };
           } catch (e) {
             // The refinement itself failed — keep the original result and
             // surface the concern rather than losing a working answer.

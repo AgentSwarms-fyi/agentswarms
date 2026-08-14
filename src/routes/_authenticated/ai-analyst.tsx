@@ -19,10 +19,12 @@ import {
   BrainCircuit,
   CheckCircle2,
   Database,
+  FlaskConical,
   FileDown,
   HelpCircle,
   LayoutDashboard,
   Loader2,
+  History,
   MessageSquarePlus,
   Pencil,
   Play,
@@ -30,10 +32,11 @@ import {
   RefreshCw,
   Send,
   Trash2,
+  ShieldCheck,
   Wrench,
 } from "lucide-react";
 
-import { BiChartRender } from "@/components/bi/BiChartRender";
+import { BiChartRender, fmtBiValue } from "@/components/bi/BiChartRender";
 import { BiModelSelect } from "@/components/bi/BiModelSelect";
 import { MarkdownMessage } from "@/components/playground/MarkdownMessage";
 import { Badge } from "@/components/ui/badge";
@@ -61,6 +64,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { clickable } from "@/lib/clickable";
 import {
   analystNameOnEdit,
+  ANALYST_ROW_CAP,
   isReasoningModelId,
   modelsUsedIn,
   rerunStep,
@@ -69,15 +73,26 @@ import {
   trimTurnForStorage,
   withStaleAnswer,
   type AnalystSource,
+  type AnalystStep,
   type AnalystTurn,
+  type GovernedModelFields,
 } from "@/lib/aiAnalyst";
 import {
+  buildScenario,
+  describeScenario,
+  scenarioDelta,
+  scenarioLevers,
+} from "@/lib/analystScenario";
+import {
+  ensureGovernedCatalog,
   generateSuggestedQuestions,
+  governedCatalogFor,
   loadSavedMetrics,
   loadSemantics,
   type SavedMetric,
   type SemanticEntry,
 } from "@/lib/biAgent";
+import { semanticRunQuery } from "@/utils/semantic.functions";
 import {
   appendWidgetToDashboard,
   listDashboards,
@@ -113,7 +128,11 @@ type ThreadRow = {
   analyst_id: string;
   title: string;
   turns: AnalystTurn[];
+  updated_at?: string;
 };
+
+/** How many past analyses an analyst lists. Enough to find one, not a log. */
+const ANALYST_THREAD_HISTORY = 50;
 
 /** Auto-name from the data pick — the dialog stays two fields on purpose. */
 function analystNameFor(source: AnalystSource, warehouses: WarehouseConnectionSummary[]): string {
@@ -155,9 +174,24 @@ function AiAnalystPage() {
   const { user, session } = useAuth();
   const token = session?.access_token;
   const listWarehousesFn = useServerFn(listWarehouseConnections);
+  // Compilation happens SERVER-side: that is where the full model, its row
+  // filters and its column masks are. The browser only ever sees field names.
+  const runSemanticFn = useServerFn(semanticRunQuery);
 
   // ── Data the analysts can be scoped to ──────────────────────────────
   const [datasets, setDatasets] = useState<DatasetMeta[]>([]);
+  /**
+   * Governed models over the datasets in scope — their declared parameters
+   * are what a what-if scenario is allowed to vary.
+   *
+   * STATE, not a memo over `datasets`. governedCatalogFor reads a module-level
+   * cache that `ensureGovernedCatalog()` fills asynchronously, so a memo keyed
+   * on datasets alone computed once against an EMPTY cache and never
+   * recomputed. Measured live: a model declaring commission_rate showed
+   * "declares no parameters", which is the one thing the empty state must
+   * never say wrongly — it reads as a fact about the model.
+   */
+  const [catalog, setCatalog] = useState<GovernedModelFields[]>([]);
   const [semantics, setSemantics] = useState<Map<string, SemanticEntry>>(new Map());
   const [metrics, setMetrics] = useState<SavedMetric[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseConnectionSummary[]>([]);
@@ -172,9 +206,13 @@ function AiAnalystPage() {
         const [sem, mets] = await Promise.all([
           loadSemantics(tables.map((d) => d.id)),
           loadSavedMetrics(),
+          // Fill the governed cache BEFORE reading it, or the catalog is
+          // whatever happened to be cached — usually nothing on a fresh load.
+          ensureGovernedCatalog(),
         ]);
         setSemantics(sem);
         setMetrics(mets);
+        setCatalog(governedCatalogFor(tables));
       } catch (e) {
         toast.error(`Could not load local datasets: ${(e as Error).message}`);
       }
@@ -214,28 +252,37 @@ function AiAnalystPage() {
 
   // ── The selected analyst's thread ───────────────────────────────────
   const [thread, setThread] = useState<ThreadRow | null>(null);
+  /** This analyst's past analyses, newest first. */
+  const [threads, setThreads] = useState<ThreadRow[]>([]);
   const [threadLoading, setThreadLoading] = useState(false);
   const [liveTurn, setLiveTurn] = useState<AnalystTurn | null>(null);
   const [busy, setBusy] = useState(false);
   const [question, setQuestion] = useState("");
   const threadRef = useRef<HTMLDivElement | null>(null);
 
+  // EVERY analysis, not just the newest. Loading one meant each earlier
+  // analysis was written to the database and then unreachable — the work was
+  // kept and hidden, which is worse than not keeping it.
   useEffect(() => {
     setThread(null);
     setLiveTurn(null);
+    setThreads([]);
     if (!selectedId) return;
     setThreadLoading(true);
     supabase
       .from("ai_analyst_threads")
-      .select("id, analyst_id, title, turns")
+      .select("id, analyst_id, title, turns, updated_at")
       .eq("analyst_id", selectedId)
       .order("updated_at", { ascending: false })
-      .limit(1)
+      .limit(ANALYST_THREAD_HISTORY)
       .then(({ data, error }) => {
         setThreadLoading(false);
         if (error) return toast.error(error.message);
-        const row = data?.[0];
-        if (row) setThread({ ...row, turns: (row.turns ?? []) as AnalystTurn[] } as ThreadRow);
+        const rows = (data ?? []).map(
+          (r) => ({ ...r, turns: (r.turns ?? []) as AnalystTurn[] }) as ThreadRow,
+        );
+        setThreads(rows);
+        if (rows[0]) setThread(rows[0]);
       });
   }, [selectedId]);
 
@@ -333,7 +380,9 @@ function AiAnalystPage() {
           .update({ turns: nextTurns as never, updated_at: new Date().toISOString() })
           .eq("id", thread.id);
         if (error) toast.error(`The analysis ran but could not be saved: ${error.message}`);
-        setThread({ ...thread, turns: nextTurns });
+        const updated = { ...thread, turns: nextTurns };
+        setThread(updated);
+        setThreads((cur) => cur.map((t) => (t.id === updated.id ? updated : t)));
         return;
       }
       const { data, error } = await supabase
@@ -344,13 +393,15 @@ function AiAnalystPage() {
           title: titleFrom.slice(0, 80),
           turns: nextTurns as never,
         })
-        .select("id, analyst_id, title, turns")
+        .select("id, analyst_id, title, turns, updated_at")
         .single();
       if (error) {
         toast.error(`The analysis ran but could not be saved: ${error.message}`);
         setThread({ id: "unsaved", analyst_id: selected.id, title: titleFrom, turns: nextTurns });
       } else {
-        setThread({ ...data, turns: (data.turns ?? []) as AnalystTurn[] } as ThreadRow);
+        const created = { ...data, turns: (data.turns ?? []) as AnalystTurn[] } as ThreadRow;
+        setThread(created);
+        setThreads((cur) => [created, ...cur]);
       }
     },
     [selected, user?.id, thread],
@@ -376,6 +427,23 @@ function AiAnalystPage() {
           model: selected.model,
           execute: scope.execute,
           dialect: scope.dialect,
+          // The catalog resolved at load, AFTER ensureGovernedCatalog(). Read
+          // straight from the cache here and a cold first question gets an
+          // empty catalog — no step could be governed, and nothing would say
+          // why.
+          catalog,
+          runSemantic: token
+            ? async (query) => {
+                const res = await runSemanticFn({ data: { accessToken: token, query } });
+                return {
+                  sql: res.sql,
+                  columns: res.columns,
+                  rows: res.rows as Record<string, unknown>[],
+                  rollup: res.rollup,
+                  access_note: res.access_note,
+                };
+              }
+            : undefined,
           onUpdate: setLiveTurn,
         });
         // Persist the finished turn (including failures — the trace is the
@@ -416,6 +484,69 @@ function AiAnalystPage() {
       }
     },
     [thread, selected, resolveScope, persistTurns],
+  );
+
+  /**
+   * Re-run a governed step under changed assumptions.
+   *
+   * The scenario is stored ON the step beside the measured result and the
+   * findings are left alone — deliberately. A what-if that rewrote the answer
+   * would turn "what the data says" into "what the data would say if", with
+   * nothing in the text to tell them apart.
+   */
+  const runScenarioAt = useCallback(
+    async (
+      turnIndex: number,
+      stepIndex: number,
+      paramOverrides: Record<string, string>,
+      filterOverrides: Record<string, string>,
+    ) => {
+      const turns = thread?.turns ?? [];
+      const turn = turns[turnIndex];
+      const step = turn?.steps?.[stepIndex];
+      if (!turn || !step?.semantic || !step.governed || !token) return;
+      const scope = await resolveScope();
+      if (!scope) return;
+      const model = catalog.find((m) => m.name === step.governed?.model);
+      const plan = buildScenario({
+        baseline: step.semantic,
+        parameters: model?.parameters ?? [],
+        paramOverrides,
+        filterOverrides,
+      });
+      if (!plan) {
+        toast.error("Nothing changed — a scenario has to vary an assumption or a filter value.");
+        return;
+      }
+      try {
+        const res = await runSemanticFn({ data: { accessToken: token, query: plan.query } });
+        const patched: AnalystStep = {
+          ...step,
+          scenario: {
+            changes: plan.changes,
+            label: describeScenario(plan.changes),
+            sql: res.sql,
+            columns: res.columns,
+            rows: (res.rows as Record<string, unknown>[]).slice(0, ANALYST_ROW_CAP),
+            delta: scenarioDelta(
+              step.semantic.metrics,
+              step.rows ?? [],
+              res.rows as Record<string, unknown>[],
+            ),
+          },
+        };
+        const steps = turn.steps.map((s, i) => (i === stepIndex ? patched : s));
+        // NOT withStaleAnswer: the measured result is untouched, so the
+        // findings still describe exactly what they described before.
+        const next = turns.map((t, i) =>
+          i === turnIndex ? trimTurnForStorage({ ...t, steps }) : t,
+        );
+        await persistTurns(next, turn.question);
+      } catch (e) {
+        toast.error(`The scenario could not be compiled: ${(e as Error).message}`);
+      }
+    },
+    [thread, resolveScope, persistTurns, runSemanticFn, token],
   );
 
   const rewriteTurn = useCallback(
@@ -747,6 +878,31 @@ function AiAnalystPage() {
                 {sourceLabel(selected.source, warehouses).text}
               </span>
               <div className="ml-auto flex items-center gap-1.5">
+                {threads.length > 1 && (
+                  <Select
+                    value={thread?.id ?? ""}
+                    onValueChange={(id) => {
+                      const pick = threads.find((t) => t.id === id);
+                      if (pick) {
+                        setThread(pick);
+                        setLiveTurn(null);
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="h-7 max-w-52 gap-1 text-xs" title="Past analyses">
+                      <History className="h-3.5 w-3.5 shrink-0" />
+                      <SelectValue placeholder="Past analyses" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {threads.map((t) => (
+                        <SelectItem key={t.id} value={t.id} className="text-xs">
+                          {t.title || "Untitled analysis"}
+                          {t.updated_at ? ` · ${new Date(t.updated_at).toLocaleDateString()}` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
                 <Button
                   size="sm"
                   variant="ghost"
@@ -813,6 +969,8 @@ function AiAnalystPage() {
                     onRewrite={rewriteTurn}
                     onPin={openPin}
                     onAsk={(q) => void askQuestion(q)}
+                    onScenario={runScenarioAt}
+                    catalog={catalog}
                   />
                 ))
               )}
@@ -991,6 +1149,8 @@ function TurnView({
   onRewrite,
   onPin,
   onAsk,
+  onScenario,
+  catalog,
 }: {
   turn: AnalystTurn;
   index: number;
@@ -1003,11 +1163,25 @@ function TurnView({
   onPin: (turnIndex: number, stepIndex: number) => void;
   /** Ask a follow-up. */
   onAsk: (question: string) => void;
+  /** Re-run a governed step under changed assumptions. */
+  onScenario: (
+    turnIndex: number,
+    stepIndex: number,
+    paramOverrides: Record<string, string>,
+    filterOverrides: Record<string, string>,
+  ) => Promise<void>;
+  /** Governed models in scope — for their declared parameters. */
+  catalog: GovernedModelFields[];
 }) {
   const [editing, setEditing] = useState<number | null>(null);
   const [clarifyDraft, setClarifyDraft] = useState("");
   const [draftSql, setDraftSql] = useState("");
   const [running, setRunning] = useState(false);
+  /** Which step's what-if panel is open, and the values typed into it. */
+  const [scenarioAt, setScenarioAt] = useState<number | null>(null);
+  const [paramDraft, setParamDraft] = useState<Record<string, string>>({});
+  const [filterDraft, setFilterDraft] = useState<Record<string, string>>({});
+  const [scenarioRunning, setScenarioRunning] = useState(false);
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-3">
@@ -1038,6 +1212,21 @@ function TurnView({
                   edited
                 </Badge>
               )}
+              {s.governed && (
+                <Badge
+                  variant="outline"
+                  className="ml-1.5 border-primary/40 bg-primary/5 text-[9px] text-primary"
+                  title={
+                    `Compiled from the governed model "${s.governed.model}" — the SQL below ` +
+                    `comes from its definitions, not from the analyst` +
+                    (s.governed.rollup ? `, answered by rollup ${s.governed.rollup}` : "") +
+                    (s.governed.accessNote ? `. ${s.governed.accessNote}` : "")
+                  }
+                >
+                  <ShieldCheck className="mr-0.5 inline h-2.5 w-2.5" />
+                  {s.governed.model}
+                </Badge>
+              )}
             </p>
             {s.status === "done" && s.rows && s.columns && (
               <div className="flex shrink-0 items-center gap-1">
@@ -1049,6 +1238,21 @@ function TurnView({
                 >
                   <LayoutDashboard className="h-3.5 w-3.5" />
                 </button>
+                {s.governed && (
+                  <button
+                    type="button"
+                    title="Re-run this step under a different assumption"
+                    className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                    onClick={() => {
+                      const open = scenarioAt === i ? null : i;
+                      setScenarioAt(open);
+                      setParamDraft({});
+                      setFilterDraft({});
+                    }}
+                  >
+                    <FlaskConical className="h-3.5 w-3.5" />
+                  </button>
+                )}
                 <button
                   type="button"
                   title="Edit this step's SQL and re-run it"
@@ -1113,6 +1317,130 @@ function TurnView({
                 {s.sql}
               </pre>
             )
+          )}
+
+          {/* What-if: the SAME governed query recompiled with one thing
+              changed, so the difference is that change and nothing else. */}
+          {scenarioAt === i &&
+            s.governed &&
+            (() => {
+              const levers = scenarioLevers(
+                s.semantic,
+                catalog.find((m) => m.name === s.governed?.model)?.parameters ?? [],
+              );
+              const nothingToVary = levers.parameters.length === 0 && levers.filters.length === 0;
+              return (
+                <div className="space-y-2 rounded-md border border-border/60 bg-muted/30 p-2">
+                  {nothingToVary ? (
+                    // A control that cannot change anything teaches people the
+                    // feature is broken rather than inapplicable.
+                    <p className="text-[11px] leading-relaxed text-muted-foreground">
+                      <strong>{s.governed.model}</strong> declares no parameters and this step has
+                      no filters, so there is nothing a scenario could vary. Declare a parameter on
+                      the model in the Semantic Layer to test an assumption.
+                    </p>
+                  ) : (
+                    <>
+                      {levers.parameters.map((p) => (
+                        <label key={p.name} className="flex items-center gap-2 text-[11px]">
+                          <span className="w-40 shrink-0 truncate text-muted-foreground">
+                            {p.label || p.name}
+                          </span>
+                          <Input
+                            className="h-7 text-xs"
+                            placeholder={String(p.default)}
+                            value={paramDraft[p.name] ?? ""}
+                            onChange={(e) =>
+                              setParamDraft((d) => ({ ...d, [p.name]: e.target.value }))
+                            }
+                          />
+                        </label>
+                      ))}
+                      {levers.filters.map((f) => (
+                        <label key={f.field} className="flex items-center gap-2 text-[11px]">
+                          <span className="w-40 shrink-0 truncate text-muted-foreground">
+                            {f.field} {f.op}
+                          </span>
+                          <Input
+                            className="h-7 text-xs"
+                            placeholder={String(f.value ?? "")}
+                            value={filterDraft[f.field] ?? ""}
+                            onChange={(e) =>
+                              setFilterDraft((d) => ({ ...d, [f.field]: e.target.value }))
+                            }
+                          />
+                        </label>
+                      ))}
+                      <div className="flex items-center gap-1.5">
+                        <Button
+                          size="sm"
+                          className="h-7 gap-1 px-2 text-xs"
+                          disabled={scenarioRunning || busy}
+                          onClick={async () => {
+                            setScenarioRunning(true);
+                            try {
+                              await onScenario(index, i, paramDraft, filterDraft);
+                            } finally {
+                              setScenarioRunning(false);
+                            }
+                          }}
+                        >
+                          {scenarioRunning ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <FlaskConical className="h-3 w-3" />
+                          )}
+                          Run scenario
+                        </Button>
+                        <span className="text-[10px] text-muted-foreground">
+                          Compiled from the same model — the findings above stay as measured
+                        </span>
+                      </div>
+                    </>
+                  )}
+                </div>
+              );
+            })()}
+
+          {s.scenario && (
+            <div className="space-y-1.5 rounded-md border border-amber-500/40 bg-amber-500/5 p-2">
+              <p className="text-[11px] font-semibold">
+                {s.scenario.label}{" "}
+                <span className="font-normal text-muted-foreground">
+                  — not measured data; what the numbers would be under this assumption
+                </span>
+              </p>
+              {s.scenario.delta.length > 0 && (
+                <ul className="space-y-0.5 text-[11px]">
+                  {s.scenario.delta.map((d) => (
+                    <li key={d.metric}>
+                      <strong>{d.metric}</strong>: {fmtBiValue(d.baseline)} →{" "}
+                      {fmtBiValue(d.scenario)} ({d.change >= 0 ? "+" : ""}
+                      {fmtBiValue(d.change)}
+                      {d.pctChange === null ? "" : `, ${(d.pctChange * 100).toFixed(1)}%`})
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <pre className="overflow-x-auto rounded bg-muted/60 p-2 font-mono text-[10px] leading-relaxed">
+                {s.scenario.sql}
+              </pre>
+            </div>
+          )}
+
+          {/* A rollup answering instead of the fact table, and a row filter
+              narrowing what this viewer can see, both change what the number
+              MEANS. The badge names the model; these say what it did. */}
+          {(s.governed?.rollup || s.governed?.accessNote) && (
+            <p className="text-[10px] leading-relaxed text-muted-foreground">
+              {s.governed.rollup && (
+                <>
+                  Answered by the declared rollup <code>{s.governed.rollup}</code> rather than the
+                  fact table.{" "}
+                </>
+              )}
+              {s.governed.accessNote}
+            </p>
           )}
 
           {s.error ? (

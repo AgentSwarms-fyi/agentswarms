@@ -661,6 +661,18 @@ export async function buildAnalysisPdfBytes(args: {
       y -= 12;
       wrapped(s.goal, { font: bold, size: 9.5, leading: 13 });
       gap(4);
+      // Provenance travels with the report. A reader who receives the PDF has
+      // no thread to hover over, and "this came from the governed model" is
+      // exactly the claim a circulated number needs to carry.
+      if (s.governed) {
+        wrapped(
+          `Compiled from governed model ${s.governed.model}` +
+            (s.governed.rollup ? ` · answered by rollup ${s.governed.rollup}` : "") +
+            (s.governed.accessNote ? ` · ${s.governed.accessNote}` : ""),
+          { size: 8, color: BRAND, leading: 11 },
+        );
+        gap(4);
+      }
       if (s.sql) {
         panel(wrapPre(s.sql, mono, 7.5, contentW - 16), mono, 7.5);
         gap(6);

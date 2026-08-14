@@ -129,9 +129,10 @@ and reports. An editable dashboard is called a **BI project**:
   query combines results with `UNION` (no single row grain to descend into —
   its own rows are shown instead, labelled as such), and a drill on a
   category computed in the select list, such as `DATE_TRUNC('month', d) AS
-  month`, since the rows underneath have no `month` column to filter on.
+month`, since the rows underneath have no `month` column to filter on.
   Dropping that predicate silently would show the whole table under a label
   promising one bar's worth.
+
 - **Export PDF** — one click renders the dashboard (layout preserved) into a
   downloadable A4 PDF report, entirely client-side.
 - **Query history** — the workbench records every statement you run, local or
@@ -268,8 +269,53 @@ by thinking that counts against the completion budget, and they generate far
 slower per token than chat models — a measured DeepSeek-R1 call produced
 1,785 tokens in 59.8s (~33ms/token) against the 8ms/token a chat model
 manages. The request deadline scales with both the completion budget and the
-model class; sized for chat models it was the analyst's *required* model
+model class; sized for chat models it was the analyst's _required_ model
 class that timed out. See `src/lib/llmDeadline.ts`.
+
+**Governed steps compile; they are not described.** When a step's numbers
+come from a governed semantic model, the plan names the model, its metrics
+and its dimensions, and the SQL is produced by the **semantic compiler** —
+the same one the BI builder uses, with its fan-out refusals, rollup routing,
+row filters and column masks. The model chooses _what_ to ask; it does not
+write the query. Before this, governed definitions were injected into the
+prompt with "never improvise a different formula" attached and nothing
+checked whether the SQL obeyed: a metric that is authoritative only when the
+model feels like it is not a governed metric.
+
+Every name in the block is validated against the catalog the analyst
+actually loaded, and a block naming anything the model does not have is
+dropped **whole** — compiling the subset that happened to match would answer
+a different question under a governance badge. A dropped block is not a
+refusal to answer: the step falls back to hand-written SQL and is shown
+**without** the badge, which is the honest description of what happened. If
+the compile itself fails, the step says so and loses the claim rather than
+keeping a badge it can no longer justify.
+
+**What-if scenarios** ride on the same compiler. A compiled step gets a
+flask control offering the two things that can honestly vary: the model's
+**declared parameters** (`{{commission_rate}}` in a metric's SQL is an
+assumption its author named and typed) and the **values of filters the step
+already has**. The scenario recompiles the _same_ query with one thing
+changed, so the difference between the two numbers is that change and
+nothing else — impossible with hand-written SQL, where the baseline and the
+variant are two separately-written queries.
+
+A scenario is **not a measurement**. It is labelled with exactly what was
+assumed (`Scenario — commission_rate 0.1 → 0.15`), shown beside the measured
+result rather than replacing it, and never folded into the findings — the
+write-up keeps describing what was measured. Where both results are a single
+row, the change and percentage change are computed in code; where they are
+grouped, the comparison is **refused** rather than matching rows by position.
+A scenario that varies nothing is refused too: re-running an identical query
+under a "scenario" heading invites the reader to conclude a change was tested
+and made no difference. When a model declares no parameters and the step has
+no filters, the panel says so instead of offering a control that cannot
+change anything.
+
+Compiled steps are marked with the model that produced them, in the thread
+and in the exported PDF. When a declared **rollup** answered instead of the
+fact table, or a **row filter** narrowed what you can see, that is visible
+text rather than a tooltip — both change what the number means.
 
 Ask one a question and it runs a transparent loop:
 
@@ -288,6 +334,11 @@ Ask one a question and it runs a transparent loop:
    presented **flagged**, never silently.
 4. **Write-up** — the findings cite steps by number, and every number in the
    answer appears in a step result. A headline chart accompanies it.
+
+Analyses are kept per analyst and **all of them are reachable** — the picker
+beside "New analysis" lists the last 50 by title and date. It used to load
+only the newest, so every earlier analysis was stored and then hidden, which
+is worse than not storing it.
 
 **Every step that has something to show gets its own visual.** A question
 answered by three queries produces three charts — one per step, each chosen
