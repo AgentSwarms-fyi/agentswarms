@@ -9,7 +9,7 @@
 //      ones they want, and generates them through the existing GenBI
 //      pipeline. The executive summary is added as a full-width text
 //      widget at the top of the dashboard.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   AreaChart,
@@ -28,6 +28,7 @@ import {
   Radar,
   Rows3,
   ScatterChart,
+  ShieldCheck,
   Sparkles,
   Table2,
   Wand2,
@@ -56,8 +57,15 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { BiModelSelect } from "@/components/bi/BiModelSelect";
 import type { BiDataContext } from "@/components/bi/biDataContext";
-import { runBiTurn, suggestDashboardWidgets, type WidgetSuggestion } from "@/lib/biAgent";
-import { widgetFromBiTurn, type BiWidget } from "@/lib/biDashboards";
+import { llmJson, runBiTurn, suggestDashboardWidgets, type WidgetSuggestion } from "@/lib/biAgent";
+import { widgetFromBiTurn, widgetFromSemantic, type BiWidget } from "@/lib/biDashboards";
+import type { MetricModelOption } from "@/components/bi/biDataContext";
+import {
+  suggestGovernedWidgets,
+  toSemanticQuery,
+  type RejectedGovernedWidget,
+  type ValidGovernedWidget,
+} from "@/lib/biGenerateSemantic";
 
 /** Icon per proposed chart type, so the checklist reads at a glance. */
 function ChartTypeIcon({ type }: { type: string }) {
@@ -123,6 +131,15 @@ export function GenerateDashboardDialog({
   onDone: (widgets: BiWidget[], title: string) => void;
 }) {
   const [phase, setPhase] = useState<"configure" | "review">("configure");
+  // Which kind of source the dashboard is generated FROM. The choice is made
+  // once, here, and decides whether every widget is governed — rather than
+  // per widget, which would let an ungoverned chart hide among certified ones.
+  const [sourceKind, setSourceKind] = useState<"table" | "semantic">("table");
+  const [metricModels, setMetricModels] = useState<MetricModelOption[] | null>(null);
+  const [modelName, setModelName] = useState("");
+  /** Validated governed widgets, keyed by the id shown in the checklist. */
+  const [governed, setGoverned] = useState<Map<string, ValidGovernedWidget>>(new Map());
+  const [rejected, setRejected] = useState<RejectedGovernedWidget[]>([]);
   const [table, setTable] = useState("");
   const [focus, setFocus] = useState("");
   const [analyzing, setAnalyzing] = useState(false);
@@ -134,6 +151,20 @@ export function GenerateDashboardDialog({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [steps, setSteps] = useState<GenStep[]>([]);
 
+  // Loaded lazily and only when offered: listMetricModels hits the server, and
+  // most generates never touch the governed path.
+  useEffect(() => {
+    if (!open || !ctx.listMetricModels || metricModels !== null) return;
+    ctx
+      .listMetricModels()
+      .then(setMetricModels)
+      .catch(() => setMetricModels([]));
+  }, [open, ctx, metricModels]);
+
+  const selectedModel = metricModels?.find((m) => m.name === modelName) ?? metricModels?.[0];
+  /** The governed source is offered only when the project actually wires it. */
+  const canGovern = Boolean(ctx.listMetricModels && ctx.runMetric);
+
   const selectedTable = ctx.datasets.some((d) => d.name === table)
     ? table
     : (ctx.datasets[0]?.name ?? "");
@@ -143,6 +174,8 @@ export function GenerateDashboardDialog({
 
   function reset() {
     setPhase("configure");
+    setGoverned(new Map());
+    setRejected([]);
     setFocus("");
     setSummary("");
     setSuggestions([]);
@@ -150,7 +183,61 @@ export function GenerateDashboardDialog({
     setSteps([]);
   }
 
+  /** Plan a dashboard over a governed model: declared vocabulary in, widgets out. */
+  async function analyzeGoverned() {
+    if (!selectedModel) {
+      return toast.error("No semantic models available — publish one in the Semantic Layer first.");
+    }
+    setAnalyzing(true);
+    try {
+      const res = await suggestGovernedWidgets({
+        model: selectedModel,
+        focus: focus.trim() || undefined,
+        aiModel: ctx.model ?? undefined,
+        llm: llmJson,
+      });
+      // Both halves are kept. A plan that proposed twelve and validated nine
+      // must say which three it dropped and why — see biGenerateSemantic.ts.
+      setRejected(res.plan.rejected);
+      if (res.plan.widgets.length === 0) {
+        throw new Error(
+          res.plan.rejected.length > 0
+            ? `Every proposed widget was rejected — first reason: ${res.plan.rejected[0].reason}`
+            : "The model proposed no widgets — try adding a focus.",
+        );
+      }
+      const map = new Map<string, ValidGovernedWidget>();
+      const display: WidgetSuggestion[] = res.plan.widgets.map((w) => {
+        const id = crypto.randomUUID();
+        map.set(id, w);
+        return {
+          id,
+          title: w.title,
+          kind: "chart",
+          chartType: w.chartType,
+          // Governed widgets are compiled from a SemanticQuery, never from a
+          // natural-language question — this field exists only for the raw path.
+          question: "",
+          rationale:
+            w.rationale ||
+            `${w.metrics.join(", ")}${w.dimensions.length ? ` by ${w.dimensions.join(", ")}` : ""}`,
+        };
+      });
+      setGoverned(map);
+      setTitle(res.title);
+      setSummary(res.summary);
+      setSuggestions(display);
+      setSelected(new Set(display.map((d) => d.id)));
+      setPhase("review");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setAnalyzing(false);
+    }
+  }
+
   async function analyze() {
+    if (sourceKind === "semantic") return analyzeGoverned();
     if (scoped.length === 0) {
       return toast.error("No local datasets — upload data on the Data & SQL page first.");
     }
@@ -224,6 +311,43 @@ export function GenerateDashboardDialog({
             setSteps(progress);
             continue;
           }
+          // ── Governed: the compiler writes the SQL, we never do ──
+          const gov = governed.get(picks[i].id);
+          if (gov && selectedModel && ctx.runMetric) {
+            const res = await ctx.runMetric(toSemanticQuery(gov, selectedModel.name));
+            if (res.rows.length === 0) {
+              reason = "The governed query returned no rows";
+            } else {
+              const lead = selectedModel.metrics.find((m) => m.name === gov.metrics[0]);
+              widgets.push(
+                widgetFromSemantic({
+                  title: gov.title,
+                  model: selectedModel.name,
+                  metrics: gov.metrics,
+                  dimensions: gov.dimensions,
+                  grains: gov.grains,
+                  chartType: gov.chartType,
+                  columns: res.columns,
+                  rows: res.rows,
+                  // The compiler's own SQL, kept on the widget so the number
+                  // stays inspectable — and so refresh recompiles from the
+                  // CURRENT model definition rather than replaying this text.
+                  sql: res.sql,
+                  format: lead?.format as "number" | "currency" | "percent" | undefined,
+                  currency: lead?.currency,
+                }),
+              );
+              ok = true;
+            }
+            progress = progress.map((st, j) =>
+              j === i
+                ? { ...st, status: ok ? "done" : "error", error: ok ? undefined : reason }
+                : st,
+            );
+            setSteps(progress);
+            continue;
+          }
+
           const turn = await runBiTurn({
             question: picks[i].question,
             datasets: scoped,
@@ -314,7 +438,9 @@ export function GenerateDashboardDialog({
           </DialogTitle>
           <DialogDescription className="text-xs">
             {phase === "configure"
-              ? "Pick a table — the analyst reads its structure and proposes visuals you can choose from."
+              ? sourceKind === "semantic"
+                ? "Pick a governed model — every widget is built from its certified metrics, and the compiler writes the SQL."
+                : "Pick a table — the analyst reads its structure and proposes visuals you can choose from."
               : "Review the summary and pick the visuals to build."}
           </DialogDescription>
         </DialogHeader>
@@ -323,26 +449,96 @@ export function GenerateDashboardDialog({
           <div className="space-y-3">
             <div className="space-y-1">
               <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Source table
+                Source
               </Label>
-              <Select value={selectedTable} onValueChange={setTable} disabled={busy}>
-                <SelectTrigger className="h-9 w-full text-xs">
-                  <span className="flex min-w-0 items-center gap-1.5">
-                    <Table2 className="h-3.5 w-3.5 shrink-0 text-teal-600 dark:text-teal-400" />
-                    <SelectValue placeholder="Pick a table…" />
-                  </span>
-                </SelectTrigger>
-                <SelectContent>
-                  {ctx.datasets.map((d) => (
-                    <SelectItem key={d.id} value={d.name} className="text-xs">
-                      <span className="font-mono">{d.name}</span>
-                      <span className="ml-1.5 text-muted-foreground">
-                        · {d.row_count.toLocaleString()} rows
+              {/* The governed option appears only when the project wires
+                  listMetricModels + runMetric. Offering it otherwise would be a
+                  control that silently does nothing. */}
+              {canGovern && (
+                <div className="mb-2 flex gap-1.5">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={sourceKind === "table" ? "secondary" : "ghost"}
+                    className="h-7 flex-1 gap-1.5 text-[11px]"
+                    onClick={() => setSourceKind("table")}
+                    disabled={busy}
+                  >
+                    <Table2 className="h-3 w-3" /> Table
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={sourceKind === "semantic" ? "secondary" : "ghost"}
+                    className="h-7 flex-1 gap-1.5 text-[11px]"
+                    onClick={() => setSourceKind("semantic")}
+                    disabled={busy}
+                  >
+                    <ShieldCheck className="h-3 w-3" /> Governed metrics
+                  </Button>
+                </div>
+              )}
+              {sourceKind === "semantic" ? (
+                <>
+                  <Select
+                    value={selectedModel?.name ?? ""}
+                    onValueChange={setModelName}
+                    disabled={busy}
+                  >
+                    <SelectTrigger className="h-9 w-full text-xs">
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-primary" />
+                        <SelectValue
+                          placeholder={metricModels === null ? "Loading…" : "Pick a model…"}
+                        />
                       </span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(metricModels ?? []).map((m) => (
+                        <SelectItem key={m.name} value={m.name} className="text-xs">
+                          <span>{m.label || m.name}</span>
+                          <span className="ml-1.5 text-muted-foreground">
+                            · {m.metrics.length} metrics
+                          </span>
+                          {m.scoped && (
+                            <Badge variant="outline" className="ml-1.5 text-[9px]">
+                              scoped
+                            </Badge>
+                          )}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[10px] text-muted-foreground">
+                    Every widget is compiled from this model&apos;s certified metrics — the AI
+                    chooses which to show, never how they are calculated.
+                  </p>
+                  {metricModels?.length === 0 && (
+                    <p className="text-[10px] text-amber-600 dark:text-amber-400">
+                      No semantic models yet — publish one in the Semantic Layer first.
+                    </p>
+                  )}
+                </>
+              ) : (
+                <Select value={selectedTable} onValueChange={setTable} disabled={busy}>
+                  <SelectTrigger className="h-9 w-full text-xs">
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <Table2 className="h-3.5 w-3.5 shrink-0 text-teal-600 dark:text-teal-400" />
+                      <SelectValue placeholder="Pick a table…" />
+                    </span>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ctx.datasets.map((d) => (
+                      <SelectItem key={d.id} value={d.name} className="text-xs">
+                        <span className="font-mono">{d.name}</span>
+                        <span className="ml-1.5 text-muted-foreground">
+                          · {d.row_count.toLocaleString()} rows
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
             <div className="space-y-1">
               <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -369,10 +565,15 @@ export function GenerateDashboardDialog({
                 />
               </div>
             )}
-            <Button className="w-full gap-1.5" onClick={() => void analyze()} disabled={busy}>
+            <Button
+              className="w-full gap-1.5"
+              onClick={() => void analyze()}
+              disabled={busy || (sourceKind === "semantic" && !selectedModel)}
+            >
               {analyzing ? (
                 <>
-                  <Loader2 className="h-4 w-4 animate-spin" /> Analyzing table…
+                  <Loader2 className="h-4 w-4 animate-spin" />{" "}
+                  {sourceKind === "semantic" ? "Reading the model…" : "Analyzing table…"}
                 </>
               ) : (
                 <>
@@ -385,6 +586,29 @@ export function GenerateDashboardDialog({
 
         {phase === "review" && (
           <>
+            {rejected.length > 0 && (
+              /* Shown, not swallowed. A generate that proposed twelve widgets
+                 and built nine is indistinguishable from one that only thought
+                 of nine unless the difference is on screen. */
+              <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-2.5">
+                <p className="text-[11px] font-medium text-amber-700 dark:text-amber-400">
+                  {rejected.length} suggestion{rejected.length === 1 ? "" : "s"} could not be built
+                  from this model
+                </p>
+                <ul className="mt-1 space-y-0.5">
+                  {rejected.slice(0, 4).map((r, i) => (
+                    <li key={i} className="text-[10px] text-muted-foreground">
+                      <span className="font-medium">{r.title}</span> — {r.reason}
+                    </li>
+                  ))}
+                  {rejected.length > 4 && (
+                    <li className="text-[10px] text-muted-foreground">
+                      …and {rejected.length - 4} more
+                    </li>
+                  )}
+                </ul>
+              </div>
+            )}
             <div className="max-h-[24vh] shrink-0 overflow-y-auto rounded-lg border border-border bg-muted/30 p-3">
               <p className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 <Sparkles className="h-3 w-3 text-primary" /> Executive summary
