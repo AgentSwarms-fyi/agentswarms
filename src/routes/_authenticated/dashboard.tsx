@@ -4,7 +4,14 @@ import { useEffect, useMemo, useState } from "react";
 import { mySpendSince } from "@/lib/budgetSpendClient";
 import { greetingName } from "@/lib/greetingName";
 import { supabase } from "@/integrations/supabase/client";
-import { formatSpend, spendCaveat, sumSpend } from "@/lib/spendCompleteness";
+import { formatSpend, spendCaveat } from "@/lib/spendCompleteness";
+import {
+  activityMetrics,
+  activityWindow,
+  bucketHour,
+  hourlyBuckets,
+  modelMix,
+} from "@/lib/dashboardActivity";
 import { SpendPanel } from "@/components/dashboard/SpendPanel";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -54,6 +61,15 @@ type Trace = {
   /** Text, not boolean: Postgres `->>` yields "true". */
   pricing_missing?: string | null;
 };
+
+/**
+ * How many traces the activity card fetches.
+ *
+ * Shared with activityWindow so the card can tell whether this page was big
+ * enough to contain the whole 24 hours. A busy day exceeds it, and the card
+ * then says its figures are a floor instead of quietly describing a prefix.
+ */
+const TRACE_FETCH_LIMIT = 200;
 
 const cardCls = "rounded-xl border border-border bg-card shadow-sm";
 
@@ -185,7 +201,7 @@ function DashboardPage() {
             "id, agent_name, llm_model, llm_provider, status, latency_ms, tokens_in, tokens_out, cost_usd, created_at, pricing_missing:request_payload->>pricing_missing",
           )
           .order("created_at", { ascending: false })
-          .limit(200),
+          .limit(TRACE_FETCH_LIMIT),
         supabase.auth.getUser(),
       ]);
       setStats({
@@ -264,54 +280,17 @@ function DashboardPage() {
     load();
   }, []);
 
+  // Everything on the "last 24h" card is computed over the last 24h — including
+  // success rate, latency and spend, which used to be computed over the whole
+  // fetched page. See src/lib/dashboardActivity.ts for what that measured.
   const metrics = useMemo(() => {
-    if (traces.length === 0) {
-      return {
-        runs24h: 0,
-        successRate: 0,
-        avgLatency: 0,
-        totalCost: 0,
-        spend: { total: 0, unpricedRows: 0, partial: false },
-        totalTokens: 0,
-        topModel: "—",
-        spark: Array(24).fill(0),
-        modelMix: [] as { model: string; count: number; share: number }[],
-      };
-    }
     const now = Date.now();
-    const last24 = traces.filter((r) => now - new Date(r.created_at).getTime() < 86_400_000);
-    // A user pressing Stop is not a failure: cancelled turns leave the
-    // success-rate denominator entirely rather than dragging it down.
-    const decided = traces.filter((r) => r.status !== "cancelled");
-    const ok = decided.filter((r) => r.status === "success").length;
-    // Through sumSpend rather than a bare reduce: a call on a model with no
-    // known rate is recorded at $0, which is right on the row and silently
-    // under-counts once summed. The card has to be able to say so.
-    const spend = sumSpend(traces);
-    const cost = spend.total;
-    const tokens = traces.reduce((s, r) => s + (r.tokens_in || 0) + (r.tokens_out || 0), 0);
-    const avgLat = Math.round(traces.reduce((s, r) => s + (r.latency_ms || 0), 0) / traces.length);
-    const buckets = Array(24).fill(0);
-    last24.forEach((r) => {
-      const h = new Date(r.created_at).getHours();
-      buckets[h] += 1;
-    });
-    const modelCounts = new Map<string, number>();
-    traces.forEach((r) => modelCounts.set(r.llm_model, (modelCounts.get(r.llm_model) ?? 0) + 1));
-    const modelMix = Array.from(modelCounts.entries())
-      .map(([model, count]) => ({ model, count, share: (count / traces.length) * 100 }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 4);
+    const window = activityWindow(traces, { now, fetchLimit: TRACE_FETCH_LIMIT });
     return {
-      runs24h: last24.length,
-      successRate: decided.length ? Math.round((ok / decided.length) * 100) : 100,
-      avgLatency: avgLat,
-      totalCost: cost,
-      spend,
-      totalTokens: tokens,
-      topModel: modelMix[0]?.model ?? "—",
-      spark: buckets,
-      modelMix,
+      ...activityMetrics(window),
+      spark: hourlyBuckets(window.rows, now),
+      mix: modelMix(window.rows),
+      now,
     };
   }, [traces]);
 
@@ -719,9 +698,15 @@ function DashboardPage() {
               <Badge
                 variant="secondary"
                 className="gap-1 bg-muted text-muted-foreground ring-1 ring-border"
+                title={
+                  metrics.truncated
+                    ? `More than ${TRACE_FETCH_LIMIT} calls were recorded in this window, which is as far back as this card reads. Every figure here is a floor. Traces & Logs has the complete set.`
+                    : undefined
+                }
               >
                 <TrendingUp className="h-3 w-3" />
-                {metrics.runs24h} runs
+                {metrics.runsAtLeast ? "≥" : ""}
+                {metrics.runs} runs
               </Badge>
             </header>
             <div className="flex h-32 items-end gap-1">
@@ -730,21 +715,42 @@ function DashboardPage() {
                   key={i}
                   className="flex-1 rounded-t bg-gradient-to-t from-primary/15 to-primary/70 transition-all hover:to-primary"
                   style={{ height: `${(v / sparkMax) * 100}%`, minHeight: v > 0 ? "4px" : "2px" }}
-                  title={`${i}:00 — ${v} runs`}
+                  title={`${bucketHour(i, metrics.now)}:00 — ${v} runs`}
                 />
               ))}
             </div>
+            {metrics.truncated && (
+              <p className="mt-2 text-[11px] text-amber-600 dark:text-amber-400">
+                Showing the most recent {TRACE_FETCH_LIMIT} calls — the full 24 hours holds more, so
+                these figures are a floor.
+              </p>
+            )}
             <div className="mt-4 grid grid-cols-3 gap-3 border-t border-border/60 pt-3 text-xs">
               <div>
                 <div className="text-muted-foreground">Success rate</div>
+                {/* Null, not 100: an account with nothing decided has not earned
+                    a success rate, and rendering one is a claim about runs that
+                    never happened. */}
                 <div className="mt-0.5 flex items-center gap-1 font-semibold text-emerald-600">
-                  <CheckCircle2 className="h-3 w-3" /> {metrics.successRate}%
+                  {metrics.successRate === null ? (
+                    <span className="text-muted-foreground">—</span>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="h-3 w-3" /> {metrics.successRate}%
+                    </>
+                  )}
                 </div>
               </div>
               <div>
                 <div className="text-muted-foreground">Avg latency</div>
                 <div className="mt-0.5 flex items-center gap-1 font-semibold text-foreground">
-                  <Clock className="h-3 w-3 text-sky-500" /> {formatMs(metrics.avgLatency)}
+                  {metrics.avgLatencyMs === null ? (
+                    <span className="text-muted-foreground">—</span>
+                  ) : (
+                    <>
+                      <Clock className="h-3 w-3 text-sky-500" /> {formatMs(metrics.avgLatencyMs)}
+                    </>
+                  )}
                 </div>
               </div>
               <div>
@@ -765,25 +771,41 @@ function DashboardPage() {
                 <Cpu className="h-4 w-4 text-indigo-500" />
                 Model mix
               </h3>
-              <p className="mt-1 text-xs text-muted-foreground">Where your tokens went</p>
+              <p className="mt-1 text-xs text-muted-foreground">Tokens by model, last 24h</p>
             </header>
             <div className="space-y-3">
               {loading ? (
                 <p className="py-6 text-center text-sm text-muted-foreground">Loading…</p>
-              ) : metrics.modelMix.length === 0 ? (
+              ) : metrics.mix.entries.length === 0 ? (
+                // Two different facts, two different sentences. Runs with no
+                // token accounting is not the same state as no runs at all,
+                // and telling someone "no runs yet" while they are looking at
+                // a run count above is simply false.
                 <p className="py-6 text-center text-sm text-muted-foreground">
-                  No runs yet. Provision a template to populate.
+                  {metrics.runs === 0
+                    ? "No runs in the last 24h. Provision a template to populate."
+                    : "No token usage was recorded for these runs."}
                 </p>
               ) : (
-                metrics.modelMix.map((m) => (
-                  <div key={m.model}>
-                    <div className="mb-1 flex items-center justify-between text-xs">
-                      <span className="truncate font-medium text-foreground">{m.model}</span>
-                      <span className="text-muted-foreground tabular-nums">{m.count}</span>
+                <>
+                  {metrics.mix.entries.map((m) => (
+                    <div key={m.model}>
+                      <div className="mb-1 flex items-center justify-between text-xs">
+                        <span className="truncate font-medium text-foreground">{m.model}</span>
+                        <span className="text-muted-foreground tabular-nums">
+                          {m.tokens.toLocaleString()}
+                        </span>
+                      </div>
+                      <Progress value={m.share} className="h-1.5" />
                     </div>
-                    <Progress value={m.share} className="h-1.5" />
-                  </div>
-                ))
+                  ))}
+                  {metrics.mix.hidden > 0 && (
+                    <p className="pt-1 text-[11px] text-muted-foreground">
+                      +{metrics.mix.hidden} more {metrics.mix.hidden === 1 ? "model" : "models"} not
+                      shown
+                    </p>
+                  )}
+                </>
               )}
             </div>
           </section>

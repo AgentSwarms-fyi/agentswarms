@@ -241,6 +241,17 @@ export function SpendPanel({ className }: { className?: string }) {
                 cost_usd: m.cost_usd,
                 tokens: 0,
               }))}
+              // The list is ranked by COST, so the models it drops can still
+              // be the ones you ran most. Saying how much was left out is the
+              // difference between a top-6 and a list someone reads as
+              // complete.
+              note={
+                data.modelsOmitted > 0
+                  ? `top ${data.topModels.length} by cost · ${data.modelsOmitted} more ` +
+                    `${data.modelsOmitted === 1 ? "model" : "models"} not shown ` +
+                    `(${data.runsOmitted.toLocaleString()} runs, ${usd(data.costOmitted)})`
+                  : undefined
+              }
             />
           )}
         </div>

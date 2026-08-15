@@ -92,7 +92,15 @@ export type DashboardOverview = {
   byUser: SpendRow[];
   /** Per-team breakdown. A user in two teams contributes to both. */
   byGroup: SpendRow[];
+  /** Ranked by COST and capped at TOP_MODELS — see the fields below. */
   topModels: { model: string; runs: number; cost_usd: number }[];
+  /** How many models the cap dropped, so the panel can stop implying none. */
+  modelsOmitted: number;
+  /** Runs on those dropped models. Can exceed the runs shown: the ranking is
+   *  by cost, and a cheap model is often the busiest one. */
+  runsOmitted: number;
+  /** Cost on those dropped models. */
+  costOmitted: number;
 };
 
 async function requireUser(accessToken: string) {
@@ -134,6 +142,9 @@ async function myGroups(userId: string) {
 function sum(rows: TraceRow[], pick: (r: TraceRow) => number): number {
   return rows.reduce((acc, r) => acc + pick(r), 0);
 }
+
+/** How many models the breakdown lists before it has to admit it is a top-N. */
+const TOP_MODELS = 6;
 
 const cost = (r: TraceRow) => Number(r.cost_usd ?? 0);
 const tokens = (r: TraceRow) => Number(r.tokens_in ?? 0) + Number(r.tokens_out ?? 0);
@@ -295,6 +306,8 @@ export const dashboardOverview = createServerFn({ method: "POST" })
       perModel.set(key, e);
     }
 
+    const rankedModels = [...perModel.values()].sort((a, b) => b.cost_usd - a.cost_usd);
+
     return {
       scope: data.scope,
       range: data.range,
@@ -308,6 +321,14 @@ export const dashboardOverview = createServerFn({ method: "POST" })
           ? []
           : [...perUser.values()].sort((a, b) => b.cost_usd - a.cost_usd).slice(0, 50),
       byGroup,
-      topModels: [...perModel.values()].sort((a, b) => b.cost_usd - a.cost_usd).slice(0, 6),
+      topModels: rankedModels.slice(0, TOP_MODELS),
+      // What the top-6 cut left out. MEASURED: on a real account the six
+      // shown covered 95% of cost but only 37% of runs, and the busiest
+      // model of all — gpt-4o-mini, 1,256 of 2,576 runs — was not among
+      // them. A panel headed "BY MODEL" that silently shows a quarter of
+      // the models is read as the whole list.
+      modelsOmitted: Math.max(0, rankedModels.length - TOP_MODELS),
+      runsOmitted: rankedModels.slice(TOP_MODELS).reduce((s, m) => s + m.runs, 0),
+      costOmitted: rankedModels.slice(TOP_MODELS).reduce((s, m) => s + m.cost_usd, 0),
     };
   });
