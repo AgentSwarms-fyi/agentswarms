@@ -130,8 +130,14 @@ export type SwarmToolConfigs = {
 };
 
 // Per-node guardrails — same shape the agent builder writes under
-// agents.tools.guardrails. The server merges these OVER the linked agent's
-// saved guardrails, so a swarm node can be stricter than its source agent.
+// agents.tools.guardrails.
+//
+// These are the ONLY guardrails a swarm run applies. An earlier version of this
+// comment said they are "merged OVER the linked agent's saved guardrails", which
+// cannot happen: importFromLibrary deliberately snapshots and sets agentId to
+// null, nothing else ever sets it, and swarmExecute.server never reads it. So
+// there is no linked agent to inherit from, and a node whose guardrails are
+// empty runs with none — which is why the import now copies them across.
 // Kept as a Partial<> here because every field is optional (only the toggles
 // the user actually changed need to ride along on the wire).
 export type SwarmGuardrails = {
@@ -174,8 +180,8 @@ export type SwarmNodeData = {
   skillIds?: string[];
   // per-tool configuration (provider+key for web tools, allow-lists for n8n/MCP)
   toolConfigs?: SwarmToolConfigs;
-  // per-node guardrails (optional). Server merges over the linked agent's
-  // saved guardrails so a node can be stricter than its source agent.
+  // Per-node guardrails (optional) — the only ones a swarm run applies. See
+  // the SwarmGuardrails comment above for why there is nothing to inherit.
   guardrails?: SwarmGuardrails;
   // Per-node memory configuration. `ltm_scope`:
   //   "agent" — share LTM with the agent's normal sessions (default).

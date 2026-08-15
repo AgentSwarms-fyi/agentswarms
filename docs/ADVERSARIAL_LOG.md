@@ -33,7 +33,7 @@ has not been tested; it has been visited.
 | --- | ------------------- | -------------------------- | ---- | ---------- | ----------------------------------- |
 | 1   | Dashboard           | `/dashboard`               | ✅ 1 | 2026-08-16 | 5 (2×S1, 1×S2, 2×S3)                |
 | 2   | Documentation       | `/docs`                    | ✅ 1 | 2026-08-16 | 4 (2×S1, 1×S2, 1×S1 self-inflicted) |
-| 3   | Agent Builder       | `/agents`                  | —    | —          | —                                   |
+| 3   | Agent Builder       | `/agents`                  | ✅ 1 | 2026-08-16 | 3 (2×S1, 1×S2)                      |
 | 4   | Knowledge Base      | `/knowledge`               | —    | —          | —                                   |
 | 5   | Agent Chat          | `/playground`              | —    | —          | —                                   |
 | 6   | Agent Swarms        | `/swarms`                  | —    | —          | —                                   |
@@ -66,6 +66,89 @@ has not been tested; it has been visited.
 ## Findings
 
 <!-- newest first -->
+
+### 2026-08-16 — Module 3, Agent Builder (`/agents`)
+
+A config surface fails differently from a metrics surface. The question is not
+"is this number right" but **"does this setting do anything, and does it still
+do it somewhere else"**. So the pass began by listing every key the form
+persists and finding each one's runtime consumer.
+
+That part came back clean: all twelve keys the builder writes are read by
+`api/chat.ts`. No dead settings. The defect was one layer out — what happens to
+those settings when the agent is used somewhere other than chat.
+
+#### G1 · S1 · Importing an agent into a swarm silently dropped everything that restricts it
+
+`NodeInspector.importFromLibrary` copied label, prompt, provider, model,
+temperature, primary KB and reranker. It did not copy **guardrails**,
+**toolConfigs**, or **skills**, and it mapped **3 of 11** tool ids.
+
+`SwarmNodeData` already declares `guardrails`, `toolConfigs` and `skillIds`, and
+`swarmExecute.server` already reads them. Nothing architectural prevented the
+copy — the shapes simply differ (`toolConfigs.sql_query.table_names` on the
+agent, flat `sql_table_names` on the node), which is a good explanation for how
+it survived review.
+
+**The sharp edge is that one of the dropped settings does not fail safe.** Per
+`SwarmToolConfigs`, `sql_table_names` empty or undefined means _every table the
+owner can see_, while `metric_model_names` empty means _no models_. So dropping
+the SQL allow-list **widened** what the node could read.
+
+Measured on a real agent, "Demo · Friendly Assistant": 18 guardrail settings,
+`sql_query` limited to `saas_sales`, `metric_query` limited to
+`saas_sales_model`, four tools on. Imported, it produced a node with no
+guardrails, no table limit, and only two of its four tools.
+
+Fixed in `src/lib/agentToSwarmNode.ts` — pure, exported, and the only mapping.
+Verified by driving the real picker in the canvas: the node now shows SQL Query
+and Semantic Metrics enabled (previously unmapped), with `saas_sales` and
+`saas_sales_model` both checked.
+
+#### G2 · S2 · What genuinely cannot cross is now said
+
+Some settings have no node equivalent — webhooks, the gateway preference, extra
+knowledge bases, `send_notification`. The import now returns them and the
+inspector lists them under "Not copied into this node", each with a reason.
+A copy that arrives quietly smaller is worse than one that says what it left
+behind.
+
+#### G3 · S1 · A comment vouching for a guarantee that cannot happen
+
+`swarmRuntime.ts` stated that per-node guardrails are "merged OVER the linked
+agent's saved guardrails, so a swarm node can be stricter than its source
+agent", and the inspector repeated it to the user. **There is no linked agent.**
+`importFromLibrary` deliberately sets `agentId: null`, nothing else ever sets
+it, and `swarmExecute.server` never reads it. A node with empty guardrails
+therefore ran with none, while the UI implied it had inherited the agent's.
+Both the comment and the help text now say what is true.
+
+#### Verified and left alone
+
+`swarmExecute.server` inlines each node's own config rather than passing
+`agentId` to `/api/chat`, so the documented internal-channel gate
+(`if (body.agentId && authToken)`, which makes `/api/chat` accept and ignore an
+agentId) does not bite swarm runs. The snapshot-not-link design is deliberate
+and correct — a reviewed, deployed swarm must not change because someone edited
+the source agent afterwards. That was kept, and pinned by a test.
+
+The `python-agent.ts` limitation comment is worth singling out as a model of the
+kind of honesty this campaign is looking for: it documents a known 401, explains
+why the obvious repair is wrong, and corrects an earlier version of itself.
+
+#### Fixture hygiene
+
+The live check ran on an already-empty swarm with Save never pressed. Verified
+afterwards from the database: 0 nodes, `updated_at` still 2026-08-09. The first
+attempt to verify that returned **HTTP 400** and my check reported "UNCHANGED"
+anyway, because the node count defaulted to 0 on a failed query — the same
+absence-of-evidence bug this campaign exists to find, committed by the
+verification itself. Re-queried against the real column (`nodes`, not `graph`)
+for an actual answer.
+
+**Tests:** 22 in `tests/unit/agentToSwarmNode.test.ts`, mutation-verified —
+eight reversions, each restoring one piece of the original behaviour, all
+killed, restore confirmed.
 
 ### 2026-08-16 — Module 2, Documentation (`/docs`)
 

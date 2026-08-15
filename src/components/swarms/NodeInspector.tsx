@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
+import { agentToNodePatch, type DroppedSetting } from "@/lib/agentToSwarmNode";
 import { fetchAgentCard, type AgentCard } from "@/lib/a2aClient";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -424,44 +425,22 @@ export function NodeInspector({
     isModelAllowedByRules(myModelRules, currentProvider, m),
   );
 
+  /** What the last import could not bring across, shown under the picker. */
+  const [importDropped, setImportDropped] = useState<DroppedSetting[]>([]);
+
   // Snapshot-copy an existing /agents Agent into this node. Independent copy:
   // future edits to the source agent won't affect this swarm.
+  //
+  // The mapping lives in agentToSwarmNode so the tests exercise the real one.
+  // It used to be inline and handled three tool ids out of eleven, and copied
+  // none of the settings whose purpose is to restrict — see that module's
+  // header for what that cost.
   function importFromLibrary(agentId: string) {
     const a = agentLibrary.find((x) => x.id === agentId);
     if (!a) return;
-    const t = (
-      a.tools && typeof a.tools === "object" && !Array.isArray(a.tools) ? a.tools : {}
-    ) as {
-      builtInTools?: Record<string, boolean>;
-    };
-    // Map the agent's `builtInTools.web_search` style flags to the curated
-    // SwarmToolId set so the snapshot honors what the agent already had on.
-    const importedTools: SwarmToolId[] = [];
-    const m = t.builtInTools || {};
-    if (m.web_search) importedTools.push("web_search");
-    if (m.web_browse || m.web_browser) importedTools.push("web_browse");
-    if (a.knowledge_base_id) importedTools.push("kb_search");
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const importedReranker = ((a.tools as any)?.reranker ?? null) as {
-      provider?: string;
-      model?: string;
-    } | null;
-    onChange({
-      label: a.name,
-      systemPrompt: a.system_prompt || "",
-      provider: a.llm_provider,
-      model: a.llm_model,
-      temperature: a.temperature,
-      knowledgeBaseId: a.knowledge_base_id,
-      reranker:
-        importedReranker?.provider && importedReranker.model
-          ? { provider: importedReranker.provider, model: importedReranker.model }
-          : null,
-      enabledTools: importedTools,
-      // Intentionally do NOT set agentId — snapshot copy means this node
-      // runs independently and can't be silently changed by /agents edits.
-      agentId: null,
-    });
+    const { patch, dropped } = agentToNodePatch(a);
+    onChange(patch);
+    setImportDropped(dropped);
   }
 
   const enabled = new Set<SwarmToolId>(data.enabledTools ?? []);
@@ -626,9 +605,25 @@ export function NodeInspector({
                     </SelectContent>
                   </Select>
                   <p className="text-[10px] text-muted-foreground mt-1">
-                    Copies prompt, model, tools, and KB into this node. Independent of the source —
-                    future edits to the agent won't affect this swarm.
+                    Copies prompt, model, tools, guardrails, tool limits and KB into this node.
+                    Independent of the source — future edits to the agent won't affect this swarm.
                   </p>
+                  {importDropped.length > 0 && (
+                    // A copy that arrives quietly smaller is worse than one that
+                    // says what it left behind.
+                    <div className="mt-2 rounded border border-amber-500/40 bg-amber-500/5 p-2">
+                      <p className="text-[10px] font-medium text-amber-700 dark:text-amber-400">
+                        Not copied into this node:
+                      </p>
+                      <ul className="mt-1 space-y-0.5">
+                        {importDropped.map((d) => (
+                          <li key={d.what} className="text-[10px] text-muted-foreground">
+                            <span className="text-foreground">{d.what}</span> — {d.why}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </Section>
               )}
 
@@ -1465,10 +1460,10 @@ function GuardrailsSection({
     >
       <div className="rounded-md border border-border/50 bg-background/40 p-2.5 space-y-3">
         <p className="text-[10px] text-muted-foreground">
-          Merged OVER the linked agent's guardrails — set anything here to make this node stricter.
-          Inputs that violate these rules are rejected by{" "}
-          <code className="font-mono">/api/chat</code> with a 422; unsafe outputs are redacted or
-          blocked before they reach the canvas.
+          These are the ONLY guardrails a swarm run applies to this node — a node is a snapshot, not
+          a link, so nothing is inherited from the agent it was imported from. Inputs that violate
+          these rules are rejected by <code className="font-mono">/api/chat</code> with a 422;
+          unsafe outputs are redacted or blocked before they reach the canvas.
         </p>
 
         {/* Content safety */}
