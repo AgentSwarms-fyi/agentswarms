@@ -188,6 +188,19 @@ The kernel pods have **no direct internet route**. Their only egress is an **HTT
 - **Session idle TTL** (e.g. 30 min): reaper destroys idle sessions.
 - **Session max lifetime** (e.g. 8 h): hard cap regardless of activity.
 - **Concurrency caps**: max sessions per user and per instance (protects the cluster).
+- **MCP cold-start budget** (`COLD_START_MS`, 90 s): how long a Deploy or a
+  scale-to-zero request waits for a published MCP server to start serving.
+  Measured on an idle single-host profile with the image already pulled, a
+  healthy start takes about 23 s from request to `ready` — the container itself
+  appears at ~3 s and the rest is the Python process importing and binding. Any
+  `pip install` of an app's declared extra packages happens **inside** this
+  budget, so an app with heavy dependencies needs more of it. Raise it on slow
+  or busy hosts; the start lease (`LEASE_TTL_MS`) is derived from it and must
+  stay longer, or a second caller can steal the lease from a start that is
+  still legitimately running.
+  Exceeding the budget is reported as _still starting_, not as a crash — the
+  two are distinguished, because a container that exited needs its traceback
+  read while a slow one just needs another attempt.
 
 ### 5.4 Filesystem
 

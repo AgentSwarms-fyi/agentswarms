@@ -33,18 +33,31 @@ import {
 
 export type McpAppRow = Database["public"]["Tables"]["mcp_apps"]["Row"];
 
-/** How long we will wait for a sandbox to come up before giving the caller a 503. */
-const COLD_START_MS = 45_000;
+/**
+ * How long we will wait for a sandbox to come up before giving the caller a 503.
+ *
+ * Measured, not guessed: on an idle developer machine with the image already
+ * pulled, the container appears about 3s after the request and the session
+ * reports ready at 23s. The previous 45s budget left barely one healthy start
+ * of headroom, and anything that ate it — a busy host, a cold image layer, or
+ * the `pip install` of the app's declared packages, which happens INSIDE this
+ * window — pushed a working server over the line. The old failure path then
+ * destroyed the container it had given up on, so the next attempt paid the
+ * full cold start again instead of finding it seconds from ready.
+ */
+const COLD_START_MS = 90_000;
 const POLL_MS = 750;
 
 /**
  * Staleness window on the start lease.
  *
  * The lease is the app row's own `status = 'deploying'`, so a process that dies
- * mid-start would wedge the app forever without a TTL. Comfortably longer than
- * a cold start, short enough that a crash self-heals within a minute or two.
+ * mid-start would wedge the app forever without a TTL. Must stay comfortably
+ * longer than COLD_START_MS: if it expired first, a second caller could steal
+ * the lease from a start that was still legitimately running and race it into
+ * a duplicate container. Kept at twice the budget so the two move together.
  */
-const LEASE_TTL_MS = 120_000;
+const LEASE_TTL_MS = COLD_START_MS * 2;
 
 export type EnsureResult =
   | { ok: true; endpoint: string; session: SessionRow }
@@ -97,16 +110,32 @@ async function setAppStatus(
     .eq("id", appId);
 }
 
+/**
+ * Outcome of waiting on a sandbox.
+ *
+ * These used to be one bare `null`, which is why an MCP server that crashed two
+ * seconds in was reported to its owner as "did not start in time". A container
+ * that died and a container that is merely slow need opposite fixes — read the
+ * traceback, or wait longer — so the caller has to be able to tell them apart.
+ */
+type WaitOutcome =
+  | { ready: true; row: SessionRow }
+  /** The sandbox reached a terminal state on its own. `row` carries its error. */
+  | { ready: false; why: "died"; row: SessionRow }
+  /** Still coming up when the clock ran out. Nothing is known to be wrong. */
+  | { ready: false; why: "deadline"; row: SessionRow };
+
 /** Poll a session until it is serving, it dies, or we run out of patience. */
-async function waitReady(session: SessionRow, deadline: number): Promise<SessionRow | null> {
+async function waitReady(session: SessionRow, deadline: number): Promise<WaitOutcome> {
   let row = session;
   while (Date.now() < deadline) {
     row = await refreshSession(row);
-    if (row.status === "ready" && row.endpoint) return row;
-    if (["stopped", "error", "succeeded"].includes(row.status)) return null;
+    if (row.status === "ready" && row.endpoint) return { ready: true, row };
+    if (["stopped", "error", "succeeded"].includes(row.status))
+      return { ready: false, why: "died", row };
     await new Promise((r) => setTimeout(r, POLL_MS));
   }
-  return null;
+  return { ready: false, why: "deadline", row };
 }
 
 /**
@@ -140,10 +169,10 @@ export async function ensureRunning(app: McpAppRow): Promise<EnsureResult> {
 
   const existing = await liveSession(app.id);
   if (existing) {
-    const ready = await waitReady(existing, deadline);
-    if (ready?.endpoint) {
-      await touch(ready.id);
-      return { ok: true, endpoint: ready.endpoint, session: ready };
+    const outcome = await waitReady(existing, deadline);
+    if (outcome.ready && outcome.row.endpoint) {
+      await touch(outcome.row.id);
+      return { ok: true, endpoint: outcome.row.endpoint, session: outcome.row };
     }
     // It died while we watched. Fall through and start a fresh one rather than
     // reporting a failure the next request would have fixed anyway.
@@ -156,10 +185,10 @@ export async function ensureRunning(app: McpAppRow): Promise<EnsureResult> {
       await new Promise((r) => setTimeout(r, POLL_MS));
       const s = await liveSession(app.id);
       if (!s) continue;
-      const ready = await waitReady(s, deadline);
-      if (ready?.endpoint) {
-        await touch(ready.id);
-        return { ok: true, endpoint: ready.endpoint, session: ready };
+      const outcome = await waitReady(s, deadline);
+      if (outcome.ready && outcome.row.endpoint) {
+        await touch(outcome.row.id);
+        return { ok: true, endpoint: outcome.row.endpoint, session: outcome.row };
       }
       break;
     }
@@ -192,20 +221,51 @@ export async function ensureRunning(app: McpAppRow): Promise<EnsureResult> {
       restartOnFailure: app.keep_warm,
     });
 
-    const ready = await waitReady(session, deadline);
-    if (!ready?.endpoint) {
+    const outcome = await waitReady(session, deadline);
+    if (!outcome.ready) {
+      // Read the logs BEFORE tearing the container down. They used to be
+      // fetched here, scanned for one line, and dropped — and then the
+      // container that held them was destroyed, so the Logs tab was empty
+      // forever after while the message told the owner to go read it.
       const logs = await logsOf(app.id).catch(() => "");
+      if (logs) await persistLogs(session.id, logs);
       await stopSession(session).catch(() => {});
-      await setAppStatus(app.id, "error", firstError(logs) || "The server did not start in time");
+
+      const detail = firstError(logs);
+      const sessionError = outcome.row.error?.trim();
+
+      if (outcome.why === "died") {
+        const reason =
+          detail ||
+          sessionError ||
+          (logs
+            ? "the process exited without an error message"
+            : "the process exited before writing any output");
+        await setAppStatus(app.id, "error", reason.slice(0, 300));
+        return fail(503, "start_failed", `The MCP server started and then stopped: ${reason}`);
+      }
+
+      // Deadline. We know only that it had not finished starting — asserting a
+      // crash here, or pointing at logs that may be empty, would be naming a
+      // cause we cannot support. A healthy cold start on an idle machine takes
+      // roughly half this budget, so the honest reading is usually "slow", not
+      // "broken", and the owner's next move is to try again.
+      const waited = Math.round(COLD_START_MS / 1000);
+      const reason = detail
+        ? `Still starting after ${waited}s. Last error in its log: ${detail}`
+        : `Still starting after ${waited}s, with no error in its output.`;
+      await setAppStatus(app.id, "error", reason.slice(0, 300));
       return fail(
         503,
-        "start_failed",
-        "The MCP server did not start. Check its logs for the Python error.",
+        "start_timeout",
+        detail
+          ? `The MCP server did not finish starting within ${waited}s. Its log ends with: ${detail}`
+          : `The MCP server did not finish starting within ${waited}s. It logged no error, so it was most likely just slow — deploy again, and check the Logs tab if it keeps happening.`,
       );
     }
 
     await setAppStatus(app.id, "ready");
-    return { ok: true, endpoint: ready.endpoint, session: ready };
+    return { ok: true, endpoint: outcome.row.endpoint!, session: outcome.row };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     await setAppStatus(app.id, "error", message);
@@ -272,6 +332,21 @@ export async function logsOf(appId: string): Promise<string> {
   return row.logs ?? "";
 }
 
+/**
+ * Write a container's output onto its session row before the container dies.
+ *
+ * `logsOf` prefers the live container and falls back to this column. Nothing
+ * used to write the column on the failed-start path, so the fallback was always
+ * "" — the owner was told to check logs that had already been destroyed along
+ * with the container, which is the least useful moment to lose them.
+ */
+async function persistLogs(sessionId: string, logs: string): Promise<void> {
+  await supabaseAdmin
+    .from("notebook_runtime_sessions")
+    .update({ logs: logs.slice(-20_000) })
+    .eq("id", sessionId);
+}
+
 /** First Python error line in a log blob, for a one-line status message. */
 function firstError(logs: string): string {
   const line = logs
@@ -334,6 +409,17 @@ export async function handshake(
     const parsed = parseJsonOrSse(await list.text(), list.headers.get("content-type") ?? "");
     if (parsed?.error?.message)
       return { ok: false, message: `tools/list → ${parsed.error.message}` };
+    // "I could not read the answer" is not "the answer was empty". Falling
+    // through here recorded an unreadable response as a successful deploy
+    // exposing zero tools, and wrote the empty-list hash to tools_hash — so the
+    // next deploy that DID parse would look like the tools had changed. The
+    // CRLF parser bug made that the outcome for every conformant server.
+    if (!parsed) {
+      return { ok: false, message: "tools/list → could not read the server's response" };
+    }
+    if (!Array.isArray(parsed?.result?.tools)) {
+      return { ok: false, message: "tools/list → response carried no tools array" };
+    }
     return { ok: true, tools: toolsFromListResult(parsed) };
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : "handshake failed" };

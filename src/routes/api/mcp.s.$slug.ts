@@ -392,12 +392,29 @@ async function handlePost(request: Request): Promise<Response> {
 
     // A narrowed key must not even be told about tools it cannot call —
     // otherwise the model plans around a tool that will be refused.
+    //
+    // FAILING CLOSED IS THE WHOLE POINT. This used to fall through to the
+    // unfiltered body whenever the response would not parse, which turned the
+    // narrowing control off silently — and the CRLF parser bug made that the
+    // outcome for every conformant server, so a narrowed key was in practice
+    // handed the full tool list. If we cannot read the list we cannot filter
+    // it, and a key that was told nothing is strictly better than a key that
+    // was told everything.
     if (method === "tools/list" && allowed.length > 0) {
       const parsed = parseJsonOrSse(upstream.text, upstream.contentType);
-      if (parsed?.result) {
-        parsed.result.tools = toolsFromListResult(parsed).filter((t) => allowed.includes(t.name));
-        return json(parsed, upstream.status, headers);
+      if (!parsed?.result) {
+        return json(
+          rpcError(
+            body?.id,
+            -32603,
+            "This key is restricted to specific tools, and the server's tool list could not be read to apply that restriction.",
+          ),
+          502,
+          headers,
+        );
       }
+      parsed.result.tools = toolsFromListResult(parsed).filter((t) => allowed.includes(t.name));
+      return json(parsed, upstream.status, headers);
     }
 
     return new Response(upstream.text, {

@@ -7,6 +7,12 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+// This file used to hand-write its own copy of the SSE parser, because
+// protocol.ts pulls in node:crypto and this module is bundled into a client
+// route. The copy carried the same CRLF bug, found only once it was measured
+// against a real server. The shared implementation has no imports of its own
+// precisely so this file can share it.
+import { parseJsonOrSse } from "@/utils/mcpApps/sse";
 
 type ProbeTool = {
   name: string;
@@ -32,27 +38,6 @@ const MCP_PROBE_TIMEOUT_MS = 12_000;
 async function guardedFetch(url: string, init: RequestInit): Promise<Response> {
   const { safeFetch } = await import("@/utils/ssrfGuard.server");
   return safeFetch(url, { ...init, signal: AbortSignal.timeout(MCP_PROBE_TIMEOUT_MS) });
-}
-
-function parseJsonOrSse(text: string, contentType: string): any | null {
-  if (contentType.includes("text/event-stream")) {
-    for (const line of text.split("\n")) {
-      const m = line.match(/^data:\s*(.+)$/);
-      if (!m) continue;
-      try {
-        const parsed = JSON.parse(m[1]);
-        if (parsed && typeof parsed === "object") return parsed;
-      } catch {
-        /* ignore */
-      }
-    }
-    return null;
-  }
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
 }
 
 export const probeMcpServer = createServerFn({ method: "POST" })
