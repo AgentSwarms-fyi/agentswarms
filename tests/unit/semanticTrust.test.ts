@@ -213,7 +213,11 @@ describe("catalog certification markers", () => {
     );
     expect(text).toMatch(/MODEL a.*\[certified\]/);
     expect(text).toMatch(/MODEL b.*\[DEPRECATED — prefer another model\]/);
-    expect(text).toMatch(/MODEL c\n  restricted share — rows limited to region ∈ \[APAC\]/);
+    // ` {2}` rather than two literal spaces: the indent is load-bearing here
+    // (it is what marks the line as a detail under MODEL c), and two adjacent
+    // spaces in a regex are impossible to count by eye and trivial to lose to
+    // a reformat. Written as a quantifier the intent survives both.
+    expect(text).toMatch(/MODEL c\n {2}restricted share — rows limited to region ∈ \[APAC\]/);
   });
 });
 

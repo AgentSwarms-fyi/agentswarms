@@ -245,10 +245,18 @@ const WARN_C = rgb(0.72, 0.5, 0.08);
  * single paragraph. encLine() strips them for single-line draws instead.
  */
 function enc(s: string): string {
-  return s
-    .replace(/→/g, "->")
-    .replace(/ /g, " ")
-    .replace(/[^\n\x20-\x7E\xA0-\xFF–—‘’“”•…]/g, "");
+  return (
+    s
+      .replace(/→/g, "->")
+      // \u00A0, not a literal non-breaking space. Identical behaviour and
+      // deliberate — NBSP has no WinAnsi glyph, so it becomes a normal
+      // space — but written literally it is a character you cannot see,
+      // cannot tell apart from the space beside it, and would delete by
+      // accident. That is what no-irregular-whitespace guards against, and it
+      // was one of the four errors failing CI.
+      .replace(/\u00A0/g, " ")
+      .replace(/[^\n\x20-\x7E\xA0-\xFF–—‘’“”•…]/g, "")
+  );
 }
 
 /** enc() for a single drawText call, which cannot contain line breaks. */

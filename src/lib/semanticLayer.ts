@@ -1098,10 +1098,13 @@ function compareShift(period: ComparePeriod, grain: TimeGrain): { n: number; uni
       return { n: 7, unit: "day" };
     case "month":
       return { n: 1, unit: "month" };
-    case "quarter":
     // One fiscal quarter back is three months back whatever the start month —
     // shifting the raw date moves the fiscal bucket by exactly one, so the
-    // calendar shifts carry over unchanged.
+    // calendar shifts carry over unchanged. The comment sits ABOVE both labels
+    // rather than between them: a comment between two case labels reads to
+    // eslint's no-fallthrough as a case with a body that forgot its break, and
+    // that error was failing CI. The pairs below are written the same way.
+    case "quarter":
     case "fiscal_quarter":
       return { n: 3, unit: "month" };
     case "year":
@@ -2671,9 +2674,7 @@ export function compileSemanticQuery(
     // that does NOT carry it gets the join's scope as a correlated EXISTS —
     // the filter without the multiplication. (Carried INNER joins need
     // nothing: they filter natively.)
-    const innerFanning = (model.joins ?? []).filter(
-      (j) => isFanningJoin(j) && j.type === "inner",
-    );
+    const innerFanning = (model.joins ?? []).filter((j) => isFanningJoin(j) && j.type === "inner");
     const existsFor = (carried: SemanticJoin[]): string[] =>
       innerFanning.filter((j) => !carried.includes(j)).map((j) => existsScopeSql(j, dialect));
 

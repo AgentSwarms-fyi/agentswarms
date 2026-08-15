@@ -6,7 +6,15 @@ import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist", ".output", ".vinxi"] },
+  // `.claude` holds agent worktrees — full checkouts of older commits. It is
+  // gitignored, so CI never sees it, but eslint's flat config does not read
+  // .gitignore and walked in anyway. The result was a local `npm run lint`
+  // reporting DOUBLE the real errors, half of them phantom copies at
+  // line numbers that did not match the working tree. That is worse than
+  // noise: it teaches you to skim the output, which is how four genuine
+  // errors sat in the tracked source failing CI without being noticed.
+  // Local lint must mean what CI's lint means.
+  { ignores: ["dist", ".output", ".vinxi", ".claude"] },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ["**/*.{ts,tsx}"],
