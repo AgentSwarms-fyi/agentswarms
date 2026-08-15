@@ -1311,7 +1311,15 @@ function BiProjectPage() {
           </Badge>
         )}
 
-        <div className="ml-auto flex items-center gap-0.5">
+        {/*
+          WRAPS. The row around this already wraps, but that never helped: this
+          group was one atomic flex item, so twelve buttons formed a single
+          unbreakable line that simply overflowed the viewport. Measured at
+          1000px wide, five actions were unreachable — Scan, Theme, History,
+          Export PDF and Publish & share — which meant a dashboard could not be
+          published at all on a laptop, with nothing on screen saying why.
+        */}
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-x-0.5 gap-y-1">
           {!readOnly && (
             <span
               className="mr-2 flex items-center gap-1.5 text-[11px] text-muted-foreground"

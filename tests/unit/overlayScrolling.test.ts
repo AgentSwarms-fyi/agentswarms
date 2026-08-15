@@ -22,6 +22,7 @@ import { describe, expect, it } from "vitest";
 
 const DIALOG = readFileSync("src/components/ui/dialog.tsx", "utf8");
 const POPOVER = readFileSync("src/components/ui/popover.tsx", "utf8");
+const BI_DASHBOARD = readFileSync("src/routes/_authenticated/bi_.$dashboardId.tsx", "utf8");
 
 /** The single className string DialogContent applies to every dialog. */
 const dialogBaseClasses = (): string => {
@@ -75,5 +76,37 @@ describe("a popover inside a dialog stays scrollable by mouse", () => {
     // `container={undefined}` is Radix's default. Popovers on ordinary pages
     // must not change behaviour just because dialogs needed a fix.
     expect(POPOVER).toContain("container ?? undefined");
+  });
+});
+
+describe("the BI dashboard toolbar reaches its last action", () => {
+  // Same species of bug as the two above: a control that exists, is enabled,
+  // and cannot be reached. The toolbar ROW already wrapped, which hid the
+  // problem — the twelve action buttons sat inside one `ml-auto` flex item, so
+  // they formed a single unbreakable line that overflowed instead. Measured at
+  // 1000px wide before the fix: Scan, Theme, History, Export PDF and Publish &
+  // share were all off-screen, so a dashboard could not be published at all on
+  // a laptop.
+
+  /** The action group's className, as one string. */
+  const actionGroupClasses = (): string => {
+    const m = /className="ml-auto flex[^"]*"/.exec(BI_DASHBOARD);
+    if (!m) throw new Error("BI toolbar action group not found — did it change shape?");
+    return m[0];
+  };
+
+  it("lets the action group wrap", () => {
+    expect(actionGroupClasses()).toContain("flex-wrap");
+  });
+
+  it("keeps wrapped rows aligned to the right edge", () => {
+    // Without this a second row starts at the left of the group's box, which
+    // reads as a separate unrelated toolbar rather than a continuation.
+    expect(actionGroupClasses()).toContain("justify-end");
+  });
+
+  it("gives wrapped rows vertical breathing room", () => {
+    // gap-0.5 alone is a horizontal gap; wrapped rows would otherwise touch.
+    expect(actionGroupClasses()).toMatch(/gap-y-/);
   });
 });
