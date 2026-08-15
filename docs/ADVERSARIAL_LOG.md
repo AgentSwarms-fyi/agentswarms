@@ -29,43 +29,123 @@ has not been tested; it has been visited.
 
 ## Coverage map
 
-| #   | Module              | Route                      | Pass | Date       | Findings             |
-| --- | ------------------- | -------------------------- | ---- | ---------- | -------------------- |
-| 1   | Dashboard           | `/dashboard`               | ✅ 1 | 2026-08-16 | 5 (2×S1, 1×S2, 2×S3) |
-| 2   | Documentation       | `/docs`                    | —    | —          | —                    |
-| 3   | Agent Builder       | `/agents`                  | —    | —          | —                    |
-| 4   | Knowledge Base      | `/knowledge`               | —    | —          | —                    |
-| 5   | Agent Chat          | `/playground`              | —    | —          | —                    |
-| 6   | Agent Swarms        | `/swarms`                  | —    | —          | —                    |
-| 7   | MCP Builder         | `/mcp-builder`             | —    | —          | —                    |
-| 8   | AI Analyst          | `/ai-analyst`              | —    | —          | —                    |
-| 9   | Data Catalog        | `/data-sql`                | —    | —          | —                    |
-| 10  | Semantic Layer      | `/semantics`               | —    | —          | —                    |
-| 11  | Metrics             | `/metrics`                 | —    | —          | —                    |
-| 12  | BI Workspace        | `/bi`                      | —    | —          | —                    |
-| 13  | Developer workspace | `/notebooks`               | —    | —          | —                    |
-| 14  | Prompt Library      | `/prompts`                 | —    | —          | —                    |
-| 15  | Skill Library       | `/skills`                  | —    | —          | —                    |
-| 16  | Integrations        | `/integrations`            | —    | —          | —                    |
-| 17  | Web Embedding       | `/embeds`                  | —    | —          | —                    |
-| 18  | Secrets             | `/secrets`                 | —    | —          | —                    |
-| 19  | MCP Servers         | `/mcp`                     | —    | —          | —                    |
-| 20  | Model Registry      | `/model-registry`          | —    | —          | —                    |
-| 21  | Analytics           | `/analytics`               | —    | —          | —                    |
-| 22  | Swarm Traces        | `/analytics/observability` | —    | —          | —                    |
-| 23  | Traces & Logs       | `/traces`                  | —    | —          | —                    |
-| 24  | Audit Log           | `/audit`                   | —    | —          | —                    |
-| 25  | Budgets             | `/budgets`                 | —    | —          | —                    |
-| 26  | Monitoring          | `/monitoring`              | —    | —          | —                    |
-| 27  | Prompt Compare      | `/prompt-compare`          | —    | —          | —                    |
-| 28  | Evaluations         | `/evaluations`             | —    | —          | —                    |
-| 29  | Image Playground    | `/image-playground`        | —    | —          | —                    |
-| 30  | IAM                 | `/admin/iam`               | —    | —          | —                    |
-| 31  | Developer runtime   | `/admin/runtime`           | —    | —          | —                    |
+| #   | Module              | Route                      | Pass | Date       | Findings                            |
+| --- | ------------------- | -------------------------- | ---- | ---------- | ----------------------------------- |
+| 1   | Dashboard           | `/dashboard`               | ✅ 1 | 2026-08-16 | 5 (2×S1, 1×S2, 2×S3)                |
+| 2   | Documentation       | `/docs`                    | ✅ 1 | 2026-08-16 | 4 (2×S1, 1×S2, 1×S1 self-inflicted) |
+| 3   | Agent Builder       | `/agents`                  | —    | —          | —                                   |
+| 4   | Knowledge Base      | `/knowledge`               | —    | —          | —                                   |
+| 5   | Agent Chat          | `/playground`              | —    | —          | —                                   |
+| 6   | Agent Swarms        | `/swarms`                  | —    | —          | —                                   |
+| 7   | MCP Builder         | `/mcp-builder`             | —    | —          | —                                   |
+| 8   | AI Analyst          | `/ai-analyst`              | —    | —          | —                                   |
+| 9   | Data Catalog        | `/data-sql`                | —    | —          | —                                   |
+| 10  | Semantic Layer      | `/semantics`               | —    | —          | —                                   |
+| 11  | Metrics             | `/metrics`                 | —    | —          | —                                   |
+| 12  | BI Workspace        | `/bi`                      | —    | —          | —                                   |
+| 13  | Developer workspace | `/notebooks`               | —    | —          | —                                   |
+| 14  | Prompt Library      | `/prompts`                 | —    | —          | —                                   |
+| 15  | Skill Library       | `/skills`                  | —    | —          | —                                   |
+| 16  | Integrations        | `/integrations`            | —    | —          | —                                   |
+| 17  | Web Embedding       | `/embeds`                  | —    | —          | —                                   |
+| 18  | Secrets             | `/secrets`                 | —    | —          | —                                   |
+| 19  | MCP Servers         | `/mcp`                     | —    | —          | —                                   |
+| 20  | Model Registry      | `/model-registry`          | —    | —          | —                                   |
+| 21  | Analytics           | `/analytics`               | —    | —          | —                                   |
+| 22  | Swarm Traces        | `/analytics/observability` | —    | —          | —                                   |
+| 23  | Traces & Logs       | `/traces`                  | —    | —          | —                                   |
+| 24  | Audit Log           | `/audit`                   | —    | —          | —                                   |
+| 25  | Budgets             | `/budgets`                 | —    | —          | —                                   |
+| 26  | Monitoring          | `/monitoring`              | —    | —          | —                                   |
+| 27  | Prompt Compare      | `/prompt-compare`          | —    | —          | —                                   |
+| 28  | Evaluations         | `/evaluations`             | —    | —          | —                                   |
+| 29  | Image Playground    | `/image-playground`        | —    | —          | —                                   |
+| 30  | IAM                 | `/admin/iam`               | —    | —          | —                                   |
+| 31  | Developer runtime   | `/admin/runtime`           | —    | —          | —                                   |
 
 ## Findings
 
 <!-- newest first -->
+
+### 2026-08-16 — Module 2, Documentation (`/docs`)
+
+All 27 pages render, every page is reachable from the sidebar, no dangling nav
+entries, no orphans. The defects are all one thing: **the handbook describing a
+product that had moved on.**
+
+Root cause worth naming — there are **two documentation sets**, `docs/*.md` in
+the repo and `src/routes/docs.*.tsx` in the app, and nothing keeps them in step.
+Three features shipped over the last two days; all three updated the repo docs
+and none reached the in-app handbook. The in-app one is what a user reads.
+
+#### F1 · S1 · The BI export row still described a world without PowerPoint
+
+`docs.bi.tsx` listed exports as "PDF for the page, Excel/CSV for the data" —
+phrased as the complete set — after deck export shipped with its own dialog.
+`docs/BUSINESS_INTELLIGENCE.md` documented it the same day. Added the row plus a
+section covering what the deck does and, more importantly, what it refuses to
+do (the model may quote figures, never compute them).
+
+#### F2 · S2 · Governed dashboard generation was undocumented, and the old advice was wrong for it
+
+The page described the AI tab as writing "a whole dashboard… from a sentence.
+Read the generated query before trusting the chart." On the governed path that
+advice is specifically wrong: the planner never writes SQL, the compiler does,
+and "read the query" misdescribes where the guarantee comes from. Added a
+section covering the two sources, the declared-vocabulary confinement, and the
+refusal-with-reason behaviour.
+
+#### F3 · S1 · The price-resolution table was missing its top layer
+
+`docs.budgets.tsx` documented four price layers with "Operator override"
+winning. Provider-reported cost shipped yesterday and **outranks all four** — it
+is what you were actually billed. A reader reconciling a figure against that
+table would have concluded their override was in force when the provider's own
+number was. Added the layer, plus callouts for two facts the app now
+communicates and the docs did not: totals render as `$12.34+?` when a call
+underneath had no known rate, and a provider-reported zero is a measurement
+rather than a missing price.
+
+#### F4 · S1 · Self-inflicted: I introduced an SSR crash while writing F2
+
+`<Callout kind="note">` — there is no `note` kind; the valid set is
+`info | warn | why`. `/docs/bi` threw during server rendering, returned **200**,
+and silently fell back to client rendering with its body truncated from 100,813
+bytes to 24,487.
+
+Two process failures, both mine, both worth keeping:
+
+- **I validated the value against a file I had just edited.** Grepping for
+  `kind="..."` across `docs.*.tsx` returned `note` — because my own unsaved-yet
+  change was the only source of it. A check whose evidence is your own change
+  confirms nothing.
+- **I did not run `tsc` between editing and moving on.** The prop is typed
+  `keyof typeof CALLOUT_STYLES`; the compiler had the answer immediately.
+
+#### Method note · an SSR crash returns 200
+
+This is the reason F4 nearly escaped. A page whose server render throws still
+answers **200 OK** and recovers on the client, so status codes and a rendered
+screenshot both look fine. The reliable marker is the string
+`Switched to client rendering because the server rendering errored` in the HTML.
+Every future module sweep should check for it, and should re-run **after** edits,
+not only before.
+
+#### Weak assertion, caught by mutation
+
+The first version of the deck-prose check was one alternation —
+`/prohibition|enforcement/` — and **survived** a mutation deleting the
+prohibition, because the other branch still matched. Split into two required
+regexes; the mutation then killed it. Same class as the `indexOf` ordering test
+found earlier: an assertion that passes when half its subject is gone is not
+asserting the claim.
+
+**Tests:** 12 in `tests/unit/docsCurrency.test.ts`, mutation-verified — six
+reversions, all killed, restore confirmed. Each case ties a capability that
+exists in code to the phrases the page documenting it must contain, and asserts
+the code marker still exists so a case cannot vouch for a deleted feature. It
+catches "shipped it, forgot the handbook" for the listed capabilities; it cannot
+prove the handbook is complete, so new features still need a case added by hand.
 
 ### 2026-08-16 — Module 1, Dashboard (`/dashboard`)
 

@@ -260,6 +260,11 @@ function BudgetsPage() {
         headers={["Layer", "Where it comes from", "Why it wins"]}
         rows={[
           [
+            "Provider-reported",
+            "The provider's own response (e.g. OpenRouter usage.cost)",
+            "It is what you were actually charged, not what a table predicts — no price sheet can outrank the bill",
+          ],
+          [
             "Operator override",
             "Set by an admin",
             "Committed-use and enterprise-agreement rates are not list price, and no public source knows yours",
@@ -280,8 +285,19 @@ function BudgetsPage() {
       <Callout kind="warn" title="A model nobody has priced counts as $0">
         If none of those layers knows a model, the call is recorded with real tokens and a cost of
         zero, and the trace is flagged <C>pricing_missing</C>. It still appears in your usage; it
-        contributes nothing to a cap. Filter for that flag before trusting a monthly total, and add
-        an override for anything that shows up.
+        contributes nothing to a cap. Add an override for anything that shows up, or run{" "}
+        <C>npm run prices:refresh</C> to pull current rates.
+      </Callout>
+      <Callout kind="info" title="Totals say so when they are a floor">
+        A SUM cannot carry a flag, so a total containing unpriced calls used to look authoritative
+        while under-counting. Spend figures across the app now render as <C>$12.34+?</C> when any
+        call underneath them had no known rate, and the tooltip says how many. A plain figure means
+        every call in it was priced.
+      </Callout>
+      <Callout kind="info" title="A reported zero is not a missing price">
+        When a provider reports the cost itself, a zero is a measurement — a free tier, a cached
+        response — and is recorded as $0.00 with no flag. Absence of a price and a price of nothing
+        are different facts, and only the first is a gap in your accounting.
       </Callout>
       <Callout kind="info">
         Historical rows keep the price that applied when they were written. A vendor changing their

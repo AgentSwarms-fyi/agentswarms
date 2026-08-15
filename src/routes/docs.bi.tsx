@@ -204,7 +204,7 @@ function BiPage() {
           },
           {
             title: "Or describe it",
-            body: "The AI tab writes a whole dashboard, or a single visual, from a sentence. Read the generated query before trusting the chart.",
+            body: "The AI tab writes a whole dashboard, or a single visual, from a sentence. Point it at a table and it writes SQL you should read before trusting the chart; point it at a semantic model and the compiler writes the SQL instead.",
           },
           {
             title: "Arrange and publish",
@@ -216,6 +216,34 @@ function BiPage() {
         You can also send a chart straight from the SQL workbench with{" "}
         <strong>Add to dashboard</strong> once a query returns something worth keeping.
       </P>
+
+      <H3 id="generate-governed">Generate a dashboard from a governed model</H3>
+      <P>
+        <strong>Generate dashboard with AI</strong> offers two sources: your <strong>tables</strong>
+        , or a <DocLink to="/docs/semantics">semantic model</DocLink>. Choosing a model governs the
+        whole dashboard.
+      </P>
+      <P>
+        On the governed path the planner is shown the model&apos;s <em>declared</em> metrics and
+        dimensions — deliberately not the physical tables or columns, because showing it the schema
+        invites it to reach past the layer this path exists to enforce. It picks names from that
+        vocabulary and the compiler turns each choice into SQL. So the worst a bad suggestion can do
+        is ask a well-formed question nobody wanted, rather than compute a number nobody defined.
+      </P>
+      <P>
+        Everything it returns is checked before it reaches the compiler: an undeclared metric or
+        dimension, a time grain on something that is not a time, a rollup the compiler does not
+        know, a chart shape that cannot render what it was given, or a duplicate query wearing a
+        second name. Each is <strong>refused with a reason naming the offending item</strong>, and
+        the rejections are shown in the dialog rather than swallowed — a generate that proposed
+        twelve and built nine has to say which three it lost.
+      </P>
+      <Callout kind="info" title="Metrics only, chosen once">
+        The source is picked at the dialog, not per widget. Mixing governed and ungoverned visuals
+        would let an ungoverned chart hide among certified ones on a dashboard whose whole claim is
+        that its numbers are defined. Questions the semantic model cannot express are simply not
+        asked.
+      </Callout>
 
       <H2 id="data-mode">How a widget gets its data</H2>
       <P>
@@ -669,9 +697,42 @@ GROUP BY region`}</Code>
           ],
           ["Public link", "Anyone with the URL", "No sign-in — treat the URL as the secret"],
           ["Embed key", "Any site you allow", "Domain-restricted; see Web embedding"],
-          ["Export", "Whoever you send the file to", "PDF for the page, Excel/CSV for the data"],
+          [
+            "Export",
+            "Whoever you send the file to",
+            "PDF or PowerPoint for the page, Excel/CSV for the data",
+          ],
         ]}
       />
+
+      <H3 id="deck">Export as a PowerPoint deck</H3>
+      <P>
+        <strong>Export → Export to PowerPoint</strong> builds a branded deck. You choose which
+        visuals to include (grouped by page), a model to write the prose, and optionally an
+        instruction for tone, audience or emphasis.
+      </P>
+      <P>
+        <strong>The figures are the dashboard&apos;s figures.</strong> Every slide is filled from
+        the same saved snapshot the card on screen renders — never re-queried while the deck is
+        built. A deck that disagrees with the dashboard it came from is two sources of truth, and
+        the one in the meeting room is the one people act on.
+      </P>
+      <P>
+        <strong>The model writes sentences and is not allowed to calculate.</strong> It receives the
+        computed values as text it may quote, so it can write &ldquo;revenue peaked in March&rdquo;
+        but not &ldquo;revenue grew 12%&rdquo; — the second is arithmetic, and arithmetic is done in
+        code or not at all. Any figure in its prose that did not come from the data is stripped
+        before it reaches a slide. That holds even if you explicitly ask for growth percentages in
+        the instruction box.
+      </P>
+      <P>
+        A widget with no saved snapshot cannot become a slide and is listed with the reason (refresh
+        the dashboard first) rather than quietly missing from a deck you believe is complete.
+        Visuals PowerPoint cannot draw — sankey, geo map, bar race — become a table of the same data
+        with the substitution printed on the slide, and category or row caps are disclosed on the
+        slide itself.
+      </P>
+
       <Callout kind="warn" title="Check before publishing">
         A public link removes every access check. Widgets on shared and embedded dashboards are
         sanitised so their underlying queries aren't exposed, but the data on the page is visible to
