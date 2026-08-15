@@ -501,6 +501,33 @@ editor shows a banner describing their scope, the runner labels results
 "restricted share", and the agent's tool result carries a note telling it to
 say so when reporting — a scoped number must never pass for the global truth.
 
+## The metric catalog
+
+**Data & BI → Metrics** lists every governed metric you can use, across every
+model, and answers the question the layer exists for: _which "revenue" should I
+use, and can I trust it?_ Search covers names, labels, descriptions and
+**synonyms** — a metric called `net_revenue` is findable by typing "bookings",
+which is the whole reason synonyms are declared.
+
+Each row carries three signals, and each is worded as what it actually covers:
+
+- **Certification** belongs to the **model**. A metric inside a certified model
+  was covered by that model's validation run; it was not individually blessed,
+  so the row says "from a certified model" rather than "certified metric".
+- **Freshness** is when the underlying **data** last loaded — not when the
+  metric was recomputed, because a metric is a definition and is not computed
+  until someone asks. For a warehouse-backed model this is unknown (the
+  warehouse refreshes on its own schedule) and the row says _unknown_, never
+  _never_: those look identical on screen and mean opposite things.
+- **Usage** is what a scan of dashboard widgets found. It is evidence of use
+  and never proof of disuse — an analyst thread, an embed or somebody's saved
+  SQL can reference a metric without appearing — so the page never prints
+  "unused". It names what was searched, because deprecating a metric on the
+  strength of an incomplete scan is the expensive mistake here.
+
+Usage is matched per **metric**, not per model: a dashboard using
+`sales_model.orders` does not make `sales_model.revenue` look used.
+
 ## Certification
 
 A model is `draft`, `certified` or `deprecated`:

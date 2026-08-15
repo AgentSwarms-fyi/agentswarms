@@ -31,6 +31,34 @@ every one is read by code you can grep for.
 
 ---
 
+## Choosing per dataset, and bounding the total
+
+Each local dataset carries a **storage mode**, visible and changeable on
+**Monitoring → Materialised data**:
+
+| Mode     | What it does                                                  |
+| -------- | ------------------------------------------------------------- |
+| `auto`   | Mirror it when the row count makes that worth doing (default) |
+| `import` | Always mirror — you have said this one matters                |
+| `direct` | Never mirror; always read the source                          |
+
+`auto`'s thresholds are `PARQUET_MIN_ROWS` and `PARQUET_MAX_ROWS`: too small
+and the mirror costs more than it saves, too large and one table would consume
+the whole budget. An **explicit mode always wins** — a setting a heuristic can
+override is a setting that lies.
+
+`MIRROR_BUDGET_BYTES` bounds how much one workspace holds. Past it, mirrors are
+dropped **least-recently-used first**, and anything pinned to `import` goes only
+after every `auto` one has. The owner is told which datasets went, by name.
+
+**Eviction costs speed, never correctness.** A mirror is a cache over the same
+rows; a dataset that loses one still answers the same question by reading its
+rows, more slowly. Nothing in the capacity system can narrow a query's scope or
+change a number — that distinction is why row caps below are disclosed on the
+result and evictions are not.
+
+---
+
 ## The caps
 
 ### Warehouse queries — `src/utils/warehouse/governor.server.ts`

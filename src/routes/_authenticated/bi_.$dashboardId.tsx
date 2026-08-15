@@ -22,6 +22,7 @@ import {
   Plus,
   CalendarClock,
   Palette,
+  Radar,
   RefreshCw,
   Share2,
   ShieldCheck,
@@ -69,6 +70,7 @@ import { PublishDialog } from "@/components/bi/PublishDialog";
 import { ScheduleDialog } from "@/components/bi/ScheduleDialog";
 import { BiThemeDialog } from "@/components/bi/BiThemeDialog";
 import { GenerateDashboardDialog } from "@/components/bi/GenerateDashboardDialog";
+import { InsightSweepDialog } from "@/components/bi/InsightSweepDialog";
 import type { BiDataContext } from "@/components/bi/biDataContext";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
@@ -314,6 +316,7 @@ function BiProjectPage() {
   const [generateOpen, setGenerateOpen] = useState(false);
   const [themeOpen, setThemeOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [sweepOpen, setSweepOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [insightBusyId, setInsightBusyId] = useState<string | null>(null);
@@ -1412,6 +1415,15 @@ function BiProjectPage() {
                 size="sm"
                 variant="ghost"
                 className="h-8 gap-1.5 px-2.5 text-xs"
+                onClick={() => setSweepOpen(true)}
+                title="Scan the snapshots for trends, outliers and concentration — computed, no model call"
+              >
+                <Radar className="h-3.5 w-3.5 text-primary" /> Scan
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 gap-1.5 px-2.5 text-xs"
                 onClick={() => setThemeOpen(true)}
                 title="Background image & font"
               >
@@ -1788,6 +1800,7 @@ function BiProjectPage() {
               widgets={widgets}
             />
           )}
+          <InsightSweepDialog open={sweepOpen} onOpenChange={setSweepOpen} widgets={widgets} />
           <GenerateDashboardDialog
             open={generateOpen}
             onOpenChange={setGenerateOpen}

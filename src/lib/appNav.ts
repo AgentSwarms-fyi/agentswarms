@@ -4,6 +4,7 @@ import {
   BrainCircuit,
   LayoutDashboard,
   Layers,
+  Sigma,
   Puzzle,
   Bot,
   MessageSquare,
@@ -48,6 +49,9 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Build",
     items: [
       { title: "Agent Builder", url: "/agents", icon: Bot },
+      // Next to the builder because a knowledge base is something you attach
+      // to an agent, not a place people go to analyse data.
+      { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
       { title: "Agent Chat", url: "/playground", icon: MessageSquare },
       { title: "Agent Swarms", url: "/swarms", icon: Network },
       // Authoring MCP servers, as opposed to connecting to someone else's —
@@ -60,8 +64,10 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { title: "AI Analyst", url: "/ai-analyst", icon: BrainCircuit },
       { title: "Data Catalog", url: "/data-sql", icon: Database },
-      { title: "Knowledge Base", url: "/knowledge", icon: BookOpen },
       { title: "Semantic Layer", url: "/semantics", icon: Layers },
+      // The catalog sits beside the layer that defines it: authors go to
+      // Semantic Layer, everyone else comes here to find a metric to use.
+      { title: "Metrics", url: "/metrics", icon: Sigma },
       { title: "BI Workspace", url: "/bi", icon: PieChart },
       { title: "Developer workspace", url: "/notebooks", icon: NotebookPen },
     ],

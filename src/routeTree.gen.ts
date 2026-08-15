@@ -73,6 +73,7 @@ import { Route as AuthenticatedPlaygroundRouteImport } from './routes/_authentic
 import { Route as AuthenticatedNotebooksRouteImport } from './routes/_authenticated/notebooks'
 import { Route as AuthenticatedMonitoringRouteImport } from './routes/_authenticated/monitoring'
 import { Route as AuthenticatedModelRegistryRouteImport } from './routes/_authenticated/model-registry'
+import { Route as AuthenticatedMetricsRouteImport } from './routes/_authenticated/metrics'
 import { Route as AuthenticatedMcpBuilderRouteImport } from './routes/_authenticated/mcp-builder'
 import { Route as AuthenticatedMcpRouteImport } from './routes/_authenticated/mcp'
 import { Route as AuthenticatedKnowledgeRouteImport } from './routes/_authenticated/knowledge'
@@ -92,6 +93,7 @@ import { Route as AuthenticatedAccountRouteImport } from './routes/_authenticate
 import { Route as ShareBiSlugRouteImport } from './routes/share.bi.$slug'
 import { Route as EmbedSwarmKeyRouteImport } from './routes/embed.swarm.$key'
 import { Route as EmbedBiKeyRouteImport } from './routes/embed.bi.$key'
+import { Route as EmbedAnalystKeyRouteImport } from './routes/embed.analyst.$key'
 import { Route as EmbedAgentKeyRouteImport } from './routes/embed.agent.$key'
 import { Route as ApiWarehouseSchemaRouteImport } from './routes/api/warehouse/schema'
 import { Route as ApiWarehouseQueryRouteImport } from './routes/api/warehouse/query'
@@ -107,6 +109,7 @@ import { Route as ApiKbIngestGithubRouteImport } from './routes/api/kb/ingest-gi
 import { Route as ApiKbBuildGraphRouteImport } from './routes/api/kb/build-graph'
 import { Route as ApiHealthReadyRouteImport } from './routes/api/health.ready'
 import { Route as ApiEmbedChatRouteImport } from './routes/api/embed.chat'
+import { Route as ApiEmbedAnalystRouteImport } from './routes/api/embed.analyst'
 import { Route as ApiEmailSendRouteImport } from './routes/api/email/send'
 import { Route as ApiDocgenXlsxRouteImport } from './routes/api/docgen.xlsx'
 import { Route as ApiDocgenStatusRouteImport } from './routes/api/docgen.status'
@@ -454,6 +457,11 @@ const AuthenticatedModelRegistryRoute =
     path: '/model-registry',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
+const AuthenticatedMetricsRoute = AuthenticatedMetricsRouteImport.update({
+  id: '/metrics',
+  path: '/metrics',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 const AuthenticatedMcpBuilderRoute = AuthenticatedMcpBuilderRouteImport.update({
   id: '/mcp-builder',
   path: '/mcp-builder',
@@ -552,6 +560,11 @@ const EmbedBiKeyRoute = EmbedBiKeyRouteImport.update({
   path: '/embed/bi/$key',
   getParentRoute: () => rootRouteImport,
 } as any)
+const EmbedAnalystKeyRoute = EmbedAnalystKeyRouteImport.update({
+  id: '/embed/analyst/$key',
+  path: '/embed/analyst/$key',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const EmbedAgentKeyRoute = EmbedAgentKeyRouteImport.update({
   id: '/embed/agent/$key',
   path: '/embed/agent/$key',
@@ -625,6 +638,11 @@ const ApiHealthReadyRoute = ApiHealthReadyRouteImport.update({
 const ApiEmbedChatRoute = ApiEmbedChatRouteImport.update({
   id: '/chat',
   path: '/chat',
+  getParentRoute: () => ApiEmbedRoute,
+} as any)
+const ApiEmbedAnalystRoute = ApiEmbedAnalystRouteImport.update({
+  id: '/analyst',
+  path: '/analyst',
   getParentRoute: () => ApiEmbedRoute,
 } as any)
 const ApiEmailSendRoute = ApiEmailSendRouteImport.update({
@@ -794,6 +812,7 @@ export interface FileRoutesByFullPath {
   '/knowledge': typeof AuthenticatedKnowledgeRoute
   '/mcp': typeof AuthenticatedMcpRoute
   '/mcp-builder': typeof AuthenticatedMcpBuilderRoute
+  '/metrics': typeof AuthenticatedMetricsRoute
   '/model-registry': typeof AuthenticatedModelRegistryRoute
   '/monitoring': typeof AuthenticatedMonitoringRoute
   '/notebooks': typeof AuthenticatedNotebooksRouteWithChildren
@@ -858,6 +877,7 @@ export interface FileRoutesByFullPath {
   '/api/docgen/status': typeof ApiDocgenStatusRoute
   '/api/docgen/xlsx': typeof ApiDocgenXlsxRoute
   '/api/email/send': typeof ApiEmailSendRoute
+  '/api/embed/analyst': typeof ApiEmbedAnalystRoute
   '/api/embed/chat': typeof ApiEmbedChatRoute
   '/api/health/ready': typeof ApiHealthReadyRoute
   '/api/kb/build-graph': typeof ApiKbBuildGraphRoute
@@ -873,6 +893,7 @@ export interface FileRoutesByFullPath {
   '/api/warehouse/query': typeof ApiWarehouseQueryRoute
   '/api/warehouse/schema': typeof ApiWarehouseSchemaRoute
   '/embed/agent/$key': typeof EmbedAgentKeyRoute
+  '/embed/analyst/$key': typeof EmbedAnalystKeyRoute
   '/embed/bi/$key': typeof EmbedBiKeyRoute
   '/embed/swarm/$key': typeof EmbedSwarmKeyRoute
   '/share/bi/$slug': typeof ShareBiSlugRoute
@@ -917,6 +938,7 @@ export interface FileRoutesByTo {
   '/knowledge': typeof AuthenticatedKnowledgeRoute
   '/mcp': typeof AuthenticatedMcpRoute
   '/mcp-builder': typeof AuthenticatedMcpBuilderRoute
+  '/metrics': typeof AuthenticatedMetricsRoute
   '/model-registry': typeof AuthenticatedModelRegistryRoute
   '/monitoring': typeof AuthenticatedMonitoringRoute
   '/notebooks': typeof AuthenticatedNotebooksRouteWithChildren
@@ -981,6 +1003,7 @@ export interface FileRoutesByTo {
   '/api/docgen/status': typeof ApiDocgenStatusRoute
   '/api/docgen/xlsx': typeof ApiDocgenXlsxRoute
   '/api/email/send': typeof ApiEmailSendRoute
+  '/api/embed/analyst': typeof ApiEmbedAnalystRoute
   '/api/embed/chat': typeof ApiEmbedChatRoute
   '/api/health/ready': typeof ApiHealthReadyRoute
   '/api/kb/build-graph': typeof ApiKbBuildGraphRoute
@@ -996,6 +1019,7 @@ export interface FileRoutesByTo {
   '/api/warehouse/query': typeof ApiWarehouseQueryRoute
   '/api/warehouse/schema': typeof ApiWarehouseSchemaRoute
   '/embed/agent/$key': typeof EmbedAgentKeyRoute
+  '/embed/analyst/$key': typeof EmbedAnalystKeyRoute
   '/embed/bi/$key': typeof EmbedBiKeyRoute
   '/embed/swarm/$key': typeof EmbedSwarmKeyRoute
   '/share/bi/$slug': typeof ShareBiSlugRoute
@@ -1043,6 +1067,7 @@ export interface FileRoutesById {
   '/_authenticated/knowledge': typeof AuthenticatedKnowledgeRoute
   '/_authenticated/mcp': typeof AuthenticatedMcpRoute
   '/_authenticated/mcp-builder': typeof AuthenticatedMcpBuilderRoute
+  '/_authenticated/metrics': typeof AuthenticatedMetricsRoute
   '/_authenticated/model-registry': typeof AuthenticatedModelRegistryRoute
   '/_authenticated/monitoring': typeof AuthenticatedMonitoringRoute
   '/_authenticated/notebooks': typeof AuthenticatedNotebooksRouteWithChildren
@@ -1107,6 +1132,7 @@ export interface FileRoutesById {
   '/api/docgen/status': typeof ApiDocgenStatusRoute
   '/api/docgen/xlsx': typeof ApiDocgenXlsxRoute
   '/api/email/send': typeof ApiEmailSendRoute
+  '/api/embed/analyst': typeof ApiEmbedAnalystRoute
   '/api/embed/chat': typeof ApiEmbedChatRoute
   '/api/health/ready': typeof ApiHealthReadyRoute
   '/api/kb/build-graph': typeof ApiKbBuildGraphRoute
@@ -1122,6 +1148,7 @@ export interface FileRoutesById {
   '/api/warehouse/query': typeof ApiWarehouseQueryRoute
   '/api/warehouse/schema': typeof ApiWarehouseSchemaRoute
   '/embed/agent/$key': typeof EmbedAgentKeyRoute
+  '/embed/analyst/$key': typeof EmbedAnalystKeyRoute
   '/embed/bi/$key': typeof EmbedBiKeyRoute
   '/embed/swarm/$key': typeof EmbedSwarmKeyRoute
   '/share/bi/$slug': typeof ShareBiSlugRoute
@@ -1169,6 +1196,7 @@ export interface FileRouteTypes {
     | '/knowledge'
     | '/mcp'
     | '/mcp-builder'
+    | '/metrics'
     | '/model-registry'
     | '/monitoring'
     | '/notebooks'
@@ -1233,6 +1261,7 @@ export interface FileRouteTypes {
     | '/api/docgen/status'
     | '/api/docgen/xlsx'
     | '/api/email/send'
+    | '/api/embed/analyst'
     | '/api/embed/chat'
     | '/api/health/ready'
     | '/api/kb/build-graph'
@@ -1248,6 +1277,7 @@ export interface FileRouteTypes {
     | '/api/warehouse/query'
     | '/api/warehouse/schema'
     | '/embed/agent/$key'
+    | '/embed/analyst/$key'
     | '/embed/bi/$key'
     | '/embed/swarm/$key'
     | '/share/bi/$slug'
@@ -1292,6 +1322,7 @@ export interface FileRouteTypes {
     | '/knowledge'
     | '/mcp'
     | '/mcp-builder'
+    | '/metrics'
     | '/model-registry'
     | '/monitoring'
     | '/notebooks'
@@ -1356,6 +1387,7 @@ export interface FileRouteTypes {
     | '/api/docgen/status'
     | '/api/docgen/xlsx'
     | '/api/email/send'
+    | '/api/embed/analyst'
     | '/api/embed/chat'
     | '/api/health/ready'
     | '/api/kb/build-graph'
@@ -1371,6 +1403,7 @@ export interface FileRouteTypes {
     | '/api/warehouse/query'
     | '/api/warehouse/schema'
     | '/embed/agent/$key'
+    | '/embed/analyst/$key'
     | '/embed/bi/$key'
     | '/embed/swarm/$key'
     | '/share/bi/$slug'
@@ -1417,6 +1450,7 @@ export interface FileRouteTypes {
     | '/_authenticated/knowledge'
     | '/_authenticated/mcp'
     | '/_authenticated/mcp-builder'
+    | '/_authenticated/metrics'
     | '/_authenticated/model-registry'
     | '/_authenticated/monitoring'
     | '/_authenticated/notebooks'
@@ -1481,6 +1515,7 @@ export interface FileRouteTypes {
     | '/api/docgen/status'
     | '/api/docgen/xlsx'
     | '/api/email/send'
+    | '/api/embed/analyst'
     | '/api/embed/chat'
     | '/api/health/ready'
     | '/api/kb/build-graph'
@@ -1496,6 +1531,7 @@ export interface FileRouteTypes {
     | '/api/warehouse/query'
     | '/api/warehouse/schema'
     | '/embed/agent/$key'
+    | '/embed/analyst/$key'
     | '/embed/bi/$key'
     | '/embed/swarm/$key'
     | '/share/bi/$slug'
@@ -1559,6 +1595,7 @@ export interface RootRouteChildren {
   ApiWarehouseQueryRoute: typeof ApiWarehouseQueryRoute
   ApiWarehouseSchemaRoute: typeof ApiWarehouseSchemaRoute
   EmbedAgentKeyRoute: typeof EmbedAgentKeyRoute
+  EmbedAnalystKeyRoute: typeof EmbedAnalystKeyRoute
   EmbedBiKeyRoute: typeof EmbedBiKeyRoute
   EmbedSwarmKeyRoute: typeof EmbedSwarmKeyRoute
   ShareBiSlugRoute: typeof ShareBiSlugRoute
@@ -2016,6 +2053,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedModelRegistryRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/metrics': {
+      id: '/_authenticated/metrics'
+      path: '/metrics'
+      fullPath: '/metrics'
+      preLoaderRoute: typeof AuthenticatedMetricsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/mcp-builder': {
       id: '/_authenticated/mcp-builder'
       path: '/mcp-builder'
@@ -2149,6 +2193,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof EmbedBiKeyRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/embed/analyst/$key': {
+      id: '/embed/analyst/$key'
+      path: '/embed/analyst/$key'
+      fullPath: '/embed/analyst/$key'
+      preLoaderRoute: typeof EmbedAnalystKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/embed/agent/$key': {
       id: '/embed/agent/$key'
       path: '/embed/agent/$key'
@@ -2252,6 +2303,13 @@ declare module '@tanstack/react-router' {
       path: '/chat'
       fullPath: '/api/embed/chat'
       preLoaderRoute: typeof ApiEmbedChatRouteImport
+      parentRoute: typeof ApiEmbedRoute
+    }
+    '/api/embed/analyst': {
+      id: '/api/embed/analyst'
+      path: '/analyst'
+      fullPath: '/api/embed/analyst'
+      preLoaderRoute: typeof ApiEmbedAnalystRouteImport
       parentRoute: typeof ApiEmbedRoute
     }
     '/api/email/send': {
@@ -2482,6 +2540,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedKnowledgeRoute: typeof AuthenticatedKnowledgeRoute
   AuthenticatedMcpRoute: typeof AuthenticatedMcpRoute
   AuthenticatedMcpBuilderRoute: typeof AuthenticatedMcpBuilderRoute
+  AuthenticatedMetricsRoute: typeof AuthenticatedMetricsRoute
   AuthenticatedModelRegistryRoute: typeof AuthenticatedModelRegistryRoute
   AuthenticatedMonitoringRoute: typeof AuthenticatedMonitoringRoute
   AuthenticatedNotebooksRoute: typeof AuthenticatedNotebooksRouteWithChildren
@@ -2517,6 +2576,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedKnowledgeRoute: AuthenticatedKnowledgeRoute,
   AuthenticatedMcpRoute: AuthenticatedMcpRoute,
   AuthenticatedMcpBuilderRoute: AuthenticatedMcpBuilderRoute,
+  AuthenticatedMetricsRoute: AuthenticatedMetricsRoute,
   AuthenticatedModelRegistryRoute: AuthenticatedModelRegistryRoute,
   AuthenticatedMonitoringRoute: AuthenticatedMonitoringRoute,
   AuthenticatedNotebooksRoute: AuthenticatedNotebooksRouteWithChildren,
@@ -2615,10 +2675,12 @@ const ApiBiRouteChildren: ApiBiRouteChildren = {
 const ApiBiRouteWithChildren = ApiBiRoute._addFileChildren(ApiBiRouteChildren)
 
 interface ApiEmbedRouteChildren {
+  ApiEmbedAnalystRoute: typeof ApiEmbedAnalystRoute
   ApiEmbedChatRoute: typeof ApiEmbedChatRoute
 }
 
 const ApiEmbedRouteChildren: ApiEmbedRouteChildren = {
+  ApiEmbedAnalystRoute: ApiEmbedAnalystRoute,
   ApiEmbedChatRoute: ApiEmbedChatRoute,
 }
 
@@ -2725,6 +2787,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiWarehouseQueryRoute: ApiWarehouseQueryRoute,
   ApiWarehouseSchemaRoute: ApiWarehouseSchemaRoute,
   EmbedAgentKeyRoute: EmbedAgentKeyRoute,
+  EmbedAnalystKeyRoute: EmbedAnalystKeyRoute,
   EmbedBiKeyRoute: EmbedBiKeyRoute,
   EmbedSwarmKeyRoute: EmbedSwarmKeyRoute,
   ShareBiSlugRoute: ShareBiSlugRoute,

@@ -590,6 +590,40 @@ GROUP BY region`}</Code>
         impression.
       </Callout>
 
+      <H3 id="scan">Scan — computed, not generated</H3>
+      <P>
+        <strong>Scan</strong> in the toolbar is the opposite kind of thing: it runs the obvious
+        checks across every widget's snapshot using arithmetic, not a model. No call, no cost, no
+        wait, and the same answer twice. It looks for three things and states the bar for each:
+      </P>
+      <UL>
+        <li>
+          <strong>Trends</strong> — a least-squares slope of at least 2% per period, over at least
+          five points.
+        </li>
+        <li>
+          <strong>Outliers</strong> — 3 or more MAD from the median. Median and MAD, not mean and
+          standard deviation, because an outlier inflates the very standard deviation a naive check
+          would judge it by.
+        </li>
+        <li>
+          <strong>Concentration</strong> — one member holding 60% or more of a total, across at
+          least four members. (With two, one is always over half.)
+        </li>
+      </UL>
+      <P>
+        Findings are ranked by how far each cleared <em>its own</em> threshold — shown as{" "}
+        <C>2.6×</C> — which is what makes an outlier and a trend comparable at all.
+      </P>
+      <Callout kind="warn" title="Finding nothing is not an all-clear">
+        A scan that returns nothing says so precisely: how many widgets it examined, how many it
+        could <em>not</em> and why, and the exact thresholds it applied. Widgets get skipped for
+        real reasons — a snapshot that hit its row cap holds an arbitrary subset, so every total or
+        share over it would be computed from part of the data; a share of a measure with negative
+        values can exceed 100% or flip sign. In both cases the scan refuses and names the reason
+        rather than printing a confident number.
+      </Callout>
+
       <H2 id="alerts">Alerts and scheduled reports</H2>
       <UL>
         <li>

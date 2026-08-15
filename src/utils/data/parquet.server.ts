@@ -30,6 +30,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import {
+  describeEviction,
+  planEviction,
+  resolveMode,
+  type EvictionPlan,
+  type MirrorEntry,
+  type StorageMode,
+} from "@/lib/capacityPlan";
 
 const BUCKET = "datasets";
 
@@ -46,10 +54,39 @@ function minRowsToMirror(): number {
   return Number.isFinite(n) && n >= 0 ? n : 5_000;
 }
 
-/** Ceiling on the on-disk cache. Oldest files are evicted past it. */
+/**
+ * Ceiling on this NODE's on-disk scratch cache. Oldest files evicted past it.
+ *
+ * Not to be confused with the workspace mirror budget below. This one bounds a
+ * local directory and is keyed on file mtime; that one bounds how much of a
+ * workspace's data is materialised at all and is keyed on last USE. A node
+ * losing a scratch file re-downloads it; a workspace losing a mirror falls back
+ * to the row store. Two different costs, two different policies.
+ */
 function cacheMaxBytes(): number {
   const n = Number(process.env.PARQUET_CACHE_MAX_BYTES);
   return Number.isFinite(n) && n > 0 ? n : 2 * 1024 * 1024 * 1024;
+}
+
+/**
+ * How many bytes of mirrors one workspace may hold. 0 = unlimited.
+ *
+ * Blank must mean "no budget", not zero — .env keys ship as "" and Number("")
+ * is 0, which a naive read would turn into "evict everything".
+ */
+function mirrorBudgetBytes(): number {
+  const raw = (process.env.MIRROR_BUDGET_BYTES ?? "").trim();
+  if (!raw) return 0;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/** Above this many rows, `auto` leaves a dataset on direct query. */
+function maxRowsToMirror(): number {
+  const raw = (process.env.PARQUET_MAX_ROWS ?? "").trim();
+  if (!raw) return 5_000_000;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : 5_000_000;
 }
 
 export function parquetEnabled(): boolean {
@@ -107,7 +144,7 @@ export async function refreshDatasetMirror(args: {
   try {
     const { data: table } = await supabaseAdmin
       .from("user_data_tables")
-      .select("id, name, columns, user_id, data_loaded_at")
+      .select("id, name, columns, user_id, data_loaded_at, storage_mode")
       .eq("id", args.tableId)
       .maybeSingle();
     if (!table || table.user_id !== args.userId) return null;
@@ -117,9 +154,20 @@ export async function refreshDatasetMirror(args: {
       .select("id", { count: "exact", head: true })
       .eq("table_id", args.tableId);
     const rowCount = count ?? 0;
-    if (rowCount < minRowsToMirror()) {
-      // Too small to be worth it — and any existing mirror is now stale, so
-      // drop it rather than leave something that looks usable.
+
+    // The owner's choice decides, and `auto` falls back to the size heuristic
+    // this function used to apply unconditionally. A dataset set to `direct`
+    // is never mirrored no matter how convenient a mirror would be — that is
+    // the whole point of the setting existing.
+    const decision = resolveMode({
+      mode: (table.storage_mode as StorageMode) ?? "auto",
+      rows: rowCount,
+      minRows: minRowsToMirror(),
+      maxRows: maxRowsToMirror(),
+    });
+    if (decision.mode === "direct") {
+      // Any existing mirror is now wrong for this dataset's mode, so drop it
+      // rather than leave something that looks usable.
       await dropDatasetMirror(args).catch(() => {});
       return null;
     }
@@ -202,6 +250,62 @@ export function mirrorIsCurrent(meta: MirrorMeta): boolean {
 const inFlight = new Map<string, Promise<string | null>>();
 
 /**
+ * Record that a mirror was read, at most once a minute per dataset.
+ *
+ * Fire-and-forget and deliberately coarse: this feeds an eviction ranking, not
+ * an audit trail, and a write on every query would put a database round-trip
+ * on the read path to improve a heuristic by nothing.
+ */
+const lastTouch = new Map<string, number>();
+const TOUCH_INTERVAL_MS = 60_000;
+function touchMirror(tableId: string): void {
+  const now = Date.now();
+  if (now - (lastTouch.get(tableId) ?? 0) < TOUCH_INTERVAL_MS) return;
+  lastTouch.set(tableId, now);
+  void supabaseAdmin
+    .from("user_data_tables")
+    .update({ parquet_last_used_at: new Date(now).toISOString() })
+    .eq("id", tableId)
+    .then(
+      () => {},
+      () => {},
+    );
+}
+
+/**
+ * Drop mirrors until a workspace fits its budget.
+ *
+ * Returns what it dropped so the caller can SAY so. Eviction costs speed and
+ * never correctness — an evicted dataset still answers from the row store —
+ * but "your dashboard got slower and nobody mentioned it" is its own kind of
+ * dishonesty, so nothing here is silent.
+ */
+export async function enforceMirrorBudget(userId: string): Promise<EvictionPlan | null> {
+  const budget = mirrorBudgetBytes();
+  if (!parquetEnabled() || budget <= 0) return null;
+  const { data: rows } = await supabaseAdmin
+    .from("user_data_tables")
+    .select("id, name, storage_mode, parquet_bytes, parquet_rows, parquet_last_used_at")
+    .eq("user_id", userId)
+    .not("parquet_bytes", "is", null);
+
+  const entries: MirrorEntry[] = (rows ?? []).map((r) => ({
+    tableId: r.id,
+    name: r.name,
+    bytes: Number(r.parquet_bytes ?? 0),
+    rows: Number(r.parquet_rows ?? 0),
+    mode: (r.storage_mode as StorageMode) ?? "auto",
+    lastUsedAt: r.parquet_last_used_at,
+  }));
+
+  const plan = planEviction(entries, budget);
+  for (const e of plan.evict) {
+    await dropDatasetMirror({ userId, tableId: e.tableId }).catch(() => {});
+  }
+  return plan;
+}
+
+/**
  * Local path to a dataset's Parquet, downloading it if needed.
  *
  * Returns null whenever the mirror can't be used, which the caller treats as
@@ -211,6 +315,10 @@ const inFlight = new Map<string, Promise<string | null>>();
 export async function localParquetPath(meta: MirrorMeta): Promise<string | null> {
   if (!parquetEnabled() || !mirrorIsCurrent(meta)) return null;
   const target = cacheFile(meta.tableId, meta.parquet_synced_at!);
+  // Stamp the READ, not the write. Eviction ranks by last use, and ranking by
+  // last refresh would evict the stable table nobody changes precisely because
+  // nobody changes it — while it is being queried every hour.
+  touchMirror(meta.tableId);
   if (existsSync(target)) return target;
 
   const existing = inFlight.get(target);
@@ -255,11 +363,16 @@ export async function localParquetPath(meta: MirrorMeta): Promise<string | null>
  *
  * Bounded per pass so one sweep can never monopolise the scheduler.
  */
-export async function sweepDatasetMirrors(): Promise<{ refreshed: number; removed: number }> {
-  if (!parquetEnabled()) return { refreshed: 0, removed: 0 };
+export async function sweepDatasetMirrors(): Promise<{
+  refreshed: number;
+  removed: number;
+  evicted: number;
+}> {
+  if (!parquetEnabled()) return { refreshed: 0, removed: 0, evicted: 0 };
   const PER_PASS = 5;
   let refreshed = 0;
   let removed = 0;
+  let evicted = 0;
 
   try {
     // Stale: a mirror exists but predates the last row write.
@@ -318,7 +431,39 @@ export async function sweepDatasetMirrors(): Promise<{ refreshed: number; remove
     console.warn("[parquet] orphan sweep failed:", (e as Error).message);
   }
 
-  return { refreshed, removed };
+  // Budget: bring each workspace that holds mirrors back under its ceiling.
+  // Runs last, after refreshes, so it measures the sizes that actually exist
+  // rather than the ones that existed before this pass rewrote them.
+  try {
+    if (mirrorBudgetBytes() > 0) {
+      const { data: owners } = await supabaseAdmin
+        .from("user_data_tables")
+        .select("user_id")
+        .not("parquet_bytes", "is", null)
+        .limit(500);
+      const seen = new Set<string>();
+      for (const o of owners ?? []) {
+        if (!o.user_id || seen.has(o.user_id)) continue;
+        seen.add(o.user_id);
+        const plan = await enforceMirrorBudget(o.user_id);
+        if (!plan || plan.evict.length === 0) continue;
+        evicted += plan.evict.length;
+        // Named, not silent: a dashboard that got slower with no explanation
+        // is its own kind of dishonesty.
+        const { notifyUser } = await import("@/utils/notify.server");
+        await notifyUser(o.user_id, {
+          title: "Mirrors evicted to stay within the capacity budget",
+          body: describeEviction(plan) ?? "",
+          link: "/data-sql",
+          kind: "info",
+        }).catch(() => {});
+      }
+    }
+  } catch (e) {
+    console.warn("[parquet] budget sweep failed:", (e as Error).message);
+  }
+
+  return { refreshed, removed, evicted };
 }
 
 /** Drop the oldest cached files once the directory exceeds its ceiling. */

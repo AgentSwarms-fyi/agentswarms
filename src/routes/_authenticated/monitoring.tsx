@@ -7,6 +7,7 @@
 // opening.
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
+import { CapacityPanel } from "@/components/data/CapacityPanel";
 import { useAuth } from "@/hooks/use-auth";
 import { useIsSuperadmin } from "@/hooks/use-iam";
 import { Card, CardContent } from "@/components/ui/card";
@@ -318,6 +319,10 @@ function MonitoringPage() {
           }
         />
       </div>
+
+      {/* Capacity: what is held in columnar form, and the choice per dataset.
+          Sits here because this is the page about what the system is using. */}
+      <CapacityPanel userId={user?.id} />
 
       {/* Services */}
       <Card className="overflow-hidden">
