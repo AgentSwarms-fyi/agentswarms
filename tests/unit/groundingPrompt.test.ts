@@ -102,9 +102,62 @@ describe("the prompt tells the model what the block is", () => {
     expect(buildGroundingPrompt([cite()])).toMatch(/ingested from public web pages/);
   });
 
-  it("still returns the bare system prompt when nothing was retrieved", () => {
+  it("returns the bare system prompt when NO knowledge base was searched", () => {
+    // No KB wired: claiming one was consulted would be a lie in the other
+    // direction, so this stays untouched.
     expect(buildGroundingPrompt([], "You are terse.")).toBe("You are terse.");
     expect(buildGroundingPrompt([])).toBe("");
+    expect(buildGroundingPrompt([], "You are terse.", { searched: false })).toBe("You are terse.");
+  });
+
+  describe("a search that found nothing is a fact the model needs", () => {
+    // The gap this closes: an empty result dropped the ENTIRE grounding block,
+    // including "if the sources do not contain the answer, say so explicitly".
+    // That instruction was present only when sources were found, and missing in
+    // the one case where a model is most likely to answer from memory and sound
+    // exactly as grounded doing it.
+    it("tells the model the knowledge base was searched and came back empty", () => {
+      const out = buildGroundingPrompt([], "You are terse.", { searched: true });
+      expect(out).toMatch(/was searched/i);
+      expect(out).toMatch(/no matching passages/i);
+    });
+
+    it("tells it to say so rather than answer from general knowledge", () => {
+      const out = buildGroundingPrompt([], undefined, { searched: true });
+      expect(out).toMatch(/could not find it in the available documents/i);
+      expect(out).toMatch(/rather than answering from general knowledge/i);
+    });
+
+    it("forbids citing sources it was never given", () => {
+      expect(buildGroundingPrompt([], undefined, { searched: true })).toMatch(
+        /do not cite sources you were not given/i,
+      );
+    });
+
+    it("keeps the caller's system prompt, and puts it first", () => {
+      const out = buildGroundingPrompt([], "You are terse.", { searched: true });
+      expect(out.startsWith("You are terse.")).toBe(true);
+      expect(out.length).toBeGreaterThan("You are terse.".length);
+    });
+
+    it("works with no system prompt at all", () => {
+      const out = buildGroundingPrompt([], undefined, { searched: true });
+      expect(out.trim().length).toBeGreaterThan(0);
+      expect(out.startsWith("\n")).toBe(false);
+    });
+
+    it("does NOT force a refusal — an attached KB does not make 'hello' unanswerable", () => {
+      // Conditional wording on purpose. A blanket "refuse unless cited" turns
+      // every greeting into an apology.
+      const out = buildGroundingPrompt([], undefined, { searched: true });
+      expect(out).toMatch(/if answering would require/i);
+      expect(out).not.toMatch(/you must refuse|always refuse|do not answer/i);
+    });
+
+    it("emits no SOURCES block, because there are none", () => {
+      const out = buildGroundingPrompt([], "x", { searched: true });
+      expect(out).not.toContain("=== SOURCES ===");
+    });
   });
 
   it("keeps the caller's system prompt ahead of the sources", () => {

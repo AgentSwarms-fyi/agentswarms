@@ -62,8 +62,42 @@ export function defangSourceText(s: string): string {
  * loop.server.ts's TOOL_SAFETY_RULE, because auto-RAG runs whether or not the
  * agent has any tools enabled — with tools off, that rule is never appended.
  */
-export function buildGroundingPrompt(citations: Citation[], userSystemPrompt?: string): string {
-  if (citations.length === 0) return userSystemPrompt || "";
+export function buildGroundingPrompt(
+  citations: Citation[],
+  userSystemPrompt?: string,
+  opts?: {
+    /**
+     * True when a knowledge base was actually searched for this turn — as
+     * opposed to there being no knowledge base wired at all.
+     */
+    searched?: boolean;
+  },
+): string {
+  // A SEARCH THAT FOUND NOTHING IS A FACT THE MODEL NEEDS.
+  //
+  // This used to return the bare system prompt whenever citations were empty,
+  // which dropped the whole grounding block — including the one sentence that
+  // matters most here: "if the sources do not contain the answer, say so
+  // explicitly and do not fabricate citations". That instruction was therefore
+  // present only when sources WERE found, and absent in the single case where
+  // a model is most likely to answer from memory and sound just as grounded
+  // doing it. The user attached a knowledge base and gets an authoritative
+  // answer that never touched it, with nothing on screen to say so.
+  //
+  // Deliberately not a forced refusal: an attached knowledge base does not make
+  // "hello" unanswerable. It states what happened and leaves the model to be
+  // honest about whether the question needed those documents.
+  if (citations.length === 0) {
+    const base = userSystemPrompt?.trim() ?? "";
+    if (!opts?.searched) return userSystemPrompt || "";
+    return (
+      (base ? base + "\n\n" : "") +
+      "A knowledge base is attached to this assistant and was searched for this question. " +
+      "It returned no matching passages. If answering would require information from those " +
+      "documents, say plainly that you could not find it in the available documents rather " +
+      "than answering from general knowledge, and do not cite sources you were not given."
+    );
+  }
   const header = userSystemPrompt?.trim() ? userSystemPrompt.trim() + "\n\n" : "";
   // Names are interpolated too, and a document's name is often the <title> of
   // an ingested page — attacker-controlled in exactly the same way the body is.

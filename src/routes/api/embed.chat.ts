@@ -360,7 +360,11 @@ export const Route = createFileRoute("/api/embed/chat")({
             console.warn("[embed chat] RAG failed:", (e as Error).message);
           }
         }
-        const systemPrompt = buildGroundingPrompt(citations, cfg.systemPrompt);
+        // `searched` is the same condition that gated retrieval above — a
+        // widget with no knowledge base wired must not claim one was consulted.
+        const systemPrompt = buildGroundingPrompt(citations, cfg.systemPrompt, {
+          searched: cfg.kbIds.length > 0 && !!userText,
+        });
 
         // Budget gate. Anonymous visitors spend the OWNER's credits here, so
         // this is the surface where a per-credential cap matters most. Refuse

@@ -1592,9 +1592,12 @@ export const Route = createFileRoute("/api/chat")({
                     reranker: bodyReranker,
                     principal: { email: principalEmail },
                   });
-                  if (citations.length > 0) {
-                    effectiveSystemPrompt = buildGroundingPrompt(citations, body.systemPrompt);
-                  }
+                  // Called even when nothing came back: an empty result is a
+                  // fact about the knowledge base, and the model has to be told
+                  // it searched rather than left to answer from memory.
+                  effectiveSystemPrompt = buildGroundingPrompt(citations, body.systemPrompt, {
+                    searched: true,
+                  });
                 }
               } catch (err) {
                 console.error("RAG retrieval failed:", err);

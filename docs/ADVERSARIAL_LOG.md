@@ -34,7 +34,7 @@ has not been tested; it has been visited.
 | 1   | Dashboard           | `/dashboard`               | ✅ 1 | 2026-08-16 | 5 (2×S1, 1×S2, 2×S3)                |
 | 2   | Documentation       | `/docs`                    | ✅ 1 | 2026-08-16 | 4 (2×S1, 1×S2, 1×S1 self-inflicted) |
 | 3   | Agent Builder       | `/agents`                  | ✅ 1 | 2026-08-16 | 3 (2×S1, 1×S2)                      |
-| 4   | Knowledge Base      | `/knowledge`               | —    | —          | —                                   |
+| 4   | Knowledge Base      | `/knowledge`               | ✅ 1 | 2026-08-16 | 1 (1×S1)                            |
 | 5   | Agent Chat          | `/playground`              | —    | —          | —                                   |
 | 6   | Agent Swarms        | `/swarms`                  | —    | —          | —                                   |
 | 7   | MCP Builder         | `/mcp-builder`             | —    | —          | —                                   |
@@ -66,6 +66,67 @@ has not been tested; it has been visited.
 ## Findings
 
 <!-- newest first -->
+
+### 2026-08-16 — Module 4, Knowledge Base (`/knowledge`)
+
+The best-built module so far. Most of this pass was spent confirming that
+things which looked like defects were not, which is worth recording as
+carefully as the one that was.
+
+#### H1 · S1 · A retrieval that found nothing told the model nothing
+
+`buildGroundingPrompt` opened with:
+
+```js
+if (citations.length === 0) return userSystemPrompt || "";
+```
+
+An empty result therefore dropped the **entire** grounding block — including the
+one sentence that matters most in exactly that case: _"If the sources do not
+contain the answer, say so explicitly and do not fabricate citations."_ That
+instruction was present only when sources **were** found, and absent in the
+single situation where a model is most likely to answer from memory and sound
+precisely as grounded doing it.
+
+Both call sites confirmed it. `/api/chat` only built the prompt
+`if (citations.length > 0)`; `/api/embed.chat` called it unconditionally and got
+the bare prompt back. So a user attaches a knowledge base, asks something it
+cannot answer, and receives a confident answer that never touched their
+documents, with nothing on screen saying so.
+
+Now takes a `searched` flag. When a knowledge base was consulted and returned
+nothing, the model is told that and asked to say it could not find it rather
+than fall back on general knowledge. **Deliberately not a forced refusal** — an
+attached knowledge base does not make "hello" unanswerable — and deliberately
+opt-in, because claiming a search happened when no KB is wired would be the same
+lie pointing the other way.
+
+#### Checked and found honest
+
+- **Embedding state.** 16 of 17 knowledge bases hold documents with zero chunks.
+  Every one of those documents renders an amber **"Pending embedding"** badge,
+  and the page header states unembedded documents fall back to a keyword scan.
+- **That fallback is real**, not a claim. `kb.server` computes which documents
+  are chunked, pages `knowledge_documents` in 1,000-row batches to a declared
+  5,000-doc cap, warns when the cap is hit, and keyword-scans the remainder.
+  Both hybrid RPCs read `kb_chunks`, so without this the promise would be false.
+- **ACL enforcement fails closed.** A candidate the ACL query did not return
+  "cannot be judged — drop it". The one availability exception is narrow and
+  documented (pre-migration schema, where no restrictive scope can exist).
+- **Retrieved text is treated as data, not instructions**, with document names
+  defanged as well as bodies — names are often an ingested page's `<title>` and
+  just as attacker-controlled.
+
+#### Not verified, and why
+
+No live LLM turn was run. Month-to-date spend is $5.94 against a $5 cap, so a
+chat call would either be refused by the budget guard or spend past the user's
+own limit. The change is a pure string builder, mutation-verified, with both
+call sites typechecked; the behaviour it produces in a real turn is untested and
+is flagged as such rather than assumed.
+
+**Tests:** 20 in `tests/unit/groundingPrompt.test.ts` (7 new), mutation-verified
+— five reversions including a full restore of the original line, all killed.
 
 ### 2026-08-16 — Module 3, Agent Builder (`/agents`)
 
