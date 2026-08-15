@@ -5,7 +5,7 @@
 // credentials and the publisher's reader model.
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { Loader2, Send, Sparkles, X } from "lucide-react";
+import { Loader2, Send, ShieldCheck, Sparkles, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { MarkdownMessage } from "@/components/playground/MarkdownMessage";
@@ -33,6 +33,10 @@ export const Route = createFileRoute("/embed/bi/$key")({
   head: () => ({ meta: [{ title: "Dashboard — AgentSwarms embed" }] }),
   validateSearch: (s: Record<string, unknown>) => ({
     preview: s.preview === "1" || s.preview === 1 ? ("1" as const) : undefined,
+    // Signed viewer token, minted by the host's backend and placed in the
+    // iframe src. It is readable by the browser by design — it is signed, not
+    // secret — and useless without the host's HMAC key.
+    vt: typeof s.vt === "string" && s.vt ? s.vt : undefined,
   }),
   component: EmbedBiPage,
 });
@@ -41,7 +45,7 @@ type AskTurn = { question: string; answer?: string; error?: string };
 
 function EmbedBiPage() {
   const { key } = Route.useParams();
-  const { preview } = Route.useSearch();
+  const { preview, vt } = Route.useSearch();
   const isPreview = preview === "1";
   const [cfg, setCfg] = useState<Extract<EmbedResolve, { type: "bi_dashboard" }> | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -55,7 +59,7 @@ function EmbedBiPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    resolveEmbed(key, isPreview).then((r) => {
+    resolveEmbed(key, isPreview, vt).then((r) => {
       if (!r.ok) setError(r.error);
       else if (r.data.type !== "bi_dashboard") setError("This embed key is not for a dashboard.");
       else {
@@ -63,7 +67,7 @@ function EmbedBiPage() {
         setFilterState(defaultFilterState(parseFilters(r.data.filters as Json)));
       }
     });
-  }, [key, isPreview]);
+  }, [key, isPreview, vt]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -76,7 +80,12 @@ function EmbedBiPage() {
     setBusy(true);
     setTurns((prev) => [...prev, { question: q }]);
     try {
-      const answer = await askEmbedDashboard({ key, preview: isPreview, question: q });
+      const answer = await askEmbedDashboard({
+        key,
+        preview: isPreview,
+        question: q,
+        viewerToken: vt,
+      });
       setTurns((prev) => {
         const copy = [...prev];
         copy[copy.length - 1] = { question: q, answer };
@@ -145,6 +154,14 @@ function EmbedBiPage() {
                 {p.name}
               </button>
             ))}
+          </div>
+        )}
+        {cfg.viewerScope && (
+          // Every number below is one viewer's slice. Unlabelled, a subset
+          // reads as the total — the same wrong answer a bug would produce.
+          <div className="mb-2 flex items-center gap-1.5 rounded-md border border-border/60 bg-muted/40 px-2.5 py-1.5 text-[11px] text-muted-foreground">
+            <ShieldCheck className="h-3 w-3 shrink-0 text-primary" />
+            {cfg.viewerScope}
           </div>
         )}
         <BiFilterBar

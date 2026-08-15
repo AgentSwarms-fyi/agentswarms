@@ -219,12 +219,93 @@ function EmbeddingPage() {
         are sanitised on the way out so the underlying queries and connection details aren't exposed
         — but every number on the page is visible to whoever loads it.
       </P>
+      <H3 id="signed-viewers">Signed viewers — one dashboard, many customers</H3>
+      <P>
+        That last sentence is the problem when you are embedding analytics <em>inside a product</em>
+        : every customer loading the page sees the same rows. Issuing one key each does not help —
+        the keys are equally public, so any customer can use any other customer's.
+      </P>
+      <P>
+        Turn on <strong>Signed viewers</strong> (the shield button on a dashboard embed) and name
+        the attributes your data is scoped by — <C>tenant</C>, <C>region</C>. You get a signing
+        secret, shown <strong>once</strong>, and a ready-made Node snippet. Your backend mints a
+        short-lived token naming the viewer and puts it in the iframe URL as <C>?vt=…</C>. We verify
+        the signature and turn those attributes into row filters. The browser can read the token; it
+        cannot forge one.
+      </P>
+      <UL>
+        <li>
+          No token, an expired one, a forged one, or one missing a named attribute is a{" "}
+          <strong>refusal that says which</strong> — never the owner's unfiltered view.
+        </li>
+        <li>
+          An expiry is required and capped at 12 hours. A viewer token that never expires is a
+          permanent grant sitting in someone's browser history.
+        </li>
+        <li>
+          Attributes <strong>intersect</strong>: <C>tenant</C> and <C>region</C> means this tenant{" "}
+          <em>in</em> this region. (IAM grants union — that is a different question.)
+        </li>
+        <li>The embedded Ask-AI analyst reads the same scoped rows, not the owner's.</li>
+      </UL>
+      <Callout kind="warn" title="Widgets that can't be scoped are withheld, and say so">
+        An embed renders stored results. If a widget projects your scope column, its rows can be
+        filtered and the number is right. If it aggregated that column away —{" "}
+        <C>sum(revenue) by month</C> — the total already contains every customer and no filter over
+        those rows can recover one customer's share. Those widgets are <strong>withheld</strong>{" "}
+        with that reason in place of the chart, because showing them unfiltered leaks and blanking
+        them reads as "no data". Add the column to the widget's query to bring it back. Scoped
+        viewers also see a banner naming the scope, so a subset is never mistaken for a total.
+      </Callout>
+
       <H3 id="visual-answers">Visual answers in embeds</H3>
       <P>
         If the agent has <strong>Visual BI answers</strong> enabled, embedded chats can return a
         chart alongside the text. Because the visitor has no data access, the chart is generated
         server-side using the owner's data with the owner enforced as the tenant boundary.
       </P>
+
+      <H2 id="analyst">Embedding the AI Analyst</H2>
+      <P>
+        The fourth embed type puts the <DocLink to="/docs/bi">AI Analyst</DocLink> chat itself on
+        your site. Visitors ask their own questions and see the stated approach, each step's result
+        and chart, the findings and what to ask next — the same reasoning loop the signed-in screen
+        runs.
+      </P>
+      <P>
+        It runs <strong>server-side as the analyst's owner</strong>, because an anonymous visitor
+        has no datasets, no credentials and no query engine. That makes the{" "}
+        <strong>analyst's data scope the access boundary</strong>: scoped to two datasets, it can
+        read those two and nothing else. Scope it to what you would be comfortable publishing. Your
+        IAM model rules and semantic row filters still apply, since the compile happens under your
+        id.
+      </P>
+      <Callout kind="warn" title="This is the most exposed embed type">
+        A dashboard embed serves numbers you already computed and looked at. An analyst embed
+        accepts a <em>question</em> and writes fresh SQL against whatever it is scoped to. Visitors
+        never receive the generated SQL — it is stripped server-side, not merely left unrendered,
+        because it names your tables and columns — and they get none of the owner tools (edit and
+        re-run, pin to dashboard, verify, what-if). But the questions are theirs, so the scope is
+        the control.
+      </Callout>
+      <UL>
+        <li>
+          <strong>Cost:</strong> several model calls per question, billed to you. Analyst turns are
+          rate-limited to <strong>5 per minute per key</strong> (a dashboard question gets 10), and
+          spend is metered to the embed key so it shows up per-embed in Analytics.
+        </li>
+        <li>
+          <strong>Latency, and what the visitor sees:</strong> a turn plans, queries, self-checks
+          and synthesises — ~37–95s on the bundled HR sample. It <strong>streams</strong>, so the
+          named stage and the stated approach land at about 6s and the trace fills in from there,
+          rather than a spinner that is indistinguishable from a hang.
+        </li>
+        <li>
+          <strong>Signed viewers do not apply.</strong> They filter stored results; an analyst
+          writes new SQL each time, so a filter could cover the governed steps and not the rest —
+          partial enforcement is a badge that vouches for less than it looks like.
+        </li>
+      </UL>
 
       <H2 id="limits">What one visitor can consume</H2>
       <P>
@@ -272,6 +353,10 @@ function EmbeddingPage() {
         <li>Guardrails on, with PII redaction if visitors might type personal details.</li>
         <li>A budget cap on the key.</li>
         <li>A transcript retention window you can justify.</li>
+        <li>
+          For a dashboard your customers each load: <strong>signed viewers</strong> on, with the
+          scope attributes named — and check which widgets came back withheld before you ship.
+        </li>
         <li>
           Tested by asking the agent, in the embed, to reveal its instructions and everything it
           knows.

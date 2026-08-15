@@ -179,14 +179,28 @@ export type BiTurn = {
 
 // ── LLM via /api/bi (JSON-mode) ──────────────────────────────────────────
 
-export async function llmJson<T>(opts: {
+export type LlmJsonOpts = {
   systemPrompt: string;
   userPrompt: string;
   model?: string;
   temperature?: number;
   /** Completion-token cap; raise it for large structured outputs (deck plans). */
   maxTokens?: number;
-}): Promise<T> {
+};
+
+/**
+ * The shape of "ask a model for JSON", so callers can supply their own.
+ *
+ * `llmJson` below reads the BROWSER's session, which is right for every
+ * in-app surface and impossible on two others: a public embed has no session,
+ * and a cron pass has no browser. Those paths inject a server-side
+ * implementation that authenticates as the resource's OWNER instead — see
+ * src/utils/analyst/run.server.ts. Everything downstream stays identical, so
+ * an embedded analyst and a signed-in one run the same reasoning code.
+ */
+export type LlmJsonFn = <T>(opts: LlmJsonOpts) => Promise<T>;
+
+export async function llmJson<T>(opts: LlmJsonOpts): Promise<T> {
   const { data: sessionData } = await supabase.auth.getSession();
   const token = sessionData.session?.access_token;
   if (!token) throw new Error("Not signed in");
@@ -610,11 +624,14 @@ export async function generateSql(args: {
    * is otherwise likely to reproduce the same mistake.
    */
   repair?: { sql: string; error: string };
+  /** Model transport; defaults to the browser session. See LlmJsonFn. */
+  llm?: LlmJsonFn;
 }): Promise<string> {
   await ensureGovernedCatalog();
   const schema = describeSchema(args.datasets, args.semantics, args.metrics);
   const { systemPrompt, userPrompt } = buildSqlPrompt({ ...args, schema });
-  const out = await llmJson<{ sql: string }>({ model: args.model, systemPrompt, userPrompt });
+  const ask = args.llm ?? llmJson;
+  const out = await ask<{ sql: string }>({ model: args.model, systemPrompt, userPrompt });
   return out.sql;
 }
 
@@ -792,6 +809,8 @@ export async function suggestChart(args: {
   model?: string;
   /** Chart type the planner asked for — honored when the result shape allows it. */
   preferChart?: string;
+  /** Model transport; defaults to the browser session. See LlmJsonFn. */
+  llm?: LlmJsonFn;
 }): Promise<ChartSpec> {
   if (args.result.row_count === 0) return { type: "table" };
   const single = singleValueKpi(args.result, args.plan.intent);
@@ -801,7 +820,7 @@ export async function suggestChart(args: {
     ? `\n\nThe dashboard planner proposed a '${args.preferChart}' chart for this question — ` +
       "use it when the returned columns support it; otherwise pick the best fit."
     : "";
-  const out = await llmJson<ChartSpec>({
+  const out = await (args.llm ?? llmJson)<ChartSpec>({
     model: args.model,
     systemPrompt:
       "You pick the best chart for a SQL result. Output JSON only. " +

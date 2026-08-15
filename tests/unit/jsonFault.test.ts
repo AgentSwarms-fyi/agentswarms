@@ -20,7 +20,11 @@ import { describe, expect, it } from "vitest";
 
 import { describeJsonFault, repairJsonGlitches } from "@/utils/jsonFault";
 
-const BI_ROUTE = readFileSync("src/routes/api/bi.ts", "utf8");
+// The BI endpoint delegates to this module, which is where the retry, the
+// repair and the fault reporting actually live. The guard follows the
+// behaviour rather than the URL that used to contain it — embedded analysts
+// call the same function without going through the route at all.
+const BI_ROUTE = readFileSync("src/utils/bi/llmJson.server.ts", "utf8");
 
 /** Parse for real, so the assertions run against V8's actual error text. */
 function faultOf(text: string): string {

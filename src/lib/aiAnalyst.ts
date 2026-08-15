@@ -36,6 +36,7 @@ import {
   generateSql,
   llmJson,
   suggestChart,
+  type LlmJsonFn,
   type BiPlan,
   type ChartSpec,
   type SavedMetric,
@@ -287,6 +288,33 @@ export function trimStepForStorage(step: AnalystStep): AnalystStep {
 
 export function trimTurnForStorage(turn: AnalystTurn): AnalystTurn {
   return { ...turn, steps: turn.steps.map(trimStepForStorage) };
+}
+
+/**
+ * A turn as an ANONYMOUS embed visitor may receive it.
+ *
+ * The signed-in screen shows each step's SQL because the reader owns the data
+ * and re-running it is the point. On a public embed that same field publishes
+ * internal table and column names — `FROM hr_dept_monthly` names a table
+ * nobody outside the company should learn from a chat widget. This is the
+ * same reason sanitizePublicWidgets allow-lists render fields for embedded
+ * dashboards, and it is enforced HERE rather than by the page declining to
+ * render it: a field that reaches the browser has been published, whatever
+ * the UI does with it.
+ *
+ * `governed` survives deliberately. It names the semantic model the step
+ * compiled against, which the owner chose to define and which is the reader's
+ * evidence that a number came from a governed definition rather than
+ * improvised SQL — a trust signal, not a schema leak.
+ */
+export function sanitizePublicTurn(turn: AnalystTurn): AnalystTurn {
+  return {
+    ...turn,
+    steps: turn.steps.map((s) => {
+      const { sql: _sql, semantic: _semantic, ...safe } = s;
+      return safe;
+    }),
+  };
 }
 
 /** Compact Q→A lines from prior turns, for conversational continuity. */
@@ -834,11 +862,14 @@ export async function chartEveryStep(args: {
   results: (QueryResult | null)[];
   question: string;
   model?: string;
+  /** Model transport for the default suggester; see LlmJsonFn. */
+  llm?: LlmJsonFn;
   suggest?: (a: {
     question: string;
     result: QueryResult;
     plan: BiPlan;
     model?: string;
+    llm?: LlmJsonFn;
   }) => Promise<ChartSpec>;
 }): Promise<void> {
   const suggest = args.suggest ?? suggestChart;
@@ -855,6 +886,7 @@ export async function chartEveryStep(args: {
           result: res,
           plan: { intent: step.goal, tables: [], metrics: [], breakdowns: [] },
           model: args.model,
+          llm: args.llm,
         });
       } catch {
         /* a chart is a nice-to-have; the result table still stands */
@@ -894,8 +926,16 @@ export async function runAnalystTurn(args: {
     rollup?: string;
     access_note?: string;
   }>;
+  /**
+   * How to reach the model. Defaults to the browser session, which is the
+   * only thing an EMBED does not have — a public embed runs this same loop
+   * with a server-side transport authenticating as the analyst's owner, so
+   * the reasoning an anonymous visitor gets is the reasoning the owner gets.
+   */
+  llm?: LlmJsonFn;
   onUpdate: (turn: AnalystTurn) => void;
 }): Promise<AnalystTurn> {
+  const ask: LlmJsonFn = args.llm ?? llmJson;
   const turn: AnalystTurn = {
     question: args.question,
     steps: [],
@@ -944,7 +984,7 @@ export async function runAnalystTurn(args: {
       catalog,
     });
     const plan = parseAnalysisPlan(
-      await llmJson<unknown>({ ...planPrompt, model: args.model, maxTokens: ANALYST_TOKENS.plan }),
+      await ask<unknown>({ ...planPrompt, model: args.model, maxTokens: ANALYST_TOKENS.plan }),
       catalog,
     );
     // 1b. STOP AND ASK, when proceeding would mean inventing the question.
@@ -1048,6 +1088,7 @@ export async function runAnalystTurn(args: {
           dialect: args.dialect,
           localEngine: args.execute ? undefined : "duckdb",
           model: args.model,
+          llm: ask,
         });
         step.status = "running";
         emit();
@@ -1065,6 +1106,7 @@ export async function runAnalystTurn(args: {
             dialect: args.dialect,
             localEngine: args.execute ? undefined : "duckdb",
             model: args.model,
+            llm: ask,
             repair: { sql: step.sql, error: (e as Error).message },
           });
           emit();
@@ -1103,7 +1145,7 @@ export async function runAnalystTurn(args: {
     let headline = 0;
     try {
       const checked = parseCheckResponse(
-        await llmJson<unknown>({
+        await ask<unknown>({
           ...checkPrompt,
           model: args.model,
           maxTokens: ANALYST_TOKENS.check,
@@ -1179,8 +1221,8 @@ export async function runAnalystTurn(args: {
       })),
     });
     const [synth] = await Promise.all([
-      llmJson<unknown>({ ...synthPrompt, model: args.model, maxTokens: ANALYST_TOKENS.synthesis }),
-      chartEveryStep({ turn, results, question: args.question, model: args.model }),
+      ask<unknown>({ ...synthPrompt, model: args.model, maxTokens: ANALYST_TOKENS.synthesis }),
+      chartEveryStep({ turn, results, question: args.question, model: args.model, llm: ask }),
     ]);
     const parsed = parseSynthesisReply(synth);
     turn.answer =
@@ -1250,8 +1292,11 @@ export async function resynthesizeTurn(args: {
   turn: AnalystTurn;
   priorTurns: AnalystTurn[];
   model?: string;
+  /** Model transport; defaults to the browser session. See LlmJsonFn. */
+  llm?: LlmJsonFn;
   onUpdate?: (turn: AnalystTurn) => void;
 }): Promise<AnalystTurn> {
+  const ask: LlmJsonFn = args.llm ?? llmJson;
   const turn: AnalystTurn = {
     ...args.turn,
     steps: args.turn.steps.map((s) => ({ ...s })),
@@ -1286,8 +1331,8 @@ export async function resynthesizeTurn(args: {
       })),
     });
     const [synth] = await Promise.all([
-      llmJson<unknown>({ ...prompt, model: args.model, maxTokens: ANALYST_TOKENS.synthesis }),
-      chartEveryStep({ turn, results, question: turn.question, model: args.model }),
+      ask<unknown>({ ...prompt, model: args.model, maxTokens: ANALYST_TOKENS.synthesis }),
+      chartEveryStep({ turn, results, question: turn.question, model: args.model, llm: ask }),
     ]);
     const parsed = parseSynthesisReply(synth);
     if (parsed.answer) turn.answer = parsed.answer;

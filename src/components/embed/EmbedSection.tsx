@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   Bot,
+  BrainCircuit,
   Check,
   Copy,
   ExternalLink,
@@ -14,6 +15,7 @@ import {
   Network,
   PieChart,
   Plus,
+  ShieldCheck,
   Sparkles,
   Trash2,
 } from "lucide-react";
@@ -38,11 +40,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { SignedViewerDialog } from "@/components/embed/SignedViewerDialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
 
-type EmbedType = "agent" | "swarm" | "bi_dashboard";
+type EmbedType = "agent" | "swarm" | "bi_dashboard" | "ai_analyst";
 
 type EmbedKey = {
   id: string;
@@ -57,6 +60,9 @@ type EmbedKey = {
   created_at: string;
   expires_at: string | null;
   last_used_ip: string | null;
+  /** Per-viewer scoping (dashboards only) — see SignedViewerDialog. */
+  require_signed_viewer: boolean;
+  viewer_attributes: string[];
 };
 
 /** Expiry presets for new keys. `0` = never (stored as NULL). */
@@ -102,6 +108,13 @@ const EMBED_META: Record<
     path: "bi",
     height: 800,
   },
+  ai_analyst: {
+    title: "Embed AI Analyst",
+    desc: "The analyst chat itself: visitors ask their own questions and see the approach, each step's result and the findings. Bounded by the analyst's data scope.",
+    icon: BrainCircuit,
+    path: "analyst",
+    height: 720,
+  },
 };
 
 function genKey(): string {
@@ -123,27 +136,38 @@ export function EmbedSection() {
     agent: [],
     swarm: [],
     bi_dashboard: [],
+    ai_analyst: [],
   });
   const [dialogType, setDialogType] = useState<EmbedType | null>(null);
   const [createdKey, setCreatedKey] = useState<EmbedKey | null>(null);
+  const [viewerKey, setViewerKey] = useState<EmbedKey | null>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+
+  useEffect(() => {
+    void supabase.auth
+      .getSession()
+      .then(({ data }) => setAccessToken(data.session?.access_token ?? null));
+  }, []);
 
   const load = useCallback(async () => {
-    const [k, a, s, d] = await Promise.all([
+    const [k, a, s, d, an] = await Promise.all([
       supabase
         .from("embed_keys")
         .select(
-          "id, name, key, resource_type, resource_id, allowed_domains, allow_ai, is_active, use_count, created_at, expires_at, last_used_ip",
+          "id, name, key, resource_type, resource_id, allowed_domains, allow_ai, is_active, use_count, created_at, expires_at, last_used_ip, require_signed_viewer, viewer_attributes",
         )
         .order("created_at", { ascending: false }),
       supabase.from("agents").select("id, name").order("name"),
       supabase.from("swarms").select("id, name").order("name"),
       supabase.from("bi_dashboards").select("id, name").order("name"),
+      supabase.from("ai_analysts").select("id, name").order("name"),
     ]);
     setKeys((k.data ?? []) as EmbedKey[]);
     setResources({
       agent: a.data ?? [],
       swarm: s.data ?? [],
       bi_dashboard: (d.data ?? []) as ResourceOption[],
+      ai_analyst: (an.data ?? []) as ResourceOption[],
     });
   }, []);
 
@@ -182,7 +206,7 @@ export function EmbedSection() {
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {(Object.keys(EMBED_META) as EmbedType[]).map((t) => {
           const meta = EMBED_META[t];
           return (
@@ -238,11 +262,25 @@ export function EmbedSection() {
                         <div className="font-medium text-foreground">{k.name}</div>
                         <div className="mt-0.5 flex items-center gap-1.5">
                           <Badge variant="outline" className="text-[9px] uppercase">
-                            {k.resource_type === "bi_dashboard" ? "dashboard" : k.resource_type}
+                            {k.resource_type === "bi_dashboard"
+                              ? "dashboard"
+                              : k.resource_type === "ai_analyst"
+                                ? "analyst"
+                                : k.resource_type}
                           </Badge>
                           {k.resource_type === "bi_dashboard" && k.allow_ai && (
                             <Badge variant="outline" className="gap-0.5 text-[9px] text-primary">
                               <Sparkles className="h-2.5 w-2.5" /> AI
+                            </Badge>
+                          )}
+                          {k.require_signed_viewer && (
+                            <Badge
+                              variant="outline"
+                              className="gap-0.5 text-[9px] text-primary"
+                              title={`Each viewer sees only their rows, scoped by ${(k.viewer_attributes ?? []).join(", ")}`}
+                            >
+                              <ShieldCheck className="h-2.5 w-2.5" />
+                              {(k.viewer_attributes ?? []).join(", ") || "per viewer"}
                             </Badge>
                           )}
                         </div>
@@ -285,6 +323,17 @@ export function EmbedSection() {
                       </td>
                       <td className="px-3 py-2">
                         <div className="flex items-center justify-end gap-1">
+                          {k.resource_type === "bi_dashboard" && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className={cn("h-7 w-7", k.require_signed_viewer && "text-primary")}
+                              title="Signed viewers — show each customer only their own rows"
+                              onClick={() => setViewerKey(k)}
+                            >
+                              <ShieldCheck className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="icon"
@@ -340,6 +389,12 @@ export function EmbedSection() {
         }}
       />
       <SnippetDialog embedKey={createdKey} onClose={() => setCreatedKey(null)} />
+      <SignedViewerDialog
+        embedKey={viewerKey}
+        accessToken={accessToken}
+        onClose={() => setViewerKey(null)}
+        onSaved={() => void load()}
+      />
     </div>
   );
 }
@@ -455,7 +510,13 @@ function CreateEmbedDialog({
         <div className="space-y-3">
           <div className="space-y-1.5">
             <Label className="text-xs">
-              {type === "agent" ? "Agent" : type === "swarm" ? "Swarm" : "Dashboard"}
+              {type === "agent"
+                ? "Agent"
+                : type === "swarm"
+                  ? "Swarm"
+                  : type === "ai_analyst"
+                    ? "Analyst"
+                    : "Dashboard"}
             </Label>
             <Select value={resourceId} onValueChange={setResourceId}>
               <SelectTrigger className="h-9">
@@ -564,6 +625,20 @@ function CreateEmbedDialog({
                 </p>
               </div>
               <Switch checked={allowAi} onCheckedChange={setAllowAi} />
+            </div>
+          )}
+          {type === "ai_analyst" && (
+            <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3">
+              <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
+                The analyst's data scope is the access boundary
+              </p>
+              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                Visitors ask their own questions, and the analyst answers them with{" "}
+                <strong>your</strong> credentials against whatever it is scoped to — so scope it to
+                the datasets or connection you would be comfortable publishing, and no more. Your
+                IAM model rules and semantic row filters still apply. The generated SQL is never
+                shown to visitors, and the per-key budget cap and rate limit bound the spend.
+              </p>
             </div>
           )}
           <Button className="w-full" onClick={() => void create()} disabled={saving}>

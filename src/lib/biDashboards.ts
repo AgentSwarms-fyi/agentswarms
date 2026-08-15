@@ -129,6 +129,14 @@ export type BiWidget = {
   incremental?: { column: string; days: number };
   /** Last refresh filled the snapshot to the row cap — totals may be partial. */
   truncated?: boolean;
+  /**
+   * Why this widget was NOT rendered to a per-viewer-scoped embed: its results
+   * do not project the column the viewer is scoped by, so they cannot be
+   * limited to that viewer. Set server-side by src/lib/embedViewerScope.ts; an
+   * empty chart with no explanation reads as "no data", which is a different
+   * and untrue statement.
+   */
+  withheld?: string;
   narrative?: string;
   /** Per-widget appearance (accent colour + card surface). */
   theme?: BiWidgetTheme;
@@ -154,6 +162,9 @@ const PUBLIC_WIDGET_FIELDS = [
   "columns",
   "rows",
   "narrative",
+  // The reason a per-viewer embed withheld this widget. It must survive
+  // sanitisation or the viewer sees an unexplained blank card.
+  "withheld",
   "theme",
   "refreshed_at",
   "text",

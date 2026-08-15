@@ -11,11 +11,24 @@
 //
 // Auth is the embed key itself (a capability token scoped to one resource +
 // domain allow-list) — see src/utils/embed.server.ts.
+//
+// A key may additionally require a SIGNED VIEWER: an HMAC token minted by the
+// host's backend naming who is looking, which we turn into row filters over
+// the stored results. Both actions go through the same decision, because the
+// analyst reads the same rows the charts draw — scoping one and not the other
+// would leak the whole dashboard in prose. See src/utils/embedViewer.server.ts.
 
 import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { sanitizePublicPages, sanitizePublicWidgets } from "@/lib/biDashboards";
+import {
+  describeViewerScope,
+  scopePages,
+  scopeWidgets,
+  scopeWidgetsForAi,
+} from "@/lib/embedViewerScope";
 import { resolveDeployedGraph } from "@/lib/swarmPublish";
+import { decideViewerScope } from "@/utils/embedViewer.server";
 import { touchEmbedKey, validateEmbedKey } from "@/utils/embed.server";
 import { rateLimitedGlobal } from "@/utils/rateLimit.server";
 import { budgetMessage, getBudgetDecision } from "@/utils/budgetGuard.server";
@@ -58,6 +71,15 @@ const SAFE_NODE_FIELDS = [
   "maxLoops",
 ] as const;
 
+// Deliberately generic. The analyst's actual tables and columns stay
+// server-side, so the starters cannot name them — a schema-shaped prompt list
+// is a schema disclosure to anyone who loads the page.
+const STARTER_QUESTIONS = [
+  "What changed most recently, and why?",
+  "Which segment is underperforming?",
+  "Show me the trend over the last year.",
+];
+
 function sanitizeSwarmNodes(nodes: unknown): Record<string, unknown>[] {
   if (!Array.isArray(nodes)) return [];
   return (nodes as Record<string, unknown>[]).map((n) => {
@@ -81,6 +103,8 @@ export const Route = createFileRoute("/api/embed")({
           parentOrigin?: string;
           previewToken?: string;
           question?: string;
+          /** Host-minted, HMAC-signed token naming the viewer. */
+          viewerToken?: string;
         };
 
         if (body.action !== "resolve" && body.action !== "ask") {
@@ -160,6 +184,22 @@ export const Route = createFileRoute("/api/embed")({
             });
           }
 
+          if (keyRow.resource_type === "ai_analyst") {
+            const { loadEmbeddedAnalyst } = await import("@/utils/analyst/run.server");
+            const analyst = await loadEmbeddedAnalyst(keyRow.resource_id, keyRow.user_id);
+            if (!analyst) {
+              return json({ error: "The embedded analyst no longer exists." }, 404);
+            }
+            // The analyst's MODEL and data scope stay server-side. A visitor
+            // needs a name to see and questions to click; publishing which
+            // tables it reads would hand a stranger the schema.
+            return json({
+              type: "ai_analyst",
+              name: analyst.name,
+              starters: STARTER_QUESTIONS,
+            });
+          }
+
           // bi_dashboard
           const { data: dash } = await supabaseAdmin
             .from("bi_dashboards")
@@ -180,17 +220,29 @@ export const Route = createFileRoute("/api/embed")({
           // have no session for its RLS), then sanitise as before.
           const { hydrateDashboardAdmin } = await import("@/utils/bi/results.server");
           const hydratedDash = await hydrateDashboardAdmin(dash.id, dash);
+
+          // Per-viewer scoping. A refusal is a 403 rather than an empty
+          // dashboard: "you are not authorised" and "there is no data" look
+          // the same on screen and mean opposite things.
+          const decision = await decideViewerScope(keyRow, body.viewerToken);
+          if (decision.kind === "refused") return json({ error: decision.message }, 403);
+          const filters = decision.kind === "scoped" ? decision.filters : [];
+
           return json({
             type: "bi_dashboard",
             name: hydratedDash.name,
             description: hydratedDash.description,
-            widgets: sanitizePublicWidgets(hydratedDash.widgets),
+            widgets: sanitizePublicWidgets(scopeWidgets(hydratedDash.widgets, filters)),
             layout: hydratedDash.layout,
-            pages: sanitizePublicPages(hydratedDash.pages),
+            pages: sanitizePublicPages(scopePages(hydratedDash.pages, filters)),
             filters: dash.filters,
             theme: dash.theme,
             updated_at: dash.updated_at,
             allowAi: keyRow.allow_ai,
+            // The viewer must be told the numbers are a subset. A subset shown
+            // as a total is the same wrong answer whether policy or a bug
+            // produced it.
+            viewerScope: describeViewerScope(filters),
           });
         }
 
@@ -218,13 +270,28 @@ export const Route = createFileRoute("/api/embed")({
         // Context comes from the STORED dashboard — never from the client.
         const { data: dash } = await supabaseAdmin
           .from("bi_dashboards")
-          .select("name, widgets, ai_model, user_id")
+          .select("id, name, widgets, pages, ai_model, user_id")
           .eq("id", keyRow.resource_id)
           .maybeSingle();
         if (!dash || dash.user_id !== keyRow.user_id) {
           return json({ error: "The embedded dashboard no longer exists." }, 404);
         }
-        const widgets = (Array.isArray(dash.widgets) ? dash.widgets : []) as {
+        // Hydrate, as `resolve` does. Row snapshots live in bi_widget_results,
+        // not in the document — updateDashboard strips them at the single write
+        // chokepoint — so reading dash.widgets directly handed the model
+        // row-less stubs and it answered "the data cannot answer that" about
+        // dashboards full of data.
+        const { hydrateDashboardAdmin: hydrateForAsk } = await import("@/utils/bi/results.server");
+        const askDash = await hydrateForAsk(dash.id, dash);
+        // Same viewer decision as `resolve`. The analyst reads the rows the
+        // charts draw, so scoping one path and not the other would answer a
+        // tenant's question with every tenant's numbers — a leak in prose.
+        const askDecision = await decideViewerScope(keyRow, body.viewerToken);
+        if (askDecision.kind === "refused") return json({ error: askDecision.message }, 403);
+        const widgets = scopeWidgetsForAi(
+          askDash.widgets,
+          askDecision.kind === "scoped" ? askDecision.filters : [],
+        ) as {
           title?: string;
           kind?: string;
           columns?: string[];

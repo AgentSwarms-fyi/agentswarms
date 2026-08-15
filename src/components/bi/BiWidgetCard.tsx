@@ -321,6 +321,14 @@ export function BiWidgetCard({
           </div>
         ) : isOntology ? (
           <BiChartRender chart={chart} rows={rows} fill />
+        ) : widget.withheld ? (
+          // A per-viewer embed could not limit this widget's results to the
+          // viewer. It must NOT fall through to "no data snapshot" below:
+          // that sends the owner to refresh a widget that refreshed fine, and
+          // tells the viewer there is nothing here when there is plenty.
+          <div className="flex h-full items-center justify-center px-4 text-center text-xs text-muted-foreground">
+            {widget.withheld}
+          </div>
         ) : rows.length === 0 ? (
           <div className="flex h-full items-center justify-center px-4 text-center text-xs text-muted-foreground">
             No data snapshot — run or refresh this widget to load data.

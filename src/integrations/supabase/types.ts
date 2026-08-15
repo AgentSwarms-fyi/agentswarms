@@ -1311,6 +1311,9 @@ export type Database = {
           revoked_at: string | null;
           rotated_from: string | null;
           transcript_retention_days: number;
+          require_signed_viewer: boolean;
+          viewer_attributes: string[];
+          viewer_secret: Json | null;
         };
         Insert: {
           allow_ai?: boolean;
@@ -1331,6 +1334,9 @@ export type Database = {
           revoked_at?: string | null;
           rotated_from?: string | null;
           transcript_retention_days?: number;
+          require_signed_viewer?: boolean;
+          viewer_attributes?: string[];
+          viewer_secret?: Json | null;
         };
         Update: {
           allow_ai?: boolean;
@@ -1351,6 +1357,9 @@ export type Database = {
           revoked_at?: string | null;
           rotated_from?: string | null;
           transcript_retention_days?: number;
+          require_signed_viewer?: boolean;
+          viewer_attributes?: string[];
+          viewer_secret?: Json | null;
         };
         Relationships: [];
       };
@@ -3773,6 +3782,8 @@ export type Database = {
           parquet_bytes: number | null;
           parquet_rows: number | null;
           parquet_synced_at: string | null;
+          parquet_last_used_at: string | null;
+          storage_mode: string;
           is_sample: boolean;
           name: string;
           source_filename: string | null;
@@ -3787,6 +3798,8 @@ export type Database = {
           parquet_bytes?: number | null;
           parquet_rows?: number | null;
           parquet_synced_at?: string | null;
+          parquet_last_used_at?: string | null;
+          storage_mode?: string;
           is_sample?: boolean;
           name: string;
           source_filename?: string | null;
@@ -3801,6 +3814,8 @@ export type Database = {
           parquet_bytes?: number | null;
           parquet_rows?: number | null;
           parquet_synced_at?: string | null;
+          parquet_last_used_at?: string | null;
+          storage_mode?: string;
           is_sample?: boolean;
           name?: string;
           source_filename?: string | null;

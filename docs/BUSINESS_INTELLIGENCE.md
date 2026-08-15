@@ -551,3 +551,197 @@ The pivot (matrix) widget supports **conditional formatting**: a
 equals / not / between) checked top-down, first match tints the cell and
 colours its text. Totals stay uncoloured, and the pivot now honours the
 widget's currency / percent value format too.
+
+## Embedded analytics: one dashboard, many customers
+
+An embed key is a **capability token**. It ships inside the host page's HTML,
+so every visitor to that page holds the same one and sees the same rows — the
+owner's. That is right for a public dashboard and wrong for embedding
+analytics inside a product, where each customer must see only their own data.
+Issuing one key per customer does not fix it: the keys are equally public, so
+any customer can use any other customer's.
+
+**Signed viewers** close that gap. On a dashboard embed (Integrations → **Web
+Embedding**, the shield button on the row) you name the attributes the data is
+scoped by and generate a signing secret. Your **backend** then mints a
+short-lived HMAC-signed token naming the viewer and puts it in the iframe URL:
+
+```
+https://<your-host>/embed/bi/<embed-key>?vt=<payload>.<signature>
+```
+
+The dialog hands you the exact Node snippet, pre-filled with your key and
+attributes. The token is `base64url(JSON claims) + "." + base64url(HMAC-SHA256)`
+— the same encoding as a JWT payload, UTF-8, so `Buffer.from(json).toString("base64url")`
+in Node, `base64.urlsafe_b64encode(json.encode())` in Python, and our verifier
+all agree, including on non-ASCII attribute values.
+
+The browser can read the token. It cannot forge one, and it cannot mint itself
+a better one — that is the whole mechanism.
+
+### What is enforced
+
+- **Verification is fail-closed.** A missing, malformed, expired or forged
+  token is a **403 with the reason stated**, never the owner's unfiltered view.
+  So is an unreadable signing secret (e.g. after an envelope-key rotation).
+- **An expiry is required**, capped at 12 hours, with 60 seconds of clock
+  skew. A viewer token that never expires is a permanent grant sitting in
+  someone's browser history.
+- **Every named attribute must be present.** A token missing one is refused,
+  naming it. Without this, a host-side typo (`tenat` for `tenant`) would build
+  no filter at all — and no filter renders as everything.
+- **Attributes intersect.** `{tenant: acme, region: emea}` describes one
+  viewer, and a row must satisfy both. (Contrast IAM _grants_, which union:
+  holding two grants must never show you less than holding one.)
+- **The signature is checked before the payload is parsed**, and compared in
+  constant time.
+- **The embedded AI analyst reads the same scoped rows.** Scoping the charts
+  and not the analyst would leak the whole dashboard in prose.
+
+### Widgets that cannot be scoped are withheld, not blanked
+
+An embedded dashboard renders **stored result rows** — the query already ran,
+as the owner. If a widget projects the scope column, those rows can be filtered
+and the number is right. If the widget aggregated it away — `SELECT month,
+sum(revenue) FROM sales GROUP BY month` — the total already contains every
+customer, and nothing done to those rows can recover one customer's share.
+
+So such a widget is **withheld**, and says so in place of its chart: _"this
+widget's results do not include "Region", so they cannot be limited to your
+data. Add "Region" to the widget's query to show it here."_ Rendering it
+unfiltered would leak; rendering it blank would read as "no data", which is a
+different and untrue statement. An empty widget that **does** project the
+column is left as an honest zero — that viewer has no rows.
+
+Scoped viewers also see a one-line banner (_"Showing data for Region =
+EMEA."_), because a subset presented as a total is the same wrong answer
+whether policy or a bug produced it. Widget narratives are dropped from scoped
+widgets: they were written about the owner's full result.
+
+### Operating it
+
+The secret is shown **once**, at generation, and stored encrypted under the
+same envelope as provider credentials — there is no "show it again", only
+rotation, which invalidates every token your backend has already issued.
+Enabling and rotating are both written to the audit log. The setting exists
+only on dashboard embeds, and only alongside at least one attribute; the
+database refuses the other combinations, so the toggle can never be a badge
+that vouches for nothing.
+
+## Scan: the obvious questions, asked automatically
+
+The **Scan** button reads every widget's snapshot and reports what a person
+would notice — a sustained trend, a point far off the others, one member
+holding most of a total. It is **computed, not generated**: no model call, no
+cost, no wait, and the same answer twice. The arithmetic is the same code the
+AI Analyst uses for its own trend and outlier work (`src/lib/analystSeries.ts`),
+so a finding here and a finding there cannot disagree.
+
+Three checks, each with a stated bar:
+
+| Check         | Bar                                      | Why that bar                                                                                                                                                                                      |
+| ------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Trend         | slope ≥ 2% per period, ≥ 5 points        | 2%/period compounds to ~27% a year; below it, a "trend" over a dozen points is mostly noise wearing a direction. A line through three points fits perfectly and predicts nothing.                 |
+| Outlier       | ≥ 3 MAD from the median                  | Median and MAD, not mean and standard deviation — the outlier inflates the very standard deviation a naive check judges it by, which is how that version misses the spike it was written to find. |
+| Concentration | one member ≥ 60% of a total, ≥ 4 members | With two members one is always over half, and with three, over a third. Below four, "concentrated" describes the number of categories rather than the business.                                   |
+
+Findings are ranked by how far each cleared **its own** threshold, shown as a
+multiple (`2.6×`). That is what makes an outlier and a trend comparable at
+all; it is a defensible ordering, not a claim to know which one you care
+about.
+
+### Finding nothing is not an all-clear
+
+This is the failure a proactive feature is most prone to, because nobody
+prompted it and so it is trusted more than an answer they asked for. "No
+insights" reads as reassurance; what is actually known is narrower. So an
+empty scan states all three parts: how many widgets were examined, how many
+could **not** be and why, and the exact thresholds applied.
+
+Widgets are skipped for reasons that are worth reading:
+
+- **The snapshot hit its row cap.** Every check here is an aggregate — a
+  slope, a share, a total — so over a capped result they would be aggregates
+  of an arbitrary prefix. Refused, with the remedy named.
+- **The measure has negative values.** A share is `part ÷ total`, and when the
+  total nets losses against profits that fraction can exceed 1, go negative,
+  or explode as the total nears zero. Concentration is refused on those;
+  trend and outliers, which never divide by a total, still run.
+- **Not enough history**, or **not a data widget** (text and image cards).
+
+Examined-and-clean is counted as **swept**, not skipped — "we looked and found
+nothing" and "we could not look" are different claims, and the summary keeps
+them apart.
+
+## Embedding the AI Analyst
+
+**Integrations → Web Embedding → Embed AI Analyst** puts the analyst chat
+itself on your site. Visitors type their own questions and see the analyst's
+stated approach, each step's result and chart, the findings, and what to ask
+next — the same reasoning loop the signed-in screen runs, not a summariser
+bolted onto it.
+
+### It runs server-side, as the owner
+
+The analyst normally runs in the asking user's browser: their DuckDB holds the
+local datasets, their session compiles governed queries and reaches the model.
+An anonymous visitor has none of those. So an analyst embed runs the loop
+**server-side under the analyst's owner** — the same arrangement an embedded
+agent already uses — with local SQL executed by the server engine that backs
+scheduled refreshes, and warehouse SQL by the stored connection.
+
+**The analyst's data scope is the access boundary.** An analyst scoped to two
+datasets can only ever read those two; one pointed at a warehouse connection
+can only read that connection. Scope the analyst to what you would be
+comfortable publishing, then embed it — the create dialog says so before it
+gives you the snippet. Your IAM model rules and any semantic row filters and
+column masks still apply, because the compile still happens under your id.
+
+### What visitors never receive
+
+- **The generated SQL.** The signed-in screen shows it because the reader owns
+  the data and re-running it is the point; on a public page it would publish
+  internal table and column names. It is stripped server-side
+  (`sanitizePublicTurn`), not merely left unrendered — a field that reaches
+  the browser has been published whatever the UI does with it.
+- **The compiled semantic query.** Same reasoning. The governed model's _name_
+  survives, because "this number came from a governed definition" is the
+  reader's evidence and not a schema leak.
+- **Edit-and-re-run, pin-to-dashboard, verify, what-if scenarios.** Each
+  writes to your workspace or records a human verdict, and an anonymous
+  visitor is neither.
+
+### What bounds the cost
+
+Every question is several model calls billed to you, triggered by strangers.
+The controls are the ones every embed has, plus a tighter limit: **5 analyst
+turns per minute per key** (against 10 for a dashboard question), the per-key
+**monthly budget cap**, the domain allow-list, key expiry, and instant
+deactivation. Spend is metered to the embed key, so it shows up per-embed in
+Analytics rather than blended into your own usage.
+
+### It takes time, and it shows you why
+
+A turn plans, writes SQL, executes, self-checks and synthesises. Measured on
+the bundled HR sample: **~37–95s end to end**, depending on how many steps the
+plan needs.
+
+It **streams**. `POST /api/embed/analyst` is server-sent events: the visitor
+sees a named stage ("Planning the approach…", "Writing and running the
+queries…", "Checking the results…") and the trace fills in as it is produced.
+Measured on the same sample: the stated approach and first step land at
+**~6s**, step results at ~10–18s, the self-check at ~27s, the finding at ~48s.
+A generic spinner for 48 seconds is indistinguishable from a hang; a named
+stage is not.
+
+Every streamed frame is sanitised, not just the last one — a partial turn
+carries the same step SQL the finished one does.
+
+### Not signed viewers
+
+Per-viewer scoping (see above) turns a token's attributes into row filters
+over **stored** results. An analyst writes fresh SQL for every question, so a
+filter could be enforced on the governed steps and not on the raw-SQL ones —
+enforcement on part of an answer is a badge that vouches for less than it
+appears to. Signed viewers therefore remain dashboard-only, and the database
+constraint enforces that.

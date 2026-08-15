@@ -149,6 +149,34 @@ literal text.
   analyses are **not** shared — a thread holds result samples fetched under
   the author's access, and exposing those to a narrower reader would leak
   precisely the rows their row filters exist to withhold.
+- **Embed keys are capability tokens, not authentication.** A key lives in the
+  host page's HTML, so every visitor holds the same one; what bounds it is the
+  domain allow-list, per-key budget, rate limit, expiry and instant
+  deactivation. A dashboard embed can additionally **require a signed viewer**:
+  the host's backend mints a short-lived HMAC token naming the viewer's
+  attributes, and those become row filters over the served results. The
+  signature is verified before the payload is parsed and compared in constant
+  time; the signing secret is shown once and stored under the credential
+  envelope. Every failure — missing, malformed, expired, forged, missing a
+  required attribute, or an unreadable secret — is a **403 stating the
+  reason**, never a fallback to the owner's unfiltered view. Widgets whose
+  stored results do not project the scope column cannot be narrowed and are
+  **withheld with that reason**, since an aggregate already contains every
+  customer. See `docs/BUSINESS_INTELLIGENCE.md`.
+- **An embedded AI Analyst is the most exposed embed type, deliberately
+  bounded.** Unlike a dashboard embed (stored snapshots the owner already
+  computed), it accepts a free-form question and runs the full reasoning loop
+  server-side **as the owner**. What bounds it is the analyst's own configured
+  `source` — the named local datasets, or the one warehouse connection — plus
+  the owner's IAM model rules and semantic row filters/column masks, which
+  still apply because the compile happens under the owner's id. Generated SQL
+  and compiled semantic queries are stripped from the response server-side
+  (`sanitizePublicTurn`), so visitors never receive internal table or column
+  names; the governed model's name survives as trust evidence. Analyst turns
+  are rate-limited harder than dashboard questions (5/min per key) and metered
+  to the embed key so the per-key budget cap applies. Signed viewers do **not**
+  extend here: they filter stored results, and partial enforcement over
+  freshly generated SQL would vouch for less than it appears to.
 - Admin server functions are gated by `requireSuperadmin` (`utils/iam.server.ts`).
 
 ## Outbound request protection (SSRF)

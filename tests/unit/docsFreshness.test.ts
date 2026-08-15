@@ -117,6 +117,13 @@ const UNDOCUMENTED_ON_PURPOSE = new Map<string, string>([
   ["ANTHROPIC_API_KEY", "text inside an exported agent scaffold"],
   ["GEMINI_API_KEY", "text inside an exported agent scaffold"],
   ["WEATHER_KEY", "placeholder in a slide deck's sample code"],
+  [
+    "AGENTSWARMS_VIEWER_SECRET",
+    "the HOST's env var, inside the token-minting snippet we hand integrators " +
+      "(embedViewerToken.ts). This deployment never reads it — the secret lives " +
+      "encrypted in embed_keys.viewer_secret — so listing it in .env.example " +
+      "would tell operators to set something nothing consults",
+  ],
   // Internal plumbing between a process and a child it spawned, not a knob.
   [
     "AS_ORC_SQL",

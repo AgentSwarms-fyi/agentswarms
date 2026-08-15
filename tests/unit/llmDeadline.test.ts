@@ -115,8 +115,8 @@ describe("the ordering the user actually sees", () => {
 describe("both sides use the shared rule", () => {
   // Two independently-written deadline expressions is exactly how the
   // ordering above got inverted once already.
-  it("the server route computes its deadline from the module", () => {
-    const src = readFileSync("src/routes/api/bi.ts", "utf8");
+  it("the server side computes its deadline from the module", () => {
+    const src = readFileSync("src/utils/bi/llmJson.server.ts", "utf8");
     expect(src).toContain("upstreamDeadlineMs(completionCap, model)");
     expect(src).not.toMatch(/60_000 \+ completionCap \* 8/);
   });
@@ -130,7 +130,7 @@ describe("both sides use the shared rule", () => {
   it("the timeout message points at the fix that exists", () => {
     // "pick a different model" was unactionable while an analyst's model
     // could not be changed after creation.
-    const src = readFileSync("src/routes/api/bi.ts", "utf8");
+    const src = readFileSync("src/utils/bi/llmJson.server.ts", "utf8");
     expect(src).toContain("isSlowReasoningModel(model)");
     expect(src).toMatch(/Edit button is on the analyst card/);
     // And it says WHY it ran long, so the reader knows this is a clock

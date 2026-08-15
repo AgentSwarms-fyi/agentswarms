@@ -33,7 +33,7 @@ export type EmbedKeyRow = {
   user_id: string;
   name: string;
   key: string;
-  resource_type: "agent" | "swarm" | "bi_dashboard";
+  resource_type: "agent" | "swarm" | "bi_dashboard" | "ai_analyst";
   resource_id: string;
   allowed_domains: string[];
   allow_ai: boolean;
@@ -41,10 +41,19 @@ export type EmbedKeyRow = {
   use_count: number;
   /** Hard expiry; NULL means the key never expires. */
   expires_at: string | null;
+  /**
+   * Per-viewer scoping (BI dashboards). When set, the host's backend must mint
+   * an HMAC-signed token naming the viewer's attributes and pass it into the
+   * iframe; the request is refused without one. See embedViewer.server.ts.
+   */
+  require_signed_viewer: boolean;
+  viewer_attributes: string[];
+  /** Encrypted HMAC secret; never leaves the server after generation. */
+  viewer_secret: unknown;
 };
 
 const KEY_COLUMNS =
-  "id, user_id, name, key, resource_type, resource_id, allowed_domains, allow_ai, is_active, use_count, expires_at";
+  "id, user_id, name, key, resource_type, resource_id, allowed_domains, allow_ai, is_active, use_count, expires_at, require_signed_viewer, viewer_attributes, viewer_secret";
 
 export type EmbedValidation =
   | { ok: true; row: EmbedKeyRow; preview: boolean }
