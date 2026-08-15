@@ -30,6 +30,24 @@ import { createHash } from "node:crypto";
 const SOURCE_URL =
   "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json";
 
+/**
+ * OpenRouter's own catalog: every model it fronts, with its own rates.
+ *
+ * ADDED BECAUSE THE COMMUNITY SOURCE LAGS THE GATEWAY, and the gap is not
+ * cosmetic. `moonshotai/kimi-k3` was called 116 times on this instance —
+ * 75,767 input and 56,350 output tokens — and recorded $0.00 on every one,
+ * because the vendored table was built from LiteLLM on 4 August and the model
+ * did not exist in it. OpenRouter was publishing the rate the whole time, at
+ * this URL, unauthenticated: $0.003/1K in, $0.015/1K out, or about $1.07 of
+ * spend that no budget cap could see.
+ *
+ * This is also the authoritative source for OpenRouter specifically. A model
+ * served THROUGH a gateway costs the gateway's price, not the underlying
+ * vendor's, so a community row for `moonshotai/kimi-k3` would not be the right
+ * number anyway.
+ */
+const OPENROUTER_URL = "https://openrouter.ai/api/v1/models";
+
 const OUT = "src/utils/observability/priceTable.generated.ts";
 
 /**
@@ -81,6 +99,68 @@ const num = (v: unknown): number | null => {
   const n = typeof v === "string" ? Number(v) : typeof v === "number" ? v : NaN;
   return Number.isFinite(n) && n >= 0 ? n : null;
 };
+
+/** One entry of OpenRouter's /models response. Loose — untrusted wire data. */
+export type OpenRouterModel = {
+  id?: unknown;
+  pricing?: { prompt?: unknown; completion?: unknown } | null;
+};
+
+/**
+ * Rows from OpenRouter's catalog, keyed the same way as the community source.
+ *
+ * Every sanity rule from buildPriceRows applies verbatim, for the same reason:
+ * a units error or a malformed field produces a plausible number rather than
+ * an exception, and this feeds a spend cap.
+ *
+ * Keys drop the vendor prefix (`moonshotai/kimi-k3` → `openrouter:kimi-k3`) to
+ * match how the committed table is already keyed and how priceResolver builds
+ * its `provider:tail` candidate. The `~` some ids carry marks a gateway-side
+ * alias and is stripped, exactly as the resolver strips it before lookup —
+ * otherwise the decoration would defeat the key it is supposed to match.
+ */
+export function buildOpenRouterRows(models: unknown): { rows: Row[]; skipped: string[] } {
+  const rows: Row[] = [];
+  const skipped: string[] = [];
+  if (!Array.isArray(models)) return { rows, skipped };
+
+  for (const entry of models as OpenRouterModel[]) {
+    if (!entry || typeof entry !== "object") continue;
+    const id = typeof entry.id === "string" ? entry.id : "";
+    if (!id) continue;
+
+    // Per TOKEN in the source, per 1K here — the same conversion, and the same
+    // trap, as the community path.
+    const inPerToken = num(entry.pricing?.prompt);
+    const outPerToken = num(entry.pricing?.completion);
+    if (inPerToken == null) continue;
+
+    const inPer1k = inPerToken * 1000;
+    const outPer1k = (outPerToken ?? 0) * 1000;
+
+    if (inPer1k > MAX_PER_1K || outPer1k > MAX_PER_1K) {
+      skipped.push(`${id}: above the sanity ceiling (in=${inPer1k}, out=${outPer1k})`);
+      continue;
+    }
+    if (inPer1k > 0 && inPer1k < MIN_PER_1K) {
+      skipped.push(`${id}: below the sanity floor (in=${inPer1k})`);
+      continue;
+    }
+    // Zero on both sides is dropped here as it is for the community source:
+    // it cannot be told apart from a parse failure. Genuinely free routes are
+    // handled properly elsewhere — the provider reports `cost: 0` on the call
+    // itself, which is a measurement rather than an absent table row. See
+    // src/utils/observability/providerCost.ts.
+    if (inPer1k === 0 && outPer1k === 0) continue;
+
+    const undecorated = id.replace(/(^|\/)~/g, "$1");
+    const bare = undecorated.includes("/")
+      ? undecorated.slice(undecorated.lastIndexOf("/") + 1)
+      : undecorated;
+    rows.push({ key: `openrouter:${bare}`.toLowerCase(), in: inPer1k, out: outPer1k });
+  }
+  return { rows, skipped };
+}
 
 export function buildPriceRows(raw: Raw): { rows: Row[]; skipped: string[]; conflicts: string[] } {
   const rows: Row[] = [];
@@ -162,6 +242,39 @@ export function buildPriceRows(raw: Raw): { rows: Row[]; skipped: string[]; conf
   return { rows: deduped, skipped, conflicts };
 }
 
+/**
+ * Fold OpenRouter's own catalog over the community one.
+ *
+ * THE GATEWAY WINS ITS OWN KEYS OUTRIGHT — this is the one place that does not
+ * take the higher of two figures. A model served through OpenRouter is billed
+ * at OpenRouter's rate, so when the two sources disagree about an
+ * `openrouter:*` key, the community row is not a competing estimate of the
+ * same quantity: it is a rate for a different transaction. Taking the higher
+ * would deliberately record a number nobody charges.
+ *
+ * Differences are still reported. A gateway rate that moved a long way from
+ * the vendor's list price is worth a human glance before it lands in a control
+ * that stops spend.
+ */
+export function mergeSources(
+  community: Row[],
+  openrouter: Row[],
+): { rows: Row[]; replaced: string[] } {
+  const byKey = new Map(community.map((r) => [r.key, r]));
+  const replaced: string[] = [];
+  for (const row of openrouter) {
+    const prev = byKey.get(row.key);
+    if (prev && (prev.in !== row.in || prev.out !== row.out)) {
+      replaced.push(`${row.key}: ${prev.in}/${prev.out} → ${row.in}/${row.out} (OpenRouter's own)`);
+    }
+    byKey.set(row.key, row);
+  }
+  return {
+    rows: [...byKey.values()].sort((a, b) => a.key.localeCompare(b.key)),
+    replaced,
+  };
+}
+
 function previousRowCount(): number {
   if (!existsSync(OUT)) return 0;
   return (readFileSync(OUT, "utf8").match(/^\s*"[^"]+": \{ in:/gm) ?? []).length;
@@ -215,8 +328,44 @@ async function main() {
     process.exit(1);
   }
 
-  const { rows, skipped, conflicts } = buildPriceRows(raw);
+  const community = buildPriceRows(raw);
+
+  // OpenRouter second, and non-fatally: it is an improvement to the catalog,
+  // not a dependency of it. If the gateway is unreachable the refresh still
+  // produces the community table rather than failing outright and leaving the
+  // committed one to go staler still — but it says loudly what was missed,
+  // because a silent fallback here is how a table goes out of date unnoticed.
+  process.stdout.write(`fetching ${OPENROUTER_URL}\n`);
+  let orRows: Row[] = [];
+  let orSkipped: string[] = [];
+  try {
+    const orRes = await fetch(OPENROUTER_URL, { signal: AbortSignal.timeout(30_000) });
+    if (!orRes.ok) throw new Error(`HTTP ${orRes.status}`);
+    const orJson = (await orRes.json()) as { data?: unknown };
+    const built = buildOpenRouterRows(orJson?.data);
+    orRows = built.rows;
+    orSkipped = built.skipped;
+    console.log(`  ${orRows.length} priced models from OpenRouter's own catalog`);
+  } catch (e) {
+    console.warn(
+      `\nWARNING: could not read OpenRouter's catalog (${(e as Error).message}).` +
+        ` Writing the community table alone — every OpenRouter-only model stays unpriced.`,
+    );
+  }
+
+  const merged = mergeSources(community.rows, orRows);
+  const rows = merged.rows;
+  const skipped = [...community.skipped, ...orSkipped];
+  const conflicts = community.conflicts;
   const prev = previousRowCount();
+
+  if (merged.replaced.length) {
+    console.log(
+      `\n${merged.replaced.length} key(s) took OpenRouter's rate over the community one:`,
+    );
+    for (const r of merged.replaced.slice(0, 10)) console.log(`  ${r}`);
+    if (merged.replaced.length > 10) console.log(`  …and ${merged.replaced.length - 10} more`);
+  }
 
   console.log(`\nparsed ${rows.length} priced models for providers this app serves`);
   if (skipped.length) {
@@ -249,7 +398,16 @@ async function main() {
     process.exit(1);
   }
 
-  const out = render(rows, { url: SOURCE_URL, fetchedAt: new Date().toISOString(), hash });
+  const out = render(rows, {
+    // Both sources named, so the header cannot imply the whole table came from
+    // one of them. Whether OpenRouter answered is stated rather than inferred
+    // from the row count.
+    url: orRows.length
+      ? `${SOURCE_URL}\n//               ${OPENROUTER_URL} (${orRows.length} models)`
+      : `${SOURCE_URL}\n//               ${OPENROUTER_URL} — UNAVAILABLE at refresh time`,
+    fetchedAt: new Date().toISOString(),
+    hash,
+  });
   if (dry) {
     console.log(`\n--dry: would write ${rows.length} rows to ${OUT} (previously ${prev})`);
     return;

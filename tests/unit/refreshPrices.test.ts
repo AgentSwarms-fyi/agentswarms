@@ -12,11 +12,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildOpenRouterRows,
   buildPriceRows,
   MAX_PER_1K,
+  mergeSources,
   MIN_ROWS,
   PROVIDER_MAP,
   type Raw,
+  type Row,
 } from "../../scripts/refreshPrices";
 
 const entry = (over: Record<string, unknown> = {}) => ({
@@ -245,5 +248,154 @@ describe("one key, two prices", () => {
       ...dup("azure/b", "azure", 0.000001, 0.000002),
     } as Raw);
     expect(new Set(rows.map((r) => r.key)).size).toBe(rows.length);
+  });
+});
+
+// ── OpenRouter's own catalog ────────────────────────────────────────────────
+//
+// ADDED BECAUSE THE COMMUNITY SOURCE LAGS THE GATEWAY and the lag costs money.
+// moonshotai/kimi-k3 ran 116 times on this instance — 75,767 in, 56,350 out —
+// and recorded $0.00 on every call, because the vendored table was built from
+// LiteLLM on 4 August and the model was not in it. OpenRouter was publishing
+// the rate at /api/v1/models the whole time, unauthenticated. About $1.07 of
+// spend that no budget cap could see.
+describe("OpenRouter's catalog", () => {
+  const model = (id: string, prompt: unknown, completion: unknown) => ({
+    id,
+    pricing: { prompt, completion },
+  });
+
+  it("converts per-token strings to per-1K numbers", () => {
+    // THE UNIT TRAP, on the second source now. OpenRouter quotes per TOKEN and
+    // as a STRING; this codebase stores per 1K as a number. The real kimi-k3
+    // figures, so the arithmetic is checked against a rate that was actually
+    // published rather than a made-up one.
+    const { rows } = buildOpenRouterRows([model("moonshotai/kimi-k3", "0.000003", "0.000015")]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].key).toBe("openrouter:kimi-k3");
+    // toBeCloseTo, as the community-source tests above do: 0.000015 * 1000 is
+    // 0.015000000000000001 in binary floating point. The artefact is harmless
+    // at these magnitudes and is already visible throughout the committed
+    // table; asserting exact equality would only be testing IEEE-754.
+    expect(rows[0].in).toBeCloseTo(0.003, 12);
+    expect(rows[0].out).toBeCloseTo(0.015, 12);
+  });
+
+  it("keys by the bare model id, matching how the resolver looks one up", () => {
+    // priceResolver tries `openrouter:moonshotai/kimi-k3` and then
+    // `openrouter:kimi-k3`. The committed table has always used the bare tail,
+    // so a vendor-qualified key here would simply never be found.
+    const { rows } = buildOpenRouterRows([model("qwen/qwen3-max", "0.000001", "0.000002")]);
+    expect(rows[0].key).toBe("openrouter:qwen3-max");
+  });
+
+  it("strips the ~ that marks a gateway-side alias", () => {
+    // The resolver strips `~` before lookup. A key that kept it could never
+    // match the id the resolver is asking about — the decoration would defeat
+    // the very row meant to price it.
+    const { rows } = buildOpenRouterRows([
+      model("~moonshotai/kimi-latest", "0.0000028", "0.000014"),
+    ]);
+    expect(rows[0].key).toBe("openrouter:kimi-latest");
+  });
+
+  it("refuses a rate above the sanity ceiling", () => {
+    const { rows, skipped } = buildOpenRouterRows([
+      model("vendor/absurd", String(MAX_PER_1K), "1"),
+    ]);
+    expect(rows).toHaveLength(0);
+    expect(skipped[0]).toContain("above the sanity ceiling");
+  });
+
+  it("drops rows that are zero on both sides", () => {
+    // Indistinguishable from a parse failure, exactly as in the community
+    // path. A genuinely free route is handled by the provider reporting
+    // `cost: 0` on the call itself, which is a measurement rather than an
+    // absent table row.
+    expect(buildOpenRouterRows([model("vendor/free", "0", "0")]).rows).toHaveLength(0);
+  });
+
+  it("ignores malformed entries instead of emitting a NaN price", () => {
+    const { rows } = buildOpenRouterRows([
+      model("vendor/no-price", undefined, undefined),
+      { id: "vendor/no-pricing-object" },
+      { pricing: { prompt: "0.000001" } }, // no id
+      null,
+      "not an object",
+    ]);
+    expect(rows).toHaveLength(0);
+  });
+
+  it("returns nothing when the response is not an array", () => {
+    // A rate-limit page or a schema change arrives looking like this. It must
+    // produce zero rows so the merge leaves the community table untouched,
+    // never a table of garbage.
+    expect(buildOpenRouterRows(undefined).rows).toHaveLength(0);
+    expect(buildOpenRouterRows({ error: "rate limited" }).rows).toHaveLength(0);
+  });
+});
+
+describe("merging the two sources", () => {
+  const community: Row[] = [
+    { key: "openrouter:kimi-k2.5", in: 0.0006, out: 0.003 },
+    { key: "openai:gpt-5", in: 0.00125, out: 0.01 },
+  ];
+
+  it("adds models the community source never had", () => {
+    const { rows } = mergeSources(community, [
+      { key: "openrouter:kimi-k3", in: 0.003, out: 0.015 },
+    ]);
+    expect(rows.find((r) => r.key === "openrouter:kimi-k3")).toEqual({
+      key: "openrouter:kimi-k3",
+      in: 0.003,
+      out: 0.015,
+    });
+  });
+
+  it("lets the gateway's own rate WIN, even when it is lower", () => {
+    // The one place that does not take the higher of two figures, and the
+    // reason is not caution but correctness: a model served through OpenRouter
+    // is billed at OpenRouter's rate, so the community row is not a competing
+    // estimate of the same quantity. Taking the higher would record a number
+    // nobody charges. Measured on the real refresh: 36 keys differed, some by
+    // more than 50%.
+    const { rows, replaced } = mergeSources(community, [
+      { key: "openrouter:kimi-k2.5", in: 0.00057, out: 0.00285 },
+    ]);
+    expect(rows.find((r) => r.key === "openrouter:kimi-k2.5")).toEqual({
+      key: "openrouter:kimi-k2.5",
+      in: 0.00057,
+      out: 0.00285,
+    });
+    expect(replaced[0]).toContain("openrouter:kimi-k2.5");
+  });
+
+  it("reports every rate it replaced rather than swapping silently", () => {
+    const { replaced } = mergeSources(community, [
+      { key: "openrouter:kimi-k2.5", in: 0.00057, out: 0.00285 },
+    ]);
+    expect(replaced).toHaveLength(1);
+  });
+
+  it("says nothing when the two agree", () => {
+    const { replaced } = mergeSources(community, [
+      { key: "openrouter:kimi-k2.5", in: 0.0006, out: 0.003 },
+    ]);
+    expect(replaced).toHaveLength(0);
+  });
+
+  it("leaves other providers' rows alone", () => {
+    const { rows } = mergeSources(community, [
+      { key: "openrouter:kimi-k3", in: 0.003, out: 0.015 },
+    ]);
+    expect(rows.find((r) => r.key === "openai:gpt-5")).toEqual(community[1]);
+  });
+
+  it("keeps the community table intact when the gateway returned nothing", () => {
+    // The refresh treats OpenRouter as non-fatal, so an outage must degrade to
+    // the previous behaviour rather than blanking the catalog.
+    const { rows, replaced } = mergeSources(community, []);
+    expect(rows).toHaveLength(2);
+    expect(replaced).toHaveLength(0);
   });
 });

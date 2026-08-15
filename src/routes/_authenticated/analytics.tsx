@@ -50,6 +50,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { seedTraces } from "@/utils/observability.functions";
 import { toast } from "sonner";
 import type { DateRange } from "react-day-picker";
+import { formatSpend, spendCaveat, sumSpend } from "@/lib/spendCompleteness";
 
 type RangePreset = "24h" | "7d" | "1m" | "6m" | "custom";
 const PRESETS: { id: RangePreset; label: string }[] = [
@@ -75,6 +76,8 @@ type Trace = {
   cost_usd: number;
   status: string;
   created_at: string;
+  /** Text, not boolean: Postgres `->>` yields "true". */
+  pricing_missing?: string | null;
 };
 
 const PROVIDER_COLORS: Record<string, string> = {
@@ -126,7 +129,10 @@ function AnalyticsPage() {
     const { data } = await supabase
       .from("execution_traces")
       .select(
-        "id, agent_name, llm_provider, llm_model, latency_ms, tokens_in, tokens_out, cost_usd, status, created_at",
+        // pricing_missing rides along so the spend card can say when its total is
+        // a floor. Same `->>` read the Traces page uses; Postgres returns it as
+        // the text "true", not a boolean.
+        "id, agent_name, llm_provider, llm_model, latency_ms, tokens_in, tokens_out, cost_usd, status, created_at, pricing_missing:request_payload->>pricing_missing",
       )
       .gte("created_at", sinceDate)
       .order("created_at", { ascending: false })
@@ -161,9 +167,11 @@ function AnalyticsPage() {
   const lastWeekStart = subDays(new Date(), 7).getTime();
   const prevWeekStart = subDays(new Date(), 14).getTime();
 
-  const mtdSpend = traces
-    .filter((t) => new Date(t.created_at).getTime() >= monthStart)
-    .reduce((acc, t) => acc + Number(t.cost_usd), 0);
+  // Totalled through sumSpend rather than a bare reduce so the card can say
+  // when it is a floor. A call on a model with no known rate is recorded at $0
+  // — correct on the row, silently under-counted once summed.
+  const mtd = sumSpend(traces.filter((t) => new Date(t.created_at).getTime() >= monthStart));
+  const mtdSpend = mtd.total;
 
   const lastWeekSpend = traces
     .filter((t) => {
@@ -346,7 +354,8 @@ function AnalyticsPage() {
         <KpiCard
           icon={DollarSign}
           label="Spend (MTD)"
-          value={`$${mtdSpend.toFixed(2)}`}
+          value={formatSpend(mtd)}
+          subtext={spendCaveat(mtd) ?? undefined}
           trend={spendTrend}
           trendLabel="vs last week"
         />

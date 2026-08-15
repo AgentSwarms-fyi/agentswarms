@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { mySpendSince } from "@/lib/budgetSpendClient";
 import { greetingName } from "@/lib/greetingName";
 import { supabase } from "@/integrations/supabase/client";
+import { formatSpend, spendCaveat, sumSpend } from "@/lib/spendCompleteness";
 import { SpendPanel } from "@/components/dashboard/SpendPanel";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -50,6 +51,8 @@ type Trace = {
   tokens_out: number;
   cost_usd: number;
   created_at: string;
+  /** Text, not boolean: Postgres `->>` yields "true". */
+  pricing_missing?: string | null;
 };
 
 const cardCls = "rounded-xl border border-border bg-card shadow-sm";
@@ -176,7 +179,10 @@ function DashboardPage() {
         supabase
           .from("execution_traces")
           .select(
-            "id, agent_name, llm_model, llm_provider, status, latency_ms, tokens_in, tokens_out, cost_usd, created_at",
+            // pricing_missing rides along so the Spend card can say when its
+            // total is a floor rather than the answer. Postgres `->>` returns
+            // it as the text "true".
+            "id, agent_name, llm_model, llm_provider, status, latency_ms, tokens_in, tokens_out, cost_usd, created_at, pricing_missing:request_payload->>pricing_missing",
           )
           .order("created_at", { ascending: false })
           .limit(200),
@@ -265,6 +271,7 @@ function DashboardPage() {
         successRate: 0,
         avgLatency: 0,
         totalCost: 0,
+        spend: { total: 0, unpricedRows: 0, partial: false },
         totalTokens: 0,
         topModel: "—",
         spark: Array(24).fill(0),
@@ -277,7 +284,11 @@ function DashboardPage() {
     // success-rate denominator entirely rather than dragging it down.
     const decided = traces.filter((r) => r.status !== "cancelled");
     const ok = decided.filter((r) => r.status === "success").length;
-    const cost = traces.reduce((s, r) => s + (r.cost_usd || 0), 0);
+    // Through sumSpend rather than a bare reduce: a call on a model with no
+    // known rate is recorded at $0, which is right on the row and silently
+    // under-counts once summed. The card has to be able to say so.
+    const spend = sumSpend(traces);
+    const cost = spend.total;
     const tokens = traces.reduce((s, r) => s + (r.tokens_in || 0) + (r.tokens_out || 0), 0);
     const avgLat = Math.round(traces.reduce((s, r) => s + (r.latency_ms || 0), 0) / traces.length);
     const buckets = Array(24).fill(0);
@@ -296,6 +307,7 @@ function DashboardPage() {
       successRate: decided.length ? Math.round((ok / decided.length) * 100) : 100,
       avgLatency: avgLat,
       totalCost: cost,
+      spend,
       totalTokens: tokens,
       topModel: modelMix[0]?.model ?? "—",
       spark: buckets,
@@ -737,8 +749,11 @@ function DashboardPage() {
               </div>
               <div>
                 <div className="text-muted-foreground">Spend</div>
-                <div className="mt-0.5 flex items-center gap-1 font-semibold text-foreground">
-                  <Zap className="h-3 w-3 text-amber-500" /> ${metrics.totalCost.toFixed(2)}
+                <div
+                  className="mt-0.5 flex items-center gap-1 font-semibold text-foreground"
+                  title={spendCaveat(metrics.spend) ?? undefined}
+                >
+                  <Zap className="h-3 w-3 text-amber-500" /> {formatSpend(metrics.spend)}
                 </div>
               </div>
             </div>

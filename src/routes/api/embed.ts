@@ -385,6 +385,7 @@ export const Route = createFileRoute("/api/embed")({
           responseText: text,
           tokensIn: usage?.tokensIn,
           tokensOut: usage?.tokensOut,
+          providerCostUsd: usage?.costUsd,
           latencyMs: Date.now() - startedAt,
           status: "success",
         });

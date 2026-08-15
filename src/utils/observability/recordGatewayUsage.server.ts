@@ -9,6 +9,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { bodyJson, bodyText } from "@/utils/observability/redaction.server";
 import { approxTokens, isImageModel } from "./pricing";
 import { priceCall } from "./priceResolver";
+import { providerReportedCost } from "./providerCost";
 
 export type GatewayCallSurface =
   | "BI Agent: Plan"
@@ -59,6 +60,14 @@ export type RecordGatewayCallArgs = {
    * per-credential budgets are computable — see budgetGuard.server.ts.
    */
   costScope?: { type: "embed_key" | "swarm_api_key"; id: string } | null;
+  /**
+   * Cost the PROVIDER reported for this call, from `extractUsage(...).costUsd`.
+   *
+   * Outranks the price table: it is what the billed account was charged, so it
+   * is right for a model no catalog lists yet. null / undefined means the
+   * provider reported none, which is not the same as it reporting zero.
+   */
+  providerCostUsd?: number | null;
   // Which backend actually served the call. Defaults to "openrouter" since
   // that's the shared default provider for all internal/background calls;
   // pass the real provider id when a caller knows it (e.g. "openai" for
@@ -91,7 +100,10 @@ export async function recordGatewayCall(args: RecordGatewayCallArgs): Promise<vo
       tokensOut,
       imageCount: args.imageCount,
     });
-    const costUsd = priced.costUsd;
+    // `??` and not `||`: a reported 0 is a measurement (a free route really
+    // charged nothing) and must not fall through to the table, which would
+    // report it as unpriced.
+    const costUsd = args.providerCostUsd ?? priced.costUsd;
 
     const requestPayload: Record<string, unknown> = {
       surface: args.surface,
@@ -106,7 +118,11 @@ export async function recordGatewayCall(args: RecordGatewayCallArgs): Promise<vo
     // accumulates, the monthly total stays under the limit for ever and the
     // hard stop never fires. Marked on the trace so the spend figure can say it
     // is incomplete rather than quietly being wrong.
-    if (!priced.priced) requestPayload.pricing_missing = true;
+    // A provider-reported figure wins outright, INCLUDING when it is 0 — a
+    // free route really does charge nothing, and recording that as measured is
+    // what stops it looking like a hole in the price table.
+    if (args.providerCostUsd != null) requestPayload.price_source = "provider";
+    else if (!priced.priced) requestPayload.pricing_missing = true;
     else requestPayload.price_source = priced.source;
     if (args.parentTraceId) requestPayload.parent_trace_id = args.parentTraceId;
     if (typeof args.imageCount === "number") requestPayload.image_count = args.imageCount;
@@ -164,12 +180,25 @@ export async function recordGatewayCall(args: RecordGatewayCallArgs): Promise<vo
 }
 
 // Helper: pull token usage from an OpenAI-compatible non-streaming response.
-export function extractUsage(json: unknown): { tokensIn: number; tokensOut: number } | null {
+export function extractUsage(
+  json: unknown,
+): { tokensIn: number; tokensOut: number; costUsd: number | null } | null {
   if (!json || typeof json !== "object") return null;
   const u = (json as { usage?: Record<string, unknown> }).usage;
   if (!u || typeof u !== "object") return null;
   const tin = Number(u.prompt_tokens ?? u.input_tokens ?? 0);
   const tout = Number(u.completion_tokens ?? u.output_tokens ?? 0);
   if (!tin && !tout) return null;
-  return { tokensIn: Math.max(0, tin | 0), tokensOut: Math.max(0, tout | 0) };
+  return {
+    tokensIn: Math.max(0, tin | 0),
+    tokensOut: Math.max(0, tout | 0),
+    // The one place every non-/api/chat caller already reads the usage block,
+    // so reading the provider's own cost here reaches all of them at once —
+    // BI Agent, embedded analyst, memory, KB ingest. Most of this instance's
+    // traffic is recorded through this path rather than through /api/chat, so
+    // wiring only the chat route would have left the majority still priced
+    // from a table. null when the provider reported none; see providerCost.ts
+    // for why that is not the same as zero.
+    costUsd: providerReportedCost(u),
+  };
 }

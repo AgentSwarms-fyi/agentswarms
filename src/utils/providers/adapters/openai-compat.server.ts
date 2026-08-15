@@ -1,6 +1,7 @@
 // Generic OpenAI-compatible Chat Completions streaming adapter.
 // Used by providers that expose an OpenAI-shaped /v1/chat/completions endpoint
 // (OpenAI itself, Google Gemini OpenAI-compat layer, Grok, Ollama, etc.).
+import { usageReportingBody } from "@/utils/observability/providerCost";
 import type { ChatMessage } from "../types";
 
 export async function openAICompatChatStream(args: {
@@ -60,6 +61,14 @@ export async function openAICompatChatStream(args: {
       stream: true,
       temperature: temperature ?? 0.7,
       max_tokens: maxTokens ?? 8192,
+      // Ask the provider what the call cost, where it can answer. The amount
+      // it computes is the one the account is billed, so it beats pricing the
+      // tokens off a table that can only know models somebody added by hand.
+      // Empty for every other endpoint — `usage: {include:true}` is an
+      // OpenRouter extension and OpenAI 400s on unrecognised arguments, so
+      // sending it blind would break working providers to ask a question they
+      // do not understand.
+      ...usageReportingBody(baseUrl),
     }),
   });
 

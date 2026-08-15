@@ -17,6 +17,7 @@
 // The caller supplies the userId and the supabase client used to read IAM
 // rules; nothing here reads a session.
 import { extractUsage, recordGatewayCall } from "@/utils/observability/recordGatewayUsage.server";
+import { usageReportingBody } from "@/utils/observability/providerCost";
 import { getEffectiveModelRules, isModelAllowed } from "@/utils/iam.server";
 import {
   getProviderDefaultModel,
@@ -169,6 +170,12 @@ export async function llmJsonServer(opts: LlmJsonServerOpts): Promise<LlmJsonSer
           // Larger structured outputs (e.g. a 20-slide deck plan) need a
           // higher completion cap or they truncate into invalid JSON.
           ...(completionCap > 0 ? { max_tokens: completionCap } : {}),
+          // Ask the gateway what the call cost, where it can answer. Most of
+          // this app's model traffic is recorded through here rather than
+          // /api/chat, so without this the majority of spend would still be
+          // priced off a table that cannot know a model released this week.
+          // Empty for providers that would reject the argument.
+          ...usageReportingBody(transport.endpointUrl),
         }),
       });
       // Read the body here, still under the abort signal. fetch() resolves as
@@ -272,6 +279,8 @@ export async function llmJsonServer(opts: LlmJsonServerOpts): Promise<LlmJsonSer
       responseText: text,
       tokensIn: usage?.tokensIn,
       tokensOut: usage?.tokensOut,
+      // What the gateway says it charged, when it says. Beats the table.
+      providerCostUsd: usage?.costUsd,
       latencyMs: Date.now() - startedAt,
       status: "success",
       responsePreview: text.slice(0, 800),

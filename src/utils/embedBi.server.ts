@@ -84,6 +84,7 @@ async function llmJsonServer(
       model,
       tokensIn: usage?.tokensIn,
       tokensOut: usage?.tokensOut,
+      providerCostUsd: usage?.costUsd,
       promptText: usage ? undefined : `${system}\n\n${user}`,
       responseText: usage ? undefined : (content ?? ""),
       latencyMs: Date.now() - startedAt,

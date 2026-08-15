@@ -454,6 +454,7 @@ import {
 
 import { approxTokens, estimateImageCost, isImageModel } from "@/utils/observability/pricing";
 import { priceCall } from "@/utils/observability/priceResolver";
+import { providerReportedCost } from "@/utils/observability/providerCost";
 
 function estimateCost(
   provider: string,
@@ -486,6 +487,17 @@ async function recordTrace(opts: {
   // chars/4 approximation for far more accurate analytics + budgets.
   upstreamTokensIn?: number;
   upstreamTokensOut?: number;
+  /**
+   * Cost the PROVIDER reported for this call, if it reported one.
+   *
+   * Outranks every price table. Those answer "what is the published rate for
+   * this model"; this answers "what was this call charged", computed by the
+   * provider against the billed account. It is therefore correct for models no
+   * catalog lists yet — which is the whole reason kimi-k3 recorded $0.00 for
+   * 116 calls — and it distinguishes a genuinely free call from an unpriced
+   * one, because 0 reported is a measurement.
+   */
+  upstreamCostUsd?: number;
   // Number of generated images detected in the assembled response. Used to
   // price image models per-image instead of as text tokens.
   imageCount?: number;
@@ -548,11 +560,18 @@ async function recordTrace(opts: {
   const tokensEstimated =
     !opts.replayedFinal && (opts.upstreamTokensIn == null || opts.upstreamTokensOut == null);
   const latencyMs = Date.now() - trace.startedAt;
-  const costUsd = opts.replayedFinal
-    ? 0
-    : isImg
-      ? estimateImageCost(trace.model, Math.max(1, opts.imageCount ?? 1))
-      : estimateCost(trace.provider, trace.model, tokensIn, tokensOut);
+  // A provider-reported figure wins outright, including when it is 0 — the
+  // free-model router really does charge nothing, and recording that as a
+  // MEASURED zero is what stops it looking like a gap in the price table.
+  // `?? ` rather than a truthiness check for exactly that reason.
+  const providerCost = opts.replayedFinal ? null : (opts.upstreamCostUsd ?? null);
+  const costUsd =
+    providerCost ??
+    (opts.replayedFinal
+      ? 0
+      : isImg
+        ? estimateImageCost(trace.model, Math.max(1, opts.imageCount ?? 1))
+        : estimateCost(trace.provider, trace.model, tokensIn, tokensOut));
 
   // Build request_payload defensively. Some keys (like full message arrays)
   // can be very large — truncate per-message content so we don't blow up
@@ -565,7 +584,14 @@ async function recordTrace(opts: {
   // Same marker recordGatewayCall stamps: a $0 that means "no known rate" must
   // be distinguishable from a real zero, and the reprice sweep finds rows by
   // exactly this flag once a rate exists. Replayed finals are $0 by design.
-  if (!opts.replayedFinal && !isImg && costUnpriced(trace.provider, trace.model)) {
+  //
+  // A provider-reported cost clears the marker outright: the figure came from
+  // the party doing the billing, so "nothing knows this rate" is no longer
+  // true even when no table lists the model. Recorded as price_source so a
+  // number in a spend report can be traced back to how it was arrived at.
+  if (providerCost !== null) {
+    safePayload.price_source = "provider";
+  } else if (!opts.replayedFinal && !isImg && costUnpriced(trace.provider, trace.model)) {
     safePayload.pricing_missing = true;
   }
   // Whole-turn totals (this row + the tool-round children), for display.
@@ -697,6 +723,12 @@ function withTraceTap(
   // approximation, so prefer them in recordTrace below.
   let upstreamTokensIn: number | null = null;
   let upstreamTokensOut: number | null = null;
+  // The amount the PROVIDER says this call cost, when it reports one. Beats
+  // every table below: it is computed against the account that gets billed, so
+  // it is right for a model released this morning and right for a free router
+  // that genuinely charged nothing. null means it told us nothing, which is
+  // not the same as it telling us zero.
+  let upstreamCostUsd: number | null = null;
   // For image generations: count assistant data:image/... payloads so we can
   // price the trace per-image instead of treating image bytes as text tokens.
   let imageCount = 0;
@@ -714,6 +746,7 @@ function withTraceTap(
           completion_tokens?: number;
           input_tokens?: number;
           output_tokens?: number;
+          cost?: number | string;
         };
       };
       const delta =
@@ -725,6 +758,10 @@ function withTraceTap(
         const tout = Number(u.completion_tokens ?? u.output_tokens ?? 0);
         if (tin > 0) upstreamTokensIn = tin;
         if (tout > 0) upstreamTokensOut = tout;
+        // Assigned only when a value was actually reported, so a later chunk
+        // without the field cannot erase one an earlier chunk carried.
+        const reported = providerReportedCost(u);
+        if (reported !== null) upstreamCostUsd = reported;
       }
     } catch {
       /* ignore keep-alives / non-JSON */
@@ -772,10 +809,16 @@ function withTraceTap(
             isImg || opts?.replayedFinal ? 0 : (upstreamTokensOut ?? approxTokens(assistantText));
           const tIn = loopIn + finalIn;
           const tOut = loopOut + finalOut;
-          const cUsd = isImg
-            ? estimateImageCost(trace.model, Math.max(1, imageCount)) +
-              estimateCost(trace.provider, trace.model, loopIn, loopOut)
-            : estimateCost(trace.provider, trace.model, tIn, tOut);
+          // The provider's own figure covers the FINAL call only; the tool
+          // rounds are separate upstream calls whose costs live on the child
+          // traces, so their share is still estimated here.
+          const cUsd =
+            upstreamCostUsd !== null
+              ? upstreamCostUsd + estimateCost(trace.provider, trace.model, loopIn, loopOut)
+              : isImg
+                ? estimateImageCost(trace.model, Math.max(1, imageCount)) +
+                  estimateCost(trace.provider, trace.model, loopIn, loopOut)
+                : estimateCost(trace.provider, trace.model, tIn, tOut);
           controller.enqueue(
             new TextEncoder().encode(
               `event: cost\ndata: ${JSON.stringify({ model: trace.model, costUsd: cUsd, tokensIn: tIn, tokensOut: tOut })}\n\n`,
@@ -793,6 +836,7 @@ function withTraceTap(
           trace,
           status: "success",
           assistantText,
+          upstreamCostUsd: upstreamCostUsd ?? undefined,
           upstreamTokensIn: upstreamTokensIn ?? undefined,
           upstreamTokensOut: upstreamTokensOut ?? undefined,
           imageCount,

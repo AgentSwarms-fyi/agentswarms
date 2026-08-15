@@ -13,6 +13,7 @@
 
 import type { ToolDef, ToolHandler, AgentToolContext } from "./registry.server";
 import { extractToolSources, type RawSource } from "./sources";
+import { providerReportedCost, usageReportingBody } from "@/utils/observability/providerCost";
 
 type GatewayMessage = {
   role: "system" | "user" | "assistant" | "tool";
@@ -222,6 +223,10 @@ async function callGateway(opts: {
     body.tool_choice = "auto";
   }
   if (!temperatureLockedModel) body.temperature = opts.temperature ?? 0.7;
+  // Ask the gateway what the call cost, where it can answer. Tool rounds are
+  // the highest-volume server-side calls in the app, so a table-only price
+  // here dominates the spend figure. Empty for providers that would reject it.
+  Object.assign(body, usageReportingBody(opts.endpointUrl || DEFAULT_CHAT_ENDPOINT_URL));
 
   const headers: Record<string, string> = {
     Authorization: `Bearer ${opts.apiKey}`,
@@ -347,7 +352,7 @@ export async function streamChatWithTools(opts: {
     }
     const j = (await r.json()) as {
       choices?: { message?: GatewayMessage; finish_reason?: string }[];
-      usage?: { prompt_tokens?: number; completion_tokens?: number };
+      usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number | string };
     };
     loopUsage.tokensIn += Number(j.usage?.prompt_tokens ?? 0) || 0;
     loopUsage.tokensOut += Number(j.usage?.completion_tokens ?? 0) || 0;
@@ -361,6 +366,7 @@ export async function streamChatWithTools(opts: {
           model: opts.model,
           tokensIn: j.usage?.prompt_tokens,
           tokensOut: j.usage?.completion_tokens,
+          providerCostUsd: providerReportedCost(j.usage),
           latencyMs: Date.now() - tStart,
           parentTraceId: opts.parentTraceId ?? null,
           agentId: opts.toolCtx.agentId ?? null,

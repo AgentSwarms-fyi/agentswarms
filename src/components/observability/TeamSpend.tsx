@@ -125,20 +125,36 @@ export function TeamSpend() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {users.slice(0, 12).map((u) => (
-                  <TableRow key={u.user_id}>
+                {users.slice(0, 12).map((u, i) => (
+                  <TableRow key={u.user_id ?? `unattributed-${i}`}>
                     <TableCell className="max-w-52 truncate text-xs">
-                      {/* No email means the account is gone; its traces are
-                          kept for accounting. A bare UUID prefix reads like a
-                          rendering bug, so say what it is. */}
-                      {u.email ?? (
-                        <span
-                          className="text-muted-foreground"
-                          title={`Deleted account · id ${u.user_id}`}
-                        >
-                          {u.user_id.slice(0, 8)} · deleted user
-                        </span>
-                      )}
+                      {/* Three different states, and collapsing any two of them
+                          misreports who spent the money:
+                            · an email — a live account
+                            · no email, but an id — the account is gone, and its
+                              traces are kept for accounting
+                            · NO ID AT ALL — a headless write (deployed API key,
+                              schedule, eval, public embed) that has no user to
+                              attribute to. execution_traces.user_id is
+                              nullable for exactly that case, and this crashed
+                              the whole page on `.slice` of null rather than
+                              saying so. */}
+                      {u.email ??
+                        (u.user_id ? (
+                          <span
+                            className="text-muted-foreground"
+                            title={`Deleted account · id ${u.user_id}`}
+                          >
+                            {u.user_id.slice(0, 8)} · deleted user
+                          </span>
+                        ) : (
+                          <span
+                            className="text-muted-foreground"
+                            title="Recorded without a user — a headless run (API key, schedule, evaluation or public embed). The spend is real and counted; there is simply no account to attribute it to."
+                          >
+                            unattributed
+                          </span>
+                        ))}
                     </TableCell>
                     <TableCell className="text-right text-xs tabular-nums">
                       {u.calls.toLocaleString()}
