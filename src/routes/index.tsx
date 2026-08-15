@@ -4,8 +4,10 @@ import {
   Activity,
   ArrowRight,
   BarChart3,
+  BadgeCheck,
   BellRing,
   Bot,
+  BrainCircuit,
   ChevronDown,
   Code2,
   Container,
@@ -18,9 +20,11 @@ import {
   LineChart,
   LogOut,
   Menu,
+  Layers,
   Network,
   Plug,
   Settings,
+  Sigma,
   Share2,
   ShieldCheck,
   Wand2,
@@ -34,6 +38,11 @@ import { GlowCard } from "@/components/marketing/GlowCard";
 import { Reveal } from "@/components/marketing/Reveal";
 import { DeckMock } from "@/components/marketing/HomeMocks";
 import { BiDashboardMock, GenerateFlowMock } from "@/components/marketing/BiMocks";
+import {
+  AnalystTraceMock,
+  FanOutRefusalMock,
+  GovernedAccessMock,
+} from "@/components/marketing/TrustMocks";
 import { SectionHeading } from "@/components/marketing/SectionHeading";
 import agentSwarmsLogo from "@/assets/agentswarms-logo.jpg";
 import {
@@ -1000,6 +1009,120 @@ function LandingPage() {
                 ))}
               </div>
             </Reveal>
+          </div>
+        </section>
+
+        {/* Trust — the semantic layer and the analyst that shows its work */}
+        <section id="trust" className="relative overflow-hidden border-t border-border/60 py-24">
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-[radial-gradient(55%_60%_at_50%_0%,color-mix(in_oklch,var(--primary)_8%,transparent),transparent)]" />
+          <div className="relative mx-auto max-w-7xl px-6">
+            <SectionHeading
+              className="mb-14 max-w-3xl"
+              eyebrow="Governed by design"
+              title="Numbers an agent can be trusted with."
+              lede="The hard part of AI analytics isn't getting an answer — it's knowing whether to act on it. A semantic layer that refuses to compile a wrong number, and an analyst that shows every step it took to reach the right one."
+            />
+
+            {/* Two headline proofs, side by side */}
+            <div className="grid gap-8 lg:grid-cols-2">
+              <Reveal>
+                <div className="relative h-full">
+                  <div className="pointer-events-none absolute -inset-6 rounded-3xl bg-[radial-gradient(60%_60%_at_50%_40%,color-mix(in_oklch,var(--primary)_10%,transparent),transparent)] blur-2xl" />
+                  <div className="relative">
+                    <div className="mb-3 flex items-center gap-2">
+                      <div className="inline-flex rounded-lg bg-primary/10 p-1.5">
+                        <Layers className="h-4 w-4 text-primary" />
+                      </div>
+                      <h3 className="text-sm font-semibold">The metric is the contract</h3>
+                    </div>
+                    <FanOutRefusalMock />
+                  </div>
+                </div>
+              </Reveal>
+              <Reveal delay={0.1}>
+                <div className="relative h-full">
+                  <div className="pointer-events-none absolute -inset-6 rounded-3xl bg-[radial-gradient(60%_60%_at_50%_40%,color-mix(in_oklch,var(--primary)_10%,transparent),transparent)] blur-2xl" />
+                  <div className="relative">
+                    <div className="mb-3 flex items-center gap-2">
+                      <div className="inline-flex rounded-lg bg-primary/10 p-1.5">
+                        <BrainCircuit className="h-4 w-4 text-primary" />
+                      </div>
+                      <h3 className="text-sm font-semibold">The AI Analyst shows its work</h3>
+                    </div>
+                    <AnalystTraceMock />
+                  </div>
+                </div>
+              </Reveal>
+            </div>
+
+            {/* Per-viewer governance */}
+            <Reveal delay={0.15}>
+              <div className="mt-8 grid items-center gap-6 rounded-2xl border border-border bg-card p-6 lg:grid-cols-12">
+                <div className="lg:col-span-5">
+                  <div className="mb-2 flex items-center gap-2">
+                    <ShieldCheck className="h-4 w-4 text-primary" />
+                    <h3 className="text-sm font-semibold">
+                      Row and column security, resolved per viewer
+                    </h3>
+                  </div>
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    One shared model, scoped to whoever is asking. Filters compile into the SQL
+                    itself, so they hold identically on DuckDB and every warehouse — and on embedded
+                    dashboards, where a signed token from your backend decides what each of your
+                    customers sees.
+                  </p>
+                </div>
+                <div className="lg:col-span-7">
+                  <GovernedAccessMock />
+                </div>
+              </div>
+            </Reveal>
+
+            {/* The governance capability grid */}
+            <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {[
+                {
+                  icon: Sigma,
+                  title: "Metrics with a grain",
+                  body: "Declare primary keys, join cardinality and the grain a measure lives at. The compiler proves a query is safe before it runs — chasm and fan traps refused, not warned about.",
+                },
+                {
+                  icon: BadgeCheck,
+                  title: "Certification that means something",
+                  body: "Draft → certified → deprecated, with certification blocked until validation passes clean. Version history, structured diffs, restore, and a dependents view of everything that would break.",
+                },
+                {
+                  icon: Gauge,
+                  title: "Aggregate awareness",
+                  body: "Declare a rollup table and the compiler routes to it only when it can prove the answer is identical — then tells the reader which table answered.",
+                },
+                {
+                  icon: BrainCircuit,
+                  title: "Analysis you can audit",
+                  body: "Every step's SQL, result sample and self-check verdict is stored with the answer. Re-run any step, edit it, and watch the findings mark themselves stale rather than quietly disagree.",
+                },
+                {
+                  icon: BadgeCheck,
+                  title: "Verification that expires",
+                  body: "A human verdict is pinned to a fingerprint of the SQL it reviewed. Change the query and the green tick voids itself — a badge must never outlive what it vouched for.",
+                },
+                {
+                  icon: LineChart,
+                  title: "Computed, not narrated",
+                  body: "Driver contribution, trend slopes and median/MAD outliers are arithmetic, not prose. Too little history means no forecast at all, rather than a confident line through noise.",
+                },
+              ].map((c, i) => (
+                <Reveal key={c.title} delay={0.05 * i}>
+                  <GlowCard className="h-full">
+                    <div className="mb-3 inline-flex rounded-lg bg-primary/10 p-2">
+                      <c.icon className="h-4 w-4 text-primary" />
+                    </div>
+                    <h3 className="text-base font-semibold">{c.title}</h3>
+                    <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{c.body}</p>
+                  </GlowCard>
+                </Reveal>
+              ))}
+            </div>
           </div>
         </section>
 
