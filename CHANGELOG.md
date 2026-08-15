@@ -12,6 +12,141 @@ development branch and may be ahead of the latest tag.
 
 ---
 
+## 1.2.0 — 2026-08-15
+
+**A number you can defend.** The semantic layer stopped being a place to write
+definitions and became a compiler that refuses to produce a wrong one. On top of
+it sits a dedicated AI Analyst that shows every step it took — the SQL, the
+result, its own check on that result — and a verification badge that expires
+when the query underneath it changes. Dashboards and the analyst itself can now
+be embedded per customer, each viewer seeing only their own rows. Fifteen
+migrations — run `npx supabase db push` after upgrading.
+
+### Semantic layer
+
+- **A compiler that refuses to be wrong.** Declare a measure's grain, a table's
+  primary key and a join's cardinality, and a query that would fan out is
+  **refused at compile time**, naming the join and suggesting the fix. Every
+  other tool answers that question with a number that is wrong because the join
+  multiplied the rows.
+- **Chasm traps resolved.** A multi-fact plan computes each fact at its own
+  grain and joins the results, rather than joining the facts and hoping. INNER
+  fanning joins keep their filtering scope through an EXISTS rewrite instead of
+  double-counting.
+- **Aggregate awareness.** Declare a rollup table and the compiler routes to it
+  only when it can _prove_ the answer is identical — then discloses which table
+  answered.
+- **Row and column security that follows the viewer.** A grant carries a row
+  filter and a field mask, enforced _before_ compilation so the filter becomes a
+  governed IN-clause inside the SQL itself — identical on DuckDB and every
+  warehouse. Filter values may be `{{user.attribute}}` tokens resolved per
+  caller. An unresolvable token **refuses** the query rather than compiling an
+  empty filter, because silent zero rows read as "there is no data".
+- **Certification, versions and dependents.** Draft → certified → deprecated,
+  with certification blocked until validation passes clean; trigger-written
+  version snapshots with a structured diff and restore; and a view of every
+  dashboard, agent, swarm node and grant that would break.
+- **Fiscal calendars, custom 4-4-5 calendars, parameters, hierarchies and
+  currency**, plus period-over-period comparison across a multi-fact plan.
+
+### AI Analyst
+
+- **A dedicated analyst that shows its work.** Each question runs a transparent
+  loop — plan, write SQL, execute, self-check, synthesise — and every stage is
+  stored and shown. The trace _is_ the product: you can re-run any step's SQL
+  and get the same number.
+- **Governed steps.** When the planner can express a step against a semantic
+  model it emits a `SemanticQuery` and the compiler writes the SQL, so the
+  metric is authoritative rather than advisory. Steps say plainly which were
+  governed and which were raw SQL.
+- **It asks instead of guessing**, offering the assumption it would otherwise
+  have made as a single click.
+- **Change and trend are computed, not narrated.** Driver contribution, trend
+  slopes and median/MAD outliers are arithmetic. Too little history means _no
+  forecast at all_ rather than a confident line through noise.
+- **Verification that expires.** A human verdict is pinned to a fingerprint of
+  the SQL it reviewed; change the query and the badge voids itself.
+- **What-if scenarios** on governed steps, kept beside the measured result and
+  never folded into the findings.
+- **Editable, re-runnable steps** — edit a step's SQL and the findings mark
+  themselves stale rather than quietly disagreeing with the numbers above them.
+- **Lineage, sharing, scheduling and export.** See which tables an answer's
+  numbers came from; share an analyst with IAM groups (each recipient's
+  questions run as _them_); re-run a pinned analysis on a cadence with a digest
+  that says plainly when nothing changed; export to PDF or an Excel workbook.
+- **Parallel steps and per-turn result caching**, bounded at three concurrent
+  queries, with identical SQL inside one turn issued once.
+
+### Embedded analytics
+
+- **Signed viewers.** An embed key is a capability token in the host page's
+  HTML, so every visitor sees the same rows. Now the host's backend can mint a
+  short-lived HMAC token naming the viewer's attributes, which become row
+  filters. Every failure — missing, malformed, expired, forged, missing a
+  required attribute — is a 403 **stating the reason**, never a fallback to the
+  unfiltered view.
+- **Widgets that cannot be scoped are withheld, with the reason.** A widget that
+  aggregated the scope column away already contains every customer and no filter
+  can recover one customer's share; it says which column is missing rather than
+  rendering blank, which would read as "no data".
+- **Embed the AI Analyst itself.** The full reasoning loop runs server-side as
+  the analyst's owner, bounded by the analyst's configured data scope. The
+  generated SQL is stripped server-side — it names your tables — while the
+  governed model's name survives as the reader's evidence.
+- **It streams.** A turn takes 30–95s; the named stage and the stated approach
+  land at about six seconds and the trace fills in from there.
+
+### Data & catalog
+
+- **Object storage as a queryable source.** Parquet described from its footer
+  rather than skipped, ORC support, an honest account of Avro, and a
+  Parquet/CSV bucket queryable straight from the Workbench.
+- **Capacity you can spend.** Per-dataset storage mode (auto / import / direct),
+  a workspace mirror budget, and least-recently-_used_ eviction. Eviction costs
+  speed and never correctness.
+- **A metrics catalog.** Every governed metric, searchable by synonym, with what
+  its certification actually covers, where it is used, and how fresh its data
+  is. Usage never says "unused" — it says what was searched.
+- **Scan.** Trends, outliers and concentration across a dashboard's snapshots,
+  computed with no model call. A scan that finds nothing reports how many
+  widgets it examined, how many it could not, and the thresholds it applied.
+
+### Security & governance
+
+- **Credential key rotation** with envelope/key-id support and a re-encrypt-all
+  flow, a full `SECURITY.md`, and a design for external KMS.
+- **The local SQL engine could read the server's filesystem.** Closed.
+- **Blocked PII was still written to the trace in full.** Closed.
+- Warehouse queries that are _refused_ are now audited, not only ones that
+  succeed; `{{secret:NAME}}` resolves on A2A auth headers; and a refused fetch
+  says why it was actually refused.
+- Four tables belonging to a different product were dropped from the schema, and
+  three owner columns that never referenced `auth.users` now cascade correctly.
+
+### Fixes
+
+- Dashboard charts silently drew 50 of 364 rows.
+- Spend totals read only the first 1000 trace rows.
+- Local dataset row counts were read once and never again.
+- Headless runs were not billed — their traces are now written with the service
+  role.
+- The BI narrator added up averages.
+- The swarm runtime's edge labels were being deleted.
+- Suggested questions were always built from the local datasets, whatever the
+  analyst was scoped to.
+- Pages announced "nothing here" before anything had loaded.
+- People were greeted by their email prefix rather than the name they set.
+- The embedded Ask-AI answered from row-less stubs, because the ask path never
+  hydrated the widget snapshots.
+- Dialogs had no height bound and no overflow, so a tall form grew off both
+  edges at once with no way to reach the submit button; and a popover inside a
+  dialog could not be scrolled with a mouse, because the dialog's scroll lock
+  cancelled wheel events outside its own subtree.
+- A product promising a certificate it cannot issue, and a roadmap with stale
+  figures, both corrected.
+
+---
+
 ## 1.1.0 — 2026-08-08
 
 **Swarms grow up.** A deployed swarm now serves a version you chose rather than
