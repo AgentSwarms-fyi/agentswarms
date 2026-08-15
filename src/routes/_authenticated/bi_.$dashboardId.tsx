@@ -10,7 +10,9 @@ import {
   ArrowLeft,
   BarChart3,
   Copy,
+  ChevronDown,
   FileDown,
+  FileType2,
   Globe,
   History,
   Loader2,
@@ -125,6 +127,7 @@ import {
 } from "@/lib/biDashboards";
 import { isAggregatableChart } from "@/lib/biAggregate";
 import { exportDashboardPdf } from "@/lib/biPdf";
+import { BiDeckDialog } from "@/components/bi/BiDeckDialog";
 import { downloadCsv, downloadXlsx } from "@/lib/exportData";
 import { listPrepFlows } from "@/lib/dataPrep";
 import { fetchWarehouseSchema, runWarehouseQuery, runBiDirectQuery } from "@/lib/warehouseClient";
@@ -319,6 +322,7 @@ function BiProjectPage() {
   const [sweepOpen, setSweepOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [deckOpen, setDeckOpen] = useState(false);
   const [insightBusyId, setInsightBusyId] = useState<string | null>(null);
   const [biModel, setBiModel] = useBiModelPref();
   const gridWrapRef = useRef<HTMLDivElement>(null);
@@ -1448,21 +1452,39 @@ function BiProjectPage() {
               </Button>
             </>
           )}
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-8 gap-1.5 px-2.5 text-xs"
-            onClick={() => void handleExport()}
-            disabled={exporting || layout.length === 0}
-            title="Export this dashboard as a PDF report"
-          >
-            {exporting ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <FileDown className="h-3.5 w-3.5" />
-            )}
-            Export PDF
-          </Button>
+          {/* One Export control with two destinations. Two side-by-side
+              buttons would cost a toolbar slot on a row that already overflowed
+              once (see the flex-wrap fix), and the choice belongs together:
+              they are the same intent with different output. */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 gap-1.5 px-2.5 text-xs"
+                disabled={exporting || layout.length === 0}
+                title="Export this dashboard"
+              >
+                {exporting ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <FileDown className="h-3.5 w-3.5" />
+                )}
+                Export
+                <ChevronDown className="h-3 w-3 opacity-60" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuItem onClick={() => void handleExport()}>
+                <FileDown className="mr-2 h-3.5 w-3.5" />
+                <span className="flex-1">Export PDF</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setDeckOpen(true)}>
+                <FileType2 className="mr-2 h-3.5 w-3.5" />
+                <span className="flex-1">Export to PowerPoint</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           {!readOnly && (
             <>
               <div className="mx-1.5 h-5 w-px bg-border" />
@@ -1844,6 +1866,20 @@ function BiProjectPage() {
             />
           )}
         </>
+      )}
+
+      {row && (
+        <BiDeckDialog
+          open={deckOpen}
+          onOpenChange={setDeckOpen}
+          dashboardName={row.name}
+          dashboardDescription={row.description}
+          /* The ACTIVE page carries unsaved edits in local state, so it is
+             spliced in here rather than read from `pages` — otherwise a widget
+             the user just added would be missing from the deck it is visibly
+             on screen for. Same substitution the PDF path makes. */
+          pages={pages.map((p) => (p.id === activePageId ? { ...p, widgets, layout } : p))}
+        />
       )}
 
       {!readOnly && (

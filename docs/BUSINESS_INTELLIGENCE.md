@@ -29,6 +29,29 @@ and reports. An editable dashboard is called a **BI project**:
   GenBI pipeline with live per-question progress, and lays the finished
   widgets out automatically (KPIs on top, charts in the middle, tables
   at the bottom). Failed questions are skipped, never faked.
+
+  **Generate from a governed model instead of a table.** The source picker
+  offers a semantic model alongside your tables, and choosing one governs the
+  whole dashboard: the planner is shown the model's declared metrics and
+  dimensions — not its tables or columns — and every widget it proposes is
+  compiled into SQL by the semantic compiler. Each lands with
+  `source.kind: "semantic"`, so refresh recompiles against the CURRENT
+  definition and fan-out refusal, row filters and field masks all apply,
+  exactly as when you build a chart by hand.
+
+  This closes an inversion worth naming: building one chart by hand could
+  always pin it to a certified metric, while asking the AI for twelve gave you
+  twelve charts whose aggregations the model chose. The path producing the most
+  numbers with the least review was the only one with no governance on it, and
+  a generated dashboard looked identical either way.
+
+  The choice is made once, at the picker, so a governed dashboard cannot
+  contain an ungoverned widget hiding among the certified ones. Anything the
+  planner proposes that is not in the declared vocabulary — an invented metric,
+  a dimension that does not exist, a chart shape that cannot render what it was
+  given — is **rejected with the reason shown**, not silently dropped: a
+  generate that proposed twelve and built nine has to say which three it lost.
+
 - **Embed &amp; export** — Publish gains **Copy embed code**: an
   `<iframe>` snippet pointing at `/share/bi/<slug>?embed=1`, a
   chrome-less variant of the public page (filters and cross-filtering
@@ -133,8 +156,38 @@ month`, since the rows underneath have no `month` column to filter on.
   Dropping that predicate silently would show the whole table under a label
   promising one bar's worth.
 
-- **Export PDF** — one click renders the dashboard (layout preserved) into a
-  downloadable A4 PDF report, entirely client-side.
+- **Export** — one control, two destinations.
+  - **PDF** renders the dashboard with its layout preserved into an A4 report,
+    entirely client-side.
+  - **PowerPoint** builds a branded deck. Choose which visuals to include
+    (grouped by dashboard page), pick the model that writes the prose, and add
+    your own instructions for tone, audience or emphasis.
+
+  **Every figure in the deck is the dashboard's own figure.** Slides are filled
+  from each widget's saved snapshot — the same rows the card on screen renders
+  — never re-queried and never authored by a model. A deck that disagreed with
+  the dashboard it came from would be two sources of truth, and the one in the
+  meeting room is the one people act on.
+
+  The model writes the deck title, an executive summary and one takeaway per
+  slide. It is given the computed values as text it may quote, and it is
+  forbidden to calculate: any figure in its prose that did not come from the
+  data is stripped before it reaches a slide. That holds even when your own
+  instructions ask for one — "add growth percentages" produces prose whose
+  invented percentages are removed, because a computed-then-presented number is
+  exactly the failure the rest of this system is built to prevent. The model is
+  also entirely optional: if it is slow, unconfigured or fails, you get a clean
+  un-narrated deck rather than no deck.
+
+  A visual PowerPoint cannot draw — a sankey, a geo map, a bar race — is shown
+  as a table of the same data and says so on the slide. One that has no saved
+  data cannot become a slide at all, and the dialog lists it with the reason
+  (usually: refresh the dashboard first) rather than quietly dropping it. Long
+  category lists and long tables are capped for legibility, and the cap is
+  printed on the slide: "Showing the first 14 of 68 categories" is a fact the
+  reader needs, and a slide showing a sample without saying so is presenting it
+  as the whole.
+
 - **Query history** — the workbench records every statement you run, local or
   warehouse, with its row count, duration and (for failures) the error. Click
   one to load it back into the editor along with the connection it ran against.
