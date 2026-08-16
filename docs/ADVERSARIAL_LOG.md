@@ -39,7 +39,7 @@ has not been tested; it has been visited.
 | 6   | Agent Swarms        | `/swarms`                  | ✅ 1 | 2026-08-16 | 1 (1×S2)                                                |
 | 7   | MCP Builder         | `/mcp-builder`             | ✅ 1 | 2026-08-16 | 1 (1×S2)                                                |
 | 8   | AI Analyst          | `/ai-analyst`              | ✅ 1 | 2026-08-16 | 0 — held; no live turn (over budget cap)                |
-| 9   | Data Catalog        | `/data-sql`                | —    | —          | —                                                       |
+| 9   | Data Catalog        | `/data-sql`                | ✅ 1 | 2026-08-16 | 2 (1×S1, 1×S3)                                          |
 | 10  | Semantic Layer      | `/semantics`               | —    | —          | —                                                       |
 | 11  | Metrics             | `/metrics`                 | —    | —          | —                                                       |
 | 12  | BI Workspace        | `/bi`                      | —    | —          | —                                                       |
@@ -66,6 +66,52 @@ has not been tested; it has been visited.
 ## Findings
 
 <!-- newest first -->
+
+### 2026-08-16 — Module 9, Data Catalog (`/data-sql`)
+
+#### N1 · S1 · Every local dataset claimed it was crawled seconds ago
+
+The asset drawer rendered
+`Crawled {formatDistanceToNow(new Date(asset.last_crawled_at))}`, and the local
+mapping set `last_crawled_at: new Date().toISOString()`. So **every** local
+table reported "Crawled less than a minute ago".
+
+Measured: 26 tables whose real `data_loaded_at` runs from **2026-07-20 to
+2026-08-07** — up to 27 days stale, every one of them displayed as fresh. The
+true value was one column away in the same row.
+
+Two errors in one line, worth separating because they have different fixes:
+
+- **A timestamp was invented** where a real one existed.
+- **The verb was wrong.** An uploaded CSV was never "crawled". And a warehouse
+  table is queried in place and never loaded here at all — for that one there
+  is no local timestamp, so the honest output is to say so rather than
+  manufacture one.
+
+`last_crawled_at` is now nullable end to end, which is what stops the gap being
+filled by invention. `data_loaded_at` and `parquet_bytes` are carried through
+`DatasetMeta`; tsc found all five construction sites, and each got the value
+that is actually true there — "now" only where rows had just been written, null
+for warehouse tables.
+
+Verified live: `hr_dept_monthly` now reads **"Data loaded 9 days ago"**
+(`data_loaded_at` 2026-08-07, today the 16th).
+
+#### N2 · S3 · A known size displayed as unknown
+
+`size_bytes: null` was hardcoded in the local mapping while `parquet_bytes` sat
+unread on the row. `summary_segment_data` had **83,651 bytes** recorded and its
+SIZE column showed "—". Now reads **81.7 KB**.
+
+#### Checked and found honest
+
+The stale row-count problem was already found and fixed, with the reasoning in
+the code: local assets go stale within a session, so `reloadLocal` re-reads them
+rather than trusting the mount-time snapshot. The comment records the observed
+symptom — "a dataset replaced with 10 rows still read ROWS 364".
+
+**Tests:** 8 in `tests/unit/catalogFreshness.test.ts`, mutation-verified — four
+reversions, all killed, including a restore of the invented timestamp.
 
 ### 2026-08-16 — Deferred live verification (cap raised to $20)
 

@@ -554,6 +554,10 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
     if (!tables || tables === "loading" || tables === "error") return [];
     return tables.map((t) => ({
       id: `${activeWarehouse.id}:${t.schema}.${t.name}`,
+      // Queried live in the warehouse — nothing was loaded here, so there is
+      // no local load time to claim.
+      data_loaded_at: null,
+      parquet_bytes: null,
       name: `${t.schema}.${t.name}`,
       source_filename: null,
       is_sample: false,

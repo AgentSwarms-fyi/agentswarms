@@ -106,6 +106,10 @@ export function warehouseTablesAsDatasets(
 ): DatasetMeta[] {
   return tables.map((t) => ({
     id: `${connectionId}:${t.schema}.${t.name}`,
+    // A warehouse table is queried live; nothing was loaded into this app, and
+    // there is no honest local timestamp to report. Null, not now.
+    data_loaded_at: null,
+    parquet_bytes: null,
     name: `${t.schema}.${t.name}`,
     source_filename: null,
     is_sample: false,

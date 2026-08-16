@@ -87,6 +87,8 @@ import {
   listCatalogAssets,
   listCatalogSources,
   listGlossaryTerms,
+  assetFreshness,
+  freshnessPrefix,
   loadLineageIndex,
   loadCatalogLineage,
   lookupLineage,
@@ -189,7 +191,9 @@ export function CatalogView({
           fqn: d.name,
           columns,
           row_count: d.row_count,
-          size_bytes: null,
+          // The real size when the dataset has been synced to Parquet. This was
+          // hardcoded null, so a table whose size is known still showed "—".
+          size_bytes: d.parquet_bytes,
           format: d.is_sample ? "sample" : "csv",
           file_count: null,
           description: null,
@@ -197,7 +201,14 @@ export function CatalogView({
           owner: null,
           status: "draft" as const,
           pii: columns.some((c) => c.pii),
-          last_crawled_at: new Date().toISOString(),
+          // WHEN THE DATA ARRIVED, not when this list was built.
+          //
+          // This was `new Date()`, so the drawer printed "Crawled less than a
+          // minute ago" over every local table — including datasets loaded
+          // weeks earlier. Measured: 26 tables with data_loaded_at spanning
+          // 2026-07-20 to 2026-08-07, every one of them reported as fresh.
+          // A freshness stamp that is always now is not a stamp.
+          last_crawled_at: d.data_loaded_at,
           local: true,
         };
       });
@@ -1360,8 +1371,19 @@ function AssetSheet({
         </ScrollArea>
 
         <div className="flex items-center justify-between border-t border-border pt-3">
+          {/* Null is a real state — a warehouse table is queried live and was
+              never loaded here, so there is no local timestamp to report.
+              Saying nothing beats printing a fabricated one. */}
           <p className="text-[10px] text-muted-foreground">
-            Crawled {formatDistanceToNow(new Date(asset.last_crawled_at), { addSuffix: true })}
+            {(() => {
+              const f = assetFreshness({
+                last_crawled_at: asset.last_crawled_at,
+                local: asset.source_id === LOCAL_SOURCE_ID,
+              });
+              return f.kind === "live"
+                ? freshnessPrefix(f)
+                : `${freshnessPrefix(f)} ${formatDistanceToNow(new Date(f.at), { addSuffix: true })}`;
+            })()}
           </p>
           <div className="flex gap-2">
             {queryable && (

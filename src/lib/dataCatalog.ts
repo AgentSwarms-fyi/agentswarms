@@ -58,7 +58,17 @@ export type CatalogAsset = {
   owner: string | null;
   status: CatalogAssetStatus;
   pii: boolean;
-  last_crawled_at: string;
+  /**
+   * When this asset's data was last read into AgentSwarms.
+   *
+   * NULLABLE on purpose. A warehouse table is queried live and was never
+   * loaded here, so there is no local timestamp to report — and the catalog
+   * used to fill that gap with `new Date()`, printing "Crawled less than a
+   * minute ago" over datasets that were weeks old. Absence has to be
+   * representable, or it gets invented.
+   */
+  last_crawled_at: string | null;
+  // (freshness rendering lives in assetFreshness below)
 };
 
 function parseColumns(v: Json): CatalogColumn[] {
@@ -433,4 +443,43 @@ export function fmtCount(n: number | null | undefined): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 10_000) return `${(n / 1_000).toFixed(1)}k`;
   return n.toLocaleString();
+}
+
+/**
+ * How an asset's freshness should read, or that there is none to report.
+ *
+ * MEASURED: the drawer rendered
+ * `Crawled {formatDistanceToNow(new Date(asset.last_crawled_at))}` over a
+ * `last_crawled_at` that the local mapping set to `new Date()`. Every local
+ * table therefore said "Crawled less than a minute ago" — on this account, 26
+ * tables whose real `data_loaded_at` ranged from 2026-07-20 to 2026-08-07.
+ *
+ * Two separate errors, both worth naming:
+ *
+ *   · A timestamp was INVENTED where a real one existed one column away.
+ *   · The verb was wrong. A CSV someone uploaded was never "crawled", and a
+ *     warehouse table is queried live and never loaded here at all — for that
+ *     one there is no local timestamp, and the honest output is to say so
+ *     rather than to manufacture one.
+ */
+export type AssetFreshness =
+  | { kind: "loaded"; at: string }
+  | { kind: "crawled"; at: string }
+  | { kind: "live" };
+
+export function assetFreshness(asset: {
+  last_crawled_at: string | null;
+  local?: boolean;
+}): AssetFreshness {
+  // Null is the warehouse case: queried in place, nothing loaded here.
+  if (!asset.last_crawled_at) return { kind: "live" };
+  return asset.local
+    ? { kind: "loaded", at: asset.last_crawled_at }
+    : { kind: "crawled", at: asset.last_crawled_at };
+}
+
+/** The leading words for each state; the caller appends a relative time. */
+export function freshnessPrefix(f: AssetFreshness): string {
+  if (f.kind === "live") return "Queried live — not loaded into AgentSwarms";
+  return f.kind === "loaded" ? "Data loaded" : "Crawled";
 }

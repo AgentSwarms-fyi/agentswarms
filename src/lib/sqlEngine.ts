@@ -54,6 +54,16 @@ export type DatasetMeta = {
   user_id: string | null;
   columns: ColumnDef[];
   row_count: number;
+  /**
+   * When this dataset's rows were last written.
+   *
+   * Carried so the catalog can say when the data arrived instead of inventing
+   * a timestamp. The drawer used to render `new Date()` for every local table
+   * and print "Crawled less than a minute ago" over datasets weeks old.
+   */
+  data_loaded_at: string | null;
+  /** Parquet size when the dataset has been synced; null when unknown. */
+  parquet_bytes: number | null;
 };
 
 export type QueryResult = {
@@ -171,7 +181,7 @@ async function hydrateFromSupabaseUncoordinated(): Promise<DatasetMeta[]> {
 
   const { data: tables, error } = await supabase
     .from("user_data_tables")
-    .select("id, name, source_filename, columns, is_sample, user_id")
+    .select("id, name, source_filename, columns, is_sample, user_id, data_loaded_at, parquet_bytes")
     // An upload in flight owns a staging dataset until it is promoted; showing
     // it would put a half-written table in the picker.
     .not("name", "like", `${STAGING_PREFIX}%`)
@@ -206,6 +216,8 @@ async function hydrateFromSupabaseUncoordinated(): Promise<DatasetMeta[]> {
     columns: unknown;
     is_sample: boolean;
     user_id: string | null;
+    data_loaded_at: string | null;
+    parquet_bytes: number | null;
   }): Promise<DatasetMeta> {
     const cols = (Array.isArray(t.columns) ? t.columns : []) as ColumnDef[];
     const shared = !t.is_sample && !!myId && t.user_id !== myId;
@@ -223,6 +235,8 @@ async function hydrateFromSupabaseUncoordinated(): Promise<DatasetMeta[]> {
         user_id: t.user_id,
         columns: visible,
         row_count: rows.length,
+        data_loaded_at: t.data_loaded_at,
+        parquet_bytes: t.parquet_bytes,
       };
     }
     const allRows: Record<string, unknown>[] = [];
@@ -261,6 +275,8 @@ async function hydrateFromSupabaseUncoordinated(): Promise<DatasetMeta[]> {
       user_id: t.user_id,
       columns: cols,
       row_count: allRows.length,
+      data_loaded_at: t.data_loaded_at,
+      parquet_bytes: t.parquet_bytes,
     };
   }
 
@@ -369,6 +385,10 @@ export async function saveDataset(args: {
 
   return {
     id: tableId,
+    // The rows were written immediately above, so "now" is the truth here —
+    // unlike the catalog, which was stamping now onto data it had only read.
+    data_loaded_at: new Date().toISOString(),
+    parquet_bytes: null,
     name: safeName,
     source_filename: args.sourceFilename,
     is_sample: false,
