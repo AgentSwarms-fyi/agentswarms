@@ -36,7 +36,7 @@ has not been tested; it has been visited.
 | 3   | Agent Builder       | `/agents`                  | ✅ 1 | 2026-08-16 | 3 (2×S1, 1×S2)                                           |
 | 4   | Knowledge Base      | `/knowledge`               | ✅ 1 | 2026-08-16 | 1 (1×S1)                                                 |
 | 5   | Agent Chat          | `/playground`              | ⚠️ 1 | 2026-08-16 | 2 (1×S1 self-inflicted, 1×S2) — read-only, no model turn |
-| 6   | Agent Swarms        | `/swarms`                  | —    | —          | —                                                        |
+| 6   | Agent Swarms        | `/swarms`                  | ✅ 1 | 2026-08-16 | 1 (1×S2)                                                 |
 | 7   | MCP Builder         | `/mcp-builder`             | —    | —          | —                                                        |
 | 8   | AI Analyst          | `/ai-analyst`              | —    | —          | —                                                        |
 | 9   | Data Catalog        | `/data-sql`                | —    | —          | —                                                        |
@@ -66,6 +66,49 @@ has not been tested; it has been visited.
 ## Findings
 
 <!-- newest first -->
+
+### 2026-08-16 — Module 6, Agent Swarms (`/swarms`)
+
+#### K1 · S2 · The "deployed" badge was wired to a column nothing writes
+
+`swarms.is_deployed` appears in the migrations only as `DEFAULT false`, is
+**written by nothing anywhere in the application**, and is read in exactly one
+place — the gallery badge. It could therefore never become true.
+
+The consequence runs the other way from how it looks. This is not a badge that
+lies; it is a badge that can never appear. A swarm with a live API key —
+reachable from outside the app right now — showed nothing, and the gallery, the
+one screen that lists every swarm, could not answer "which of these are live".
+
+`/api/swarm.run` never consults the column either: it authorises on an API key
+row and serves the published graph. **A key that has not been revoked is the
+deployment.** The badge now derives from that same fact, so it appears when
+traffic can arrive and disappears when the last key is revoked.
+
+Zero API keys exist on this account, so the badge count was 0 before and is 0
+now — but for a different reason. It was previously the only possible answer;
+it is now the correct one.
+
+#### Checked and left alone
+
+- **Draft vs published is sound.** `swarm.run` serves `published_nodes` via
+  `resolveDeployedGraph`, with a documented fallback to the draft for swarms
+  deployed before snapshots existed, so editing the canvas cannot change what a
+  key returns mid-flight.
+- **The executor inlines node config** rather than passing `agentId`, which is
+  why the `/api/chat` internal-channel gate does not reach swarm runs (see
+  Module 3).
+
+**Tests:** 9 in `tests/unit/swarmDeployment.test.ts`, mutation-verified — four
+reversions, all killed, including one that keeps the badge alive after a key is
+revoked.
+
+#### Also this session
+
+Sidebar label "Budgets" → **"AI Budgets"** (`src/lib/appNav.ts`). The command
+palette reads the same `NAV_GROUPS`, so both update together. The page heading
+stays "Budgets & Guardrails", which is accurate — the page covers guardrails as
+well as spend.
 
 ### 2026-08-16 — Module 5, Agent Chat (`/playground`)
 

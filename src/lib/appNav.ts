@@ -96,7 +96,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { title: "Swarm Traces", url: "/analytics/observability", icon: Network },
       { title: "Traces & Logs", url: "/traces", icon: ScrollText },
       { title: "Audit Log", url: "/audit", icon: FileClock },
-      { title: "Budgets", url: "/budgets", icon: Settings },
+      { title: "AI Budgets", url: "/budgets", icon: Settings },
       // Superadmin-only page; the route itself enforces that, and the link
       // is harmless for everyone else (it explains the restriction).
       { title: "Monitoring", url: "/monitoring", icon: Activity },

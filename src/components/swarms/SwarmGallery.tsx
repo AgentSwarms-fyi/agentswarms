@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { RecentRunsPanel } from "@/components/swarms/RecentRunsPanel";
 import { subscribe as subscribeRuns, getSnapshot as getRunsSnapshot } from "@/lib/swarmRunManager";
+import { liveSwarmIds } from "@/lib/swarmDeployment";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -150,6 +151,8 @@ export function SwarmGallery() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [mySwarms, setMySwarms] = useState<SwarmRow[]>([]);
+  /** Swarms with at least one un-revoked API key — the real "is it live" fact. */
+  const [liveKeySwarmIds, setLiveKeySwarmIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [search, setSearch] = useState("");
@@ -169,11 +172,29 @@ export function SwarmGallery() {
 
   async function load() {
     setLoading(true);
-    const { data: swarms } = await supabase
-      .from("swarms")
-      .select("id, name, description, nodes, edges, is_deployed, updated_at")
-      .order("updated_at", { ascending: false });
+    // The "deployed" badge is derived from LIVE API KEYS, not from the
+    // swarms.is_deployed column.
+    //
+    // MEASURED: is_deployed appears in the migrations only as a column with
+    // DEFAULT false, is written by nothing in the application, and is read in
+    // exactly one place — the badge below. So it could never become true, and a
+    // swarm genuinely serving traffic showed no badge at all. The gallery, the
+    // one screen listing every swarm, could not tell you which ones were live.
+    //
+    // A key row that is not revoked IS the deployment: /api/swarm.run
+    // authorises on the key and never consults is_deployed. Deriving the badge
+    // from the same fact the runtime uses makes it true in both directions —
+    // it appears when traffic can arrive, and disappears when the last key is
+    // revoked.
+    const [{ data: swarms }, { data: keys }] = await Promise.all([
+      supabase
+        .from("swarms")
+        .select("id, name, description, nodes, edges, is_deployed, updated_at")
+        .order("updated_at", { ascending: false }),
+      supabase.from("swarm_api_keys").select("swarm_id, revoked_at"),
+    ]);
     setMySwarms((swarms ?? []) as SwarmRow[]);
+    setLiveKeySwarmIds(liveSwarmIds(keys));
     setLoading(false);
   }
 
@@ -344,10 +365,14 @@ export function SwarmGallery() {
                           <span>{nodeCount} nodes</span>
                           <span>·</span>
                           <span>{edgeCount} edges</span>
-                          {s.is_deployed && (
+                          {liveKeySwarmIds.has(s.id) && (
                             <>
                               <span>·</span>
-                              <Badge variant="outline" className="text-[10px] h-4 px-1.5">
+                              <Badge
+                                variant="outline"
+                                className="h-4 px-1.5 text-[10px]"
+                                title="An API key for this swarm is active, so it can be run from outside the app."
+                              >
                                 deployed
                               </Badge>
                             </>
