@@ -1,0 +1,41 @@
+# Fail a pull request that breaks a governed metric definition.
+#
+# Copy this into the repository your Git export writes to (rename to
+# `semantic-check.yml`), so a change to a semantic model is reviewed the way a
+# code change is.
+#
+# Deliberately needs NO warehouse credentials and NO database: the check is
+# structural, so it runs on a fork's PR — which is exactly when you want it.
+# What it cannot decide offline (does this join really fan out, is this key
+# really unique, do these columns still exist) is stated in its own output and
+# stays with Validate in the app.
+
+name: Semantic models
+
+on:
+  pull_request:
+    paths:
+      - "agentswarms/semantic-models/**"
+  push:
+    branches: [main]
+    paths:
+      - "agentswarms/semantic-models/**"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # Point this at wherever AgentSwarms is checked out or installed. If you
+      # vendor the export into the same repo as the app, `npm ci` here is
+      # enough; otherwise clone the app repo first.
+      - run: npm ci
+
+      # `agentswarms/` is the default export base path — change it if you set a
+      # different one in Git settings.
+      - run: npm run check:semantics -- agentswarms

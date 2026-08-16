@@ -94,6 +94,44 @@ certified.
 Re-running an import after `dbt run` is how you keep the two in step; pick only
 the models you want to refresh.
 
+## Reviewing changes in a pull request
+
+Git export writes every model as JSON. `check:semantics` reads those files back
+and fails on the mistakes that are decidable **without a warehouse** — which is
+what lets a PR gate a metric change:
+
+```bash
+npm run check:semantics -- agentswarms
+```
+
+Exit codes are what CI needs: `0` clean, `1` errors found, `2` it could not
+check (bad path, or **no `.json` files at all** — a check that passes on an
+empty set is how a misspelled path becomes a permanently green build).
+
+What it catches offline:
+
+| Error                                                      | Why it matters                                             |
+| ---------------------------------------------------------- | ---------------------------------------------------------- |
+| Hierarchy level that is not a dimension                    | Drill path refuses at query time                           |
+| Derived metric referencing a deleted metric                | `{ref}` substitution has nothing to substitute             |
+| `{{param}}` that is not declared                           | The compiler refuses rather than guessing a value          |
+| Rollup mapping a field the model does not have             | A routed query asks the summary table for a missing column |
+| A dimension and a metric sharing a name                    | Same SQL alias; one silently wins                          |
+| Two files declaring one model name                         | Whichever applies last wins, invisibly                     |
+| Both a fiscal calendar table and `fiscal_year_start_month` | Two sources of truth for the same fiscal year              |
+
+Warnings — an undeclared join cardinality, a missing primary key, a parameter
+with no default — are reported but **do not fail the build**.
+
+The report always ends by naming what it did _not_ check. Whether a join really
+fans out, whether a key is really unique, whether the source columns still
+exist: none of that is knowable offline, and a green check that implied
+otherwise would be worse than no check. **Validate** in the app remains the
+thing that measures.
+
+A ready-to-use workflow is in
+[`.github/workflows/semantic-check.yml.example`](../.github/workflows/semantic-check.yml.example).
+
 ## Join safety — declared cardinality, resolved fan-out
 
 A join's **cardinality** declares how many joined rows one source row matches,
