@@ -29,43 +29,84 @@ has not been tested; it has been visited.
 
 ## Coverage map
 
-| #   | Module              | Route                      | Pass | Date       | Findings                            |
-| --- | ------------------- | -------------------------- | ---- | ---------- | ----------------------------------- |
-| 1   | Dashboard           | `/dashboard`               | ✅ 1 | 2026-08-16 | 5 (2×S1, 1×S2, 2×S3)                |
-| 2   | Documentation       | `/docs`                    | ✅ 1 | 2026-08-16 | 4 (2×S1, 1×S2, 1×S1 self-inflicted) |
-| 3   | Agent Builder       | `/agents`                  | ✅ 1 | 2026-08-16 | 3 (2×S1, 1×S2)                      |
-| 4   | Knowledge Base      | `/knowledge`               | ✅ 1 | 2026-08-16 | 1 (1×S1)                            |
-| 5   | Agent Chat          | `/playground`              | —    | —          | —                                   |
-| 6   | Agent Swarms        | `/swarms`                  | —    | —          | —                                   |
-| 7   | MCP Builder         | `/mcp-builder`             | —    | —          | —                                   |
-| 8   | AI Analyst          | `/ai-analyst`              | —    | —          | —                                   |
-| 9   | Data Catalog        | `/data-sql`                | —    | —          | —                                   |
-| 10  | Semantic Layer      | `/semantics`               | —    | —          | —                                   |
-| 11  | Metrics             | `/metrics`                 | —    | —          | —                                   |
-| 12  | BI Workspace        | `/bi`                      | —    | —          | —                                   |
-| 13  | Developer workspace | `/notebooks`               | —    | —          | —                                   |
-| 14  | Prompt Library      | `/prompts`                 | —    | —          | —                                   |
-| 15  | Skill Library       | `/skills`                  | —    | —          | —                                   |
-| 16  | Integrations        | `/integrations`            | —    | —          | —                                   |
-| 17  | Web Embedding       | `/embeds`                  | —    | —          | —                                   |
-| 18  | Secrets             | `/secrets`                 | —    | —          | —                                   |
-| 19  | MCP Servers         | `/mcp`                     | —    | —          | —                                   |
-| 20  | Model Registry      | `/model-registry`          | —    | —          | —                                   |
-| 21  | Analytics           | `/analytics`               | —    | —          | —                                   |
-| 22  | Swarm Traces        | `/analytics/observability` | —    | —          | —                                   |
-| 23  | Traces & Logs       | `/traces`                  | —    | —          | —                                   |
-| 24  | Audit Log           | `/audit`                   | —    | —          | —                                   |
-| 25  | Budgets             | `/budgets`                 | —    | —          | —                                   |
-| 26  | Monitoring          | `/monitoring`              | —    | —          | —                                   |
-| 27  | Prompt Compare      | `/prompt-compare`          | —    | —          | —                                   |
-| 28  | Evaluations         | `/evaluations`             | —    | —          | —                                   |
-| 29  | Image Playground    | `/image-playground`        | —    | —          | —                                   |
-| 30  | IAM                 | `/admin/iam`               | —    | —          | —                                   |
-| 31  | Developer runtime   | `/admin/runtime`           | —    | —          | —                                   |
+| #   | Module              | Route                      | Pass | Date       | Findings                                                 |
+| --- | ------------------- | -------------------------- | ---- | ---------- | -------------------------------------------------------- |
+| 1   | Dashboard           | `/dashboard`               | ✅ 1 | 2026-08-16 | 5 (2×S1, 1×S2, 2×S3)                                     |
+| 2   | Documentation       | `/docs`                    | ✅ 1 | 2026-08-16 | 4 (2×S1, 1×S2, 1×S1 self-inflicted)                      |
+| 3   | Agent Builder       | `/agents`                  | ✅ 1 | 2026-08-16 | 3 (2×S1, 1×S2)                                           |
+| 4   | Knowledge Base      | `/knowledge`               | ✅ 1 | 2026-08-16 | 1 (1×S1)                                                 |
+| 5   | Agent Chat          | `/playground`              | ⚠️ 1 | 2026-08-16 | 2 (1×S1 self-inflicted, 1×S2) — read-only, no model turn |
+| 6   | Agent Swarms        | `/swarms`                  | —    | —          | —                                                        |
+| 7   | MCP Builder         | `/mcp-builder`             | —    | —          | —                                                        |
+| 8   | AI Analyst          | `/ai-analyst`              | —    | —          | —                                                        |
+| 9   | Data Catalog        | `/data-sql`                | —    | —          | —                                                        |
+| 10  | Semantic Layer      | `/semantics`               | —    | —          | —                                                        |
+| 11  | Metrics             | `/metrics`                 | —    | —          | —                                                        |
+| 12  | BI Workspace        | `/bi`                      | —    | —          | —                                                        |
+| 13  | Developer workspace | `/notebooks`               | —    | —          | —                                                        |
+| 14  | Prompt Library      | `/prompts`                 | —    | —          | —                                                        |
+| 15  | Skill Library       | `/skills`                  | —    | —          | —                                                        |
+| 16  | Integrations        | `/integrations`            | —    | —          | —                                                        |
+| 17  | Web Embedding       | `/embeds`                  | —    | —          | —                                                        |
+| 18  | Secrets             | `/secrets`                 | —    | —          | —                                                        |
+| 19  | MCP Servers         | `/mcp`                     | —    | —          | —                                                        |
+| 20  | Model Registry      | `/model-registry`          | —    | —          | —                                                        |
+| 21  | Analytics           | `/analytics`               | —    | —          | —                                                        |
+| 22  | Swarm Traces        | `/analytics/observability` | —    | —          | —                                                        |
+| 23  | Traces & Logs       | `/traces`                  | —    | —          | —                                                        |
+| 24  | Audit Log           | `/audit`                   | —    | —          | —                                                        |
+| 25  | Budgets             | `/budgets`                 | —    | —          | —                                                        |
+| 26  | Monitoring          | `/monitoring`              | —    | —          | —                                                        |
+| 27  | Prompt Compare      | `/prompt-compare`          | —    | —          | —                                                        |
+| 28  | Evaluations         | `/evaluations`             | —    | —          | —                                                        |
+| 29  | Image Playground    | `/image-playground`        | —    | —          | —                                                        |
+| 30  | IAM                 | `/admin/iam`               | —    | —          | —                                                        |
+| 31  | Developer runtime   | `/admin/runtime`           | —    | —          | —                                                        |
 
 ## Findings
 
 <!-- newest first -->
+
+### 2026-08-16 — Module 5, Agent Chat (`/playground`)
+
+Run **read-only**: month-to-date spend is $5.94 against a $5 cap, so no model
+turn was sent. That rules out testing streaming, tool calls and guardrails from
+this surface, and those remain uncovered — noted here rather than left to look
+like they passed.
+
+#### J1 · S2 (latent) · The recovery dialog offered models IAM would refuse
+
+`use-iam` states the invariant in its own comment: the matcher is shared with
+the server "so the UI can never offer a model the server would refuse". Three
+pickers honour it — `AgentForm`, `BiModelSelect`, `NodeInspector`.
+`ModelFallbackDialog` did not reference it at all, building its list from a
+hardcoded array plus the full `PROVIDER_MODELS` catalogue.
+
+**It is the worst of the four to miss.** This dialog opens only after a model
+has already failed. It is the recovery path, so a restricted user was being sent
+from one refusal to another, with nothing on screen explaining why.
+
+Latent on this account — `iam_model_rules` is empty, so everything is permitted
+and the dialog is correct by accident. It is live for any deployment that uses
+the feature, which is the same shape as D2 on the dashboard: right today, wrong
+by construction.
+
+#### J2 · S1 · My own first fix had the inversion it was fixing
+
+The empty-state guard I wrote read `(modelRules?.length ?? 0) > 0`. But
+`collapseModelPolicy` encodes **null as "no restriction"** and an **empty array
+as "deny by default, nothing granted"** — opposite meanings that a length check
+collapses into one. So the explanation would have been suppressed in the single
+most restricted state there is: the user sees an empty dialog and is told
+nothing.
+
+Corrected to `modelRules !== null`. Caught by reading the matcher's contract
+before trusting the shape, which is the only reason it did not ship. A test now
+pins both directions, including a live demonstration of what the length check
+would have returned.
+
+**Tests:** 12 in `tests/unit/fallbackModelPolicy.test.ts`, mutation-verified —
+five reversions, all killed, including one that turns deny-all into allow-all.
 
 ### 2026-08-16 — Module 4, Knowledge Base (`/knowledge`)
 

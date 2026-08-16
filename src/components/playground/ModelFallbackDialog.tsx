@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { AlertTriangle, Sparkles, Zap, KeyRound } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { isModelAllowedByRules, useMyModelRules } from "@/hooks/use-iam";
 import { PROVIDER_LABELS, PROVIDER_MODELS } from "@/utils/providers/types";
 import type { ProviderId } from "@/utils/providers/types";
 
@@ -74,12 +75,25 @@ export function ModelFallbackDialog({
     })();
   }, [open]);
 
+  // IAM model rules apply here too.
+  //
+  // use-iam's own comment states the invariant — the matcher is shared with the
+  // server "so the UI can never offer a model the server would refuse". Three
+  // pickers honour that (the agent form, the BI model select, the swarm node
+  // inspector) and this one did not, which is the worst place to miss it: this
+  // dialog only opens when a model has ALREADY failed. Offering a restricted
+  // model as the recovery path sends someone who is already blocked to a second
+  // refusal, with nothing explaining why.
+  const modelRules = useMyModelRules();
+
   const quickFallbackOptions = useMemo(
     () =>
       OPENROUTER_QUICK_FALLBACKS.filter(
-        (m) => !(failedProvider === "openrouter" && failedModel === m.id),
+        (m) =>
+          !(failedProvider === "openrouter" && failedModel === m.id) &&
+          isModelAllowedByRules(modelRules, "openrouter", m.id),
       ),
-    [failedProvider, failedModel],
+    [failedProvider, failedModel, modelRules],
   );
 
   const externalOptions = useMemo(() => {
@@ -88,11 +102,28 @@ export function ModelFallbackDialog({
       if (!connectedProviders.has(p as ProviderId)) return;
       PROVIDER_MODELS[p].forEach((m) => {
         if (failedProvider === p && failedModel === m.id) return;
+        if (!isModelAllowedByRules(modelRules, p as ProviderId, m.id)) return;
         out.push({ provider: p as ProviderId, model: m.id, label: m.label });
       });
     });
     return out;
-  }, [connectedProviders, failedProvider, failedModel]);
+  }, [connectedProviders, failedProvider, failedModel, modelRules]);
+
+  /**
+   * True when policy removed every option, as opposed to there being none.
+   *
+   * An empty dialog with no explanation reads as a broken screen. This is the
+   * one state where the honest message is "your administrator has restricted
+   * which models you may use", because that is the actual cause.
+   *
+   * The test is `!== null`, NOT `length > 0`. collapseModelPolicy returns null
+   * for "no restriction" and an EMPTY ARRAY for deny-by-default with no rules
+   * granted — so an empty array is the most restricted state there is, and
+   * checking length would have skipped the explanation in exactly the case
+   * that needs it most.
+   */
+  const emptiedByRules =
+    quickFallbackOptions.length === 0 && externalOptions.length === 0 && modelRules !== null;
 
   const title =
     reason === "credits"
@@ -123,6 +154,21 @@ export function ModelFallbackDialog({
             </div>
           </div>
         </DialogHeader>
+
+        {emptiedByRules && (
+          // Naming the cause, because "no models" and "no models YOU may use"
+          // are different problems with different people able to fix them.
+          <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3">
+            <p className="text-sm font-medium text-amber-700 dark:text-amber-400">
+              No alternative model is available to you
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Your administrator has restricted which models this account may use, and every
+              alternative is outside those rules. Ask them to widen the policy, or retry this model
+              later.
+            </p>
+          </div>
+        )}
 
         <ScrollArea className="max-h-[55vh] pr-2">
           <div className="space-y-5">
