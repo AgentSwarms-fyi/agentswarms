@@ -10,6 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { WarehousesTab } from "@/components/integrations/WarehousesTab";
 import { SaasSourcesTab } from "@/components/integrations/SaasSourcesTab";
+import { SlackTab } from "@/components/integrations/SlackTab";
 import { Badge } from "@/components/ui/badge";
 import {
   Select,
@@ -1110,8 +1111,16 @@ function IntegrationsPage() {
             <TabsTrigger value="gateway">LLM Gateway</TabsTrigger>
             <TabsTrigger value="websearch">Web Search</TabsTrigger>
             <TabsTrigger value="notifications">Notifications</TabsTrigger>
+            {/* Beside Notifications because they are the two Slack-shaped
+                surfaces — but opposite directions. Notifications posts OUT to
+                a webhook; this authenticates an inbound caller. */}
+            <TabsTrigger value="slack">Slack</TabsTrigger>
             <TabsTrigger value="n8n">n8n Workflows</TabsTrigger>
           </TabsList>
+
+          <TabsContent value="slack" className="space-y-4">
+            <SlackTab />
+          </TabsContent>
 
           <TabsContent value="warehouses" className="space-y-4">
             <WarehousesTab />

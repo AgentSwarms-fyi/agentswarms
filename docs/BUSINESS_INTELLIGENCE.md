@@ -582,6 +582,49 @@ names are de-duplicated **after** Excel's 31-character truncation, since that
 is where two long, similar step goals collide and a workbook with duplicate
 sheet names does not open at all.
 
+## Asking from Slack
+
+Questions get asked in Slack. An answer that needs another tab opened mostly
+does not get looked up, so an analyst can be reached with a slash command:
+
+```
+/ask what was revenue last month
+```
+
+Set it up in **Integrations → Slack** (beside Notifications — that tab is the
+outbound webhook; this one authenticates an inbound caller):
+
+1. Create an app at `api.slack.com/apps`, pick your workspace.
+2. **Slash Commands** → new command `/ask`, Request URL
+   `https://<your-host>/api/slack/command` (the tab shows and copies the exact
+   URL for your deployment, and warns if it is a localhost address Slack cannot
+   reach).
+3. **Basic Information** → copy the **Signing Secret** and your workspace id
+   (starts with `T`).
+4. Add both in the tab with the analyst that should answer, then install.
+
+**Security.** The endpoint is public because Slack has to reach it, so the
+signature is the whole boundary: HMAC-SHA256 over the raw body, compared
+timing-safely, inside a five-minute replay window checked in both directions. A
+missing header, an unparseable timestamp or an unconfigured secret are all
+rejected — there is no path that accepts a request because something was
+absent. Every failure returns the same terse 401; the reason goes to the server
+log, not to a prober. The secret is AES-GCM encrypted, never returned to a
+client, and an edit that leaves the field blank keeps the stored one rather
+than clearing it.
+
+**Slack answers are summaries.** The rows, the SQL and the lineage stay in the
+app and every message links back. What does survive the trip is the part that
+must: a **governed** step is still labelled governed, a capped result still
+says it was capped, and a long answer names how many steps it did not show
+rather than quietly ending.
+
+**Status is not "connected".** The tab distinguishes _configured_ from
+_receiving commands_, because a saved row only proves a form was filled in —
+`last_command_at` is set by Slack and by nothing else. A failed run records its
+error on the workspace, so a broken integration is visible in the app rather
+than only to whoever happened to be in the channel.
+
 ## Theming
 
 Every dashboard has a **Theme** (editor toolbar): upload a **background
