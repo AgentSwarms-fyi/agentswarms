@@ -40,7 +40,7 @@ has not been tested; it has been visited.
 | 7   | MCP Builder         | `/mcp-builder`             | ✅ 1 | 2026-08-16 | 1 (1×S2)                                                |
 | 8   | AI Analyst          | `/ai-analyst`              | ✅ 1 | 2026-08-16 | 0 — held; no live turn (over budget cap)                |
 | 9   | Data Catalog        | `/data-sql`                | ✅ 1 | 2026-08-16 | 2 (1×S1, 1×S3)                                          |
-| 10  | Semantic Layer      | `/semantics`               | —    | —          | —                                                       |
+| 10  | Semantic Layer      | `/semantics`               | ✅ 1 | 2026-08-16 | 1 (1×S1) + one wrong hypothesis, recorded               |
 | 11  | Metrics             | `/metrics`                 | —    | —          | —                                                       |
 | 12  | BI Workspace        | `/bi`                      | —    | —          | —                                                       |
 | 13  | Developer workspace | `/notebooks`               | —    | —          | —                                                       |
@@ -66,6 +66,66 @@ has not been tested; it has been visited.
 ## Findings
 
 <!-- newest first -->
+
+### 2026-08-16 — Module 10, Semantic Layer (`/semantics`)
+
+#### The hypothesis that was wrong, kept because it nearly shipped
+
+The opening move was: certification is gated on clean validation, so does the
+badge survive an edit? The save path's UPDATE payload contains name, joins,
+dimensions, metrics, assertions, grain — and **not** `status`, `certified_by`
+or `certified_at`. Two UI tooltips promise "editing the definition drops this
+back to draft". That looked like a false promise and a badge outliving what it
+vouched for: the strongest possible finding in this product.
+
+**It was wrong.** `trg_semantic_decertify` (migration 20260820000000) is a
+BEFORE UPDATE trigger doing exactly that, placed in the database deliberately
+so no write path can skip it. The application omitting `status` is correct —
+the trigger is the stronger place for it.
+
+Recorded because the only thing standing between that and a confidently
+reported non-defect was checking the alternative explanation. This schema
+already uses triggers for version history and audit; not looking would have
+been an easy, plausible mistake.
+
+#### P1 · S1 · The decertify trigger watched nine fields; the save path writes fifteen
+
+Diffing the two lists is what turned the wrong hypothesis into a real one. Six
+definition fields were written and unwatched:
+
+| Field                     | What changing it does                                                                                       |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `table_id`                | repoints the model at a **different local dataset** — the local twin of `source_table`, which _was_ watched |
+| `rollups`                 | aggregate awareness sends the query to a different summary table                                            |
+| `calendar`                | redefines what a fiscal period contains (4-4-5)                                                             |
+| `fiscal_year_start_month` | changes what "Q1" means, so every fiscal-grain query returns different numbers                              |
+| `parameters`              | declared defaults feed computed values and what-if baselines                                                |
+| `hierarchies`             | declared drill paths                                                                                        |
+
+The first four **change numbers**. A model could be certified, repointed at
+another dataset or given a different fiscal year, and keep a badge whose entire
+meaning is "every validation check passed against the live source" — the exact
+failure the trigger exists to prevent, reached through a column it did not
+happen to name.
+
+`label` and `description` stay excluded, for the original's stated reason:
+renaming a display label does not change what "revenue" computes.
+
+Migration `20260831000000_semantic_decertify_full_definition.sql`, applied to
+the live database and **proven in both directions** against it:
+
+| Step                                      | Result                       |
+| ----------------------------------------- | ---------------------------- |
+| create                                    | `draft`                      |
+| certify                                   | `certified`                  |
+| change **only** `fiscal_year_start_month` | `draft`, `certified_at` null |
+| re-certify, change **only** `label`       | stays `certified`            |
+
+The second row is the fix firing; the third is the control proving it does not
+over-fire on metadata. Probe model deleted, 0 rows left.
+
+Latent on this account — all 3 semantic models are `draft`, so nothing was
+mis-certified in practice. Live for anyone using certification.
 
 ### 2026-08-16 — Module 9, Data Catalog (`/data-sql`)
 
