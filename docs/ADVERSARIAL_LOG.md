@@ -41,8 +41,8 @@ has not been tested; it has been visited.
 | 8   | AI Analyst          | `/ai-analyst`              | ✅ 1 | 2026-08-16 | 0 — held; no live turn (over budget cap)                |
 | 9   | Data Catalog        | `/data-sql`                | ✅ 1 | 2026-08-16 | 2 (1×S1, 1×S3)                                          |
 | 10  | Semantic Layer      | `/semantics`               | ✅ 1 | 2026-08-16 | 1 (1×S1) + one wrong hypothesis, recorded               |
-| 11  | Metrics             | `/metrics`                 | —    | —          | —                                                       |
-| 12  | BI Workspace        | `/bi`                      | —    | —          | —                                                       |
+| 11  | Metrics             | `/metrics`                 | ✅ 1 | 2026-08-16 | 2 (2×S2) + one hypothesis dropped                       |
+| 12  | BI Workspace        | `/bi`                      | ✅ 1 | 2026-08-16 | 1 (1×S1) — widget count read the page-1 mirror          |
 | 13  | Developer workspace | `/notebooks`               | —    | —          | —                                                       |
 | 14  | Prompt Library      | `/prompts`                 | —    | —          | —                                                       |
 | 15  | Skill Library       | `/skills`                  | —    | —          | —                                                       |
@@ -66,6 +66,121 @@ has not been tested; it has been visited.
 ## Findings
 
 <!-- newest first -->
+
+### 2026-08-16 — Module 12, BI Workspace (`/bi`)
+
+#### P1 · S1 · A four-page dashboard was advertised as having seven widgets
+
+Every project card prints "N widgets · M views · updated …". The view counts
+and timestamps all matched `view_count` and `updated_at` exactly. The widget
+count did not.
+
+`BiDashboardRow` documents the rule in the type itself: _"pages — Source of
+truth for the dashboard's content; top-level widgets/layout mirror page 1."_
+The card counted `parseWidgets(d.widgets)` — the mirror.
+
+Measured across all eleven projects on the account:
+
+| Dashboard               | Card said | Truth  | Pages |
+| ----------------------- | --------- | ------ | ----- |
+| **Formula 1 Analytics** | **7**     | **15** | **4** |
+| Every other project     | correct   | —      | 1     |
+
+Formula 1 holds 7 + 4 + 4 + 0 across its four pages. The other ten have one
+page each, so `pages[0]` and the mirror are the same list and the count was
+right **by accident everywhere it was checked** — which is why a page whose
+whole job is telling projects apart had been understating its largest by 53%
+without anyone noticing.
+
+The bias is the familiar shape: never too high, always too low, and it only
+goes wrong once someone adds pages — the very thing that makes a dashboard
+substantial. `dashboardSize` now counts through `parsePages`, so a
+pre-multi-page row still collapses to its single page exactly as the editor
+sees it rather than being special-cased twice. The card also shows the page
+count when there is more than one; its absence is what let a four-page
+dashboard read like a small one.
+
+Verified live: Formula 1 now reads **"15 widgets · 4 pages · 29 views"**, every
+single-page project unchanged.
+
+`tests/unit/biDashboardPages.test.ts` (+6 → 13) — the file that already guards
+this exact mirror-vs-source invariant for writes, now guarding it for reads.
+Mutation: count `pages[0]` only → 1 fails.
+
+#### Note: a generated file lost a route mid-edit
+
+`src/routeTree.gen.ts` came back 21 lines shorter, with the `/bi` route gone —
+the dev server regenerated it while an edit had `bi.tsx` transiently
+unparseable, and `tsc` then failed in four unrelated files. Restored from git.
+Worth recording because the symptom (type errors about `"/bi"` in
+`dashboard.tsx`) points nowhere near the cause.
+
+### 2026-08-16 — Module 11, Metrics (`/metrics`)
+
+Everything the page computes was checked against the database and matched
+exactly: **23 metrics in 3 models · 0 certified · 23 draft · 0 deprecated**
+(7 + 6 + 10 across the three models, all draft), and the freshness stamps —
+27d for `saas_sales`, 9d for the other two — matched `data_loaded_at` to the
+day. The usage claim was checked too: all 11 dashboards scanned, none
+references any of the three models, so "No dashboard widget references it" is
+true. The two findings are both about what the page says when it cannot see
+everything.
+
+#### P1 · S2 · The identifier the page publishes was not searchable
+
+Every card prints `saas_sales_model.total_sales` as the metric's identity. It
+is the form the compiler resolves and the form a colleague pastes. Typing that
+exact string into the page's own search returned **nothing** — and the empty
+state then said:
+
+> Nothing matches "saas_sales_model.total_sales". Synonyms are searched too, so
+> a metric with no match here **genuinely has none of these words**.
+
+The metric has exactly those words; the page had just rendered them. This is
+not a missing feature but a false statement, in the one sentence written to be
+trusted.
+
+`matchesQuery` tested each field independently, so `saas_sales_model` found ten
+metrics and `total_sales` found one while the qualified form found none. Adding
+`qualifiedName(m)` to the searched list fixes it, and the partial forms fall
+out: `saas_sales_model.` finds ten, `.total_sales` and `model.total` find their
+metrics, and `hr_roster_model.total_sales` correctly finds nothing. The route
+now renders `qualifiedName(m)` too, so the published string and the searched
+string cannot drift.
+
+#### P2 · S2 · The usage scan could be cut short without saying so
+
+This file's header names the expensive mistake outright: _"deprecating a metric
+on the strength of an incomplete scan"_. Its disclosure names threads and
+embeds as unscanned. It did not name the ceiling on the scan itself.
+
+All three reads were bare selects. `lib/pagedSelect` documents, from a
+measurement against this instance, that PostgREST caps a response at 1000 rows
+silently — the same cap that made the dashboard's spend panel report $1.84 for
+a $5.77 window. The bias is what matters: truncation only ever REMOVES
+references, so a capped read pushes every metric toward "no widget uses this" —
+the one direction that gets a metric deprecated.
+
+Not reproducible on this account (11 dashboards, 3 models, 33 tables — every
+read complete, confirmed against exact counts), so this is a latent defect
+reported on the repo's own evidence rather than a wrong number observed. The
+reads now page, `describeUsage` takes the truncation flag, and a cut-short scan
+says "treat this as unknown" instead of reporting a clean absence. A truncated
+POSITIVE result is kept but reported as a floor — a partial scan can still
+prove use, it just cannot prove the count.
+
+`tests/unit/metricsCatalog.test.ts` (+9 → 38). Mutations: drop the qualified
+name from the search fields → 2 fail; report a truncated scan as clean → 1
+fails.
+
+#### One hypothesis dropped
+
+`dataFreshness` resolves the dataset by NAME while the model also carries a
+`table_id`, which looked like the "diff two lists that should match" class —
+rename the dataset and freshness silently becomes "unknown". There is no
+dataset rename anywhere in the product, so the scenario is unreachable; and for
+the reachable case (delete and re-upload under the same name) the name lookup
+is the more robust of the two. Left alone.
 
 ### 2026-08-16 — Connector operations: re-sync, schedule, disconnect
 

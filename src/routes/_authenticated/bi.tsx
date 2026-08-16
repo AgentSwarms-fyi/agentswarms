@@ -60,7 +60,7 @@ import {
   createDashboard,
   deleteDashboard,
   listDashboards,
-  parseWidgets,
+  dashboardSize,
   publicDashboardUrl,
   type BiDashboardRow,
 } from "@/lib/biDashboards";
@@ -410,8 +410,9 @@ function BiWorkspacePage() {
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(230px,1fr))] gap-3">
                   {visibleDashboards.map((d) => {
                     const mine = d.user_id === user?.id;
-                    const widgets = parseWidgets(d.widgets);
-                    const widgetCount = widgets.length;
+                    // Counted from `pages`, the source of truth — NOT from the
+                    // top-level `widgets` mirror, which only ever holds page 1.
+                    const size = dashboardSize(d);
                     return (
                       <Card
                         key={d.id}
@@ -472,7 +473,12 @@ function BiWorkspacePage() {
                                   : undefined
                               }
                             >
-                              {widgetCount} widget{widgetCount === 1 ? "" : "s"}
+                              {size.widgets} widget{size.widgets === 1 ? "" : "s"}
+                              {/* Pages are shown only when there is more than
+                                  one: on a single-page project the word adds
+                                  nothing, but its absence is what made a
+                                  four-page dashboard read like a small one. */}
+                              {size.pages > 1 && <> · {size.pages} pages</>}
                               {(d.view_count ?? 0) > 0 && (
                                 <>
                                   {" "}

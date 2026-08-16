@@ -16,6 +16,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   appendWidgetToPages,
+  dashboardSize,
   makeEmptyPage,
   parseLayout,
   parsePages,
@@ -125,5 +126,69 @@ describe("what the dashboard reads back", () => {
 
     expect(reread[0].widgets.map((w) => w.title)).toEqual(["Already here"]);
     expect(reread[0].widgets.some((w) => w.id === added.id)).toBe(false);
+  });
+});
+
+// ── Adversarial pass, module 12 ─────────────────────────────────────────────
+
+describe("how big a dashboard actually is", () => {
+  // The counting version of the bug this file already guards. The BI Workspace
+  // card read `parseWidgets(row.widgets)` — the page-1 MIRROR — and called it
+  // the dashboard's widget count.
+  //
+  // MEASURED: "Formula 1 Analytics" holds 7 + 4 + 4 + 0 = 15 widgets across
+  // four pages, and its card said "7 widgets". The other ten projects on that
+  // account have a single page, so the count was right by accident everywhere
+  // it was checked. The bias is the same shape as every truncation defect
+  // here: never too high, always too low, and it only goes wrong once someone
+  // adds pages — the thing that makes a dashboard substantial.
+  const w = (title: string) => ({ id: title, kind: "text", title, text: "" }) as unknown as Json;
+
+  const row = (pages: Array<{ id: string; name: string; widgets: unknown[] }>) => ({
+    widgets: (pages[0]?.widgets ?? []) as Json,
+    layout: [] as unknown as Json,
+    pages: pages as unknown as Json,
+  });
+
+  it("counts widgets across every page, not just page 1", () => {
+    const r = row([
+      { id: "p1", name: "2025 Season", widgets: [w("a"), w("b"), w("c")] },
+      { id: "p2", name: "Champions", widgets: [w("d"), w("e")] },
+      { id: "p3", name: "Dynasties", widgets: [w("f")] },
+    ]);
+    expect(dashboardSize(r)).toEqual({ widgets: 6, pages: 3 });
+  });
+
+  it("counts an empty trailing page as a page with no widgets", () => {
+    // Formula 1 had exactly this: a "Page 4" someone added and never filled.
+    const r = row([
+      { id: "p1", name: "One", widgets: [w("a")] },
+      { id: "p2", name: "Two", widgets: [] },
+    ]);
+    expect(dashboardSize(r)).toEqual({ widgets: 1, pages: 2 });
+  });
+
+  it("agrees with the mirror on a single-page dashboard", () => {
+    // The case that was right by accident, and must stay right.
+    const r = row([{ id: "p1", name: "Page 1", widgets: [w("a"), w("b")] }]);
+    expect(dashboardSize(r)).toEqual({ widgets: 2, pages: 1 });
+    expect(parseWidgets(r.widgets)).toHaveLength(2);
+  });
+
+  it("falls back to the top-level mirror for a pre-multi-page dashboard", () => {
+    // Rows saved before `pages` existed have none, and parsePages collapses
+    // them to one page. Reporting 0 widgets for those would be the same defect
+    // pointing the other way.
+    const legacy = {
+      widgets: [w("a"), w("b"), w("c")] as unknown as Json,
+      layout: [] as unknown as Json,
+    };
+    expect(dashboardSize(legacy)).toEqual({ widgets: 3, pages: 1 });
+  });
+
+  it("reports an empty dashboard as empty, not as one phantom page of content", () => {
+    expect(
+      dashboardSize({ widgets: [] as unknown as Json, layout: [] as unknown as Json }),
+    ).toEqual({ widgets: 0, pages: 1 });
   });
 });

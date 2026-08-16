@@ -771,6 +771,34 @@ export function parsePages(
   ];
 }
 
+/**
+ * How much is actually in a dashboard: widgets across EVERY page, and how many
+ * pages there are.
+ *
+ * MEASURED. The BI Workspace card counted `parseWidgets(row.widgets)`, which is
+ * the backward-compatibility MIRROR of page 1 — not the content. "Formula 1
+ * Analytics" is a four-page dashboard holding 7 + 4 + 4 + 0 = 15 widgets, and
+ * its card said "7 widgets". Every other project on that account has one page,
+ * so the count was right by accident everywhere it was checked.
+ *
+ * The bias is the shape that matters: the number is never too high, always too
+ * low, and it only goes wrong once someone adds pages — the very thing that
+ * makes a dashboard substantial. A card exists to tell projects apart, and this
+ * one understated the biggest by 53%.
+ */
+export function dashboardSize(row: { widgets: Json; layout: Json; pages?: Json }): {
+  widgets: number;
+  pages: number;
+} {
+  // Through parsePages, so a pre-multi-page dashboard collapses to its single
+  // page exactly as the editor sees it, rather than being special-cased twice.
+  const pages = parsePages(row.pages, parseWidgets(row.widgets), parseLayout(row.layout, []));
+  return {
+    widgets: pages.reduce((n, p) => n + p.widgets.length, 0),
+    pages: pages.length,
+  };
+}
+
 export function makeEmptyPage(name: string): BiPage {
   return { id: crypto.randomUUID(), name, widgets: [], layout: [] };
 }

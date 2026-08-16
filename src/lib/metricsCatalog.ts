@@ -98,16 +98,34 @@ export function flattenMetrics(models: SemanticModelRow[]): CatalogMetric[] {
 }
 
 /**
+ * The metric's identity as the rest of the product writes it.
+ *
+ * The catalog card prints this, the compiler resolves this, and it is what
+ * someone pastes when a colleague says "use saas_sales_model.total_sales".
+ */
+export function qualifiedName(m: Pick<CatalogMetric, "model" | "name">): string {
+  return `${m.model}.${m.name}`;
+}
+
+/**
  * Match a search across the words a person would actually type.
  *
  * Synonyms are included because they exist precisely so someone can find
  * "bookings" when the metric is called `net_revenue` — a catalog that ignored
  * them would undo the reason for declaring them.
+ *
+ * The QUALIFIED name is included for a sharper reason. Every field here was
+ * matched independently, so `saas_sales_model` found ten metrics and
+ * `total_sales` found one, but `saas_sales_model.total_sales` — the string
+ * this very page prints on the card — found nothing. That is not merely an
+ * empty result: the empty state then says "a metric with no match here
+ * genuinely has none of these words", which was false about the one identifier
+ * the catalog itself publishes.
  */
 export function matchesQuery(m: CatalogMetric, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
-  return [m.name, m.label, m.description, m.model, m.modelLabel, ...m.synonyms]
+  return [m.name, m.label, m.description, m.model, m.modelLabel, qualifiedName(m), ...m.synonyms]
     .filter(Boolean)
     .some((s) => String(s).toLowerCase().includes(q));
 }
@@ -155,11 +173,22 @@ export function metricUsageInDashboards(
  * difference between "nothing uses this" and "nothing I looked at uses this" —
  * and those differ by an analyst thread, an embed, or a saved query.
  */
-export function describeUsage(usage: MetricUsage): string {
-  if (usage.total === 0)
+export function describeUsage(usage: MetricUsage, scanTruncated = false): string {
+  if (usage.total === 0) {
+    // A CUT-SHORT SCAN IS NOT A CLEAN ONE. PostgREST caps a response at 1000
+    // rows silently, and truncation only ever removes references — so it
+    // always pushes toward this branch, the one that gets a metric deprecated.
+    // Naming threads and embeds while hiding that the dashboards themselves
+    // were not all read would be the same omission in a smaller font.
+    if (scanTruncated)
+      return "No reference found, but the dashboard scan was cut short — treat this as unknown";
     return "No dashboard widget references it (threads and embeds not scanned)";
+  }
   const d = usage.dashboards.length;
-  return `${usage.total} widget${usage.total === 1 ? "" : "s"} across ${d} dashboard${d === 1 ? "" : "s"}`;
+  const found = `${usage.total} widget${usage.total === 1 ? "" : "s"} across ${d} dashboard${d === 1 ? "" : "s"}`;
+  // A partial scan can still prove USE — it just cannot prove the count is
+  // complete, so the number is reported as a floor rather than a total.
+  return scanTruncated ? `${found} so far — scan cut short, there may be more` : found;
 }
 
 /**

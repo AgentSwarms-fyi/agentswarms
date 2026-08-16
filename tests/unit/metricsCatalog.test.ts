@@ -14,6 +14,7 @@ import {
   flattenMetrics,
   matchesQuery,
   metricUsageInDashboards,
+  qualifiedName,
   type CatalogMetric,
 } from "@/lib/metricsCatalog";
 import type { SemanticModelRow } from "@/lib/metricsCatalog";
@@ -267,5 +268,72 @@ describe("the catalog header", () => {
       deprecated: 0,
       models: 0,
     });
+  });
+});
+
+// ── Adversarial pass, module 11 ─────────────────────────────────────────────
+
+describe("the qualified name the catalog itself publishes is searchable", () => {
+  // MEASURED IN THE UI. Every card prints `saas_sales_model.total_sales` as the
+  // metric's identifier, and typing that exact string returned nothing — then
+  // the empty state said "a metric with no match here genuinely has none of
+  // these words", which was false about the one name the page had just shown.
+  const m = metric({ model: "saas_sales_model", name: "total_sales", label: "Total Sales" });
+
+  it("matches the model.name form", () => {
+    expect(matchesQuery(m, "saas_sales_model.total_sales")).toBe(true);
+  });
+
+  it("still matches each half on its own", () => {
+    // The old behaviour, which was never wrong — only incomplete.
+    expect(matchesQuery(m, "saas_sales_model")).toBe(true);
+    expect(matchesQuery(m, "total_sales")).toBe(true);
+  });
+
+  it("matches a partial qualified name, the way a paste often arrives", () => {
+    expect(matchesQuery(m, "saas_sales_model.")).toBe(true);
+    expect(matchesQuery(m, ".total_sales")).toBe(true);
+    expect(matchesQuery(m, "model.total")).toBe(true);
+  });
+
+  it("does not match a qualified name from a different model", () => {
+    // The point is to find THIS metric, not to make every dotted string match.
+    expect(matchesQuery(m, "hr_roster_model.total_sales")).toBe(false);
+  });
+
+  it("is the same string the card renders", () => {
+    expect(qualifiedName(m)).toBe("saas_sales_model.total_sales");
+  });
+});
+
+describe("a cut-short scan is not a clean one", () => {
+  // PostgREST caps a response at 1000 rows silently (lib/pagedSelect). The
+  // truncation only ever REMOVES references, so it always pushes toward "no
+  // widget uses this" — the one direction that gets a metric deprecated, which
+  // this file's own header names as the expensive mistake.
+  const none = { dashboards: [], total: 0 };
+  const some = { dashboards: [{ id: "d1", name: "Sales", widgets: ["Revenue"] }], total: 1 };
+
+  it("refuses to report a clean absence when the scan was truncated", () => {
+    const s = describeUsage(none, true);
+    expect(s).toMatch(/cut short/i);
+    expect(s).toMatch(/unknown/i);
+  });
+
+  it("reports a real absence plainly when the scan was complete", () => {
+    const s = describeUsage(none, false);
+    expect(s).toMatch(/No dashboard widget references it/);
+    expect(s).not.toMatch(/cut short/i);
+  });
+
+  it("keeps a truncated positive result, but as a floor", () => {
+    // A partial scan can still PROVE use; it just cannot prove the count.
+    const s = describeUsage(some, true);
+    expect(s).toMatch(/1 widget across 1 dashboard/);
+    expect(s).toMatch(/there may be more/i);
+  });
+
+  it("defaults to the complete-scan wording, so callers cannot forget", () => {
+    expect(describeUsage(none)).toBe(describeUsage(none, false));
   });
 });

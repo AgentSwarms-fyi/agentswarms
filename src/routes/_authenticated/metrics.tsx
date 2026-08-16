@@ -22,6 +22,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
+import { selectAllPages, type PagedResult } from "@/lib/pagedSelect";
 import {
   catalogSummary,
   dataFreshness,
@@ -31,6 +32,7 @@ import {
   flattenMetrics,
   matchesQuery,
   metricUsageInDashboards,
+  qualifiedName,
   type SemanticModelRow,
 } from "@/lib/metricsCatalog";
 
@@ -48,24 +50,49 @@ function MetricsPage() {
   const [dashboards, setDashboards] = useState<DashboardRow[]>([]);
   const [tables, setTables] = useState<TableRow[]>([]);
   const [query, setQuery] = useState("");
+  /** The dashboard read hit its row ceiling, so "no references" is not a fact. */
+  const [scanTruncated, setScanTruncated] = useState(false);
 
   const load = useCallback(async () => {
     if (!user?.id) return;
     // RLS returns the caller's models plus any shared with them, which is
     // exactly the set they may legitimately build on.
-    const [m, d, t] = await Promise.all([
-      supabase.from("semantic_models").select("*"),
-      supabase.from("bi_dashboards").select("id, name, widgets"),
-      supabase.from("user_data_tables").select("name, data_loaded_at"),
-    ]);
-    if (m.error) {
-      toast.error(m.error.message);
+    //
+    // PAGED, not a bare select. PostgREST caps one response at 1000 rows
+    // silently (see lib/pagedSelect), and this page's whole promise is that a
+    // usage scan is honest about its own reach. Truncation only ever REMOVES
+    // references, never adds them, so a capped read pushes every metric toward
+    // "no dashboard widget references it" — the one direction that gets a
+    // metric deprecated, which the file header names as the expensive mistake.
+    let m: PagedResult<SemanticModelRow>;
+    let d: PagedResult<DashboardRow>;
+    let t: PagedResult<TableRow>;
+    try {
+      [m, d, t] = await Promise.all([
+        selectAllPages<SemanticModelRow>(() =>
+          supabase.from("semantic_models").select("*").order("name"),
+        ),
+        selectAllPages<DashboardRow>(() =>
+          supabase.from("bi_dashboards").select("id, name, widgets").order("id"),
+        ),
+        selectAllPages<TableRow>(() =>
+          supabase.from("user_data_tables").select("name, data_loaded_at").order("name"),
+        ),
+      ]);
+    } catch (e) {
+      // A read that FAILED is not an empty semantic layer. Reporting it, and
+      // leaving models as [] only after saying so, is what stops the page
+      // rendering "No governed metrics yet" over a network error.
+      toast.error(e instanceof Error ? e.message : "Could not read the semantic layer");
       setModels([]);
       return;
     }
-    setModels((m.data ?? []) as unknown as SemanticModelRow[]);
-    setDashboards((d.data ?? []) as DashboardRow[]);
-    setTables((t.data ?? []) as TableRow[]);
+    setModels(m.rows);
+    setDashboards(d.rows);
+    setTables(t.rows);
+    // If the ceiling stopped the read, the usage scan is genuinely incomplete
+    // and must say so rather than report a clean "no references".
+    setScanTruncated(d.truncated);
   }, [user?.id]);
 
   useEffect(() => {
@@ -136,8 +163,10 @@ function MetricsPage() {
                   <div className="min-w-0 flex-1">
                     <p className="flex flex-wrap items-center gap-1.5 text-sm font-medium">
                       {m.label || m.name}
+                      {/* One source of truth for this string: it is both what
+                          the card publishes and what the search must match. */}
                       <code className="rounded bg-muted px-1 font-mono text-[10px] font-normal text-muted-foreground">
-                        {m.model}.{m.name}
+                        {qualifiedName(m)}
                       </code>
                       {m.status === "certified" && (
                         <BadgeCheck className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
@@ -174,7 +203,9 @@ function MetricsPage() {
                     {/* null freshness is UNKNOWN, and must not read as "never". */}
                     {fresh ? `Data loaded ${fresh}` : "Data freshness unknown for this source"}
                   </span>
-                  <span>{describeUsage(usage)}</span>
+                  <span className={scanTruncated ? "text-amber-600 dark:text-amber-400" : ""}>
+                    {describeUsage(usage, scanTruncated)}
+                  </span>
                 </div>
               </Card>
             );
