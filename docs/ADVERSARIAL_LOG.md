@@ -29,43 +29,93 @@ has not been tested; it has been visited.
 
 ## Coverage map
 
-| #   | Module              | Route                      | Pass | Date       | Findings                                                 |
-| --- | ------------------- | -------------------------- | ---- | ---------- | -------------------------------------------------------- |
-| 1   | Dashboard           | `/dashboard`               | ✅ 1 | 2026-08-16 | 5 (2×S1, 1×S2, 2×S3)                                     |
-| 2   | Documentation       | `/docs`                    | ✅ 1 | 2026-08-16 | 4 (2×S1, 1×S2, 1×S1 self-inflicted)                      |
-| 3   | Agent Builder       | `/agents`                  | ✅ 1 | 2026-08-16 | 3 (2×S1, 1×S2)                                           |
-| 4   | Knowledge Base      | `/knowledge`               | ✅ 1 | 2026-08-16 | 1 (1×S1)                                                 |
-| 5   | Agent Chat          | `/playground`              | ⚠️ 1 | 2026-08-16 | 2 (1×S1 self-inflicted, 1×S2) — read-only, no model turn |
-| 6   | Agent Swarms        | `/swarms`                  | ✅ 1 | 2026-08-16 | 1 (1×S2)                                                 |
-| 7   | MCP Builder         | `/mcp-builder`             | ✅ 1 | 2026-08-16 | 1 (1×S2)                                                 |
-| 8   | AI Analyst          | `/ai-analyst`              | ✅ 1 | 2026-08-16 | 0 — held; no live turn (over budget cap)                 |
-| 9   | Data Catalog        | `/data-sql`                | —    | —          | —                                                        |
-| 10  | Semantic Layer      | `/semantics`               | —    | —          | —                                                        |
-| 11  | Metrics             | `/metrics`                 | —    | —          | —                                                        |
-| 12  | BI Workspace        | `/bi`                      | —    | —          | —                                                        |
-| 13  | Developer workspace | `/notebooks`               | —    | —          | —                                                        |
-| 14  | Prompt Library      | `/prompts`                 | —    | —          | —                                                        |
-| 15  | Skill Library       | `/skills`                  | —    | —          | —                                                        |
-| 16  | Integrations        | `/integrations`            | —    | —          | —                                                        |
-| 17  | Web Embedding       | `/embeds`                  | —    | —          | —                                                        |
-| 18  | Secrets             | `/secrets`                 | —    | —          | —                                                        |
-| 19  | MCP Servers         | `/mcp`                     | —    | —          | —                                                        |
-| 20  | Model Registry      | `/model-registry`          | —    | —          | —                                                        |
-| 21  | Analytics           | `/analytics`               | —    | —          | —                                                        |
-| 22  | Swarm Traces        | `/analytics/observability` | —    | —          | —                                                        |
-| 23  | Traces & Logs       | `/traces`                  | —    | —          | —                                                        |
-| 24  | Audit Log           | `/audit`                   | —    | —          | —                                                        |
-| 25  | Budgets             | `/budgets`                 | —    | —          | —                                                        |
-| 26  | Monitoring          | `/monitoring`              | —    | —          | —                                                        |
-| 27  | Prompt Compare      | `/prompt-compare`          | —    | —          | —                                                        |
-| 28  | Evaluations         | `/evaluations`             | —    | —          | —                                                        |
-| 29  | Image Playground    | `/image-playground`        | —    | —          | —                                                        |
-| 30  | IAM                 | `/admin/iam`               | —    | —          | —                                                        |
-| 31  | Developer runtime   | `/admin/runtime`           | —    | —          | —                                                        |
+| #   | Module              | Route                      | Pass | Date       | Findings                                                |
+| --- | ------------------- | -------------------------- | ---- | ---------- | ------------------------------------------------------- |
+| 1   | Dashboard           | `/dashboard`               | ✅ 1 | 2026-08-16 | 5 (2×S1, 1×S2, 2×S3)                                    |
+| 2   | Documentation       | `/docs`                    | ✅ 1 | 2026-08-16 | 4 (2×S1, 1×S2, 1×S1 self-inflicted)                     |
+| 3   | Agent Builder       | `/agents`                  | ✅ 1 | 2026-08-16 | 3 (2×S1, 1×S2)                                          |
+| 4   | Knowledge Base      | `/knowledge`               | ✅ 1 | 2026-08-16 | 1 (1×S1)                                                |
+| 5   | Agent Chat          | `/playground`              | ✅ 1 | 2026-08-16 | 2 (1×S1 self-inflicted, 1×S2); guardrails verified live |
+| 6   | Agent Swarms        | `/swarms`                  | ✅ 1 | 2026-08-16 | 1 (1×S2)                                                |
+| 7   | MCP Builder         | `/mcp-builder`             | ✅ 1 | 2026-08-16 | 1 (1×S2)                                                |
+| 8   | AI Analyst          | `/ai-analyst`              | ✅ 1 | 2026-08-16 | 0 — held; no live turn (over budget cap)                |
+| 9   | Data Catalog        | `/data-sql`                | —    | —          | —                                                       |
+| 10  | Semantic Layer      | `/semantics`               | —    | —          | —                                                       |
+| 11  | Metrics             | `/metrics`                 | —    | —          | —                                                       |
+| 12  | BI Workspace        | `/bi`                      | —    | —          | —                                                       |
+| 13  | Developer workspace | `/notebooks`               | —    | —          | —                                                       |
+| 14  | Prompt Library      | `/prompts`                 | —    | —          | —                                                       |
+| 15  | Skill Library       | `/skills`                  | —    | —          | —                                                       |
+| 16  | Integrations        | `/integrations`            | —    | —          | —                                                       |
+| 17  | Web Embedding       | `/embeds`                  | —    | —          | —                                                       |
+| 18  | Secrets             | `/secrets`                 | —    | —          | —                                                       |
+| 19  | MCP Servers         | `/mcp`                     | —    | —          | —                                                       |
+| 20  | Model Registry      | `/model-registry`          | —    | —          | —                                                       |
+| 21  | Analytics           | `/analytics`               | —    | —          | —                                                       |
+| 22  | Swarm Traces        | `/analytics/observability` | —    | —          | —                                                       |
+| 23  | Traces & Logs       | `/traces`                  | —    | —          | —                                                       |
+| 24  | Audit Log           | `/audit`                   | —    | —          | —                                                       |
+| 25  | Budgets             | `/budgets`                 | —    | —          | —                                                       |
+| 26  | Monitoring          | `/monitoring`              | —    | —          | —                                                       |
+| 27  | Prompt Compare      | `/prompt-compare`          | —    | —          | —                                                       |
+| 28  | Evaluations         | `/evaluations`             | —    | —          | —                                                       |
+| 29  | Image Playground    | `/image-playground`        | —    | —          | —                                                       |
+| 30  | IAM                 | `/admin/iam`               | —    | —          | —                                                       |
+| 31  | Developer runtime   | `/admin/runtime`           | —    | —          | —                                                       |
 
 ## Findings
 
 <!-- newest first -->
+
+### 2026-08-16 — Deferred live verification (cap raised to $20)
+
+The budget cap was raised from $5 to $20, so the work Modules 4, 5 and 8 had to
+skip was run for real. Spend at the time: $5.95 of $20.
+
+#### M4 · The empty-retrieval fix, exercised end to end
+
+Three turns against an agent with a knowledge base attached:
+
+1. **"What is the refund policy for AgentSwarms subscriptions?"** — retrieval
+   returned 5 citations, so this exercised the pre-existing non-empty path. The
+   agent refused to invent a policy, named what the knowledge base _does_ cover,
+   and pointed elsewhere.
+2. **"What is our parental leave entitlement in Portugal?"** — also matched
+   citations. Worth recording: the document-level keyword fallback has **loose
+   recall**, matching an unrelated blog document on common terms. Not a defect
+   (recall over precision is the right bias for a fallback) but it makes the
+   empty branch rare in practice on a populated KB.
+3. **A Portuguese-language question** with no term present in an English
+   corpus — **zero citations**, the empty branch. The model answered that it did
+   not have access to that data, named what it _did_ have, and fabricated
+   nothing.
+
+**What this proves and does not.** It proves the empty path executes cleanly
+after the change and the model does not confabulate. It does **not** prove the
+new prompt text was the decisive cause — one sample against a capable model that
+might have said the same thing regardless. Causation would need an A/B, and
+n=1 per arm of a non-deterministic model would not settle it either. The unit
+tests prove the instruction is present; this proves the path works.
+
+#### M5 · PII redaction genuinely fires
+
+No existing agent had guardrails switched on, so a disposable probe agent was
+created with `piiMode: "redact"` rather than mutating a real one. Sending an
+email address and a card number through `/api/chat`, the model replied:
+
+> "I can't repeat that message exactly as written because it contains
+> **redacted sensitive information placeholders**."
+
+Neither the real email nor the card reached the model. The agent had been told
+to echo verbatim, which is what makes the reply evidence rather than inference.
+Probe agent deleted afterwards; its traces are left in place because they are
+real spend and belong in the ledger.
+
+#### Correction carried into Module 3
+
+Reading those guardrails is what exposed the overstatement corrected in the
+Module 3 entry above — 18 guardrail _keys_, nearly all off, cited as if they
+measured lost protection.
 
 ### 2026-08-16 — Module 8, AI Analyst (`/ai-analyst`)
 
@@ -336,10 +386,22 @@ it survived review.
 owner can see_, while `metric_model_names` empty means _no models_. So dropping
 the SQL allow-list **widened** what the node could read.
 
-Measured on a real agent, "Demo · Friendly Assistant": 18 guardrail settings,
-`sql_query` limited to `saas_sales`, `metric_query` limited to
-`saas_sales_model`, four tools on. Imported, it produced a node with no
-guardrails, no table limit, and only two of its four tools.
+Measured on a real agent, "Demo · Friendly Assistant": `sql_query` limited to
+`saas_sales`, `metric_query` limited to `saas_sales_model`, four tools on.
+Imported, it produced a node with no table limit and only two of its four tools.
+
+**CORRECTION (same day, on re-measurement).** The first version of this entry
+said that agent carried "18 guardrail settings", and used it as evidence of
+dropped protection. It has 18 guardrail _keys_, and they are almost all **off** —
+`blockPII: false`, `piiMode: "off"`, `contentSafetyLevel: "off"`, both filter
+toggles false, patterns and topics empty. Only the numeric defaults
+(`maxInputLength`, `rateLimitPerMinute`, `maxTurnsPerConversation`) are set.
+
+The code defect is unaffected: `importFromLibrary` copied **no** guardrails at
+all, so any agent that does have them enabled loses them entirely, and the SQL
+allow-list drop is unambiguous because empty means every table. But the number
+was cited as if it measured lost protection, and it did not. Counting fields and
+calling it evidence of enforcement is the same error this log exists to catch.
 
 Fixed in `src/lib/agentToSwarmNode.ts` — pure, exported, and the only mapping.
 Verified by driving the real picker in the canvas: the node now shows SQL Query
