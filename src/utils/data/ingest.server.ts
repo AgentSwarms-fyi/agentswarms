@@ -441,6 +441,14 @@ export async function ingestRows(args: {
   tableName: string;
   /** Shown as the dataset's origin, e.g. "Google Sheets · Q3 Budget". */
   sourceLabel: string;
+  /**
+   * The connector this data came from, when it came from one.
+   *
+   * sourceLabel is for a human to read; this is the fact the Data Catalog
+   * groups by. Without it, connector-synced tables were filed under "Local
+   * tables" — true about their storage and useless about their origin.
+   */
+  saas?: { connectionId: string; stream: string };
   rows: AsyncIterable<Record<string, unknown>>;
 }): Promise<IngestResult> {
   const maxRows = uploadMaxRows();
@@ -453,6 +461,12 @@ export async function ingestRows(args: {
       source_filename: args.sourceLabel.slice(0, 200),
       columns: [] as unknown as Json,
       is_sample: false,
+      // Cast for the reason budgetSpendClient documents: types.ts is generated
+      // from the DEPLOYED schema, and these columns ship in migration
+      // 20260832000000. Regenerating types after applying it removes the need.
+      ...((args.saas
+        ? { saas_connection_id: args.saas.connectionId, saas_stream: args.saas.stream }
+        : {}) as Record<string, never>),
     })
     .select("id")
     .single();
@@ -473,6 +487,7 @@ export async function ingestRows(args: {
       tableName: args.tableName,
       sourceFilename: args.sourceLabel,
       columns: sink.columns,
+      saas: args.saas,
     });
     return {
       ...result,
@@ -509,6 +524,15 @@ async function promoteStaging(args: {
   tableName: string;
   sourceFilename: string;
   columns: ColumnDef[];
+  /**
+   * Carried through to the REPLACE branch as well as the first-sync one.
+   *
+   * On a first sync the staging row becomes the dataset and keeps whatever it
+   * was inserted with. On a re-sync the staging row is deleted and an existing
+   * row is updated — so attribution set only at insert would be written once
+   * and then lost on every subsequent sync, which is the common case.
+   */
+  saas?: { connectionId: string; stream: string };
 }): Promise<{ tableId: string; tableName: string }> {
   const { data: existing } = await supabaseAdmin
     .from("user_data_tables")
@@ -561,6 +585,10 @@ async function promoteStaging(args: {
       source_filename: args.sourceFilename.slice(0, 200),
       columns: args.columns as unknown as Json,
       data_loaded_at: now,
+      // See the staging insert above for why this is cast.
+      ...((args.saas
+        ? { saas_connection_id: args.saas.connectionId, saas_stream: args.saas.stream }
+        : {}) as Record<string, never>),
     })
     .eq("id", existing.id);
   if (metaErr) throw new Error(metaErr.message);

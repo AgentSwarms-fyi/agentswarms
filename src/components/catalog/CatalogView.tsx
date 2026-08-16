@@ -26,6 +26,7 @@ import {
   Loader2,
   MoreVertical,
   Play,
+  Plug,
   Plus,
   RefreshCw,
   Search,
@@ -102,6 +103,18 @@ import {
   type GlossaryTerm,
   type LineageIndex,
 } from "@/lib/dataCatalog";
+import { supabase } from "@/integrations/supabase/client";
+import {
+  LOCAL_SOURCE_ID,
+  datasetSourceIds,
+  saasSourcesFrom,
+  type SaasAttributionRow,
+  type SaasSource,
+} from "@/lib/catalogSources";
+import { SCHEDULE_LABELS, scheduleSummary } from "@/lib/saasSchedule";
+import { listSaasConnections, setSaasSchedule, syncSaasConnection } from "@/utils/saas.functions";
+import { SAAS_LABELS } from "@/utils/saas/types";
+import type { SaasConnectionSummary, SyncSchedule } from "@/utils/saas/types";
 import { hydrateFromSupabase } from "@/lib/sqlEngine";
 import { objectSqlName } from "@/lib/objectSqlName";
 import {
@@ -114,8 +127,6 @@ import { DatasetQualityPanel, QualityChip } from "@/components/catalog/DatasetQu
 import { GlossaryDialog } from "@/components/catalog/GlossaryDialog";
 import { loadLatestQualityResults, listQualityTests, rollupByTable } from "@/lib/dataQuality";
 import type { QualityRollup } from "@/lib/dataQualityCore";
-
-const LOCAL_SOURCE_ID = "local";
 
 /** Local tables presented in the same shape as crawled assets. */
 type UnifiedAsset = CatalogAsset & { local?: boolean };
@@ -138,6 +149,9 @@ export function CatalogView({
   const crawlFn = useServerFn(catalogCrawlSource);
   const deleteFn = useServerFn(catalogDeleteSource);
   const catalogSetScheduleFn = useServerFn(catalogSetSchedule);
+  const listConnectionsFn = useServerFn(listSaasConnections);
+  const syncConnectionFn = useServerFn(syncSaasConnection);
+  const saasScheduleFn = useServerFn(setSaasSchedule);
   // A catalog source shared via IAM is read-only for the grantee: they can
   // browse it but not re-crawl / reschedule / delete / curate.
   const myId = session?.user?.id ?? "";
@@ -161,6 +175,11 @@ export function CatalogView({
   const [catalogLineage, setCatalogLineage] = useState<CatalogLineageEdge[]>([]);
   const [glossary, setGlossary] = useState<GlossaryTerm[]>([]);
   const [glossaryOpen, setGlossaryOpen] = useState(false);
+  /** Connector-synced sources, so the rail and the SOURCE column can name them. */
+  const [saasSources, setSaasSources] = useState<SaasSource[]>([]);
+  /** The same rows, keyed by connection id, for the rail's sync/schedule menu. */
+  const [saasConnections, setSaasConnections] = useState<SaasConnectionSummary[]>([]);
+  const [syncingConnIds, setSyncingConnIds] = useState<Set<string>>(new Set());
 
   /**
    * Re-read the LOCAL datasets from Supabase.
@@ -175,16 +194,48 @@ export function CatalogView({
   const reloadLocal = useCallback(async (): Promise<UnifiedAsset[]> => {
     try {
       const tables = await hydrateFromSupabase();
+      // WHERE A SYNCED DATASET CAME FROM.
+      //
+      // Connector-synced tables live in user_data_tables like any upload —
+      // deliberately, so a synced dataset cannot behave differently to an
+      // uploaded one. But that made the catalog file seven Salesforce tables
+      // under "Local tables", which is true about their storage and useless
+      // about their origin. saas_connection_id (migration 20260832000000) is
+      // the fact; source_filename was only ever a label to read.
+      const [{ data: attribution }, connections] = await Promise.all([
+        // Cast through unknown: types.ts is generated from the DEPLOYED schema
+        // and these columns ship in migration 20260832000000. Regenerating
+        // types after applying it removes the need.
+        supabase.from("user_data_tables").select("id, saas_connection_id") as unknown as Promise<{
+          data: SaasAttributionRow[] | null;
+        }>,
+        // The SAME server function the Integration Hub calls, not a direct
+        // table read. Two pages that answer "when did this last sync?" from
+        // two different queries eventually disagree — and the direct read
+        // cannot see sources reached through an IAM grant at all.
+        token
+          ? listConnectionsFn({ data: { access_token: token } }).catch(() => [])
+          : Promise.resolve([]),
+      ]);
+      const conns = connections;
+      setSaasConnections(conns);
+      const saasList = saasSourcesFrom(conns);
+      setSaasSources(saasList);
+      const saasByTable = datasetSourceIds(attribution ?? [], conns);
+      const providerBySource = new Map(saasList.map((s) => [s.id, s.provider]));
       const mapped: UnifiedAsset[] = tables.map((d) => {
         const columns = d.columns.map((c) => ({
           name: c.name,
           type: c.type,
           pii: isPiiColumnName(c.name) || undefined,
         }));
+        const saasSource = saasByTable.get(d.id);
         return {
           id: `local:${d.id}`,
           user_id: myId,
-          source_id: LOCAL_SOURCE_ID,
+          // A connector-synced table belongs to its connection, not to the
+          // catch-all bucket that only describes where the bytes sit.
+          source_id: saasSource ?? LOCAL_SOURCE_ID,
           asset_type: "table" as const,
           schema_name: null,
           name: d.name,
@@ -194,7 +245,14 @@ export function CatalogView({
           // The real size when the dataset has been synced to Parquet. This was
           // hardcoded null, so a table whose size is known still showed "—".
           size_bytes: d.parquet_bytes,
-          format: d.is_sample ? "sample" : "csv",
+          // A synced table was never a CSV file, and saying so is the same
+          // mistake as filing it under "Local tables" — describing the pipe it
+          // came down rather than where it came from.
+          format: saasSource
+            ? (providerBySource.get(saasSource) ?? "synced")
+            : d.is_sample
+              ? "sample"
+              : "csv",
           file_count: null,
           description: null,
           tags: d.is_sample ? ["sample"] : [],
@@ -223,7 +281,7 @@ export function CatalogView({
       setLocalAssets([]);
       return [];
     }
-  }, [myId]);
+  }, [myId, token, listConnectionsFn]);
 
   const reload = useCallback(async () => {
     try {
@@ -371,6 +429,70 @@ export function CatalogView({
     await reload();
   }
 
+  /**
+   * Re-sync a connector source from the catalog.
+   *
+   * Calls the SAME server function the Integration Hub's button calls, so the
+   * two cannot drift: it writes last_sync_status / last_synced_at on the
+   * connection row, which is what makes the Hub's "Last sync" column reflect a
+   * run started from here.
+   */
+  async function resyncSaas(s: SaasSource) {
+    const conn = saasConnections.find((c) => c.id === s.connectionId);
+    setSyncingConnIds((prev) => new Set(prev).add(s.connectionId));
+    try {
+      const res = await syncConnectionFn({
+        data: { access_token: token, id: s.connectionId },
+      });
+      const rows = res.synced.reduce((n, r) => n + r.rowCount, 0);
+      if (res.failed.length > 0) {
+        // A PARTIAL SYNC IS NOT SUCCESS — the same rule the Hub applies. One
+        // stream of seven failing quietly is how a dashboard goes stale.
+        toast.warning(
+          `${conn?.name ?? s.name}: synced ${res.synced.length}, failed ${res.failed.length} — ` +
+            `${res.failed[0].stream}: ${res.failed[0].error}`,
+        );
+      } else {
+        toast.success(
+          `${conn?.name ?? s.name}: ${res.synced.length} dataset${
+            res.synced.length === 1 ? "" : "s"
+          }, ${rows.toLocaleString()} rows`,
+        );
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Sync failed");
+    } finally {
+      setSyncingConnIds((prev) => {
+        const next = new Set(prev);
+        next.delete(s.connectionId);
+        return next;
+      });
+      // Either way: a failed run still changed the row's status, and the rail
+      // has to show that rather than the state from before the attempt.
+      await reload();
+    }
+  }
+
+  async function setSaasScheduleFor(s: SaasSource, schedule: SyncSchedule) {
+    const conn = saasConnections.find((c) => c.id === s.connectionId);
+    if (conn?.shared)
+      return toast.error("This source is shared read-only — only its owner can schedule syncs");
+    try {
+      await saasScheduleFn({
+        data: { access_token: token, id: s.connectionId, sync_schedule: schedule },
+      });
+      toast.success(
+        schedule === "manual"
+          ? `“${s.name}” now syncs only when you ask`
+          : `“${s.name}” syncs ${schedule} — first run starts shortly`,
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not change the schedule");
+    } finally {
+      await reload();
+    }
+  }
+
   const sourceIcon = (s: CatalogSource) =>
     s.kind === "warehouse" ? (
       <Server className="h-3.5 w-3.5" />
@@ -395,6 +517,14 @@ export function CatalogView({
     />
   );
 
+  /**
+   * One instant for the whole rail.
+   *
+   * Recomputed on each render rather than ticking: these labels are coarse
+   * ("in 3 hours"), so a live countdown would be motion without information.
+   */
+  const railNow = new Date();
+
   const assetCountBySource = useMemo(() => {
     const m = new Map<string, number>();
     for (const a of allAssets) m.set(a.source_id, (m.get(a.source_id) ?? 0) + 1);
@@ -410,8 +540,14 @@ export function CatalogView({
       <FileText className="h-3.5 w-3.5 text-sky-600 dark:text-sky-400" />
     );
 
-  const sourceName = (a: UnifiedAsset) =>
-    a.source_id === LOCAL_SOURCE_ID ? "Local tables" : (sourceById.get(a.source_id)?.name ?? "—");
+  const sourceName = (a: UnifiedAsset) => {
+    if (a.source_id === LOCAL_SOURCE_ID) return "Local tables";
+    // A synced dataset is named for the connection it came from. It is still
+    // stored locally; that is simply not the interesting fact about it.
+    const saas = saasSources.find((s) => s.id === a.source_id);
+    if (saas) return saas.name;
+    return sourceById.get(a.source_id)?.name ?? "—";
+  };
 
   /**
    * Formats the object-store engine can open. A bucket can hold anything —
@@ -513,9 +649,141 @@ export function CatalogView({
             >
               <HardDrive className="h-3.5 w-3.5" /> Local tables
               <span className="ml-auto text-[10px] text-muted-foreground">
-                {localAssets.length}
+                {localAssets.filter((a) => a.source_id === LOCAL_SOURCE_ID).length}
               </span>
             </button>
+
+            {/* Connector-synced datasets, listed under the connection they came
+                from. They are stored locally like any upload — that is simply
+                not the fact anyone is looking for when they ask where a table
+                came from. */}
+            {saasSources.map((s) => {
+              const count = localAssets.filter((a) => a.source_id === s.id).length;
+              if (count === 0) return null;
+              const conn = saasConnections.find((c) => c.id === s.connectionId);
+              const syncing = syncingConnIds.has(s.connectionId);
+              const sched = conn ? scheduleSummary(conn, railNow) : null;
+              return (
+                <div
+                  key={s.id}
+                  className={`group flex items-center gap-1 rounded-md ${
+                    sourceFilter === s.id ? "bg-primary/10" : "hover:bg-muted"
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setSourceFilter(s.id)}
+                    className={`flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left text-xs ${
+                      sourceFilter === s.id ? "font-medium text-primary" : ""
+                    }`}
+                    title={
+                      conn
+                        ? `${SAAS_LABELS[conn.provider] ?? s.provider} · ${
+                            sched?.cadence ?? ""
+                          }${sched?.next ? ` · ${sched.next}` : ""}${
+                            conn.last_sync_error ? `\n${conn.last_sync_error}` : ""
+                          }`
+                        : `${s.provider} · synced, stored locally`
+                    }
+                  >
+                    <Cloud className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">{s.name}</span>
+                    {conn && conn.sync_schedule !== "manual" && (
+                      <CalendarClock
+                        className={`h-3 w-3 shrink-0 ${
+                          sched?.broken ? "text-destructive" : "text-muted-foreground"
+                        }`}
+                        aria-label={`syncs ${conn.sync_schedule}`}
+                      />
+                    )}
+                    {/* Same three states the crawled sources use, from the
+                        sync's own record rather than a second opinion. A
+                        partial sync is amber, not green: it is the case where
+                        some datasets are current and some are silently not. */}
+                    <span
+                      title={
+                        conn?.last_sync_status === "error" || conn?.last_sync_status === "partial"
+                          ? (conn.last_sync_error ?? conn.last_sync_status)
+                          : (conn?.last_sync_status ?? "never synced")
+                      }
+                      className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                        syncing
+                          ? "animate-pulse bg-amber-500"
+                          : conn?.last_sync_status === "ok"
+                            ? "bg-emerald-500"
+                            : conn?.last_sync_status === "partial"
+                              ? "bg-amber-500"
+                              : conn?.last_sync_status
+                                ? "bg-destructive"
+                                : "bg-muted-foreground/40"
+                      }`}
+                    />
+                    <span className="ml-auto text-[10px] text-muted-foreground">{count}</span>
+                  </button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
+                        title="Re-sync, schedule"
+                      >
+                        {syncing ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <MoreVertical className="h-3 w-3" />
+                        )}
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-52">
+                      <DropdownMenuItem
+                        className="gap-2 text-xs"
+                        disabled={syncing}
+                        onClick={() => void resyncSaas(s)}
+                      >
+                        <RefreshCw className="h-3.5 w-3.5" /> Re-sync now
+                      </DropdownMenuItem>
+                      <DropdownMenuSub>
+                        <DropdownMenuSubTrigger className="gap-2 text-xs">
+                          <CalendarClock className="h-3.5 w-3.5" /> Schedule
+                          <span className="ml-auto text-[10px] text-muted-foreground">
+                            {conn?.sync_schedule ?? "—"}
+                          </span>
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuPortal>
+                          <DropdownMenuSubContent className="w-44">
+                            {(Object.keys(SCHEDULE_LABELS) as SyncSchedule[]).map((opt) => (
+                              <DropdownMenuItem
+                                key={opt}
+                                className="gap-2 text-xs"
+                                disabled={conn?.shared}
+                                onClick={() => void setSaasScheduleFor(s, opt)}
+                              >
+                                {SCHEDULE_LABELS[opt]}
+                                {conn?.sync_schedule === opt && (
+                                  <BadgeCheck className="ml-auto h-3 w-3 text-primary" />
+                                )}
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuSubContent>
+                        </DropdownMenuPortal>
+                      </DropdownMenuSub>
+                      <DropdownMenuSeparator />
+                      {/* Disconnecting deletes a credential and stops every
+                          schedule on it. That belongs where the credential was
+                          entered and where the warning can state what it costs
+                          — not behind a rail menu whose other items are
+                          reversible. */}
+                      <DropdownMenuItem asChild className="gap-2 text-xs">
+                        <Link to="/integrations">
+                          <Plug className="h-3.5 w-3.5" /> Manage connection
+                        </Link>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              );
+            })}
 
             {sources.map((s) => (
               <div

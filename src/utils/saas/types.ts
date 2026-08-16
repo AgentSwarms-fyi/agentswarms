@@ -96,6 +96,24 @@ export type SaasConnectionSummary = {
   last_sync_error: string | null;
   last_synced_at: string | null;
   created_at: string;
+  /** How often this syncs on its own. "manual" means only when asked. */
+  sync_schedule: SyncSchedule;
+  /**
+   * When the scheduler will next claim it — null for a manual source.
+   *
+   * Reported rather than derived in the UI: it is the scheduler's own claim
+   * token, so a source whose runs are stuck shows a due time in the past
+   * instead of a comforting "next run in 4 hours" that no one will honour.
+   */
+  next_sync_at: string | null;
+  /**
+   * Datasets this connection currently owns.
+   *
+   * Counted so the disconnect warning can state what survives. "Datasets are
+   * kept" is true but unhelpful when the reader cannot tell whether that means
+   * one table or forty.
+   */
+  dataset_count?: number;
   /**
    * Scheduled auth probe, kept separate from the SYNC result above.
    *

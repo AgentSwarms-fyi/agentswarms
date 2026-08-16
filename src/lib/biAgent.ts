@@ -427,9 +427,30 @@ export function describeSchema(
 
   const govLines = governedLines(datasets);
 
+  // A `date` column is PHYSICALLY TEXT, and the model has to be told.
+  //
+  // duckType maps date → VARCHAR in both engines, deliberately: values arrive
+  // in mixed formats and a failed CAST would drop the row rather than the
+  // value. But the schema above says "(date)", so a model reasonably writes
+  // DATE_TRUNC('month', CloseDate) — and DuckDB answers
+  //   Binder Error: No function matches date_trunc(STRING_LITERAL, VARCHAR)
+  // which is a wall, not a hint.
+  //
+  // MEASURED across this account's 254 saved widget queries: 6 use a date
+  // function, 4 cast and 2 do not. Nothing in the prompt said which was
+  // required, so the model was coin-flipping on it.
+  const dateColumns = datasets.some((d) => d.columns.some((c) => c.type === "date"));
+
   return [
     "AVAILABLE TABLES:",
     ...tableLines,
+    dateColumns
+      ? "\nDATE COLUMNS ARE STORED AS TEXT. A column marked (date) holds an ISO-like " +
+        "string, not a DATE. Before any date function or date arithmetic, cast it: " +
+        "DATE_TRUNC('month', CAST(col AS DATE)), EXTRACT(year FROM CAST(col AS DATE)). " +
+        "For a non-ISO format use strptime(col, '%m/%d/%Y') instead of CAST. " +
+        "Comparing or grouping the raw text is fine and needs no cast."
+      : "",
     metricLines.length ? "\nSAVED METRICS (use these formulas verbatim):" : "",
     ...metricLines,
     govLines.length
@@ -633,6 +654,20 @@ export async function generateSql(args: {
   const ask = args.llm ?? llmJson;
   const out = await ask<{ sql: string }>({ model: args.model, systemPrompt, userPrompt });
   return out.sql;
+}
+
+/**
+ * What to report when a query failed, was retried with the engine's own error,
+ * and failed again.
+ *
+ * SAY THAT TWO ATTEMPTS HAPPENED. Reporting only the retry's message reads as
+ * one failed query, and hides that the model was already shown this mistake and
+ * did not fix it — which is exactly what the reader needs in order to decide
+ * whether to rephrase the question or give up on it. Both errors are kept
+ * because they are often different: the retry can fail somewhere else entirely.
+ */
+export function repairFailureMessage(first: string, second: string): string {
+  return `${first} — and the retry also failed: ${second}`;
 }
 
 /**
@@ -1128,9 +1163,45 @@ export async function runBiTurn(args: {
     // Dynamic so the browser engine is loaded only when it is actually used.
     // Callers that inject `execute` — the eval, and anything server-side —
     // never touch it, which is what keeps this module importable under Node.
-    turn.result = args.execute
-      ? await args.execute(turn.sql)
-      : await (await import("@/lib/sqlEngine")).runQuery(turn.sql);
+    const runSql = async (sql: string) =>
+      args.execute
+        ? await args.execute(sql)
+        : await (await import("@/lib/sqlEngine")).runQuery(sql);
+
+    try {
+      turn.result = await runSql(turn.sql);
+    } catch (e) {
+      // ONE REPAIR PASS with the engine's own error.
+      //
+      // buildSqlPrompt has supported this since it was written, and aiAnalyst
+      // uses it — its comment even says "like the BI analyst". This path did
+      // not, so a recoverable engine error ended the widget.
+      //
+      // MEASURED: generating a Salesforce dashboard, "Quarterly Win Rate by
+      // Close Date" died on STRFTIME(..., '%Y-Q%q') — DuckDB has no %q. Eleven
+      // widgets built, that one was dropped, for a mistake the model can fix
+      // when it is shown the error. One pass, not a loop: a second failure
+      // after seeing the engine's own message is not a typo.
+      const failed = turn.sql;
+      const firstError = (e as Error).message;
+      try {
+        turn.sql = await generateSql({
+          question: args.question,
+          plan: turn.plan,
+          datasets: args.datasets,
+          semantics: args.semantics,
+          metrics: args.metrics,
+          dialect: args.dialect,
+          localEngine: args.execute ? args.localEngine : "duckdb",
+          model: args.model,
+          repair: { sql: failed, error: firstError },
+        });
+        args.onUpdate({ ...turn });
+        turn.result = await runSql(turn.sql);
+      } catch (e2) {
+        throw new Error(repairFailureMessage(firstError, (e2 as Error).message));
+      }
+    }
     turn.status = "charting";
     args.onUpdate({ ...turn });
 

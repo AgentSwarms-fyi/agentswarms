@@ -1418,15 +1418,6 @@ function BiProjectPage() {
                 size="sm"
                 variant="ghost"
                 className="h-8 gap-1.5 px-2.5 text-xs"
-                onClick={() => setGenerateOpen(true)}
-                title="Generate a whole dashboard from a goal with AI"
-              >
-                <Wand2 className="h-3.5 w-3.5 text-primary" /> Generate
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8 gap-1.5 px-2.5 text-xs"
                 onClick={() => setSweepOpen(true)}
                 title="Scan the snapshots for trends, outliers and concentration — computed, no model call"
               >
@@ -1488,6 +1479,19 @@ function BiProjectPage() {
           {!readOnly && (
             <>
               <div className="mx-1.5 h-5 w-px bg-border" />
+              {/* The two controls that act on the WHOLE dashboard, kept
+                  together and away from the per-widget actions above. Sitting
+                  in that row, "Generate" read as one more way to add a single
+                  chart; here it reads as what it is — the counterpart to
+                  publishing the finished thing. */}
+              <Button
+                size="sm"
+                className="h-8 gap-1.5 px-3 text-xs"
+                onClick={() => setGenerateOpen(true)}
+                title="Generate a whole dashboard from a goal with AI"
+              >
+                <Wand2 className="h-3.5 w-3.5" /> Generate Entire Dashboard
+              </Button>
               <Button
                 size="sm"
                 className="h-8 gap-1.5 px-3 text-xs"

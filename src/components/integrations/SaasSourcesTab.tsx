@@ -9,7 +9,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { format } from "date-fns";
-import { Check, Loader2, Plug2, RefreshCw, Trash2, X } from "lucide-react";
+import { Check, Loader2, Plug2, RefreshCw, Trash2, Unplug, X } from "lucide-react";
 
 import {
   AlertDialog,
@@ -66,8 +66,10 @@ import {
   discoverSaasStreams,
   listSaasConnections,
   saveSaasConnection,
+  setSaasSchedule,
   syncSaasConnection,
 } from "@/utils/saas.functions";
+import { SCHEDULE_LABELS, scheduleSummary } from "@/lib/saasSchedule";
 
 type Field = {
   key: string;
@@ -223,6 +225,7 @@ export function SaasSourcesTab() {
   const remove = useServerFn(deleteSaasConnection);
   const discover = useServerFn(discoverSaasStreams);
   const sync = useServerFn(syncSaasConnection);
+  const reschedule = useServerFn(setSaasSchedule);
 
   const [connections, setConnections] = useState<SaasConnectionSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -349,17 +352,43 @@ export function SaasSourcesTab() {
     setBusy(true);
     try {
       await remove({ data: { access_token: token, id: confirmRemove.id } });
-      toast.success("Data source removed");
+      toast.success(`Disconnected “${confirmRemove.name}”`);
       await refresh();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not remove it");
+      toast.error(e instanceof Error ? e.message : "Could not disconnect it");
     } finally {
       setBusy(false);
       setConfirmRemove(null);
     }
   };
 
+  const onSchedule = async (c: SaasConnectionSummary, next: SyncSchedule) => {
+    if (c.sync_schedule === next) return;
+    try {
+      await reschedule({ data: { access_token: token, id: c.id, sync_schedule: next } });
+      toast.success(
+        next === "manual"
+          ? `“${c.name}” now syncs only when you ask`
+          : `“${c.name}” syncs ${next} — first run starts shortly`,
+      );
+      await refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not change the schedule");
+      // Re-read either way: a rejected change must not leave the select
+      // showing a cadence the row does not have.
+      await refresh();
+    }
+  };
+
   const help = dialogProvider ? PROVIDER_HELP[dialogProvider] : null;
+  /**
+   * One instant for every row, so two rows a second apart do not disagree
+   * about what "due now" means.
+   */
+  const now = new Date();
+  /** Connections for a provider, and the subset this user may disconnect. */
+  const forProvider = (p: SaasProvider) => connections.filter((c) => c.provider === p);
+  const ownedFor = (p: SaasProvider) => forProvider(p).filter((c) => !c.shared);
 
   return (
     <div className="space-y-6">
@@ -374,16 +403,42 @@ export function SaasSourcesTab() {
                 <CardTitle className="text-base">{SAAS_LABELS[p]}</CardTitle>
               </div>
               <p className="text-xs text-muted-foreground">{PROVIDER_HELP[p].description}</p>
-              {connections.some((c) => c.provider === p && c.last_sync_status === "ok") ? (
+              {/* CONNECTED MEANS A CONNECTION EXISTS. This was keyed off
+                  `last_sync_status === "ok"`, so a source that was connected
+                  but had never synced — or whose last run failed — showed no
+                  badge at all and read as "not set up". Sync health is a
+                  different question, answered per row in the table below. */}
+              {forProvider(p).length > 0 ? (
                 <Badge variant="outline" className="w-fit border-primary/30 text-primary">
                   <Check className="mr-1 h-3 w-3" /> Connected
+                  {forProvider(p).length > 1 ? ` · ${forProvider(p).length}` : ""}
                 </Badge>
               ) : null}
             </CardHeader>
-            <CardContent>
+            <CardContent className="flex flex-wrap items-center gap-2">
               <Button size="sm" variant="outline" className="gap-1.5" onClick={() => openDialog(p)}>
-                <Plug2 className="h-3.5 w-3.5" /> Connect
+                <Plug2 className="h-3.5 w-3.5" />
+                {forProvider(p).length > 0 ? "Add another" : "Connect"}
               </Button>
+              {/* Offered only when there is ONE thing it could mean. With
+                  several connections of the same provider a card-level
+                  "Disconnect" would have to guess which, so the per-row
+                  buttons below stay the only way to say it. */}
+              {ownedFor(p).length === 1 && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="gap-1.5 text-destructive hover:text-destructive"
+                  onClick={() => setConfirmRemove(ownedFor(p)[0])}
+                >
+                  <Unplug className="h-3.5 w-3.5" /> Disconnect
+                </Button>
+              )}
+              {ownedFor(p).length > 1 && (
+                <span className="text-[11px] text-muted-foreground">
+                  {ownedFor(p).length} connections — disconnect below
+                </span>
+              )}
             </CardContent>
           </Card>
         ))}
@@ -409,7 +464,8 @@ export function SaasSourcesTab() {
                   <TableHead>Name</TableHead>
                   <TableHead>Source</TableHead>
                   <TableHead>Last sync</TableHead>
-                  <TableHead className="w-[140px]" />
+                  <TableHead className="w-[190px]">Schedule</TableHead>
+                  <TableHead className="w-[210px]" />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -455,26 +511,74 @@ export function SaasSourcesTab() {
                         <span className="text-muted-foreground">never</span>
                       )}
                     </TableCell>
+                    <TableCell>
+                      {c.shared ? (
+                        // A grantee may run a sync but not change the cadence:
+                        // that spends the OWNER's API quota on the owner's
+                        // account. Rendered as text rather than a disabled
+                        // select so it reads as someone else's setting.
+                        <span className="text-xs text-muted-foreground">
+                          {SCHEDULE_LABELS[c.sync_schedule] ?? c.sync_schedule}
+                        </span>
+                      ) : (
+                        <Select
+                          value={c.sync_schedule}
+                          onValueChange={(v) => void onSchedule(c, v as SyncSchedule)}
+                        >
+                          <SelectTrigger className="h-7 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(Object.keys(SCHEDULE_LABELS) as SyncSchedule[]).map((s) => (
+                              <SelectItem key={s} value={s} className="text-xs">
+                                {SCHEDULE_LABELS[s]}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                      {(() => {
+                        const sum = scheduleSummary(c, now);
+                        if (!sum.next) return null;
+                        return (
+                          <p
+                            className={`mt-1 text-[10px] ${
+                              sum.broken ? "text-destructive" : "text-muted-foreground"
+                            }`}
+                          >
+                            {sum.next}
+                          </p>
+                        );
+                      })()}
+                    </TableCell>
                     <TableCell className="text-right">
                       <Button
                         size="sm"
                         variant="ghost"
+                        className="gap-1.5"
                         disabled={syncingId === c.id}
                         onClick={() => runSync(c.id)}
+                        title="Pull every selected stream again, replacing the datasets"
                       >
                         {syncingId === c.id ? (
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         ) : (
                           <RefreshCw className="h-3.5 w-3.5" />
                         )}
+                        {syncingId === c.id ? "Syncing…" : "Sync now"}
                       </Button>
                       {/* Shared sources belong to someone else. The server
                           refuses regardless; a button that always errors is
                           its own bug. Sync stays available — noticing stale
                           data and re-running it is the point of sharing. */}
                       {!c.shared && (
-                        <Button size="sm" variant="ghost" onClick={() => setConfirmRemove(c)}>
-                          <Trash2 className="h-3.5 w-3.5" />
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="gap-1.5 text-destructive hover:text-destructive"
+                          onClick={() => setConfirmRemove(c)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" /> Disconnect
                         </Button>
                       )}
                     </TableCell>
@@ -605,16 +709,62 @@ export function SaasSourcesTab() {
       <AlertDialog open={!!confirmRemove} onOpenChange={(o) => !o && setConfirmRemove(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Remove “{confirmRemove?.name}”?</AlertDialogTitle>
-            <AlertDialogDescription>
-              The stored credentials are deleted. Datasets already synced from this source are KEPT
-              — remove those separately from Data &amp; SQL if you want them gone.
+            <AlertDialogTitle>
+              Disconnect “{confirmRemove?.name}”
+              {confirmRemove ? ` (${SAAS_LABELS[confirmRemove.provider]})` : ""}?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              {/* SPELL OUT BOTH HALVES. "Removed" alone leaves the reader
+                  guessing whether their dashboards are about to break, and the
+                  count matters: "datasets are kept" is unhelpful when you
+                  cannot tell if that means one table or forty. */}
+              <div className="space-y-2 text-sm">
+                <p>This cannot be undone. It stops here and now:</p>
+                <ul className="list-disc space-y-1 pl-4">
+                  <li>The stored credentials are deleted.</li>
+                  <li>
+                    {confirmRemove && confirmRemove.sync_schedule !== "manual"
+                      ? `Scheduled syncs (${SCHEDULE_LABELS[confirmRemove.sync_schedule].toLowerCase()}) stop.`
+                      : "No further syncs will run."}
+                  </li>
+                </ul>
+                <p>What stays:</p>
+                <ul className="list-disc space-y-1 pl-4">
+                  <li>
+                    {typeof confirmRemove?.dataset_count === "number" ? (
+                      <>
+                        <strong>
+                          {confirmRemove.dataset_count} dataset
+                          {confirmRemove.dataset_count === 1 ? "" : "s"}
+                        </strong>{" "}
+                        already synced from this source are kept, with their data and version
+                        history. They stop refreshing, and go back to being filed under “Local
+                        tables” in the Data Catalog.
+                      </>
+                    ) : (
+                      // The count could not be read. Say the true thing
+                      // without a number rather than print a confident zero.
+                      <>
+                        Datasets already synced from this source are kept, with their data and
+                        version history. They stop refreshing.
+                      </>
+                    )}
+                  </li>
+                </ul>
+                <p className="text-muted-foreground">
+                  Delete those datasets separately from Data &amp; SQL if you want them gone.
+                </p>
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={onRemove} disabled={busy}>
-              Remove
+            <AlertDialogAction
+              onClick={onRemove}
+              disabled={busy}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Disconnect
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

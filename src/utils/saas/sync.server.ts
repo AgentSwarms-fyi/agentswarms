@@ -85,6 +85,7 @@ export function datasetNameFor(connectionName: string, streamId: string): string
  */
 export async function syncSaasStream(args: {
   userId: string;
+  connectionId: string;
   connectionName: string;
   config: SaasConfig;
   streamId: string;
@@ -97,6 +98,9 @@ export async function syncSaasStream(args: {
     userId: args.userId,
     tableName,
     sourceLabel: label,
+    // The fact the Data Catalog groups by. sourceLabel above is the same
+    // provenance for a human to read; this is the one a query can filter on.
+    saas: { connectionId: args.connectionId, stream: args.streamId },
     rows: connector.fetchRows(args.config, args.streamId),
   });
 
@@ -136,6 +140,7 @@ export async function runConnectionSync(
 ): Promise<{ synced: SaasSyncResult[]; failed: { stream: string; error: string }[] }> {
   const result = await syncSaasStreams({
     userId: conn.userId,
+    connectionId: conn.id,
     connectionName: conn.name,
     config: conn.config,
     streamIds: conn.streamIds,
@@ -172,6 +177,7 @@ export async function runConnectionSync(
  */
 export async function syncSaasStreams(args: {
   userId: string;
+  connectionId: string;
   connectionName: string;
   config: SaasConfig;
   streamIds: string[];
@@ -183,6 +189,7 @@ export async function syncSaasStreams(args: {
       synced.push(
         await syncSaasStream({
           userId: args.userId,
+          connectionId: args.connectionId,
           connectionName: args.connectionName,
           config: args.config,
           streamId,

@@ -67,7 +67,18 @@ describe("the prompt is keyed off the executor that will run it", () => {
     // engine named in the prompt has to be chosen by that same condition, or
     // the two drift apart again the next time an engine is swapped.
     expect(SRC).toMatch(/localEngine: args\.execute \? args\.localEngine : "duckdb"/);
-    expect(SRC).toMatch(/args\.execute\s*\n?\s*\? await args\.execute\(turn\.sql\)/);
+    expect(SRC).toMatch(/args\.execute\s*\n?\s*\? await args\.execute\(sql\)/);
+  });
+
+  it("the repair attempt runs on the same executor as the first", () => {
+    // The retry added for the %q failure introduced a SECOND execution site.
+    // Both go through one `runSql` helper on purpose: a repair that ran
+    // somewhere else would be generated for one engine and executed on
+    // another — the exact drift the test above exists to catch, reintroduced
+    // one level down.
+    expect(SRC).toMatch(/const runSql = async \(sql: string\)/);
+    expect(SRC.match(/await runSql\(turn\.sql\)/g) ?? []).toHaveLength(2);
+    expect(SRC).not.toMatch(/await \(await import\("@\/lib\/sqlEngine"\)\)\.runQuery\(turn\.sql\)/);
   });
 
   it("does not still claim the browser runs AlaSQL", () => {

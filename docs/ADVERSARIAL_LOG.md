@@ -67,6 +67,169 @@ has not been tested; it has been visited.
 
 <!-- newest first -->
 
+### 2026-08-16 — Connector operations: re-sync, schedule, disconnect
+
+Requested rather than found, but two of the four were defects.
+
+#### R4 · S2 · A connected source could show no sign of being connected
+
+The provider card's "Connected" badge was keyed off
+`last_sync_status === "ok"`. A source that was connected but had never synced,
+or whose last run failed, showed **no badge at all** — indistinguishable from
+one never set up. The card also had no way to disconnect: the only path was the
+trash icon in the table below, which is not where anyone looks after reading
+"Connected".
+
+Connected now means a connection row exists, with the count when there are
+several. Sync health is a different question and stays where it is answered per
+row. Disconnect is offered on the card only when there is exactly ONE owned
+connection for that provider — with several, a card-level button would have to
+guess which, so the per-row buttons remain the only way to say it.
+
+#### R5 · S3 · The disconnect warning could not tell you what it cost
+
+It said credentials are deleted and "datasets already synced are KEPT", which
+is true and unhelpful: the reader cannot tell whether that means one table or
+forty, and nothing mentioned that scheduled syncs stop. `saas_connection_id`
+(R3) makes the number available, so `listSaasConnections` now returns
+`dataset_count` and the dialog states both halves — what stops, and what stays,
+with the count. A failed count leaves the field UNDEFINED and the dialog falls
+back to its general wording: printing a confident "0 datasets" because a query
+failed is how someone deletes a source believing it had none. A shared source's
+datasets belong to its owner and are invisible to the grantee's read, so those
+rows are left uncounted for the same reason.
+
+Verified live: the dialog reported **7 datasets** for `sftest`, matching the
+attribution exactly.
+
+#### Re-sync and schedule, wired to the same server functions
+
+The catalog's SaaS rail entries now carry the crawled sources' affordances —
+status dot, schedule clock, and a menu with Re-sync now / Schedule / Manage
+connection. Both actions call the SAME server functions the Integration Hub
+calls, which is what makes a sync started in one place visible in the other:
+measured end to end, a re-sync run from the Data Catalog moved the Hub's "Last
+sync" from 16 Aug 20:45 to **21:39**, and a cadence changed from the catalog
+menu read back as "Every hour · Next in 59 min" on the Hub.
+
+`setSaasSchedule` is a new server function rather than a call to
+`saveSaasConnection`, which re-encrypts the whole config: changing a cadence
+through that one would demand the credential again and stamp
+`credentials_rotated_at` on a change that rotated nothing. It is owner-only —
+a grantee may run a sync, but changing the cadence spends the owner's API quota
+on the owner's account. A manual run deliberately does NOT move `next_sync_at`;
+the scheduled slot is the owner's setting, not a side effect of a button.
+
+`scheduleSummary` is the pure part, and its rules are all about the case where
+a cadence is set and the run is **not** coming: an overdue `next_sync_at` reads
+"Due now" rather than a countdown, a cadence with no due time is flagged
+(the scheduler's claim query can never match it, so it will never run again),
+and a manual source with a leftover due time is flagged too.
+`tests/unit/saasScheduleSummary.test.ts` (12). Mutations: render overdue as a
+countdown → 2 fail; report a missing due time as healthy → 1 fails.
+
+#### Process note: I overwrote an existing test file
+
+Writing `tests/unit/saasSchedule.test.ts` destroyed 145 lines covering the
+scheduler's atomic claim, its tenant scoping and its migration constraints. The
+full suite still passed — it was 4 tests SHORT and nothing said so. Caught by
+comparing the run's totals against the previous run rather than reading
+"passed". Restored from git; the new cases live in
+`saasScheduleSummary.test.ts` beside it.
+
+### 2026-08-16 — Reported from use: Salesforce connector → BI dashboard
+
+Not a module sweep. Three things reported from a real session, chased with the
+same method.
+
+#### R1 · S1 · A `(date)` column is physically text, and nothing said so
+
+Generating a dashboard from a synced Salesforce `opportunities` table:
+
+```
+Binder Error: No function matches the given name and argument types
+'date_trunc(STRING_LITERAL, VARCHAR)' ... GROUP BY DATE_TRUNC('month', CloseDate)
+```
+
+The obvious reading — bad catalog metadata — was wrong. `CloseDate` is typed
+`date` and holds clean ISO values (`"2026-06-19"`). `duckType()` maps
+`date → VARCHAR` **deliberately**, in both engines
+([browserDuckdb.ts:202](../src/lib/browserDuckdb.ts), [duckdb.server.ts:228](../src/utils/data/duckdb.server.ts)),
+because values arrive in mixed formats and a failed CAST would drop the row
+rather than the value. So the storage was deliberate and the schema description
+was accurate; **the sentence connecting them did not exist**. Neither
+`biAgent.ts` nor `aiAnalyst.ts` contained `CAST`, `TRY_CAST`, `::DATE` or
+`strptime` anywhere.
+
+Measured across the 254 saved widget queries on this account: six use a date
+function, **four cast and two do not**. The model was coin-flipping on a rule
+nobody had stated.
+
+Fixed in `describeSchema` — shared by the BI agent and the AI Analyst — as a
+rule that appears only when a date column is actually present, and that says
+plain grouping needs no cast so it does not over-correct.
+`tests/unit/schemaDateCast.test.ts` (7). Mutation: change the trigger condition
+to `"string"` → 6 of 7 fail.
+
+#### R2 · S2 · A recoverable engine error ended the widget
+
+Verifying R1 end to end: twelve widget plans, eleven built. "Quarterly Win Rate
+by Close Date" died on `STRFTIME(CAST(CloseDate AS DATE), '%Y-Q%q')` — DuckDB
+has no `%q`. The cast was right; the format specifier was not.
+
+`buildSqlPrompt` has supported a repair pass since it was written, and
+`aiAnalyst.ts:1099` uses it — its comment even reads _"One repair pass with the
+engine's own error, like the BI analyst."_ **The BI analyst had no such pass.**
+`runBiTurn` executed once and went straight to `status = "error"`, so a mistake
+the model fixes on sight cost a whole widget.
+
+Given one pass, the same model produced
+`EXTRACT(QUARTER FROM CAST(CloseDate AS DATE))` and the widget built and
+rendered. When the retry also fails, `repairFailureMessage` reports **both**
+errors and says a retry happened — one message reads as a single failed query
+and hides that the model was already shown its mistake.
+`tests/unit/biSqlRepair.test.ts` (9). Mutation: return only the second error →
+2 fail.
+
+Worth recording that the drop was _disclosed_: the dialog already toasts
+`Added 11. 1 couldn't be built (…) — <error>`. The defect was giving up early,
+not lying about it.
+
+#### R3 · S3 · Seven Salesforce tables filed under "Local tables"
+
+Connector-synced datasets land in `user_data_tables` exactly like an upload —
+deliberately, so a synced dataset cannot behave differently to an uploaded one.
+The Data Catalog therefore filed them under the only thing it knew: local
+storage. True about the bytes, useless as an answer to "where did this come
+from", which is the question the rail exists to answer.
+
+The provenance was already written — `source_filename` holds
+`"Salesforce · opportunities"` — but as text for a human to read. Parsing that
+string back into structure would be inventing the fact; the connection id **is**
+the fact. Migration `20260832000000` adds `saas_connection_id` / `saas_stream`,
+backfilled by matching on both signals the sync already writes (7/7 attributed,
+0 orphans). `ingestRows` and `promoteStaging` now persist it — including the
+**replace** branch, the re-sync case that would otherwise never receive it.
+
+Storage did not move. Only what the catalog can say about it changed.
+
+`src/lib/catalogSources.ts` is the mapping, and its load-bearing rule is the
+one for a source it _cannot name_: a dataset whose connection row is missing
+falls back to "Local tables" rather than to a source id with no rail entry,
+because an asset filed under a category that does not exist disappears from
+every filter except "All". `tests/unit/catalogSources.test.ts` (11). Mutation:
+drop the `known.has(connId)` guard → 2 fail.
+
+Verified live: rail reads `All assets 113 · Local tables 26 · sftest 7 ·
+My Snow 80` — 26 + 7 + 80 = 113, and no `sftest_*` row remains under Local. A
+synced table's format now reads `table · salesforce` rather than
+`table · csv`, which was the same mistake in miniature.
+
+Re-sync verified by writing NULL over `sftest_accounts`' attribution and
+running a real connection sync: the write path restored it
+(`last_sync_status: ok`, 7 streams, 24s). Probe dashboard deleted, confirmed
+gone.
+
 ### 2026-08-16 — Module 10, Semantic Layer (`/semantics`)
 
 #### The hypothesis that was wrong, kept because it nearly shipped

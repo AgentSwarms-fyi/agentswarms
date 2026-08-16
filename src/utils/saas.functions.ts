@@ -11,7 +11,7 @@ import { z } from "zod";
 import type { Database } from "@/integrations/supabase/types";
 import { decryptJson, encryptJson } from "@/utils/providers/crypto.server";
 import { auditEvent } from "@/utils/audit.server";
-import { listSaasStreams, runConnectionSync } from "@/utils/saas/sync.server";
+import { listSaasStreams, nextSyncAt, runConnectionSync } from "@/utils/saas/sync.server";
 import { SYNC_SCHEDULES } from "@/utils/saas/types";
 import type { SaasConfig, SaasConnectionSummary, SaasStream } from "@/utils/saas/types";
 
@@ -123,7 +123,7 @@ export const listSaasConnections = createServerFn({ method: "POST" })
     // from the literal, and `a + b` widens it to `string` and collapses the
     // result to GenericStringError[].
     const COLS =
-      "id, provider, name, is_active, last_sync_status, last_sync_error, last_synced_at, created_at, last_test_status, last_test_error, last_tested_at, credentials_rotated_at";
+      "id, provider, name, is_active, last_sync_status, last_sync_error, last_synced_at, created_at, last_test_status, last_test_error, last_tested_at, credentials_rotated_at, sync_schedule, next_sync_at";
     const { data: rows, error } = await sb
       .from("saas_connections")
       .select(COLS)
@@ -134,19 +134,105 @@ export const listSaasConnections = createServerFn({ method: "POST" })
     // Sources shared via IAM. Fetched with the service role because those rows
     // are deliberately not readable under the grantee's RLS.
     const grantedIds = [...(await grantedConnectionIds(userId))];
-    if (grantedIds.length === 0) return owned;
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const ownedIds = new Set(owned.map((c) => c.id));
-    const { data: sharedRows } = await supabaseAdmin
+    let all = owned;
+    if (grantedIds.length > 0) {
+      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+      const ownedIds = new Set(owned.map((c) => c.id));
+      const { data: sharedRows } = await supabaseAdmin
+        .from("saas_connections")
+        .select(COLS)
+        .in("id", grantedIds);
+      all = [
+        ...owned,
+        ...((sharedRows ?? []) as SaasConnectionSummary[])
+          .filter((c) => !ownedIds.has(c.id))
+          .map((c) => ({ ...c, shared: true })),
+      ];
+    }
+    return withDatasetCounts(sb, all);
+  });
+
+/**
+ * Attach how many datasets each connection currently owns.
+ *
+ * Read from `saas_connection_id` (migration 20260832000000) rather than
+ * counting the `streams` array: a stream that has never synced successfully
+ * has no dataset, so the two numbers legitimately differ, and the one the
+ * disconnect warning needs is the number of tables that would be left behind.
+ *
+ * A failed read leaves the count UNDEFINED rather than 0. The warning renders
+ * its general wording in that case; claiming "0 datasets are kept" because a
+ * query failed is exactly how someone deletes a source believing it had none.
+ */
+async function withDatasetCounts(
+  sb: Awaited<ReturnType<typeof requireUser>>["sb"],
+  rows: SaasConnectionSummary[],
+): Promise<SaasConnectionSummary[]> {
+  if (rows.length === 0) return rows;
+  const { data, error } = await sb
+    .from("user_data_tables")
+    // Cast: types.ts is generated from the DEPLOYED schema and this column
+    // ships in migration 20260832000000.
+    .select("saas_connection_id" as "id")
+    .not("saas_connection_id" as "id", "is", null);
+  if (error) return rows;
+  const counts = new Map<string, number>();
+  for (const r of (data ?? []) as unknown as { saas_connection_id: string | null }[]) {
+    if (r.saas_connection_id)
+      counts.set(r.saas_connection_id, (counts.get(r.saas_connection_id) ?? 0) + 1);
+  }
+  // A SHARED source's datasets belong to its OWNER, so this read — made with
+  // the caller's client — cannot see them. Left undefined rather than counted
+  // as 0: "not known from here" is true, "0 datasets" is not.
+  return rows.map((c) => (c.shared ? c : { ...c, dataset_count: counts.get(c.id) ?? 0 }));
+}
+
+/**
+ * Change how often a source syncs, without re-entering its credentials.
+ *
+ * Separate from saveSaasConnection because that one re-encrypts the whole
+ * config: changing a schedule through it would require the user to type their
+ * key again, and would stamp credentials_rotated_at on a change that rotated
+ * nothing.
+ */
+export const setSaasSchedule = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        access_token: z.string().min(1),
+        id: z.string().uuid(),
+        sync_schedule: z.enum(SYNC_SCHEDULES),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }): Promise<{ ok: true; next_sync_at: string | null }> => {
+    const { sb, userId } = await requireUser(data.access_token);
+    // Due immediately when switching to a schedule, so the first run does not
+    // wait a whole interval — and null for manual, which is what keeps the row
+    // out of the scheduler's partial index entirely.
+    const next_sync_at =
+      data.sync_schedule === "manual" ? null : (nextSyncAt(data.sync_schedule) ?? null);
+    const { data: saved, error } = await sb
       .from("saas_connections")
-      .select(COLS)
-      .in("id", grantedIds);
-    return [
-      ...owned,
-      ...((sharedRows ?? []) as SaasConnectionSummary[])
-        .filter((c) => !ownedIds.has(c.id))
-        .map((c) => ({ ...c, shared: true })),
-    ];
+      .update({ sync_schedule: data.sync_schedule, next_sync_at })
+      .eq("id", data.id)
+      // OWNER ONLY. A grantee may run a sync — noticing stale data and
+      // re-running it is the point of sharing — but changing the cadence
+      // changes the owner's API-quota spend on the owner's account.
+      .eq("user_id", userId)
+      .select("name")
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!saved) throw new Error("That data source is not yours to schedule.");
+    auditEvent({
+      userId,
+      action: "saas_connection.schedule",
+      resourceType: "saas_connection",
+      resourceId: data.id,
+      resourceName: saved.name,
+      detail: { sync_schedule: data.sync_schedule },
+    });
+    return { ok: true, next_sync_at };
   });
 
 export const saveSaasConnection = createServerFn({ method: "POST" })
