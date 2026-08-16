@@ -48,6 +48,52 @@ Open **Semantic Layer** in the sidebar:
 3. **Save**, then use the **Query runner** to pick metrics + dimensions and see
    the rows and the compiled SQL.
 
+## Importing from dbt
+
+If your models already live in dbt, you do not have to retype them. **Import
+from dbt** (next to New model, shown once a warehouse is connected) reads
+`target/manifest.json` — the file dbt writes on every `run`, `compile` or `docs
+generate`.
+
+What comes across:
+
+| dbt                                     | Becomes                                                         |
+| --------------------------------------- | --------------------------------------------------------------- |
+| `model` / `seed` node                   | A semantic model, sourced from its warehouse table              |
+| Documented columns (`schema.yml`)       | Dimensions, with descriptions                                   |
+| `data_type` (needs `dbt docs generate`) | Field type — left **unset** when dbt has none                   |
+| MetricFlow `measures`                   | Metrics (`sum`, `avg`, `count`, `count_distinct`, `min`, `max`) |
+| Lightdash-style `meta.metrics`          | The same                                                        |
+| `meta.primary_key`                      | The model's grain, which feeds fan-out refusal                  |
+
+**Everything else is listed, with a reason.** The dialog shows "N of M models"
+and a "Not imported" panel, because the difference between _"dbt has 12 models"_
+and _"dbt has 18 and we took 12"_ is not something you can recover from a
+success message. The common reasons:
+
+- **Ephemeral models** — dbt inlines them as CTEs, so there is no table to point
+  at. Importing one would compile here and fail in the warehouse.
+- **No documented columns** — dbt only records columns that appear in
+  `schema.yml`. Describe them and re-run dbt.
+- **`median` / `percentile`** — no equivalent aggregation here. Coercing them to
+  `avg` would produce a governed metric that is confidently the wrong number, so
+  they are refused by name; add them as `custom` metrics instead.
+- **Column names needing quotes** — field names here are
+  `[a-zA-Z_][a-zA-Z0-9_]*`.
+- **dbt filters on a metric** — the metric imports, _without_ its filters, and
+  says so. Re-add them, or the number will be wider than dbt's.
+- **Pre-1.6 `metrics:` nodes** — a different shape; re-declare as MetricFlow
+  measures.
+
+Imported models arrive as **drafts**, always — certification means the
+validation pipeline ran clean against the live source, and nothing has run yet.
+A model whose name already exists is marked _"replaces an existing model"_ and
+switched **off**, so an import cannot quietly overwrite a definition someone
+certified.
+
+Re-running an import after `dbt run` is how you keep the two in step; pick only
+the models you want to refresh.
+
 ## Join safety — declared cardinality, resolved fan-out
 
 A join's **cardinality** declares how many joined rows one source row matches,

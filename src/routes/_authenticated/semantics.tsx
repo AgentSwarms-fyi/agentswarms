@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import {
   BadgeCheck,
   Database,
+  FileJson,
   History,
   Layers,
   LayoutDashboard,
@@ -95,6 +96,7 @@ import {
   semanticValidateModel,
 } from "@/utils/semantic.functions";
 import { diffSemanticDefinitions, type SemanticDefinitionDiff } from "@/lib/semanticDiff";
+import { DbtImportDialog } from "@/components/semantics/DbtImportDialog";
 import type { Json } from "@/integrations/supabase/types";
 import { listWarehouseConnections } from "@/utils/warehouse.functions";
 
@@ -411,6 +413,7 @@ function SemanticsPage() {
     params?: Record<string, string | number>;
   } | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [dbtOpen, setDbtOpen] = useState(false);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -1064,6 +1067,20 @@ function SemanticsPage() {
           >
             <Plus className="mr-1 h-4 w-4" /> New model
           </Button>
+          {/* Offered only with a warehouse connected: a dbt model is a table in
+              one, and an import dialog whose first field cannot be filled is a
+              dead end rather than a discovery. */}
+          {whConns.length > 0 && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="w-full"
+              onClick={() => setDbtOpen(true)}
+              title="Import models, columns and MetricFlow measures from a dbt manifest"
+            >
+              <FileJson className="mr-1 h-4 w-4" /> Import from dbt
+            </Button>
+          )}
           {loading ? (
             <Skeleton className="h-24 w-full" />
           ) : models.length === 0 ? (
@@ -3502,6 +3519,51 @@ function SemanticsPage() {
           </div>
         )}
       </div>
+
+      <DbtImportDialog
+        open={dbtOpen}
+        onOpenChange={setDbtOpen}
+        connections={whConns}
+        existingNames={models.map((m) => String(m.name ?? ""))}
+        onImport={async (imported) => {
+          // Saved ONE AT A TIME, and a failure is collected rather than thrown.
+          // A batch that aborts halfway leaves the layer in a state nobody
+          // asked for and reports nothing about which half landed.
+          const failed: string[] = [];
+          let saved = 0;
+          for (const m of imported) {
+            try {
+              await upsertFn({
+                data: {
+                  accessToken: token,
+                  model: {
+                    name: m.name,
+                    label: m.label,
+                    description: m.description,
+                    source_kind: "warehouse",
+                    connection_id:
+                      m.source.kind === "warehouse" ? m.source.connectionId : undefined,
+                    source_table: m.source.kind === "warehouse" ? m.source.table : "",
+                    primary_key: m.primaryKey,
+                    dimensions: m.dimensions,
+                    metrics: m.metrics,
+                    joins: [],
+                    // No status: the save schema does not accept one, so an
+                    // import CANNOT land as certified even by mistake.
+                    // Certification is its own server fn that re-runs the
+                    // validation pipeline, which is exactly right here.
+                  },
+                },
+              });
+              saved++;
+            } catch (e) {
+              failed.push(`${m.name} (${e instanceof Error ? e.message : "save failed"})`);
+            }
+          }
+          await load();
+          return { saved, failed };
+        }}
+      />
 
       <AddMetricToDashboardDialog
         open={addOpen}
