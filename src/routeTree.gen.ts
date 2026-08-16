@@ -99,6 +99,7 @@ import { Route as ApiWarehouseSchemaRouteImport } from './routes/api/warehouse/s
 import { Route as ApiWarehouseQueryRouteImport } from './routes/api/warehouse/query'
 import { Route as ApiTemplatesProvisionRouteImport } from './routes/api/templates.provision'
 import { Route as ApiSwarmRunRouteImport } from './routes/api/swarm.run'
+import { Route as ApiSlackCommandRouteImport } from './routes/api/slack.command'
 import { Route as ApiSkillsGenerateRouteImport } from './routes/api/skills.generate'
 import { Route as ApiObjectstoreQueryRouteImport } from './routes/api/objectstore/query'
 import { Route as ApiNotebookRuntimeRouteImport } from './routes/api/notebook.runtime'
@@ -590,6 +591,11 @@ const ApiSwarmRunRoute = ApiSwarmRunRouteImport.update({
   path: '/api/swarm/run',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiSlackCommandRoute = ApiSlackCommandRouteImport.update({
+  id: '/api/slack/command',
+  path: '/api/slack/command',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiSkillsGenerateRoute = ApiSkillsGenerateRouteImport.update({
   id: '/api/skills/generate',
   path: '/api/skills/generate',
@@ -888,6 +894,7 @@ export interface FileRoutesByFullPath {
   '/api/notebook/runtime': typeof ApiNotebookRuntimeRouteWithChildren
   '/api/objectstore/query': typeof ApiObjectstoreQueryRoute
   '/api/skills/generate': typeof ApiSkillsGenerateRoute
+  '/api/slack/command': typeof ApiSlackCommandRoute
   '/api/swarm/run': typeof ApiSwarmRunRoute
   '/api/templates/provision': typeof ApiTemplatesProvisionRoute
   '/api/warehouse/query': typeof ApiWarehouseQueryRoute
@@ -1014,6 +1021,7 @@ export interface FileRoutesByTo {
   '/api/notebook/runtime': typeof ApiNotebookRuntimeRouteWithChildren
   '/api/objectstore/query': typeof ApiObjectstoreQueryRoute
   '/api/skills/generate': typeof ApiSkillsGenerateRoute
+  '/api/slack/command': typeof ApiSlackCommandRoute
   '/api/swarm/run': typeof ApiSwarmRunRoute
   '/api/templates/provision': typeof ApiTemplatesProvisionRoute
   '/api/warehouse/query': typeof ApiWarehouseQueryRoute
@@ -1143,6 +1151,7 @@ export interface FileRoutesById {
   '/api/notebook/runtime': typeof ApiNotebookRuntimeRouteWithChildren
   '/api/objectstore/query': typeof ApiObjectstoreQueryRoute
   '/api/skills/generate': typeof ApiSkillsGenerateRoute
+  '/api/slack/command': typeof ApiSlackCommandRoute
   '/api/swarm/run': typeof ApiSwarmRunRoute
   '/api/templates/provision': typeof ApiTemplatesProvisionRoute
   '/api/warehouse/query': typeof ApiWarehouseQueryRoute
@@ -1272,6 +1281,7 @@ export interface FileRouteTypes {
     | '/api/notebook/runtime'
     | '/api/objectstore/query'
     | '/api/skills/generate'
+    | '/api/slack/command'
     | '/api/swarm/run'
     | '/api/templates/provision'
     | '/api/warehouse/query'
@@ -1398,6 +1408,7 @@ export interface FileRouteTypes {
     | '/api/notebook/runtime'
     | '/api/objectstore/query'
     | '/api/skills/generate'
+    | '/api/slack/command'
     | '/api/swarm/run'
     | '/api/templates/provision'
     | '/api/warehouse/query'
@@ -1526,6 +1537,7 @@ export interface FileRouteTypes {
     | '/api/notebook/runtime'
     | '/api/objectstore/query'
     | '/api/skills/generate'
+    | '/api/slack/command'
     | '/api/swarm/run'
     | '/api/templates/provision'
     | '/api/warehouse/query'
@@ -1590,6 +1602,7 @@ export interface RootRouteChildren {
   ApiNotebookRuntimeRoute: typeof ApiNotebookRuntimeRouteWithChildren
   ApiObjectstoreQueryRoute: typeof ApiObjectstoreQueryRoute
   ApiSkillsGenerateRoute: typeof ApiSkillsGenerateRoute
+  ApiSlackCommandRoute: typeof ApiSlackCommandRoute
   ApiSwarmRunRoute: typeof ApiSwarmRunRoute
   ApiTemplatesProvisionRoute: typeof ApiTemplatesProvisionRoute
   ApiWarehouseQueryRoute: typeof ApiWarehouseQueryRoute
@@ -2235,6 +2248,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiSwarmRunRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/slack/command': {
+      id: '/api/slack/command'
+      path: '/api/slack/command'
+      fullPath: '/api/slack/command'
+      preLoaderRoute: typeof ApiSlackCommandRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/skills/generate': {
       id: '/api/skills/generate'
       path: '/api/skills/generate'
@@ -2782,6 +2802,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiNotebookRuntimeRoute: ApiNotebookRuntimeRouteWithChildren,
   ApiObjectstoreQueryRoute: ApiObjectstoreQueryRoute,
   ApiSkillsGenerateRoute: ApiSkillsGenerateRoute,
+  ApiSlackCommandRoute: ApiSlackCommandRoute,
   ApiSwarmRunRoute: ApiSwarmRunRoute,
   ApiTemplatesProvisionRoute: ApiTemplatesProvisionRoute,
   ApiWarehouseQueryRoute: ApiWarehouseQueryRoute,
