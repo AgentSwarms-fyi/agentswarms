@@ -37,7 +37,7 @@ has not been tested; it has been visited.
 | 4   | Knowledge Base      | `/knowledge`               | ✅ 1 | 2026-08-16 | 1 (1×S1)                                                 |
 | 5   | Agent Chat          | `/playground`              | ⚠️ 1 | 2026-08-16 | 2 (1×S1 self-inflicted, 1×S2) — read-only, no model turn |
 | 6   | Agent Swarms        | `/swarms`                  | ✅ 1 | 2026-08-16 | 1 (1×S2)                                                 |
-| 7   | MCP Builder         | `/mcp-builder`             | —    | —          | —                                                        |
+| 7   | MCP Builder         | `/mcp-builder`             | ✅ 1 | 2026-08-16 | 1 (1×S2)                                                 |
 | 8   | AI Analyst          | `/ai-analyst`              | —    | —          | —                                                        |
 | 9   | Data Catalog        | `/data-sql`                | —    | —          | —                                                        |
 | 10  | Semantic Layer      | `/semantics`               | —    | —          | —                                                        |
@@ -66,6 +66,49 @@ has not been tested; it has been visited.
 ## Findings
 
 <!-- newest first -->
+
+### 2026-08-16 — Module 7, MCP Builder (`/mcp-builder`)
+
+#### L1 · S2 · The most powerful API key was the one with nothing written on it
+
+The key list rendered its scope as:
+
+```js
+{
+  k.tool_allowlist.length ? ` · ${k.tool_allowlist.length} tools` : "";
+}
+```
+
+A key narrowed to three tools read "· 3 tools". A key that can call **every tool
+the server exposes** read nothing at all. The proxy uses the same encoding —
+`allowed.length > 0` is what gates `tools/call`, so an empty list is
+unrestricted — but the screen inverted its meaning:
+
+```
+prod-key      abc123… · 42 calls              ← can call anything
+readonly-key  def456… · 7 calls · 3 tools     ← can call three things
+```
+
+An operator auditing their keys saw the unrestricted one as the row with _less_
+information rather than _more_ reach. Scope is now always stated, with the
+unrestricted case in amber and a tooltip explaining it.
+
+**Third instance of one pattern in this campaign.** Swarm import: an empty
+`sql_table_names` meant every table. Model policy: an empty rule array meant
+deny-all. Here: an empty allow-list means every tool. The encoding differs each
+time; what repeats is a UI reading "empty" as "nothing worth saying".
+
+Latent on this account — zero MCP keys exist — so it is correct by absence, not
+by design. Same standing as K1 and J1.
+
+#### Checked and found honest
+
+`tools/call` **is** enforced, not merely filtered from `tools/list`: a
+non-permitted name returns 403 with a message naming the tool. The list-side
+fail-closed fix from earlier today is still in place.
+
+**Tests:** 7 in `tests/unit/mcpKeyScope.test.ts`, mutation-verified — four
+reversions, all killed, including a restore of the original blank label.
 
 ### 2026-08-16 — Module 6, Agent Swarms (`/swarms`)
 

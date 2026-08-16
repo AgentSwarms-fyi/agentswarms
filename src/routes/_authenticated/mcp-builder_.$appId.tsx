@@ -52,6 +52,7 @@ import { useTheme } from "@/hooks/use-theme";
 import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
 import { generateMcpServer } from "@/lib/mcpCodegen";
+import { isUnrestrictedKey, toolScopeLabel } from "@/lib/mcpKeyScope";
 import { listSecrets, type SecretSummary } from "@/utils/secrets.functions";
 import {
   mcpAppApproveTools,
@@ -970,7 +971,24 @@ function AccessTab({
                     {k.last_used_at
                       ? ` · last ${new Date(k.last_used_at).toLocaleDateString()}`
                       : ""}
-                    {k.tool_allowlist.length ? ` · ${k.tool_allowlist.length} tools` : ""}
+                    {` · `}
+                    {/* Always stated. An unrestricted key showed no scope at
+                        all, so the most powerful key on the page read as the
+                        one with the least to say about it. */}
+                    <span
+                      className={
+                        isUnrestrictedKey(k.tool_allowlist)
+                          ? "text-amber-600 dark:text-amber-400"
+                          : undefined
+                      }
+                      title={
+                        isUnrestrictedKey(k.tool_allowlist)
+                          ? "This key can call every tool this server exposes. Narrow it when creating a key if the client only needs some."
+                          : k.tool_allowlist.join(", ")
+                      }
+                    >
+                      {toolScopeLabel(k.tool_allowlist)}
+                    </span>
                   </div>
                 </div>
                 {k.revoked_at ? (
