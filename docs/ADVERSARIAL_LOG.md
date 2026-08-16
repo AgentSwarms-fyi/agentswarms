@@ -38,7 +38,7 @@ has not been tested; it has been visited.
 | 5   | Agent Chat          | `/playground`              | ⚠️ 1 | 2026-08-16 | 2 (1×S1 self-inflicted, 1×S2) — read-only, no model turn |
 | 6   | Agent Swarms        | `/swarms`                  | ✅ 1 | 2026-08-16 | 1 (1×S2)                                                 |
 | 7   | MCP Builder         | `/mcp-builder`             | ✅ 1 | 2026-08-16 | 1 (1×S2)                                                 |
-| 8   | AI Analyst          | `/ai-analyst`              | —    | —          | —                                                        |
+| 8   | AI Analyst          | `/ai-analyst`              | ✅ 1 | 2026-08-16 | 0 — held; no live turn (over budget cap)                 |
 | 9   | Data Catalog        | `/data-sql`                | —    | —          | —                                                        |
 | 10  | Semantic Layer      | `/semantics`               | —    | —          | —                                                        |
 | 11  | Metrics             | `/metrics`                 | —    | —          | —                                                        |
@@ -66,6 +66,59 @@ has not been tested; it has been visited.
 ## Findings
 
 <!-- newest first -->
+
+### 2026-08-16 — Module 8, AI Analyst (`/ai-analyst`)
+
+**No defect found.** Recorded in full because a log that only lists faults says
+nothing about where the ground is solid, and because "I looked and found
+nothing" is only useful if it also says _where_ it looked.
+
+This module was built most recently and with these invariants stated up front,
+and it held under exactly the lens that broke the six before it.
+
+#### What was attacked, and what held
+
+- **The verdict fingerprint.** `fingerprintSteps` pins each step's `sql` plus
+  the governed model that compiled it. Row filters and rollup routing compile
+  _into_ the SQL, so a change to either moves the fingerprint and voids the
+  verdict. `verificationStatus` recomputes and compares on every read rather
+  than trusting a stored flag.
+- **Verifying nothing.** `markTurn` refuses a turn with no steps — "a turn that
+  never produced steps has no analysis to have checked" — so a verdict can
+  never be minted against an empty analysis.
+- **Prior-verdict matching.** `normaliseQuestion` only lowercases, strips
+  punctuation and collapses whitespace. Deliberately crude, with the reasoning
+  written down: a false match is a false claim that someone checked it, a miss
+  costs nothing. Empty question returns null rather than matching every other
+  empty one. Only `active` verdicts are offered, newest first, so a later
+  "wrong" beats an earlier "verified".
+- **The export.** `analystExport` calls `verificationStatus` and
+  `describeVerification`, so a void verdict travels as _"a verdict was
+  recorded… but a step has changed since — it no longer applies"_ rather than
+  as a bare "Verified". The artifact that leaves the building carries the
+  caveat.
+- **Scenarios.** A what-if adds SQL the verifier never saw, which under this
+  campaign's own rule looked like a scope mismatch. It is not: the block is
+  amber, labelled "not measured data; what the numbers would be under this
+  assumption", kept beside the measured result and never folded into the
+  findings. Calling it a defect would have been manufacturing one.
+- **The "empty means something" lens** (the class named in Modules 3, 5 and 7)
+  found nothing here. Every empty case — no steps, no verdict, no question —
+  is handled explicitly.
+
+#### Verified against real data
+
+The one live thread has 7 turns. Two carry **zero steps** and both are
+`status: "error"` with honest model-timeout messages, not silently empty
+answers. The verified turn has 4 steps and a matching fingerprint.
+
+#### Not covered, and why
+
+No live analyst turn — spend is over the $5 cap. That leaves **untested**: the
+reasoning loop end to end, self-check correction, clarifying questions, driver
+analysis, forecast/anomaly computation, and parallel step execution. Zero
+schedules and zero shares exist, so scheduled re-runs and sharing were read but
+not exercised. These are gaps in the pass, not passes.
 
 ### 2026-08-16 — Module 7, MCP Builder (`/mcp-builder`)
 
