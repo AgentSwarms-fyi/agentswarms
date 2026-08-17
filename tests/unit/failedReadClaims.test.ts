@@ -26,7 +26,21 @@ import { resolve } from "node:path";
  * pinned is unchanged; only the vocabulary the page uses to state it differs,
  * and lib/integrationStatusClaim carries its own tests and mutation coverage.
  */
-const CONVERTED: { file: string; module: string; what: string; claim?: string }[] = [
+const CONVERTED: {
+  file: string;
+  module: string;
+  what: string;
+  claim?: string;
+  /**
+   * The read goes through a TanStack server function rather than a direct
+   * Supabase call. It matters because the two fail differently: supabase-js
+   * hands a network failure back as `error`, but a server function REJECTS,
+   * and a `.then` with no `.catch` swallows that completely. Measured on
+   * /secrets: the skeleton stayed up indefinitely with no toast, no error and
+   * an unhandled rejection in the console.
+   */
+  viaServerFn?: boolean;
+}[] = [
   {
     file: "src/routes/_authenticated/notebooks.tsx",
     module: "13 — Developer workspace",
@@ -53,6 +67,12 @@ const CONVERTED: { file: string; module: string; what: string; claim?: string }[
     what: "connected providers rendering as never-configured, with no error at all",
     claim: "providerBadge",
   },
+  {
+    file: "src/routes/_authenticated/secrets.tsx",
+    module: "18 — Secrets",
+    what: "'No secrets yet. Create one…' for an account holding two, after the toast expired",
+    viaServerFn: true,
+  },
 ];
 
 const read = (f: string) => readFileSync(resolve(f), "utf8");
@@ -63,7 +83,7 @@ describe("pages that must not report a failed read as an empty account", () => {
     expect(CONVERTED.length).toBeGreaterThan(0);
   });
 
-  for (const { file, module, what, claim: claimHelper } of CONVERTED) {
+  for (const { file, module, what, claim: claimHelper, viaServerFn } of CONVERTED) {
     describe(`${file}  (module ${module})`, () => {
       const claim = claimHelper ?? "listClaim";
       it(`routes what it claims through ${claim}`, () => {
@@ -81,6 +101,31 @@ describe("pages that must not report a failed read as an empty account", () => {
         expect(keepsIt, `${file} no longer keeps the read error — ${what}`).toBe(true);
       });
 
+      it.runIf(viaServerFn)("handles the read's promise rejecting, not just ok:false", () => {
+        // A server function rejects on a network failure; `.then` alone drops
+        // it. MEASURED on /secrets before the fix: request rejected, skeleton
+        // still up four seconds later, nothing on screen, and no Refresh
+        // control on the page to retry with.
+        expect(read(file), `${file} no longer catches a rejected read — ${what}`).toMatch(
+          /\.catch\s*\(/,
+        );
+      });
+
+      it("never empties the list without also setting an error", () => {
+        // The defect in one line. Setting the list to [] is how a page stops
+        // showing a skeleton; doing it without recording WHY is how it comes
+        // to claim the account is empty. Added after a mutation showed that
+        // dropping the setLoadError beside setSecrets([]) restored the exact
+        // S1 this module fixed while the suite stayed green.
+        const lines = read(file).split("\n");
+        const orphans: string[] = [];
+        lines.forEach((line, i) => {
+          if (!/\bset[A-Z]\w*\(\[\]\)/.test(line)) return;
+          const near = lines.slice(Math.max(0, i - 3), i + 4).join("\n");
+          if (!/set\w*(Error|State)\s*\(/.test(near)) orphans.push(line.trim());
+        });
+        expect(orphans, `${file} empties its list with no error set — ${what}`).toEqual([]);
+      });
       it("uses every read error it names, rather than binding and dropping it", () => {
         // Added after mutation testing. The rule above is satisfied by the
         // mere PRESENCE of a setter name, so reverting integrations.tsx to

@@ -67,7 +67,7 @@ Never infer it from what rendered.
 | 15  | Skill Library       | `/skills`                  | ✅ 1 | 2026-08-17 | 1 (1×S1) — same failed-read claim; guard added                     |
 | 16  | Integrations        | `/integrations`            | ✅ 2 | 2026-08-17 | 1 (1×S2) — re-audited with proof; the retracted S1 was real, at S2 |
 | 17  | Web Embedding       | `/embeds`                  | ✅ 1 | 2026-08-17 | 0 — counts exact; disable, expiry and allow-list proven            |
-| 18  | Secrets             | `/secrets`                 | —    | —          | —                                                                  |
+| 18  | Secrets             | `/secrets`                 | ✅ 1 | 2026-08-17 | 2 (1×S1, 1×S2) — empty claim on a failed read; skeleton for ever   |
 | 19  | MCP Servers         | `/mcp`                     | —    | —          | —                                                                  |
 | 20  | Model Registry      | `/model-registry`          | —    | —          | —                                                                  |
 | 21  | Analytics           | `/analytics`               | —    | —          | —                                                                  |
@@ -85,6 +85,130 @@ Never infer it from what rendered.
 ## Findings
 
 <!-- newest first -->
+
+### 2026-08-17 — Module 18, Secrets (`/secrets`)
+
+Two findings, both about what this page says when the one read behind it does
+not arrive. Everything it says when the read _does_ arrive is exact.
+
+**What matched.** Two fixture secrets were created through the real dialog and
+every rendered column was compared against `user_secrets`: names, descriptions,
+the `Yours` / `Shared with you` badge (against `user_id === me`), the dates, and
+the row count against an exact `0-1/2`. Ordering is by name and not by
+insertion — proven by creating the alphabetically-first secret _second_ and
+watching it render first. The `value` column is never sent to the browser at
+all, which is the security claim the page makes in its own copy, checked
+against the response body rather than taken on trust.
+
+**Both failures were injected by making the real server fail**, not by
+fabricating a response. The server function's reply is seroval-encoded, so a
+hand-written envelope would have proved only that the client mishandles
+malformed JSON. Instead the outgoing request's JWT signature was corrupted, and
+the real handler's own catch returned its own envelope:
+
+```
+{"k":["ok","error"],"v":[{"t":2,"s":3},{"t":1,"s":"Unauthorized"}]}
+```
+
+`ok: false, error: "Unauthorized"`, produced by the server, serialized by the
+real serializer. The corruption was recorded per-request, so the injection is
+proven rather than inferred.
+
+#### S1 · "No secrets yet" for an account holding two
+
+`reload()` toasted the error and then ran `setSecrets([])`, so the failure
+rendered as an empty account — on the page whose entire subject is credentials.
+Measured at first paint and again after the toast expired:
+
+|                                         | at first paint | ten seconds later |
+| --------------------------------------- | -------------- | ----------------- |
+| toast "Unauthorized"                    | present        | **gone**          |
+| "No secrets yet."                       | present        | **present**       |
+| "Create one, then paste its reference…" | present        | **present**       |
+| rows                                    | 0              | 0                 |
+
+This is module 15's shape exactly, and the second measurement is the reason
+that method exists: the durable half of the contradiction is the false half.
+The toast is also the least informative thing on the screen — a bare
+"Unauthorized" with no indication of what could not be read.
+
+It is S1 rather than module 16's S2 because this page says it in words. There
+is a sentence claiming the account is empty and an invitation to create the
+first secret, where /integrations only omitted a badge.
+
+#### S2 · A rejected request left the skeleton up indefinitely
+
+`reload()` had a `.then` and no `.catch`. supabase-js hands a network failure
+back as `error`, but a **server function rejects**, and nothing was there to
+catch it. With the request rejected outright:
+
+```
+{"skeletonUp":true,"anyErrorOnScreen":false,"toasts":[],
+ "unhandledRejections":["TypeError: Failed to fetch"]}
+```
+
+still true four seconds in. No error, no toast, no empty state — just two
+skeleton bars for ever, and an unhandled rejection in a console the user is not
+reading. This page has no Refresh control, so there was no way to retry short
+of reloading the browser.
+
+#### Fixed with `listClaim`, and with a retry that was tested
+
+The page now holds `loadError`, routes the panel decision through
+`lib/listClaim`, and catches the rejection. Verified live in four states, each
+with the injection confirmed by the harness:
+
+| Condition                       | Panel                                                  |
+| ------------------------------- | ------------------------------------------------------ |
+| healthy                         | 2 rows, no alert                                       |
+| server returns `ok:false`       | reason + "still there" + Try again, **no** empty claim |
+| request rejected                | same                                                   |
+| genuinely empty (after cleanup) | "No secrets yet." — the honest claim, still available  |
+
+The last row matters as much as the others: the fix has to keep the true empty
+state sayable, and the fixture cleanup doubled as that test.
+
+A **Try again** button was added because the S2 left no way to retry, and it
+was exercised rather than assumed: land in the failed state (0 rows, error
+shown), heal the network, click it, and the panel returns to 2 rows with the
+error gone. A retry control that is never tested is the dead control this
+campaign keeps finding.
+
+#### The mutation that survived, and why it is being recorded rather than fixed
+
+Eight mutations, seven killed. The survivor replaced the `listClaim` call's
+result with a short-circuit **while leaving the identifier in the file**, which
+a source-inspection rule cannot see. Rewritten the way a real refactor would do
+it — removing the call — it is killed.
+
+That is a genuine limit of this test file rather than a fixable oversight, and
+it is the limit the file already declares: it asserts by source inspection
+because standing up a route component wired to Supabase and a session would
+test the mocks. A rule that reads source can prove a call is present; it cannot
+prove it is on the live path. Recorded here so the next person does not mistake
+a green `failedReadClaims` for a behavioural guarantee.
+
+Two new rules were added and both were mutation-verified: a row flagged
+`viaServerFn` must catch a rejected read, and no file may empty its list
+without setting an error beside it. The second exists because dropping the
+`setLoadError` next to `setSecrets([])` restored the exact S1 above while the
+suite stayed green.
+
+#### Checked and not a defect
+
+`reload()` returns early when `token` is undefined, which leaves the skeleton
+up. That is honest — nothing is known yet — and it is transient: `token` is
+`session?.access_token`, `reload` is a `useCallback` keyed on it, so the effect
+re-runs the moment the session resolves. `user_secrets.updated_at` is
+`NOT NULL DEFAULT now()`, so the unguarded `format(new Date(...))` in the
+Updated column cannot be reached with a null.
+
+**Fixtures:** two secrets created through the real dialog and deleted through
+the real delete button, with `window.confirm` stubbed to return true because
+the automation auto-dismisses it. Both confirm prompts named the right secret.
+`user_secrets` re-read afterwards: `*/0`, no probe rows left.
+
+---
 
 ### 2026-08-17 — Module 16, Integrations (`/integrations`) — RE-AUDITED
 

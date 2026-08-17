@@ -4,6 +4,7 @@
 // Sharing is superadmin-controlled from /admin/iam → Access.
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
+import { listClaim } from "@/lib/listClaim";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -68,18 +69,40 @@ function SecretsPage() {
   const [editValue, setEditValue] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  // Why the list could not be read, or null. Held in state rather than only
+  // raised in a toast: the toast is the one element guaranteed to be gone by
+  // the time somebody reads the page, and what it leaves behind is an empty
+  // table that says the account has no secrets.
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const reload = useCallback(() => {
     if (!token) return;
-    listFn({ data: { access_token: token } }).then((res) => {
-      if (res.ok) {
-        setSecrets(res.secrets);
-        setMe(res.me);
-      } else {
-        toast.error(res.error);
+    setLoadError(null);
+    listFn({ data: { access_token: token } })
+      .then((res) => {
+        if (res.ok) {
+          setSecrets(res.secrets);
+          setMe(res.me);
+        } else {
+          // MEASURED: the server genuinely returned {ok:false,error:"Unauthorized"}
+          // and this branch rendered "No secrets yet. Create one…" for an account
+          // holding two. The toast was gone ten seconds later; the invitation to
+          // start over was not.
+          toast.error(res.error);
+          setLoadError(res.error);
+          setSecrets([]);
+        }
+      })
+      .catch((e: unknown) => {
+        // MEASURED: with the request rejected outright there was no catch at
+        // all, so the skeleton stayed up indefinitely — no toast, no error, an
+        // unhandled rejection in the console, and no Refresh control on this
+        // page to retry with.
+        const msg = e instanceof Error ? e.message : "Could not reach the server";
+        toast.error(msg);
+        setLoadError(msg);
         setSecrets([]);
-      }
-    });
+      });
   }, [token, listFn]);
 
   useEffect(() => {
@@ -181,12 +204,27 @@ function SecretsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {secrets === null ? (
+          {secrets === null && !loadError ? (
             <div className="space-y-2">
               <Skeleton className="h-8 w-full" />
               <Skeleton className="h-8 w-full" />
             </div>
-          ) : secrets.length === 0 ? (
+          ) : listClaim({
+              loaded: secrets !== null,
+              error: loadError,
+              count: secrets?.length ?? 0,
+            }).message === "error" ? (
+            <div role="alert" className="py-6 text-center text-sm">
+              <p className="text-warning">Your secrets could not be loaded — {loadError}.</p>
+              <p className="mt-1 text-muted-foreground">
+                Any secrets you have saved are still there; this page just cannot list them right
+                now.
+              </p>
+              <Button variant="outline" size="sm" className="mt-3" onClick={() => reload()}>
+                Try again
+              </Button>
+            </div>
+          ) : secrets!.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">
               No secrets yet. Create one, then paste its reference into a warehouse connection or
               provider key field.
@@ -203,7 +241,7 @@ function SecretsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {secrets.map((s) => {
+                {secrets!.map((s) => {
                   const mine = s.user_id === me;
                   return (
                     <TableRow key={s.id}>
