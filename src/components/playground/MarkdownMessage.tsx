@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import { Check, Copy, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { MermaidBlock } from "@/components/playground/MermaidBlock";
 
 /**
  * Rich markdown renderer for assistant messages.
@@ -238,6 +239,12 @@ function CodeBlock({ children }: { children?: ReactNode }) {
 
   // Walk the code child's children to extract raw text.
   const codeText = extractText(codeChild?.props?.children);
+
+  // A mermaid fence renders as the actual diagram (with SVG/PNG download and
+  // a fallback to plain source when it does not parse) — see MermaidBlock.
+  if (language === "mermaid") {
+    return <MermaidBlock code={codeText} />;
+  }
 
   const handleCopy = async () => {
     try {

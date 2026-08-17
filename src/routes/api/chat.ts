@@ -11,6 +11,7 @@ import { notifyN8nWebhook } from "@/utils/integrations.functions";
 import { resolveAgentTools, TOOLABLE_IDS, type ToolableId } from "@/utils/tools/registry.server";
 import { streamChatWithTools, type ToolEvent } from "@/utils/tools/loop.server";
 import { buildSources, type RawSource, type Source } from "@/utils/tools/sources";
+import { mergeExtraTools } from "@/lib/adhocTools";
 import {
   type Guardrails,
   parseGuardrails,
@@ -1004,6 +1005,12 @@ export const Route = createFileRoute("/api/chat")({
             // which tools each node exposes). When omitted, the registry
             // returns every capability the user is configured for.
             enabledTools?: string[];
+            // Session-scoped additions from the playground's Tools menu.
+            // Unlike enabledTools (which REPLACES the agent's saved toggles),
+            // these are unioned on top of whatever resolves, and only the
+            // curated ad-hoc set in lib/adhocTools is accepted — anything
+            // else in the array is dropped server-side.
+            extraTools?: string[];
             // Per-call tool configs (provider+key for web_search/web_browse,
             // workflow allow-list for n8n, server allow-list for MCP). Used
             // by the swarm runtime; when omitted, the agent's saved configs
@@ -1727,7 +1734,10 @@ export const Route = createFileRoute("/api/chat")({
                   (TOOLABLE_IDS as readonly string[]).includes(t),
                 ) as ToolableId[])
               : undefined;
-            const rawAllowList = explicitAllow ?? deriveEnabledToolsFromAgent();
+            const rawAllowList = mergeExtraTools(
+              explicitAllow ?? deriveEnabledToolsFromAgent(),
+              body.extraTools,
+            );
             const allowList = isInternalRun
               ? (rawAllowList ?? []).filter((t) => HEADLESS_AGENT_TOOL_ALLOW.has(t))
               : rawAllowList;

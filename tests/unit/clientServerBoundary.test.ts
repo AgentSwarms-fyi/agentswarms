@@ -32,6 +32,21 @@ function walk(dir: string, out: string[] = []): string[] {
 /** Server-side by their own name; they are allowed to import server code. */
 const isServerSide = (path: string) => /\.(server|functions)\.tsx?$/.test(path);
 
+/**
+ * Comments are not code. Without this, a file whose HEADER COMMENT contains
+ * the words "import … from" (lib/adhocTools.ts explains that the menu and
+ * /api/chat "both import from here") fed the scanner a clause that began in
+ * prose and swallowed the real `import type` below it — reporting a
+ * build-safe file as a build breaker. Same disease as the `[^;]` note below,
+ * same rule: a guard that cries wolf gets deleted rather than heeded.
+ *
+ * Line comments are only stripped when preceded by whitespace or line start,
+ * which leaves "https://…" inside string literals alone.
+ */
+function stripComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|\s)\/\/.*$/gm, "$1");
+}
+
 /** A value import from a *.server module, i.e. one that survives into a bundle. */
 function serverValueImports(source: string): string[] {
   const out: string[] = [];
@@ -42,7 +57,7 @@ function serverValueImports(source: string): string[] {
   // and a harmless type-only import was reported as a build breaker. A guard
   // that cries wolf gets deleted rather than heeded.
   const re = /import\s+([^;]*?)\s+from\s+["']([^"']*\.server)["']/g;
-  for (const m of source.matchAll(re)) {
+  for (const m of stripComments(source).matchAll(re)) {
     const clause = m[1].trim();
     if (clause.startsWith("type ")) continue; // `import type { … }` — erased
     const braces = clause.match(/\{([\s\S]*)\}/);
@@ -84,6 +99,34 @@ describe("client-reachable modules do not import server code", () => {
     expect(serverValueImports('import { type A, type B } from "@/utils/tools/kb.server";')).toEqual(
       [],
     );
+  });
+
+  it("does not mistake the word 'import' in a comment for an import", () => {
+    // The lib/adhocTools.ts shape: prose containing "import … from" directly
+    // above a genuine type-only import from a .server module.
+    const src = [
+      "// the playground menu and /api/chat both import from here, so the",
+      "// curated list and the merge rule cannot drift apart",
+      'import type { ToolableId } from "@/utils/tools/registry.server";',
+    ].join("\n");
+    expect(serverValueImports(src)).toEqual([]);
+  });
+
+  it("still catches a value import hidden below a wordy comment", () => {
+    const src = [
+      "/* both import from here */",
+      'import { TOOLABLE_IDS } from "@/utils/tools/registry.server";',
+    ].join("\n");
+    expect(serverValueImports(src)).toEqual(["@/utils/tools/registry.server"]);
+    // Same, with a LINE comment above — pins that stripping ends at the line
+    // break. A greedy strip that ran to end-of-file would silently blind the
+    // whole rule on any file whose first lines are commented, and the first
+    // test would pass vacuously; a mutation run caught exactly that.
+    const srcLine = [
+      "// both import from here",
+      'import { TOOLABLE_IDS } from "@/utils/tools/registry.server";',
+    ].join("\n");
+    expect(serverValueImports(srcLine)).toEqual(["@/utils/tools/registry.server"]);
   });
 
   it("catches the shape that actually broke the build", () => {

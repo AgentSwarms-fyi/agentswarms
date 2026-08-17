@@ -54,6 +54,8 @@ import { parseFileToText } from "@/lib/fileParsers";
 import { MarkdownMessage } from "@/components/playground/MarkdownMessage";
 import { ExcelIcon, PptIcon, WordIcon } from "@/components/playground/FileTypeIcons";
 import { DocGenBar } from "@/components/playground/DocGenBar";
+import { AdhocToolsMenu } from "@/components/playground/AdhocToolsMenu";
+import { agentPermanentAdhocTools, DIAGRAM_SYSTEM_NOTE, DIAGRAM_TOOL_ID } from "@/lib/adhocTools";
 import { BiWidgetCard } from "@/components/bi/BiWidgetCard";
 import { BI_FELL_THROUGH_NOTE, generateChatWidget } from "@/lib/chatBi";
 import { parseWidgets } from "@/lib/biDashboards";
@@ -187,6 +189,10 @@ function PlaygroundPage() {
   // Visual BI answers: session state seeded from the agent's saved setting.
   // A ref mirrors it so the async post-answer generator reads the live value.
   const [biVisuals, setBiVisuals] = useState(false);
+  // Session-scoped tool picks from the composer's Tools menu, keyed by
+  // conversation id. Never persisted and never written to the agent — that is
+  // the entire point; the permanent switches live in the agent builder.
+  const [adhocByConvo, setAdhocByConvo] = useState<Record<string, string[]>>({});
   const biVisualsRef = useRef(false);
   // Sample vs. full data scope for doc generation + the Visual BI widget.
   const [dataScope, setDataScope] = useState<DocScope>("sample");
@@ -426,6 +432,17 @@ function PlaygroundPage() {
     }
   }
 
+  async function renameConversation(id: string, title: string) {
+    const t = title.trim().slice(0, 80);
+    if (!t) return;
+    const { error } = await supabase.from("conversations").update({ title: t }).eq("id", id);
+    if (error) {
+      toast.error(`Could not rename chat: ${error.message}`);
+      return;
+    }
+    setConversations((cs) => cs.map((c) => (c.id === id ? { ...c, title: t } : c)));
+  }
+
   async function deleteConversation(id: string) {
     await supabase.from("conversations").delete().eq("id", id);
     if (activeConvo === id) {
@@ -475,14 +492,25 @@ function PlaygroundPage() {
     let sources: Source[] = [];
 
     const startedAt = Date.now();
+    // Ad-hoc tools for THIS conversation. The diagram "tool" is client-side
+    // (a system-prompt nudge + inline mermaid rendering); everything else
+    // rides in extraTools, which /api/chat unions on top of the agent's saved
+    // toggles without touching them.
+    const adhocForConvo = adhocByConvo[activeConvo] ?? [];
+    const adhocServerTools = adhocForConvo.filter((t) => t !== DIAGRAM_TOOL_ID);
+    const diagramArmed = adhocForConvo.includes(DIAGRAM_TOOL_ID);
+    const baseSystemPrompt = agent?.system_prompt || undefined;
     const requestBody = {
       agentId: selectedAgent || undefined,
+      extraTools: adhocServerTools.length > 0 ? adhocServerTools : undefined,
       // Pass the active conversation id so the chat route can load STM
       // (rolling summary + sliding window) and persist post-turn extraction.
       conversationId: activeConvo || undefined,
       provider,
       model,
-      systemPrompt: agent?.system_prompt || undefined,
+      systemPrompt: diagramArmed
+        ? [baseSystemPrompt, DIAGRAM_SYSTEM_NOTE].filter(Boolean).join("\n\n")
+        : baseSystemPrompt,
       messages: opts.historySnapshot.map((m) => {
         // If the message has attachments stashed in metadata, render them as
         // multi-part content (vision parts for images, inlined text blocks
@@ -1393,6 +1421,7 @@ function PlaygroundPage() {
             }}
             onNew={createConversation}
             onDelete={deleteConversation}
+            onRename={renameConversation}
           />
         </SheetContent>
       </Sheet>
@@ -1405,6 +1434,7 @@ function PlaygroundPage() {
           onSelect={setActiveConvo}
           onNew={createConversation}
           onDelete={deleteConversation}
+          onRename={renameConversation}
         />
       </div>
 
@@ -1696,39 +1726,57 @@ function PlaygroundPage() {
                 </Button>
               )}
             </div>
-            <DocGenBar
-              armed={armedDoc}
-              onPick={(f) => {
-                const next = armedDoc === f ? null : f;
-                setArmedDoc(next);
-                // One output per turn. Visual BI answers a data question by
-                // returning BEFORE the agent runs, so with a format also armed
-                // the turn produced a chart and silently dropped the document
-                // that was asked for in the same breath — no file, and no
-                // mention that none was made.
-                if (next) setBiVisuals(false);
-                if (armedDoc !== f) textareaRef.current?.focus();
-              }}
-              busy={docPhase !== "idle"}
-              scope={dataScope}
-              onScopeChange={setDataScope}
-              mode={docMode}
-              onModeChange={setDocMode}
-              deepAvailable={deepStatus.available}
-              deepReason={deepStatus.reason}
-              biControl={
-                selectedAgent
-                  ? {
-                      enabled: biVisuals,
-                      onToggle: (next) => {
-                        setBiVisuals(next);
-                        // The other half of the same rule — see onPick above.
-                        if (next) setArmedDoc(null);
-                      },
-                    }
-                  : undefined
-              }
-            />
+            <div className="flex flex-wrap items-center gap-1.5">
+              <AdhocToolsMenu
+                active={adhocByConvo[activeConvo] ?? []}
+                permanent={agentPermanentAdhocTools(currentAgent?.tools)}
+                disabled={!activeConvo}
+                onToggle={(id, next) =>
+                  setAdhocByConvo((prev) => {
+                    const cur = prev[activeConvo] ?? [];
+                    return {
+                      ...prev,
+                      [activeConvo]: next
+                        ? [...new Set([...cur, id])]
+                        : cur.filter((t) => t !== id),
+                    };
+                  })
+                }
+              />
+              <DocGenBar
+                armed={armedDoc}
+                onPick={(f) => {
+                  const next = armedDoc === f ? null : f;
+                  setArmedDoc(next);
+                  // One output per turn. Visual BI answers a data question by
+                  // returning BEFORE the agent runs, so with a format also armed
+                  // the turn produced a chart and silently dropped the document
+                  // that was asked for in the same breath — no file, and no
+                  // mention that none was made.
+                  if (next) setBiVisuals(false);
+                  if (armedDoc !== f) textareaRef.current?.focus();
+                }}
+                busy={docPhase !== "idle"}
+                scope={dataScope}
+                onScopeChange={setDataScope}
+                mode={docMode}
+                onModeChange={setDocMode}
+                deepAvailable={deepStatus.available}
+                deepReason={deepStatus.reason}
+                biControl={
+                  selectedAgent
+                    ? {
+                        enabled: biVisuals,
+                        onToggle: (next) => {
+                          setBiVisuals(next);
+                          // The other half of the same rule — see onPick above.
+                          if (next) setArmedDoc(null);
+                        },
+                      }
+                    : undefined
+                }
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -2316,13 +2364,23 @@ function ChatSidebar({
   onSelect,
   onNew,
   onDelete,
+  onRename,
 }: {
   conversations: Conversation[];
   activeConvo: string;
   onSelect: (id: string) => void;
   onNew: () => void;
   onDelete: (id: string) => void;
+  onRename: (id: string, title: string) => void;
 }) {
+  // Inline rename: a pencil turns the title into an input in place. Enter or
+  // blur saves, Escape abandons. Nothing modal for a two-word edit.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const commit = () => {
+    if (editingId && draft.trim()) onRename(editingId, draft);
+    setEditingId(null);
+  };
   return (
     <div className="flex flex-col h-full">
       <div className="p-3 border-b border-border">
@@ -2335,30 +2393,64 @@ function ChatSidebar({
           {conversations.map((c) => (
             <div
               key={c.id}
-              className={`group grid grid-cols-[minmax(0,1fr)_2rem] items-center gap-2 rounded-md py-1 pl-3 pr-1 text-sm cursor-pointer transition-colors ${
+              className={`group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 rounded-md py-1 pl-3 pr-1 text-sm cursor-pointer transition-colors ${
                 activeConvo === c.id
                   ? "bg-primary/10 text-primary"
                   : "text-muted-foreground hover:bg-muted"
               }`}
               onClick={() => onSelect(c.id)}
             >
-              <span className="min-w-0 truncate" title={c.title}>
-                {c.title}
-              </span>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                aria-label={`Delete ${c.title}`}
-                title="Delete chat"
-                className="h-8 w-8 shrink-0 rounded-md border border-border/60 bg-background/80 p-0 text-destructive opacity-100 shadow-sm hover:bg-destructive hover:text-destructive-foreground"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDelete(c.id);
-                }}
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
+              {editingId === c.id ? (
+                <input
+                  autoFocus
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
+                  onBlur={commit}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") commit();
+                    if (e.key === "Escape") setEditingId(null);
+                  }}
+                  maxLength={80}
+                  aria-label={`Rename ${c.title}`}
+                  className="min-w-0 rounded border border-border bg-background px-1.5 py-0.5 text-sm text-foreground outline-none focus:border-primary"
+                />
+              ) : (
+                <span className="min-w-0 truncate" title={c.title}>
+                  {c.title}
+                </span>
+              )}
+              <div className="flex shrink-0 items-center">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label={`Rename ${c.title}`}
+                  title="Rename chat"
+                  className="h-8 w-8 shrink-0 rounded-md p-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 hover:bg-muted hover:text-foreground"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setEditingId(c.id);
+                    setDraft(c.title);
+                  }}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label={`Delete ${c.title}`}
+                  title="Delete chat"
+                  className="h-8 w-8 shrink-0 rounded-md border border-border/60 bg-background/80 p-0 text-destructive opacity-100 shadow-sm hover:bg-destructive hover:text-destructive-foreground"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete(c.id);
+                  }}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
           ))}
         </div>
