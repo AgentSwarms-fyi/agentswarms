@@ -1,5 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
+import { listClaim } from "@/lib/listClaim";
+import {
+  pageTraces,
+  traceCountHeadline,
+  traceKpiQualifier,
+  windowComplete,
+} from "@/lib/traceWindow";
 import { TeamSpend } from "@/components/observability/TeamSpend";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -121,24 +128,74 @@ function AnalyticsPage() {
   const [traces, setTraces] = useState<Trace[]>([]);
   const [loading, setLoading] = useState(true);
   const [seeding, setSeeding] = useState(false);
+  // Why the read failed, or null — every KPI on this page is derived from
+  // `traces`, and the empty state offers a WRITE (the sample-data seeder), so
+  // a failed read must never be allowed to impersonate an empty account.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  // Exact row count for the same 30-day filter, so the header can say when
+  // the fetched window is not the whole story.
+  const [exactTotal, setExactTotal] = useState(0);
   const [preset, setPreset] = useState<RangePreset>("1m");
   const [customRange, setCustomRange] = useState<DateRange | undefined>();
 
   const load = async () => {
     const sinceDate = subDays(new Date(), 30).toISOString();
-    const { data } = await supabase
+    setLoadError(null);
+
+    // Exact count first: the fetch below is paged and capped, and the header
+    // must not present a page as the population. MEASURED before this change:
+    // .limit(2000) was silently capped to 1,000 rows by PostgREST max-rows,
+    // and the page said "1,000 traces over the last 30 days" to an account
+    // holding 2,731 — spend, tokens and agent counts all inherited the
+    // truncation, and average latency was biased 32% high.
+    const { count, error: countError } = await supabase
       .from("execution_traces")
-      .select(
-        // pricing_missing rides along so the spend card can say when its total is
-        // a floor. Same `->>` read the Traces page uses; Postgres returns it as
-        // the text "true", not a boolean.
-        "id, agent_name, llm_provider, llm_model, latency_ms, tokens_in, tokens_out, cost_usd, status, created_at, pricing_missing:request_payload->>pricing_missing",
-      )
-      .gte("created_at", sinceDate)
-      .order("created_at", { ascending: false })
-      .limit(2000);
-    setTraces((data ?? []) as Trace[]);
-    setLoading(false);
+      .select("id", { count: "exact", head: true })
+      .gte("created_at", sinceDate);
+    if (countError) {
+      setLoadError(countError.message);
+      setLoading(false);
+      return;
+    }
+    setExactTotal(count ?? 0);
+
+    // Page through in server-cap-sized steps. PAGE matches the PostgREST
+    // max-rows default, so each .range() is one full page; MAX_ROWS bounds
+    // the client work on very large accounts, and the header + KPI qualifier
+    // say so when it bites (windowComplete goes false).
+    // PAGE matches the PostgREST max-rows default so each range() is one full
+    // page; MAX_ROWS bounds client work on very large accounts, and the header
+    // + KPI qualifier say so when it bites (windowComplete goes false). The
+    // loop lives in lib/traceWindow so its correctness is tested, not just
+    // inspected — an errored page throws, aborting the load rather than
+    // letting a fragment be summed as if whole.
+    const PAGE = 1000;
+    const MAX_ROWS = 5000;
+    try {
+      const all = await pageTraces<Trace>(
+        async (offset, pageSize) => {
+          const { data, error } = await supabase
+            .from("execution_traces")
+            .select(
+              // pricing_missing rides along so the spend card can say when its total is
+              // a floor. Same `->>` read the Traces page uses; Postgres returns it as
+              // the text "true", not a boolean.
+              "id, agent_name, llm_provider, llm_model, latency_ms, tokens_in, tokens_out, cost_usd, status, created_at, pricing_missing:request_payload->>pricing_missing",
+            )
+            .gte("created_at", sinceDate)
+            .order("created_at", { ascending: false })
+            .range(offset, offset + pageSize - 1);
+          if (error) throw new Error(error.message);
+          return { rows: (data ?? []) as Trace[] };
+        },
+        { pageSize: PAGE, maxRows: MAX_ROWS },
+      );
+      setTraces(all);
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : "Could not read traces");
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -303,6 +360,34 @@ function AnalyticsPage() {
     );
   }
 
+  const claim = listClaim({ loaded: !loading, error: loadError, count: traces.length });
+
+  if (claim.message === "error") {
+    return (
+      <div className="p-6">
+        <div className="mb-6">
+          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
+            Observability
+          </p>
+          <h1 className="font-display text-3xl font-semibold tracking-tight">Analytics</h1>
+        </div>
+        <Card role="alert" className="p-12 text-center border-dashed border-warning/40">
+          <h3 className="text-lg font-semibold mb-2 text-warning">
+            Your traces could not be loaded
+          </h3>
+          <p className="text-sm text-muted-foreground mb-6 max-w-md mx-auto">
+            {loadError}. Your execution history has not gone anywhere — this page just cannot read
+            it right now. Sample data is deliberately not offered here: seeding from a failed read
+            would mix example traces into an account that may hold real ones.
+          </p>
+          <Button variant="outline" onClick={() => void load()}>
+            Try again
+          </Button>
+        </Card>
+      </div>
+    );
+  }
+
   if (traces.length === 0) {
     return (
       <div className="p-6">
@@ -341,8 +426,13 @@ function AnalyticsPage() {
           </p>
           <h1 className="font-display text-3xl font-semibold tracking-tight">Analytics</h1>
           <p className="text-muted-foreground mt-1">
-            {traces.length.toLocaleString()} traces over the last 30 days
+            {traceCountHeadline({ fetched: traces.length, total: exactTotal })}
           </p>
+          {!windowComplete({ fetched: traces.length, total: exactTotal }) && (
+            <p className="mt-0.5 text-xs text-warning">
+              {traceKpiQualifier({ fetched: traces.length, total: exactTotal })}
+            </p>
+          )}
         </div>
       </div>
 

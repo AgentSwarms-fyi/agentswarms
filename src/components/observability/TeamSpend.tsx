@@ -54,17 +54,25 @@ export function TeamSpend() {
   const [users, setUsers] = useState<UserSpendRow[] | null>(null);
   const [groups, setGroups] = useState<GroupSpendRow[]>([]);
   const [loading, setLoading] = useState(false);
+  // Why the breakdown could not be read, or null. Without it a failed read
+  // left "Loading…" on screen for ever once the toast expired — the same
+  // defect the notebooks publish dialog had (module 13).
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isAdmin || !token) return;
     setLoading(true);
+    setLoadError(null);
     spendFn({ data: { access_token: token, days } })
       .then((res) => {
         if (!res.ok) throw new Error(res.error);
         setUsers(res.users);
         setGroups(res.groups);
       })
-      .catch((e) => toast.error((e as Error).message))
+      .catch((e) => {
+        toast.error((e as Error).message);
+        setLoadError((e as Error).message);
+      })
       .finally(() => setLoading(false));
   }, [isAdmin, token, days, spendFn]);
 
@@ -108,7 +116,11 @@ export function TeamSpend() {
           <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             By user
           </p>
-          {users === null ? (
+          {loadError !== null ? (
+            <p role="alert" className="py-6 text-center text-xs text-warning">
+              The spend breakdown could not be loaded — {loadError}.
+            </p>
+          ) : users === null ? (
             <p className="py-6 text-center text-xs text-muted-foreground">Loading…</p>
           ) : users.length === 0 ? (
             <p className="py-6 text-center text-xs text-muted-foreground">

@@ -70,7 +70,7 @@ Never infer it from what rendered.
 | 18  | Secrets             | `/secrets`                 | ✅ 1 | 2026-08-17 | 2 (1×S1, 1×S2) — empty claim on a failed read; skeleton for ever      |
 | 19  | MCP Servers         | `/mcp`                     | ✅ 1 | 2026-08-17 | 1 (1×S1) — derived counts read 0 on a failed read; pin was decorative |
 | 20  | Model Registry      | `/model-registry`          | ✅ 1 | 2026-08-18 | 1 (1×S1) — four false claims, and a sync button that acts on them     |
-| 21  | Analytics           | `/analytics`               | —    | —          | —                                                                     |
+| 21  | Analytics           | `/analytics`               | ✅ 1 | 2026-08-18 | 3 (1×S1, 2×S2) — a silent row cap made every KPI wrong                |
 | 22  | Swarm Traces        | `/analytics/observability` | —    | —          | —                                                                     |
 | 23  | Traces & Logs       | `/traces`                  | —    | —          | —                                                                     |
 | 24  | Audit Log           | `/audit`                   | —    | —          | —                                                                     |
@@ -85,6 +85,109 @@ Never infer it from what rendered.
 ## Findings
 
 <!-- newest first -->
+
+### 2026-08-18 — Module 21, Analytics (`/analytics`)
+
+Three findings. The first is the only one in this campaign so far where the
+page was wrong about the data it _had_, not merely about a read that failed.
+
+#### S1 · A silent row cap made every number on the page wrong
+
+`load()` asked for `.limit(2000)`. PostgREST's `max-rows` setting capped the
+response at 1,000 and supabase-js returned that first page as a complete
+result — no error, no truncation flag, and the `.limit(2000)` simply never
+mattered. The page then said, in words:
+
+> **1,000 traces over the last 30 days**
+
+to an account holding **2,731**. Every KPI is derived from the same array, so
+every KPI inherited it. Measured against a paged read of the same filter:
+
+|               | page said | truth    | error    |
+| ------------- | --------- | -------- | -------- |
+| traces        | 1,000     | 2,731    | −63%     |
+| Spend (MTD)   | $6.01     | $6.36    | −5.6%    |
+| Tokens (30d)  | 2,052.6K  | 3,767.9K | −46%     |
+| Active agents | 18        | 22       | −4       |
+| Avg latency   | 10,498ms  | 7,981ms  | **+32%** |
+
+The latency row is the one worth staring at. The other four are
+under-counts — bad, but bad in a direction a careful reader might guess. Average
+latency was **biased upward by a third**, because the cap takes the most recent
+thousand rows and that window happened to be slower than the month it was
+standing in for. A truncated mean is not a smaller mean; it is a mean of a
+different population, and nothing on the page said so.
+
+The fix reads an exact `count` first, then pages with `.range()` until a short
+page proves the end. The header now says `2,731 traces over the last 30 days`
+and all four KPIs match an independent paged computation exactly. If the
+client-side ceiling is ever reached the header switches to "showing the most
+recent N of M" and a warning appears above the cards — a page is entitled to
+describe itself, not the account.
+
+#### S2 · A failed read rendered as an empty account, beside a seeder
+
+Same shape as modules 13–20, with a sharper edge than most. `load()`
+destructured only `data`, so a 403 left `traces` at `[]` and the page rendered
+"**No execution data yet**" with a **Generate sample data** button — measured
+live, 6 interceptions recorded, no error text anywhere.
+
+That button writes ~600 example rows. Its server guard refuses when more than
+50 traces already exist, so the write would in fact have been declined here —
+but the guard is doing that work by accident. The page offered a write on the
+strength of a number it did not have, and the only thing standing between a
+failed read and example data mixed into a real account was a threshold chosen
+for a different purpose. The error panel now declines to offer seeding at all,
+and says why.
+
+#### S2 · The team-spend breakdown said "Loading…" for ever
+
+`TeamSpend` toasted its error and left `users` at `null`, and the render reads
+`users === null ? "Loading…"`. So a failed read showed a spinner-shaped
+sentence permanently — measured with the JWT corrupted so the real server
+returned its own error, and still on screen after the toast expired. Now an
+explicit error branch outranks the loading state.
+
+**What was already right.** The `BY USER` table aggregates server-side through
+the `admin_spend_by_user` RPC, with no row cap, and its $8.0716 for 2,731 calls
+matched a paged sum of `cost_usd` to the cent. Worth recording because it is
+the same page: the SQL-aggregate path was correct all along, and the defect was
+entirely in the client-side array the KPI cards were built from.
+
+#### Mutations, and a survivor that changed the fix
+
+The first run killed **6 of 9**, and two survivors were behavioural rather than
+cosmetic: reverting the paging to a single capped read, and letting an errored
+page fall through so a fragment got summed as if whole. Source inspection
+cannot see either — the pin test reads files, it does not run them.
+
+So the paging loop moved out of the component into `lib/traceWindow`, where it
+could be tested against a fake table: every row across pages, a short page as
+the only proof of the end, an extra read when the last full page lands exactly
+on the boundary, the ceiling honoured, and an errored page aborting the whole
+load rather than resolving to a fragment. Second run: **9 of 11**.
+
+The two that remain are `setLoadError` calls in analytics.tsx, and they survive
+for the reason this file has now recorded three times: the rule asks whether an
+error is recorded _somewhere in the file_, and this file records it in four
+places, so deleting one leaves three. Killing that would need the route
+component rendered, which is the thing `emptyStateLoadGate` explains it will
+not do. Recorded rather than papered over.
+
+**Pin rules broadened, not weakened.** Two rows were added and both initially
+reported correct code. `TeamSpend` has no count and no list, so it routes
+through an error-state branch rather than `listClaim` — the claim rule now
+accepts a state guard (`loadError !== null`) as well as a helper call. And it
+holds its error in state rather than destructuring one, so the "names a read
+error" rule now recognises `setLoadError(...)` alongside `error: e`. Both
+changes let a correctly-fixed page pass; neither lets a broken one through,
+which the mutation run confirms.
+
+**Tests:** 15 in `tests/unit/traceWindow.test.ts`, `failedReadClaims` 67 → 84.
+Full suite 215 files, 4039 tests, green — a delta of exactly the 32 added. No
+fixtures: this pass only read.
+
+---
 
 ### 2026-08-18 — Module 20, Model Registry (`/model-registry`)
 

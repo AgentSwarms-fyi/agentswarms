@@ -86,6 +86,22 @@ const CONVERTED: {
     claim: ["countLabels", "listClaim"],
     viaServerFn: true,
   },
+  {
+    file: "src/routes/_authenticated/analytics.tsx",
+    module: "21 — Analytics",
+    what: "'No execution data yet' + a sample-data seeder, for an account holding 2,731 traces",
+    claim: ["listClaim", "traceCountHeadline"],
+  },
+  {
+    file: "src/components/observability/TeamSpend.tsx",
+    module: "21 — Analytics",
+    what: "the spend breakdown: 'Loading…' for ever after a failed read",
+    // No count and no list, so no listClaim: this section's whole vocabulary
+    // is Loading / error / empty / rows, and the fix is an explicit error
+    // branch that outranks the Loading state. The claim it routes through is
+    // that error branch.
+    claim: "loadError",
+  },
 ];
 
 const read = (f: string) => readFileSync(resolve(f), "utf8");
@@ -101,9 +117,15 @@ describe("pages that must not report a failed read as an empty account", () => {
       const claims = [claimHelper ?? "listClaim"].flat();
       for (const claim of claims) {
         it(`routes what it claims through ${claim}`, () => {
-          expect(read(file), `${file} stopped using ${claim} — ${what} can return`).toMatch(
-            new RegExp(`${claim}\\s*\\(`),
-          );
+          // Helper call — `listClaim(` — or a state guard the render branches
+          // on — `loadError !== null`, `loadError ?`. Not a bare mention.
+          const called = new RegExp(`\\b${claim}\\s*\\(`);
+          const branched = new RegExp(`\\b${claim}\\s*(?:!==|===|==|!=|\\?|&&|\\|\\|)`);
+          const src = read(file);
+          expect(
+            called.test(src) || branched.test(src),
+            `${file} stopped using ${claim} — ${what} can return`,
+          ).toBe(true);
         });
       }
 
@@ -183,11 +205,15 @@ describe("pages that must not report a failed read as an empty account", () => {
         // discarded, which is the campaign's defect stated in one line.
         const src = read(file);
         const RESERVED = new Set(["string", "null", "undefined", "boolean", "number", "unknown"]);
-        const names = [...src.matchAll(/\berror:\s*([a-z][A-Za-z0-9_]*)/g)]
+        // Two ways a page can name its read error: destructure it (`error: e`)
+        // or hold it in state (`setLoadError(...)`). Both count.
+        const destructured = [...src.matchAll(/\berror:\s*([a-z][A-Za-z0-9_]*)/g)]
           .map((m) => m[1])
           .filter((n) => !RESERVED.has(n));
+        const heldInState = [...src.matchAll(/\bset([A-Z]\w*Error)\s*\(/g)].map((m) => m[1]);
+        const names = [...destructured, ...heldInState];
         expect(names.length, `${file} names no read error at all — ${what}`).toBeGreaterThan(0);
-        const dropped = [...new Set(names)].filter(
+        const dropped = [...new Set(destructured)].filter(
           (n) => (src.match(new RegExp("\\b" + n + "\\b", "g")) || []).length < 2,
         );
         expect(dropped, `${file} binds ${dropped.join(", ")} and never uses it — ${what}`).toEqual(
