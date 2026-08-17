@@ -30,7 +30,7 @@ const CONVERTED: {
   file: string;
   module: string;
   what: string;
-  claim?: string;
+  claim?: string | string[];
   /**
    * The read goes through a TanStack server function rather than a direct
    * Supabase call. It matters because the two fail differently: supabase-js
@@ -73,6 +73,12 @@ const CONVERTED: {
     what: "'No secrets yet. Create one…' for an account holding two, after the toast expired",
     viaServerFn: true,
   },
+  {
+    file: "src/routes/_authenticated/mcp.tsx",
+    module: "19 — MCP Servers",
+    what: "'0 connected' and '0 tools available' for an account with a server exposing seven",
+    claim: ["countLabels", "listClaim"],
+  },
 ];
 
 const read = (f: string) => readFileSync(resolve(f), "utf8");
@@ -85,12 +91,14 @@ describe("pages that must not report a failed read as an empty account", () => {
 
   for (const { file, module, what, claim: claimHelper, viaServerFn } of CONVERTED) {
     describe(`${file}  (module ${module})`, () => {
-      const claim = claimHelper ?? "listClaim";
-      it(`routes what it claims through ${claim}`, () => {
-        expect(read(file), `${file} stopped using ${claim} — ${what} can return`).toMatch(
-          new RegExp(`${claim}\\s*\\(`),
-        );
-      });
+      const claims = [claimHelper ?? "listClaim"].flat();
+      for (const claim of claims) {
+        it(`routes what it claims through ${claim}`, () => {
+          expect(read(file), `${file} stopped using ${claim} — ${what} can return`).toMatch(
+            new RegExp(`${claim}\\s*\\(`),
+          );
+        });
+      }
 
       it("keeps the read's error rather than discarding it", () => {
         const src = read(file);
@@ -125,6 +133,28 @@ describe("pages that must not report a failed read as an empty account", () => {
           if (!/set\w*(Error|State)\s*\(/.test(near)) orphans.push(line.trim());
         });
         expect(orphans, `${file} empties its list with no error set — ${what}`).toEqual([]);
+      });
+      it("records the error from a real value, not only clears it", () => {
+        // Added after module 19's mutation run, where deleting the single
+        // `setLoadError(error.message)` — restoring the exact defect — left
+        // `setLoadError(null)` behind and every rule still passed. An error
+        // state that is only ever cleared records nothing.
+        const src = read(file);
+        const recordsIt =
+          /set\w*Error\s*\(\s*(?!null\s*\))[^)]+\)/.test(src) ||
+          /set\w*State\s*\(\s*\{[^}]*error:\s*\w+[^}]*\}/.test(src);
+        expect(recordsIt, `${file} only ever clears its error state — ${what}`).toBe(true);
+      });
+
+      it("clears the error once the read succeeds again", () => {
+        // Otherwise a recovered page keeps showing a failure that is over,
+        // and the Try again button appears to do nothing.
+        const src = read(file);
+        const clearsIt =
+          /set\w*Error\s*\(\s*null\s*\)/.test(src) ||
+          /set\w*State\s*\(\s*\{[^}]*error:\s*null[^}]*\}/.test(src) ||
+          /error:\s*readError\s*\?/.test(src);
+        expect(clearsIt, `${file} never clears its error state — ${what}`).toBe(true);
       });
       it("uses every read error it names, rather than binding and dropping it", () => {
         // Added after mutation testing. The rule above is satisfied by the

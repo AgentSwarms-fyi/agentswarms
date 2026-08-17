@@ -1,5 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { listClaim } from "@/lib/listClaim";
+import { countLabels } from "@/lib/countClaim";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -86,6 +88,10 @@ function McpPage() {
   const { user } = useAuth();
   const [servers, setServers] = useState<McpServer[]>([]);
   const [loading, setLoading] = useState(true);
+  // Why the list could not be read, or null. Both badges below are counts
+  // computed from `servers`, so without this a failed read publishes "0
+  // connected" and "0 tools available" as though they were measurements.
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
 
   const load = async () => {
@@ -98,8 +104,14 @@ function McpPage() {
       )
       .order("created_at", { ascending: false });
     if (error) {
+      // MEASURED: this branch left `servers` at [] and turned the two header
+      // badges into "0 connected" and "0 tools available" for an account with
+      // a connected server exposing seven tools. The toast was gone ten
+      // seconds later; the two zeroes were not.
       toast.error("Failed to load MCP servers");
+      setLoadError(error.message);
     } else {
+      setLoadError(null);
       setServers((data ?? []) as McpServer[]);
     }
     setLoading(false);
@@ -196,6 +208,15 @@ function McpPage() {
     (acc, s) => acc + (s.status === "connected" ? s.tools_count : 0),
     0,
   );
+  // A count is a claim only a completed read may make. Both badges are derived
+  // from the same rows, so they stand or fall together.
+  const claim = listClaim({ loaded: !loading, error: loadError, count: servers.length });
+  // Both badges come from the same rows, so they are true together or unknown
+  // together — countLabels is what makes that structural rather than a habit.
+  const { connected: connectedLabel, tools: toolsLabel } = countLabels(
+    { loaded: !loading, error: loadError },
+    { connected: connectedCount, tools: totalTools },
+  );
 
   return (
     <div className="flex">
@@ -216,10 +237,10 @@ function McpPage() {
             </p>
             <div className="flex gap-2 mt-3">
               <Badge variant="outline" className="text-emerald-400 border-emerald-500/30">
-                <Wifi className="h-3 w-3 mr-1" /> {connectedCount} connected
+                <Wifi className="h-3 w-3 mr-1" /> {connectedLabel} connected
               </Badge>
               <Badge variant="outline" className="text-muted-foreground">
-                {totalTools} tools available
+                {toolsLabel} tools available
               </Badge>
             </div>
           </div>
@@ -239,6 +260,24 @@ function McpPage() {
               <Skeleton key={i} className="h-[220px]" />
             ))}
           </div>
+        ) : claim.message === "error" ? (
+          <div
+            role="alert"
+            className="rounded-md border border-warning/40 bg-warning/5 p-6 text-sm"
+          >
+            <p className="text-warning">Your MCP servers could not be loaded — {loadError}.</p>
+            <p className="mt-1 text-muted-foreground">
+              Any servers you have registered are still registered, and the counts above are unknown
+              rather than zero.
+            </p>
+            <Button variant="outline" size="sm" className="mt-3" onClick={() => void load()}>
+              Try again
+            </Button>
+          </div>
+        ) : claim.message === "empty" ? (
+          <p className="py-10 text-center text-sm text-muted-foreground">
+            No MCP servers yet. Add one above, or build your own in MCP Builder.
+          </p>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {servers.map((server) => {

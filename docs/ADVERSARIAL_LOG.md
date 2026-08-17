@@ -48,43 +48,135 @@ Never infer it from what rendered.
 
 ## Coverage map
 
-| #   | Module              | Route                      | Pass | Date       | Findings                                                           |
-| --- | ------------------- | -------------------------- | ---- | ---------- | ------------------------------------------------------------------ |
-| 1   | Dashboard           | `/dashboard`               | ✅ 1 | 2026-08-16 | 5 (2×S1, 1×S2, 2×S3)                                               |
-| 2   | Documentation       | `/docs`                    | ✅ 1 | 2026-08-16 | 4 (2×S1, 1×S2, 1×S1 self-inflicted)                                |
-| 3   | Agent Builder       | `/agents`                  | ✅ 1 | 2026-08-16 | 3 (2×S1, 1×S2)                                                     |
-| 4   | Knowledge Base      | `/knowledge`               | ✅ 1 | 2026-08-16 | 1 (1×S1)                                                           |
-| 5   | Agent Chat          | `/playground`              | ✅ 1 | 2026-08-16 | 2 (1×S1 self-inflicted, 1×S2); guardrails verified live            |
-| 6   | Agent Swarms        | `/swarms`                  | ✅ 1 | 2026-08-16 | 1 (1×S2)                                                           |
-| 7   | MCP Builder         | `/mcp-builder`             | ✅ 1 | 2026-08-16 | 1 (1×S2)                                                           |
-| 8   | AI Analyst          | `/ai-analyst`              | ✅ 1 | 2026-08-16 | 0 — held; no live turn (over budget cap)                           |
-| 9   | Data Catalog        | `/data-sql`                | ✅ 1 | 2026-08-16 | 2 (1×S1, 1×S3)                                                     |
-| 10  | Semantic Layer      | `/semantics`               | ✅ 1 | 2026-08-16 | 1 (1×S1) + one wrong hypothesis, recorded                          |
-| 11  | Metrics             | `/metrics`                 | ✅ 1 | 2026-08-16 | 2 (2×S2) + one hypothesis dropped                                  |
-| 12  | BI Workspace        | `/bi`                      | ✅ 1 | 2026-08-16 | 1 (1×S1) — widget count read the page-1 mirror                     |
-| 13  | Developer workspace | `/notebooks`               | ✅ 1 | 2026-08-17 | 4 (1×S1, 2×S2, 1×S3) — failed reads rendered as absence            |
-| 14  | Prompt Library      | `/prompts`                 | ✅ 1 | 2026-08-17 | 2 (1×S1, 1×S3) — empty claim on a failed read; `#tag`              |
-| 15  | Skill Library       | `/skills`                  | ✅ 1 | 2026-08-17 | 1 (1×S1) — same failed-read claim; guard added                     |
-| 16  | Integrations        | `/integrations`            | ✅ 2 | 2026-08-17 | 1 (1×S2) — re-audited with proof; the retracted S1 was real, at S2 |
-| 17  | Web Embedding       | `/embeds`                  | ✅ 1 | 2026-08-17 | 0 — counts exact; disable, expiry and allow-list proven            |
-| 18  | Secrets             | `/secrets`                 | ✅ 1 | 2026-08-17 | 2 (1×S1, 1×S2) — empty claim on a failed read; skeleton for ever   |
-| 19  | MCP Servers         | `/mcp`                     | —    | —          | —                                                                  |
-| 20  | Model Registry      | `/model-registry`          | —    | —          | —                                                                  |
-| 21  | Analytics           | `/analytics`               | —    | —          | —                                                                  |
-| 22  | Swarm Traces        | `/analytics/observability` | —    | —          | —                                                                  |
-| 23  | Traces & Logs       | `/traces`                  | —    | —          | —                                                                  |
-| 24  | Audit Log           | `/audit`                   | —    | —          | —                                                                  |
-| 25  | Budgets             | `/budgets`                 | —    | —          | —                                                                  |
-| 26  | Monitoring          | `/monitoring`              | —    | —          | —                                                                  |
-| 27  | Prompt Compare      | `/prompt-compare`          | —    | —          | —                                                                  |
-| 28  | Evaluations         | `/evaluations`             | —    | —          | —                                                                  |
-| 29  | Image Playground    | `/image-playground`        | —    | —          | —                                                                  |
-| 30  | IAM                 | `/admin/iam`               | —    | —          | —                                                                  |
-| 31  | Developer runtime   | `/admin/runtime`           | —    | —          | —                                                                  |
+| #   | Module              | Route                      | Pass | Date       | Findings                                                              |
+| --- | ------------------- | -------------------------- | ---- | ---------- | --------------------------------------------------------------------- |
+| 1   | Dashboard           | `/dashboard`               | ✅ 1 | 2026-08-16 | 5 (2×S1, 1×S2, 2×S3)                                                  |
+| 2   | Documentation       | `/docs`                    | ✅ 1 | 2026-08-16 | 4 (2×S1, 1×S2, 1×S1 self-inflicted)                                   |
+| 3   | Agent Builder       | `/agents`                  | ✅ 1 | 2026-08-16 | 3 (2×S1, 1×S2)                                                        |
+| 4   | Knowledge Base      | `/knowledge`               | ✅ 1 | 2026-08-16 | 1 (1×S1)                                                              |
+| 5   | Agent Chat          | `/playground`              | ✅ 1 | 2026-08-16 | 2 (1×S1 self-inflicted, 1×S2); guardrails verified live               |
+| 6   | Agent Swarms        | `/swarms`                  | ✅ 1 | 2026-08-16 | 1 (1×S2)                                                              |
+| 7   | MCP Builder         | `/mcp-builder`             | ✅ 1 | 2026-08-16 | 1 (1×S2)                                                              |
+| 8   | AI Analyst          | `/ai-analyst`              | ✅ 1 | 2026-08-16 | 0 — held; no live turn (over budget cap)                              |
+| 9   | Data Catalog        | `/data-sql`                | ✅ 1 | 2026-08-16 | 2 (1×S1, 1×S3)                                                        |
+| 10  | Semantic Layer      | `/semantics`               | ✅ 1 | 2026-08-16 | 1 (1×S1) + one wrong hypothesis, recorded                             |
+| 11  | Metrics             | `/metrics`                 | ✅ 1 | 2026-08-16 | 2 (2×S2) + one hypothesis dropped                                     |
+| 12  | BI Workspace        | `/bi`                      | ✅ 1 | 2026-08-16 | 1 (1×S1) — widget count read the page-1 mirror                        |
+| 13  | Developer workspace | `/notebooks`               | ✅ 1 | 2026-08-17 | 4 (1×S1, 2×S2, 1×S3) — failed reads rendered as absence               |
+| 14  | Prompt Library      | `/prompts`                 | ✅ 1 | 2026-08-17 | 2 (1×S1, 1×S3) — empty claim on a failed read; `#tag`                 |
+| 15  | Skill Library       | `/skills`                  | ✅ 1 | 2026-08-17 | 1 (1×S1) — same failed-read claim; guard added                        |
+| 16  | Integrations        | `/integrations`            | ✅ 2 | 2026-08-17 | 1 (1×S2) — re-audited with proof; the retracted S1 was real, at S2    |
+| 17  | Web Embedding       | `/embeds`                  | ✅ 1 | 2026-08-17 | 0 — counts exact; disable, expiry and allow-list proven               |
+| 18  | Secrets             | `/secrets`                 | ✅ 1 | 2026-08-17 | 2 (1×S1, 1×S2) — empty claim on a failed read; skeleton for ever      |
+| 19  | MCP Servers         | `/mcp`                     | ✅ 1 | 2026-08-17 | 1 (1×S1) — derived counts read 0 on a failed read; pin was decorative |
+| 20  | Model Registry      | `/model-registry`          | —    | —          | —                                                                     |
+| 21  | Analytics           | `/analytics`               | —    | —          | —                                                                     |
+| 22  | Swarm Traces        | `/analytics/observability` | —    | —          | —                                                                     |
+| 23  | Traces & Logs       | `/traces`                  | —    | —          | —                                                                     |
+| 24  | Audit Log           | `/audit`                   | —    | —          | —                                                                     |
+| 25  | Budgets             | `/budgets`                 | —    | —          | —                                                                     |
+| 26  | Monitoring          | `/monitoring`              | —    | —          | —                                                                     |
+| 27  | Prompt Compare      | `/prompt-compare`          | —    | —          | —                                                                     |
+| 28  | Evaluations         | `/evaluations`             | —    | —          | —                                                                     |
+| 29  | Image Playground    | `/image-playground`        | —    | —          | —                                                                     |
+| 30  | IAM                 | `/admin/iam`               | —    | —          | —                                                                     |
+| 31  | Developer runtime   | `/admin/runtime`           | —    | —          | —                                                                     |
 
 ## Findings
 
 <!-- newest first -->
+
+### 2026-08-17 — Module 19, MCP Servers (`/mcp`)
+
+One finding, and the interesting part is why four converted pages did not
+prevent it.
+
+**The arithmetic is right when the read succeeds.** Against two fixture servers
+— one `connected` exposing 7 tools, one `error` exposing 3 — the header read
+"1 connected" and "7 tools available", both matching a figure computed
+independently from `mcp_servers`. The errored server's three tools are
+correctly excluded from the total, so the sum is a real filter and not a naive
+count. `timeAgo` guards a null `last_ping` and renders "never".
+
+#### S1 · "0 connected" and "0 tools available", for an account with seven
+
+`load()` checked its error — better than the pages that discarded it — and
+toasted. But it left `servers` at its initial `[]` and ran `setLoading(false)`
+regardless, so both header badges were computed from rows that never arrived:
+
+|                        | healthy | read 403'd                      | ~10s later |
+| ---------------------- | ------- | ------------------------------- | ---------- |
+| "N connected"          | 1       | **0**                           | **0**      |
+| "N tools available"    | 7       | **0**                           | **0**      |
+| server names on screen | both    | none                            | none       |
+| toast                  | —       | 3× "Failed to load MCP servers" | **gone**   |
+| any error text         | —       | —                               | **none**   |
+
+The interception was recorded (3 requests failed) rather than inferred. There
+was also no empty state on this page at all, so a failed read produced two
+confident zeroes above a completely blank grid.
+
+**Zero is the worst possible wrong answer here, because it is also a perfectly
+ordinary right one.** Nothing distinguished "you have no MCP servers" from "I
+could not find out" — and this page's numbers feed a real decision, since an
+agent author checks "N tools available" to see whether their tools are
+reachable before blaming their prompt.
+
+#### Why the four earlier conversions missed it
+
+`lib/listClaim` answers "how many rows do I have" for a list with an empty
+state. Neither badge here is the row count. They are **derived** — a filtered
+length and a conditional sum — so no rule watching for `.length` was ever going
+to see them, and a failed read makes both compute to 0 through entirely
+innocent arithmetic.
+
+`lib/countClaim` is the missing shape: label every count derived from one read
+at once, and withhold them together. Together is the point — they come from the
+same rows, so they are true together or unknown together, and labelling them
+one at a time is how a page ends up admitting the failure in one badge while
+printing a confident 0 in the one beside it.
+
+The page now shows `—` for both when the read fails, an alert naming the reason
+that says the counts are "unknown rather than zero", and a **Try again** button.
+It also gained the empty state it never had, because otherwise the fix has
+nothing to distinguish itself from: verified live, a genuinely empty account
+reads "0 connected", "0 tools available" and "No MCP servers yet", while a
+failed read reads "—", "—" and the alert. Try again was exercised rather than
+assumed — fail, heal, click, back to 1 and 7 with the alert gone.
+
+#### The pin was decorative, and the mutation run is the only reason that is known
+
+Adding the row and running four mutations killed **one of four**. Deleting the
+`setLoadError` so the error was toasted and never recorded — the exact defect —
+survived. So did replacing the labels with the raw counts, and so did dropping
+the line that clears the error on success.
+
+The row had been pinned against `listClaim`, which the page still called for
+its panel, so every rule passed while the badges lied again. A pin that names a
+helper the file happens to contain proves nothing about the thing that broke.
+
+Three changes came out of that, each mutation-verified:
+
+- the counts moved into `countClaim`, a real function with its own tests, so
+  the decision is covered at the logic level rather than by inspection;
+- **an error state must be recorded from a real value, not only cleared** —
+  `setLoadError(null)` on its own is not recording anything;
+- **an error state must also be cleared on success** — otherwise a recovered
+  page keeps showing a failure that is over, and Try again appears dead.
+
+A fourth followed: `claim` may now name more than one helper, because this page
+guards its badges with `countLabels` and its panel with `listClaim`, and
+dropping either one restores a defect. Pinning only the one I had just added
+left the other unguarded, which the mutation run caught immediately.
+
+Second pass: **8 of 8 killed.**
+
+**Fixtures:** two `mcp_servers` rows inserted directly rather than through the
+Add dialog, because that flow probes a live external MCP endpoint and would
+have made the test depend on somebody else's uptime. Deleted afterwards and
+`mcp_servers` re-read at `*/0`.
+
+---
 
 ### 2026-08-17 — Module 18, Secrets (`/secrets`)
 
