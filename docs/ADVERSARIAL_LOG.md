@@ -44,7 +44,7 @@ has not been tested; it has been visited.
 | 11  | Metrics             | `/metrics`                 | ✅ 1 | 2026-08-16 | 2 (2×S2) + one hypothesis dropped                       |
 | 12  | BI Workspace        | `/bi`                      | ✅ 1 | 2026-08-16 | 1 (1×S1) — widget count read the page-1 mirror          |
 | 13  | Developer workspace | `/notebooks`               | ✅ 1 | 2026-08-17 | 4 (1×S1, 2×S2, 1×S3) — failed reads rendered as absence |
-| 14  | Prompt Library      | `/prompts`                 | —    | —          | —                                                       |
+| 14  | Prompt Library      | `/prompts`                 | ✅ 1 | 2026-08-17 | 2 (1×S1, 1×S3) — empty claim on a failed read; `#tag`   |
 | 15  | Skill Library       | `/skills`                  | —    | —          | —                                                       |
 | 16  | Integrations        | `/integrations`            | —    | —          | —                                                       |
 | 17  | Web Embedding       | `/embeds`                  | —    | —          | —                                                       |
@@ -66,6 +66,84 @@ has not been tested; it has been visited.
 ## Findings
 
 <!-- newest first -->
+
+### 2026-08-17 — Module 14, Prompt Library (`/prompts`)
+
+Both counts on this page were right. "Built-in (23)" matched the 23 prompts
+declared in `lib/promptLibrary` (23 `id:` entries, 23 unique, no duplicates),
+and "My Prompts (0)" matched an exact `*/0`. The four samples-style claims all
+held. Two things did not.
+
+#### S1 · A page that said both "you have none" and "the load failed"
+
+`loadUserPrompts` DID check its error — better than the notebooks module, which
+discarded it — but it only raised a toast and returned, leaving `userPrompts`
+at `[]`. With a 403 on that one query the page rendered, all at once:
+
+| Element | Said                                 |
+| ------- | ------------------------------------ |
+| Tab     | **My Prompts (0)**                   |
+| Panel   | "You haven't saved any prompts yet." |
+| Button  | "Create your first prompt"           |
+| Toast   | "Failed to load your prompts"        |
+
+The page contradicted itself, and the durable half was the false half: the
+toast fades after a few seconds and the empty state does not. A user who looked
+away, or came back to the tab, was left with an account that appeared empty and
+an invitation to start over.
+
+Fixed through the same `listClaim` the notebooks list uses — the tab reads
+`My Prompts (—)` and the panel carries the reason and "Any prompts you have
+saved are still there."
+
+#### S3 · The tag the cards print, that the search box could not find
+
+Every card renders its tags as `#{t}`, so the screen shows `#security`. The tag
+is stored and matched as `security`. Measured in the live page:
+
+| Typed       | Cards |
+| ----------- | ----- |
+| `#security` | **0** |
+| `security`  | 1     |
+
+Copying what the page shows you into the page's own search box returned nothing
+out of 23. This is the module 11 shape again — _the identifier a page publishes
+that its own search cannot find_ — and it is the reason that entry got a name.
+
+A leading `#` now means "this is a tag" rather than being taken literally. Only
+the first one, and only at the front, so `C#` still searches for `C#`.
+
+#### The two filters that were one filter
+
+`filteredBuiltins` and `filteredUser` held the same matcher twice, identical
+apart from `description` being optional on a saved prompt. That is the shape
+that drifts — fix the search on one tab and the other keeps the old behaviour
+with nothing to notice it — so both now call `matchesPromptQuery`. Verified on
+both tabs against a real saved row: `#probe` and `#adversarial` found it.
+
+#### Not a defect: delete appearing to do nothing
+
+The first delete click did nothing. `deletePrompt` guards on `confirm()`, and
+the automated browser auto-dismisses a native confirm, so it returned false.
+Recorded because it looked exactly like a dead control for one screenshot.
+
+#### Campaign note: the failed-read class is systemic
+
+After module 13 the same pattern was swept for rather than rediscovered
+page by page: **43 reads across 27 files** destructure only `data` from a
+Supabase call, and `data` is null on failure. Not all are dangerous — many have
+a benign fallback — but each one that feeds a count or an empty state is this
+same defect. They will be verified and fixed per module with live evidence
+rather than bulk-edited on inference, which is why this is a note and not a
+finding.
+
+**Tests:** 21 in `tests/unit/promptSearch.test.ts`, mutation-verified 10/10 —
+each applied, confirmed on disk, killed, restored, restore confirmed. Full
+suite 3899 tests, 210 files, green (+21, exactly the new file). One fixture
+prompt was created through the real dialog and deleted through the real delete
+button; removal verified by id and by the table returning to an exact `*/0`.
+
+---
 
 ### 2026-08-17 — Module 13, Developer workspace (`/notebooks`)
 

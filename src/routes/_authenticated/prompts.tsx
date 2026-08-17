@@ -43,6 +43,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { BUILT_IN_PROMPTS, PROMPT_CATEGORIES, type PromptCategory } from "@/lib/promptLibrary";
+import { listClaim } from "@/lib/listClaim";
+import { matchesPromptQuery } from "@/lib/promptSearch";
 
 export const Route = createFileRoute("/_authenticated/prompts")({
   component: PromptsPage,
@@ -73,6 +75,10 @@ function PromptsPage() {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<PromptCategory | "all">("all");
   const [userPrompts, setUserPrompts] = useState<UserPrompt[]>([]);
+  /** Why the saved prompts could not be read — see loadUserPrompts. */
+  const [loadError, setLoadError] = useState<string | null>(null);
+  /** The read has returned, one way or the other. */
+  const [loaded, setLoaded] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
@@ -92,9 +98,18 @@ function PromptsPage() {
       .select("id, title, description, category, tags, content, updated_at")
       .order("updated_at", { ascending: false });
     if (error) {
+      // The toast alone was not enough. MEASURED: with a 403 on this query the
+      // page showed "My Prompts (0)", "You haven't saved any prompts yet." and
+      // "Create your first prompt" — while the toast said the load had failed.
+      // The page contradicted itself, and the half that persists is the false
+      // half, because the toast fades and the empty state does not.
+      setLoadError(error.message);
+      setLoaded(true);
       toast.error("Failed to load your prompts");
       return;
     }
+    setLoadError(null);
+    setLoaded(true);
     if (data) setUserPrompts(data as UserPrompt[]);
   }
 
@@ -163,31 +178,23 @@ function PromptsPage() {
     toast.success("Prompt copied to clipboard");
   }
 
-  const filteredBuiltins = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return BUILT_IN_PROMPTS.filter((p) => {
-      if (category !== "all" && p.category !== category) return false;
-      if (!q) return true;
-      return (
-        p.title.toLowerCase().includes(q) ||
-        p.description.toLowerCase().includes(q) ||
-        p.tags.some((t) => t.toLowerCase().includes(q))
-      );
-    });
-  }, [query, category]);
+  // Both tabs run the SAME matcher — see lib/promptSearch. They used to hold
+  // two copies of it, which is how one tab gets a search fix and the other
+  // quietly keeps the old behaviour.
+  const filteredBuiltins = useMemo(
+    () => BUILT_IN_PROMPTS.filter((p) => matchesPromptQuery(p, query, category)),
+    [query, category],
+  );
 
-  const filteredUser = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return userPrompts.filter((p) => {
-      if (category !== "all" && p.category !== category) return false;
-      if (!q) return true;
-      return (
-        p.title.toLowerCase().includes(q) ||
-        (p.description ?? "").toLowerCase().includes(q) ||
-        p.tags.some((t) => t.toLowerCase().includes(q))
-      );
-    });
-  }, [query, category, userPrompts]);
+  const filteredUser = useMemo(
+    () => userPrompts.filter((p) => matchesPromptQuery(p, query, category)),
+    [query, category, userPrompts],
+  );
+
+  // What the "My Prompts" tab may claim — the same rule the notebooks list and
+  // the publish dialog use. Counts the WHOLE collection, not the filtered view:
+  // the tab label is about the account, not about the current search.
+  const mineClaim = listClaim({ loaded, error: loadError, count: userPrompts.length });
 
   return (
     <div className="flex">
@@ -244,7 +251,9 @@ function PromptsPage() {
             </TabsTrigger>
             <TabsTrigger value="mine" className="gap-2">
               <UserIcon className="h-3.5 w-3.5" />
-              My Prompts ({userPrompts.length})
+              {/* Not userPrompts.length — that is 0 on a failed read, which is
+                  the one number this tab cannot stand behind. */}
+              My Prompts ({mineClaim.countLabel})
             </TabsTrigger>
           </TabsList>
 
@@ -313,7 +322,22 @@ function PromptsPage() {
           </TabsContent>
 
           <TabsContent value="mine" className="mt-4">
-            {filteredUser.length === 0 ? (
+            {mineClaim.message === "error" ? (
+              // Neither "you haven't saved any" nor an invitation to create a
+              // first one: both assert this account is empty, and a refused
+              // read is no grounds for either.
+              <Card className="border-2 border-destructive/40 bg-destructive/5">
+                <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                  <BookMarked className="mb-4 h-12 w-12 text-destructive" />
+                  <p className="mb-1 text-sm text-destructive">
+                    Could not load your saved prompts — {loadError}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Any prompts you have saved are still there. Reload to try again.
+                  </p>
+                </CardContent>
+              </Card>
+            ) : filteredUser.length === 0 ? (
               <Card className="border-dashed border-2 border-border/50">
                 <CardContent className="flex flex-col items-center justify-center py-12">
                   <BookMarked className="h-12 w-12 text-muted-foreground mb-4" />
