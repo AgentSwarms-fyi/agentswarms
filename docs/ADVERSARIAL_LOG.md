@@ -43,7 +43,7 @@ has not been tested; it has been visited.
 | 10  | Semantic Layer      | `/semantics`               | ✅ 1 | 2026-08-16 | 1 (1×S1) + one wrong hypothesis, recorded               |
 | 11  | Metrics             | `/metrics`                 | ✅ 1 | 2026-08-16 | 2 (2×S2) + one hypothesis dropped                       |
 | 12  | BI Workspace        | `/bi`                      | ✅ 1 | 2026-08-16 | 1 (1×S1) — widget count read the page-1 mirror          |
-| 13  | Developer workspace | `/notebooks`               | —    | —          | —                                                       |
+| 13  | Developer workspace | `/notebooks`               | ✅ 1 | 2026-08-17 | 4 (1×S1, 2×S2, 1×S3) — failed reads rendered as absence |
 | 14  | Prompt Library      | `/prompts`                 | —    | —          | —                                                       |
 | 15  | Skill Library       | `/skills`                  | —    | —          | —                                                       |
 | 16  | Integrations        | `/integrations`            | —    | —          | —                                                       |
@@ -66,6 +66,85 @@ has not been tested; it has been visited.
 ## Findings
 
 <!-- newest first -->
+
+### 2026-08-17 — Module 13, Developer workspace (`/notebooks`)
+
+Four findings, and they are the same finding four times: **every read on this
+page treated its own failure as a fact about the account.** No arithmetic was
+wrong here. The notebook count badge matched an exact PostgREST count
+(`content-range: 0-2/3`) and the four samples on screen matched the four
+declared in `lib/sampleNotebooks`. What was wrong is what the page says when it
+does not know.
+
+Each was measured by failing exactly one request in the live page and reading
+what rendered — never by reasoning about the code.
+
+**S1 — the notebook list called a refused read an empty account.**
+`usePyNotebooks` destructured only `data`, and `data` is null on failure, so a
+403 produced:
+
+```
+{"badgeText":"0","saysNoNotebooks":true,"anyErrorWordOnScreen":false}
+```
+
+for an account holding **three** notebooks. Badge `0`, the words "No notebooks
+yet — create one to start experimenting.", and nothing anywhere on the page
+indicating a failure. The invitation is the sharp edge: the page does not merely
+withhold the notebooks, it tells the user their account is empty and offers to
+start them over.
+
+**S2 — the running-kernels panel vanished when the runtime was unreachable.**
+`load()` collapsed both failure paths to `[]`, and the render hid the panel on
+an empty list, so a 503 gave `{"panelVisible":false,"anyErrorOnScreen":false}`.
+This panel exists for exactly one moment — you were refused a new kernel with
+"you already have the maximum of N" and came to free a slot — so the failure
+mode contradicted the only reason to be on the page. The Refresh button lives
+_inside_ the hidden panel, so there was no way to retry either.
+
+**S2 — the editor reported a failed read as a deleted notebook.** The load did
+`if (!data) setNotFound(true)`, and the copy went further than absence:
+"Notebook not found (it may belong to another account)." A network blip named a
+cause it had no evidence for, to the owner of a notebook visible in the sidebar
+one click earlier.
+
+That page now also promises "It has not been deleted; nothing was saved over
+it." That promise was **verified rather than assumed**: the read was failed, the
+1200 ms autosave debounce was waited out, and all three notebook rows came back
+byte-identical with `updated_at` unchanged and zero writes attempted. The guard
+holding it up was one incidental condition in a `useEffect`, so it is now
+`mayAutosave` — named, exported and mutation-covered, because the refactor that
+defaults `cells` to `[]` instead of `null` would silently turn that sentence
+into a lie.
+
+**S3 — the publish dialog said "Loading…" for ever after a failed key read.**
+Better than the others (it never claimed "No keys yet." for a notebook with live
+keys) but it reported a finished, failed read as still in progress, with a toast
+as the only signal. On a panel whose job is telling you which keys can reach
+your notebook, that is not good enough.
+
+**The rule extracted.** Two pure modules, because the same sentence kept needing
+saying: `lib/kernelPanelState` (the panel's visibility and count) and
+`lib/listClaim` (`listClaim` for count-and-empty-state, `mayAutosave` for the
+write guard). One line each carries it — _an empty list is a CLAIM, and only a
+read that succeeded is allowed to make it._
+
+**A guard that reported a page for getting stricter.** Routing `notebooks.tsx`
+through `listClaim` broke `emptyStateLoadGate.test.ts`, which recognises four
+source shapes for "a load signal reaches the JSX" and now saw none — even though
+the new code gates on the error _as well as_ the load, which none of the four
+do. The right fix was to teach the guard the fifth shape, not to loosen it, and
+that was checked in both directions: with the gate stripped from `notebooks.tsx`
+and, separately, from `secrets.tsx`, the guard reported each one.
+
+**Tests:** 31 across `tests/unit/kernelPanelState.test.ts` (13) and
+`tests/unit/listClaim.test.ts` (18). Mutation-verified 19/19 — 6 on
+`kernelPanelState`, 7 on `listClaim`, 6 on `mayAutosave` — each applied,
+confirmed on disk, killed, restored, restore confirmed. Full suite 3878 tests,
+209 files, green; the non-skipped total was checked against the previous run so
+a silently-dropped test could not hide in it. No fixtures created, and all three
+notebook rows verified byte-identical at the end.
+
+---
 
 ### 2026-08-16 — Module 12, BI Workspace (`/bi`)
 

@@ -44,6 +44,14 @@ const rendersEmptyState = (s: string) => /<EmptyState/.test(s) || /No [a-z]+ yet
  * fetched yet" and are correct; an earlier, narrower version of this rule
  * reported secrets.tsx, and a rule that cries wolf gets deleted rather than
  * heeded.
+ *
+ * A fifth shape was added when notebooks.tsx moved to lib/listClaim: the load
+ * signal reaches the JSX through a computed verdict rather than a raw boolean,
+ * so none of the four patterns above matched and this rule reported a page
+ * that had just been made STRICTER. listClaim gates on the error as well as on
+ * the load — the four shapes above do not — so recognising it is not a
+ * loosening. It is matched by name rather than by shape precisely because that
+ * one module is the rule, and it carries its own tests and mutation coverage.
  */
 function gatesOnLoad(s: string): boolean {
   return (
@@ -51,7 +59,9 @@ function gatesOnLoad(s: string): boolean {
     /if\s*\(\s*[^)]*(?:oading|oaded|ending)[^)]*\)\s*\{?\s*return/.test(s) ||
     /if\s*\(\s*[^)]*!\s*\w+\s*\)\s*\{?\s*return\s*\(?\s*<?\s*(?:div|Skeleton|Loader)/.test(s) ||
     // `x === null ?` / `x == null ?` / `!x ?` directly in the render.
-    /(?:\w+\s*===?\s*null|!\s*\w+)\s*\?\s*\(?\s*</.test(s)
+    /(?:\w+\s*===?\s*null|!\s*\w+)\s*\?\s*\(?\s*</.test(s) ||
+    // The verdict from lib/listClaim, which subsumes all four.
+    /listClaim\s*\(/.test(s)
   );
 }
 

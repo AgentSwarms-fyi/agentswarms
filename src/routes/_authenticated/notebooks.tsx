@@ -16,6 +16,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { newPythonNotebookCells } from "@/lib/pythonNotebookTemplate";
 import { SAMPLE_NOTEBOOKS } from "@/lib/sampleNotebooks";
 import { RunningKernels } from "@/components/notebooks/RunningKernels";
+import { listClaim, type ListClaim } from "@/lib/listClaim";
 
 export const Route = createFileRoute("/_authenticated/notebooks")({
   head: () => ({
@@ -41,6 +42,17 @@ function usePyNotebooks(pathname: string) {
   // An empty list means nothing until the fetch has returned; before that,
   // "No notebooks yet" is a claim about the network, not about the account.
   const [loaded, setLoaded] = useState(false);
+  /**
+   * Why the list could not be read.
+   *
+   * MEASURED: with a 403 on this one query the sidebar badge read 0 and the
+   * page said "No notebooks yet — create one to start experimenting." for an
+   * account holding three notebooks, with no error anywhere on screen. The
+   * error was discarded because only `data` was destructured, and `data` is
+   * null on failure — so a refused read and an empty account produced byte
+   * for byte the same page.
+   */
+  const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
@@ -49,8 +61,15 @@ function usePyNotebooks(pathname: string) {
       .from("user_python_notebooks")
       .select("id, title, updated_at")
       .order("updated_at", { ascending: false })
-      .then(({ data }) => {
-        setPyNotebooks(data ?? []);
+      .then(({ data, error: readError }) => {
+        if (readError) {
+          // Keep any list already on screen: it was true of some moment, and
+          // an empty one would not be true of any.
+          setError(readError.message);
+        } else {
+          setPyNotebooks(data ?? []);
+          setError(null);
+        }
         setLoaded(true);
       });
     // Re-fetch on navigation so renames/creations from the editor show up.
@@ -83,15 +102,18 @@ function usePyNotebooks(pathname: string) {
     setPyNotebooks((prev) => prev.filter((n) => n.id !== id));
   };
 
-  return { pyNotebooks, loaded, createNotebook, deleteNotebook, creating };
+  return { pyNotebooks, loaded, error, createNotebook, deleteNotebook, creating };
 }
 
 function NotebooksLayout() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const hasNotebookSelected =
     pathname.startsWith("/notebooks/py/") || pathname.startsWith("/notebooks/sample/");
-  const { pyNotebooks, loaded, createNotebook, deleteNotebook, creating } =
+  const { pyNotebooks, loaded, error, createNotebook, deleteNotebook, creating } =
     usePyNotebooks(pathname);
+  // One verdict, read by the badge, the sidebar note and the catalog — so they
+  // cannot drift into disagreeing about whether the account has notebooks.
+  const claim = listClaim({ loaded, error, count: pyNotebooks.length });
 
   return (
     <div className="flex h-[calc(100vh-3rem)] w-full min-w-0">
@@ -102,8 +124,17 @@ function NotebooksLayout() {
               <FlaskConical className="h-4 w-4 text-primary" />
               <h2 className="text-sm font-semibold tracking-tight">Developer workspace</h2>
             </div>
-            <Badge variant="secondary" className="text-[10px]">
-              {pyNotebooks.length}
+            {/* Not pyNotebooks.length: on a failed read that is 0, which is
+                the one number this cannot stand behind. */}
+            <Badge
+              variant={claim.message === "error" ? "outline" : "secondary"}
+              className={cn(
+                "text-[10px]",
+                claim.message === "error" && "border-destructive/40 text-destructive",
+              )}
+              title={claim.message === "error" ? "Your notebooks could not be read" : undefined}
+            >
+              {claim.countLabel}
             </Badge>
           </div>
         </div>
@@ -167,9 +198,18 @@ function NotebooksLayout() {
               );
             })}
           </ul>
-          {loaded && pyNotebooks.length === 0 && (
+          {claim.message === "empty" && (
             <p className="px-2 py-3 text-xs text-muted-foreground">
               No notebooks yet — create one to start experimenting.
+            </p>
+          )}
+          {claim.message === "error" && (
+            // Never "no notebooks": the read failed, so this list is not
+            // evidence either way, and inviting a fresh start would be acting
+            // on a conclusion the page cannot support.
+            <p className="mx-2 my-3 rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
+              Could not load your notebooks — {error} Any you have are still there; this list is not
+              showing them.
             </p>
           )}
         </nav>
@@ -180,6 +220,8 @@ function NotebooksLayout() {
         ) : (
           <PythonLabCatalog
             pyNotebooks={pyNotebooks}
+            claim={claim}
+            error={error}
             onCreate={() => void createNotebook()}
             onDelete={(id) => void deleteNotebook(id)}
             creating={creating}
@@ -192,11 +234,15 @@ function NotebooksLayout() {
 
 function PythonLabCatalog({
   pyNotebooks,
+  claim,
+  error,
   onCreate,
   onDelete,
   creating,
 }: {
   pyNotebooks: PyNotebookSummary[];
+  claim: ListClaim;
+  error: string | null;
   onCreate: () => void;
   onDelete: (id: string) => void;
   creating: boolean;
@@ -291,7 +337,14 @@ function PythonLabCatalog({
         <RunningKernels enabled={runtimeEnabled} />
 
         <h2 className="mb-3 text-base font-semibold tracking-tight">My notebooks</h2>
-        {pyNotebooks.length === 0 ? (
+        {claim.message === "error" ? (
+          // "Create your first" would be a claim that this is your first, and
+          // a refused read is no basis for it.
+          <p className="max-w-md rounded-md border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+            Could not load your notebooks — {error} Any you have are still there; reload to try
+            again.
+          </p>
+        ) : pyNotebooks.length === 0 ? (
           <button
             type="button"
             onClick={onCreate}

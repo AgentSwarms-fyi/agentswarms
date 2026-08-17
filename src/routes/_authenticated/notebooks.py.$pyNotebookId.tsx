@@ -43,6 +43,7 @@ import { RuntimeRequired } from "@/components/notebooks/RuntimeRequired";
 import { PublishNotebookDialog } from "@/components/notebooks/PublishNotebookDialog";
 import { NotebookGitDialog } from "@/components/notebooks/NotebookGitDialog";
 import type { PyCell } from "@/lib/pythonNotebookTemplate";
+import { mayAutosave } from "@/lib/listClaim";
 
 export const Route = createFileRoute("/_authenticated/notebooks/py/$pyNotebookId")({
   component: PyNotebookPage,
@@ -91,6 +92,8 @@ function PyNotebookPage() {
   const [title, setTitle] = useState("");
   const [cells, setCells] = useState<PyCell[] | null>(null);
   const [notFound, setNotFound] = useState(false);
+  /** Set when the notebook could not be READ, as opposed to not existing. */
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<"saved" | "dirty" | "saving">("saved");
   const [publishOpen, setPublishOpen] = useState(false);
   const [gitOpen, setGitOpen] = useState(false);
@@ -153,13 +156,23 @@ function PyNotebookPage() {
     loadedRef.current = false;
     setCells(null);
     setNotFound(false);
+    setLoadError(null);
     setOutputs({});
     supabase
       .from("user_python_notebooks")
       .select("id, title, cells")
       .eq("id", pyNotebookId)
       .maybeSingle()
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        // A read that FAILED is not a row that is ABSENT. The not-found copy
+        // goes further and offers a cause — "it may belong to another
+        // account" — which a network or RLS failure gives no grounds for, and
+        // which reads to the owner of a notebook they can see in the sidebar
+        // as though it had been taken from them.
+        if (error) {
+          setLoadError(error.message);
+          return;
+        }
         if (!data) {
           setNotFound(true);
           return;
@@ -176,7 +189,9 @@ function PyNotebookPage() {
 
   // ── Autosave (debounced) ──────────────────────────────────────────────────
   useEffect(() => {
-    if (!loadedRef.current || cells === null) return;
+    // Guards against saving an un-loaded editor over a real notebook — see
+    // mayAutosave, which is where that rule is stated and tested.
+    if (!mayAutosave({ hydrated: loadedRef.current, cells })) return;
     setSaveState("dirty");
     const t = setTimeout(() => {
       setSaveState("saving");
@@ -270,6 +285,17 @@ function PyNotebookPage() {
     toast.success("Notebook deleted");
     void navigate({ to: "/notebooks" });
   };
+
+  if (loadError) {
+    return (
+      <div className="mx-auto max-w-md p-10 text-center">
+        <p className="rounded-md border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+          Could not open this notebook — {loadError} It has not been deleted; nothing was saved over
+          it. Reload to try again.
+        </p>
+      </div>
+    );
+  }
 
   if (notFound) {
     return (

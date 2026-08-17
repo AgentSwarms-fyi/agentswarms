@@ -18,6 +18,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { listClaim } from "@/lib/listClaim";
 import { Badge } from "@/components/ui/badge";
 import {
   nbApiKeyCreate,
@@ -74,9 +75,25 @@ export function PublishNotebookDialog({
   // Held only until the dialog closes — it cannot be fetched again.
   const [fresh, setFresh] = useState<string | null>(null);
 
+  /**
+   * Why the key list could not be read.
+   *
+   * Better than the other reads in this module — a failure leaves `keys` null
+   * rather than [], so it never claims "No keys yet." for a notebook that has
+   * live keys. But it then shows "Loading…" for ever, which says a read is in
+   * progress when it has finished and failed; the toast is the only signal,
+   * and it is gone in seconds. On a panel whose job is telling you which keys
+   * can reach your notebook, "still loading" is not a good enough answer.
+   */
+  const [keysError, setKeysError] = useState<string | null>(null);
+
   const load = useCallback(() => {
     listFn({ data: { access_token: token, notebook_id: notebookId } }).then((res) => {
-      if (!res.ok) return toast.error(res.error);
+      if (!res.ok) {
+        setKeysError(res.error);
+        return toast.error(res.error);
+      }
+      setKeysError(null);
       setKeys(res.keys);
     });
   }, [listFn, notebookId, token]);
@@ -87,6 +104,13 @@ export function PublishNotebookDialog({
       load();
     }
   }, [open, load]);
+
+  // Same rule the notebook list uses — a failed read is not a list of none.
+  const keysClaim = listClaim({
+    loaded: keys !== null,
+    error: keysError,
+    count: keys?.length ?? 0,
+  });
 
   async function create() {
     if (!name.trim()) return toast.error("Give the key a name");
@@ -192,9 +216,14 @@ export function PublishNotebookDialog({
 
         <div className="space-y-2">
           <p className="text-xs font-medium text-muted-foreground">Keys</p>
-          {keys === null ? (
+          {keysClaim.message === "error" ? (
+            <p className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
+              Could not list this notebook&apos;s keys — {keysError} Any keys that exist are still
+              active; this is not a list of none.
+            </p>
+          ) : keys === null ? (
             <p className="text-xs text-muted-foreground">Loading…</p>
-          ) : keys.length === 0 ? (
+          ) : keysClaim.message === "empty" ? (
             <p className="text-xs text-muted-foreground">No keys yet.</p>
           ) : (
             <ul className="divide-y divide-border/50 rounded-lg border border-border/60">
