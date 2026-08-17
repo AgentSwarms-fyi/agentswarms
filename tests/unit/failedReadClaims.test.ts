@@ -79,6 +79,13 @@ const CONVERTED: {
     what: "'0 connected' and '0 tools available' for an account with a server exposing seven",
     claim: ["countLabels", "listClaim"],
   },
+  {
+    file: "src/routes/_authenticated/model-registry.tsx",
+    module: "20 — Model Registry",
+    what: "'Browse 0 live models' and 'Last refreshed never' for 770 models synced three weeks ago",
+    claim: ["countLabels", "listClaim"],
+    viaServerFn: true,
+  },
 ];
 
 const read = (f: string) => readFileSync(resolve(f), "utf8");
@@ -110,13 +117,24 @@ describe("pages that must not report a failed read as an empty account", () => {
       });
 
       it.runIf(viaServerFn)("handles the read's promise rejecting, not just ok:false", () => {
-        // A server function rejects on a network failure; `.then` alone drops
-        // it. MEASURED on /secrets before the fix: request rejected, skeleton
-        // still up four seconds later, nothing on screen, and no Refresh
-        // control on the page to retry with.
-        expect(read(file), `${file} no longer catches a rejected read — ${what}`).toMatch(
-          /\.catch\s*\(/,
-        );
+        // A server function rejects on a network failure. MEASURED on /secrets
+        // before the fix: request rejected, skeleton still up four seconds
+        // later, nothing on screen, and no Refresh control to retry with.
+        //
+        // Two shapes count, and both are in use: a `.catch()` on the promise
+        // (/secrets) and a try/catch around the await (/model-registry). The
+        // rule is "the rejection is handled", not "handled this one way" — an
+        // earlier version named only `.catch` and would have reported a page
+        // that handles it correctly.
+        //
+        // The check is FILE-scoped, which is its known limit: a page with an
+        // unrelated catch elsewhere satisfies it. Mutation testing on
+        // /model-registry confirmed that disabling only the catch KEYWORD
+        // slips through, while the realistic refactor — dropping the handler,
+        // and with it the setLoadError inside — is caught by the rule below.
+        const src = read(file);
+        const handlesRejection = /\.catch\s*\(/.test(src) || /\}\s*catch\s*[({]/.test(src);
+        expect(handlesRejection, `${file} no longer catches a rejected read — ${what}`).toBe(true);
       });
 
       it("never empties the list without also setting an error", () => {

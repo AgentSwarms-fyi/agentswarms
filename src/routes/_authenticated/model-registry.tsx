@@ -5,6 +5,8 @@
 // paste into the Agent Builder or Swarm node config.
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
+import { countLabels } from "@/lib/countClaim";
+import { listClaim, UNKNOWN_COUNT } from "@/lib/listClaim";
 import { useAuth } from "@/hooks/use-auth";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -90,6 +92,10 @@ function ModelRegistryPage() {
   const [models, setModels] = useState<RegistryModel[]>([]);
   const [meta, setMeta] = useState<RegistryMeta | null>(null);
   const [loading, setLoading] = useState(true);
+  // Why the registry could not be read, or null. Every number on this page is
+  // derived from `models`, which starts empty, so without this a failed read
+  // publishes a confident 0 four times over and blames the filters for it.
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [search, setSearch] = useState("");
   const [provider, setProvider] = useState<string>("all");
@@ -109,8 +115,16 @@ function ModelRegistryPage() {
       const res = await getModelRegistry({ data: { access_token: session.access_token } });
       setModels(res.models);
       setMeta(res.meta);
+      setLoadError(null);
     } catch (e) {
-      toast.error(`Failed to load registry: ${(e as Error).message}`);
+      // MEASURED: the server threw Unauthorized and this branch left `models`
+      // at [] and `meta` at null, so the page read "Browse 0 live models",
+      // "All providers (0)", "All (0)", "Last refreshed never" and "No models
+      // match these filters" — for a registry holding 770 models synced three
+      // weeks earlier — and offered an admin a button to sync it.
+      const msg = (e as Error).message;
+      toast.error(`Failed to load registry: ${msg}`);
+      setLoadError(msg);
     } finally {
       setLoading(false);
     }
@@ -185,6 +199,21 @@ function ModelRegistryPage() {
     }
   }
 
+  // Every figure on this page comes from the same read, so they are true
+  // together or unknown together. countLabels is what makes that structural.
+  const claim = listClaim({ loaded: !loading, error: loadError, count: models.length });
+  const { total: totalLabel } = countLabels(
+    { loaded: !loading, error: loadError },
+    { total: models.length },
+  );
+  // The headline keeps its thousands separator when it is allowed to be a
+  // number at all; countLabels decides whether it is.
+  const totalDisplay =
+    totalLabel === UNKNOWN_COUNT ? UNKNOWN_COUNT : models.length.toLocaleString();
+  // "never" is a claim about the registry. With meta unread it is a claim
+  // about nothing, and it is the one that argues hardest for running a sync.
+  const lastRefreshedLabel = loadError ? "unknown" : timeAgo(meta?.last_synced_at || null);
+
   return (
     <div className="flex">
       <div className="flex-1 p-6 space-y-6">
@@ -197,16 +226,15 @@ function ModelRegistryPage() {
               <Boxes className="h-7 w-7 text-primary" /> Model Registry
             </h1>
             <p className="text-muted-foreground mt-1 max-w-2xl">
-              Browse {models.length.toLocaleString()} live models across all major providers. Filter
-              by capability, copy the exact model id, and paste it into the Agent Builder or any
-              swarm node.
+              Browse {totalDisplay} live models across all major providers. Filter by capability,
+              copy the exact model id, and paste it into the Agent Builder or any swarm node.
             </p>
             <p className="text-xs text-muted-foreground mt-2">
               Source:{" "}
               <a className="underline" href="https://aimlapi.com" target="_blank" rel="noreferrer">
                 AIMLAPI
               </a>{" "}
-              · Last refreshed {timeAgo(meta?.last_synced_at || null)}
+              · Last refreshed {lastRefreshedLabel}
               {meta?.last_sync_status === "error" && (
                 <span className="text-destructive">
                   {" "}
@@ -243,7 +271,7 @@ function ModelRegistryPage() {
                 <SelectValue placeholder="Provider" />
               </SelectTrigger>
               <SelectContent className="max-h-72">
-                <SelectItem value="all">All providers ({models.length})</SelectItem>
+                <SelectItem value="all">All providers ({totalLabel})</SelectItem>
                 {providers.map((p) => (
                   <SelectItem key={p.slug} value={p.slug}>
                     {p.label} ({p.count})
@@ -270,7 +298,7 @@ function ModelRegistryPage() {
                 className="cursor-pointer"
                 onClick={() => setModality("all")}
               >
-                All ({models.length})
+                All ({totalLabel})
               </Badge>
               {modalities.map(([m, n]) => (
                 <Badge
@@ -331,6 +359,20 @@ function ModelRegistryPage() {
               </div>
             ))}
           </div>
+        ) : claim.message === "error" ? (
+          <Card className="border-dashed border-2 border-warning/40">
+            <CardContent role="alert" className="py-12 text-center text-sm">
+              <p className="text-warning">The model registry could not be loaded — {loadError}.</p>
+              <p className="mt-1 text-muted-foreground">
+                The registry has not been emptied and the filters are not hiding anything — this
+                page could not read it. No sync is offered here on purpose: a sync started from a
+                failed read would be acting on a number nobody has.
+              </p>
+              <Button variant="outline" size="sm" className="mt-3" onClick={() => void load()}>
+                Try again
+              </Button>
+            </CardContent>
+          </Card>
         ) : filtered.length === 0 ? (
           <Card className="border-dashed border-2 border-border/50">
             <CardContent className="py-12 text-center text-muted-foreground">

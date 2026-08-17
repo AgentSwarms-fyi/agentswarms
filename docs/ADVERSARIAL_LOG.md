@@ -69,7 +69,7 @@ Never infer it from what rendered.
 | 17  | Web Embedding       | `/embeds`                  | ✅ 1 | 2026-08-17 | 0 — counts exact; disable, expiry and allow-list proven               |
 | 18  | Secrets             | `/secrets`                 | ✅ 1 | 2026-08-17 | 2 (1×S1, 1×S2) — empty claim on a failed read; skeleton for ever      |
 | 19  | MCP Servers         | `/mcp`                     | ✅ 1 | 2026-08-17 | 1 (1×S1) — derived counts read 0 on a failed read; pin was decorative |
-| 20  | Model Registry      | `/model-registry`          | —    | —          | —                                                                     |
+| 20  | Model Registry      | `/model-registry`          | ✅ 1 | 2026-08-18 | 1 (1×S1) — four false claims, and a sync button that acts on them     |
 | 21  | Analytics           | `/analytics`               | —    | —          | —                                                                     |
 | 22  | Swarm Traces        | `/analytics/observability` | —    | —          | —                                                                     |
 | 23  | Traces & Logs       | `/traces`                  | —    | —          | —                                                                     |
@@ -85,6 +85,96 @@ Never infer it from what rendered.
 ## Findings
 
 <!-- newest first -->
+
+### 2026-08-18 — Module 20, Model Registry (`/model-registry`)
+
+One finding, and it is the sharpest version of this class so far: the failed
+read does not merely misreport, it argues for an action.
+
+**What matched.** `model_registry` holds 770 rows and all three counts on the
+page read 770 — the headline, the provider select and the All tab — against an
+exact `0-0/770`. "Last refreshed 3w ago" matched `model_registry_meta`. The
+search box filters on name, id, developer and description as it claims.
+
+#### S1 · Four false claims, and a button that acts on them
+
+`load()` caught, toasted, and left `models` at `[]` and `meta` at `null`, with
+`setLoading(false)` in a `finally`. The injection corrupted the outgoing JWT so
+the **real server** threw, returning its own `$TSR/Error` envelope with
+`"Unauthorized"`, and the corruption was recorded per request:
+
+|                                  | healthy | server threw |
+| -------------------------------- | ------- | ------------ |
+| "Browse N live models"           | 770     | **0**        |
+| "All providers (N)"              | 770     | **0**        |
+| "All (N)"                        | 770     | **0**        |
+| "Last refreshed …"               | 3w ago  | **never**    |
+| "No models match these filters." | no      | **yes**      |
+| "Run a sync now" (admins)        | no      | **yes**      |
+
+Every one of those is false, and they compose into an argument. The registry
+appears empty; the emptiness is blamed on the filters, which is a cause the
+page has no evidence for; "Last refreshed never" says the sync has never run;
+and an admin is then offered a button to run one. That sync calls an external
+provider and rewrites the table. **A failed read talks an administrator into a
+write.**
+
+"Last refreshed never" is the detail worth keeping. `timeAgo(null)` returns
+"never", which is correct for a registry that has never synced and a lie about
+a registry whose sync record could not be read — and it is the single claim on
+the page that argues hardest for pressing the button.
+
+#### Fixed, and the fix declines to offer the sync
+
+The counts now come from `countClaim`, the panel decision from `listClaim`, the
+timestamp reads "unknown" rather than "never", and the error panel says the
+registry "has not been emptied and the filters are not hiding anything". The
+sync button is **deliberately absent** from that panel, and the page says why:
+a sync started from a failed read would be acting on a number nobody has.
+
+Verified live in four states, each with the injection confirmed:
+
+| Condition                 | Page                                            |
+| ------------------------- | ----------------------------------------------- |
+| healthy                   | 770 / 770, "3w ago"                             |
+| server threw (bad token)  | "—" / "—", "unknown", alert, no sync, Try again |
+| request rejected outright | same                                            |
+| restored                  | 770 / 770, "3w ago"                             |
+
+And the claim that had to survive the fix: with a healthy read and a filter
+matching nothing, the page still says "No models match these filters" and still
+shows 770. Filter-empty, registry-empty and read-failed are now three different
+statements instead of one.
+
+#### The headline kept its thousands separator on purpose
+
+`countLabels` returns a plain `String(n)`, so routing the headline through it
+directly would have dropped the grouping separator the moment the registry
+passes a thousand — a small presentational regression smuggled in by a
+correctness fix. The label decides _whether_ a number may be shown; the
+headline then formats it. Worth writing down because the tempting one-liner is
+wrong in a way nobody would notice until the row count grew.
+
+#### Mutations: six run, five killed, then the survivor explained
+
+The survivor disabled the `catch` keyword while leaving its body in place. The
+rejection rule is FILE-scoped — this page has an unrelated `catch` in its
+clipboard helper — so it passed. Rewritten as a real refactor would do it,
+deleting the handler and the `setLoadError` inside it, it is killed by the
+"records the error from a real value" rule.
+
+That limit is now written into the test file beside the rule rather than left
+to be rediscovered. It is the third time source inspection has been shown to
+prove presence rather than use, and the answer each time has been the same:
+move the decision into a real function with its own tests, and keep the source
+rule as a tripwire rather than a proof.
+
+The rejection rule was also **broadened**, not weakened: it named only
+`.catch()`, and this page handles rejection with try/catch around the await. A
+rule that reported a page for handling the case correctly would have been the
+fourth to cry wolf in this campaign, so it now accepts both shapes.
+
+---
 
 ### 2026-08-17 — Module 19, MCP Servers (`/mcp`)
 
