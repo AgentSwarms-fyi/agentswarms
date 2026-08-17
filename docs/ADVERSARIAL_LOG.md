@@ -46,8 +46,8 @@ has not been tested; it has been visited.
 | 13  | Developer workspace | `/notebooks`               | ✅ 1 | 2026-08-17 | 4 (1×S1, 2×S2, 1×S3) — failed reads rendered as absence |
 | 14  | Prompt Library      | `/prompts`                 | ✅ 1 | 2026-08-17 | 2 (1×S1, 1×S3) — empty claim on a failed read; `#tag`   |
 | 15  | Skill Library       | `/skills`                  | ✅ 1 | 2026-08-17 | 1 (1×S1) — same failed-read claim; guard added          |
-| 16  | Integrations        | `/integrations`            | —    | —          | —                                                       |
-| 17  | Web Embedding       | `/embeds`                  | —    | —          | —                                                       |
+| 16  | Integrations        | `/integrations`            | ⚠️   | 2026-08-17 | 0 confirmed — a claimed S1 was RETRACTED, see below     |
+| 17  | Web Embedding       | `/embeds`                  | ✅ 1 | 2026-08-17 | 0 — counts exact; disable, expiry and allow-list proven |
 | 18  | Secrets             | `/secrets`                 | —    | —          | —                                                       |
 | 19  | MCP Servers         | `/mcp`                     | —    | —          | —                                                       |
 | 20  | Model Registry      | `/model-registry`          | —    | —          | —                                                       |
@@ -66,6 +66,98 @@ has not been tested; it has been visited.
 ## Findings
 
 <!-- newest first -->
+
+### 2026-08-17 — Module 17, Web Embedding (`/embeds`)
+
+No findings. Recorded in full because a page that passes deserves the same
+evidence as one that fails — otherwise "we checked it" means nothing.
+
+**Counts are exact.** `embed_keys` holds 5 rows; 5 render. Names, resource
+types and allowed-domain lists match one for one, and the USES column matches
+`use_count` exactly (3 / 1 / 19 / 1 / 4).
+
+**The security claims hold, and were tested rather than read.** The page
+promises "disable the key and every iframe stops instantly", and each gate was
+exercised against the live `/api/embed/chat` endpoint with a working control:
+
+| Key state                        | Endpoint                                         |
+| -------------------------------- | ------------------------------------------------ |
+| active, no expiry (precondition) | 200, streaming                                   |
+| disabled via the real UI toggle  | 403 "This embed has been disabled by its owner." |
+| expiry lapsed, still active      | 403 "This embed key has expired."                |
+| expiry set to 2099               | 200, streaming                                   |
+| domain allow-list, honest origin | 403 "not authorized for this site"               |
+| unknown key                      | 400 "Invalid embed key."                         |
+| restored to baseline             | 200, streaming                                   |
+
+The lapsed-expiry case is the interesting one: the key was left **active** so
+the 403 could only come from the expiry gate, and the message differs from the
+disabled one, which proves which check fired. A future expiry still returns
+200, so the gate is not simply refusing everything.
+
+**A first attempt at this test was invalid and was thrown away.** The initial
+run sent `key` instead of `embedKey`, so all three cases — including the
+control — returned 400 "Invalid embed key." Three identical refusals look like
+a working boundary; they were a malformed request. The rule that saved it is
+the control: a test where the _should-succeed_ case also fails has measured
+nothing.
+
+**A near-miss worth recording.** Calling the domain-locked key while forging
+`parentOrigin: https://example.com` returned 200, which looked like an
+allow-list bypass. It is not: the request came from the app's own origin, and
+`embedOrigin.ts` trusts `selfHost` deliberately so the embed page can call
+home. That module already documents both halves candidly — what the browser
+`Origin` check closes, and that it "does not close, and cannot", because
+`Origin` is only trustworthy from browsers and the embed key is public by
+construction. Abuse from a scripted client is bounded by per-key budget, rate
+limit and expiry instead. A page whose residual limits are written down is the
+opposite of the defect this campaign hunts.
+
+**Fixtures:** one key was disabled and re-enabled, and its expiry moved twice.
+Final state re-read and confirmed identical to baseline (`is_active: true`,
+`expires_at: null`) with the endpoint back to 200.
+
+---
+
+### 2026-08-17 — Module 16, Integrations (`/integrations`) — RETRACTED
+
+**A finding was reported here and then withdrawn. It is kept because a
+campaign that quietly deletes its mistakes is not evidence of anything.**
+
+The claim was: with the two integration reads failing, a page whose account has
+OpenRouter and Gemini connected rendered zero "Connected" badges, zero
+Disconnect buttons and no error — an S1, and on a page where the natural
+response is to paste an API key in again.
+
+A fix was written for it and did not change the rendering. Restarting Vite,
+clearing its transform cache, unregistering the `sw.js` service worker and its
+`as-static-v1` cache, and finally a fresh tab with an empty module registry all
+failed to make it fire — while the served component chunk demonstrably
+contained the new code.
+
+A `console.log` inside `loadIntegrations` settled it:
+
+```
+PROBE loadIntegrations {integError: null, integRows: 3, credsError: null}
+```
+
+**The reads had succeeded.** The `window.fetch` patch never reached this page's
+Supabase client, so the original observation had no established cause and the
+fix had no error to report. The fix was reverted; the finding is withdrawn.
+
+Why the same injection worked on modules 13–15 is still unexplained. Those
+results stand on their own evidence: there, the injected error _changed the
+UI_ — badge to "—", banner appeared — which cannot happen unless the error
+reached the code. That asymmetry is the lesson.
+
+**Method change, now in force:** a failed-read finding requires positive proof
+that the injection took effect — the code visibly reacting to the error, or a
+probe of what the read returned. Inferring it from what rendered is what went
+wrong here, and it is exactly the mistake this log exists to catch elsewhere.
+
+Module 16 is therefore **unaudited**, not clean.
+
+---
 
 ### 2026-08-17 — Module 15, Skill Library (`/skills`)
 
