@@ -9,6 +9,7 @@ import { Plus, Wand2, Pencil, Trash2, Copy, BookOpen } from "lucide-react";
 import { toast } from "sonner";
 import { SAMPLE_SKILLS } from "@/lib/sampleSkills";
 import { SkillEditorDialog } from "@/components/skills/SkillEditorDialog";
+import { listClaim } from "@/lib/listClaim";
 
 type SkillRow = {
   id: string;
@@ -27,6 +28,8 @@ function SkillLibraryPage() {
   const [tab, setTab] = useState<string>("mine");
   const [mine, setMine] = useState<SkillRow[]>([]);
   const [loading, setLoading] = useState(true);
+  /** Why the skills could not be read — see refresh. */
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editing, setEditing] = useState<SkillRow | null>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
@@ -37,7 +40,17 @@ function SkillLibraryPage() {
       .from("agent_skills")
       .select("id, name, description, body, tags, updated_at")
       .order("updated_at", { ascending: false });
-    if (error) toast.error(error.message);
+    if (error) {
+      // `setMine(data ?? [])` ran even here, so a 403 produced "My skills (0)",
+      // "You haven't created any skills yet." and "Create your first skill" —
+      // MEASURED, and still saying it seven seconds later once the toast had
+      // gone. The toast was the only trace, and it does not last.
+      setLoadError(error.message);
+      toast.error(error.message);
+      setLoading(false);
+      return;
+    }
+    setLoadError(null);
     setMine((data ?? []) as SkillRow[]);
     setLoading(false);
   };
@@ -96,6 +109,10 @@ function SkillLibraryPage() {
     </pre>
   );
 
+  // What the "My skills" tab may claim — same rule as the notebooks list and
+  // the prompt library.
+  const mineClaim = listClaim({ loaded: !loading, error: loadError, count: mine.length });
+
   return (
     <div className="flex">
       <div className="flex-1 container mx-auto space-y-6 p-6">
@@ -124,12 +141,28 @@ function SkillLibraryPage() {
 
         <Tabs value={tab} onValueChange={setTab}>
           <TabsList>
-            <TabsTrigger value="mine">My skills ({mine.length})</TabsTrigger>
+            {/* Not mine.length — that is 0 on a failed read. */}
+            <TabsTrigger value="mine">My skills ({mineClaim.countLabel})</TabsTrigger>
             <TabsTrigger value="samples">Sample skills ({SAMPLE_SKILLS.length})</TabsTrigger>
           </TabsList>
 
           <TabsContent value="mine" className="pt-4">
-            {loading ? (
+            {mineClaim.message === "error" ? (
+              // Not the empty state: "you haven't created any" and "create your
+              // first" both assert this account is empty, and a refused read
+              // does not support either.
+              <Card className="border-destructive/40 bg-destructive/5">
+                <CardContent className="py-12 text-center">
+                  <BookOpen className="mx-auto mb-3 h-10 w-10 text-destructive" />
+                  <p className="text-sm text-destructive">
+                    Could not load your skills — {loadError}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Any skills you have created are still there. Reload to try again.
+                  </p>
+                </CardContent>
+              </Card>
+            ) : loading ? (
               <p className="text-sm text-muted-foreground">Loading…</p>
             ) : mine.length === 0 ? (
               <Card>

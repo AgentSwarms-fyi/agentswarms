@@ -45,7 +45,7 @@ has not been tested; it has been visited.
 | 12  | BI Workspace        | `/bi`                      | ✅ 1 | 2026-08-16 | 1 (1×S1) — widget count read the page-1 mirror          |
 | 13  | Developer workspace | `/notebooks`               | ✅ 1 | 2026-08-17 | 4 (1×S1, 2×S2, 1×S3) — failed reads rendered as absence |
 | 14  | Prompt Library      | `/prompts`                 | ✅ 1 | 2026-08-17 | 2 (1×S1, 1×S3) — empty claim on a failed read; `#tag`   |
-| 15  | Skill Library       | `/skills`                  | —    | —          | —                                                       |
+| 15  | Skill Library       | `/skills`                  | ✅ 1 | 2026-08-17 | 1 (1×S1) — same failed-read claim; guard added          |
 | 16  | Integrations        | `/integrations`            | —    | —          | —                                                       |
 | 17  | Web Embedding       | `/embeds`                  | —    | —          | —                                                       |
 | 18  | Secrets             | `/secrets`                 | —    | —          | —                                                       |
@@ -66,6 +66,57 @@ has not been tested; it has been visited.
 ## Findings
 
 <!-- newest first -->
+
+### 2026-08-17 — Module 15, Skill Library (`/skills`)
+
+"Sample skills (6)" matched the six declared in `lib/sampleSkills`, six unique
+ids, no duplicates. One finding, and it is the third page in a row with it.
+
+#### S1 · The error was raised and then overwritten
+
+`refresh()` toasted the error and then ran `setMine((data ?? []) as SkillRow[])`
+**anyway** — on the failure path, unconditionally. So a 403 gave "My skills
+(0)", "You haven't created any skills yet." and "Create your first skill".
+
+This one was measured twice on purpose: at first paint, and again seven seconds
+later once the toast had expired. The false claim was still there; the true one
+was not. That is the whole reason a toast does not discharge this duty — it is
+the only page element that is guaranteed to be gone by the time someone reads
+the page.
+
+Converted to `listClaim`, and verified in both directions: with the read failing
+the tab reads `My skills (—)` with the reason and no invitation; healthy, it
+reads `My skills (0)` with the honest empty state and no error.
+
+#### A guard for the conversions, deliberately a list and not a rule
+
+Three modules have now converted a page away from this defect, and the sweep
+says roughly two dozen more reads could still have it. `failedReadClaims.test.ts`
+pins the ones already converted: each must route its count through `listClaim`,
+must keep the read's error, and must not print a fetched collection's raw
+`.length` as its count.
+
+It is a **list** rather than a rule over every page, because asserting it of
+pages nobody has measured would fail for about twenty of them at once, and a
+suite that is red by default teaches people to skip it. A row gets added when a
+module's pass converts a page.
+
+The first version of that third rule flagged `BUILT_IN_PROMPTS.length` and
+`SAMPLE_SKILLS.length` — module constants that ship with the app and cannot
+fail to load, so printing their length is entirely honest. It now requires a
+lowercase first letter, which exempts SCREAMING_SNAKE constants by
+construction. This is the second rule in this campaign to have cried wolf at
+correct code on its first draft; both times the fix was to narrow the rule
+rather than to weaken what it protects.
+
+Verified by reverting each of the four conversions in turn — all four caught,
+all four restored.
+
+**Tests:** 13 in `tests/unit/failedReadClaims.test.ts`. Full suite 3912 tests,
+211 files, green (+13, exactly the new file). No new pure module was needed:
+the fix reuses `listClaim`, which already carries its own mutation coverage.
+
+---
 
 ### 2026-08-17 — Module 14, Prompt Library (`/prompts`)
 
