@@ -63,18 +63,29 @@ function StatCard({
 export function QualityTrends() {
   const { user } = useAuth();
   const [items, setItems] = useState<QualityItem[] | null>(null);
+  // Why the scorecards could not be read, or null. MEASURED: without this a
+  // 403 rendered the onboarding card — "Add an Evaluate node to a swarm" — to
+  // an account with five scorecards across three swarms, telling the user to
+  // set up something they had already set up.
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
     void (async () => {
       const since = new Date(Date.now() - 30 * 86400000).toISOString();
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("swarm_run_steps")
         .select("started_at, output, swarm_runs(swarm_name)")
         .eq("node_kind", "evaluate")
         .gte("started_at", since)
         .order("started_at", { ascending: true })
         .limit(2000);
+      if (error) {
+        setLoadError(error.message);
+        setItems([]);
+        return;
+      }
+      setLoadError(null);
       const parsed: QualityItem[] = [];
       for (const row of (data ?? []) as StepRow[]) {
         const card = parseEvalScorecard(row.output);
@@ -96,6 +107,25 @@ export function QualityTrends() {
 
   if (!trends) {
     return <Skeleton className="h-40" />;
+  }
+
+  // A failed read is not an account without Evaluate nodes. Saying so before
+  // the empty state is what stops the onboarding copy from being a lie.
+  if (loadError !== null) {
+    return (
+      <Card className="p-4 border-dashed border-warning/40">
+        <div className="flex items-start gap-3">
+          <Gauge className="h-4 w-4 mt-0.5 text-warning shrink-0" />
+          <p role="alert" className="text-sm text-muted-foreground">
+            <span className="font-medium text-warning">
+              Quality trends could not be loaded — {loadError}.
+            </span>{" "}
+            Any scorecards your Evaluate nodes have produced are still recorded; this panel just
+            cannot read them right now.
+          </p>
+        </div>
+      </Card>
+    );
   }
 
   // Nothing to show — keep the page clean but discoverable.

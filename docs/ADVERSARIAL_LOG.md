@@ -48,43 +48,129 @@ Never infer it from what rendered.
 
 ## Coverage map
 
-| #   | Module              | Route                      | Pass | Date       | Findings                                                              |
-| --- | ------------------- | -------------------------- | ---- | ---------- | --------------------------------------------------------------------- |
-| 1   | Dashboard           | `/dashboard`               | ✅ 1 | 2026-08-16 | 5 (2×S1, 1×S2, 2×S3)                                                  |
-| 2   | Documentation       | `/docs`                    | ✅ 1 | 2026-08-16 | 4 (2×S1, 1×S2, 1×S1 self-inflicted)                                   |
-| 3   | Agent Builder       | `/agents`                  | ✅ 1 | 2026-08-16 | 3 (2×S1, 1×S2)                                                        |
-| 4   | Knowledge Base      | `/knowledge`               | ✅ 1 | 2026-08-16 | 1 (1×S1)                                                              |
-| 5   | Agent Chat          | `/playground`              | ✅ 1 | 2026-08-16 | 2 (1×S1 self-inflicted, 1×S2); guardrails verified live               |
-| 6   | Agent Swarms        | `/swarms`                  | ✅ 1 | 2026-08-16 | 1 (1×S2)                                                              |
-| 7   | MCP Builder         | `/mcp-builder`             | ✅ 1 | 2026-08-16 | 1 (1×S2)                                                              |
-| 8   | AI Analyst          | `/ai-analyst`              | ✅ 1 | 2026-08-16 | 0 — held; no live turn (over budget cap)                              |
-| 9   | Data Catalog        | `/data-sql`                | ✅ 1 | 2026-08-16 | 2 (1×S1, 1×S3)                                                        |
-| 10  | Semantic Layer      | `/semantics`               | ✅ 1 | 2026-08-16 | 1 (1×S1) + one wrong hypothesis, recorded                             |
-| 11  | Metrics             | `/metrics`                 | ✅ 1 | 2026-08-16 | 2 (2×S2) + one hypothesis dropped                                     |
-| 12  | BI Workspace        | `/bi`                      | ✅ 1 | 2026-08-16 | 1 (1×S1) — widget count read the page-1 mirror                        |
-| 13  | Developer workspace | `/notebooks`               | ✅ 1 | 2026-08-17 | 4 (1×S1, 2×S2, 1×S3) — failed reads rendered as absence               |
-| 14  | Prompt Library      | `/prompts`                 | ✅ 1 | 2026-08-17 | 2 (1×S1, 1×S3) — empty claim on a failed read; `#tag`                 |
-| 15  | Skill Library       | `/skills`                  | ✅ 1 | 2026-08-17 | 1 (1×S1) — same failed-read claim; guard added                        |
-| 16  | Integrations        | `/integrations`            | ✅ 2 | 2026-08-17 | 1 (1×S2) — re-audited with proof; the retracted S1 was real, at S2    |
-| 17  | Web Embedding       | `/embeds`                  | ✅ 1 | 2026-08-17 | 0 — counts exact; disable, expiry and allow-list proven               |
-| 18  | Secrets             | `/secrets`                 | ✅ 1 | 2026-08-17 | 2 (1×S1, 1×S2) — empty claim on a failed read; skeleton for ever      |
-| 19  | MCP Servers         | `/mcp`                     | ✅ 1 | 2026-08-17 | 1 (1×S1) — derived counts read 0 on a failed read; pin was decorative |
-| 20  | Model Registry      | `/model-registry`          | ✅ 1 | 2026-08-18 | 1 (1×S1) — four false claims, and a sync button that acts on them     |
-| 21  | Analytics           | `/analytics`               | ✅ 1 | 2026-08-18 | 3 (1×S1, 2×S2) — a silent row cap made every KPI wrong                |
-| 22  | Swarm Traces        | `/analytics/observability` | —    | —          | —                                                                     |
-| 23  | Traces & Logs       | `/traces`                  | —    | —          | —                                                                     |
-| 24  | Audit Log           | `/audit`                   | —    | —          | —                                                                     |
-| 25  | Budgets             | `/budgets`                 | —    | —          | —                                                                     |
-| 26  | Monitoring          | `/monitoring`              | —    | —          | —                                                                     |
-| 27  | Prompt Compare      | `/prompt-compare`          | —    | —          | —                                                                     |
-| 28  | Evaluations         | `/evaluations`             | —    | —          | —                                                                     |
-| 29  | Image Playground    | `/image-playground`        | —    | —          | —                                                                     |
-| 30  | IAM                 | `/admin/iam`               | —    | —          | —                                                                     |
-| 31  | Developer runtime   | `/admin/runtime`           | —    | —          | —                                                                     |
+| #   | Module              | Route                      | Pass | Date       | Findings                                                                   |
+| --- | ------------------- | -------------------------- | ---- | ---------- | -------------------------------------------------------------------------- |
+| 1   | Dashboard           | `/dashboard`               | ✅ 1 | 2026-08-16 | 5 (2×S1, 1×S2, 2×S3)                                                       |
+| 2   | Documentation       | `/docs`                    | ✅ 1 | 2026-08-16 | 4 (2×S1, 1×S2, 1×S1 self-inflicted)                                        |
+| 3   | Agent Builder       | `/agents`                  | ✅ 1 | 2026-08-16 | 3 (2×S1, 1×S2)                                                             |
+| 4   | Knowledge Base      | `/knowledge`               | ✅ 1 | 2026-08-16 | 1 (1×S1)                                                                   |
+| 5   | Agent Chat          | `/playground`              | ✅ 1 | 2026-08-16 | 2 (1×S1 self-inflicted, 1×S2); guardrails verified live                    |
+| 6   | Agent Swarms        | `/swarms`                  | ✅ 1 | 2026-08-16 | 1 (1×S2)                                                                   |
+| 7   | MCP Builder         | `/mcp-builder`             | ✅ 1 | 2026-08-16 | 1 (1×S2)                                                                   |
+| 8   | AI Analyst          | `/ai-analyst`              | ✅ 1 | 2026-08-16 | 0 — held; no live turn (over budget cap)                                   |
+| 9   | Data Catalog        | `/data-sql`                | ✅ 1 | 2026-08-16 | 2 (1×S1, 1×S3)                                                             |
+| 10  | Semantic Layer      | `/semantics`               | ✅ 1 | 2026-08-16 | 1 (1×S1) + one wrong hypothesis, recorded                                  |
+| 11  | Metrics             | `/metrics`                 | ✅ 1 | 2026-08-16 | 2 (2×S2) + one hypothesis dropped                                          |
+| 12  | BI Workspace        | `/bi`                      | ✅ 1 | 2026-08-16 | 1 (1×S1) — widget count read the page-1 mirror                             |
+| 13  | Developer workspace | `/notebooks`               | ✅ 1 | 2026-08-17 | 4 (1×S1, 2×S2, 1×S3) — failed reads rendered as absence                    |
+| 14  | Prompt Library      | `/prompts`                 | ✅ 1 | 2026-08-17 | 2 (1×S1, 1×S3) — empty claim on a failed read; `#tag`                      |
+| 15  | Skill Library       | `/skills`                  | ✅ 1 | 2026-08-17 | 1 (1×S1) — same failed-read claim; guard added                             |
+| 16  | Integrations        | `/integrations`            | ✅ 2 | 2026-08-17 | 1 (1×S2) — re-audited with proof; the retracted S1 was real, at S2         |
+| 17  | Web Embedding       | `/embeds`                  | ✅ 1 | 2026-08-17 | 0 — counts exact; disable, expiry and allow-list proven                    |
+| 18  | Secrets             | `/secrets`                 | ✅ 1 | 2026-08-17 | 2 (1×S1, 1×S2) — empty claim on a failed read; skeleton for ever           |
+| 19  | MCP Servers         | `/mcp`                     | ✅ 1 | 2026-08-17 | 1 (1×S1) — derived counts read 0 on a failed read; pin was decorative      |
+| 20  | Model Registry      | `/model-registry`          | ✅ 1 | 2026-08-18 | 1 (1×S1) — four false claims, and a sync button that acts on them          |
+| 21  | Analytics           | `/analytics`               | ✅ 1 | 2026-08-18 | 3 (1×S1, 2×S2) — a silent row cap made every KPI wrong                     |
+| 22  | Swarm Traces        | `/analytics/observability` | ✅ 1 | 2026-08-18 | 2 (1×S1, 1×S2) — empty claim, and onboarding shown to an onboarded account |
+| 23  | Traces & Logs       | `/traces`                  | —    | —          | —                                                                          |
+| 24  | Audit Log           | `/audit`                   | —    | —          | —                                                                          |
+| 25  | Budgets             | `/budgets`                 | —    | —          | —                                                                          |
+| 26  | Monitoring          | `/monitoring`              | —    | —          | —                                                                          |
+| 27  | Prompt Compare      | `/prompt-compare`          | —    | —          | —                                                                          |
+| 28  | Evaluations         | `/evaluations`             | —    | —          | —                                                                          |
+| 29  | Image Playground    | `/image-playground`        | —    | —          | —                                                                          |
+| 30  | IAM                 | `/admin/iam`               | —    | —          | —                                                                          |
+| 31  | Developer runtime   | `/admin/runtime`           | —    | —          | —                                                                          |
 
 ## Findings
 
 <!-- newest first -->
+
+### 2026-08-18 — Module 22, Swarm Traces (`/analytics/observability`)
+
+Two findings, one per read, and a verification technique worth keeping.
+
+**Everything matched when the reads succeeded.** 26 runs in `swarm_runs` over
+30 days, "26 swarm runs" in the header, 26 table rows. The Quality trends strip
+was checked against the app's own `parseEvalScorecard` rather than a
+re-implementation of it — 5 scorecards, 75% average, 60% pass rate, 3 distinct
+swarms, all four exact.
+
+#### S1 · "0 swarm runs" and "No swarm runs yet", for an account holding 26
+
+`const { data } = await supabase.from("swarm_runs")…` — the error discarded,
+`data` null on failure, `setRuns([])`. Measured with the read 403'd and three
+interceptions recorded:
+
+|                | healthy       | read failed              |
+| -------------- | ------------- | ------------------------ |
+| header         | 26 swarm runs | **0 swarm runs**         |
+| table          | 26 rows       | **"No swarm runs yet."** |
+| any error text | —             | **none**                 |
+
+And the empty state does not stop at claiming emptiness — it instructs:
+"Execute a swarm from the Swarms canvas to see traces here." A user whose runs
+merely failed to load is told to go and re-run work that already ran.
+
+#### S2 · The onboarding card, shown to an account that had already onboarded
+
+The same shape in `QualityTrends`, and its failure mode is the more
+embarrassing of the two. With the eval-steps read 403'd, the whole stat strip
+was replaced by:
+
+> **Quality trends.** Add an **Evaluate** node to a swarm to score answers
+> (accuracy, tone, safety…) with an LLM judge.
+
+for an account with five scorecards across three swarms. The page did not print
+a wrong number here — it printed a wrong _premise_, and told the user to set up
+a feature they had already set up. Recorded as S2 rather than S1 on the module
+16 reasoning: no count is stated, and the falsehood is carried by onboarding
+copy that implies absence rather than asserting it.
+
+#### Fixed, and the honest empty state proven to survive
+
+The run list routes its count and empty state through `listClaim`, and
+`QualityTrends` gained an error branch that outranks the onboarding card.
+
+The verification worth keeping is how the _empty_ case was checked. A fix that
+stops a page saying "you have none" is only half tested if nobody confirms it
+can still say "you have none" when that is true — and emptying 26 real runs to
+find out is not an option. So the injection was inverted: instead of a 403, a
+**200 with an empty body**. Same code path as a genuinely empty account, no
+data touched.
+
+| read         | empty 200                            | 403                      | healthy       |
+| ------------ | ------------------------------------ | ------------------------ | ------------- |
+| `swarm_runs` | "0 swarm runs", "No swarm runs yet." | "—", error + reassurance | 26            |
+| eval steps   | onboarding card                      | "could not be loaded"    | Evaluations 5 |
+
+Three distinct states per read, each with its interception counted. That is the
+first time in this campaign the true-empty branch has been positively
+demonstrated rather than argued from the helper's unit tests.
+
+#### Mutations: six run, four killed by tests, two by the type checker
+
+The two survivors were the same edit on each file — dropping `error` from the
+destructure. They survive the suite because these pin rules read source and
+never execute it, but they do not survive `tsc`:
+
+```
+analytics_.observability.tsx(60,11): error TS2552: Cannot find name 'error'.
+QualityTrends.tsx(83,11):            error TS2552: Cannot find name 'error'.
+```
+
+That was checked rather than assumed — the mutation was applied and `tsc` run
+against it, both times. A defect caught by the type checker is caught; it is
+worth writing down which guard is doing the work, because "the tests pass" and
+"this is guarded" are different claims and this campaign exists to keep them
+apart.
+
+**Tests:** `failedReadClaims` 84 → 100 (two new rows, both green on the first
+run — the first module in a while where no pin rule needed widening). No new
+pure module: the run list reuses `listClaim`, which carries its own mutation
+coverage. No fixtures; the database was read and never written.
+
+---
 
 ### 2026-08-18 — Module 21, Analytics (`/analytics`)
 

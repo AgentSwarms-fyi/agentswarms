@@ -93,6 +93,20 @@ const CONVERTED: {
     claim: ["listClaim", "traceCountHeadline"],
   },
   {
+    file: "src/routes/_authenticated/analytics_.observability.tsx",
+    module: "22 — Swarm Traces",
+    what: "'0 swarm runs' + 'No swarm runs yet' for an account holding 26",
+  },
+  {
+    file: "src/components/observability/QualityTrends.tsx",
+    module: "22 — Swarm Traces",
+    what: "the onboarding card telling a user to add Evaluate nodes they already have",
+    // No count and no list — the panel's whole vocabulary is skeleton /
+    // error / onboarding / charts, so what it routes through is the error
+    // branch that outranks the onboarding copy.
+    claim: "loadError",
+  },
+  {
     file: "src/components/observability/TeamSpend.tsx",
     module: "21 — Analytics",
     what: "the spend breakdown: 'Loading…' for ever after a failed read",

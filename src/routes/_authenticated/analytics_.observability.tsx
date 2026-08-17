@@ -1,5 +1,6 @@
 import { createFileRoute, Link, Outlet, useLocation } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { listClaim, UNKNOWN_COUNT } from "@/lib/listClaim";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { Card } from "@/components/ui/card";
@@ -37,6 +38,10 @@ type Run = {
 function ObservabilityList() {
   const { user, loading: authLoading } = useAuth();
   const [runs, setRuns] = useState<Run[] | null>(null);
+  // Why the run list could not be read, or null. Without it a 403 left `runs`
+  // at [] and the page said "0 swarm runs" and "No swarm runs yet. Execute a
+  // swarm from the Swarms canvas" — to an account holding 26.
+  const [loadError, setLoadError] = useState<string | null>(null);
   const location = useLocation();
   const isDetailRoute = location.pathname.startsWith("/analytics/observability/");
 
@@ -44,7 +49,7 @@ function ObservabilityList() {
     if (!user) return;
     void (async () => {
       const since = new Date(Date.now() - 30 * 86400000).toISOString();
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("swarm_runs")
         .select(
           "id, swarm_name, status, started_at, finished_at, total_latency_ms, total_tokens_in, total_tokens_out, total_cost_usd, step_count, error_count",
@@ -52,11 +57,24 @@ function ObservabilityList() {
         .gte("started_at", since)
         .order("started_at", { ascending: false })
         .limit(200);
+      if (error) {
+        setLoadError(error.message);
+        setRuns([]);
+        return;
+      }
+      setLoadError(null);
       setRuns((data ?? []) as Run[]);
     })();
   }, [user]);
 
   if (isDetailRoute) return <Outlet />;
+
+  // A count and an empty state are claims only a completed read may make.
+  const claim = listClaim({
+    loaded: runs !== null,
+    error: loadError,
+    count: runs?.length ?? 0,
+  });
 
   if (authLoading || !runs) {
     return (
@@ -75,8 +93,9 @@ function ObservabilityList() {
         </p>
         <h1 className="font-display text-3xl font-semibold tracking-tight">Swarm Observability</h1>
         <p className="text-muted-foreground mt-1 text-sm">
-          {runs.length} swarm run{runs.length === 1 ? "" : "s"} · click a row to inspect agent-level
-          traces · auto-deleted after 30 days
+          {claim.message === "error" ? UNKNOWN_COUNT : runs.length} swarm run
+          {claim.message !== "error" && runs.length === 1 ? "" : "s"} · click a row to inspect
+          agent-level traces · auto-deleted after 30 days
         </p>
         <p className="text-muted-foreground mt-1 text-xs">
           Looking for single-agent or playground traces? See{" "}
@@ -108,7 +127,19 @@ function ObservabilityList() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {runs.length === 0 && (
+            {claim.message === "error" && (
+              <TableRow>
+                <TableCell colSpan={8} className="py-8 text-center text-sm" role="alert">
+                  <span className="text-warning">
+                    Your swarm runs could not be loaded — {loadError}.
+                  </span>
+                  <span className="block text-muted-foreground">
+                    Any runs you have are still recorded; this page just cannot list them right now.
+                  </span>
+                </TableCell>
+              </TableRow>
+            )}
+            {claim.message === "empty" && (
               <TableRow>
                 <TableCell colSpan={8} className="text-center text-sm text-muted-foreground py-8">
                   No swarm runs yet. Execute a swarm from the Swarms canvas to see traces here.
