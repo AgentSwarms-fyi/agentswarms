@@ -1,6 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  integrationsReadNotice,
+  mayOfferDisconnect,
+  providerBadge,
+  type StatusReadState,
+} from "@/lib/integrationStatusClaim";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -43,6 +49,7 @@ import {
   HardDrive,
   Bell,
   Users,
+  HelpCircle,
 } from "lucide-react";
 import {
   testIntegrationKey,
@@ -596,6 +603,10 @@ function IntegrationsPage() {
   const [sharedProviders, setSharedProviders] = useState<
     { provider: string; owner_email: string | null }[]
   >([]);
+  // How the reads behind every badge on this page went. Every "Connected" and
+  // every Disconnect button is derived from `integrations`, so when these fail
+  // the page has to say so rather than render an account with nothing in it.
+  const [readState, setReadState] = useState<StatusReadState>({ loaded: false, error: null });
 
   useEffect(() => {
     loadIntegrations();
@@ -617,20 +628,28 @@ function IntegrationsPage() {
     // while OpenAI-compat providers live in integrations. We synthesize a
     // single Integration[] so the UI's `isProviderActive` / `isProviderSaved`
     // checks work uniformly across both storage paths.
-    const [{ data: integ }, { data: creds }] = await Promise.all([
-      supabase.from("integrations").select("*"),
-      supabase
-        .from("provider_credentials")
-        .select("provider, last_test_status, default_model, config")
-        .returns<
-          Array<{
-            provider: string;
-            last_test_status: string | null;
-            default_model: string | null;
-            config: Record<string, unknown> | null;
-          }>
-        >(),
-    ]);
+    const [{ data: integ, error: integError }, { data: creds, error: credsError }] =
+      await Promise.all([
+        supabase.from("integrations").select("*"),
+        supabase
+          .from("provider_credentials")
+          .select("provider, last_test_status, default_model, config")
+          .returns<
+            Array<{
+              provider: string;
+              last_test_status: string | null;
+              default_model: string | null;
+              config: Record<string, unknown> | null;
+            }>
+          >(),
+      ]);
+    // Either read failing is enough to make every badge below unsafe: the two
+    // tables are merged into one list and the UI cannot tell which half is
+    // missing. `data` is null on failure, so without this the merge simply
+    // produces a shorter list and says nothing.
+    const readError = integError ?? credsError ?? null;
+    setReadState({ loaded: true, error: readError ? readError.message : null });
+
     const merged: Integration[] = [];
     if (integ) merged.push(...(integ as Integration[]));
     if (creds) {
@@ -1090,6 +1109,16 @@ function IntegrationsPage() {
   const providerHealthError = (id: string) =>
     healthErrorFor((i) => i.provider === id && i.type === "llm_provider");
 
+  // The facts above are only facts once the read that produced them succeeded.
+  const providerFacts = (id: string) => ({
+    active: isProviderActive(id),
+    saved: isProviderSaved(id),
+    shared: sharedFor(id) !== null,
+    unhealthy: providerHealthError(id) !== null,
+  });
+  const badgeFor = (id: string) => providerBadge(readState, providerFacts(id));
+  const readNotice = integrationsReadNotice(readState);
+
   return (
     <div className="flex">
       <div className="flex-1 p-6 space-y-6">
@@ -1102,6 +1131,15 @@ function IntegrationsPage() {
             Connect your LLM providers, gateways, and workflow tools.
           </p>
         </div>
+
+        {readNotice && (
+          <div
+            role="alert"
+            className="rounded-md border border-warning/40 bg-warning/5 px-4 py-3 text-sm text-warning"
+          >
+            {readNotice}
+          </div>
+        )}
 
         <Tabs defaultValue="llm" className="space-y-4">
           <TabsList>
@@ -1180,7 +1218,16 @@ function IntegrationsPage() {
                     >
                       {provider.description}
                     </p>
-                    {isProviderActive(provider.id) ? (
+                    {badgeFor(provider.id) === "unknown" ? (
+                      <Badge
+                        variant="outline"
+                        className="w-fit text-muted-foreground border-border"
+                        title="This page could not read your integrations, so it cannot say whether this provider is connected."
+                      >
+                        <HelpCircle className="h-3 w-3 mr-1" /> Status unknown
+                      </Badge>
+                    ) : badgeFor(provider.id) === "connected-unhealthy" ||
+                      badgeFor(provider.id) === "connected" ? (
                       providerHealthError(provider.id) ? (
                         <Badge
                           variant="outline"
@@ -1194,11 +1241,11 @@ function IntegrationsPage() {
                           <Check className="h-3 w-3 mr-1" /> Connected
                         </Badge>
                       )
-                    ) : isProviderSaved(provider.id) ? (
+                    ) : badgeFor(provider.id) === "saved-failed" ? (
                       <Badge variant="outline" className="w-fit text-warning border-warning/40">
                         <X className="h-3 w-3 mr-1" /> Saved — last test failed
                       </Badge>
-                    ) : sharedFor(provider.id) ? (
+                    ) : badgeFor(provider.id) === "shared" ? (
                       <Badge
                         variant="outline"
                         className="w-fit text-primary border-primary/30"
@@ -1219,7 +1266,7 @@ function IntegrationsPage() {
                     ) : (
                       <div className="flex gap-2">
                         <ProviderConfigDialog provider={provider} onSave={saveProvider} />
-                        {isProviderActive(provider.id) && (
+                        {mayOfferDisconnect(readState, providerFacts(provider.id)) && (
                           <Button
                             variant="outline"
                             size="sm"

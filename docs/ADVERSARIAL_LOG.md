@@ -20,6 +20,25 @@ has not been tested; it has been visited.
    a deleted referent, a value that is null for a legitimate reason.
 5. Log what is found, fix it with a regression test, mutation-verify the test.
 
+### Failing one read on purpose
+
+Several findings depend on making exactly one read fail in the live page. The
+recipe, after module 16 spent a whole pass on getting this wrong:
+
+- Patch `window.fetch` with a wrapper that **records every URL it sees and
+  every URL it failed**. The record is the evidence.
+- Re-trigger the read with a **client-side remount** —
+  `__TSR_ROUTER__.navigate` away and back — which re-runs mount effects while
+  leaving `window` intact. **Never reload the page: a reload destroys the
+  patch**, the read then succeeds, and the screen tells you nothing.
+- Report every probe beside the same measurement with the injection disarmed,
+  down the identical path. A probe whose control also fails has measured
+  nothing.
+
+**A failed-read finding requires positive proof the injection took effect** —
+the wrapper naming the request it failed, or a probe of what the read returned.
+Never infer it from what rendered.
+
 ## Severity
 
 - **S1** — states something false, or lets a wrong number reach a decision.
@@ -29,43 +48,207 @@ has not been tested; it has been visited.
 
 ## Coverage map
 
-| #   | Module              | Route                      | Pass | Date       | Findings                                                |
-| --- | ------------------- | -------------------------- | ---- | ---------- | ------------------------------------------------------- |
-| 1   | Dashboard           | `/dashboard`               | ✅ 1 | 2026-08-16 | 5 (2×S1, 1×S2, 2×S3)                                    |
-| 2   | Documentation       | `/docs`                    | ✅ 1 | 2026-08-16 | 4 (2×S1, 1×S2, 1×S1 self-inflicted)                     |
-| 3   | Agent Builder       | `/agents`                  | ✅ 1 | 2026-08-16 | 3 (2×S1, 1×S2)                                          |
-| 4   | Knowledge Base      | `/knowledge`               | ✅ 1 | 2026-08-16 | 1 (1×S1)                                                |
-| 5   | Agent Chat          | `/playground`              | ✅ 1 | 2026-08-16 | 2 (1×S1 self-inflicted, 1×S2); guardrails verified live |
-| 6   | Agent Swarms        | `/swarms`                  | ✅ 1 | 2026-08-16 | 1 (1×S2)                                                |
-| 7   | MCP Builder         | `/mcp-builder`             | ✅ 1 | 2026-08-16 | 1 (1×S2)                                                |
-| 8   | AI Analyst          | `/ai-analyst`              | ✅ 1 | 2026-08-16 | 0 — held; no live turn (over budget cap)                |
-| 9   | Data Catalog        | `/data-sql`                | ✅ 1 | 2026-08-16 | 2 (1×S1, 1×S3)                                          |
-| 10  | Semantic Layer      | `/semantics`               | ✅ 1 | 2026-08-16 | 1 (1×S1) + one wrong hypothesis, recorded               |
-| 11  | Metrics             | `/metrics`                 | ✅ 1 | 2026-08-16 | 2 (2×S2) + one hypothesis dropped                       |
-| 12  | BI Workspace        | `/bi`                      | ✅ 1 | 2026-08-16 | 1 (1×S1) — widget count read the page-1 mirror          |
-| 13  | Developer workspace | `/notebooks`               | ✅ 1 | 2026-08-17 | 4 (1×S1, 2×S2, 1×S3) — failed reads rendered as absence |
-| 14  | Prompt Library      | `/prompts`                 | ✅ 1 | 2026-08-17 | 2 (1×S1, 1×S3) — empty claim on a failed read; `#tag`   |
-| 15  | Skill Library       | `/skills`                  | ✅ 1 | 2026-08-17 | 1 (1×S1) — same failed-read claim; guard added          |
-| 16  | Integrations        | `/integrations`            | ⚠️   | 2026-08-17 | 0 confirmed — a claimed S1 was RETRACTED, see below     |
-| 17  | Web Embedding       | `/embeds`                  | ✅ 1 | 2026-08-17 | 0 — counts exact; disable, expiry and allow-list proven |
-| 18  | Secrets             | `/secrets`                 | —    | —          | —                                                       |
-| 19  | MCP Servers         | `/mcp`                     | —    | —          | —                                                       |
-| 20  | Model Registry      | `/model-registry`          | —    | —          | —                                                       |
-| 21  | Analytics           | `/analytics`               | —    | —          | —                                                       |
-| 22  | Swarm Traces        | `/analytics/observability` | —    | —          | —                                                       |
-| 23  | Traces & Logs       | `/traces`                  | —    | —          | —                                                       |
-| 24  | Audit Log           | `/audit`                   | —    | —          | —                                                       |
-| 25  | Budgets             | `/budgets`                 | —    | —          | —                                                       |
-| 26  | Monitoring          | `/monitoring`              | —    | —          | —                                                       |
-| 27  | Prompt Compare      | `/prompt-compare`          | —    | —          | —                                                       |
-| 28  | Evaluations         | `/evaluations`             | —    | —          | —                                                       |
-| 29  | Image Playground    | `/image-playground`        | —    | —          | —                                                       |
-| 30  | IAM                 | `/admin/iam`               | —    | —          | —                                                       |
-| 31  | Developer runtime   | `/admin/runtime`           | —    | —          | —                                                       |
+| #   | Module              | Route                      | Pass | Date       | Findings                                                           |
+| --- | ------------------- | -------------------------- | ---- | ---------- | ------------------------------------------------------------------ |
+| 1   | Dashboard           | `/dashboard`               | ✅ 1 | 2026-08-16 | 5 (2×S1, 1×S2, 2×S3)                                               |
+| 2   | Documentation       | `/docs`                    | ✅ 1 | 2026-08-16 | 4 (2×S1, 1×S2, 1×S1 self-inflicted)                                |
+| 3   | Agent Builder       | `/agents`                  | ✅ 1 | 2026-08-16 | 3 (2×S1, 1×S2)                                                     |
+| 4   | Knowledge Base      | `/knowledge`               | ✅ 1 | 2026-08-16 | 1 (1×S1)                                                           |
+| 5   | Agent Chat          | `/playground`              | ✅ 1 | 2026-08-16 | 2 (1×S1 self-inflicted, 1×S2); guardrails verified live            |
+| 6   | Agent Swarms        | `/swarms`                  | ✅ 1 | 2026-08-16 | 1 (1×S2)                                                           |
+| 7   | MCP Builder         | `/mcp-builder`             | ✅ 1 | 2026-08-16 | 1 (1×S2)                                                           |
+| 8   | AI Analyst          | `/ai-analyst`              | ✅ 1 | 2026-08-16 | 0 — held; no live turn (over budget cap)                           |
+| 9   | Data Catalog        | `/data-sql`                | ✅ 1 | 2026-08-16 | 2 (1×S1, 1×S3)                                                     |
+| 10  | Semantic Layer      | `/semantics`               | ✅ 1 | 2026-08-16 | 1 (1×S1) + one wrong hypothesis, recorded                          |
+| 11  | Metrics             | `/metrics`                 | ✅ 1 | 2026-08-16 | 2 (2×S2) + one hypothesis dropped                                  |
+| 12  | BI Workspace        | `/bi`                      | ✅ 1 | 2026-08-16 | 1 (1×S1) — widget count read the page-1 mirror                     |
+| 13  | Developer workspace | `/notebooks`               | ✅ 1 | 2026-08-17 | 4 (1×S1, 2×S2, 1×S3) — failed reads rendered as absence            |
+| 14  | Prompt Library      | `/prompts`                 | ✅ 1 | 2026-08-17 | 2 (1×S1, 1×S3) — empty claim on a failed read; `#tag`              |
+| 15  | Skill Library       | `/skills`                  | ✅ 1 | 2026-08-17 | 1 (1×S1) — same failed-read claim; guard added                     |
+| 16  | Integrations        | `/integrations`            | ✅ 2 | 2026-08-17 | 1 (1×S2) — re-audited with proof; the retracted S1 was real, at S2 |
+| 17  | Web Embedding       | `/embeds`                  | ✅ 1 | 2026-08-17 | 0 — counts exact; disable, expiry and allow-list proven            |
+| 18  | Secrets             | `/secrets`                 | —    | —          | —                                                                  |
+| 19  | MCP Servers         | `/mcp`                     | —    | —          | —                                                                  |
+| 20  | Model Registry      | `/model-registry`          | —    | —          | —                                                                  |
+| 21  | Analytics           | `/analytics`               | —    | —          | —                                                                  |
+| 22  | Swarm Traces        | `/analytics/observability` | —    | —          | —                                                                  |
+| 23  | Traces & Logs       | `/traces`                  | —    | —          | —                                                                  |
+| 24  | Audit Log           | `/audit`                   | —    | —          | —                                                                  |
+| 25  | Budgets             | `/budgets`                 | —    | —          | —                                                                  |
+| 26  | Monitoring          | `/monitoring`              | —    | —          | —                                                                  |
+| 27  | Prompt Compare      | `/prompt-compare`          | —    | —          | —                                                                  |
+| 28  | Evaluations         | `/evaluations`             | —    | —          | —                                                                  |
+| 29  | Image Playground    | `/image-playground`        | —    | —          | —                                                                  |
+| 30  | IAM                 | `/admin/iam`               | —    | —          | —                                                                  |
+| 31  | Developer runtime   | `/admin/runtime`           | —    | —          | —                                                                  |
 
 ## Findings
 
 <!-- newest first -->
+
+### 2026-08-17 — Module 16, Integrations (`/integrations`) — RE-AUDITED
+
+The module whose finding was withdrawn, done again with the proof that was
+missing. **The withdrawal was correct and the original observation was also
+correct** — what was missing was the link between them, and it turned out to be
+mundane.
+
+#### Why the injection did not fire, at last
+
+The `window.fetch` patch was never off-path. It reaches this page's Supabase
+client perfectly well; that was measured directly by logging every URL the
+wrapper saw:
+
+```
+newlySeen: ["https://…/rest/v1/integrations?select=*"]
+```
+
+The mistake was in how the read was re-triggered. `loadIntegrations` runs in a
+`useEffect(…, [])` and nowhere else on first paint — there is no Refresh
+button on this page — so the obvious way to make it run again is to reload the
+page. **A reload destroys `window`, and the patch with it.** The reads then
+succeed, which is exactly what the probe reported.
+
+That was reproduced deliberately rather than assumed. Arming the patch, setting
+a `sessionStorage` marker, and reloading gives:
+
+| After the reload        |                                    |
+| ----------------------- | ---------------------------------- |
+| `sessionStorage` marker | survived                           |
+| `window.fetch` patch    | **gone**, `fetch` native again     |
+| the page's own read     | `{integError: null, integRows: 3}` |
+
+which is the earlier session's probe output, character for character.
+
+Modules 13–15 were not luckier, they were differently shaped: each had an
+in-page refresh path (a `refresh()`, a tab switch) that re-ran the read without
+a document load, so the patch was still installed when it fired.
+
+**The method that replaces it**, and that will be used for modules 18–31:
+re-trigger the read with a **client-side remount** — `__TSR_ROUTER__.navigate`
+away and back — which re-runs mount effects while leaving `window` intact. The
+wrapper records every URL it sees and every URL it failed, so the injection is
+confirmed by `failed` naming the request, never by what rendered. Every probe
+below is reported beside the same measurement taken with the injection
+disarmed, down the identical navigation path.
+
+#### S2 · Both reads discard their error, so a failed read renders as an account with nothing in it
+
+```ts
+const [{ data: integ }, { data: creds }] = await Promise.all([…]);
+```
+
+No `error` is bound on either side, so there is nothing to report even if the
+page wanted to. `data` is null on failure, `merged` stays `[]`, and every badge
+on the page is derived from `merged`.
+
+Measured, with a 403 injected on the `integrations` read alone:
+
+|                        | injected 403 | control, same path |
+| ---------------------- | ------------ | ------------------ |
+| read intercepted       | 2            | 0                  |
+| "Connected" on page    | **0**        | 2                  |
+| "Disconnect" on page   | **0**        | 2                  |
+| any error text on page | **none**     | —                  |
+
+The account had Gemini and OpenRouter connected throughout, and the Gemini card
+went from
+
+```
+Google Gemini | Gemini via Google AI Studio native API. | Connected | Configure | Disconnect
+```
+
+to
+
+```
+Google Gemini | Gemini via Google AI Studio native API. | Configure
+```
+
+A connected provider rendered exactly as one that was never configured, beside
+a Configure button. The obvious response to that screen is to paste the API key
+in again. Failing the sibling `provider_credentials` read instead produces the
+same screen, so either half of the merge can cause it.
+
+**On the severity, which is deliberately lower than the retracted claim.** The
+withdrawn finding called this S1. It is S2. This page has no count and no empty
+state — nothing on it prints a number, and there is no "you have no
+integrations yet" sentence anywhere. The page's only vocabulary for connection
+status is a badge, and what a failed read produces is its _absence_. That is
+squarely "hides something true (silent failure, swallowed error, misleading
+empty)" and it is not "states something false", which is what separated modules
+13–15, where the screen said `My skills (0)` and "You haven't created any
+skills yet" in so many words. The user-visible consequence is much the same;
+the scale is only worth having if it is applied rather than recited.
+
+#### Fixed, and the fix names the reason
+
+`lib/integrationStatusClaim` is the badge-shaped equivalent of `lib/listClaim`:
+a connection badge is a claim only a successful read may make. It adds the
+state the page had no way to express — `"unknown"` — which before this existed
+could only be rendered as `null`, the same thing an unconfigured provider
+renders.
+
+`mayOfferDisconnect` is separate from the badge on purpose. Disconnect is a
+**write**, and on a failed read `disconnectProvider` resolves `existing` to
+undefined and silently returns — a dead control rather than an honest refusal.
+
+Verified live in both directions, three ways:
+
+| Condition                       | Page                                                               |
+| ------------------------------- | ------------------------------------------------------------------ |
+| healthy                         | 2 Connected, 2 Disconnect, no notice, no "Status unknown"          |
+| `integrations` read 403         | 0 / 0, 14 "Status unknown", notice naming the reason, `role=alert` |
+| `provider_credentials` read 403 | same                                                               |
+| restored                        | back to 2 / 2, notice gone                                         |
+
+The notice says the credentials are still there, which is load-bearing copy
+rather than politeness: the failure being fixed is a user concluding their keys
+are gone and retyping them.
+
+#### A hypothesis that was wrong, and checked before it was believed
+
+The suspicion worth having here was that the failed read corrupts a **write**:
+`saveProvider` resolves `const existing = integrations.find(…)` from the same
+emptied state and passes `id: undefined`, which looks like it must insert a
+duplicate row. It does not. `saveIntegrationForUser` falls back to a singleton
+lookup by `(user_id, type, provider)` when no id is passed, and updates the row
+it finds — the code says so, and says the unique indexes are "the backstop, not
+the mechanism". Recorded because it was a good guess that reading the server
+function disproved in a minute.
+
+The neighbouring write paths were checked for the same reason and are also
+safe: `saveGateway` refuses a blank base URL, and `saveNotifChannel` refuses a
+blank webhook with no `existing`, so neither can overwrite a real config with
+the blank form a failed read leaves behind. What they _do_ lose is the "leave
+blank to keep the saved key" affordance — the page tells the user to paste in a
+URL it already has — which is the same defect wearing different clothes and is
+fixed by the same notice.
+
+#### The mutation that survived, which is the point of doing this
+
+The first mutation run killed 13 of 14. The survivor was the one that matters
+most: reverting integrations.tsx to `setReadState({ loaded: true, error: null })`
+— **the exact defect this module fixed** — and the whole suite stayed green.
+
+`failedReadClaims.test.ts` asked only that a setter _name_ appear in the file,
+and the mutant still contained `setReadState`. A rule satisfied by the presence
+of an identifier is satisfied by a page that binds the error and throws it
+away. A fourth rule now requires that every error the file names is referenced
+again, which is the campaign's defect stated in one line: **an error you
+destructure and never mention again is an error you discarded.** It holds for
+all five pinned files and kills the mutant.
+
+This is the third rule in this campaign to be wrong on its first draft. The
+first two cried wolf at correct code; this one waved a defect through. Both
+directions are worth the same amount of suspicion.
+
+**Tests:** 18 in `tests/unit/integrationStatusClaim.test.ts`, plus
+`failedReadClaims.test.ts` 13 → 21 (one new row, and the fourth rule applied to
+all five). Mutation-verified **14/14**, each applied, confirmed on disk, killed,
+restored, restore confirmed, with a clean run after. No fixtures: this pass
+read the database and never wrote to it.
+
+---
 
 ### 2026-08-17 — Module 17, Web Embedding (`/embeds`)
 
@@ -120,6 +303,11 @@ Final state re-read and confirmed identical to baseline (`is_active: true`,
 ---
 
 ### 2026-08-17 — Module 16, Integrations (`/integrations`) — RETRACTED
+
+> **Superseded.** The module was re-audited later the same day and the finding
+> holds, at S2 rather than S1 — see the module 16 entry at the top. This entry
+> is kept unedited because the reasoning that led to the withdrawal is worth
+> more than the conclusion it reached.
 
 **A finding was reported here and then withdrawn. It is kept because a
 campaign that quietly deletes its mistakes is not evidence of anything.**

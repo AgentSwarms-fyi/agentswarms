@@ -15,8 +15,18 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-/** file → the read whose failure used to render as an empty account. */
-const CONVERTED: { file: string; module: string; what: string }[] = [
+/**
+ * file → the read whose failure used to render as an empty account.
+ *
+ * `claim` is the helper the page must route its claim through. It defaults to
+ * listClaim because that is the count-and-empty-state shape, which is what the
+ * first four conversions were. Module 16 needed a second one: /integrations has
+ * no count and no empty state, so its false claim was made by OMISSION — a
+ * connected provider rendering exactly like an unconfigured one. The rule being
+ * pinned is unchanged; only the vocabulary the page uses to state it differs,
+ * and lib/integrationStatusClaim carries its own tests and mutation coverage.
+ */
+const CONVERTED: { file: string; module: string; what: string; claim?: string }[] = [
   {
     file: "src/routes/_authenticated/notebooks.tsx",
     module: "13 — Developer workspace",
@@ -37,6 +47,12 @@ const CONVERTED: { file: string; module: string; what: string }[] = [
     module: "13 — Developer workspace",
     what: "the notebook's API keys: 'Loading…' for ever after a failed read",
   },
+  {
+    file: "src/routes/_authenticated/integrations.tsx",
+    module: "16 — Integrations",
+    what: "connected providers rendering as never-configured, with no error at all",
+    claim: "providerBadge",
+  },
 ];
 
 const read = (f: string) => readFileSync(resolve(f), "utf8");
@@ -47,11 +63,12 @@ describe("pages that must not report a failed read as an empty account", () => {
     expect(CONVERTED.length).toBeGreaterThan(0);
   });
 
-  for (const { file, module, what } of CONVERTED) {
+  for (const { file, module, what, claim: claimHelper } of CONVERTED) {
     describe(`${file}  (module ${module})`, () => {
-      it("routes its count and empty state through listClaim", () => {
-        expect(read(file), `${file} stopped using listClaim — ${what} can return`).toMatch(
-          /listClaim\s*\(/,
+      const claim = claimHelper ?? "listClaim";
+      it(`routes what it claims through ${claim}`, () => {
+        expect(read(file), `${file} stopped using ${claim} — ${what} can return`).toMatch(
+          new RegExp(`${claim}\\s*\\(`),
         );
       });
 
@@ -59,11 +76,31 @@ describe("pages that must not report a failed read as an empty account", () => {
         const src = read(file);
         // Either destructures `error` from the read, or holds it in state.
         const keepsIt =
-          /setLoadError|setError|loadError|keysError/.test(src) &&
+          /setLoadError|setError|loadError|keysError|setReadState|readError/.test(src) &&
           /error:\s*readError|\berror\b/.test(src);
         expect(keepsIt, `${file} no longer keeps the read error — ${what}`).toBe(true);
       });
 
+      it("uses every read error it names, rather than binding and dropping it", () => {
+        // Added after mutation testing. The rule above is satisfied by the
+        // mere PRESENCE of a setter name, so reverting integrations.tsx to
+        // `setReadState({ loaded: true, error: null })` — which is exactly the
+        // defect module 16 fixed — survived the whole suite. An error that is
+        // destructured and then never mentioned again is an error that was
+        // discarded, which is the campaign's defect stated in one line.
+        const src = read(file);
+        const RESERVED = new Set(["string", "null", "undefined", "boolean", "number", "unknown"]);
+        const names = [...src.matchAll(/\berror:\s*([a-z][A-Za-z0-9_]*)/g)]
+          .map((m) => m[1])
+          .filter((n) => !RESERVED.has(n));
+        expect(names.length, `${file} names no read error at all — ${what}`).toBeGreaterThan(0);
+        const dropped = [...new Set(names)].filter(
+          (n) => (src.match(new RegExp("\\b" + n + "\\b", "g")) || []).length < 2,
+        );
+        expect(dropped, `${file} binds ${dropped.join(", ")} and never uses it — ${what}`).toEqual(
+          [],
+        );
+      });
       it("does not print a fetched collection's raw .length as its count", () => {
         const src = read(file);
         // Only STATE counts, never module constants. `BUILT_IN_PROMPTS.length`
