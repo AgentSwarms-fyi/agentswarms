@@ -46,7 +46,7 @@ function IntegrationsDoc() {
   return (
     <>
       <DocsHeader
-        eyebrow="Platform"
+        eyebrow="Integrate & ship"
         title="Integrations"
         description="The Integration Hub at /integrations connects AgentSwarms to outside model providers and automation; /mcp connects it to tool servers. Keys are stored server-side and used only by the runtime — they are never sent back to the browser."
       />
@@ -160,6 +160,115 @@ function IntegrationsDoc() {
         while the governance stays with the caller. Cap the credential itself if you need to bound
         what a shared key can cost.
       </Callout>
+
+      <H2 id="websearch">Web search &amp; browsing</H2>
+      <P>
+        The <strong>Web Search</strong> tab holds one workspace-wide Firecrawl key, which powers the{" "}
+        <C>web_search</C> and <C>web_browse</C> tools for every agent that has them enabled.
+      </P>
+      <Callout kind="info" title="It works with no key at all">
+        Without a key, <C>web_search</C> still runs — it falls back to DuckDuckGo, with noticeably
+        thinner results — and <C>web_browse</C> is unavailable, because reading a full page is the
+        part that needs a real crawler. Connect a key when search quality starts costing you
+        answers, not before.
+      </Callout>
+      <P>The same setting can come from three places, in this order:</P>
+      <Table
+        headers={["Source", "Scope", "Wins over"]}
+        rows={[
+          [<>A per-agent key in the agent editor</>, "That one agent", "Everything below"],
+          [<C key="e">FIRECRAWL_API_KEY</C>, "The deployment", "The workspace default"],
+          ["This tab", "Workspace default", "Nothing — it is the fallback"],
+        ]}
+      />
+      <P>
+        Keys are stored encrypted and never shown again; leaving the field blank keeps the saved key
+        rather than clearing it. Saving validates the key first, so a wrong paste fails here instead
+        of silently degrading every agent's search to DuckDuckGo.
+      </P>
+      <P>
+        Agents can also use Brave, SerpAPI, Tavily or ScrapingBee instead — those are chosen
+        per-agent on the Tools tab, not here. See{" "}
+        <DocLink to="/docs/agents" hash="tools">
+          the tool reference
+        </DocLink>
+        .
+      </P>
+
+      <H2 id="slack">Ask an AI Analyst from Slack</H2>
+      <P>
+        The <strong>Slack</strong> tab authorises Slack workspaces to run one of your{" "}
+        <DocLink to="/docs/bi" hash="ai-analyst">
+          AI Analysts
+        </DocLink>{" "}
+        with a slash command. Someone types <C>/ask</C> in a channel, the analyst answers there, and
+        the message links back here.
+      </P>
+      <Callout kind="why">
+        The answer posted to Slack is a <strong>summary</strong>. The rows, the generated SQL and
+        the lineage stay in the app. A channel is a wide audience with no per-viewer permissions, so
+        publishing internal table and column names into it is not a thing you can take back — the
+        link is there for anyone who needs the detail and is allowed to see it.
+      </Callout>
+      <P>
+        This tab sits beside <strong>Notifications</strong> because both are Slack-shaped, but they
+        point in opposite directions: notifications <em>post out</em> to a webhook you supply, while
+        this <em>accepts calls in</em>. That difference is what makes the signing secret mandatory.
+      </P>
+      <Steps
+        items={[
+          {
+            title: "Copy the request URL",
+            body: (
+              <>
+                Shown at the top of the tab — <C>/api/slack/command</C> on your deployment. Slack
+                has to reach it over the public internet.
+              </>
+            ),
+          },
+          {
+            title: "Create the slash command in Slack",
+            body: (
+              <>
+                In your Slack app: <strong>Slash Commands → Create New Command</strong>. Name it{" "}
+                <C>/ask</C> and paste the request URL.
+              </>
+            ),
+          },
+          {
+            title: "Copy the signing secret",
+            body: (
+              <>
+                <strong>Basic Information → Signing Secret</strong>. Paste it here when you add the
+                workspace. It is written once and never read back.
+              </>
+            ),
+          },
+          {
+            title: "Add the workspace here",
+            body: (
+              <>
+                Workspace ID (like <C>T01AB2CD3EF</C>), an optional name, and the analyst that
+                answers. A bot token is <strong>not</strong> needed for slash commands — replies go
+                back through Slack's own response URL.
+              </>
+            ),
+          },
+        ]}
+      />
+      <Callout kind="warn" title="Configured and working are different things">
+        The tab shows those as two separate states on purpose. <strong>Configured</strong> only
+        means a form was filled in. <strong>Receiving commands</strong> is backed by a timestamp
+        only Slack can set, so it is the one that proves the round trip works. If a row stays
+        configured but never receives anything, the usual causes are that the deployment is on{" "}
+        <C>localhost</C> and unreachable from Slack, a typo in the request URL, or a Slack app that
+        was never reinstalled after the command was added.
+      </Callout>
+      <P>
+        The endpoint is public because Slack has to reach it, so the signing secret is the only
+        thing separating a real slash command from anyone who learned the URL. Deleting a workspace
+        stops <C>/ask</C> working there immediately.
+      </P>
 
       <H2 id="notifications">Notification channels</H2>
       <P>

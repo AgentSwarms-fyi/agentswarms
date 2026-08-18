@@ -45,7 +45,7 @@ function PlaygroundDoc() {
   return (
     <>
       <DocsHeader
-        eyebrow="Run & observe"
+        eyebrow="Build"
         title="Chat Playground"
         description="The playground at /playground is where you talk to agents directly. It looks like a chat app; the difference is that every message produces a trace you can inspect, and the agent runs with its full saved configuration — same tools, same guardrails, same memory as anywhere else on the platform."
       />

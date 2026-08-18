@@ -47,7 +47,7 @@ function AnalyticsDoc() {
   return (
     <>
       <DocsHeader
-        eyebrow="Run & observe"
+        eyebrow="Govern & operate"
         title="Analytics"
         description="Two views built on the same telemetry: workspace-level cost analytics at /analytics, and per-run swarm observability that replays a swarm execution node by node."
       />

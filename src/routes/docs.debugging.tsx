@@ -48,7 +48,7 @@ function DebuggingDoc() {
   return (
     <>
       <DocsHeader
-        eyebrow="Run & observe"
+        eyebrow="Govern & operate"
         title="Logs & traces"
         description="Every run on the platform — playground chats, swarm nodes, notebook calls — is recorded as a trace. Reading traces is the core debugging skill in agentic systems, and the one course environments almost never let you practice."
       />
