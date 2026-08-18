@@ -240,6 +240,16 @@ infrastructure you control** — data residency, data localisation, sovereignty
 rules, or a genuinely air-gapped network — run Supabase yourself. The app does
 not care which one it talks to: it needs a URL and two keys.
 
+> [!TIP]
+> **Every step in this section is scripted.** `bash scripts/setup-selfhosted.sh --all`
+> downloads and starts the stack, generates all secrets and keys, waits out the
+> storage-boot caveat below, runs the extension preflight, applies the schema,
+> creates your admin user, writes the app's `.env`, and starts the app — see
+> [INSTALL.md § Option B](./INSTALL.md#option-b--self-hosted-supabase-docker-no-account-needed).
+> The manual walkthrough that follows is the same procedure, explained — read
+> it anyway before production, especially
+> ["Before you call it production"](#6-before-you-call-it-production).
+
 > **What this does and does not buy you.** Self-hosting Supabase removes the
 > last managed dependency for _your data_. It does **not** by itself make the
 > deployment air-gapped: model calls still leave your network unless you also

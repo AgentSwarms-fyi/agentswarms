@@ -118,6 +118,78 @@ If you plan to contribute, fork it on GitHub first and clone your fork instead
 
 ## 3. Set up Supabase (the database, auth, and storage layer)
 
+There are two ways to get a Supabase backend. **Option A** (a free hosted
+project on supabase.com) is the fastest and what the rest of this section
+walks through. **Option B** runs Supabase on your own machine with Docker —
+no account, nothing leaves your infrastructure, and a script does every step
+for you.
+
+### Option B — self-hosted Supabase (Docker, no account needed)
+
+One command deploys the **entire solution**: it downloads and starts the
+official Supabase Docker stack (Postgres, Auth, Storage, Realtime, the API
+gateway and Studio), generates every secret and key, applies the schema,
+creates your admin user, writes everything into the app's `.env`
+automatically, and then installs and starts the app itself:
+
+```bash
+git clone https://github.com/AgentSwarms-fyi/agentswarms.git
+cd agentswarms
+bash scripts/setup-selfhosted.sh --all     # → app on :8080, Supabase on :8000
+```
+
+Prompts for your admin email and password (or pass them non-interactively):
+
+```bash
+ADMIN_EMAIL=you@corp.com ADMIN_PASSWORD='a-strong-one' bash scripts/setup-selfhosted.sh --all
+```
+
+What the script does, in order — each step is the automated version of the
+manual walkthrough in
+[DEPLOYMENT.md § Self-hosted Supabase](./DEPLOYMENT.md#self-hosted-supabase-complete-data-residency):
+
+| Step                    | What happens                                                                                                                                                                                              |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Download & run**      | Clones the official `supabase/docker` stack into `supabase-docker/` (git-ignored) and starts it. First run pulls ~2 GB of images.                                                                          |
+| **Generate secrets**    | Postgres password, `JWT_SECRET`, and the `ANON` / `SERVICE_ROLE` API keys **signed from that secret** (HS256, locally — nothing leaves your machine), plus the Studio dashboard login and vault keys.        |
+| **Wait properly**       | Waits for the auth service to answer **and for the storage service to finish its own boot migrations** — pushing the schema too early fails three migrations (see DEPLOYMENT.md § "Apply the schema").      |
+| **Extensions**          | Ensures the five required Postgres extensions exist (`vector`, `pg_net`, `pg_cron`, `pgmq`, `supabase_vault`).                                                                                             |
+| **Schema**              | Applies all migrations with `npx supabase db push --db-url ...` pointed at your own database.                                                                                                              |
+| **Admin user**          | Creates your account via the auth admin API, email pre-confirmed, and sets it as `ADMIN_EMAIL` — the instance's bootstrap superadmin.                                                                       |
+| **Wire the app**        | Writes `SUPABASE_URL`, both keys, the `VITE_` copies, `ADMIN_EMAIL`/`VITE_ADMIN_EMAIL` and `SITE_URL` into `.env` — nothing to copy by hand.                                                                |
+| **Install & start**     | Hands over to `scripts/setup.sh` (same flags: `--all`, `--dev`, `--docgen`, ...) which installs dependencies, generates the remaining app secrets, and brings the stack up.                                 |
+
+Notes worth knowing before you run it:
+
+- **Where things end up.** App: `http://localhost:8080`. Supabase API (Kong):
+  `http://localhost:8000` — that URL and the generated keys are what landed in
+  your `.env`. Supabase Studio: `http://localhost:8000` (user `supabase`,
+  password in `supabase-docker/docker/.env`).
+- **No "organisation/project" step.** Self-hosted Supabase has no dashboard
+  org/project concept — the whole stack **is** one project. Where the hosted
+  flow says "create a project and copy its keys", the script generates those
+  keys and wires them in.
+- **Re-running is safe.** An existing `supabase-docker/docker/.env` is reused,
+  never regenerated — regenerating `JWT_SECRET` would invalidate every issued
+  key. To start truly fresh: `cd supabase-docker/docker && docker compose down -v`,
+  then delete the directory.
+- **Windows:** run the script in **WSL** or **Git Bash** with Docker Desktop
+  running.
+- **Sizing:** budget roughly **+2 vCPU / +4 GB RAM / +20 GB disk** for the
+  Supabase stack on top of the app's own requirements.
+- **Before production:** TLS in front of both origins, keep Studio and
+  Postgres off the public network, and back up Postgres **and**
+  `PROVIDER_CREDS_SECRET` (a restored database cannot decrypt stored
+  credentials without it). The full checklist is in
+  [DEPLOYMENT.md § "Before you call it production"](./DEPLOYMENT.md#self-hosted-supabase-complete-data-residency).
+
+If you used Option B, the script has already done everything in §3.1–§3.2 and
+§4's Supabase values — skip ahead to [§4](#4-configure-environment-variables)
+only if you want to add optional keys (model providers, email, search), then
+continue at [§5](#5-run-the-app).
+
+### Option A — hosted Supabase project (free tier)
+
 #### 3.1 Create a project
 
 1. Go to [supabase.com/dashboard](https://supabase.com/dashboard) → **New project**.

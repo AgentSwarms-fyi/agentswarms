@@ -39,3 +39,6 @@ scratch-*.ts
 
 # Scratch file written by the eval-loadability test.
 evals/.import-probe.mts
+
+# Self-hosted Supabase stack cloned by scripts/setup-selfhosted.sh
+supabase-docker/

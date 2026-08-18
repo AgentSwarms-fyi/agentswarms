@@ -146,6 +146,24 @@ bash scripts/setup.sh --all           # EVERYTHING  →  http://localhost:8080
 # Windows PowerShell:  powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -All
 ```
 
+**No Supabase account at all?** One command deploys the entire solution —
+**self-hosted Supabase (Docker) + the app** — with nothing to sign up for and
+nothing to copy by hand. The script downloads and starts the official Supabase
+Docker stack, generates every secret and key (Postgres password, JWT secret,
+the API keys signed from it), applies the schema, creates your admin user, and
+writes all of it into `.env` automatically before bringing up the app:
+
+```bash
+bash scripts/setup-selfhosted.sh --all      # Supabase + EVERYTHING  →  http://localhost:8080
+# ADMIN_EMAIL=you@corp.com bash scripts/setup-selfhosted.sh --all   # non-interactive
+# Windows: run it in WSL or Git Bash, with Docker Desktop running
+```
+
+Budget ~2 GB of image pulls and +2 vCPU / +4 GB RAM for the Supabase stack.
+Details, production hardening and the manual equivalent:
+**[INSTALL.md § self-hosted](./docs/INSTALL.md#option-b--self-hosted-supabase-docker-no-account-needed)**
+and **[DEPLOYMENT.md § Self-hosted Supabase](./docs/DEPLOYMENT.md#self-hosted-supabase-complete-data-residency)**.
+
 Or do it by hand — there is no separate backend to install, since **Supabase
 _is_ the backend** (Postgres + Auth + Storage), run as a free-tier hosted
 project rather than installing anything yourself:
