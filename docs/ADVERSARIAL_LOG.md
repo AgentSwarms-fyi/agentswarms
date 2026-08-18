@@ -76,8 +76,8 @@ Never infer it from what rendered.
 | 24  | Audit Log           | `/audit`                   | ✅ 1 | 2026-08-18 | 2 (2×S1) — exculpatory empty claim; non-uniform silent truncation                 |
 | 25  | Budgets             | `/budgets`                 | ✅ 1 | 2026-08-18 | 3 (1×S2, 2×S1) — skeleton-forever, false empty, caps shown unset                  |
 | 26  | Monitoring          | `/monitoring`              | ✅ 1 | 2026-08-18 | 1 (1×S3) — health claimed over an empty probe set; page otherwise sound           |
-| 27  | Prompt Compare      | `/prompt-compare`          | —    | —          | —                                                                                 |
-| 28  | Evaluations         | `/evaluations`             | —    | —          | —                                                                                 |
+| 27  | Prompt Compare      | `/prompt-compare`          | ✅ 1 | 2026-08-18 | 1 (1×S1) — the model that failed fastest was crowned fastest                      |
+| 28  | Evaluations         | `/evaluations`             | ✅ 1 | 2026-08-18 | 2 (2×S1) — "0% pass" on an unscored run; false empty on a failed read             |
 | 29  | Image Playground    | `/image-playground`        | —    | —          | —                                                                                 |
 | 30  | IAM                 | `/admin/iam`               | —    | —          | —                                                                                 |
 | 31  | Developer runtime   | `/admin/runtime`           | —    | —          | —                                                                                 |
@@ -85,6 +85,159 @@ Never infer it from what rendered.
 ## Findings
 
 <!-- newest first -->
+
+### 2026-08-18 — Module 28, Evaluations (`/evaluations`)
+
+Two findings, both about a verdict. This page's whole output is a judgement on
+whether a swarm's answers were good, so a number that is wrong rather than
+missing is the worst thing it can produce.
+
+#### S1 · "0% pass" on a run that had scored nothing
+
+`pct(n, d) => d > 0 ? round(n/d*100) : 0` — a zero denominator returned **0**,
+so a run with 0 of 12 cases scored rendered "**0% pass**": a failing grade for
+work that had not been marked. Measured live against a fixture run in exactly
+that state (`status: running`, `done_count: 0`, `case_count: 12`).
+
+The contradiction was on screen at the same time. `fmtScore` renders "—" for a
+null `avg_score`, and did so for this very run — so the page showed "Avg score
+—" beside "0% pass", the same absence reported honestly by one card and as a
+failing grade by the other. The half that looked like data was the wrong one.
+
+The distinction the fix has to keep: **zero is a real pass rate.** A run where
+every scored case failed genuinely is 0%, and hiding that behind the same "—"
+the unscored run gets would trade one lie for another. `passRate` returns null
+only when nothing has been scored.
+
+#### S1 · "No datasets yet — create one and add test cases." for an account with one
+
+All three list reads — datasets, runs, swarms — discarded their error and fell
+to `?? []`, then `setLoaded(true)` regardless. With a 403 injected on the
+datasets read (one interception recorded) the page rendered its onboarding
+empty state to an account holding a dataset. The now-familiar shape, on the
+page where the empty state doubles as a setup instruction.
+
+#### Fixed
+
+`lib/evalPassRate` owns the rate: null when nothing is scored, a real 0% when
+everything scored failed, "—" as the display form. The load keeps the first
+error of the three reads and renders it — "Any datasets and runs you have are
+still saved" — above the empty state, so the onboarding copy is unreachable
+while an error is held.
+
+Verified live in all three states with interceptions counted: healthy shows
+the fixture dataset and "— pass" for the unscored run; the failed read shows
+the error and no "No datasets yet"; restored returns to healthy.
+
+#### Mutations: seven run, four killed by tests, three forced tripwires
+
+The survivors were all UI wiring the pin rules could not see — a local
+redefinition of `formatPassRate` keeping every call site intact, the read
+errors swallowed while `setLoadError` still appeared in dead code, and the
+error branch deleted while `loadError` was still mentioned elsewhere. All
+three are pinned by tripwires that state their limits, including the ordering
+assertion the audit log needed for the same reason. Second pass: 7/7.
+
+A pin-rule note worth recording: the first attempt aliased the helper as
+`const fmtPassRate = formatPassRate`, and the claim rule REJECTED it — an
+alias satisfies neither "called" nor "branched on". That is the rule working
+as intended, and the fix was to call the shared function directly at both
+sites rather than to weaken the rule.
+
+**Tests:** 8 in `evalPassRate.test.ts` plus 3 tripwires; failedReadClaims
+gains the evaluations row. **Fixtures:** one `eval_datasets` row and one
+`eval_runs` row created directly (the run had to be in a state the UI cannot
+produce on demand — started, nothing scored), both deleted afterwards and
+both tables re-read at `*/0`.
+
+---
+
+### 2026-08-18 — Suite note: a flake, measured rather than assumed
+
+The module 27 full-suite run came back red with one failure:
+`semanticMeasure.test.ts > refuses a relative-date filter and says why`,
+"Test timed out in 20000ms" on a dynamic `await import()`.
+
+Checked rather than waved through: the file passes 22/22 in isolation in 4.2
+seconds, and `git diff` confirms module 27 touched neither it nor anything it
+imports. A clean re-run of the whole suite came back green. Same shape as the
+`nl2sqlEval` timeout recorded during module 16 — a dynamic import starved
+under full-suite parallel load, not a regression.
+
+Recorded because "the suite went red and I decided it was fine" is exactly the
+reasoning this log exists to make people show their work for.
+
+---
+
+### 2026-08-18 — Module 27, Prompt Compare (`/prompt-compare`)
+
+One finding, and the first in this campaign that is not about a database read
+at all. This page has none — it streams the same prompt to two or three models
+and compares them. The defect is in the comparison itself.
+
+**What this page already does right.** Costs and token counts use real usage
+when the server returns it and fall back to a character estimate only when it
+does not; estimates carry a `~`, unknowns render `—` rather than `0`, and the
+cost winner already skipped nulls. The `~` discipline is exactly the honesty
+this campaign asks for, applied before anyone asked.
+
+#### S1 · The model that failed fastest was crowned the fastest model
+
+`minIdx` ranked panels on raw `durationMs`. A request that ERRORS still
+records a duration — the catch sets `durationMs: Date.now() - startedAt` — so
+a model that fails immediately posts the lowest time and wins.
+
+Measured with three panels, the first two answering and the third failing
+fast:
+
+| panel | model                     | time     | answered?                      | crowned            |
+| ----- | ------------------------- | -------- | ------------------------------ | ------------------ |
+| A     | Gemini 2.5 Flash          | 2.0s     | yes                            |                    |
+| B     | GPT-5 Mini                | 2.7s     | yes                            |                    |
+| C     | Gemini 2.5 Flash **Lite** | **0.1s** | **no — errored, zero content** | **green "winner"** |
+
+The failing model was highlighted green as the best response time, against two
+models that actually answered the question. On a page whose entire purpose is
+to help someone pick a model, "fastest" was being awarded for failing quickest.
+
+Two details made it reachable and easy to miss. The stats block is gated on
+`panelA.content && panelB.content`, so an errored A or B suppresses the table
+entirely — but panel C, the optional third, is in the comparison and NOT in
+the gate. And a fast failure is the common kind: a 500 from the gateway, an
+unavailable model, a bad key. The slow, thoughtful answer loses to it every
+time.
+
+#### Fixed: a competitor is a panel that answered
+
+`lib/compareWinner` encodes two rules. A panel that produced no answer is not
+a competitor — its speed measures how fast it failed, which is not the
+quantity on display. And a winner over a field where the rivals' values are
+unknown is not a winner: with fewer than two comparable panels the helper
+returns -1 and nothing is crowned, because highlighting the only measurable
+value presents it as the best value.
+
+The header now also carries what the ranking left out — "(ranking excludes 1
+did not answer)" — so a comparison covering fewer models than the table shows
+says so.
+
+Verified live by re-running the identical three-panel scenario: the crown
+moved to Flash at 2.0s, a model that answered, and the caveat appeared. The
+streams were fabricated rather than billed — two SSE responses and one 500 —
+so the measurement cost nothing and was exactly repeatable.
+
+#### Mutations: six run, five killed by tests, one forced a tripwire
+
+The survivor was the page's own predicate, `answered = () => true`, which
+restores the finding precisely and which no test of the pure helper can reach.
+It is pinned by a source tripwire that states its limit — `ComparisonStats` is
+a route-local component fed by three live streaming panels, so exercising it
+here would test mocks. Second pass: 6/6.
+
+**Tests:** 10 in `compareWinner.test.ts` plus the tripwire. No
+failedReadClaims row — there is no read here to fail. No fixtures, no API
+spend.
+
+---
 
 ### 2026-08-18 — Module 26, Monitoring (`/monitoring`)
 

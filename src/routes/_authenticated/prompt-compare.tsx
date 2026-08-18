@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useRef, useCallback } from "react";
+import { comparisonCaveat, winnerIndex } from "@/lib/compareWinner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
@@ -549,8 +550,17 @@ function ComparisonStats({ panels }: { panels: PanelState[] }) {
     });
     return best;
   };
-  const timeWinner = minIdx(panels.map((p) => p.durationMs));
-  const costWinner = minIdx(panels.map((p) => p.costUsd));
+  // A panel that produced no answer is not a competitor: its duration says how
+  // fast it FAILED. MEASURED before this — an errored model won Response time
+  // at 0.1s against 2.0s and 2.7s from the two that answered.
+  const answered = (p: PanelState) => !p.error && p.content.trim().length > 0;
+  const timeWinner = winnerIndex(
+    panels.map((p) => ({ answered: answered(p), value: p.durationMs })),
+  );
+  const costWinner = winnerIndex(panels.map((p) => ({ answered: answered(p), value: p.costUsd })));
+  const timeCaveat = comparisonCaveat(
+    panels.map((p) => ({ answered: answered(p), value: p.durationMs })),
+  );
 
   const rows: Array<{
     label: string;
@@ -590,7 +600,12 @@ function ComparisonStats({ panels }: { panels: PanelState[] }) {
 
   return (
     <div>
-      <p className="text-xs font-semibold mb-2">Comparison</p>
+      <p className="text-xs font-semibold mb-2">
+        Comparison
+        {timeCaveat && (
+          <span className="ml-2 font-normal text-[10px] text-warning">({timeCaveat})</span>
+        )}
+      </p>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {rows.map((row) => (
           <div key={row.label} className="rounded-lg border border-border bg-card/60 p-3">

@@ -119,6 +119,14 @@ const CONVERTED: {
     viaServerFn: true,
   },
   {
+    file: "src/routes/_authenticated/evaluations.tsx",
+    module: "28 — Evaluations",
+    what: "'No datasets yet — create one and add test cases.' for an account that had one",
+    // No listClaim: the guard is the loadError branch that outranks the empty
+    // state, plus formatPassRate keeping an unscored run from reading 0%.
+    claim: ["loadError", "formatPassRate"],
+  },
+  {
     file: "src/routes/_authenticated/budgets.tsx",
     module: "25 — Budgets",
     what: "skeleton-forever on a failed budget read; 'No agents yet' for 7; every cap shown unset",

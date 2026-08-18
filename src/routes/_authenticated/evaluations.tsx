@@ -7,6 +7,7 @@
 // server refuses cases for cancelled runs and skips already-scored ones).
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { formatPassRate } from "@/lib/evalPassRate";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
@@ -119,7 +120,14 @@ const JUDGE_MODELS = [
 ];
 const CONCURRENCY = 2;
 
-const pct = (n: number, d: number) => (d > 0 ? Math.round((n / d) * 100) : 0);
+/**
+ * Pass rate, or null when nothing has been scored yet.
+ *
+ * MEASURED: this returned 0 for a zero denominator, so a run with 0 of 12
+ * cases done rendered "0% pass" — a failing grade for work that has not been
+ * marked. `avg_score` next to it already showed "—" for the same run, so the
+ * page contradicted itself on a screen whose entire output is a verdict.
+ */
 const fmtScore = (s: number | null) => (s === null ? "—" : s.toFixed(2));
 const fmtUsd = (n: number) => (n > 0 ? `$${n.toFixed(4)}` : "$0");
 
@@ -143,6 +151,10 @@ function EvaluationsPage() {
   // Distinguishes "this account has no datasets" from "the fetch has not come
   // back". Both render as an empty array.
   const [loaded, setLoaded] = useState(false);
+  // Why the lists could not be read, or null. MEASURED: without this a 403 on
+  // the datasets read rendered "No datasets yet — create one and add test
+  // cases." to an account that had one.
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [sel, setSel] = useState<{ kind: "dataset" | "run"; id: string } | null>(null);
 
   const loadLists = useCallback(async () => {
@@ -158,6 +170,13 @@ function EvaluationsPage() {
         .order("updated_at", { ascending: false })
         .limit(100),
     ]);
+    const firstError = d.error ?? r.error ?? s.error;
+    if (firstError) {
+      setLoadError(firstError.message);
+      setLoaded(true);
+      return;
+    }
+    setLoadError(null);
     setDatasets((d.data as Dataset[]) ?? []);
     setRuns((r.data as unknown as Run[]) ?? []);
     setSwarms((s.data as SwarmLite[]) ?? []);
@@ -253,7 +272,13 @@ function EvaluationsPage() {
               Datasets
             </h2>
             <div className="space-y-1.5">
-              {loaded && datasets.length === 0 && (
+              {loaded && loadError !== null && (
+                <p role="alert" className="px-1 py-6 text-center text-xs text-warning">
+                  Your evaluations could not be loaded — {loadError}. Any datasets and runs you have
+                  are still saved; this page just cannot list them right now.
+                </p>
+              )}
+              {loaded && loadError === null && datasets.length === 0 && (
                 <p className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
                   No datasets yet — create one and add test cases.
                 </p>
@@ -297,7 +322,7 @@ function EvaluationsPage() {
                   </div>
                   <p className="mt-0.5 truncate text-xs text-muted-foreground">
                     {r.dataset_name} · {r.done_count}/{r.case_count} ·{" "}
-                    {pct(r.pass_count, r.done_count)}% pass
+                    {formatPassRate(r.pass_count, r.done_count)} pass
                   </p>
                 </button>
               ))}
@@ -882,7 +907,7 @@ function RunPanel({ run, runs, onChanged }: { run: Run; runs: Run[]; onChanged: 
         <Card className="p-3">
           <p className="text-xs text-muted-foreground">Pass rate</p>
           <p className="mt-1 text-xl font-semibold">
-            {pct(run.pass_count, run.done_count)}%
+            {formatPassRate(run.pass_count, run.done_count)}
             <span className="ml-2 text-xs font-normal text-muted-foreground">
               {run.pass_count} pass · {run.fail_count} fail · {run.error_count} error
             </span>
