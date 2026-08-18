@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { useEffect, useState } from "react";
+import { loadBudgetData } from "@/lib/budgetLoad";
+import { useCallback, useEffect, useState } from "react";
 import { budgetPolicy, type BudgetPolicy } from "@/utils/budgetPolicy.functions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -65,6 +66,10 @@ function BudgetsPage() {
   // which would otherwise render "spent nothing" when the query failed.
   const [mtdSpend, setMtdSpend] = useState<number | null>(0);
   const [loading, setLoading] = useState(true);
+  // Why the page could not load, or null. Every read below feeds a spend
+  // guardrail, so a discarded error reads as "unprotected" rather than
+  // "unknown" — see lib/budgetLoad.
+  const [loadError, setLoadError] = useState<string | null>(null);
   // Whether this deployment actually enforces the cap. Server-side env, so it
   // has to be asked for; null until it answers, so the page never guesses.
   const [policy, setPolicy] = useState<BudgetPolicy | null>(null);
@@ -76,45 +81,36 @@ function BudgetsPage() {
       .catch(() => setPolicy(null));
   }, [fetchPolicy]);
 
-  useEffect(() => {
+  const load = useCallback(async () => {
     if (!user) return;
-    (async () => {
-      // Load or create budget
-      const { data: budgetRow } = await supabase.from("budget_settings").select("*").maybeSingle();
-
-      if (budgetRow) {
-        setBudget(budgetRow as Budget);
-      } else {
-        const { data: created } = await supabase
-          .from("budget_settings")
-          .insert({ user_id: user.id })
-          .select()
-          .single();
-        if (created) setBudget(created as Budget);
-      }
-
-      // Load agents
-      const { data: agentsRows } = await supabase.from("agents").select("id, name, is_active");
-      setAgents((agentsRows ?? []) as Agent[]);
-
-      // Load limits
-      const { data: limitRows } = await supabase.from("agent_limits").select("*");
-      const map: Record<string, AgentLimit> = {};
-      (limitRows ?? []).forEach((l: any) => {
-        map[l.agent_id] = l;
-      });
-      setLimits(map);
-
-      // MTD spend, aggregated in the database. This used to select every trace
-      // row for the month and add cost_usd up here, which silently rendered a
-      // truncated prefix — or a failed query's empty array — as the month's
-      // total. See src/lib/budgetSpendClient.ts.
-      const spend = await mySpendSince(user.id, monthStartIso());
-      setMtdSpend(spend.ok ? spend.spend : null);
-
+    setLoading(true);
+    setLoadError(null);
+    const res = await loadBudgetData({
+      readBudget: async () => await supabase.from("budget_settings").select("*").maybeSingle(),
+      createBudget: async () =>
+        await supabase.from("budget_settings").insert({ user_id: user.id }).select().single(),
+      readAgents: async () => await supabase.from("agents").select("id, name, is_active"),
+      readLimits: async () => await supabase.from("agent_limits").select("*"),
+    });
+    if (!res.ok) {
+      setLoadError(res.error);
       setLoading(false);
-    })();
+      return;
+    }
+    setBudget(res.data.budget as Budget);
+    setAgents(res.data.agents as Agent[]);
+    setLimits(res.data.limits as Record<string, AgentLimit>);
+
+    // MTD spend, aggregated in the database — already a discriminated result
+    // (null = could not compute, distinct from 0). See lib/budgetSpendClient.
+    const spend = await mySpendSince(user.id, monthStartIso());
+    setMtdSpend(spend.ok ? spend.spend : null);
+    setLoading(false);
   }, [user]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   const updateBudget = async (patch: Partial<Budget>) => {
     if (!budget) return;
@@ -140,6 +136,26 @@ function BudgetsPage() {
       if (data) setLimits({ ...limits, [agent_id]: data as AgentLimit });
     }
   };
+
+  if (loadError !== null) {
+    return (
+      <div className="p-6">
+        <div
+          role="alert"
+          className="rounded-lg border border-dashed border-warning/40 p-8 text-center text-sm"
+        >
+          <p className="text-warning">Your budget settings could not be loaded — {loadError}.</p>
+          <p className="mt-1 text-muted-foreground">
+            Your caps and limits are unchanged and still enforced server-side; this page just cannot
+            show them right now.
+          </p>
+          <Button variant="outline" size="sm" className="mt-3" onClick={() => void load()}>
+            Try again
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   if (loading || !budget) {
     return (

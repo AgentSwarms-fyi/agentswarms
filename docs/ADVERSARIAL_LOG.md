@@ -74,7 +74,7 @@ Never infer it from what rendered.
 | 22  | Swarm Traces        | `/analytics/observability` | ✅ 1 | 2026-08-18 | 2 (1×S1, 1×S2) — empty claim, and onboarding shown to an onboarded account        |
 | 23  | Traces & Logs       | `/traces`                  | ✅ 1 | 2026-08-18 | 1 (1×S1) — the capped page presented as the population; error paths already sound |
 | 24  | Audit Log           | `/audit`                   | ✅ 1 | 2026-08-18 | 2 (2×S1) — exculpatory empty claim; non-uniform silent truncation                 |
-| 25  | Budgets             | `/budgets`                 | —    | —          | —                                                                                 |
+| 25  | Budgets             | `/budgets`                 | ✅ 1 | 2026-08-18 | 3 (1×S2, 2×S1) — skeleton-forever, false empty, caps shown unset                  |
 | 26  | Monitoring          | `/monitoring`              | —    | —          | —                                                                                 |
 | 27  | Prompt Compare      | `/prompt-compare`          | —    | —          | —                                                                                 |
 | 28  | Evaluations         | `/evaluations`             | —    | —          | —                                                                                 |
@@ -85,6 +85,73 @@ Never infer it from what rendered.
 ## Findings
 
 <!-- newest first -->
+
+### 2026-08-18 — Module 25, Budgets (`/budgets`)
+
+Three findings, all on a spend-**protection** page — where a discarded read
+error does not read as "unknown" but as "you are not protected", or "you
+cannot see that you are". Credit first: the month-to-date spend figure was
+already exemplary — aggregated in the database through `budget_spend_since`,
+returned as a discriminated result so a failed compute renders "unavailable"
+rather than "$0". The three table reads around it were not.
+
+**Healthy path is exact.** $6.92 of the $20 cap, 34.6% used, 7 agents — the
+spend matches `budget_spend_since` to the cent (6.916376).
+
+#### S2 · A failed budget read hangs the page on skeletons for ever
+
+`budget_settings` was read with the error discarded. On failure `budgetRow` is
+null — and the code takes null for "this user has no budget yet" and tries to
+INSERT one. The `user_id` UNIQUE index rejects the duplicate, that error is
+discarded too, `budget` stays null, and the render gate `loading || !budget`
+keeps the three skeletons up permanently. No error, no retry, no end. The
+unique index is the only reason this does not also write duplicate rows.
+
+#### S1 · "No agents yet. Create one in the Agent Builder first.", for 7 agents
+
+`agents` read failing gave `setAgents([])`, and the empty state does not merely
+claim emptiness — it sends the user away to build agents they already have,
+on the page where they came to cap those agents' spend.
+
+#### S1 · Every per-agent cap rendered as unset
+
+`agent_limits` failing gave an empty map, so every agent rendered with no cap
+configured. On a page whose entire subject is which agents are capped, a read
+failure paints all of them as uncapped — the most consequential of the three,
+because the false state is "unprotected" and someone might act on it by
+setting a cap that already existed, or trusting one that did not load.
+
+#### Fixed by extracting the load, and by not inserting on a failed read
+
+`lib/budgetLoad` assembles all four reads and keeps every error. The one
+subtlety it encodes: a null budget row means "create one" ONLY when the read
+succeeded — the insert path that both hid the failure and collided with the
+unique index is now unreachable from an error. Any read failing returns
+`{ ok: false, error }`; the page holds `loadError`, renders an alert with the
+reason, "your caps and limits are unchanged and still enforced server-side",
+and a Try again, above the skeleton gate so the hang is impossible.
+
+**On verification, stated honestly.** The healthy path is proven live and
+exact. The three failure paths are proven by `budgetLoad`'s unit tests rather
+than by live injection, because this page's load runs in a mount effect keyed
+on `[user]` that fires exactly once — there is no in-page refresh to re-run it
+with a `fetch` patch installed, and a reload wipes the patch (the module 16
+lesson). Rather than race the boot, the load logic was lifted into a pure
+function and tested deterministically: eight cases including the two that
+matter most — the insert fires on a real empty read and NEVER on a failed one,
+and a genuinely empty agent list still loads as empty rather than as an error.
+This is the same choice made for the server-fn tripwires in modules 23–24:
+where the live harness cannot reach, a deterministic test is the stronger
+proof, and which guard does the work is written down.
+
+**Mutations: 7/7 killed** — each of the three swallowed errors, the
+insert-on-failure path, a failed create, and both UI halves (the error branch
+and the error recording).
+
+**Tests:** 8 in `budgetLoad.test.ts`, failedReadClaims gains the budgets row.
+No fixtures — reads only; no budget row was created or altered.
+
+---
 
 ### 2026-08-18 — Module 24, Audit Log (`/audit`)
 

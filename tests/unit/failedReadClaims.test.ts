@@ -119,6 +119,14 @@ const CONVERTED: {
     viaServerFn: true,
   },
   {
+    file: "src/routes/_authenticated/budgets.tsx",
+    module: "25 — Budgets",
+    what: "skeleton-forever on a failed budget read; 'No agents yet' for 7; every cap shown unset",
+    // No count-claim: the guards are loadBudgetData (all reads keep their
+    // error) plus the loadError branch that outranks the skeleton gate.
+    claim: ["loadBudgetData", "loadError"],
+  },
+  {
     file: "src/components/observability/AuditLog.tsx",
     module: "24 — Audit Log",
     what: "'No audit events in the retention window.' for a window holding 1,922 — exculpatory, on the evidence page",
