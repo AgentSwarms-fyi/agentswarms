@@ -119,6 +119,15 @@ const CONVERTED: {
     viaServerFn: true,
   },
   {
+    file: "src/components/observability/AuditLog.tsx",
+    module: "24 — Audit Log",
+    what: "'No audit events in the retention window.' for a window holding 1,922 — exculpatory, on the evidence page",
+    // No count and no list-claim: the guard is the loadError branch that
+    // outranks the empty state, plus the auditWindowHeadline disclosure.
+    claim: ["loadError", "auditWindowHeadline"],
+    viaServerFn: true,
+  },
+  {
     file: "src/components/observability/TeamSpend.tsx",
     module: "21 — Analytics",
     what: "the spend breakdown: 'Loading…' for ever after a failed read",

@@ -73,7 +73,7 @@ Never infer it from what rendered.
 | 21  | Analytics           | `/analytics`               | ✅ 1 | 2026-08-18 | 3 (1×S1, 2×S2) — a silent row cap made every KPI wrong                            |
 | 22  | Swarm Traces        | `/analytics/observability` | ✅ 1 | 2026-08-18 | 2 (1×S1, 1×S2) — empty claim, and onboarding shown to an onboarded account        |
 | 23  | Traces & Logs       | `/traces`                  | ✅ 1 | 2026-08-18 | 1 (1×S1) — the capped page presented as the population; error paths already sound |
-| 24  | Audit Log           | `/audit`                   | —    | —          | —                                                                                 |
+| 24  | Audit Log           | `/audit`                   | ✅ 1 | 2026-08-18 | 2 (2×S1) — exculpatory empty claim; non-uniform silent truncation                 |
 | 25  | Budgets             | `/budgets`                 | —    | —          | —                                                                                 |
 | 26  | Monitoring          | `/monitoring`              | —    | —          | —                                                                                 |
 | 27  | Prompt Compare      | `/prompt-compare`          | —    | —          | —                                                                                 |
@@ -85,6 +85,83 @@ Never infer it from what rendered.
 ## Findings
 
 <!-- newest first -->
+
+### 2026-08-18 — Module 24, Audit Log (`/audit`)
+
+Two findings on the one page whose entire purpose is evidence. Both were
+measured with the injection positively confirmed.
+
+#### S1 · "No audit events in the retention window.", on a window holding 1,922
+
+`load()` caught, toasted, and ran `setRows([])` — the campaign's oldest shape,
+on its worst possible page. With the read failed (one interception recorded)
+the audit log rendered its empty state, and after the toast expired the only
+thing on screen was a bordered box saying **"No audit events in the retention
+window."**
+
+What separates this instance from the fourteen pages before it: an audit
+log's empty claim is _exculpatory_. "No events" is not a UI state here — it is
+a statement about what happened, the kind of statement someone screenshots
+into an incident channel. A page that produces it because a token expired is
+manufacturing evidence of absence.
+
+#### S1 · 400 rows shown for a window holding 1,922 — with per-action gaps
+
+The log merges three sources — `audit_events`, `execution_traces` (as
+`model.call`), `swarm_runs` (as `swarm.run`) — each fetched newest-first with
+a 300-row cap, merged, and sliced to 400. Measured against exact counts:
+
+| source             | in window | fetched |
+| ------------------ | --------- | ------- |
+| `audit_events`     | 361       | 300     |
+| `execution_traces` | 1,537     | 300     |
+| `swarm_runs`       | 24        | 24      |
+
+Nothing on screen disclosed any of it. And the damage is worse than a missing
+count, because the caps are **non-uniform in time**: model.call's 300 of 1,537
+reached back roughly three days while audit_events' 300 of 361 reached
+thirteen. The merged table silently mixed a 3-day view of one action type
+with a 13-day view of another — so "no model calls on the 10th" read off this
+screen was an artifact of the cap, not the history. A merged-then-sliced feed
+also cannot claim "the most recent 400": a capped source's excluded newer
+rows lose their place to another source's included older ones.
+
+#### Fixed: a uniform window or nothing
+
+`lib/auditWindow` owns the rule: a merged feed of capped sources is complete
+only down to the **newest "oldest fetched row" among the sources that hit
+their cap**. The server fn now computes that boundary, trims the merge to it,
+and returns exact head-counts over the same filters, so the visible window is
+gap-free for every action type — the property an audit log exists to have.
+The headline states it plainly:
+
+> showing all 492 events since 8/14/2026, 2:04 PM — the 7-day window holds
+> 838; older activity is beyond the per-source fetch cap
+
+(492 > the old 400: dropping the arbitrary slice while trimming to the honest
+boundary showed MORE gap-free rows, not fewer.) A complete window reads
+"838 events over the last 7 days". The failed read now renders an error panel
+— the reason, "the events themselves are still recorded", and a Try again —
+verified in all three states with interceptions counted, restored clean.
+
+The headline deliberately never says "most recent". `auditWindowHeadline`'s
+tests pin that word as forbidden in the trimmed form.
+
+#### Mutations: seven run, five killed by tests, two forced tripwires
+
+The survivors were both wiring: the server fn skipping its trim (helpers
+imported, never called), and the UI's error branch deleted while `loadError`
+still appeared branched elsewhere (the headline gate satisfied the pin rule).
+Both are now pinned by tripwires that state their own limits — including an
+ORDER assertion that the error branch sits above the empty state in the
+ternary chain, since JSX evaluates top-down and reachability is the whole
+point. Second pass: 7/7.
+
+**Tests:** 11 in `tests/unit/auditWindow.test.ts` (9 behavioral + 2
+tripwires), failedReadClaims gains the AuditLog row. No fixtures — reads
+only, and the retention setting was never touched.
+
+---
 
 ### 2026-08-18 — Module 23, Traces & Logs (`/traces`)
 

@@ -24,6 +24,7 @@ import {
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { auditWindowHeadline } from "@/lib/auditWindow";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -140,6 +141,13 @@ export function AuditLog() {
   const [action, setAction] = useState("all");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
+  // Why the list could not be read, or null. This is the one page where a
+  // false "No audit events" is not merely wrong but exculpatory — MEASURED:
+  // a failed read rendered exactly that sentence, durable after the toast,
+  // over a window holding 1,922 events.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [total, setTotal] = useState(0);
+  const [boundary, setBoundary] = useState<string | null>(null);
 
   const load = useCallback(
     async (actionFilter: string) => {
@@ -157,8 +165,12 @@ export function AuditLog() {
         setIsAdmin(res.is_admin);
         setRetention(res.retention_days);
         setRetentionInput(String(res.retention_days));
+        setTotal(res.total);
+        setBoundary(res.boundary);
+        setLoadError(null);
       } catch (e) {
         toast.error((e as Error).message);
+        setLoadError((e as Error).message);
         setRows([]);
       } finally {
         setLoading(false);
@@ -291,11 +303,30 @@ export function AuditLog() {
         )}
       </div>
 
+      {rows !== null && loadError === null && !q && (
+        <p className="text-xs text-muted-foreground">
+          {auditWindowHeadline({ shown: rows.length, total, boundary, windowDays: retention })}
+        </p>
+      )}
+
       {rows === null ? (
         <div className="space-y-2">
           <Skeleton className="h-9 w-full" />
           <Skeleton className="h-9 w-full" />
           <Skeleton className="h-9 w-full" />
+        </div>
+      ) : loadError !== null ? (
+        <div
+          role="alert"
+          className="rounded-lg border border-dashed border-warning/40 py-10 text-center text-xs"
+        >
+          <p className="text-warning">The audit log could not be loaded — {loadError}.</p>
+          <p className="mt-1 text-muted-foreground">
+            The events themselves are still recorded; this page just cannot read them right now.
+          </p>
+          <Button variant="outline" size="sm" className="mt-3" onClick={() => void load(action)}>
+            Try again
+          </Button>
         </div>
       ) : filtered.length === 0 ? (
         <p className="rounded-lg border border-dashed border-border py-10 text-center text-xs text-muted-foreground">

@@ -59,6 +59,8 @@ export type AuditRow = {
   created_at: string;
 };
 
+import { trimToUniformWindow, uniformBoundary } from "@/lib/auditWindow";
+
 const FETCH_CAP = 300;
 
 export const auditListEvents = createServerFn({ method: "POST" })
@@ -76,7 +78,16 @@ export const auditListEvents = createServerFn({ method: "POST" })
       data,
     }): Promise<
       | { ok: false; error: string }
-      | { ok: true; rows: AuditRow[]; is_admin: boolean; retention_days: number }
+      | {
+          ok: true;
+          rows: AuditRow[];
+          is_admin: boolean;
+          retention_days: number;
+          /** Exact event count in the window for the active filter. */
+          total: number;
+          /** Uniform-completeness boundary (ISO), or null = whole window complete. */
+          boundary: string | null;
+        }
     > => {
       try {
         const { sb } = await requireUser(data.access_token);
@@ -101,36 +112,50 @@ export const auditListEvents = createServerFn({ method: "POST" })
         const wantModels = !data.action || data.action === "model.call";
         const wantSwarms = !data.action || data.action === "swarm.run";
 
-        const [eventsRes, tracesRes, swarmsRes] = await Promise.all([
-          wantEvents
-            ? client
-                .from("audit_events")
-                .select(
-                  "id, user_id, actor_email, action, resource_type, resource_name, detail, created_at",
-                )
-                .gte("created_at", since)
-                .order("created_at", { ascending: false })
-                .limit(FETCH_CAP)
-            : Promise.resolve({ data: [], error: null }),
-          wantModels
-            ? client
-                .from("execution_traces")
-                .select(
-                  "id, user_id, agent_name, llm_provider, llm_model, tokens_in, tokens_out, cost_usd, status, created_at",
-                )
-                .gte("created_at", since)
-                .order("created_at", { ascending: false })
-                .limit(FETCH_CAP)
-            : Promise.resolve({ data: [], error: null }),
-          wantSwarms
-            ? client
-                .from("swarm_runs")
-                .select("id, user_id, swarm_name, status, step_count, total_cost_usd, started_at")
-                .gte("started_at", since)
-                .order("started_at", { ascending: false })
-                .limit(FETCH_CAP)
-            : Promise.resolve({ data: [], error: null }),
-        ]);
+        const head = { count: "exact" as const, head: true };
+        const [eventsRes, tracesRes, swarmsRes, eventsCnt, tracesCnt, swarmsCnt] =
+          await Promise.all([
+            wantEvents
+              ? client
+                  .from("audit_events")
+                  .select(
+                    "id, user_id, actor_email, action, resource_type, resource_name, detail, created_at",
+                  )
+                  .gte("created_at", since)
+                  .order("created_at", { ascending: false })
+                  .limit(FETCH_CAP)
+              : Promise.resolve({ data: [], error: null }),
+            wantModels
+              ? client
+                  .from("execution_traces")
+                  .select(
+                    "id, user_id, agent_name, llm_provider, llm_model, tokens_in, tokens_out, cost_usd, status, created_at",
+                  )
+                  .gte("created_at", since)
+                  .order("created_at", { ascending: false })
+                  .limit(FETCH_CAP)
+              : Promise.resolve({ data: [], error: null }),
+            wantSwarms
+              ? client
+                  .from("swarm_runs")
+                  .select("id, user_id, swarm_name, status, step_count, total_cost_usd, started_at")
+                  .gte("started_at", since)
+                  .order("started_at", { ascending: false })
+                  .limit(FETCH_CAP)
+              : Promise.resolve({ data: [], error: null }),
+            // Exact counts over the SAME filters, so the page can disclose what
+            // the caps hid. MEASURED before this change: 400 merged rows shown
+            // to a window holding 1,922, with nothing on screen saying so.
+            wantEvents
+              ? client.from("audit_events").select("id", head).gte("created_at", since)
+              : Promise.resolve({ count: 0, error: null }),
+            wantModels
+              ? client.from("execution_traces").select("id", head).gte("created_at", since)
+              : Promise.resolve({ count: 0, error: null }),
+            wantSwarms
+              ? client.from("swarm_runs").select("id", head).gte("started_at", since)
+              : Promise.resolve({ count: 0, error: null }),
+          ]);
         if (eventsRes.error) return { ok: false, error: eventsRes.error.message };
         if (tracesRes.error) return { ok: false, error: tracesRes.error.message };
         if (swarmsRes.error) return { ok: false, error: swarmsRes.error.message };
@@ -184,10 +209,37 @@ export const auditListEvents = createServerFn({ method: "POST" })
           })),
         ]
           .filter((r) => (data.action ? r.action === data.action : true))
-          .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
-          .slice(0, 400);
+          .sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
 
-        return { ok: true, rows, is_admin: admin, retention_days: retention };
+        // A merged feed of capped sources is only complete down to the newest
+        // "oldest fetched" among the sources that hit their cap; rows older
+        // than that have gaps per action type and must not be shown as
+        // history. Trim there so the visible window is uniform — an auditor
+        // reading absence off this screen is reading the record, not the cap.
+        const srcWindow = (list: { created_at: string }[] | { started_at: string }[]) => {
+          const arr = list as Array<{ created_at?: string; started_at?: string }>;
+          const last = arr[arr.length - 1];
+          return {
+            oldest: last ? (last.created_at ?? last.started_at ?? null) : null,
+            capped: arr.length === FETCH_CAP,
+          };
+        };
+        const boundary = uniformBoundary([
+          srcWindow(eventsRes.data ?? []),
+          srcWindow(tracesRes.data ?? []),
+          srcWindow(swarmsRes.data ?? []),
+        ]);
+        const trimmed = trimToUniformWindow(rows, boundary);
+        const total = (eventsCnt.count ?? 0) + (tracesCnt.count ?? 0) + (swarmsCnt.count ?? 0);
+
+        return {
+          ok: true,
+          rows: trimmed,
+          is_admin: admin,
+          retention_days: retention,
+          total,
+          boundary,
+        };
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : "Failed" };
       }
