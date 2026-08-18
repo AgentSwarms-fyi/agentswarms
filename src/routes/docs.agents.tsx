@@ -20,7 +20,7 @@ export const Route = createFileRoute("/docs/agents")({
       {
         name: "description",
         content:
-          "Complete field reference for the Agent Builder: General, Model, Tools, Knowledge, Memory and Guardrails — every setting, its default, its range, and a worked example.",
+          "Complete field reference for the Agent Builder: General, Model, Knowledge, Memory, Guardrails and Tools — every setting, its default, its range, and a worked example.",
       },
       { property: "og:title", content: "Agent Builder — AgentSwarms Documentation" },
       {
@@ -148,7 +148,7 @@ If the customer is angry, or asks for a refund above $500, reply only:
           ],
           [
             "Max Tokens",
-            "provider default",
+            "4096",
             "1 – 128,000",
             "Caps the REPLY only, not the prompt. Too low truncates mid-sentence — the usual cause of unparseable JSON.",
           ],
@@ -187,8 +187,140 @@ If the customer is angry, or asks for a refund above $500, reply only:
         Leave 0.7 for agents whose job is to write.
       </Callout>
 
+      {/* ── KNOWLEDGE ── */}
+      <H2 id="knowledge">Tab 3 — Knowledge</H2>
+      <Steps
+        items={[
+          {
+            title: "Link one or more collections",
+            body: (
+              <>
+                Only collections you own or have been granted appear. Create them first in{" "}
+                <DocLink to="/docs/knowledge">Knowledge Base</DocLink>. Linking one auto-enables{" "}
+                <C>kb_search</C>.
+              </>
+            ),
+          },
+          {
+            title: "Optionally configure a re-ranker",
+            body: (
+              <>
+                <strong>Provider</strong> and <strong>Re-rank model</strong> (for example{" "}
+                <C>llama-nemotron-rerank-vl-1b-v2</C>). It re-scores first-pass candidates with a
+                stronger model — one extra call per retrieval, worth it on collections full of
+                near-identical passages such as long contracts or several revisions of one policy.
+              </>
+            ),
+          },
+          {
+            title: "Tell the prompt to use it",
+            body: "Linking makes retrieval available; it does not make the agent prefer it. The system prompt must say to answer from sources and decline otherwise.",
+          },
+        ]}
+      />
+
+      {/* ── MEMORY ── */}
+      <H2 id="memory">Tab 4 — Memory</H2>
+      <H3 id="stm">Short-term memory — on by default</H3>
+      <Table
+        headers={["Field", "Default", "Range", "Effect"]}
+        rows={[
+          [
+            "Enable short-term memory",
+            "On",
+            "on / off",
+            "Off means every turn starts cold, with no conversation history.",
+          ],
+          [
+            "Sliding window",
+            "20 messages",
+            "4 – 60, step 2",
+            "How many recent messages are resent each turn. Larger costs more input tokens every turn; smaller makes the agent forget mid-conversation.",
+          ],
+          [
+            "Auto-summarize older turns",
+            "On",
+            "on / off",
+            "Turns falling out of the window are folded into a rolling summary rather than dropped. Leave on — it is what keeps a long chat coherent without resending everything.",
+          ],
+          [
+            "Chat history retention",
+            "7 days",
+            "7 – 3650 days",
+            "How long conversations and their generated documents are kept. 7 is the floor and can only be increased. The scheduled purge deletes old messages AND the files stored with them.",
+          ],
+        ]}
+      />
+      <H3 id="ltm">Long-term memory — off by default</H3>
+      <Table
+        headers={["Field", "Default", "Range", "Effect"]}
+        rows={[
+          [
+            "Enable long-term memory",
+            "Off",
+            "on / off",
+            "Durable facts that persist across separate conversations.",
+          ],
+          [
+            "Auto-extract after each turn",
+            "On",
+            "on / off",
+            "The agent decides what was worth remembering. Off means nothing is stored unless written explicitly.",
+          ],
+          [
+            "Recall top-K",
+            "5",
+            "1 – 12",
+            "How many stored items are pulled into the prompt, by relevance to the current message.",
+          ],
+          [
+            "Max stored items",
+            "200",
+            "20 – 2000",
+            "Ceiling on the store; least-useful items are evicted past this.",
+          ],
+        ]}
+      />
+      <Callout kind="warn" title="Long-term memory remembers mistakes too">
+        If a user tells the agent something false, auto-extract may store it and recall it for
+        months. Stored items are listed on this tab and can be deleted individually. For a
+        public-facing agent, consider leaving long-term memory off entirely.
+      </Callout>
+
+      {/* ── GUARDRAILS ── */}
+      <H2 id="guardrails">Tab 5 — Guardrails</H2>
+      <P>
+        Full detail in <DocLink to="/docs/guardrails">Guardrails &amp; PII</DocLink>. The fields on
+        this tab, with their real defaults:
+      </P>
+      <Table
+        headers={["Field", "Default", "Range / values"]}
+        rows={[
+          ["Safety Level", "off", "off / low / medium / high"],
+          ["Personal data (PII)", "off", "off / redact / block"],
+          ["Applies to", "both", "input / output / both"],
+          ["Block Profanity", "off", "on / off"],
+          ["Enable Input Filtering", "off", "on / off"],
+          ["Max Input Length", "4000", "100 – 100,000 characters"],
+          ["Blocked Input Patterns", "empty", "one regex per line"],
+          ["Enable Output Filtering", "off", "on / off"],
+          ["Hallucination Detection", "off", "on / off"],
+          ["Citation Check", "off", "on / off"],
+          ["Custom Output Filter Prompt", "empty", "free text"],
+          ["Max Turns / Conversation", "50", "1 – 500"],
+          ["Rate Limit", "20 / min", "1 – 1000"],
+          ["Require Approval Above", "0 (disabled)", "tokens"],
+          ["Allowed Topics", "empty", "one per line"],
+          ["Restricted Topics", "empty", "one per line"],
+        ]}
+      />
+      <Callout kind="info">
+        Every guardrail ships <strong>off</strong>. A new agent has no filtering at all until you
+        turn something on — fine for a private experiment, not fine for anything you embed publicly.
+      </Callout>
+
       {/* ── TOOLS ── */}
-      <H2 id="tools">Tab 3 — Tools</H2>
+      <H2 id="tools">Tab 6 — Tools</H2>
       <P>Each tool is a toggle. The "Needs" column says what to configure once it is on.</P>
       <Table
         headers={["Tool", "Needs", "What the agent can do"]}
@@ -301,138 +433,6 @@ If the customer is angry, or asks for a refund above $500, reply only:
         that cannot answer the question instead of searching the web. If an agent seems to need
         eight tools, it probably wants to be a <DocLink to="/docs/swarms">swarm</DocLink> of three
         narrow ones.
-      </Callout>
-
-      {/* ── KNOWLEDGE ── */}
-      <H2 id="knowledge">Tab 4 — Knowledge</H2>
-      <Steps
-        items={[
-          {
-            title: "Link one or more collections",
-            body: (
-              <>
-                Only collections you own or have been granted appear. Create them first in{" "}
-                <DocLink to="/docs/knowledge">Knowledge Base</DocLink>. Linking one auto-enables{" "}
-                <C>kb_search</C>.
-              </>
-            ),
-          },
-          {
-            title: "Optionally configure a re-ranker",
-            body: (
-              <>
-                <strong>Provider</strong> and <strong>Re-rank model</strong> (for example{" "}
-                <C>llama-nemotron-rerank-vl-1b-v2</C>). It re-scores first-pass candidates with a
-                stronger model — one extra call per retrieval, worth it on collections full of
-                near-identical passages such as long contracts or several revisions of one policy.
-              </>
-            ),
-          },
-          {
-            title: "Tell the prompt to use it",
-            body: "Linking makes retrieval available; it does not make the agent prefer it. The system prompt must say to answer from sources and decline otherwise.",
-          },
-        ]}
-      />
-
-      {/* ── MEMORY ── */}
-      <H2 id="memory">Tab 5 — Memory</H2>
-      <H3 id="stm">Short-term memory — on by default</H3>
-      <Table
-        headers={["Field", "Default", "Range", "Effect"]}
-        rows={[
-          [
-            "Enable short-term memory",
-            "On",
-            "on / off",
-            "Off means every turn starts cold, with no conversation history.",
-          ],
-          [
-            "Sliding window",
-            "20 messages",
-            "4 – 60, step 2",
-            "How many recent messages are resent each turn. Larger costs more input tokens every turn; smaller makes the agent forget mid-conversation.",
-          ],
-          [
-            "Auto-summarize older turns",
-            "On",
-            "on / off",
-            "Turns falling out of the window are folded into a rolling summary rather than dropped. Leave on — it is what keeps a long chat coherent without resending everything.",
-          ],
-          [
-            "Chat history retention",
-            "7 days",
-            "7 – 3650 days",
-            "How long conversations and their generated documents are kept. 7 is the floor and can only be increased. The scheduled purge deletes old messages AND the files stored with them.",
-          ],
-        ]}
-      />
-      <H3 id="ltm">Long-term memory — off by default</H3>
-      <Table
-        headers={["Field", "Default", "Range", "Effect"]}
-        rows={[
-          [
-            "Enable long-term memory",
-            "Off",
-            "on / off",
-            "Durable facts that persist across separate conversations.",
-          ],
-          [
-            "Auto-extract after each turn",
-            "On",
-            "on / off",
-            "The agent decides what was worth remembering. Off means nothing is stored unless written explicitly.",
-          ],
-          [
-            "Recall top-K",
-            "5",
-            "1 – 12",
-            "How many stored items are pulled into the prompt, by relevance to the current message.",
-          ],
-          [
-            "Max stored items",
-            "200",
-            "20 – 2000",
-            "Ceiling on the store; least-useful items are evicted past this.",
-          ],
-        ]}
-      />
-      <Callout kind="warn" title="Long-term memory remembers mistakes too">
-        If a user tells the agent something false, auto-extract may store it and recall it for
-        months. Stored items are listed on this tab and can be deleted individually. For a
-        public-facing agent, consider leaving long-term memory off entirely.
-      </Callout>
-
-      {/* ── GUARDRAILS ── */}
-      <H2 id="guardrails">Tab 6 — Guardrails</H2>
-      <P>
-        Full detail in <DocLink to="/docs/guardrails">Guardrails &amp; PII</DocLink>. The fields on
-        this tab, with their real defaults:
-      </P>
-      <Table
-        headers={["Field", "Default", "Range / values"]}
-        rows={[
-          ["Safety Level", "off", "off / low / medium / high"],
-          ["Personal data (PII)", "off", "off / redact / block"],
-          ["Applies to", "both", "input / output / both"],
-          ["Block Profanity", "off", "on / off"],
-          ["Enable Input Filtering", "off", "on / off"],
-          ["Max Input Length", "4000", "100 – 100,000 characters"],
-          ["Blocked Input Patterns", "empty", "one regex per line"],
-          ["Enable Output Filtering", "off", "on / off"],
-          ["Hallucination Detection", "off", "on / off"],
-          ["Citation Check", "off", "on / off"],
-          ["Custom Output Filter Prompt", "empty", "free text"],
-          ["Max Turns / Conversation", "50", "1 – 500"],
-          ["Rate Limit", "20 / min", "1 – 1000"],
-          ["Require Approval Above", "0 (disabled)", "tokens"],
-          ["Allowed Topics", "empty", "one per line"],
-          ["Restricted Topics", "empty", "one per line"],
-        ]}
-      />
-      <Callout kind="info">
-        Every guardrail ships <strong>off</strong>. A new agent has no filtering at all until you
-        turn something on — fine for a private experiment, not fine for anything you embed publicly.
       </Callout>
 
       {/* ── WORKED EXAMPLE ── */}
