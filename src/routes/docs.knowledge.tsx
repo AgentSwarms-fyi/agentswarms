@@ -334,6 +334,14 @@ question ──▶ embed ──▶ nearest chunks ──▶ pasted into the prom
         <em>both</em>
         retrievers scores above one found by only one, which is usually the result you want.
       </P>
+      <Callout kind="why" title="Each list's best hit always scores 1.0">
+        Normalising by the list maximum is what makes the slider meaningful, but it has a
+        consequence worth knowing: the top result of each retriever is scored 1.0 whether it is
+        excellent or merely the least bad thing that matched. So on a query with no good keyword
+        match, a weak keyword hit still leads the keyword list and can be pulled into the merge.
+        What bounds it is that full-text search drops non-matches entirely — it returns nothing
+        rather than something poor, so most queries never build a weak list in the first place.
+      </Callout>
       <P>
         Changing retrieval mode takes effect immediately and needs no re-embedding: it changes how
         the existing index is queried, not how it was built. Note that keyword search also indexes
@@ -352,10 +360,16 @@ question ──▶ embed ──▶ nearest chunks ──▶ pasted into the prom
             "How many chunks are retrieved and pasted into the prompt. Asking for more than 8 is clamped.",
           ],
           [
-            "Candidate pool with a reranker",
-            "3 × top-K, max 20",
+            "Candidate pool (over-fetch)",
+            "3 × top-K, capped at 30",
             "—",
-            "With a reranker configured, a wider first pass is fetched and then re-scored down to top-K. This is where the accuracy gain comes from.",
+            "A wider first pass, fetched whenever the list is about to be re-ordered — either by a reranker or by hybrid fusion. Re-ordering can only promote what it was given, so fetching exactly top-K would leave the keyword side nothing to rescue.",
+          ],
+          [
+            "Merged results kept",
+            "3 × top-K, capped at 20",
+            "—",
+            "After the vector and keyword lists are fused and deduplicated by document. The final answer still sees top-K.",
           ],
           [
             "Snippet radius",
