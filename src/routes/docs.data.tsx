@@ -71,7 +71,7 @@ function DataPage() {
       />
 
       <P>
-        Open <strong>Data → Data Catalog</strong>.
+        Open <strong>Data &amp; BI → Data Catalog</strong>.
       </P>
 
       {/* ── LOCAL ── */}

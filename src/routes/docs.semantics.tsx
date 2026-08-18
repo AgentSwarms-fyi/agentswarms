@@ -46,9 +46,9 @@ function SemanticsPage() {
       />
 
       <P>
-        Open <strong>Data → Semantic Layer</strong>. You define <strong>metrics</strong> (numbers)
-        and <strong>dimensions</strong> (ways to slice them) over your tables; the platform compiles
-        a request for them into SQL and runs it.
+        Open <strong>Data &amp; BI → Semantic Layer</strong>. You define <strong>metrics</strong>{" "}
+        (numbers) and <strong>dimensions</strong> (ways to slice them) over your tables; the
+        platform compiles a request for them into SQL and runs it.
       </P>
 
       <Callout kind="why">

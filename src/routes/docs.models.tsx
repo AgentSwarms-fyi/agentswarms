@@ -208,7 +208,7 @@ vllm      http://vllm.internal:8000/v1`}</Code>
 
       <H2 id="registry">Model registry</H2>
       <P>
-        <strong>Configure → Model Registry</strong> curates which models appear in pickers across
+        <strong>Integrations → Model Registry</strong> curates which models appear in pickers across
         the app. Left alone, every model your connected providers expose is offered — which is
         rarely what you want on a shared instance, where a handful of sensible defaults beats a list
         of two hundred.

@@ -48,8 +48,8 @@ function BiPage() {
       />
 
       <P>
-        Open <strong>Data → BI Workspace</strong>. Dashboards live in workspaces and folders; each
-        is a grid of resizable widgets you drag into place.
+        Open <strong>Data &amp; BI → BI Workspace</strong>. Dashboards live in workspaces and
+        folders; each is a grid of resizable widgets you drag into place.
       </P>
 
       <H2 id="ai-analyst">AI Analyst — conversational analysis</H2>

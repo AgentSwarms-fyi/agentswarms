@@ -157,8 +157,8 @@ and when should I use it instead of fine-tuning?`}</Code>
       <P>Upload one small file to each. A ten-row CSV and a two-page PDF are enough to learn on.</P>
       <P>
         If you have nothing to hand, save this as <C>refunds.csv</C> and upload it under{" "}
-        <strong>Data → Data Catalog</strong>. It is deliberately small enough to check the agent's
-        arithmetic by eye:
+        <strong>Data &amp; BI → Data Catalog</strong>. It is deliberately small enough to check the
+        agent's arithmetic by eye:
       </P>
       <Code lang="csv">{`order_id,customer,region,refund_usd,refunded_on
 1001,Acme,EMEA,120.00,2026-03-02

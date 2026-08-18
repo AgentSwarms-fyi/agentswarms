@@ -48,8 +48,8 @@ function McpPage() {
       />
 
       <P>
-        Open <strong>Configure → MCP Servers</strong>. Once a server is connected and allow-listed
-        on an agent, the agent can discover its tools and call them.
+        Open <strong>Integrations → MCP Servers</strong>. Once a server is connected and
+        allow-listed on an agent, the agent can discover its tools and call them.
       </P>
 
       <Callout kind="why">

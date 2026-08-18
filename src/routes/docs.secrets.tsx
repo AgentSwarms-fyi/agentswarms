@@ -45,7 +45,7 @@ function SecretsPage() {
       />
 
       <P>
-        Open <strong>Configure → Secrets</strong>. Anywhere a credential is needed — a warehouse
+        Open <strong>Integrations → Secrets</strong>. Anywhere a credential is needed — a warehouse
         connection, a provider key, an MCP token — you can reference a secret instead of typing the
         value in.
       </P>
@@ -214,7 +214,7 @@ function SecretsPage() {
             body: "Issue the new password in Snowflake, Postgres or wherever the account lives. The vault stores what you tell it; it cannot change the credential upstream.",
           },
           {
-            title: "Configure → Secrets → edit the value",
+            title: "Integrations → Secrets → edit the value",
             body: (
               <>
                 Same secret, new value. Do <strong>not</strong> create{" "}

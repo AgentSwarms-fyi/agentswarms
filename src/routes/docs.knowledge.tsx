@@ -48,7 +48,7 @@ function KnowledgePage() {
       />
 
       <P>
-        Open <strong>Data → Knowledge Base</strong>. A <strong>collection</strong> is a named group
+        Open <strong>Build → Knowledge Base</strong>. A <strong>collection</strong> is a named group
         of documents; agents attach to collections, not to individual files.
       </P>
 
