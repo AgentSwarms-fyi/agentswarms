@@ -49,7 +49,7 @@ function IamPage() {
         the UI all hit the same rules, so there is no path that quietly bypasses them.
       </P>
 
-      <H2 id="tabs">The six tabs</H2>
+      <H2 id="tabs">The seven tabs</H2>
       <Table
         headers={["Tab", "What you do there"]}
         rows={[
@@ -60,6 +60,10 @@ function IamPage() {
           ["Groups", "Create, rename, delete groups and manage members"],
           ["Access", "Model rules and resource grants"],
           [
+            "Attributes",
+            "Key/value pairs pinned to a user, referenced from row filters as {{user.<key>}}",
+          ],
+          [
             "Budgets",
             <>
               Per-group spend caps — see{" "}
@@ -68,11 +72,11 @@ function IamPage() {
               </DocLink>
             </>,
           ],
+          ["SSO", "SAML identity provider configuration"],
           [
             "Settings",
             "Public-signup toggle, the default model-access policy (allow vs deny), trace retention, and the current superadmin list",
           ],
-          ["SSO", "SAML identity provider configuration"],
         ]}
       />
 
@@ -231,6 +235,43 @@ function IamPage() {
         Both are applied on the server, before the data leaves it — on stored dashboard snapshots,
         on live warehouse queries, and on the rows an agent's SQL tool reads. There is no path that
         applies one and not the others.
+      </P>
+
+      <H3 id="attributes">One grant, per-viewer rows: user attributes</H3>
+      <P>
+        A row filter's values do not have to be literals. Writing <C>{"{{user.<key>}}"}</C> in place
+        of a value resolves it, at query time, to the calling user's own values for that attribute —
+        so a <em>single</em> grant on a group scopes every member to their own slice, instead of one
+        grant per person.
+      </P>
+      <P>
+        Attributes are key/value pairs pinned to a user on the <strong>Attributes</strong> tab. They
+        are admin-written only: nobody can set their own, which is what makes them safe to filter
+        on. An attribute holds a <em>list</em>, so a manager covering two regions simply has both
+        values.
+      </P>
+      <Table
+        headers={["Grant on the group", "Alice (region = EMEA)", "Raj (region = APAC, LATAM)"]}
+        rows={[
+          [<C key="f">{"region ∈ [{{user.region}}]"}</C>, "EMEA rows only", "APAC and LATAM rows"],
+        ]}
+      />
+      <Callout kind="why" title="A missing attribute refuses the query">
+        If a grant references <C>{"{{user.region}}"}</C> and the user has no <C>region</C>, the
+        query is <strong>refused, naming the attribute</strong> — it does not quietly return zero
+        rows. Both of the obvious alternatives are worse: empty results read as "there is no data
+        for you", and an unresolved token passed through as a literal matches nothing while looking
+        like a real value. A refusal that names the missing key is the only outcome that tells the
+        admin what to fix.
+      </Callout>
+      <P>
+        Resolution happens per grant, before grants are merged, so two grants resolving to different
+        values union exactly as two literal grants would. Setting the attribute is what makes an
+        attribute-scoped share usable — see{" "}
+        <DocLink to="/docs/semantics" hash="access">
+          the semantic layer
+        </DocLink>{" "}
+        for how the same tokens apply to governed models.
       </P>
 
       <Callout kind="info" title="Grants add up — they never subtract">
