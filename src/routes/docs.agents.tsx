@@ -219,6 +219,27 @@ If the customer is angry, or asks for a refund above $500, reply only:
         ]}
       />
 
+      <Callout kind="why" title="There is no embedding model on this tab, and there should not be">
+        A reasonable question when configuring retrieval: which model embeds the user's question?
+        The answer is that it is not an agent setting at all — it belongs to the{" "}
+        <strong>collection</strong>, under{" "}
+        <strong>Knowledge Base → RAG Settings → Embedding</strong>. A query must be embedded into
+        the same vector space as the chunks it is being compared against, so every document records
+        the provider and model used at ingest, and the question is embedded with whatever{" "}
+        <em>that</em> document used. If the agent owned the setting, attaching one agent to two
+        collections embedded by different models would make at least one of them silently wrong —
+        the search would not error, it would just return confident nonsense. See{" "}
+        <DocLink to="/docs/knowledge" hash="pipeline">
+          how ingest works
+        </DocLink>
+        .
+      </Callout>
+      <Callout kind="info" title="The re-ranker is a different thing">
+        The <strong>Provider</strong> and <strong>Re-rank model</strong> fields on this tab do not
+        embed anything. They re-score chunks that retrieval has already found, after the vector
+        search has run.
+      </Callout>
+
       {/* ── MEMORY ── */}
       <H2 id="memory">Tab 4 — Memory</H2>
       <H3 id="stm">Short-term memory — on by default</H3>

@@ -187,16 +187,30 @@ export function DocsSidebar({ current }: { current: string }) {
 }
 
 /**
- * "On this page" rail. Scans the rendered article for h2[id] headings after
+ * "On this page" rail. Scans the rendered article for h2[id] and h3[id] after
  * mount and tracks the one currently in view — no per-page wiring needed.
+ *
+ * H3s are included because leaving them out hid 143 subsections across these
+ * pages — 42% of every heading written, each already carrying an id and so
+ * already linkable, just unreachable from the rail. On the long pages that is
+ * the difference between a rail that navigates the page and one that lists its
+ * chapter titles: /docs/swarms has 11 H2s and 19 H3s.
  */
 export function DocsToc({ pathname }: { pathname: string }) {
-  const [headings, setHeadings] = useState<{ id: string; text: string }[]>([]);
+  const [headings, setHeadings] = useState<{ id: string; text: string; level: number }[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
 
   useEffect(() => {
-    const els = Array.from(document.querySelectorAll<HTMLHeadingElement>("article h2[id]"));
-    setHeadings(els.map((el) => ({ id: el.id, text: el.textContent ?? "" })));
+    const els = Array.from(
+      document.querySelectorAll<HTMLHeadingElement>("article h2[id], article h3[id]"),
+    );
+    setHeadings(
+      els.map((el) => ({
+        id: el.id,
+        text: el.textContent ?? "",
+        level: el.tagName === "H3" ? 3 : 2,
+      })),
+    );
     if (els.length === 0) {
       setActiveId(null);
       return;
@@ -235,7 +249,8 @@ export function DocsToc({ pathname }: { pathname: string }) {
             <a
               href={`#${h.id}`}
               className={cn(
-                "-ml-px block border-l py-0.5 pl-3 text-[13px] leading-snug transition",
+                "-ml-px block border-l py-0.5 leading-snug transition",
+                h.level === 3 ? "pl-6 text-[12px]" : "pl-3 text-[13px]",
                 activeId === h.id
                   ? "border-primary font-medium text-foreground"
                   : "border-transparent text-muted-foreground hover:text-foreground",
