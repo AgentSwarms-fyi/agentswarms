@@ -1,7 +1,13 @@
 import yaml from "js-yaml";
 import { parseGuardrails } from "@/utils/guardrails";
 import type { Agent } from "@/components/agents/AgentForm";
-import { cleanModelId, MODEL_ID_WARNING, safeIdentifier, safeTitle } from "./swarmExportTools";
+import {
+  cleanModelId,
+  MODEL_ID_WARNING,
+  safeIdentifier,
+  safeNumber,
+  safeTitle,
+} from "./swarmExportTools";
 
 export type ExportFormat =
   | "json"
@@ -14,14 +20,6 @@ export type ExportFormat =
   | "langgraph-ts"
   | "strands-py"
   | "strands-ts";
-
-/** A finite number in range, for values interpolated BARE into generated code. */
-function safeNumber(v: unknown, fallback: number, min: number, max: number): number {
-  if (v === null || v === undefined || v === "") return fallback;
-  const n = typeof v === "number" ? v : Number(v);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.min(max, Math.max(min, n));
-}
 
 export function buildAgentManifest(agent: Agent) {
   const tools = (agent.tools || {}) as any;

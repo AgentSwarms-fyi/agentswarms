@@ -78,6 +78,35 @@ export interface PortableSwarm {
   edges: PortableSwarmEdge[];
 }
 
+/**
+ * Tool config with per-node provider credentials removed.
+ *
+ * web_search / web_browse may carry a BYO provider key (Brave, SerpAPI,
+ * Tavily, ScrapingBee): importableToolConfigs copies it onto the node when an
+ * agent is dropped on the canvas. An exported .swarm.json is a file people mail
+ * around, commit and attach to issues, so shipping the key inside it publishes
+ * the key. The provider NAME stays — that is what tells a recipient which key
+ * to supply, and it is not a secret.
+ *
+ * This is the same call already made for a2aAuthHeader below; the exclusion
+ * list simply never covered toolConfigs. A re-import therefore comes back
+ * without the key, which is the intended direction: a secret should not
+ * round-trip through a file that gets shared.
+ */
+function redactToolConfigs(cfgs: SwarmNodeData["toolConfigs"]): SwarmNodeData["toolConfigs"] {
+  if (!cfgs || typeof cfgs !== "object") return cfgs;
+  const out = { ...cfgs };
+  for (const key of ["web_search", "web_browse"] as const) {
+    const cfg = out[key];
+    if (cfg && typeof cfg === "object" && cfg.api_key !== undefined) {
+      const copy = { ...cfg };
+      delete copy.api_key;
+      out[key] = copy;
+    }
+  }
+  return out;
+}
+
 function toPortableNode(n: Node<SwarmNodeData>): PortableSwarmNode {
   const d = n.data;
   return {
@@ -97,7 +126,7 @@ function toPortableNode(n: Node<SwarmNodeData>): PortableSwarmNode {
     outputVar: d.outputVar,
     knowledgeBaseId: d.knowledgeBaseId ?? null,
     enabledTools: d.enabledTools,
-    toolConfigs: d.toolConfigs,
+    toolConfigs: redactToolConfigs(d.toolConfigs),
     skillIds: d.skillIds,
     guardrails: d.guardrails,
     memory: d.memory,

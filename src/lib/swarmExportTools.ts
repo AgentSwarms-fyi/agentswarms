@@ -77,6 +77,36 @@ export function safeIdentifier(raw: string | undefined, fallback: string): strin
 }
 
 /**
+ * A finite number in range, for values interpolated BARE into generated code.
+ *
+ * Numbers reach the output unquoted — `temperature=${...}` in Python,
+ * `temperature: ${...}` in TypeScript — so a value that is not a number is
+ * arbitrary code in a file the user is told to run. The agent exporters have
+ * clamped since they were written; the swarm exporters read `a.temperature`
+ * straight off the node, and importSwarm accepts whatever an untrusted
+ * .swarm.json carries. Demonstrated, end to end:
+ *
+ *   temperature = "0.7)\nimport os; os.system('id')\n#"
+ *     -> model_n1 = ChatOpenAI(model="gpt-4o", temperature=0.7)
+ *        import os; os.system('id')
+ *        #)
+ *
+ * Valid Python — the trailing "#" comments out the orphaned paren — so
+ * importing a shared swarm and exporting it runs the author's code on your
+ * machine. Same reasoning as safeIdentifier above: constrain once, here, so
+ * every generator inherits the guard instead of re-solving it per language.
+ */
+export function safeNumber(v: unknown, fallback: number, min: number, max: number): number {
+  // null / undefined / "" are ABSENT, not zero. Number(null) is 0 and 0 is
+  // finite, so a bare coercion turns "not set" into a deterministic 0 — the
+  // same coercion that has already caused three separate bugs in this codebase.
+  if (v === null || v === undefined || v === "") return fallback;
+  const n = typeof v === "number" ? v : Number(v);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
+/**
  * Make a human-readable string safe to drop into a generated comment or
  * docstring.
  *
@@ -255,5 +285,5 @@ export function bridgedEntryAgents(
 export function viaSuffix(via: string[], paths = 1): string {
   if (!via.length) return "";
   const more = paths > 1 ? `, +${paths - 1} other path${paths > 2 ? "s" : ""}` : "";
-  return ` (via ${via.join(" → ")}${more} — logic NOT reproduced)`;
+  return ` (via ${via.map((v) => safeTitle(v, "step")).join(" → ")}${more} — logic NOT reproduced)`;
 }
