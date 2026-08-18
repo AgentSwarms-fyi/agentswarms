@@ -24,9 +24,11 @@ function EmbedsPage() {
           <Code2 className="h-7 w-7 text-primary" /> Web Embedding
         </h1>
         <p className="mt-1 max-w-2xl text-muted-foreground">
-          Put your chat agents, multi-agent swarms and BI dashboards on any website with an iframe.
-          Each embed is authorized by a generated key scoped to one resource and a domain allow-list
-          you control — disable the key and every iframe stops instantly.
+          Put your chat agents, multi-agent swarms and BI dashboards on any website — drop in an
+          iframe, or use the React SDK (<code className="text-xs">@agentswarms/react</code>) for
+          full control over the UI. Each embed is authorized by a generated key scoped to one
+          resource and a domain allow-list you control — disable the key and every integration stops
+          instantly.
         </p>
       </div>
       <EmbedSection />

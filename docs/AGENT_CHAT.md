@@ -195,3 +195,15 @@ Agents can be embedded on your own site (see **Integrations → Web Embedding**,
 anonymous embed visitors have **no data access**, the widget is generated
 server-side with the agent **owner's** data (scoped to the owner as a tenant
 guard) and streamed into the embedded answer.
+
+Two ways to integrate, same key, same server-side enforcement:
+
+- **iframe** — copy the snippet from `/embeds`; zero code, fixed frame.
+- **React SDK** (`@agentswarms/react`, in [`sdk/react`](../sdk/react/README.md)) —
+  headless hooks (`useAgentChat`, `useAgentAnalyst`) and a themeable drop-in
+  `<AgentChat />` component that speak the same `/api/embed/*` streaming API
+  directly, for apps that want their own UI, their own markdown/chart
+  rendering, or programmatic control (send from anywhere, intercept every
+  stream event, wire citations and Visual-BI widgets into custom surfaces).
+  The domain allow-list, expiry, budget cap, guardrails and rate limits apply
+  identically — disabling the key stops SDK apps as instantly as iframes.

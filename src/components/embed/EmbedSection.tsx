@@ -40,6 +40,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SignedViewerDialog } from "@/components/embed/SignedViewerDialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
@@ -129,6 +130,48 @@ function snippetFor(key: EmbedKey): string {
   return `<iframe\n  src="${src}"\n  width="100%"\n  height="${meta.height}"\n  style="border:0;border-radius:12px;overflow:hidden"\n  allow="clipboard-write"\n></iframe>`;
 }
 
+/**
+ * React SDK snippet for the key, or null for resource types the SDK doesn't
+ * cover (dashboards are a full rendered surface — iframe only). The SDK talks
+ * to the same /api/embed* endpoints, so the key's controls apply unchanged.
+ */
+function reactSnippetFor(key: EmbedKey): string | null {
+  const origin = window.location.origin;
+  if (key.resource_type === "agent" || key.resource_type === "swarm") {
+    return `// npm install <agentswarms repo>/sdk/react
+// (package: @agentswarms/react)
+import { AgentChat } from "@agentswarms/react";
+
+<AgentChat
+  baseUrl="${origin}"
+  embedKey="${key.key}"
+/>
+
+// or fully custom UI with the headless hook:
+import { useAgentChat } from "@agentswarms/react";
+
+const { messages, send, isStreaming } =
+  useAgentChat({
+    baseUrl: "${origin}",
+    embedKey: "${key.key}",
+  });`;
+  }
+  if (key.resource_type === "ai_analyst") {
+    return `// npm install <agentswarms repo>/sdk/react
+// (package: @agentswarms/react)
+import { useAgentAnalyst } from "@agentswarms/react";
+
+const { turns, activeTurn, ask, isRunning } =
+  useAgentAnalyst({
+    baseUrl: "${origin}",
+    embedKey: "${key.key}",
+  });
+
+// ask("What drove revenue last quarter?")`;
+  }
+  return null;
+}
+
 export function EmbedSection() {
   const { user } = useAuth();
   const [keys, setKeys] = useState<EmbedKey[]>([]);
@@ -197,11 +240,6 @@ export function EmbedSection() {
     if (error) return toast.error(error.message);
     setKeys((prev) => prev.filter((x) => x.id !== k.id));
     toast.success("Embed deleted");
-  }
-
-  function copySnippet(k: EmbedKey) {
-    void navigator.clipboard.writeText(snippetFor(k));
-    toast.success("Embed code copied");
   }
 
   return (
@@ -338,8 +376,8 @@ export function EmbedSection() {
                             variant="ghost"
                             size="icon"
                             className="h-7 w-7"
-                            title="Copy iframe code"
-                            onClick={() => copySnippet(k)}
+                            title="Get embed code (iframe or React SDK)"
+                            onClick={() => setCreatedKey(k)}
                           >
                             <Copy className="h-3.5 w-3.5" />
                           </Button>
@@ -652,20 +690,44 @@ function CreateEmbedDialog({
 
 function SnippetDialog({ embedKey, onClose }: { embedKey: EmbedKey | null; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
-  const snippet = embedKey ? snippetFor(embedKey) : "";
+  const [tab, setTab] = useState<"iframe" | "react">("iframe");
+  const iframeSnippet = embedKey ? snippetFor(embedKey) : "";
+  const reactSnippet = embedKey ? reactSnippetFor(embedKey) : null;
+  const snippet = tab === "react" && reactSnippet ? reactSnippet : iframeSnippet;
   return (
     <Dialog open={embedKey !== null} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Your embed is ready</DialogTitle>
+          <DialogTitle>Embed code</DialogTitle>
           <DialogDescription>
-            Paste this snippet into any page on{" "}
-            {embedKey?.allowed_domains.join(", ") || "your allowed domains"}.
+            Works on {embedKey?.allowed_domains.join(", ") || "your allowed domains"} — as an iframe
+            {reactSnippet ? " or via the React SDK for full UI control" : ""}. The same key controls
+            (expiry, budget, disable) apply either way.
           </DialogDescription>
         </DialogHeader>
-        <pre className="max-h-56 overflow-auto rounded-lg border border-border/60 bg-muted/40 p-3 text-[11px] leading-relaxed">
-          {snippet}
-        </pre>
+        <Tabs value={tab} onValueChange={(v) => setTab(v as "iframe" | "react")}>
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="iframe">iframe</TabsTrigger>
+            <TabsTrigger value="react" disabled={!reactSnippet}>
+              React SDK{!reactSnippet ? " (iframe only)" : ""}
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent value="iframe" className="mt-2">
+            <pre className="max-h-56 overflow-auto rounded-lg border border-border/60 bg-muted/40 p-3 text-[11px] leading-relaxed">
+              {iframeSnippet}
+            </pre>
+          </TabsContent>
+          <TabsContent value="react" className="mt-2">
+            <pre className="max-h-72 overflow-auto rounded-lg border border-border/60 bg-muted/40 p-3 text-[11px] leading-relaxed">
+              {reactSnippet ?? ""}
+            </pre>
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              Headless hooks + a drop-in component over the same embed API — see{" "}
+              <code>sdk/react/README.md</code> in the repo. Disabling this key stops SDK apps as
+              instantly as iframes.
+            </p>
+          </TabsContent>
+        </Tabs>
         <div className="flex gap-2">
           <Button
             className="flex-1"
@@ -681,7 +743,8 @@ function SnippetDialog({ embedKey, onClose }: { embedKey: EmbedKey | null; onClo
               </>
             ) : (
               <>
-                <Copy className="mr-1.5 h-3.5 w-3.5" /> Copy embed code
+                <Copy className="mr-1.5 h-3.5 w-3.5" /> Copy {tab === "react" ? "React" : "embed"}{" "}
+                code
               </>
             )}
           </Button>

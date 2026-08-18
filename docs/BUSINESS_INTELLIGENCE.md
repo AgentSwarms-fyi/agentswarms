@@ -816,6 +816,18 @@ turns per minute per key** (against 10 for a dashboard question), the per-key
 deactivation. Spend is metered to the embed key, so it shows up per-embed in
 Analytics rather than blended into your own usage.
 
+### iframe or React SDK
+
+The `/embeds` snippet dialog offers the analyst two ways: the classic iframe,
+or the **React SDK** (`@agentswarms/react`, in [`sdk/react`](../sdk/react/README.md)).
+`useAgentAnalyst` streams the same sanitized turns — `activeTurn` fills in
+live (approach, steps, findings) and finished turns accumulate with follow-up
+context carried automatically — so you can render the reasoning loop in your
+own components instead of a fixed frame. Everything in this section still
+holds: the SDK hits the same `/api/embed/analyst` endpoint, so the
+server-side run-as-owner model, SQL stripping, rate limit and budget cap are
+unchanged.
+
 ### It takes time, and it shows you why
 
 A turn plans, writes SQL, executes, self-checks and synthesises. Measured on
