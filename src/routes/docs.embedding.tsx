@@ -48,7 +48,7 @@ function EmbeddingPage() {
       />
 
       <P>
-        Open <strong>Configure → Web Embedding</strong>. You create an <strong>embed key</strong>{" "}
+        Open <strong>Integrations → Web Embedding</strong>. You create an <strong>embed key</strong>{" "}
         for one agent, swarm or dashboard, restrict it to the domains you control, and paste a
         snippet into your page.
       </P>
@@ -58,7 +58,7 @@ function EmbeddingPage() {
         items={[
           {
             title: "Pick what to expose",
-            body: "One agent, one swarm, or one published dashboard per key. Separate keys for separate placements — they can be revoked independently.",
+            body: "One agent, one swarm, one published dashboard or one AI Analyst per key. Separate keys for separate placements — they can be revoked independently.",
           },
           {
             title: "Restrict the domains",
@@ -75,7 +75,7 @@ function EmbeddingPage() {
           },
           {
             title: "Copy the snippet",
-            body: "An iframe or script tag. Paste it where the widget should appear.",
+            body: "The dialog has two tabs: an iframe tag to paste where the widget should appear, or React SDK code if you would rather render it yourself.",
           },
         ]}
       />
@@ -86,8 +86,8 @@ function EmbeddingPage() {
 ></iframe>`}</Code>
       <P>
         Keys are prefixed <C>emk_</C>. The URL path segment matches the resource type:{" "}
-        <C>/embed/agent/&lt;key&gt;</C>, <C>/embed/swarm/&lt;key&gt;</C> or{" "}
-        <C>/embed/bi/&lt;key&gt;</C>.
+        <C>/embed/agent/&lt;key&gt;</C>, <C>/embed/swarm/&lt;key&gt;</C>,{" "}
+        <C>/embed/bi/&lt;key&gt;</C> or <C>/embed/analyst/&lt;key&gt;</C>.
       </P>
 
       <H3 id="key-fields">Every field on an embed key</H3>
@@ -132,6 +132,146 @@ function EmbeddingPage() {
           [<C key="h">last_used_at</C>, "null", "Read-only."],
         ]}
       />
+
+      <H2 id="react-sdk">Two ways to embed: iframe or React SDK</H2>
+      <P>
+        The snippet dialog offers both, on the same key. An iframe is a sealed box you drop on a
+        page; the SDK is a library your React app calls, so the conversation renders with your own
+        components. They reach the identical endpoints, so a key's domain allow-list, expiry, budget
+        cap, guardrails and rate limits apply the same either way.
+      </P>
+      <Table
+        headers={["", "iframe", "React SDK"]}
+        rows={[
+          [
+            "Setup",
+            "Paste one tag. No build step.",
+            "npm install, then render a component or call a hook.",
+          ],
+          [
+            "Look and feel",
+            "Our styling, inside a fixed frame.",
+            "Entirely yours — your bubbles, markdown renderer and theme.",
+          ],
+          [
+            "Control",
+            "Sealed. The host page cannot read the conversation.",
+            "Full: send from anywhere in your app, intercept every streamed event, seed the history.",
+          ],
+          [
+            "Layout",
+            "Fixed height, own scroll area.",
+            "A normal element in your layout and router.",
+          ],
+          [
+            "Works for",
+            "Agents, swarms, dashboards and the AI Analyst.",
+            "Agents, swarms and the AI Analyst. Dashboards stay iframe-only.",
+          ],
+        ]}
+      />
+      <Callout kind="info" title="Dashboards are iframe-only, on purpose">
+        A BI dashboard is a whole rendered surface — filters, drill-downs, cross-filtering and chart
+        interactions — not a stream of messages. There is no useful way to hand that to a host app
+        as data, so the SDK does not pretend to. The React SDK tab is disabled for dashboard keys.
+      </Callout>
+
+      <H3 id="sdk-install">Installing</H3>
+      <P>
+        The package lives in the repository at <C>sdk/react</C> and is not published to npm yet, so
+        install it from the folder:
+      </P>
+      <Code lang="bash">{`npm install ./sdk/react`}</Code>
+      <P>
+        Add the host app's domain to the key's allowed domains before you start — the server checks
+        the browser's <C>Origin</C> header on every call, exactly as it does for an iframe.
+      </P>
+
+      <H3 id="sdk-drop-in">The drop-in component</H3>
+      <P>
+        <C>&lt;AgentChat&gt;</C> is the batteries-included path: a working chat with input,
+        streaming replies and a stop button, themed through CSS variables so it inherits your
+        palette without a stylesheet import.
+      </P>
+      <Code lang="tsx">{`import { AgentChat } from "@agentswarms/react";
+
+export function SupportWidget() {
+  return (
+    <AgentChat
+      baseUrl="https://your-instance.example.com"
+      embedKey="emk_xxxxxxxxxxxxxxxx"
+      title="Support"
+      style={{ "--as-accent": "#7c3aed", height: 560 } as React.CSSProperties}
+    />
+  );
+}`}</Code>
+      <P>
+        Themeable variables: <C>--as-bg</C>, <C>--as-fg</C>, <C>--as-muted</C>, <C>--as-border</C>,{" "}
+        <C>--as-accent</C>, <C>--as-accent-fg</C>, <C>--as-bubble</C> and <C>--as-radius</C>.
+      </P>
+
+      <H3 id="sdk-hooks">The headless hooks</H3>
+      <P>
+        When the component's layout is not what you want, take the state and render it yourself.{" "}
+        <C>useAgentChat</C> owns the streaming, cancellation and history; everything visual is
+        yours.
+      </P>
+      <Code lang="tsx">{`import { useAgentChat } from "@agentswarms/react";
+
+const { messages, send, stop, isStreaming, citations, widget, error } = useAgentChat({
+  baseUrl: "https://your-instance.example.com",
+  embedKey: "emk_xxxxxxxxxxxxxxxx",
+  // nodeId: "…",            // swarm embeds: address one node
+  // initialMessages: [...], // seed a welcome message
+  // onEvent: (e) => {},     // every typed stream event, if you want the raw feed
+});`}</Code>
+      <Table
+        headers={["Returned", "What it holds"]}
+        rows={[
+          ["messages", "The conversation. The last assistant message grows as the answer streams."],
+          ["isStreaming", "True while a reply is arriving. Use it to disable the input."],
+          ["citations", "Knowledge-base sources for the current answer, when the agent used any."],
+          ["widget", "A Visual BI chart spec, when the agent produced one."],
+          ["error", "Hard failures only — see the callout below."],
+          ["send / stop / reset", "Send a message, abort the stream, clear the conversation."],
+        ]}
+      />
+      <Callout kind="why">
+        A guardrail refusal or an exhausted budget is <strong>not</strong> an <C>error</C> — it
+        arrives as an ordinary assistant message, because that is what the visitor should see, and
+        it is what the iframe shows too. <C>error</C> is reserved for the cases where nothing was
+        said at all: a revoked or expired key, an origin that is not allow-listed, a rate limit, or
+        the network. Rendering refusals as errors is the usual way an SDK integration ends up
+        looking broken when it is working correctly.
+      </Callout>
+      <P>
+        The AI Analyst has its own hook, because it streams whole reasoning turns rather than text:{" "}
+        <C>activeTurn</C> fills in live as the analyst states its approach and works through each
+        step, and every finished turn is appended to <C>turns</C>. Follow-up questions carry the
+        prior turns automatically.
+      </P>
+      <Code lang="tsx">{`import { useAgentAnalyst } from "@agentswarms/react";
+
+const { turns, activeTurn, ask, isRunning, error } = useAgentAnalyst({
+  baseUrl: "https://your-instance.example.com",
+  embedKey: "emk_xxxxxxxxxxxxxxxx", // a key whose resource is an AI Analyst
+});
+
+// ask("What drove revenue last quarter?")`}</Code>
+      <Callout kind="info" title="Not a React app?">
+        The wire format is plain Server-Sent Events over <C>POST</C>, and the parser is exported
+        framework-free as <C>createSseParser</C>, <C>mapChatFrame</C> and <C>mapAnalystFrame</C> —
+        enough to build the same integration in Vue, Svelte or no framework at all.
+      </Callout>
+
+      <H3 id="sdk-key-safety">The embed key is still public</H3>
+      <P>
+        Nothing changes about the trust model. The key ships in your JavaScript bundle exactly as it
+        ships in iframe markup, and it is meant to: it is a site key, not a secret. Every control
+        that matters runs on the server, so a reader who copies the key out of your bundle can only
+        do what your allow-listed domain could already do — and disabling the key in{" "}
+        <strong>Integrations → Web Embedding</strong> cuts off SDK apps as instantly as iframes.
+      </P>
 
       <H2 id="what-visitors-get">What an anonymous visitor can reach</H2>
       <P>This is the part worth being precise about.</P>
