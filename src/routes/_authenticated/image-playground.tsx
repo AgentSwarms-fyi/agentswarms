@@ -122,6 +122,11 @@ function redactImageDataUrls(value: unknown): unknown {
 function ImagePlaygroundPage() {
   const [prompt, setPrompt] = useState("");
   const [providers, setProviders] = useState<ConnectedIntegration[] | null>(null);
+  // Why the provider list could not be read, or null. Without it a failed read
+  // rendered "No model providers connected. Connect one under Integrations" to
+  // an account with two connected providers — an instruction to redo work
+  // already done.
+  const [providersError, setProvidersError] = useState<string | null>(null);
   const [provider, setProvider] = useState<string>("");
   const [models, setModels] = useState<ProviderModelInfo[] | null>(null);
   const [modelsError, setModelsError] = useState<string | null>(null);
@@ -144,6 +149,7 @@ function ImagePlaygroundPage() {
   useEffect(() => {
     fetchConnectedIntegrations()
       .then((list) => {
+        setProvidersError(null);
         setProviders(list);
         if (list.length > 0) {
           setProvider((p) =>
@@ -153,7 +159,10 @@ function ImagePlaygroundPage() {
           );
         }
       })
-      .catch(() => setProviders([]));
+      .catch((e: unknown) => {
+        setProvidersError(e instanceof Error ? e.message : "Could not read your integrations");
+        setProviders([]);
+      });
   }, []);
 
   // Image models for the selected provider (its /models endpoint, filtered
@@ -477,7 +486,21 @@ function ImagePlaygroundPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-5">
-            {providers !== null && providers.length === 0 && (
+            {providersError !== null && (
+              <div
+                role="alert"
+                className="rounded-md border border-dashed border-warning/40 bg-warning/5 p-3 text-xs"
+              >
+                <p className="text-warning">
+                  Your connected providers could not be read — {providersError}.
+                </p>
+                <p className="mt-1 text-muted-foreground">
+                  Anything you have connected is still connected; this page just cannot list it
+                  right now.
+                </p>
+              </div>
+            )}
+            {providersError === null && providers !== null && providers.length === 0 && (
               <div className="rounded-md border border-dashed bg-muted/40 p-3 text-xs text-muted-foreground">
                 No model providers connected. Connect one under{" "}
                 <Link to="/integrations" className="text-primary underline underline-offset-2">

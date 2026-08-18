@@ -78,13 +78,84 @@ Never infer it from what rendered.
 | 26  | Monitoring          | `/monitoring`              | ✅ 1 | 2026-08-18 | 1 (1×S3) — health claimed over an empty probe set; page otherwise sound           |
 | 27  | Prompt Compare      | `/prompt-compare`          | ✅ 1 | 2026-08-18 | 1 (1×S1) — the model that failed fastest was crowned fastest                      |
 | 28  | Evaluations         | `/evaluations`             | ✅ 1 | 2026-08-18 | 2 (2×S1) — "0% pass" on an unscored run; false empty on a failed read             |
-| 29  | Image Playground    | `/image-playground`        | —    | —          | —                                                                                 |
+| 29  | Image Playground    | `/image-playground`        | ✅ 1 | 2026-08-18 | 1 (1×S1) — false "none connected", memoised for the whole session                 |
 | 30  | IAM                 | `/admin/iam`               | —    | —          | —                                                                                 |
 | 31  | Developer runtime   | `/admin/runtime`           | —    | —          | —                                                                                 |
 
 ## Findings
 
 <!-- newest first -->
+
+### 2026-08-18 — Module 29, Image Playground (`/image-playground`)
+
+One finding, and it is the first in this campaign that **outlives the request
+that caused it**. The fix is in a shared module, so it lands on two pages.
+
+**What the page already does right.** The models read — the second, per-provider
+fetch — keeps its error in `modelsError` and renders it; "lists no
+image-generation models" is shown only when that error is absent. The defect is
+one layer down, in the provider list both this page and `BiModelSelect` share.
+
+#### S1 · "No model providers connected", for an account with two — and it sticks
+
+`fetchConnectedIntegrations` merges two tables and did `?? []` on both, so a
+403 produced an empty list and **resolved successfully**. The page's own
+`.catch` was therefore never reached: there was nothing to catch. What
+rendered was the onboarding empty state —
+
+> No model providers connected. Connect one under **Integrations** to generate
+> images.
+
+— to an account with `gemini` and `openrouter` both active. The same shape as
+modules 22 and 28: an empty state that doubles as an instruction to redo work
+already done.
+
+The second half is what makes it worse than its predecessors. The fetcher
+memoises:
+
+```ts
+integrationsPromise ??= Promise.all([...])
+```
+
+so the empty result was cached for the session. Measured directly: after the
+injected failure, a second call returned the same empty list with **zero new
+requests** — the network was never touched again. One transient 403 during
+page load claimed "you have connected nothing" until the tab was reloaded, on
+every surface that uses this fetcher.
+
+Both halves were proven against a cache-busted fresh module instance with the
+403 armed, two interceptions recorded: the call resolved `[]` rather than
+rejecting, and the follow-up call made no requests at all.
+
+#### Fixed at the source, so both consumers benefit
+
+The fetcher now throws on either read's error, and its `.catch` clears
+`integrationsPromise` before rethrowing — so a failure is never memoised and
+the next caller genuinely retries. A **success** is still cached; the memo was
+never the problem, caching a failure was. The page keeps the rejection reason
+in `providersError` and renders it — "Anything you have connected is still
+connected" — above the empty claim, which is now unreachable while an error is
+held.
+
+Verified live in three states with interceptions counted: failing (rejects,
+error panel, no false claim), healed (the retry recovers both providers with
+real requests), and healthy.
+
+#### Mutations: six run, all killed after two tripwires
+
+Three fell to the unit tests directly — the two swallowed read errors and the
+re-memoised failure. The fourth, "successes stop being cached", is worth
+noting: it is a mutation that makes the code _less_ efficient without making
+it wrong, and the test that catches it exists to say the cache is deliberate.
+The two page-level survivors were the usual UI wiring, pinned by tripwires
+including the now-standard ordering assertion.
+
+**Tests:** 6 in `connectedIntegrations.test.ts`, exercising the real exported
+function against a stubbed client — including "a genuinely empty account still
+resolves empty, not an error", which is the claim the fix must not break —
+plus 2 tripwires. No fixtures; the database was read and never written.
+
+---
 
 ### 2026-08-18 — Module 28, Evaluations (`/evaluations`)
 

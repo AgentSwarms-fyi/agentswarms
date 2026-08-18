@@ -87,6 +87,19 @@ const providerModelsCache = new Map<string, ProviderModelInfo[]>();
 let integrationsCache: ConnectedIntegration[] | null = null;
 let integrationsPromise: Promise<ConnectedIntegration[]> | null = null;
 
+/**
+ * Connected LLM providers, merged from both stores.
+ *
+ * MEASURED: this used to `?? []` both reads and resolve successfully on
+ * failure, so a 403 produced an empty list rather than an error — and every
+ * caller then said the user had connected nothing. Worse, `integrationsPromise
+ * ??=` MEMOISED that empty result: a second call returned the same empty list
+ * without touching the network, so one transient failure claimed "no providers
+ * connected" for the rest of the session, with a reload the only way out.
+ *
+ * Now the reads' errors are thrown, and a rejected attempt clears the memo so
+ * the next caller retries. Only a SUCCESSFUL result is cached.
+ */
 export function fetchConnectedIntegrations(): Promise<ConnectedIntegration[]> {
   // Provider connections live in TWO stores (mirroring /integrations):
   // the legacy `integrations` table (type llm_provider, config jsonb) and
@@ -101,32 +114,46 @@ export function fetchConnectedIntegrations(): Promise<ConnectedIntegration[]> {
     Promise.resolve(
       supabase.from("provider_credentials").select("provider, default_model, is_active"),
     ),
-  ]).then(([legacy, creds]) => {
-    const byProvider = new Map<string, ConnectedIntegration>();
-    for (const r of legacy.data ?? []) {
-      if (r.is_active === false || !r.provider || !isBiCompatProvider(r.provider)) continue;
-      const cfg = (r.config ?? {}) as Record<string, unknown>;
-      const dm =
-        (typeof cfg.default_model === "string" && cfg.default_model) ||
-        (typeof cfg.model === "string" && cfg.model) ||
-        null;
-      const prev = byProvider.get(r.provider);
-      byProvider.set(r.provider, {
-        provider: r.provider,
-        default_model: prev?.default_model ?? dm,
-      });
-    }
-    for (const r of creds.data ?? []) {
-      if (r.is_active === false || !isBiCompatProvider(r.provider)) continue;
-      const prev = byProvider.get(r.provider);
-      byProvider.set(r.provider, {
-        provider: r.provider,
-        default_model: r.default_model ?? prev?.default_model ?? null,
-      });
-    }
-    integrationsCache = [...byProvider.values()];
-    return integrationsCache;
-  });
+  ])
+    .then(([legacy, creds]) => {
+      // A failed read is not an account without providers. Throwing here is
+      // what lets callers tell "you have none" from "we could not find out".
+      if (legacy.error) throw new Error(legacy.error.message);
+      if (creds.error) throw new Error(creds.error.message);
+      return [legacy, creds] as const;
+    })
+    .then(([legacy, creds]) => {
+      const byProvider = new Map<string, ConnectedIntegration>();
+      for (const r of legacy.data ?? []) {
+        if (r.is_active === false || !r.provider || !isBiCompatProvider(r.provider)) continue;
+        const cfg = (r.config ?? {}) as Record<string, unknown>;
+        const dm =
+          (typeof cfg.default_model === "string" && cfg.default_model) ||
+          (typeof cfg.model === "string" && cfg.model) ||
+          null;
+        const prev = byProvider.get(r.provider);
+        byProvider.set(r.provider, {
+          provider: r.provider,
+          default_model: prev?.default_model ?? dm,
+        });
+      }
+      for (const r of creds.data ?? []) {
+        if (r.is_active === false || !isBiCompatProvider(r.provider)) continue;
+        const prev = byProvider.get(r.provider);
+        byProvider.set(r.provider, {
+          provider: r.provider,
+          default_model: r.default_model ?? prev?.default_model ?? null,
+        });
+      }
+      integrationsCache = [...byProvider.values()];
+      return integrationsCache;
+    })
+    .catch((e: unknown) => {
+      // Never leave a failure memoised — the next caller must be able to try
+      // again without a page reload.
+      integrationsPromise = null;
+      throw e;
+    });
   return integrationsPromise;
 }
 
