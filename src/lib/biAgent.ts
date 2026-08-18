@@ -640,6 +640,15 @@ export async function generateSql(args: {
   localEngine?: "alasql" | "duckdb";
   model?: string;
   /**
+   * A previous attempt that RAN but returned more rows than the caller can
+   * keep. Distinct from `repair` because nothing failed — telling the model
+   * its statement "FAILED" when it succeeded teaches it the wrong lesson.
+   * The rewrite must return the COMPLETE answer in <= cap rows (aggregate,
+   * bucket, or pivot the long dimension), not the same query with a LIMIT —
+   * a LIMIT is exactly the truncation being repaired.
+   */
+  reshape?: { sql: string; rowCount: number; cap: number };
+  /**
    * A previous attempt and the engine error it produced. Given these, the model
    * fixes that statement rather than generating from scratch — the second try
    * is otherwise likely to reproduce the same mistake.
@@ -683,6 +692,8 @@ export function buildSqlPrompt(args: {
   plan: BiPlan;
   /** Pre-rendered schema description — see describeSchema. */
   schema: string;
+  /** See generateSql.reshape — ran fine, too many rows, rewrite smaller. */
+  reshape?: { sql: string; rowCount: number; cap: number };
   dialect?: string;
   /**
    * Which LOCAL engine will execute this, when no warehouse `dialect` is set.
@@ -726,7 +737,13 @@ export function buildSqlPrompt(args: {
       "Output a SINGLE SELECT statement only — no INSERT/UPDATE/DELETE/DDL. " +
       "Use only tables and columns from the provided schema. " +
       "Prefer aggregates (SUM/AVG/COUNT) for analytical questions. " +
-      "Always add ORDER BY for rankings, and LIMIT 50 if the result might be large. " +
+      "Always add ORDER BY for rankings, and use LIMIT only when the question itself asks " +
+      "for a top-N. Never add a defensive LIMIT just to keep a result small: the runtime " +
+      "caps what is displayed and DISCLOSES the true row count, but it can only do that " +
+      "when the query returns the real result — a LIMIT hides the truncation from " +
+      "everyone downstream. When a complete answer would be tall (many rows), prefer a " +
+      "shape whose complete answer is small instead: aggregate, bucket, or pivot the " +
+      "long dimension into columns. " +
       // These three lines exist because the NL-to-SQL eval measured what was
       // actually going wrong: roughly half the failures were the right
       // analysis returned in the wrong SHAPE — extra columns nobody asked for,
@@ -795,11 +812,23 @@ export function buildSqlPrompt(args: {
         ? " The previous statement FAILED. Return a corrected single statement that runs. " +
           "Check every table and column name against the schema — a name that is not listed " +
           "does not exist. Do not return more than one statement."
+        : "") +
+      (args.reshape
+        ? ` The previous statement ran correctly but returned ${args.reshape.rowCount} rows, ` +
+          `and only the first ${args.reshape.cap} can be kept — the analysis would run on a ` +
+          "truncated result. Rewrite it so the COMPLETE answer fits in " +
+          `${args.reshape.cap} rows or fewer while still answering the same goal: aggregate, ` +
+          "bucket, or pivot the long dimension into columns. Do NOT simply add a LIMIT — " +
+          "that reproduces the truncation instead of fixing it."
         : ""),
     userPrompt:
       `${args.schema}\n\nPLAN: ${JSON.stringify(args.plan)}\nQUESTION: ${args.question}\n` +
       (args.repair
         ? `\nFAILED SQL: ${args.repair.sql}\nENGINE ERROR: ${args.repair.error}\n`
+        : "") +
+      (args.reshape
+        ? `\nOVERSIZED SQL (ran fine, too many rows): ${args.reshape.sql}\n` +
+          `ROWS RETURNED: ${args.reshape.rowCount} — cap is ${args.reshape.cap}\n`
         : "") +
       `\nReturn JSON: { "sql": "SELECT ..." }`,
   };
@@ -924,6 +953,16 @@ export function describeResultFacts(result: QueryResult): string {
   const rows = result.rows ?? [];
   if (rows.length === 0) return "";
 
+  // Truncation is a fact about the result, and the most important one: every
+  // figure below is computed from the sample, not the population. Stated
+  // first so the self-check reads it before it reads any number.
+  const truncated =
+    result.capped && (result.total_matched ?? rows.length) > rows.length
+      ? `NOTE: the engine returned only the first ${rows.length} of ` +
+        `${result.total_matched} matching rows — every figure below is computed ` +
+        `from that truncated sample, not the full result.\n\n`
+      : "";
+
   const numeric: string[] = [];
   const labels: string[] = [];
   for (const c of result.columns) {
@@ -937,6 +976,7 @@ export function describeResultFacts(result: QueryResult): string {
   const labelCol = labels[0];
 
   const lines: string[] = [];
+  if (truncated) lines.push(truncated.trim());
   for (const c of numeric) {
     let sum = 0;
     let count = 0;

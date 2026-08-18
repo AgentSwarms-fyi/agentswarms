@@ -233,6 +233,19 @@ export const MAX_ANALYSIS_STEPS = 4;
 /** Rows kept per step in the stored trace (same discipline as widgets). */
 export const ANALYST_ROW_CAP = 50;
 
+/**
+ * Did this step's query return more rows than the trace keeps?
+ *
+ * Only answerable when the query returned its REAL result — a defensive
+ * LIMIT in the SQL makes the truncation invisible to everyone downstream,
+ * which is why the SQL prompt now forbids one. Measured before this
+ * existed: a heatmap pull came back as exactly "50 rows" with no
+ * disclosure anywhere, because the LIMIT hid the other 58.
+ */
+export function isCapTruncated(step: Pick<AnalystStep, "rowCount" | "rows">): boolean {
+  return (step.rowCount ?? 0) > (step.rows?.length ?? 0) || (step.rowCount ?? 0) > ANALYST_ROW_CAP;
+}
+
 /** Prior Q/A pairs carried into the next question's context. */
 export const ANALYST_MEMORY_TURNS = 4;
 
@@ -280,10 +293,21 @@ export function assertSelectOnly(sql: string): string {
   return s;
 }
 
-/** Cap a step's stored rows; everything else in the trace is kept. */
+/**
+ * Cap a step's stored rows; everything else in the trace is kept.
+ *
+ * The true count is recorded before the slice — without it the UI's
+ * "(showing 50)" disclosure has nothing to disclose, and a trimmed step
+ * would claim its sample as the whole result. That is the exact defect the
+ * ANALYST_ROW_CAP machinery exists to prevent.
+ */
 export function trimStepForStorage(step: AnalystStep): AnalystStep {
   if (!step.rows || step.rows.length <= ANALYST_ROW_CAP) return step;
-  return { ...step, rows: step.rows.slice(0, ANALYST_ROW_CAP) };
+  return {
+    ...step,
+    rowCount: step.rowCount ?? step.rows.length,
+    rows: step.rows.slice(0, ANALYST_ROW_CAP),
+  };
 }
 
 export function trimTurnForStorage(turn: AnalystTurn): AnalystTurn {
@@ -964,7 +988,11 @@ export async function runAnalystTurn(args: {
   };
   const captureResult = (step: AnalystStep, res: QueryResult) => {
     step.columns = res.columns;
-    step.rowCount = res.rows.length;
+    // total_matched is the engine's pre-cap count; rows.length is only the
+    // truth when nothing upstream capped. Preferring it is what lets the
+    // "(showing 50 of 108)" disclosure and the reshape pass see engine-level
+    // truncation, not just trace-level trimming.
+    step.rowCount = res.total_matched ?? res.rows.length;
     step.rows = res.rows.slice(0, ANALYST_ROW_CAP);
   };
   // Facts are described from the FULL result, then the step keeps a capped
@@ -1114,6 +1142,36 @@ export async function runAnalystTurn(args: {
         }
         captureResult(step, res);
         results[i] = res;
+        // One reshape pass when the complete answer would not fit in the
+        // trace: ask for the same analysis in a <= cap shape (aggregate /
+        // bucket / pivot) instead of silently analysing a truncated result.
+        // Best-effort — if the rewrite fails or is still too tall, the
+        // original result stands and the "(showing N of M)" disclosure does
+        // the honest work. Never more than one attempt.
+        if ((step.rowCount ?? 0) > ANALYST_ROW_CAP) {
+          try {
+            const reshaped = await generateSql({
+              question: step.goal,
+              plan: stepPlan,
+              datasets: args.datasets,
+              semantics: args.semantics,
+              metrics: args.metrics,
+              dialect: args.dialect,
+              localEngine: args.execute ? undefined : "duckdb",
+              model: args.model,
+              llm: ask,
+              reshape: { sql: step.sql, rowCount: step.rowCount ?? 0, cap: ANALYST_ROW_CAP },
+            });
+            const res2 = await runSql(reshaped);
+            if (res2.rows.length <= ANALYST_ROW_CAP && res2.rows.length > 0) {
+              step.sql = reshaped;
+              captureResult(step, res2);
+              results[i] = res2;
+            }
+          } catch {
+            /* keep the original result + its truncation disclosure */
+          }
+        }
         step.status = "done";
       } catch (e) {
         step.error = (e as Error).message;
