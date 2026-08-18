@@ -72,6 +72,8 @@ the whole trace exports as a branded PDF. Contribution analysis, trends,
 outliers and projections are computed in code rather than narrated — and it
 asks a clarifying question instead of guessing when one is genuinely needed.
 
+![Part of an "AI Analyst" analysis steps and result](docs/screenshots/analyst-step2.png)
+
 **BI Workspace** — multi-page dashboards over your connected tables and
 warehouses, with KPIs, cross-filtering, scheduled refresh, PDF export and
 publish-and-share links.
