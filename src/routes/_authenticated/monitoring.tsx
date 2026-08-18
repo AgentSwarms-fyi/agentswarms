@@ -34,6 +34,7 @@ import {
   utilisationTone,
   type ServiceProbe,
   type SystemMetrics,
+  servicesSummary,
 } from "@/lib/serviceHealth";
 import { serviceHealth, systemMetrics } from "@/utils/monitoring.functions";
 
@@ -329,9 +330,7 @@ function MonitoringPage() {
         <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/40 px-4 py-2">
           <p className="text-sm font-semibold">Services</p>
           <p className="text-[11px] text-muted-foreground">
-            {unhealthy.length === 0
-              ? "No problems detected"
-              : `${unhealthy.length} needing attention`}
+            {servicesSummary({ services, unhealthy: unhealthy.length, errored: error !== null })}
             {checkedAt ? ` · checked ${new Date(checkedAt).toLocaleTimeString()}` : ""}
           </p>
         </div>

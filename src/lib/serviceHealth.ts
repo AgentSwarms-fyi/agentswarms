@@ -228,3 +228,26 @@ export function statusTone(p: Pick<ServiceProbe, "status" | "optional">): {
   if (p.status === "unreachable") return { tone: "muted", label: "Can't check from here" };
   return p.optional ? { tone: "muted", label: "Not running" } : { tone: "critical", label: "Down" };
 }
+
+// The one-line summary above the services table.
+//
+// MEASURED as a source certainty on /monitoring: the header read
+// `unhealthy.length === 0 ? "No problems detected" : …`, which asserts health
+// whenever the probe set is EMPTY — a first-load failure (the catch keeps
+// services at []), a misconfiguration that returns no probes, or an
+// all-filtered set. On a page whose entire job is to tell you whether anything
+// is wrong, "No problems detected" over zero probes is the reassurance it
+// exists to prevent. The fix distinguishes "nothing was checked" from
+// "everything checked out", and lets a load error speak instead of a health
+// claim it cannot support.
+export function servicesSummary(args: {
+  services: { status: ServiceStatus }[];
+  unhealthy: number;
+  /** A load error is present — the probes on hand are stale or absent. */
+  errored: boolean;
+}): string {
+  if (args.errored && args.services.length === 0) return "Health unknown — could not probe";
+  if (args.services.length === 0) return "No services to probe";
+  if (args.unhealthy === 0) return "No problems detected";
+  return `${args.unhealthy} needing attention`;
+}

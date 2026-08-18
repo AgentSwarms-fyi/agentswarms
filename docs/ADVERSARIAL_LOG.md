@@ -75,7 +75,7 @@ Never infer it from what rendered.
 | 23  | Traces & Logs       | `/traces`                  | ✅ 1 | 2026-08-18 | 1 (1×S1) — the capped page presented as the population; error paths already sound |
 | 24  | Audit Log           | `/audit`                   | ✅ 1 | 2026-08-18 | 2 (2×S1) — exculpatory empty claim; non-uniform silent truncation                 |
 | 25  | Budgets             | `/budgets`                 | ✅ 1 | 2026-08-18 | 3 (1×S2, 2×S1) — skeleton-forever, false empty, caps shown unset                  |
-| 26  | Monitoring          | `/monitoring`              | —    | —          | —                                                                                 |
+| 26  | Monitoring          | `/monitoring`              | ✅ 1 | 2026-08-18 | 1 (1×S3) — health claimed over an empty probe set; page otherwise sound           |
 | 27  | Prompt Compare      | `/prompt-compare`          | —    | —          | —                                                                                 |
 | 28  | Evaluations         | `/evaluations`             | —    | —          | —                                                                                 |
 | 29  | Image Playground    | `/image-playground`        | —    | —          | —                                                                                 |
@@ -85,6 +85,67 @@ Never infer it from what rendered.
 ## Findings
 
 <!-- newest first -->
+
+### 2026-08-18 — Module 26, Monitoring (`/monitoring`)
+
+One finding, an S3, and a page that is otherwise the best-defended in this
+range — worth saying plainly, because most of the campaign has been failures.
+
+**What this page already does right, verified by reading and by the live
+healthy state:** it holds a `error` in state and renders it in a banner; a
+failed refresh KEEPS the last-good probes and metrics rather than blanking
+them (stale-but-labelled, the correct choice); null hardware metrics render
+"—" not "0"; an empty probe list renders "No probe results yet." in the table
+body; and it refreshes both on an interval and on demand. Nothing here reports
+a failed read as an empty or healthy account in the body. This is the standard
+the campaign has spent twenty-five modules enforcing, already met.
+
+#### S3 · The summary line claims health over an empty probe set
+
+The one seam. The header read:
+
+```
+{unhealthy.length === 0 ? "No problems detected" : `${unhealthy.length} needing attention`}
+```
+
+`unhealthy.length === 0` is true whenever `services` is empty — a
+misconfiguration that returns no probes, an all-filtered set, or the first
+load failing (the catch keeps `services` at `[]`). So a monitoring page could
+print **"No problems detected"** having probed nothing. In the failed-load
+case it prints that beside its own error banner — the header and the banner
+contradicting each other on the one screen whose job is to tell an operator
+whether anything is wrong.
+
+This is source-certain and injection-independent: the claim is wrong on an
+empty set regardless of _why_ the set is empty, so it needs no failed-read
+injection to establish. (Which is the honest framing — the live harness could
+not re-fire this page's reads through a `fetch` patch: its refresh dedupes,
+and unlike the pages with a durable refresh path there was no reliable lever.
+I did not claim a failed-read result I could not positively inject; I fixed
+the emptiness claim, which is provable without one.)
+
+Severity S3, not higher, because the mitigations are real: the error banner
+and the "No probe results yet." body text both appear on a failed load, so the
+user is not left with pure false reassurance — only a contradictory header.
+
+#### Fixed with a four-way summary
+
+`servicesSummary` in `lib/serviceHealth` distinguishes the states the old
+ternary collapsed: probed-and-healthy → "No problems detected"; probed-with-
+problems → "N needing attention"; **empty → "No services to probe"**;
+**empty-and-errored → "Health unknown — could not probe"**, deferring to the
+banner instead of contradicting it. A later refresh that fails while keeping
+its data still summarises that data — the error travels in the banner, not the
+count. Healthy path verified live unchanged (22 services → "No problems
+detected").
+
+**Mutations 4/4**, including the two that matter: an empty set reassuring
+again, and an errored-empty asserting health. **Tests:** 5 in
+`servicesSummary.test.ts`. No failedReadClaims row — this page never reported a
+failed read as an empty account, which is what that file pins; its defect was
+narrower and lives in its own test. No fixtures.
+
+---
 
 ### 2026-08-18 — Module 25, Budgets (`/budgets`)
 
