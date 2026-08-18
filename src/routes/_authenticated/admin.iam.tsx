@@ -249,12 +249,37 @@ function AdminIamPage() {
   }
 
   if (loading || !users || !groups || !rules || !grants || !resources) {
+    // A failed load leaves every list null, so the page cannot be rendered —
+    // but it must still be RECOVERABLE. MEASURED: this used to show three
+    // skeletons and a line of red text with no control of any kind, because
+    // the Refresh button lives in the main view below, which is unreachable
+    // while the gate is active. A reload was the only way out.
+    if (error && !loading) {
+      return (
+        <div className="p-6">
+          <div
+            role="alert"
+            className="rounded-lg border border-dashed border-destructive/40 p-8 text-center"
+          >
+            <p className="text-sm text-destructive">
+              Identity &amp; Access Management could not be loaded — {error}.
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Every user, group, rule and grant is unchanged and still enforced; this page just
+              cannot read them right now.
+            </p>
+            <Button variant="outline" size="sm" className="mt-3 gap-1.5" onClick={reload}>
+              <RefreshCw className="h-3.5 w-3.5" /> Try again
+            </Button>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="p-6 space-y-4">
         <Skeleton className="h-10 w-72" />
         <Skeleton className="h-9 w-96" />
         <Skeleton className="h-72 w-full" />
-        {error ? <p className="text-sm text-destructive">{error}</p> : null}
       </div>
     );
   }

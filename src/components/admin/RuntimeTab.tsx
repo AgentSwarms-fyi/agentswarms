@@ -80,19 +80,56 @@ export function RuntimeTab({ token }: { token: string }) {
   const preflightFn = useServerFn(nbRuntimePreflight);
   const [checks, setChecks] = useState<PreflightCheck[] | null>(null);
   const [checking, setChecking] = useState(false);
+  // Why the runtime state could not be read, or null. MEASURED: without this a
+  // failed read raised a toast and left `state` null, so the gate below showed
+  // two skeletons for ever — and once the toast expired there was no error and
+  // no retry anywhere, on the page that governs whether the Python runtime is
+  // enabled and who may use it.
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    getStateFn({ data: { access_token: token } }).then((res) => {
-      if (!res.ok) return toast.error(res.error);
-      setState(res);
-      setForm(res.settings);
-      setEgressText(res.settings.egress_allowlist.join("\n"));
-    });
+    setLoadError(null);
+    getStateFn({ data: { access_token: token } })
+      .then((res) => {
+        if (!res.ok) {
+          toast.error(res.error);
+          setLoadError(res.error);
+          return;
+        }
+        setState(res);
+        setForm(res.settings);
+        setEgressText(res.settings.egress_allowlist.join("\n"));
+      })
+      .catch((e: unknown) => {
+        const msg = e instanceof Error ? e.message : "Could not reach the server";
+        toast.error(msg);
+        setLoadError(msg);
+      });
   }, [getStateFn, token]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  if (loadError !== null) {
+    return (
+      <div
+        role="alert"
+        className="rounded-lg border border-dashed border-destructive/40 p-8 text-center"
+      >
+        <p className="text-sm text-destructive">
+          The runtime settings could not be loaded — {loadError}.
+        </p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          The runtime&rsquo;s current configuration is unchanged and still in force; this page just
+          cannot read it right now.
+        </p>
+        <Button variant="outline" size="sm" className="mt-3" onClick={load}>
+          Try again
+        </Button>
+      </div>
+    );
+  }
 
   if (!state || !form) {
     return (

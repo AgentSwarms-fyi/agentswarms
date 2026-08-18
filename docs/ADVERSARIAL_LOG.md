@@ -79,12 +79,124 @@ Never infer it from what rendered.
 | 27  | Prompt Compare      | `/prompt-compare`          | ✅ 1 | 2026-08-18 | 1 (1×S1) — the model that failed fastest was crowned fastest                      |
 | 28  | Evaluations         | `/evaluations`             | ✅ 1 | 2026-08-18 | 2 (2×S1) — "0% pass" on an unscored run; false empty on a failed read             |
 | 29  | Image Playground    | `/image-playground`        | ✅ 1 | 2026-08-18 | 1 (1×S1) — false "none connected", memoised for the whole session                 |
-| 30  | IAM                 | `/admin/iam`               | —    | —          | —                                                                                 |
-| 31  | Developer runtime   | `/admin/runtime`           | —    | —          | —                                                                                 |
+| 30  | IAM                 | `/admin/iam`               | ✅ 1 | 2026-08-18 | 1 (1×S3) — unrecoverable failed load; every read already checked                  |
+| 31  | Developer runtime   | `/admin/runtime`           | ✅ 1 | 2026-08-18 | 1 (1×S2) — toast-only error, then a permanently blank page                        |
 
 ## Findings
 
 <!-- newest first -->
+
+### 2026-08-18 — Modules 30 & 31, IAM (`/admin/iam`) and Developer runtime (`/admin/runtime`)
+
+The last two modules, and the same finding on both: a failed load that could
+not be recovered from. Neither page ever told a lie — which on the two pages
+that govern access and code execution is the part that matters most, and both
+had it right before the campaign arrived.
+
+#### Module 30 · IAM — S3 · A dead end with the exit in the unreachable room
+
+This is the best-behaved read path in the whole campaign. All **seven**
+server-fn reads are checked (`if (!u.ok) return setError(u.error)` and six
+siblings); the error is held in state and rendered in two places; and every
+list stays `null` on failure because each check returns _before_ any setter
+runs. So no "no users", no "no groups", no "no grants" can ever appear from a
+failed read. On an access-control page, where an empty grant list read as fact
+is the difference between "nobody has access" and "we could not check", that
+property is the whole ballgame — and it was already there.
+
+What it lacked was a way out. Measured with `iamListUsers` 403'd (one
+interception): three skeletons, one line of red error text, and **no control of
+any kind**. The Refresh button exists — in the main view, below the gate that
+the null lists keep active. A browser reload was the only recovery.
+
+#### Module 31 · Developer runtime — S2 · The same, one step worse
+
+`RuntimeTab`'s load did `if (!res.ok) return toast.error(res.error)` — the
+error going to a **toast only**, `state` left null, gate rendering two
+skeletons. Measured with `nbRuntimeGetState` 403'd (two interceptions), then
+sampled again nine seconds later:
+
+|               | at 5s          | after the toast expired |
+| ------------- | -------------- | ----------------------- |
+| skeletons     | 2              | **2**                   |
+| toast         | (already gone) | gone                    |
+| error text    | **none**       | **none**                |
+| retry control | **none**       | **none**                |
+
+A permanently blank page, with nothing on it saying why — governing whether the
+Python runtime is enabled, its egress allow-list, and who is granted access to
+it. S2 rather than S3 because unlike IAM there is no persistent error at all:
+after a few seconds the screen is indistinguishable from a page that is simply
+still loading, for ever.
+
+#### Fixed the same way on both
+
+A settled failure now renders the reason, a reassurance that the configuration
+itself is untouched — "every user, group, rule and grant is unchanged and still
+enforced" / "the runtime's current configuration is unchanged and still in
+force" — and a **Try again** wired to the loader. The reassurance is
+load-bearing on these two pages specifically: a superadmin who believes IAM is
+broken may start re-granting access that never lapsed, and one who believes the
+runtime page is broken may re-enable a runtime that was never off.
+
+IAM's branch is gated on `error && !loading` on purpose, so an error latched
+from a previous attempt does not replace the skeleton of the retry currently
+running — a detail with its own test.
+
+Verified live on both: the failure state shows the error and no skeletons, and
+clicking Try again with the injection healed brings the real page back (IAM's
+tabs and Refresh; the runtime's switches).
+
+#### Mutations: 6/6 (IAM) and 5/5 (runtime)
+
+Both sets are source tripwires, and the reason is stated in the test file: IAM
+is a 2,400-line superadmin route driven by seven server functions and
+RuntimeTab is driven by five, so rendering either here would test mocks. Two
+of the IAM mutations pin the properties that were _already_ good rather than
+what I changed — dropping a read check, and moving `setUsers` above the checks
+so a false empty becomes possible. Those exist because this page's existing
+correctness is worth protecting from a future refactor, not just my addition to
+it.
+
+**Tests:** 9 in `tests/unit/iamRecoverable.test.ts` covering both pages. No
+fixtures; nothing was granted, revoked or enabled.
+
+---
+
+## Coverage complete — all 31 modules audited
+
+Every module in the map now has a pass. What the campaign found, in one place:
+
+- **The dominant defect, 16 times over:** a read whose failure was reported as
+  a fact about the account — "you have none", "0 connected", "no audit events",
+  "no providers connected" — usually with an invitation to fix the emptiness by
+  redoing work that already existed. Four modules also _instructed_ the user
+  (create a dataset, execute a swarm, connect a provider, add an Evaluate node).
+- **Silent truncation, 4 times:** `.limit()` capped below the real row count,
+  or PostgREST's max-rows capping below the `.limit()`, with the loaded window
+  presented as the population. Once (module 24) the caps were non-uniform in
+  time, so a merged feed mixed a 3-day view of one action type with a 13-day
+  view of another.
+- **Verdicts over work that never happened, twice:** the model that failed
+  fastest crowned fastest; a run with nothing scored graded 0%.
+- **Unrecoverable states, 4 times:** skeletons with no retry, and once a
+  _memoised_ failure that claimed "no providers connected" for a whole session
+  from one transient 403.
+
+Reusable primitives left behind: `listClaim`, `countClaim`, `traceWindow`,
+`auditWindow`, `budgetLoad`, `compareWinner`, `evalPassRate`, `serviceHealth`'s
+`servicesSummary`, and `adhocTools`. `failedReadClaims.test.ts` pins nine
+converted pages against eight rules — still deliberately a list, not a rule
+over every page.
+
+Two habits earned their place and should outlive the campaign: **positive
+injection proof** (a failed-read finding requires the interception counted, not
+inferred from what rendered — the rule module 16 cost a whole pass to learn),
+and **mutation-verifying every test**, which caught eleven decorative tests
+across the run, including one that let the exact defect it was written for pass
+straight through.
+
+---
 
 ### 2026-08-18 — Module 29, Image Playground (`/image-playground`)
 
