@@ -31,11 +31,11 @@ export function windowComplete(w: TraceWindow): boolean {
  * "N traces over the last 30 days" is a statement about the account, and a
  * capped read is only entitled to a statement about itself.
  */
-export function traceCountHeadline(w: TraceWindow): string {
+export function traceCountHeadline(w: TraceWindow, rangeLabel = "the last 30 days"): string {
   if (windowComplete(w)) {
-    return `${w.total.toLocaleString()} traces over the last 30 days`;
+    return `${w.total.toLocaleString()} traces over ${rangeLabel}`;
   }
-  return `showing the most recent ${w.fetched.toLocaleString()} of ${w.total.toLocaleString()} traces from the last 30 days`;
+  return `showing the most recent ${w.fetched.toLocaleString()} of ${w.total.toLocaleString()} traces from ${rangeLabel}`;
 }
 
 /**

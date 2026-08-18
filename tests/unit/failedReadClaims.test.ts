@@ -107,6 +107,18 @@ const CONVERTED: {
     claim: "loadError",
   },
   {
+    file: "src/routes/_authenticated/traces.tsx",
+    module: "23 — Traces & Logs",
+    what: "'1,000 traces' presented as the population, for an account holding 2,774",
+    // This page's failed-read handling was already correct (loadError, a
+    // distinct error empty-state, Retry). What it lied about was the CAP:
+    // both query paths are silently truncated to 1,000 rows by PostgREST,
+    // and the header printed the loaded window as the total. The claim it
+    // routes through is the window headline.
+    claim: ["traceCountHeadline", "windowComplete"],
+    viaServerFn: true,
+  },
+  {
     file: "src/components/observability/TeamSpend.tsx",
     module: "21 — Analytics",
     what: "the spend breakdown: 'Loading…' for ever after a failed read",

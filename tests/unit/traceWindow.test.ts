@@ -6,6 +6,8 @@
 // holding 2,731 — with spend, tokens, agent count and a 32%-biased average
 // latency all inheriting the truncation.
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   pageTraces,
   traceCountHeadline,
@@ -134,5 +136,38 @@ describe("pageTraces", () => {
     const rows = await pageTraces(fetchPage, { pageSize: 1000, maxRows: 5000 });
     expect(rows).toEqual([]);
     expect(calls).toEqual([[0, 1000]]);
+  });
+});
+
+describe("traceCountHeadline range labels (module 23)", () => {
+  it("names the active range instead of assuming 30 days", () => {
+    // /traces has a 1d/7d/30d/90d switch; a headline hardcoding "30 days"
+    // would be wrong three quarters of the time.
+    expect(traceCountHeadline({ fetched: 80, total: 80 }, "the last day")).toBe(
+      "80 traces over the last day",
+    );
+    expect(traceCountHeadline({ fetched: 1000, total: 2774 }, "the last 90 days")).toBe(
+      "showing the most recent 1,000 of 2,774 traces from the last 90 days",
+    );
+  });
+
+  it("defaults to the last 30 days so the analytics header is unchanged", () => {
+    expect(traceCountHeadline({ fetched: 2731, total: 2731 })).toBe(
+      "2,731 traces over the last 30 days",
+    );
+  });
+});
+
+describe("getExecutionTraces carries the true total (tripwire)", () => {
+  // Source tripwire, not a behavioral proof: the fn runs under createServerFn
+  // with supabaseAdmin, so executing it here would test mocks. A mutation run
+  // showed `total: traces.length` (the capped page presented as the
+  // population) survives every behavioral test — this pins the two lines that
+  // make the response honest. It can be dodged by a determined refactor; its
+  // job is to make the dodge visible in review, not impossible.
+  it("head-counts the same filter and returns count, not page length", () => {
+    const src = readFileSync(resolve("src/utils/traceLog.functions.ts"), "utf8");
+    expect(src).toMatch(/count:\s*"exact",\s*head:\s*true/);
+    expect(src).toMatch(/total:\s*count\s*\?\?\s*traces\.length/);
   });
 });

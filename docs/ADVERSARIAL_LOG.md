@@ -48,43 +48,107 @@ Never infer it from what rendered.
 
 ## Coverage map
 
-| #   | Module              | Route                      | Pass | Date       | Findings                                                                   |
-| --- | ------------------- | -------------------------- | ---- | ---------- | -------------------------------------------------------------------------- |
-| 1   | Dashboard           | `/dashboard`               | ✅ 1 | 2026-08-16 | 5 (2×S1, 1×S2, 2×S3)                                                       |
-| 2   | Documentation       | `/docs`                    | ✅ 1 | 2026-08-16 | 4 (2×S1, 1×S2, 1×S1 self-inflicted)                                        |
-| 3   | Agent Builder       | `/agents`                  | ✅ 1 | 2026-08-16 | 3 (2×S1, 1×S2)                                                             |
-| 4   | Knowledge Base      | `/knowledge`               | ✅ 1 | 2026-08-16 | 1 (1×S1)                                                                   |
-| 5   | Agent Chat          | `/playground`              | ✅ 1 | 2026-08-16 | 2 (1×S1 self-inflicted, 1×S2); guardrails verified live                    |
-| 6   | Agent Swarms        | `/swarms`                  | ✅ 1 | 2026-08-16 | 1 (1×S2)                                                                   |
-| 7   | MCP Builder         | `/mcp-builder`             | ✅ 1 | 2026-08-16 | 1 (1×S2)                                                                   |
-| 8   | AI Analyst          | `/ai-analyst`              | ✅ 1 | 2026-08-16 | 0 — held; no live turn (over budget cap)                                   |
-| 9   | Data Catalog        | `/data-sql`                | ✅ 1 | 2026-08-16 | 2 (1×S1, 1×S3)                                                             |
-| 10  | Semantic Layer      | `/semantics`               | ✅ 1 | 2026-08-16 | 1 (1×S1) + one wrong hypothesis, recorded                                  |
-| 11  | Metrics             | `/metrics`                 | ✅ 1 | 2026-08-16 | 2 (2×S2) + one hypothesis dropped                                          |
-| 12  | BI Workspace        | `/bi`                      | ✅ 1 | 2026-08-16 | 1 (1×S1) — widget count read the page-1 mirror                             |
-| 13  | Developer workspace | `/notebooks`               | ✅ 1 | 2026-08-17 | 4 (1×S1, 2×S2, 1×S3) — failed reads rendered as absence                    |
-| 14  | Prompt Library      | `/prompts`                 | ✅ 1 | 2026-08-17 | 2 (1×S1, 1×S3) — empty claim on a failed read; `#tag`                      |
-| 15  | Skill Library       | `/skills`                  | ✅ 1 | 2026-08-17 | 1 (1×S1) — same failed-read claim; guard added                             |
-| 16  | Integrations        | `/integrations`            | ✅ 2 | 2026-08-17 | 1 (1×S2) — re-audited with proof; the retracted S1 was real, at S2         |
-| 17  | Web Embedding       | `/embeds`                  | ✅ 1 | 2026-08-17 | 0 — counts exact; disable, expiry and allow-list proven                    |
-| 18  | Secrets             | `/secrets`                 | ✅ 1 | 2026-08-17 | 2 (1×S1, 1×S2) — empty claim on a failed read; skeleton for ever           |
-| 19  | MCP Servers         | `/mcp`                     | ✅ 1 | 2026-08-17 | 1 (1×S1) — derived counts read 0 on a failed read; pin was decorative      |
-| 20  | Model Registry      | `/model-registry`          | ✅ 1 | 2026-08-18 | 1 (1×S1) — four false claims, and a sync button that acts on them          |
-| 21  | Analytics           | `/analytics`               | ✅ 1 | 2026-08-18 | 3 (1×S1, 2×S2) — a silent row cap made every KPI wrong                     |
-| 22  | Swarm Traces        | `/analytics/observability` | ✅ 1 | 2026-08-18 | 2 (1×S1, 1×S2) — empty claim, and onboarding shown to an onboarded account |
-| 23  | Traces & Logs       | `/traces`                  | —    | —          | —                                                                          |
-| 24  | Audit Log           | `/audit`                   | —    | —          | —                                                                          |
-| 25  | Budgets             | `/budgets`                 | —    | —          | —                                                                          |
-| 26  | Monitoring          | `/monitoring`              | —    | —          | —                                                                          |
-| 27  | Prompt Compare      | `/prompt-compare`          | —    | —          | —                                                                          |
-| 28  | Evaluations         | `/evaluations`             | —    | —          | —                                                                          |
-| 29  | Image Playground    | `/image-playground`        | —    | —          | —                                                                          |
-| 30  | IAM                 | `/admin/iam`               | —    | —          | —                                                                          |
-| 31  | Developer runtime   | `/admin/runtime`           | —    | —          | —                                                                          |
+| #   | Module              | Route                      | Pass | Date       | Findings                                                                          |
+| --- | ------------------- | -------------------------- | ---- | ---------- | --------------------------------------------------------------------------------- |
+| 1   | Dashboard           | `/dashboard`               | ✅ 1 | 2026-08-16 | 5 (2×S1, 1×S2, 2×S3)                                                              |
+| 2   | Documentation       | `/docs`                    | ✅ 1 | 2026-08-16 | 4 (2×S1, 1×S2, 1×S1 self-inflicted)                                               |
+| 3   | Agent Builder       | `/agents`                  | ✅ 1 | 2026-08-16 | 3 (2×S1, 1×S2)                                                                    |
+| 4   | Knowledge Base      | `/knowledge`               | ✅ 1 | 2026-08-16 | 1 (1×S1)                                                                          |
+| 5   | Agent Chat          | `/playground`              | ✅ 1 | 2026-08-16 | 2 (1×S1 self-inflicted, 1×S2); guardrails verified live                           |
+| 6   | Agent Swarms        | `/swarms`                  | ✅ 1 | 2026-08-16 | 1 (1×S2)                                                                          |
+| 7   | MCP Builder         | `/mcp-builder`             | ✅ 1 | 2026-08-16 | 1 (1×S2)                                                                          |
+| 8   | AI Analyst          | `/ai-analyst`              | ✅ 1 | 2026-08-16 | 0 — held; no live turn (over budget cap)                                          |
+| 9   | Data Catalog        | `/data-sql`                | ✅ 1 | 2026-08-16 | 2 (1×S1, 1×S3)                                                                    |
+| 10  | Semantic Layer      | `/semantics`               | ✅ 1 | 2026-08-16 | 1 (1×S1) + one wrong hypothesis, recorded                                         |
+| 11  | Metrics             | `/metrics`                 | ✅ 1 | 2026-08-16 | 2 (2×S2) + one hypothesis dropped                                                 |
+| 12  | BI Workspace        | `/bi`                      | ✅ 1 | 2026-08-16 | 1 (1×S1) — widget count read the page-1 mirror                                    |
+| 13  | Developer workspace | `/notebooks`               | ✅ 1 | 2026-08-17 | 4 (1×S1, 2×S2, 1×S3) — failed reads rendered as absence                           |
+| 14  | Prompt Library      | `/prompts`                 | ✅ 1 | 2026-08-17 | 2 (1×S1, 1×S3) — empty claim on a failed read; `#tag`                             |
+| 15  | Skill Library       | `/skills`                  | ✅ 1 | 2026-08-17 | 1 (1×S1) — same failed-read claim; guard added                                    |
+| 16  | Integrations        | `/integrations`            | ✅ 2 | 2026-08-17 | 1 (1×S2) — re-audited with proof; the retracted S1 was real, at S2                |
+| 17  | Web Embedding       | `/embeds`                  | ✅ 1 | 2026-08-17 | 0 — counts exact; disable, expiry and allow-list proven                           |
+| 18  | Secrets             | `/secrets`                 | ✅ 1 | 2026-08-17 | 2 (1×S1, 1×S2) — empty claim on a failed read; skeleton for ever                  |
+| 19  | MCP Servers         | `/mcp`                     | ✅ 1 | 2026-08-17 | 1 (1×S1) — derived counts read 0 on a failed read; pin was decorative             |
+| 20  | Model Registry      | `/model-registry`          | ✅ 1 | 2026-08-18 | 1 (1×S1) — four false claims, and a sync button that acts on them                 |
+| 21  | Analytics           | `/analytics`               | ✅ 1 | 2026-08-18 | 3 (1×S1, 2×S2) — a silent row cap made every KPI wrong                            |
+| 22  | Swarm Traces        | `/analytics/observability` | ✅ 1 | 2026-08-18 | 2 (1×S1, 1×S2) — empty claim, and onboarding shown to an onboarded account        |
+| 23  | Traces & Logs       | `/traces`                  | ✅ 1 | 2026-08-18 | 1 (1×S1) — the capped page presented as the population; error paths already sound |
+| 24  | Audit Log           | `/audit`                   | —    | —          | —                                                                                 |
+| 25  | Budgets             | `/budgets`                 | —    | —          | —                                                                                 |
+| 26  | Monitoring          | `/monitoring`              | —    | —          | —                                                                                 |
+| 27  | Prompt Compare      | `/prompt-compare`          | —    | —          | —                                                                                 |
+| 28  | Evaluations         | `/evaluations`             | —    | —          | —                                                                                 |
+| 29  | Image Playground    | `/image-playground`        | —    | —          | —                                                                                 |
+| 30  | IAM                 | `/admin/iam`               | —    | —          | —                                                                                 |
+| 31  | Developer runtime   | `/admin/runtime`           | —    | —          | —                                                                                 |
 
 ## Findings
 
 <!-- newest first -->
+
+### 2026-08-18 — Module 23, Traces & Logs (`/traces`)
+
+One finding — and credit where due first: this page's failed-read handling was
+already right before the campaign got to it. `loadError` is held in state, the
+empty state distinguishes "Couldn't load traces" from "No traces yet", a Retry
+button is offered, and the detail dialog surfaces its own errors (verified
+live by corrupting the detail call's token — one interception, error shown).
+Somebody built this page to the standard the campaign enforces.
+
+#### S1 · "1,000 traces", stated as the population of an account holding 2,774
+
+Both query paths — the `getExecutionTraces` server function and its client
+fallback — carry `.limit(2000)`, and PostgREST's max-rows setting silently
+truncates both to 1,000. The header printed `filtered.length` as the total:
+
+|        | claimed          | true (90-day window) |
+| ------ | ---------------- | -------------------- |
+| header | **1,000 traces** | 2,774                |
+
+Everything derived from the loaded rows inherits the truncation: the model and
+agent filter dropdowns miss values present only in older rows, the notebook
+count, and "Page N of M · X results". This is module 21's defect on its
+sibling page — found by the same measurement, an exact head-count compared
+against the claim.
+
+#### Fixed as a window claim, not a full fetch — deliberately
+
+Module 21's fix paged through everything, because that page computes KPI
+totals and a sum over a fragment is a wrong number. This page is a **log
+browser**: rows carry full `prompt` bodies, the 1,000-row load already takes
+~25 seconds, and nobody reads 2,774 traces in a table. Completeness is not
+the goal here; an honest window is. So:
+
+- `getExecutionTraces` now returns `total` from an exact head-count running
+  beside the capped page query — the count travels with the data.
+- The header routes through `traceCountHeadline`, which learned to name its
+  range ("the last day" … "the last 90 days") instead of assuming 30:
+  truncated reads "showing the most recent 1,000 of 2,774 traces from the
+  last 90 days"; complete reads "80 traces over the last day".
+- A warning line under a truncated header says what the filters below
+  actually cover, and points at the fix: narrow the date range.
+- With client filters active the header claims only the loaded window:
+  "5 of the 1,000 loaded traces match".
+
+All four states verified live: truncated-90d, filtered, complete-1d (warning
+absent, exact "80 traces over the last day"), and restored. The 1d count was
+checked against the table rather than assumed.
+
+#### Mutations: four run, three killed, the fourth pinned as a tripwire
+
+The survivor was `total: traces.length` inside the server function — the
+capped page presented as the population, a value swap no behavioral test can
+reach without standing up `createServerFn` and `supabaseAdmin`, which would
+test mocks. It is pinned by a source tripwire that says so in its own
+comment: its job is to make the dodge visible in review, not impossible.
+Second pass: 4/4.
+
+**Tests:** traceWindow 15 → 18 (range labels + the tripwire),
+failedReadClaims gains the traces.tsx row — which passed all eight rules on
+the first run, the second page in a row already meeting the campaign's bar
+for error handling. The cap was the only lie left.
+
+---
 
 ### 2026-08-18 — Module 22, Swarm Traces (`/analytics/observability`)
 

@@ -45,7 +45,9 @@ export const getExecutionTraces = createServerFn({ method: "POST" })
   .handler(
     async ({
       data,
-    }): Promise<{ ok: true; traces: ExecutionTraceRow[] } | { ok: false; error: string }> => {
+    }): Promise<
+      { ok: true; traces: ExecutionTraceRow[]; total: number } | { ok: false; error: string }
+    > => {
       const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
       const { data: authData, error: authError } = await supabaseAdmin.auth.getUser(
@@ -57,16 +59,29 @@ export const getExecutionTraces = createServerFn({ method: "POST" })
       }
 
       const since = new Date(Date.now() - data.days * 86400000).toISOString();
-      const { data: rows, error } = await supabaseAdmin
-        .from("execution_traces")
-        .select(TRACE_LIST_COLUMNS)
-        .eq("user_id", userId)
-        .gte("created_at", since)
-        .order("created_at", { ascending: false })
-        .limit(2000);
+      // The row fetch below is silently capped by PostgREST max-rows (1,000 —
+      // the .limit(2000) never mattered), so the exact count travels with the
+      // page. MEASURED before this change: /traces told an account holding
+      // 2,773 traces in its 90-day window "1,000 traces", as a fact.
+      const [{ count, error: countError }, { data: rows, error }] = await Promise.all([
+        supabaseAdmin
+          .from("execution_traces")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", userId)
+          .gte("created_at", since),
+        supabaseAdmin
+          .from("execution_traces")
+          .select(TRACE_LIST_COLUMNS)
+          .eq("user_id", userId)
+          .gte("created_at", since)
+          .order("created_at", { ascending: false })
+          .limit(2000),
+      ]);
 
       if (error) return { ok: false, error: error.message };
-      return { ok: true, traces: (rows ?? []) as ExecutionTraceRow[] };
+      if (countError) return { ok: false, error: countError.message };
+      const traces = (rows ?? []) as ExecutionTraceRow[];
+      return { ok: true, traces, total: count ?? traces.length };
     },
   );
 

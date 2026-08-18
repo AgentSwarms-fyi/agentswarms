@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
+import { traceCountHeadline, windowComplete } from "@/lib/traceWindow";
 import { useEffect, useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { formatMs } from "@/lib/format";
@@ -64,6 +65,10 @@ function TracesPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // The exact row count for the active range. The fetch is capped (PostgREST
+  // max-rows), so without this the header presents the loaded window as the
+  // population — "1,000 traces" to an account holding 2,773.
+  const [exactTotal, setExactTotal] = useState(0);
 
   const load = async () => {
     setLoading(true);
@@ -81,6 +86,7 @@ function TracesPage() {
       const result = await fetchTraces({ data: { accessToken: session.access_token, days } });
       if (result.ok) {
         setTraces(result.traces as Trace[]);
+        setExactTotal(result.total);
       } else {
         throw new Error(result.error);
       }
@@ -99,6 +105,14 @@ function TracesPage() {
         setTraces([]);
       } else {
         setTraces((data ?? []) as Trace[]);
+        // Fallback path: same honesty, from the client. A failed count is not
+        // worth failing the page over — rows on screen beat a perfect label —
+        // but then the label claims only what it holds.
+        const { count } = await supabase
+          .from("execution_traces")
+          .select("id", { count: "exact", head: true })
+          .gte("created_at", since);
+        setExactTotal(count ?? (data ?? []).length);
       }
     }
     setLoading(false);
@@ -215,6 +229,16 @@ function TracesPage() {
 
   const paged = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const hasClientFilters =
+    search.trim() !== "" || modelFilter !== "all" || agentFilter !== "all" || notebooksOnly;
+  const rangeLabel =
+    rangeFilter === "1d"
+      ? "the last day"
+      : rangeFilter === "7d"
+        ? "the last 7 days"
+        : rangeFilter === "30d"
+          ? "the last 30 days"
+          : "the last 90 days";
 
   useEffect(() => {
     setPage(0);
@@ -265,8 +289,17 @@ function TracesPage() {
           </p>
           <h1 className="font-display text-3xl font-semibold tracking-tight">Traces & Logs</h1>
           <p className="text-muted-foreground mt-1">
-            {filtered.length.toLocaleString()} traces · click any row for details
+            {hasClientFilters
+              ? `${filtered.length.toLocaleString()} of the ${traces.length.toLocaleString()} loaded traces match · click any row for details`
+              : `${traceCountHeadline({ fetched: traces.length, total: exactTotal }, rangeLabel)} · click any row for details`}
           </p>
+          {!windowComplete({ fetched: traces.length, total: exactTotal }) && (
+            <p className="mt-0.5 text-xs text-warning">
+              Only the most recent {traces.length.toLocaleString()} are loaded — filters and counts
+              below cover these, not all {exactTotal.toLocaleString()}. Narrow the date range for a
+              complete window.
+            </p>
+          )}
         </div>
       </div>
 
