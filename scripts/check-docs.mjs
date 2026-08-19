@@ -152,6 +152,16 @@ for (const f of DOCS) {
       fail("unknown tool id", `${page}: ${m[1]}`);
   }
 
+  // Where a page promises the whole list, it has to be the whole list. Core
+  // concepts introduced seven of the eleven tools under "Tools available
+  // here", which reads as complete and quietly taught that four do not exist.
+  if (page === "concepts") {
+    const seg = src.slice(src.indexOf('<H2 id="tools">'), src.indexOf('<H2 id="retrieval">'));
+    const listed = new Set([...seg.matchAll(/<C[^>]*>([a-z][a-z0-9_]+)<\/C>/g)].map((m) => m[1]));
+    const absent = [...toolIds].filter((t) => !listed.has(t));
+    if (absent.length) fail("incomplete tool table", `${page}: missing ${absent.join(", ")}`);
+  }
+
   // Endpoints must resolve to a route file, allowing for path params written
   // as a placeholder.
   for (const m of src.matchAll(/\/api\/[a-z0-9/._$-]+/g)) {

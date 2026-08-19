@@ -132,6 +132,26 @@ function ConceptsPage() {
             "Arithmetic",
             "Any arithmetic at all — never let the model do it in its head",
           ],
+          [
+            <C key="h">kb_graph_search</C>,
+            "Multi-hop search over entities and their relationships",
+            "The answer joins facts across documents rather than sitting in one passage",
+          ],
+          [
+            <C key="i">datetime</C>,
+            "The current date and time, in any timezone",
+            'Anything relative — "this quarter", "overdue" — since a model has no clock',
+          ],
+          [
+            <C key="j">weather</C>,
+            "Current conditions and a short forecast",
+            "Weather genuinely bears on the answer",
+          ],
+          [
+            <C key="k">n8n_run_workflow</C>,
+            "Triggers a workflow on your n8n instance",
+            "The agent must make something happen elsewhere, not just report",
+          ],
         ]}
       />
       <Callout kind="why">
