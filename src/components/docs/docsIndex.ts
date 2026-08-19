@@ -747,6 +747,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "SELECT",
       "aggregate",
       "all",
+      "amount",
       "append",
       "boolean",
       "calc",
@@ -763,8 +764,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "integer",
       "list_aggregate",
       "location",
+      "order_id",
+      "order_month",
       "percent",
       "pivot",
+      "product",
       "regexp_extract",
       "replace",
       "split",
@@ -802,6 +806,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "filter-ops",
         "text": "Filter operators",
         "level": 3
+      },
+      {
+        "id": "worked",
+        "text": "Worked example — a messy export to a monthly table",
+        "level": 2
       },
       {
         "id": "save-refresh",

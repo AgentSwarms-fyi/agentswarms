@@ -124,8 +124,14 @@ function SidebarLinks({ current }: { current: string }) {
               const active = item.to === current;
               return (
                 <li key={item.to}>
+                  {/* TanStack's Link sets aria-current="page" itself, and by
+                      default it fuzzy-matches — /docs is a parent of every
+                      docs route, so Introduction announced itself as the
+                      current page from everywhere. exact makes the built-in
+                      announcement agree with the visual highlight. */}
                   <Link
                     to={item.to}
+                    activeOptions={{ exact: true }}
                     className={
                       "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition " +
                       (active
@@ -166,7 +172,7 @@ export function DocsSidebar({ current }: { current: string }) {
           </span>
           <ChevronDown
             className={cn(
-              "h-4 w-4 text-muted-foreground transition-transform",
+              "h-4 w-4 text-muted-foreground transition-transform motion-reduce:transition-none",
               mobileOpen && "rotate-180",
             )}
           />
@@ -294,8 +300,9 @@ export function DocsToc({ pathname }: { pathname: string }) {
           <li key={h.id}>
             <a
               href={`#${h.id}`}
+              aria-current={activeId === h.id ? "location" : undefined}
               className={cn(
-                "-ml-px block border-l py-0.5 leading-snug transition",
+                "-ml-px block border-l py-0.5 leading-snug transition motion-reduce:transition-none",
                 h.level === 3 ? "pl-6 text-[12px]" : "pl-3 text-[13px]",
                 activeId === h.id
                   ? "border-primary font-medium text-foreground"
@@ -332,7 +339,7 @@ export function DocsTocCompact({ pathname }: { pathname: string }) {
   if (headings.length < 2) return null;
 
   return (
-    <nav aria-label="On this page" className="mb-6 xl:hidden">
+    <nav aria-label="On this page" className="mb-6 print:hidden xl:hidden">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -345,7 +352,10 @@ export function DocsTocCompact({ pathname }: { pathname: string }) {
           <span className="text-xs font-normal text-muted-foreground">({headings.length})</span>
         </span>
         <ChevronDown
-          className={cn("h-4 w-4 text-muted-foreground transition-transform", open && "rotate-180")}
+          className={cn(
+            "h-4 w-4 text-muted-foreground transition-transform motion-reduce:transition-none",
+            open && "rotate-180",
+          )}
         />
       </button>
       {open && (

@@ -49,14 +49,21 @@ function DocsLayout() {
           being completely hidden behind the bar. */}
       <a
         href="#docs-content"
-        className="fixed left-4 top-[-100px] z-[60] rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-[top] focus:top-4"
+        className="fixed left-4 top-[-100px] z-[60] rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-[top] focus:top-4 motion-reduce:transition-none print:hidden"
       >
         Skip to content
       </a>
-      <SiteHeader />
+      {/* Printing a doc page should produce the article, not the app chrome
+          around it. The header, both rails, the search box and the footer all
+          carry print:hidden (the shared components are wrapped here rather
+          than edited, since only the docs make this call), and the grid
+          collapses to one column so the article uses the page. */}
+      <div className="print:hidden">
+        <SiteHeader />
+      </div>
       <div className="mx-auto max-w-7xl px-6 py-12">
-        <div className="grid gap-10 lg:grid-cols-[240px_minmax(0,1fr)] xl:grid-cols-[240px_minmax(0,1fr)_180px]">
-          <aside className="lg:sticky lg:top-20 lg:self-start">
+        <div className="grid gap-10 print:block lg:grid-cols-[240px_minmax(0,1fr)] xl:grid-cols-[240px_minmax(0,1fr)_180px]">
+          <aside className="print:hidden lg:sticky lg:top-20 lg:self-start">
             <DocsSidebar current={current} />
           </aside>
           {/* min-w-0 is load-bearing. A grid item defaults to min-width:auto,
@@ -78,12 +85,14 @@ function DocsLayout() {
             <DocsTocCompact pathname={current} />
             <Outlet />
           </article>
-          <aside className="hidden xl:sticky xl:top-20 xl:block xl:self-start">
+          <aside className="hidden print:hidden xl:sticky xl:top-20 xl:block xl:self-start">
             <DocsToc pathname={current} />
           </aside>
         </div>
       </div>
-      <SiteFooter />
+      <div className="print:hidden">
+        <SiteFooter />
+      </div>
     </div>
   );
 }
