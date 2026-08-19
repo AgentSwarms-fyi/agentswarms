@@ -402,6 +402,107 @@ LEFT JOIN semantic_prev ON semantic_cur."month" IS NOT DISTINCT FROM semantic_pr
         <em>&ldquo;first 50 row(s) of a LARGER result&rdquo;</em> instead of a silent partial list.
       </P>
 
+      <H2 id="worked">Worked example — one model, start to finish</H2>
+      <P>
+        Every piece above in one place, built in the order you would actually build it. The
+        situation: an <C>orders</C> table, a <C>customers</C> table, and a finance team that has
+        been arguing about what "revenue" means because three dashboards compute it three ways.
+      </P>
+
+      <H3 id="worked-1">1. Start from the fact table and one metric</H3>
+      <P>
+        Resist modelling everything. One metric that replaces a disputed number is worth more than
+        twenty nobody asked for, and it is how you find out whether the grain is what you assumed.
+      </P>
+      <Code lang="Model">{`source table:  orders
+grain:         one row per order
+
+metric  net_revenue
+  agg      sum
+  sql      amount
+  filters  status = 'settled', is_refund = false
+  format   currency
+  label    Net revenue`}</Code>
+      <P>
+        The filters are the whole point. "Revenue" was ambiguous because each dashboard remembered a
+        different subset of them; written here once, every consumer inherits the same definition.
+      </P>
+
+      <H3 id="worked-2">2. Add the dimensions people slice by</H3>
+      <Code lang="Dimensions">{`dimension  order_month   type time    sql date_trunc('month', created_at)
+dimension  region        type string  sql region
+dimension  segment       type string  sql customers.segment   -- needs the join below`}</Code>
+      <P>
+        Add dimensions that answer questions people ask, not every column that exists. Each one is
+        something the agent may group by, and a catalogue full of noise makes it choose worse — the
+        selected model's catalogue goes into the prompt on every call.
+      </P>
+
+      <H3 id="worked-3">3. Join the dimension table</H3>
+      <Code lang="Join">{`join  customers
+  type  LEFT
+  on    orders.customer_id = customers.id
+  card  many_to_one`}</Code>
+      <Callout kind="warn" title="The cardinality is a promise, and it is checked">
+        Declaring <C>many_to_one</C> asserts that each order matches at most one customer. If it is
+        wrong — a customers table with duplicate ids — the join multiplies order rows and{" "}
+        <C>net_revenue</C> silently doubles. That is the fan-out this layer refuses rather than
+        computes, which is exactly why the declaration exists instead of being inferred.
+      </Callout>
+
+      <H3 id="worked-4">4. State the grain, so a wrong join fails loudly</H3>
+      <Code lang="Trust checks">{`grain assertion:  order_id is unique
+measurement:      net_revenue is additive over time and region`}</Code>
+      <P>
+        These are what turn a modelling mistake into an error message instead of a number that is
+        merely wrong. Without the grain assertion, the duplicated-customer case above produces a
+        confident, doubled figure and nothing to notice.
+      </P>
+
+      <H3 id="worked-5">5. Add the derived metric that caused the argument</H3>
+      <Code lang="Derived metric">{`metric  average_order_value
+  agg      derived
+  sql      {net_revenue} / NULLIF({order_count}, 0)
+  format   currency
+
+metric  order_count
+  agg      count`}</Code>
+      <Callout kind="why" title="Why a derived metric rather than one SQL expression">
+        Written as <C>SUM(amount) / COUNT(*)</C> it is a new definition of revenue that nobody
+        reviewed — and one that quietly disagrees with <C>net_revenue</C>, because it forgot the
+        settled-and-not-refunded filters. Referencing <C>{"{net_revenue}"}</C> means there is one
+        definition of revenue in the system, and average order value cannot drift from it. The{" "}
+        <C>NULLIF</C> is not decoration: a month with no orders divides by zero otherwise.
+      </Callout>
+
+      <H3 id="worked-6">6. Check what the agent will see</H3>
+      <P>
+        Open the agent catalogue view. It should read like a menu a human could use — clear labels,
+        synonyms for the words your team actually says (<em>"turnover"</em>, <em>"sales"</em>), and
+        honest row counts. Then ask the analyst something the model covers and read the compiled
+        SQL: the filters should be there, the join should be there, and the badge should say the
+        answer came from the governed model rather than hand-written SQL.
+      </P>
+
+      <H3 id="worked-7">7. Certify it, then share it</H3>
+      <P>
+        Mark the model <C>certified</C> once the numbers have been checked by someone who owns them,
+        and share it with row-level security if different readers should see different slices — a
+        single grant filtered by <C>{"{{user.region}}"}</C> scopes every member of a group to their
+        own region. See{" "}
+        <DocLink to="/docs/iam" hash="attributes">
+          user attributes
+        </DocLink>
+        .
+      </P>
+      <Callout kind="info" title="What you have now">
+        One place where revenue is defined, a join whose shape is asserted rather than hoped for, a
+        derived metric that cannot drift from its parent, and an agent that answers with the finance
+        team's definition instead of inventing a plausible one per question. The dashboards that
+        disagreed can now be pointed at the same metric — which is the argument ending, not a report
+        about it.
+      </Callout>
+
       <H2 id="consumers">Who uses it</H2>
       <Table
         headers={["Consumer", "How"]}
