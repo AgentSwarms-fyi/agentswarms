@@ -82,6 +82,25 @@ function IntroductionPage() {
 
       <H2 id="by-job">Find it by what you're doing</H2>
 
+      <H3 id="orient">Get oriented</H3>
+      <Table
+        headers={["Page", "Covers"]}
+        rows={[
+          [
+            <DocLink key="a" to="/docs/dashboard">
+              Dashboard
+            </DocLink>,
+            "The screen you land on: quick actions, workspace stats, spend by person or team, activity, recent runs — and what to do first on an empty workspace.",
+          ],
+          [
+            <DocLink key="b" to="/docs/account">
+              Account
+            </DocLink>,
+            "Your identity and credentials, what belongs to your account, and what happens to it when you leave. Spend caps live in Budgets.",
+          ],
+        ]}
+      />
+
       <H3 id="build">Build something</H3>
       <Table
         headers={["Page", "Covers"]}
