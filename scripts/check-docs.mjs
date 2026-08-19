@@ -295,6 +295,21 @@ for (const f of DOCS) {
     }
   }
 
+  // Every widget the BI picker offers should appear on the BI page. The two
+  // that plot nothing — a Markdown text block and an image — were missing for
+  // exactly the reason they are easy to miss: the page is organised around
+  // chart types, and these are not charts.
+  if (page === "bi") {
+    const meta = read("src/lib/biVizMeta.ts");
+    const seg = meta.slice(
+      meta.indexOf("VIZ_REQUIREMENTS"),
+      meta.indexOf("\n};", meta.indexOf("VIZ_REQUIREMENTS")),
+    );
+    const widgets = [...new Set([...seg.matchAll(/^\s{2}([a-z_]+):\s*\{/gm)].map((m) => m[1]))];
+    const absent = widgets.filter((w) => !new RegExp(`<C[^>]*>${w}</C>`).test(src));
+    if (absent.length) fail("undocumented widget", `${page}: ${absent.join(", ")}`);
+  }
+
   // Tool ids named in prose must exist in the registry.
   for (const m of src.matchAll(/<C[^>]*>([a-z][a-z0-9_]{3,})<\/C>/g)) {
     if (/^(kb|web|mcp|sql|metric|n8n)_/.test(m[1]) && !toolIds.has(m[1]))
