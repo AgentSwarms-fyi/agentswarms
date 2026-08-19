@@ -34,6 +34,7 @@ import {
   Info,
   AlertTriangle,
   Lightbulb,
+  List,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -186,18 +187,17 @@ export function DocsSidebar({ current }: { current: string }) {
   );
 }
 
+type Heading = { id: string; text: string; level: number };
+
 /**
- * "On this page" rail. Scans the rendered article for h2[id] and h3[id] after
- * mount and tracks the one currently in view — no per-page wiring needed.
+ * The page's headings plus whichever is currently in view.
  *
- * H3s are included because leaving them out hid 143 subsections across these
- * pages — 42% of every heading written, each already carrying an id and so
- * already linkable, just unreachable from the rail. On the long pages that is
- * the difference between a rail that navigates the page and one that lists its
- * chapter titles: /docs/swarms has 11 H2s and 19 H3s.
+ * Shared so the sticky rail and the collapsible version below cannot drift:
+ * they are the same list rendered twice at different widths, and a second
+ * implementation would eventually disagree about what counts as a section.
  */
-export function DocsToc({ pathname }: { pathname: string }) {
-  const [headings, setHeadings] = useState<{ id: string; text: string; level: number }[]>([]);
+function useHeadings(pathname: string): { headings: Heading[]; activeId: string | null } {
+  const [headings, setHeadings] = useState<Heading[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -236,6 +236,21 @@ export function DocsToc({ pathname }: { pathname: string }) {
     return () => observer.disconnect();
   }, [pathname]);
 
+  return { headings, activeId };
+}
+
+/**
+ * "On this page" rail, shown from xl up where there is a third column for it.
+ *
+ * H3s are included because leaving them out hid 143 subsections across these
+ * pages — 42% of every heading written, each already carrying an id and so
+ * already linkable, just unreachable from the rail. On the long pages that is
+ * the difference between a rail that navigates the page and one that lists its
+ * chapter titles: /docs/swarms has 11 H2s and 19 H3s.
+ */
+export function DocsToc({ pathname }: { pathname: string }) {
+  const { headings, activeId } = useHeadings(pathname);
+
   if (headings.length < 2) return null;
 
   return (
@@ -261,6 +276,65 @@ export function DocsToc({ pathname }: { pathname: string }) {
           </li>
         ))}
       </ul>
+    </nav>
+  );
+}
+
+/**
+ * The same "on this page" list, as a disclosure for screens too narrow for the
+ * sticky rail — which is everything below xl, i.e. every phone and tablet and
+ * a split-screen laptop window.
+ *
+ * Worth having because the rail is not decoration on these pages: /docs/swarms
+ * lists thirty sections, and without this a reader on a tablet had no way to
+ * reach any of them except scrolling. Collapsed by default so it costs one
+ * line above the article, and closes on selection so the page is not left with
+ * a panel covering what was just jumped to.
+ */
+export function DocsTocCompact({ pathname }: { pathname: string }) {
+  const { headings } = useHeadings(pathname);
+  const [open, setOpen] = useState(false);
+
+  // Reset when navigating: a panel left open from the previous page is noise.
+  useEffect(() => setOpen(false), [pathname]);
+
+  if (headings.length < 2) return null;
+
+  return (
+    <nav aria-label="On this page" className="mb-6 xl:hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between rounded-xl border border-border/50 bg-card/40 px-3 py-2.5 text-sm"
+      >
+        <span className="flex items-center gap-2 font-medium text-foreground">
+          <List className="h-4 w-4 text-primary" />
+          On this page
+          <span className="text-xs font-normal text-muted-foreground">({headings.length})</span>
+        </span>
+        <ChevronDown
+          className={cn("h-4 w-4 text-muted-foreground transition-transform", open && "rotate-180")}
+        />
+      </button>
+      {open && (
+        <ul className="mt-2 max-h-[50vh] space-y-1 overflow-y-auto rounded-xl border border-border/50 bg-card/40 p-3">
+          {headings.map((h) => (
+            <li key={h.id}>
+              <a
+                href={`#${h.id}`}
+                onClick={() => setOpen(false)}
+                className={cn(
+                  "block rounded py-1 leading-snug text-muted-foreground hover:text-foreground",
+                  h.level === 3 ? "pl-4 text-[12px]" : "text-[13px]",
+                )}
+              >
+                {h.text}
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
     </nav>
   );
 }

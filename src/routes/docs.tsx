@@ -1,6 +1,6 @@
 import { createFileRoute, Outlet, useLocation } from "@tanstack/react-router";
 import { SiteFooter, SiteHeader } from "@/components/SiteChrome";
-import { DocsSidebar, DocsToc } from "@/components/docs/DocsShell";
+import { DocsSidebar, DocsToc, DocsTocCompact } from "@/components/docs/DocsShell";
 
 export const Route = createFileRoute("/docs")({
   head: () => ({
@@ -46,6 +46,7 @@ function DocsLayout() {
               sideways on a phone, with the tables' own overflow-x never
               engaging because their container was never constrained. */}
           <article className="min-w-0 max-w-none">
+            <DocsTocCompact pathname={current} />
             <Outlet />
           </article>
           <aside className="hidden xl:sticky xl:top-20 xl:block xl:self-start">
