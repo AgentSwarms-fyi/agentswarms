@@ -37,7 +37,15 @@ function DocsLayout() {
           <aside className="lg:sticky lg:top-20 lg:self-start">
             <DocsSidebar current={current} />
           </aside>
-          <article className="max-w-none">
+          {/* min-w-0 is load-bearing. A grid item defaults to min-width:auto,
+              so this column cannot shrink below its widest child — and the
+              reference tables carry min-w-[32rem] so they stay readable. The
+              desktop template already says minmax(0,1fr) for exactly this
+              reason, but that only applies from lg up; below it the single
+              column took the tables' width and every docs page scrolled
+              sideways on a phone, with the tables' own overflow-x never
+              engaging because their container was never constrained. */}
+          <article className="min-w-0 max-w-none">
             <Outlet />
           </article>
           <aside className="hidden xl:sticky xl:top-20 xl:block xl:self-start">
