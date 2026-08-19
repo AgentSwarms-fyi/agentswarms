@@ -6,6 +6,7 @@ import {
   DocsHeader,
   FieldList,
   H2,
+  H3,
   NextPrev,
   Note,
   P,
@@ -209,6 +210,58 @@ function DebuggingDoc() {
         triggered through the API are traced identically and attributed to the key that started
         them.
       </P>
+
+      <H3 id="swarm-inspector">Reading a run: three views, then one step</H3>
+      <P>
+        Open a run from <strong>Observability → Swarm Traces</strong>. The run itself has three
+        views, and they answer different questions — reaching for the wrong one is why a trace can
+        feel unreadable.
+      </P>
+      <Table
+        headers={["View", "Answers"]}
+        rows={[
+          [
+            "Canvas",
+            "Which path did the run actually take? The graph you built, with the nodes that ran marked on it — the fastest way to see a branch not taken or a node skipped.",
+          ],
+          [
+            "Timeline",
+            "What happened, in order, and what did each step cost? One row per step. Click a row to open it.",
+          ],
+          [
+            "Data flow",
+            "Which edges fired, and what moved along them. The count in the tab label is the number of edges that carried anything; zero means nothing flowed, which is itself the answer when a downstream node saw no input.",
+          ],
+        ]}
+      />
+      <P>
+        Clicking a step opens it with its status, latency, tokens in/out and cost at the top, then
+        seven tabs holding exactly what that step saw and produced:
+      </P>
+      <Table
+        headers={["Tab", "Contents"]}
+        rows={[
+          [
+            "Input",
+            "The step's input, as JSON — what it was actually given, not what you intended.",
+          ],
+          ["Output", "What it returned."],
+          ["Thinking", "Reasoning text, where the model emitted any."],
+          ["Tools", "Tool calls with their arguments and results."],
+          ["Memory", "The memory read into this step."],
+          [
+            "RAG",
+            "The retrieved chunks — the ones in the prompt, so an answer citing nothing shows an empty list here.",
+          ],
+          ["Error", "The failure message, when the step failed."],
+        ]}
+      />
+      <Callout kind="why" title="Start at Input, not Output">
+        A step that produced something wrong is usually a step that was given something wrong, and
+        the Input tab settles that in one look. Working backwards from Output invites you to fix the
+        prompt of a node whose real problem is upstream — the node before it wrote the wrong thing
+        to flow state, and every node after inherits it.
+      </Callout>
 
       <H2 id="prompt-bodies">Retention, and what a regulated tenant can turn off</H2>
       <P>

@@ -89,6 +89,15 @@ function KnowledgePage() {
         private repositories the token can read.
       </P>
 
+      <H3 id="s-manual">Pasted text</H3>
+      <P>
+        The <strong>Manual</strong> tab takes a name and a body of text typed or pasted straight
+        into the form — no file, no URL. It is the quickest way to add something that exists only in
+        someone's head or in a chat thread: a support answer, an internal convention, a correction
+        to a document you cannot edit. The text is chunked and embedded exactly like an uploaded
+        file, so it is searchable on the same terms as everything else in the collection.
+      </P>
+
       <H3 id="s-connectors">Connected services — Drive, Notion, SharePoint, Dropbox</H3>
       <P>
         <strong>Connect</strong> opens a wizard for four providers. Credentials are pasted tokens
@@ -225,10 +234,13 @@ question ──▶ embed ──▶ nearest chunks ──▶ pasted into the prom
         existing ones across.
       </Callout>
       <Callout kind="info">
-        The vector store is fixed at <strong>1536 dimensions</strong>. A model must be able to emit
-        that width — the OpenAI <C>text-embedding-3-*</C> models truncate to any size on request. If
-        a model returns a different width the embed fails with a message saying so rather than
-        writing unusable vectors.
+        The vector store is <strong>Supabase pgvector</strong> — the only option, and already
+        configured; there is nothing to connect and no external vector database to run. Every
+        collection shares one column with an HNSW cosine index, so it is fixed at{" "}
+        <strong>1536 dimensions</strong>. A model must be able to emit that width — the OpenAI{" "}
+        <C>text-embedding-3-*</C> models truncate to any size on request. If a model returns a
+        different width the embed fails with a message saying so rather than writing unusable
+        vectors.
       </Callout>
       <P>
         The OpenRouter default is <C>openai/text-embedding-3-small</C> because it is the{" "}
