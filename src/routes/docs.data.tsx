@@ -74,6 +74,76 @@ function DataPage() {
         Open <strong>Data &amp; BI → Data Catalog</strong>.
       </P>
 
+      <H2 id="choosing">Which kind of source do you want?</H2>
+      <P>
+        There are four ways to get data in here and they are not interchangeable. Picking the wrong
+        one is recoverable but tedious — a CSV uploaded monthly by hand is a warehouse connection
+        nobody made, and a warehouse connected for a one-off question is a credential you now have
+        to look after.
+      </P>
+      <Table
+        headers={["", "Where the data lives", "Freshness", "Reach for it when"]}
+        rows={[
+          [
+            <strong key="a">Upload a file</strong>,
+            "Copied in, as a local dataset",
+            "Frozen at upload — re-upload to update",
+            "A one-off analysis, a hand-maintained list, or anything that has no system behind it. Fastest path from nothing to a chart.",
+          ],
+          [
+            <strong key="b">Connect a database</strong>,
+            "Stays where it is; queried in place",
+            "Live — every query hits the source",
+            "The data already lives in a system of record and must not go stale. This is the default for anything a business actually runs on.",
+          ],
+          [
+            <strong key="c">Connect an app</strong>,
+            "Pulled into local datasets on a schedule",
+            "As fresh as the sync interval",
+            "Stripe, Shopify, HubSpot, Salesforce, Google Sheets — SaaS tools with no query language of their own.",
+          ],
+          [
+            <strong key="d">Crawl a bucket</strong>,
+            "Stays in object storage; read per query",
+            "Live, per file",
+            "Files someone else drops into S3-compatible storage — exports, logs, partitioned Parquet.",
+          ],
+        ]}
+      />
+      <Callout kind="why" title="Queried in place versus pulled in is the real distinction">
+        A database connection sends your question to the database. An app source cannot — SaaS APIs
+        have no query language — so those rows are copied here on a schedule and behave exactly like
+        an uploaded file afterwards. That is why apps have a sync interval and databases do not, and
+        why a question about "right now" is answered honestly by one and approximately by the other.
+      </Callout>
+      <Table
+        headers={["Also worth knowing", ""]}
+        rows={[
+          [
+            "Uploads have a ceiling",
+            <>
+              500,000 rows per dataset (<C key="u">UPLOAD_MAX_ROWS</C>). Past that you want a
+              database connection rather than a bigger file.
+            </>,
+          ],
+          [
+            "Connections are read-only",
+            "The drivers accept a single SELECT-shaped statement and reject writes and DDL before execution. Still connect with a read-only account — the warehouse's own permissions are the real boundary, and this is the belt to that braces.",
+          ],
+          [
+            "Bucket queries are not pushed down",
+            <>
+              Files are read up to 50,000 rows each and the query runs here, so a filter does not
+              reduce what is fetched. Fine for exports; not a substitute for a warehouse.
+            </>,
+          ],
+          [
+            "You can mix them",
+            "The catalog describes all four the same way, and the SQL workbench and agents treat a synced app table exactly like an uploaded one. Start with an upload to prove the question is worth answering, then connect the real source.",
+          ],
+        ]}
+      />
+
       {/* ── LOCAL ── */}
       <H2 id="local-tables">Local tables</H2>
       <Steps
