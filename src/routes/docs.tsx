@@ -31,6 +31,28 @@ function DocsLayout() {
   const current = pathname.replace(/\/$/, "") || "/docs";
   return (
     <div className="min-h-screen bg-background text-foreground">
+      {/* First tabbable element on the page. From lg up the sidebar rail
+          renders all twenty-seven doc links, so without this a keyboard reader
+          tabs past roughly thirty-three controls to reach the article — on
+          every page, every time.
+
+          Parked off-screen and moved in on focus, rather than sr-only: this
+          project is on Tailwind v4, where sr-only hides with
+          clip-path: inset(50%) that focus:not-sr-only does not undo, so the
+          link took focus while staying a 1px sliver.
+
+          fixed, not absolute — with no positioned ancestor, absolute resolves
+          against the document, so once the reader had scrolled the link
+          appeared far above the viewport. And z-[60], because the sticky site
+          header is z-50 and comes later in the DOM: at equal z-index it
+          painted straight over the link, which then measured as visible while
+          being completely hidden behind the bar. */}
+      <a
+        href="#docs-content"
+        className="fixed left-4 top-[-100px] z-[60] rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-[top] focus:top-4"
+      >
+        Skip to content
+      </a>
       <SiteHeader />
       <div className="mx-auto max-w-7xl px-6 py-12">
         <div className="grid gap-10 lg:grid-cols-[240px_minmax(0,1fr)] xl:grid-cols-[240px_minmax(0,1fr)_180px]">
@@ -45,7 +67,14 @@ function DocsLayout() {
               column took the tables' width and every docs page scrolled
               sideways on a phone, with the tables' own overflow-x never
               engaging because their container was never constrained. */}
-          <article className="min-w-0 max-w-none">
+          {/* tabIndex -1 so the skip link can move focus here, not merely
+              scroll — otherwise the next Tab continues from the header and the
+              link has saved nothing. */}
+          <article
+            id="docs-content"
+            tabIndex={-1}
+            className="min-w-0 max-w-none focus:outline-none"
+          >
             <DocsTocCompact pathname={current} />
             <Outlet />
           </article>
