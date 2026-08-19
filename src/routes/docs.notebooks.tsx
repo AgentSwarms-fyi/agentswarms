@@ -170,7 +170,46 @@ function NotebooksDoc() {
         The Developer workspace is the free-form counterpart to the rest of the platform: sketch a
         pattern here in Python with real model calls and retrieval, then rebuild it as a durable,
         deployable system on the <DocLink to="/docs/swarms">Swarm Canvas</DocLink> and in{" "}
-        <DocLink to="/agents">Agent Builder</DocLink>.
+        <DocLink to="/docs/agents">Agent Builder</DocLink>.
+      </P>
+
+      <H3 id="which-surface">Notebook, agent, or swarm?</H3>
+      <P>
+        All three call the same models against the same knowledge bases under the same governance,
+        so the choice is not about capability. It is about what you want to exist afterwards.
+      </P>
+      <Table
+        headers={["Reach for", "When", "What you end up with"]}
+        rows={[
+          [
+            <strong key="a">A notebook</strong>,
+            "You are working something out — does this retrieval strategy help, does this prompt hold up on twenty real inputs, what does this API actually return.",
+            "Code and its output, kept as a record. Nothing runs unless you press run.",
+          ],
+          [
+            <strong key="b">An agent</strong>,
+            "The thing works and someone other than you should be able to use it, by typing at it.",
+            "A durable, governed surface with tools, retrieval, guardrails and traces.",
+          ],
+          [
+            <strong key="c">A swarm</strong>,
+            "The work has stages that need different tools, a checkpoint before something irreversible, or branches that can run at once.",
+            "A graph that survives restarts, parks at approvals, and can be triggered by API or schedule.",
+          ],
+        ]}
+      />
+      <Callout kind="why" title="Sketch here, then rebuild — do not deploy the sketch">
+        A notebook is deliberately the least durable of the three: it holds no conversation state,
+        applies no guardrails of its own, and does exactly what its cells say in the order you ran
+        them. That is what makes it good for figuring something out and wrong as the thing your
+        colleagues depend on. The usual arc is to prove a pattern here against real data, then
+        rebuild it as an agent or a swarm — and publishing a notebook as an API is for the case
+        where the Python <em>is</em> the product, not a shortcut past that rebuild.
+      </Callout>
+      <P>
+        The one thing a notebook can do that the others cannot is arbitrary Python — a library with
+        no tool wrapper, a bespoke transformation, a chart nobody has built a widget for. When that
+        is the actual requirement, the notebook is the answer rather than the sketch.
       </P>
 
       <H2 id="runtimes">There is one runtime, and it is off by default</H2>

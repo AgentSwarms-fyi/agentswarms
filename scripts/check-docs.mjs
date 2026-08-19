@@ -67,6 +67,29 @@ const toolIds = new Set(
     ?.map((s) => s.replace(/"/g, "")) ?? [],
 );
 
+/** Signed-in app screens, e.g. /traces — docs deep-link into these. */
+const appRoutes = new Set(
+  fs
+    .readdirSync(path.join(ROUTES, "_authenticated"))
+    .filter((f) => f.endsWith(".tsx"))
+    .map(
+      (f) =>
+        "/" +
+        f
+          .replace(/\.tsx$/, "")
+          .replace(/_\./g, "/")
+          .replace(/\./g, "/"),
+    ),
+);
+
+/** Public pages, e.g. /engine-check. */
+const publicRoutes = new Set(
+  fs
+    .readdirSync(ROUTES)
+    .filter((f) => f.endsWith(".tsx") && !/^docs|^_/.test(f))
+    .map((f) => "/" + f.replace(/\.tsx$/, "").replace(/\./g, "/")),
+);
+
 const apiRoutes = new Set(
   fs
     .readdirSync(path.join(ROUTES, "api"))
@@ -114,6 +137,15 @@ for (const f of DOCS) {
   for (const m of src.matchAll(/\bto="(\/docs[^"]*)"/g)) {
     const route = m[1].split("#")[0];
     if (!docRoutes.has(route)) fail("dead link", `${page}: ${m[1]}`);
+  }
+
+  // Docs also link straight into the app — "open /traces" — and those were
+  // unchecked because they do not start with /docs. Same failure, different
+  // prefix: the route gets renamed and the link rots.
+  for (const m of src.matchAll(/<DocLink[^>]*to="(\/[a-z0-9-]+)"/g)) {
+    const t = m[1];
+    if (t.startsWith("/docs")) continue;
+    if (!appRoutes.has(t) && !publicRoutes.has(t)) fail("dead app link", `${page}: ${t}`);
   }
   for (const [route, hash] of links) {
     const ids = idsOf(route);
