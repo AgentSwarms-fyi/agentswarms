@@ -495,6 +495,104 @@ name: is_urgent       type: boolean  "True if they mention a deadline"`}</Code>
       </Callout>
 
       {/* ── WORKED EXAMPLE ── */}
+
+      <H2 id="patterns">Patterns that recur</H2>
+      <P>
+        Almost every working swarm is one of a handful of shapes, or two of them joined. Recognising
+        which one you are building tells you what to watch for, because each fails in its own way.
+      </P>
+      <Callout kind="why" title="First check you need a graph at all">
+        A swarm earns its complexity when the jobs need <em>different tools</em>, when a step must
+        be <em>checked before it continues</em>, or when work can genuinely happen{" "}
+        <em>in parallel</em>. If none of those is true, one good agent is easier to write, cheaper
+        to run and far easier to debug — every hop is somewhere context gets summarised away. See{" "}
+        <DocLink to="/docs/concepts" hash="swarm">
+          the concept
+        </DocLink>{" "}
+        for the longer argument.
+      </Callout>
+
+      <H3 id="pattern-router">Router to specialists</H3>
+      <Diagram caption="One classification, then a path that never rejoins.">{`input ──▶ router ──┬──▶ product agent ──▶ output
+                   ├──▶ account agent ──▶ output
+                   └──▶ sensitive ──▶ approval ──▶ output`}</Diagram>
+      <P>
+        <strong>Use when</strong> requests arrive mixed and each kind wants a different prompt,
+        different tools or a different model. This is the bundled Support Copilot template, and the
+        cheapest way to make one agent stop being mediocre at four jobs.
+      </P>
+      <P>
+        <strong>Watch for</strong> routes that overlap. The router picks exactly one, so two
+        plausible destinations means the same question can take different paths on different days.
+        Make the route descriptions mutually exclusive and give the router a low temperature — it is
+        classifying, not writing.
+      </P>
+
+      <H3 id="pattern-pipeline">Pipeline</H3>
+      <Diagram caption="Each stage consumes the last one's output through flow state.">{`input ──▶ researcher ──▶ writer ──▶ editor ──▶ output`}</Diagram>
+      <P>
+        <strong>Use when</strong> the stages need different tools or different models — a researcher
+        that browses the web feeding a writer that must not.
+      </P>
+      <P>
+        <strong>Watch for</strong> the summarisation tax. Every stage compresses what it passes on,
+        so detail the last stage needed can be gone by the time it runs. Name the variables
+        explicitly with <C>outputVar</C> and have later stages read what they need from flow state
+        rather than relying on the previous message.
+      </P>
+
+      <H3 id="pattern-fanout">Fan-out and merge</H3>
+      <Diagram caption="Independent work in parallel, joined once.">{`                ┌──▶ finance analysis ──┐
+input ──▶ split ┼──▶ legal analysis ─────┼──▶ merge ──▶ summary ──▶ output
+                └──▶ risk analysis ──────┘`}</Diagram>
+      <P>
+        <strong>Use when</strong> several analyses genuinely do not depend on each other. Nodes on
+        the same graph level run in parallel, so three analyses cost roughly the wall-clock of the
+        slowest rather than the sum.
+      </P>
+      <P>
+        <strong>Watch for</strong> branches that secretly do depend on each other — if the legal
+        step needs the finance number, this is a pipeline wearing a fan-out's shape, and the legal
+        step will read a variable that is not written yet. Also give the merge node an explicit
+        instruction for what to do when one branch fails; the default is to carry on with what
+        arrived.
+      </P>
+
+      <H3 id="pattern-critic">Generate, judge, revise</H3>
+      <Diagram caption="A quality bar enforced by the graph rather than by hope.">{`input ──▶ draft ──▶ evaluate ──▶ condition ──┬─ pass ──▶ output
+                      ▲                      └─ fail ──▶ loop back to draft`}</Diagram>
+      <P>
+        <strong>Use when</strong> the output has a standard you can state — grounded in sources, no
+        invented figures, follows a house format — and getting it wrong is worse than being slow.
+      </P>
+      <P>
+        <strong>Watch for</strong> unbounded revision. Give the loop a <C>maxIters</C> and decide
+        what happens when it runs out: shipping the last attempt unmarked is the failure mode,
+        because it looks identical to one that passed. Route the exhausted case to an approval node
+        or label it in the output.
+      </P>
+
+      <H3 id="pattern-gate">Human gate before something irreversible</H3>
+      <Diagram caption="The graph stops and waits; it does not time out and proceed.">{`input ──▶ agent ──▶ condition ──┬─ low risk ──▶ act ──▶ output
+                                └─ high risk ──▶ approval ──▶ act ──▶ output`}</Diagram>
+      <P>
+        <strong>Use when</strong> a step sends an email, moves money, writes to a system of record
+        or publishes something. Gate on the <em>risk</em>, not on every run, or approvals become
+        noise that people click through without reading.
+      </P>
+      <P>
+        <strong>Watch for</strong> approvals that never get answered. A parked run holds its state
+        and waits, which is correct, but nobody is watching by default — decide who is notified and
+        what happens to a run nobody answers.
+      </P>
+
+      <Callout kind="info" title="Combining them">
+        Real swarms nest these. Support Copilot is a router whose sensitive branch ends in a gate,
+        and whose product branch is a small pipeline with a judge on the end. Build one shape, get
+        it working, then extend — a graph assembled all at once gives you no moment where it was
+        last known to be correct.
+      </Callout>
+
       <H2 id="worked-example">Worked example — a support triage swarm</H2>
       <Diagram caption="Router splits by intent; refunds pass a human gate before the API call.">{`input ──▶ extract ──▶ router ─┬─[billing]──▶ agent(billing) ──┐
         (customer,          │                                │
