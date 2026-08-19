@@ -305,6 +305,16 @@ export function H3({ id, children }: { id?: string; children: React.ReactNode })
   );
 }
 
+/**
+ * Fourth level, for grouping inside a long H3 — the environment reference
+ * clusters a dozen variables under one subsection and needs a break that is not
+ * another rail entry. Deliberately has no id: the rail already carries H2 and
+ * H3, and a third level would make it a wall.
+ */
+export function H4({ children }: { children: React.ReactNode }) {
+  return <h4 className="mt-6 text-[15px] font-semibold text-foreground/90">{children}</h4>;
+}
+
 export function P({ children }: { children: React.ReactNode }) {
   return <p className="mt-4 leading-relaxed text-muted-foreground">{children}</p>;
 }

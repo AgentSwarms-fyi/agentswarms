@@ -8,6 +8,7 @@ import {
   FieldList,
   H2,
   H3,
+  H4,
   NextPrev,
   P,
   Steps,
@@ -287,6 +288,115 @@ SITE_URL="https://your-domain.com"`}</Code>
         it has done so — the limit degrades rather than disappearing.
       </Callout>
 
+      <H3 id="env-tuning">Performance and concurrency tuning</H3>
+      <P>
+        Every value here has a working default; an instance runs without setting any of them. They
+        exist for the two situations where the defaults stop fitting — a small box that needs
+        ceilings lowered, and a busy instance where one user's work should not crowd out everyone
+        else's. The defaults below are the ones the code applies when the variable is unset.
+      </P>
+      <Table
+        headers={["Variable", "Default", "Purpose"]}
+        rows={[
+          [<C key="a">SWARM_LEVEL_CONCURRENCY</C>, "4", "Nodes run in parallel per graph level."],
+          [
+            <C key="b">MCP_MAX_CONCURRENT_PER_SERVER</C>,
+            "8",
+            "In-flight calls to one published MCP server.",
+          ],
+          [
+            <C key="c">BI_DIRECT_QUERY_RATE_PER_MIN</C>,
+            "120",
+            "Live warehouse queries per dashboard OWNER — a shared dashboard bills its owner's budget, so the limit follows the owner rather than the viewer.",
+          ],
+          [<C key="d">UPLOAD_PER_MINUTE</C>, "10", "Dataset uploads per user."],
+          [
+            <C key="e">INTEGRATION_TEST_PER_MINUTE</C>,
+            "10",
+            'Presses of "Test connection" per user.',
+          ],
+          [
+            <C key="f">NOTEBOOK_CELL_TIMEOUT_SECONDS</C>,
+            "120",
+            "Wall-clock ceiling on one notebook cell.",
+          ],
+        ]}
+      />
+
+      <H4>Local query engine</H4>
+      <P>
+        The server-side engine that runs local datasets and scheduled refreshes. Lower these on a
+        small VM; raising them past what the host has does not make queries faster, it makes them
+        fail later.
+      </P>
+      <Table
+        headers={["Variable", "Default", "Purpose"]}
+        rows={[
+          [<C key="a">LOCAL_ENGINE_MEMORY_MB</C>, "512", "Memory ceiling for one query."],
+          [<C key="b">LOCAL_ENGINE_THREADS</C>, "2", "Threads per query."],
+          [<C key="c">LOCAL_ENGINE_TIMEOUT_MS</C>, "30000", "Wall-clock ceiling for one query."],
+        ]}
+      />
+
+      <H4>Warehouse connection pool</H4>
+      <Table
+        headers={["Variable", "Default", "Purpose"]}
+        rows={[
+          [<C key="a">WAREHOUSE_POOL_IDLE_MS</C>, "30000", "Before an idle socket is closed."],
+          [<C key="b">WAREHOUSE_POOL_TTL_MS</C>, "300000", "Before a whole pool is dropped."],
+          [
+            <C key="c">WAREHOUSE_QUEUE_TIMEOUT_MS</C>,
+            "30000",
+            "How long a query waits for a free slot before failing.",
+          ],
+          [
+            <C key="d">CONNECTOR_RETRY_BASE_MS</C>,
+            "400",
+            "First backoff step on a retryable error.",
+          ],
+          [<C key="e">CONNECTOR_RETRY_MAX_MS</C>, "8000", "Caps any single backoff wait."],
+          [
+            <C key="f">HTTP_PROXY</C>,
+            "unset",
+            "Routes outbound connector traffic through a proxy.",
+          ],
+        ]}
+      />
+
+      <H4>Parquet mirror</H4>
+      <P>
+        Optional. Large local datasets can be mirrored to Parquet so repeat queries read a columnar
+        file instead of re-reading rows. Unset, nothing is mirrored and everything still works.
+      </P>
+      <Table
+        headers={["Variable", "Default", "Purpose"]}
+        rows={[
+          [<C key="a">PARQUET_MIRROR</C>, "off", "Enables mirroring."],
+          [<C key="b">PARQUET_MIN_ROWS</C>, "5000", "Below this a table is not worth mirroring."],
+          [<C key="c">PARQUET_MAX_ROWS</C>, "5000000", "Above this a table is not mirrored."],
+          [<C key="d">PARQUET_CACHE_DIR</C>, "temp dir", "Where mirrored files live."],
+          [<C key="e">PARQUET_CACHE_MAX_BYTES</C>, "2 GiB", "Cache ceiling on disk."],
+          [<C key="f">MIRROR_BUDGET_BYTES</C>, "unlimited", "Total bytes mirroring may write."],
+        ]}
+      />
+
+      <H4>JavaScript sandbox</H4>
+      <P>
+        Backs the swarm <C>function</C> node. Without <C>JS_SANDBOX_URL</C> the node runs in an
+        isolated in-process worker; point it at a separate sandbox service to move that execution
+        off the app process entirely.
+      </P>
+      <Table
+        headers={["Variable", "Default", "Purpose"]}
+        rows={[
+          [<C key="a">JS_SANDBOX_URL</C>, "unset (in-process)", "External sandbox service."],
+          [<C key="b">JS_SANDBOX_MAX_TIMEOUT_MS</C>, "5000", "Ceiling on one function node."],
+          [<C key="c">JS_SANDBOX_MAX_CONCURRENT</C>, "4", "Simultaneous executions."],
+          [<C key="d">JS_SANDBOX_MEM_MB</C>, "128", "Memory ceiling per execution."],
+          [<C key="e">JS_SANDBOX_MAX_BODY_BYTES</C>, "1000000", "Largest payload in or out."],
+        ]}
+      />
+
       <H3 id="env-network">Network egress</H3>
       <Table
         headers={["Variable", "Purpose"]}
@@ -417,8 +527,8 @@ VITE_ADMIN_EMAIL="you@example.com"`}</Code>
       <Code lang="bash">{`SITE_URL="https://agents.internal.example.com"
 PUBLIC_APP_URL="https://agents.internal.example.com"
 
-# Encrypts stored warehouse/SaaS credentials. Set once — rotating it
-# invalidates everything already saved.  openssl rand -hex 32
+# Encrypts stored warehouse/SaaS credentials. Generate once and keep it;
+# rotating needs PROVIDER_CREDS_SECRET_OLD (see below).  openssl rand -hex 32
 PROVIDER_CREDS_SECRET="..."
 
 # Caps stop being advisory.
@@ -488,6 +598,17 @@ AUDIT_ARCHIVE_ON_PURGE="1"
         Audit retention is set in the product, not the environment — Admin → IAM, default 365 days.
         Deleting a user no longer deletes their trail: the row is kept with the actor's email so an
         investigation still has something to read.
+      </Callout>
+
+      <Callout kind="info" title="Rotating the credential key is supported">
+        Changing <C>PROVIDER_CREDS_SECRET</C> on its own does strand everything already encrypted,
+        which is why the snippet above says to set it once. Rotating it properly needs no downtime:
+        move the outgoing value to <C>PROVIDER_CREDS_SECRET_OLD</C> (comma-separated, accepted for
+        decryption only), put the new one in <C>PROVIDER_CREDS_SECRET</C>, restart, then run{" "}
+        <strong>Admin → IAM → Settings → Re-encrypt to current key</strong>. Clear{" "}
+        <C>PROVIDER_CREDS_SECRET_OLD</C> once nothing is left on the old key. Stored ciphertext
+        carries a fingerprint of the key that wrote it, so the platform knows which secret decrypts
+        which row.
       </Callout>
 
       <H3 id="recipe-fleet">Autoscaled behind a load balancer</H3>

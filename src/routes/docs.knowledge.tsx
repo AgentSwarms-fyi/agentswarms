@@ -82,6 +82,12 @@ function KnowledgePage() {
       <P>
         Ingests source and docs from a repository so an agent can answer questions about a codebase.
       </P>
+      <P>
+        Public repositories work with no credentials at GitHub's anonymous limit of{" "}
+        <strong>60 requests an hour</strong>, which a large repository can exhaust mid-import. Set{" "}
+        <C>GITHUB_TOKEN</C> on the deployment to raise that to <strong>5,000</strong> and to allow
+        private repositories the token can read.
+      </P>
 
       <H3 id="s-connectors">Connected services — Drive, Notion, SharePoint, Dropbox</H3>
       <P>
