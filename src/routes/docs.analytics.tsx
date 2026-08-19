@@ -9,6 +9,7 @@ import {
   NextPrev,
   Note,
   P,
+  Steps,
   Table,
   UL,
 } from "@/components/docs/DocsShell";
@@ -89,6 +90,108 @@ function AnalyticsDoc() {
         were estimated rather than reported by the provider are marked <C>tokens_estimated</C> — so
         a total that looks too low can be checked rather than guessed at. See{" "}
         <DocLink to="/docs/budgets#how-cost-is-computed">how cost is computed</DocLink>.
+      </Callout>
+
+      <H2 id="spike">Tracing a spend spike</H2>
+      <P>
+        The charts above tell you <em>that</em> something changed. This is the path from there to
+        the specific cause, in the order that narrows fastest — each step cuts the search space
+        rather than adding detail.
+      </P>
+      <Steps
+        items={[
+          {
+            title: "Find the day on Spend over time",
+            body: "A step change and a spike mean different things. A spike is usually one experiment or one runaway loop and is over. A step up that never comes back down is a change you shipped — a new model, a bigger context, a schedule that now runs hourly.",
+          },
+          {
+            title: "Narrow to a provider, then an agent",
+            body: (
+              <>
+                <strong>Cost by provider</strong> tells you which account is being charged;{" "}
+                <strong>Cost by agent</strong> is where the surprise usually is. One agent on one
+                expensive model routinely accounts for most of a bill.
+              </>
+            ),
+          },
+          {
+            title: "Open that agent's runs in Traces & Logs",
+            body: (
+              <>
+                Sort by cost. You are looking for whether the spend is many ordinary runs or a few
+                enormous ones, because the fix is completely different — see{" "}
+                <DocLink to="/docs/debugging">Logs &amp; traces</DocLink>.
+              </>
+            ),
+          },
+          {
+            title: "Open the most expensive run and read it step by step",
+            body: (
+              <>
+                Every step carries its own tokens and cost. The cause is nearly always visible as
+                one of a few shapes: a loop that ran its full iteration count, a retrieval that
+                pulled far more context than the answer needed, or a prompt that grew because
+                history is being resent every turn.
+              </>
+            ),
+          },
+        ]}
+      />
+      <Table
+        headers={["What you find", "What it usually is", "Where to fix it"]}
+        rows={[
+          [
+            "Many runs, each ordinary",
+            "Volume, not waste — something is calling the agent more than you thought, often a schedule or an embed.",
+            <>
+              A per-key cap in{" "}
+              <DocLink key="a" to="/docs/budgets">
+                Budgets
+              </DocLink>
+              , or a rate limit on the embed.
+            </>,
+          ],
+          [
+            "A few enormous runs",
+            "A loop hitting its ceiling, or a swarm branch nobody expected to be taken.",
+            <>
+              Lower <C key="b">maxIters</C>, or fix the condition that routes into it —{" "}
+              <DocLink key="c" to="/docs/swarms">
+                Swarm Canvas
+              </DocLink>
+              .
+            </>,
+          ],
+          [
+            "One step dominating a run",
+            "Too much retrieved context, or a strong model doing mechanical work.",
+            <>
+              Lower top-K, or split the step onto a smaller model —{" "}
+              <DocLink key="d" to="/docs/models">
+                Models
+              </DocLink>
+              .
+            </>,
+          ],
+          [
+            "Input tokens climbing across a conversation",
+            "The whole history is being resent each turn.",
+            <>
+              Shrink the memory window or enable summarisation —{" "}
+              <DocLink key="e" to="/docs/agents" hash="memory">
+                Memory
+              </DocLink>
+              .
+            </>,
+          ],
+        ]}
+      />
+      <Callout kind="why" title="Caps are how you stop it happening again">
+        Everything above is diagnosis after the fact, and analytics is retrospective by nature — it
+        tells you what an unbounded thing already cost. A budget cap is the part that makes the next
+        one impossible rather than merely visible, and caps only block when the deployment sets{" "}
+        <C>ENFORCE_BUDGET_CAP</C>; unset, they alert and let the spend through. Any instance with a
+        public embed on it should have both.
       </Callout>
 
       <H2 id="swarm-observability">Swarm observability</H2>
