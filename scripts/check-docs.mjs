@@ -90,6 +90,55 @@ const publicRoutes = new Set(
     .map((f) => "/" + f.replace(/\.tsx$/, "").replace(/\./g, "/")),
 );
 
+/**
+ * The signed-in app's sidebar, group by group, as the docs describe it when
+ * they write "Open X → Y". Kept here rather than derived because the rail is
+ * assembled across several components; if it is reorganised, this list and the
+ * pages that cite it move together, which is the point.
+ */
+const APP_NAV = {
+  Overview: ["Dashboard"],
+  Build: ["Agent Builder", "Knowledge Base", "Agent Chat", "Agent Swarms", "MCP Builder"],
+  "Data & BI": [
+    "AI Analyst",
+    "Data Catalog",
+    "Semantic Layer",
+    "Metrics",
+    "BI Workspace",
+    "Developer workspace",
+  ],
+  Library: ["Prompt Library", "Skill Library"],
+  Integrations: ["Integrations", "Web Embedding", "Secrets", "MCP Servers", "Model Registry"],
+  Observability: [
+    "Analytics",
+    "Swarm Traces",
+    "Traces & Logs",
+    "Audit Log",
+    "AI Budgets",
+    "Monitoring",
+  ],
+  Experiment: ["Prompt Compare", "Evaluations", "Image Playground"],
+  Admin: ["IAM", "Developer runtime"],
+};
+
+/** Tabs within a screen, for "Integrations → Apps" style page → tab paths. */
+const PAGE_TABS = {
+  Integrations: [
+    "LLM Providers",
+    "Data Sources",
+    "Apps",
+    "LLM Gateway",
+    "Web Search",
+    "Notifications",
+    "Slack",
+    "n8n Workflows",
+  ],
+  IAM: ["Users", "Groups", "Access", "Attributes", "Budgets", "SSO", "Settings"],
+  "Knowledge Base": ["Vector Store", "Embedding", "Chunking", "Retrieval", "Documents", "Sources"],
+  "RAG Settings": ["Vector Store", "Embedding", "Chunking", "Retrieval", "Documents", "Sources"],
+  "Agent Builder": ["General", "Model", "Knowledge", "Memory", "Guardrails", "Tools"],
+};
+
 const apiRoutes = new Set(
   fs
     .readdirSync(path.join(ROUTES, "api"))
@@ -176,6 +225,74 @@ for (const f of DOCS) {
     const group = groupOfRoute.get(route);
     if (group && eyebrow && eyebrow !== group)
       fail("eyebrow mismatch", `${page}: "${eyebrow}" but filed under "${group}"`);
+  }
+
+  // "Open Observe → Budgets" is a claim about the app's sidebar, and it was
+  // wrong on both halves: the group is Observability and the item is AI
+  // Budgets. Checked from APP_NAV below, which mirrors the real rail.
+  //
+  // Only claims whose left side is a known group are judged, because the same
+  // arrow is also used for page → tab paths ("Integrations → Apps") and for
+  // prose. A wrong group name therefore has to be caught by its right side —
+  // which is why the item list is checked in both directions.
+  // Scoped to <strong>…</strong>, which is how these pages write a nav path.
+  // Matching bare prose instead made the capture run into the sentence and
+  // could not tell a route from a turn of phrase.
+  for (const m of src.matchAll(/<strong>([^<]*(?:→|&rarr;)[^<]*)<\/strong>/g)) {
+    const parts = m[1]
+      .replace(/&amp;/g, "&")
+      .split(/→|&rarr;/)
+      .map((t) => t.trim().replace(/\s+/g, " "))
+      .filter(Boolean);
+    if (parts.length < 2) continue;
+    const [first, second, third] = parts;
+    const eq = (a, b) => a.toLowerCase() === b.toLowerCase();
+    const has = (names, v) => names.some((i) => eq(i, v));
+    const path = parts.join(" → ");
+
+    // Screen names are matched case-insensitively: pages write "RAG settings"
+    // where the tab list says "RAG Settings", and that is not an error.
+    const tabsOf = (name) => Object.entries(PAGE_TABS).find(([k]) => eq(k, name))?.[1] ?? null;
+
+    // "Integrations" is both a sidebar group and a screen with tabs, so
+    // "Integrations → Apps" and "Integrations → Secrets" are both correct.
+    // Accept whichever reading holds rather than privileging one.
+    const asGroup = APP_NAV[first] ? has(APP_NAV[first], second) : false;
+    const asPage = tabsOf(first) ? has(tabsOf(first), second) : false;
+
+    // A screen can nest one level before its tabs — the Knowledge Base page
+    // reaches its tabs through a RAG Settings panel — so a middle segment that
+    // is itself a known tab set is followed rather than rejected.
+    const viaPanel = tabsOf(second) ? (third ? has(tabsOf(second), third) : true) : false;
+
+    if (asGroup || asPage || viaPanel) {
+      if (asGroup && !viaPanel && third && tabsOf(second) && !has(tabsOf(second), third))
+        fail("bad nav path", `${page}: "${path}" — "${second}" has no "${third}" tab`);
+    } else if (APP_NAV[first] || tabsOf(first)) {
+      const real = Object.entries(APP_NAV).find(([, items]) => has(items, second))?.[0];
+      fail(
+        "bad nav path",
+        `${page}: "${path}" — ${real ? `"${second}" is under "${real}"` : `no "${second}" under "${first}"`}`,
+      );
+    } else {
+      // Neither a sidebar group nor a screen with tabs. A nav path has to start
+      // at one of those, so this is a group that was renamed or never existed.
+      const real = Object.entries(APP_NAV).find(([, items]) => has(items, second))?.[0];
+      if (real)
+        fail(
+          "bad nav path",
+          `${page}: "${path}" — "${second}" is under "${real}", and there is no "${first}" group`,
+        );
+      else if (
+        Object.values(APP_NAV)
+          .flat()
+          .some((i) => i.toLowerCase().endsWith(second.toLowerCase()))
+      )
+        fail(
+          "bad nav path",
+          `${page}: "${path}" — no "${first}" group, and no item named exactly "${second}"`,
+        );
+    }
   }
 
   // Tool ids named in prose must exist in the registry.

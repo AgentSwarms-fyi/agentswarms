@@ -49,8 +49,9 @@ function DataPrepPage() {
       />
 
       <P>
-        Find it under <strong>Data → Data Catalog → Data preparation</strong>. The output is a new
-        prepared table that behaves like any other: chart it, query it, attach it to an agent.
+        Find it under <strong>Data &amp; BI → Data Catalog → Data preparation</strong>. The output
+        is a new prepared table that behaves like any other: chart it, query it, attach it to an
+        agent.
       </P>
 
       <Callout kind="why">

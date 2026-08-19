@@ -93,7 +93,7 @@ function BudgetsPage() {
 
       <H3 id="cap-scoped">Scoped caps</H3>
       <P>
-        Set in <strong>Observe → Budgets</strong>, and per group in{" "}
+        Set in <strong>Observability → AI Budgets</strong>, and per group in{" "}
         <strong>Admin → IAM → Budgets</strong>. Three scopes exist, enforced by a database
         constraint:
       </P>
@@ -189,9 +189,9 @@ function BudgetsPage() {
             title: "Give yourself a personal ceiling",
             body: (
               <>
-                <strong>Observe → Budgets</strong>, set <C>monthly_cap_usd</C> to a figure you would
-                genuinely be unhappy to exceed. This is the backstop, not the control — everything
-                you own counts against it, including your own testing.
+                <strong>Observability → AI Budgets</strong>, set <C>monthly_cap_usd</C> to a figure
+                you would genuinely be unhappy to exceed. This is the backstop, not the control —
+                everything you own counts against it, including your own testing.
               </>
             ),
           },
@@ -385,7 +385,7 @@ function BudgetsPage() {
             "Personal cap",
             "The person whose budget it is",
             <>
-              On — see <strong key="a">Observe → Budgets</strong>
+              On — see <strong key="a">Observability → AI Budgets</strong>
             </>,
           ],
           [

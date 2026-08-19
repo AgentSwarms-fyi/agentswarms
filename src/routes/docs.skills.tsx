@@ -76,6 +76,59 @@ function SkillsDoc() {
         </li>
       </UL>
 
+      <H2 id="skill-tool-prompt">Skill, tool, or just the system prompt?</H2>
+      <P>
+        These three are easy to confuse because all of them change what an agent does. They are not
+        alternatives to each other, and the distinction is sharp once you see it: a skill and a
+        prompt are <strong>text</strong> that changes how the model behaves; a tool is{" "}
+        <strong>code the model can call</strong> to learn something it has no way of knowing, or to
+        make something happen outside the conversation.
+      </P>
+      <Table
+        headers={["Use", "When", "Example"]}
+        rows={[
+          [
+            <strong key="a">The system prompt</strong>,
+            "The instruction is this agent's standing identity — its job, its refusals, its tone. One agent, one prompt, and nobody else needs it.",
+            '"You are the support assistant for Northwind Tools. Answer only from the knowledge base."',
+          ],
+          [
+            <strong key="b">A skill</strong>,
+            "The same playbook should apply to several agents, or you want to swap it in and out without rewriting a prompt.",
+            '"How to write a structured code review" attached to three different reviewer agents.',
+          ],
+          [
+            <strong key="c">A tool</strong>,
+            "The model needs a fact it cannot have, or must cause an effect. No amount of instruction substitutes for either.",
+            <>
+              <C key="t">web_search</C> for today's news, <C key="s">sql_query</C> for a number in
+              your database.
+            </>,
+          ],
+        ]}
+      />
+      <Callout kind="warn" title="The common mistake is writing a skill that needed a tool">
+        A skill saying "look up the customer's current plan before answering" instructs the model to
+        do something it has no means of doing. It will comply in the only way available to it — by
+        producing a plausible plan — and the failure looks like a hallucination rather than a
+        missing capability. If the instruction requires information from outside the conversation,
+        it needs a tool; the skill can then say <em>when</em> to reach for that tool.
+      </Callout>
+      <Callout kind="why" title="Why a skill rather than a longer prompt">
+        Two reasons, both practical. Reuse: a playbook written once and attached to five agents is
+        edited in one place, where the same text pasted into five prompts drifts into five slightly
+        different versions within a month. And composition: skills carry their own{" "}
+        <em>When to use</em> section, so several can be attached and the model applies the ones that
+        match the current request — which a single monolithic prompt cannot do, because every
+        instruction in it applies to every turn whether relevant or not.
+      </Callout>
+      <P>
+        The three combine rather than compete. A well-built agent usually has a short prompt fixing
+        its identity and refusals, two or three skills for the jobs it does repeatedly, and the
+        narrow set of tools those jobs require — see{" "}
+        <DocLink to="/docs/agents">Agent Builder</DocLink> for how they are attached.
+      </P>
+
       <H2 id="prompt-library">Prompt Library</H2>
       <P>
         The Prompt Library at <DocLink to="/prompts">/prompts</DocLink> is a searchable collection
