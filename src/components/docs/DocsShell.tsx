@@ -203,39 +203,68 @@ function useHeadings(pathname: string): { headings: Heading[]; activeId: string 
   const [activeId, setActiveId] = useState<string | null>(null);
 
   useEffect(() => {
-    const els = Array.from(
-      document.querySelectorAll<HTMLHeadingElement>("article h2[id], article h3[id]"),
-    );
-    setHeadings(
-      els.map((el) => ({
-        id: el.id,
-        text: el.textContent ?? "",
-        level: el.tagName === "H3" ? 3 : 2,
-      })),
-    );
-    if (els.length === 0) {
-      setActiveId(null);
-      return;
-    }
+    const article = document.querySelector("article");
+    if (!article) return;
 
-    const visible = new Map<string, number>();
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) visible.set(entry.target.id, entry.intersectionRatio);
-          else visible.delete(entry.target.id);
-        });
-        for (const el of els) {
-          if (visible.has(el.id)) {
-            setActiveId(el.id);
-            return;
+    let intersection: IntersectionObserver | null = null;
+    let lastKey = "";
+
+    const scan = () => {
+      const els = Array.from(article.querySelectorAll<HTMLHeadingElement>("h2[id], h3[id]"));
+      // Re-observing on every mutation would thrash; the id list is a cheap
+      // and exact test for "did the sections actually change".
+      const key = els.map((el) => el.id).join("|");
+      if (key === lastKey) return;
+      lastKey = key;
+
+      setHeadings(
+        els.map((el) => ({
+          id: el.id,
+          text: el.textContent ?? "",
+          level: el.tagName === "H3" ? 3 : 2,
+        })),
+      );
+
+      intersection?.disconnect();
+      if (els.length === 0) {
+        setActiveId(null);
+        return;
+      }
+      setActiveId(null);
+
+      const visible = new Map<string, number>();
+      intersection = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (entry.isIntersecting) visible.set(entry.target.id, entry.intersectionRatio);
+            else visible.delete(entry.target.id);
+          });
+          for (const el of els) {
+            if (visible.has(el.id)) {
+              setActiveId(el.id);
+              return;
+            }
           }
-        }
-      },
-      { rootMargin: "-96px 0px -60% 0px", threshold: [0, 0.5, 1] },
-    );
-    els.forEach((el) => observer.observe(el));
-    return () => observer.disconnect();
+        },
+        { rootMargin: "-96px 0px -60% 0px", threshold: [0, 0.5, 1] },
+      );
+      els.forEach((el) => intersection!.observe(el));
+    };
+
+    // Scanning once on pathname change was the bug. Routes are lazily split,
+    // so when this effect runs after a client-side navigation the new page's
+    // content has usually not been committed yet — the scan then read the
+    // PREVIOUS page's headings and the rail filled with links to ids that do
+    // not exist here, which click and do nothing. Whether it happened at all
+    // depended on whether the chunk was already cached, which is why it looked
+    // intermittent and page-specific.
+    scan();
+    const mutation = new MutationObserver(scan);
+    mutation.observe(article, { childList: true, subtree: true });
+    return () => {
+      mutation.disconnect();
+      intersection?.disconnect();
+    };
   }, [pathname]);
 
   return { headings, activeId };
