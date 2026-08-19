@@ -117,7 +117,7 @@ notebooks, Deep-mode documents and headless custom code stay unavailable.
   [Developer-workspace runtime](#developer-workspace-python-runtime).
 - Want **Deep-mode** document generation? Add the renderer with
   `docker compose --profile docgen up -d --build` — see
-  [Document renderer](#document-renderer-deep-mode-officeexports).
+  [Document renderer](#document-renderer-deep-mode-office-exports).
 - Want **Function / custom-component nodes to run in deployed and scheduled
   swarms** (not just on the canvas)? Add the sandbox with
   `docker compose --profile sandbox up -d --build` — see

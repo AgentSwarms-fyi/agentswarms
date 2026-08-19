@@ -319,7 +319,7 @@ Kernel containers are **Linux containers** (the frameworks are Linux-first). On 
 
 - `docs/INSTALL.md`: new "Enabling the server runtime" section (Docker profile + Windows/Linux notes, the container-runtime dependency, how to turn it on).
 - `docs/DEPLOYMENT.md`: the K8s profile, hardening knobs, egress allowlist, scaling.
-- `docs/SECURITY.md` (or a section): the threat model + isolation tiers, so operators can make an informed risk decision.
+- [`SECURITY.md`](../SECURITY.md) (extend it): the runtime threat model + isolation tiers, so operators can make an informed risk decision.
 - In-app `/docs/notebooks`: Lite vs Server runtime, when to use each.
 
 ---

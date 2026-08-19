@@ -242,6 +242,21 @@ from the same host. The last release was for DuckDB v1.1.3. An `.avro` file
 still appears in the catalog with its name and size, and the reason it has no
 columns is stated rather than left as a silent gap.
 
+### The swarm API
+
+Per API key, enforced server-side on `/api/swarm/run`:
+
+| Variable                       | Default  | What it bounds                                                                     |
+| ------------------------------ | -------- | ---------------------------------------------------------------------------------- |
+| `SWARM_RUN_RATE_LIMIT_PER_MIN` | `30`     | Requests per key per minute → 429                                                   |
+| `SWARM_RUN_MAX_CONCURRENT`     | `5`      | Runs in flight per key — the one protecting your provider quota                     |
+| `SWARM_RUN_TIMEOUT_MS`         | `600000` | Wall clock per run (10 min). Anything that may approach it should use `async: true` |
+
+The run timeout is also what decides synchronous versus asynchronous calls —
+a swarm with a human-approval node in any branch must be called async, because
+a parked run can outlive any HTTP connection. See the API guide in the app at
+`/docs/api`.
+
 ### Knowledge bases (RAG)
 
 Per synced source: **500 items**, **400,000 characters** per document, and a
