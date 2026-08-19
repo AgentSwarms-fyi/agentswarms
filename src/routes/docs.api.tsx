@@ -181,6 +181,42 @@ function ApiPage() {
         ]}
       />
 
+      <H3 id="sync-or-async">Which one should you call?</H3>
+      <P>
+        The run timeout decides it. A synchronous call holds the connection until the swarm finishes
+        or the ceiling is hit — <strong>ten minutes</strong> by default (<C>SWARM_RUN_TIMEOUT_MS</C>
+        ). Anything that could approach that wants <C>async: true</C>, because the alternative is an
+        HTTP client giving up on work that is still running and will still complete, charging you
+        for a result nobody collects.
+      </P>
+      <Table
+        headers={["Call it", "When", "Because"]}
+        rows={[
+          [
+            <strong key="a">Synchronously</strong>,
+            "A single agent or a short graph, called from something that can wait — a backend handler, a script, a cron job.",
+            "You get the output in the response and there is no callback endpoint to build, verify or keep online.",
+          ],
+          [
+            <strong key="b">Asynchronously</strong>,
+            "Multi-step graphs, anything with retrieval over large sources, anything with an approval node, and anything called from a request a user is waiting on.",
+            "The connection is not held open for minutes, and a swarm parked at an approval may not finish for hours or days — no synchronous call survives that.",
+          ],
+        ]}
+      />
+      <Callout kind="warn" title="An approval node makes the choice for you">
+        A run that reaches a human-approval node parks and waits for a person. Called synchronously,
+        that request simply times out — the run is fine and still parked, but your caller has an
+        error and no result. Any swarm with an approval in any branch should be called with{" "}
+        <C>async: true</C> and its outcome collected from the webhook.
+      </Callout>
+      <P>
+        Both forms accept <C>Idempotency-Key</C>, and retrying with the same key returns the
+        original run instead of starting a second one. Use it on anything a network retry might
+        duplicate — the sync example above does, because a timed-out request that the caller retries
+        is the exact case it exists for.
+      </P>
+
       <H3 id="req-sync">Synchronous run</H3>
       <Code lang="bash">{`curl -X POST https://your-instance.example.com/api/swarm/run \\
   -H "Authorization: Bearer $AGENTSWARMS_API_KEY" \\
@@ -282,9 +318,28 @@ function ApiPage() {
       <Table
         headers={["Limit", "Purpose"]}
         rows={[
-          ["Rate limit", "Requests per key per interval → 429."],
-          ["Concurrency", "Simultaneous runs per key — the one protecting your provider quota."],
-          ["Run timeout", "Wall-clock ceiling, so a looping graph cannot run forever."],
+          [
+            "Rate limit",
+            <>
+              <strong key="r">30</strong> requests per key per minute → 429 (
+              <C key="rv">SWARM_RUN_RATE_LIMIT_PER_MIN</C>).
+            </>,
+          ],
+          [
+            "Concurrency",
+            <>
+              <strong key="c">5</strong> simultaneous runs per key (
+              <C key="cv">SWARM_RUN_MAX_CONCURRENT</C>) — the one protecting your provider quota.
+            </>,
+          ],
+          [
+            "Run timeout",
+            <>
+              <strong key="t">10 minutes</strong> wall-clock (<C key="tv">SWARM_RUN_TIMEOUT_MS</C>),
+              so a looping graph cannot run forever. This is what decides synchronous versus
+              asynchronous.
+            </>,
+          ],
           [
             "Budget cap",
             <>
