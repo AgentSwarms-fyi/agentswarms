@@ -19,6 +19,7 @@
 // Exits non-zero when anything fails, so CI can gate on it.
 import fs from "node:fs";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 
 const ROUTES = "src/routes";
 const DOCS = fs.readdirSync(ROUTES).filter((f) => /^docs\./.test(f));
@@ -366,6 +367,16 @@ for (const f of DOCS) {
     if (teachesSecretNaming && page === "secrets") continue;
     fail("unknown env var", `${page}: ${v}`);
   }
+}
+
+// The search box filters a generated index. If a heading is added and the
+// index is not rebuilt, that section is simply unfindable — silently, since
+// the page itself looks perfect.
+{
+  const gen = spawnSync(process.execPath, ["scripts/build-docs-index.mjs", "--check"], {
+    encoding: "utf8",
+  });
+  if (gen.status !== 0) fail("stale search index", "run: npm run docs:index");
 }
 
 // ── Report ──────────────────────────────────────────────────────────────────

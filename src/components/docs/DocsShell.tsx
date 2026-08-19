@@ -37,6 +37,7 @@ import {
   List,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { DocsSearch } from "./DocsSearch";
 
 export type DocItem = {
   to: string;
@@ -150,6 +151,7 @@ export function DocsSidebar({ current }: { current: string }) {
   const currentItem = DOCS_NAV.find((d) => d.to === current);
   return (
     <nav aria-label="Documentation">
+      <DocsSearch />
       {/* Mobile: collapsible disclosure so content stays above the fold */}
       <div className="lg:hidden">
         <button

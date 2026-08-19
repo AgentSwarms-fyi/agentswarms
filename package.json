@@ -20,6 +20,7 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "check:docs": "node scripts/check-docs.mjs",
+    "docs:index": "node scripts/build-docs-index.mjs",
     "format": "prettier --write .",
     "test": "vitest run",
     "test:watch": "vitest",
