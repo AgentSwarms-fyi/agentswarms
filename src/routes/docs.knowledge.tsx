@@ -6,6 +6,7 @@ import {
   Diagram,
   DocLink,
   DocsHeader,
+  FieldList,
   H2,
   H3,
   NextPrev,
@@ -419,6 +420,243 @@ question ──▶ embed ──▶ nearest chunks ──▶ pasted into the prom
       </UL>
 
       {/* ── ATTACHING ── */}
+
+      <H2 id="recipes">Configuration by what you are indexing</H2>
+      <P>
+        The settings interact, so choosing them one at a time tends to produce a collection that is
+        individually reasonable and collectively wrong. These are five shapes of content that come
+        up constantly, with the whole configuration for each and the reasoning behind it. Start from
+        the closest one and adjust.
+      </P>
+
+      <H3 id="recipe-policy">Policies, contracts, handbooks</H3>
+      <P>
+        Long documents, formal language, and — the part that decides the configuration —{" "}
+        <strong>several revisions of the same text</strong>, where the wrong version answering is
+        worse than no answer.
+      </P>
+      <FieldList
+        items={[
+          {
+            name: "Chunking",
+            body: (
+              <>
+                <C>parent_child</C>. A clause matches on its own wording, but a clause read without
+                the section around it is how you get an answer that is technically present in the
+                document and wrong in context.
+              </>
+            ),
+          },
+          {
+            name: "Retrieval",
+            body: (
+              <>
+                <strong>Hybrid</strong>. Clause and section numbers ("7.2(b)"), defined terms and
+                party names are exact strings, and embeddings smooth those away — hybrid keeps a
+                keyword route to them.
+              </>
+            ),
+          },
+          {
+            name: "Re-ranker",
+            body: (
+              <>
+                <strong>Yes.</strong> This is the case it exists for: five near-identical revisions
+                all score well on similarity, and only a stronger model reliably puts the right one
+                first.
+              </>
+            ),
+          },
+          {
+            name: "top-K",
+            body: (
+              <>
+                5, or 8 if answers are being cut short. Bigger is not better — more chunks means
+                more near-duplicates competing.
+              </>
+            ),
+          },
+          {
+            name: "The prompt",
+            body: (
+              <>
+                Require the document name and effective date in the answer. Without that, a reader
+                cannot tell which revision replied.
+              </>
+            ),
+          },
+        ]}
+      />
+
+      <H3 id="recipe-docs">Product documentation and how-to guides</H3>
+      <P>
+        Structured, headed, mostly distinct topics — the easiest case, and worth not over-tuning.
+      </P>
+      <FieldList
+        items={[
+          {
+            name: "Chunking",
+            body: (
+              <>
+                <C>flat</C>. Headed sections are already the right size; parent_child mostly adds
+                tokens here.
+              </>
+            ),
+          },
+          {
+            name: "Retrieval",
+            body: (
+              <>
+                <strong>Hybrid</strong>, leaning semantic. Users ask in their words, but error codes
+                and setting names must still hit exactly.
+              </>
+            ),
+          },
+          {
+            name: "Re-ranker",
+            body: (
+              <>
+                Not at first. Distinct topics mean the first pass is usually right, and you would be
+                paying a call per retrieval to reorder a list that was already correct.
+              </>
+            ),
+          },
+          { name: "top-K", body: <>5.</> },
+          {
+            name: "The prompt",
+            body: (
+              <>
+                Ask for numbered steps when the question is "how do I", and require a link or
+                document name so the reader can continue in the source.
+              </>
+            ),
+          },
+        ]}
+      />
+
+      <H3 id="recipe-support">Support tickets and FAQs</H3>
+      <P>
+        Short, repetitive, and written in <em>answer</em> language while your users ask in{" "}
+        <em>problem</em> language — "it says invalid credentials" versus "authentication
+        troubleshooting".
+      </P>
+      <FieldList
+        items={[
+          {
+            name: "Chunking",
+            body: (
+              <>
+                <C>qa</C>. It embeds a generated question alongside the answer, which closes exactly
+                that gap: keyword search also indexes the question, because the answer text often
+                does not contain the words anyone would search for.
+              </>
+            ),
+          },
+          {
+            name: "Retrieval",
+            body: (
+              <>
+                <strong>Hybrid</strong>. Error strings and product names are quoted verbatim by
+                users.
+              </>
+            ),
+          },
+          {
+            name: "Re-ranker",
+            body: (
+              <>
+                Yes once the collection passes a few hundred entries, where near-duplicate tickets
+                start crowding each other out.
+              </>
+            ),
+          },
+          {
+            name: "top-K",
+            body: <>5–8. Several partial answers often combine into the right one here.</>,
+          },
+          {
+            name: "The prompt",
+            body: (
+              <>
+                Give it an escalation rule. A support agent that cannot answer should hand off, not
+                improvise — see{" "}
+                <DocLink to="/docs/agents" hash="system-prompt">
+                  writing the system prompt
+                </DocLink>
+                .
+              </>
+            ),
+          },
+        ]}
+      />
+
+      <H3 id="recipe-code">A code repository</H3>
+      <P>
+        Ingested from the GitHub source, so the collection is source files plus whatever docs live
+        beside them.
+      </P>
+      <FieldList
+        items={[
+          {
+            name: "Chunking",
+            body: (
+              <>
+                <C>flat</C>. Code has its own structure and splitting it by prose rules helps
+                nobody.
+              </>
+            ),
+          },
+          {
+            name: "Retrieval",
+            body: (
+              <>
+                <strong>Hybrid, weighted toward keyword.</strong> Identifiers are the query. Someone
+                searching <C>resolveEmbedTarget</C> wants that symbol, not something semantically
+                adjacent to it, and this is the one collection type where the keyword side usually
+                deserves to win.
+              </>
+            ),
+          },
+          {
+            name: "Re-ranker",
+            body: <>Optional. Exact identifier matches are already decisive.</>,
+          },
+          {
+            name: "top-K",
+            body: <>8. A question about behaviour usually spans a definition and its call sites.</>,
+          },
+          {
+            name: "The prompt",
+            body: (
+              <>
+                Require file paths in the answer, and say that quoted code must come from retrieved
+                chunks rather than memory — a model's recollection of a well-known library is
+                confident and frequently not your version.
+              </>
+            ),
+          },
+        ]}
+      />
+
+      <H3 id="recipe-mixed">One collection holding several kinds at once</H3>
+      <P>Usually how collections actually end up, rather than a choice anyone made.</P>
+      <Callout kind="warn" title="Split it before tuning it">
+        Chunking, retrieval mode and weighting are set per collection, so a mixed collection forces
+        one compromise across content that wants opposite settings — and the compromise is worse for
+        every part than a dedicated collection would be. An agent can be linked to several
+        collections, so splitting costs you nothing at query time and lets each be tuned properly.
+        Split when the content genuinely differs in kind, not merely in topic: policies and
+        contracts belong together, policies and source code do not.
+      </Callout>
+
+      <Callout kind="why" title="Change one thing at a time, and know which need a re-index">
+        Retrieval mode, weighting and top-K are query-time settings: they take effect immediately,
+        cost nothing to try, and can be changed back. Chunking and the embedding model are
+        write-time: they only affect documents indexed after the change, so comparing them honestly
+        means re-indexing first. Tuning several at once leaves you unable to say which one helped,
+        on a collection you now have to re-index to get back.
+      </Callout>
+
       <H2 id="using">Attaching a collection to an agent</H2>
       <Steps
         items={[
