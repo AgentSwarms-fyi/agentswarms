@@ -196,6 +196,34 @@ function McpPage() {
         who may call what. Here the source, the sandbox, the keys and the audit trail are one thing.
       </Callout>
 
+      <H3 id="build-ai">Writing the server with AI</H3>
+      <P>
+        The <strong>AI</strong> tab on the right rail turns a description into the server's Python.
+        Describe the tools you want —{" "}
+        <em>"tools to look up an order by id and to refund it, using our internal orders API"</em> —
+        and it writes them, including the <C>requirements.txt</C> entries they need.
+      </P>
+      <Table
+        headers={["Button", "What it does"]}
+        rows={[
+          [
+            "Write it",
+            "Generates from your description alone, ignoring whatever is in the editor.",
+          ],
+          [
+            "Change existing",
+            "Sends the current code along with the description, so it edits what is there rather than starting over. This is the one to use once a server works and you want one more tool.",
+          ],
+        ]}
+      />
+      <Callout kind="warn" title="Generated code replaces the editor">
+        Both buttons overwrite the editor contents — there is no merge and no undo beyond your
+        browser's. On a server you have already deployed and grown attached to, copy the source
+        somewhere first. What comes back is ordinary Python that you still have to read: it runs in
+        the same sandbox under the same limits as anything you typed yourself, so the containment
+        described below applies either way, but nothing checks that it does what you asked.
+      </Callout>
+
       <H3 id="build-contract">What the runner expects</H3>
       <P>
         A module-level FastMCP instance named <C>mcp</C> (<C>server</C> and <C>app</C> also work),

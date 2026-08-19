@@ -16,13 +16,13 @@ import {
 export const Route = createFileRoute("/docs/playground")({
   head: () => ({
     meta: [
-      { title: "Chat Playground — AgentSwarms Documentation" },
+      { title: "Agent Chat — AgentSwarms Documentation" },
       {
         name: "description",
         content:
           "The AgentSwarms playground: chat with your agents, attach images and documents, watch citations and memory recall, and inspect the trace behind every message.",
       },
-      { property: "og:title", content: "Chat Playground — AgentSwarms Documentation" },
+      { property: "og:title", content: "Agent Chat — AgentSwarms Documentation" },
       {
         property: "og:description",
         content: "Chat with your agents, attach files, and inspect the trace behind every message.",
@@ -30,7 +30,7 @@ export const Route = createFileRoute("/docs/playground")({
       { property: "og:url", content: "https://agentswarms.fyi/docs/playground" },
       { property: "og:type", content: "article" },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:title", content: "Chat Playground — AgentSwarms Documentation" },
+      { name: "twitter:title", content: "Agent Chat — AgentSwarms Documentation" },
       {
         name: "twitter:description",
         content: "Chat with your agents, attach files, and inspect the trace behind every message.",
@@ -46,7 +46,7 @@ function PlaygroundDoc() {
     <>
       <DocsHeader
         eyebrow="Build"
-        title="Chat Playground"
+        title="Agent Chat"
         description="The playground at /playground is where you talk to agents directly. It looks like a chat app; the difference is that every message produces a trace you can inspect, and the agent runs with its full saved configuration — same tools, same guardrails, same memory as anywhere else on the platform."
       />
 
@@ -195,6 +195,31 @@ function PlaygroundDoc() {
         The finished file appears as a preview card with a thumbnail and a Download button, and is
         stored in a private bucket so Download still works after a reload — until the agent's chat
         retention window purges it.
+      </P>
+
+      <H2 id="image-playground">Image Playground</H2>
+      <P>
+        <strong>Experiment → Image Playground</strong> is the same idea for images: generate, edit
+        or blend them with whatever image models your connected providers expose. Pick a provider,
+        pick a model, write a prompt. Uploads for editing are capped at <strong>8 MB</strong>, and
+        results download straight from the result card.
+      </P>
+      <Callout kind="why" title="Every run is independent">
+        There is no conversation history here, and that is the difference from Agent Chat rather
+        than a missing feature. Each run sends your prompt and nothing else, so a result depends
+        only on what you typed — which is what makes it useful for comparing prompts or models
+        against each other. If you want the image to follow from a conversation, use{" "}
+        <DocLink to="/docs/playground" hash="chatting">
+          the agent chat above
+        </DocLink>{" "}
+        instead.
+      </Callout>
+      <P>
+        The models offered come from your own provider connections, so the list reflects what you
+        have set up in <DocLink to="/docs/integrations">Integrations</DocLink> — an empty picker
+        means no connected provider exposes an image model, not that the feature is unavailable.
+        Runs bill to that provider and appear in <DocLink to="/docs/analytics">Analytics</DocLink>{" "}
+        like any other model call.
       </P>
 
       <NextPrev current="/docs/playground" />

@@ -59,8 +59,8 @@ function DashboardDoc() {
             name: "Open the Playground",
             body: (
               <>
-                Opens the <DocLink to="/docs/playground">Chat Playground</DocLink> to chat with any
-                model and prototype an agent instantly.
+                Opens the <DocLink to="/docs/playground">Agent Chat</DocLink> to chat with any model
+                and prototype an agent instantly.
               </>
             ),
           },

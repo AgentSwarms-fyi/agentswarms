@@ -470,7 +470,7 @@ function ImagePlaygroundPage() {
             search={{ agentId: undefined }}
             className="underline underline-offset-2"
           >
-            Chat Playground
+            Agent Chat
           </Link>
           .
         </p>
