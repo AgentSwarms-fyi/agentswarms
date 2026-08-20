@@ -12,6 +12,164 @@ development branch and may be ahead of the latest tag.
 
 ---
 
+## 1.2.1 — 2026-08-20
+
+**What the app says when it does not know.** Eighty-two commits and 234 files,
+and the largest share of them fix one bug in thirty-one different places: a read
+that failed was being rendered as a fact. Zero MCP tools. No secrets in the
+account. A healthy monitoring probe set. Grades awarded to comparisons that never
+ran. None of those pages showed an error, which is exactly why the class
+survived — a page that renders `0` looks like it worked. Alongside that, all
+twenty-seven documentation pages were audited against the running product and
+given search, and ten features landed. Three migrations — run
+`npx supabase db push` after upgrading.
+
+### Failed reads stop reporting as facts
+
+- **An adversarial pass over thirty-one modules.** Every headline figure was
+  recomputed independently from the database and compared against what the page
+  claimed. That is the only way this class surfaces: the page renders cleanly,
+  logs nothing, and the number is plausible.
+- **A discarded read error is not an empty account.** Secrets, the skill library,
+  notebooks, the prompt library, MCP servers and the model registry each answered
+  a failed load by rendering the empty state — "you have none" — rather than "we
+  could not tell". Each now distinguishes the two and offers a retry.
+- **Nor is it a zero, a grade, or a clean bill of health.** The MCP page published
+  `0` tools; the monitoring page reported healthy over a probe set it had failed
+  to load; two lab pages awarded verdicts to work that never happened; the budgets
+  page painted a failed read as "unprotected", which on a spend page reads as an
+  instruction to act; and the audit log manufactured evidence of absence, which is
+  the worst possible page to do it on.
+- **The model registry argued for an action it did not need.** The sharpest form
+  of the class — a failed count did not merely misreport, it talked an admin into
+  running a sync.
+- **Capped views say they are capped.** The analytics page reported a thousand
+  traces as though they were the population, the trace log presented its page as
+  the whole, and the analyst's 50-row cap could be hit silently. Aggregates still
+  run in the database and the cap only trims what is displayed — now with
+  disclosure.
+- **One 403 stopped claiming "no providers connected" for a whole session**, in a
+  shared module, so the fix lands on two pages.
+- **The pages that held.** Written up at the same length as the ones that failed:
+  /monitoring's refresh path, the trace log's failed-read handling, Web Embedding,
+  and the AI Analyst under direct attack. A log that records only faults says
+  nothing about where the ground is solid.
+
+### Fixed
+
+- **Every response from a conformant MCP server was unreadable**, reported as a
+  server that "did not start in time". It had started; chasing why that message
+  was wrong found three further defects.
+- **An API key scoped to everything now says so.** Scope rendered as "· N tools"
+  or as nothing at all, so the most powerful key on the page was the one with
+  nothing written on it.
+- **A swarm's deployed badge tracks whether traffic can actually arrive**, rather
+  than whether a deploy was once clicked.
+- **Importing an agent into a swarm stopped dropping the settings that restrict
+  it.**
+- **A retrieval that found nothing is a fact the model is now told**, instead of
+  being passed over in silence.
+- **"Crawled a minute ago" stopped being stamped on data loaded weeks earlier.**
+- **A semantic model decertifies on every definition change**, not most of them.
+- **The dashboard card headed "last 24h" describes the last 24 hours.**
+- **The BI toolbar could not reach its last action** — twelve buttons, 1175px, in
+  a nested non-wrapping flex item on a row that did wrap, which is why it survived
+  inspection.
+- **Provider-reported cost replaces the vendored price table** wherever the
+  provider supplies it. Reported as "kimi k3 shows 0 cost", which it did on all
+  116 runs: the model postdated the catalog, so the resolver was correctly
+  answering that it had no price.
+- **Four lint errors that were failing CI**, plus the reason nobody saw them —
+  eslint was walking a gitignored agent worktree that CI never checked out.
+
+### New
+
+- **Slack, inbound.** The AI Analyst answers in the channel where the question was
+  asked, with request signature verification — plus a settings tab, so a workspace
+  can be configured without inserting a row by hand.
+- **Import a dbt project.** Reads `target/manifest.json` and says plainly what
+  could not come across, so months of existing model and column documentation do
+  not have to be retyped into a form.
+- **A pull request that breaks a metric definition now fails.** Git export already
+  wrote every semantic model as JSON; nothing read those files back, so a broken
+  governed metric surfaced later as a refusal at query time, in front of whoever
+  asked the question rather than whoever made the change.
+- **Generate a whole dashboard from a governed semantic model**, not only from
+  source tables.
+- **Export a dashboard as a branded PowerPoint deck** whose numbers are the
+  dashboard's, with a per-visual checklist, a model picker and a free-text
+  instruction field for tone and audience.
+- **Synced data is filed under the source it came from**, and can be operated from
+  there.
+- **`@agentswarms/react`** — a React SDK alternative to iframe embeds, for host
+  apps that want their own message rendering, their own theme, or programmatic
+  control over the stream, citations and Visual-BI widgets.
+- **One command from nothing to a running stack.** The self-hosted Supabase path
+  was fully documented and fully manual — JWT secret, two signed keys, the
+  storage-boot caveat, the extension preflight, five values wired into `.env` by
+  hand. It is now scripted.
+- **Chats can be renamed in place**, and a per-chat Tools menu turns on web search
+  for one conversation without changing the agent.
+- **Skills load on demand once they outgrow the prompt.** Below
+  `SKILLS_INLINE_MAX_CHARS` (default 8000) nothing changes and bodies go inline as
+  before; above it the prompt carries an index of names and summaries and the
+  agent pulls the body it needs through a `use_skill` tool. Swarms are
+  unaffected — the headless executor sends no skill ids.
+
+### Documentation
+
+- **Twenty-seven in-app pages audited against the running product**, and drift was
+  the whole story: tab orders rearranged since they were written, sidebar groups
+  renamed and left stale on eight pages, retrieval numbers that conflated two
+  separate caps, an IAM console with seven tabs documented as six, four of eleven
+  tools implicitly denied by a list that read as complete, and two shipped
+  features — Image Playground and the MCP AI tab — with no page at all.
+- **Twenty-eight tuning variables documented.** `.env.example` declares 98
+  environment variables and 32 appeared on no page, which is the wrong way round
+  for a self-hosted product. The key-rotation advice was corrected at the same
+  time.
+- **Scenario guides where there had only been field references.** Five swarm
+  shapes and how each one fails, five RAG configurations by content type, one
+  semantic model built end to end, sync versus async on the API page with the
+  numbers that settle it, and the path from a spend spike to its cause.
+- **Search across 27 pages and 378 headings**, and an on-this-page rail that lists
+  subsections — 143 of them, 42% of every heading written, each already a working
+  link and simply unreachable from the rail.
+- **The on-this-page links now work after a client-side navigation.** Routes are
+  lazily split, so the rail's one-shot scan ran before the new page had been
+  committed, read the previous page's headings, and filled with links to ids that
+  did not exist. It affected 26 of 27 pages.
+- **Documentation stopped scrolling sideways on a phone**, gained a skip link so a
+  keyboard reader is not tabbed past roughly thirty-three sidebar entries to reach
+  the first word, prints without the app chrome, and respects reduced motion.
+- **Two checkers keep it honest.** `npm run check:docs` over 28 pages and
+  `npm run check:md-docs` over 18 files verify links, nav paths, environment
+  variables and counts against the source — because every defect in this campaign
+  came from drift rather than from careless writing, and prose review catches none
+  of it.
+
+### Security
+
+- **Three injection paths closed in the agent and swarm code exporters.** The
+  exporters turn a saved graph into a Python or TypeScript file the user is told
+  to run, and a swarm can arrive from anyone as a dropped `.swarm.json` that is
+  one click from the export menu — which makes every interpolated value
+  untrusted. Numeric fields are coerced rather than pasted, labels are sanitised
+  before they reach docstrings, and tool configs are redacted instead of being
+  serialised with credentials intact.
+
+### Known limits
+
+- The 1.2.0 limits stand unchanged: a billion-row local import is not supported,
+  an embedded analyst takes 30-95 seconds, and signed viewers are dashboard-only
+  by design rather than by omission.
+- The adversarial pass covered the thirty-one mapped modules. Streaming, tool
+  calls and guardrails in Agent Chat were exercised only in part — a budget cap
+  blocked live model turns during that module, and they are recorded as uncovered
+  rather than left looking as though they passed.
+
+---
+
 ## 1.2.0 — 2026-08-15
 
 **A number you can defend.** The semantic layer stopped being a place to write
