@@ -2588,14 +2588,21 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "title": "Skills & Prompt Library",
     "description": "Two small libraries of reusable text: skills are focused playbooks composed into an agent's system prompt at run time; prompts are complete starter system prompts. Both exist so good instructions get written once and reused everywhere.",
     "terms": [
+      "SKILLS_INLINE_MAX_CHARS",
       "body",
       "sql_query",
+      "use_skill",
       "web_search"
     ],
     "headings": [
       {
         "id": "skills",
         "text": "Skill Library",
+        "level": 2
+      },
+      {
+        "id": "loading",
+        "text": "How skills reach the model",
         "level": 2
       },
       {

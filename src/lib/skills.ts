@@ -28,6 +28,76 @@ export function sampleSkillToSkill(s: SampleSkill): Skill {
   };
 }
 
+/**
+ * Total skill-body characters an agent may carry before the prompt switches
+ * from inlining every body to an index + on-demand loading (see
+ * buildSkillsIndexBlock). The default is chosen from measurement: all six
+ * bundled sample skills together are ~6.7k characters, so every configuration
+ * that exists today stays on the inline path and nothing observable changes.
+ * Deferral is for the setups the inline path punishes — many skills, or a few
+ * very long playbooks — where most of what is resent every single turn is
+ * instructions for situations that are not happening this turn.
+ *
+ * Callers pass the limit in (the server reads SKILLS_INLINE_MAX_CHARS); this
+ * module stays environment-free so the browser can import it.
+ */
+export const SKILLS_INLINE_MAX_CHARS_DEFAULT = 8000;
+
+/** Which prompt strategy a set of skills gets, given the inline budget. */
+export function skillsPromptMode(
+  skills: Pick<Skill, "body">[],
+  maxInlineChars: number,
+): "inline" | "deferred" {
+  const total = skills.reduce((n, s) => n + s.body.length, 0);
+  return total <= maxInlineChars ? "inline" : "deferred";
+}
+
+/**
+ * One line that tells the model when a skill applies, without its body.
+ *
+ * Prefer the skill's own description. A skill without one falls back to its
+ * first non-heading paragraph, which by convention is the "when to use"
+ * summary — and is truncated hard, because the whole point of the index is
+ * that it stays small when the bodies do not.
+ */
+export function skillIndexEntry(skill: Pick<Skill, "name" | "description" | "body">): string {
+  const summary =
+    skill.description?.trim() ||
+    skill.body
+      .split(/\n\s*\n/)
+      .map((p) => p.trim())
+      .find((p) => p && !p.startsWith("#")) ||
+    "";
+  const clipped = summary.length > 240 ? summary.slice(0, 237).trimEnd() + "…" : summary;
+  return clipped ? `- **${skill.name}** — ${clipped}` : `- **${skill.name}**`;
+}
+
+/**
+ * The deferred counterpart to buildSkillsPromptBlock: names and one-line
+ * summaries only, with instructions to load a body before applying it. The
+ * full markdown is served by the use_skill tool the server registers whenever
+ * this block is used — the two ship together or not at all.
+ */
+export function buildSkillsIndexBlock(
+  skills: Pick<Skill, "name" | "description" | "body">[],
+): string {
+  if (!skills.length) return "";
+  return [
+    "## Skills available to you",
+    "",
+    "You have been equipped with the named skills below. Only their summaries are listed here. " +
+      "When the current request matches one, call the `use_skill` tool with that skill's exact " +
+      "name to load its full instructions BEFORE applying it — do not guess at what a skill says. " +
+      "Load only the skills that match; more than one may apply to a single turn.",
+    "",
+    ...skills.map(skillIndexEntry),
+    "",
+    "---",
+    "",
+    "(End of skill index.)",
+  ].join("\n");
+}
+
 /** Build a markdown block to inject into the agent's system prompt. */
 export function buildSkillsPromptBlock(skills: Pick<Skill, "name" | "body">[]): string {
   if (!skills.length) return "";
