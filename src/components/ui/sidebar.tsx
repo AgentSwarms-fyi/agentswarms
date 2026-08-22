@@ -25,8 +25,12 @@ const SIDEBAR_WIDTH_MOBILE = "18rem";
 const SIDEBAR_WIDTH_ICON = "3rem";
 // Bounds for the drag-to-resize handle — narrow enough to reclaim real
 // screen space, wide enough that labels and nested menus stay readable.
-const SIDEBAR_WIDTH_MIN = 180;
-const SIDEBAR_WIDTH_MAX = 480;
+const SIDEBAR_WIDTH_MIN = 200;
+const SIDEBAR_WIDTH_MAX = 400;
+// Dragging the handle below this raw (unclamped) width auto-collapses the
+// sidebar instead of stopping at SIDEBAR_WIDTH_MIN — the "shrink it away"
+// gesture users expect from VS Code / Slack style panels.
+const SIDEBAR_AUTO_HIDE_THRESHOLD = 100;
 // Cmd/Ctrl+B matches most editors' sidebar toggle; Cmd/Ctrl+\ is the one
 // callers specifically asked for. Both do the same thing.
 const SIDEBAR_KEYBOARD_SHORTCUTS = ["b", "\\"];
@@ -369,7 +373,8 @@ const SIDEBAR_KEYBOARD_RESIZE_STEP = 16;
 
 const SidebarRail = React.forwardRef<HTMLButtonElement, React.ComponentProps<"button">>(
   ({ className, onPointerDown, onKeyDown, ...props }, ref) => {
-    const { toggleSidebar, state, width, setWidth, isResizing, setIsResizing } = useSidebar();
+    const { toggleSidebar, state, open, setOpen, width, setWidth, isResizing, setIsResizing } =
+      useSidebar();
     const collapsed = state === "collapsed";
 
     const handlePointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
@@ -381,6 +386,10 @@ const SidebarRail = React.forwardRef<HTMLButtonElement, React.ComponentProps<"bu
       const startX = event.clientX;
       const startWidth = width;
       let dragged = false;
+      // Mutable, not React state: the pointer listeners below live for the
+      // whole gesture and need the up-to-the-moment open/closed flag on
+      // every move, not the value captured when the drag started.
+      let currentlyOpen = open;
 
       const handlePointerMove = (moveEvent: PointerEvent) => {
         const delta = moveEvent.clientX - startX;
@@ -389,7 +398,29 @@ const SidebarRail = React.forwardRef<HTMLButtonElement, React.ComponentProps<"bu
           dragged = true;
           setIsResizing(true);
         }
-        setWidth(startWidth + direction * delta);
+
+        // The width the pointer alone would produce, ignoring min/max — we
+        // need the *raw* number to know whether the user has dragged past
+        // the auto-hide threshold, not the post-clamp value.
+        const rawWidth = startWidth + direction * delta;
+
+        if (rawWidth < SIDEBAR_AUTO_HIDE_THRESHOLD) {
+          // Past the "give up and hide it" point: collapse completely
+          // instead of stopping at SIDEBAR_WIDTH_MIN.
+          if (currentlyOpen) {
+            currentlyOpen = false;
+            setOpen(false);
+          }
+        } else {
+          // Back above the threshold (the user can drag back out mid-drag
+          // to cancel the auto-hide) — re-expand and resume normal,
+          // clamped resizing.
+          if (!currentlyOpen) {
+            currentlyOpen = true;
+            setOpen(true);
+          }
+          setWidth(rawWidth);
+        }
       };
 
       const handlePointerUp = () => {
