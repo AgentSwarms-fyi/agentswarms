@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { loadDraft, saveDraft, clearDraft } from "@/lib/formDraft";
 import { supabase } from "@/integrations/supabase/client";
 import { allowedProviders, isModelAllowedByRules, useMyModelRules } from "@/hooks/use-iam";
 import { useOllamaModels } from "@/hooks/use-ollama-models";
@@ -586,6 +587,45 @@ type MemoryItemRow = {
   created_at: string;
 };
 
+// Scoped to *creating* a new agent only. An edit already loads the agent's
+// real saved values from the database — silently overlaying a stray leftover
+// draft on top of those would be more confusing than helpful, and the "New
+// Agent" dialog only ever has one instance open, so a single fixed key is
+// enough (no per-agent id needed, unlike an edit draft would require).
+const AGENT_DRAFT_KEY = "agentForm:draft:create";
+
+// Everything a user directly types or picks while building a new agent. The
+// guardrails/tools/memory tabs each build one plain object that gets sent
+// as-is on submit, so we draft those objects wholesale rather than
+// reconstructing them field by field.
+type AgentDraft = {
+  name: string;
+  description: string;
+  systemPrompt: string;
+  provider: string;
+  model: string;
+  temperature: number;
+  maxTokens: number;
+  n8nWebhook: string;
+  useN8n: boolean;
+  selectedKbIds: string[]; // Set isn't JSON-serializable — stored as an array
+  rerankProvider: string;
+  rerankModel: string;
+  rerankCustom: boolean;
+  guardrails: Guardrails;
+  enabledTools: Record<string, boolean>;
+  skillIds: string[];
+  toolConfigs: Record<string, Record<string, string>>;
+  workflowConfigs: Record<string, Record<string, string>>;
+  activeWorkflows: Record<string, boolean>;
+  mcpServerNames: string[];
+  routeThroughGateway: boolean;
+  biVisuals: boolean;
+  sqlTableNames: string[];
+  metricModelNames: string[];
+  memoryConfig: MemoryConfigForm;
+};
+
 export function AgentForm({
   agent,
   userId,
@@ -595,6 +635,13 @@ export function AgentForm({
   userId: string;
   onSaved: () => void;
 }) {
+  // Whether a restored draft has been applied, purely to drive the
+  // "Restored a draft — Clear draft" banner. Starts false — matching what
+  // SSR renders, since sessionStorage doesn't exist on the server — and is
+  // flipped by the mount effect further down if a draft is actually found.
+  // Deliberately not reset on every render: the banner should stay up even
+  // after the user starts editing the restored values.
+  const [draftRestored, setDraftRestored] = useState(false);
   const [name, setName] = useState(agent?.name || "");
   const [description, setDescription] = useState(agent?.description || "");
   const [systemPrompt, setSystemPrompt] = useState(agent?.system_prompt || "");
@@ -885,6 +932,165 @@ export function AgentForm({
     setWorkflowConfigs((prev) => ({ ...prev, [wfId]: { ...(prev[wfId] || {}), [key]: value } }));
   }
 
+  // Auto-restore: apply a saved draft, if there is one, once on mount.
+  //
+  // This has to run in an effect rather than in the useState initializers
+  // above (which would read sessionStorage synchronously during render).
+  // This app is server-rendered, and the server has no `window` — a
+  // synchronous read would make the very first client render (during
+  // hydration) disagree with what the server sent down, which React treats
+  // as a hydration error. Doing it here instead means the first render
+  // always matches SSR (blank/default, exactly like a brand-new agent), and
+  // the draft is layered on immediately after, client-only.
+  //
+  // Empty dependency array: this must only ever run once. Every field it
+  // touches is also in the autosave effect's dependency array below, so
+  // re-running this on every render would fight that effect and pin the
+  // form to the original draft forever, undoing anything the user typed.
+  useEffect(() => {
+    if (agent) return; // editing never drafts — see AGENT_DRAFT_KEY's comment
+    const draft = loadDraft<AgentDraft>(AGENT_DRAFT_KEY);
+    if (!draft) return;
+
+    setName(draft.name);
+    setDescription(draft.description);
+    setSystemPrompt(draft.systemPrompt);
+    setProvider(draft.provider);
+    setModel(draft.model);
+    setTemperature(draft.temperature);
+    setMaxTokens(draft.maxTokens);
+    setN8nWebhook(draft.n8nWebhook);
+    setUseN8n(draft.useN8n);
+    setSelectedKbIds(new Set(draft.selectedKbIds));
+    setRerankProvider(draft.rerankProvider);
+    setRerankModel(draft.rerankModel);
+    setRerankCustom(draft.rerankCustom);
+    setGuardrails(draft.guardrails);
+    setEnabledTools(draft.enabledTools);
+    setSkillIds(draft.skillIds);
+    setToolConfigs(draft.toolConfigs);
+    setWorkflowConfigs(draft.workflowConfigs);
+    setActiveWorkflows(draft.activeWorkflows);
+    setMcpServerNames(draft.mcpServerNames);
+    setRouteThroughGateway(draft.routeThroughGateway);
+    setBiVisuals(draft.biVisuals);
+    setSqlTableNames(draft.sqlTableNames);
+    setMetricModelNames(draft.metricModelNames);
+    setMemoryConfig(draft.memoryConfig);
+    setDraftRestored(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Auto-save: on every change to any draftable field, re-serialize the
+  // whole draft object and write it to sessionStorage. This is "real-time"
+  // persistence (option 1 from the requirements) rather than only-on-blur —
+  // simpler to reason about, and the payload here is a small JSON object, so
+  // there's no meaningful cost to writing it on every keystroke.
+  //
+  // `skipFirstSave` exists because this effect's dependency array includes
+  // every field, so it always fires once on mount too — before the restore
+  // effect above has had a chance to apply a saved draft. Without the
+  // guard, a reopened "Create Agent" form would immediately overwrite its
+  // own just-loaded draft with the blank values it briefly rendered first.
+  const skipFirstSave = useRef(true);
+  useEffect(() => {
+    if (agent) return; // editing never drafts — see AGENT_DRAFT_KEY's comment
+    if (skipFirstSave.current) {
+      skipFirstSave.current = false;
+      return;
+    }
+    const nextDraft: AgentDraft = {
+      name,
+      description,
+      systemPrompt,
+      provider,
+      model,
+      temperature,
+      maxTokens,
+      n8nWebhook,
+      useN8n,
+      selectedKbIds: Array.from(selectedKbIds),
+      rerankProvider,
+      rerankModel,
+      rerankCustom,
+      guardrails,
+      enabledTools,
+      skillIds,
+      toolConfigs,
+      workflowConfigs,
+      activeWorkflows,
+      mcpServerNames,
+      routeThroughGateway,
+      biVisuals,
+      sqlTableNames,
+      metricModelNames,
+      memoryConfig,
+    };
+    saveDraft(AGENT_DRAFT_KEY, nextDraft);
+  }, [
+    agent,
+    name,
+    description,
+    systemPrompt,
+    provider,
+    model,
+    temperature,
+    maxTokens,
+    n8nWebhook,
+    useN8n,
+    selectedKbIds,
+    rerankProvider,
+    rerankModel,
+    rerankCustom,
+    guardrails,
+    enabledTools,
+    skillIds,
+    toolConfigs,
+    workflowConfigs,
+    activeWorkflows,
+    mcpServerNames,
+    routeThroughGateway,
+    biVisuals,
+    sqlTableNames,
+    metricModelNames,
+    memoryConfig,
+  ]);
+
+  // "Clear Draft": wipes sessionStorage and resets every field back to the
+  // same blank/default values a brand-new "Create Agent" form would start
+  // with (i.e. what each useState above initializes to when both `draft`
+  // and `agent` are null). Only ever rendered for a restored create-draft,
+  // so there's no `agent` to fall back to here.
+  function clearDraftAndReset() {
+    clearDraft(AGENT_DRAFT_KEY);
+    setDraftRestored(false);
+    setName("");
+    setDescription("");
+    setSystemPrompt("");
+    setProvider("openrouter");
+    setModel("google/gemini-3-flash-preview");
+    setTemperature(0.7);
+    setMaxTokens(4096);
+    setN8nWebhook("");
+    setUseN8n(false);
+    setSelectedKbIds(new Set());
+    setRerankProvider("none");
+    setRerankModel("");
+    setRerankCustom(false);
+    setGuardrails(defaultGuardrails);
+    setEnabledTools({});
+    setSkillIds([]);
+    setToolConfigs({});
+    setWorkflowConfigs({});
+    setActiveWorkflows({});
+    setMcpServerNames([]);
+    setRouteThroughGateway(false);
+    setBiVisuals(false);
+    setSqlTableNames([]);
+    setMetricModelNames([]);
+    setMemoryConfig(DEFAULT_MEMORY_CONFIG_FORM);
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
@@ -987,6 +1193,10 @@ export function AgentForm({
           kind: "auto",
         });
       }
+      // The agent is safely in the database now — the sessionStorage safety
+      // net is no longer needed. Only a create ever wrote one (see the
+      // `if (agent) return` guard on the autosave effect above).
+      if (!agent) clearDraft(AGENT_DRAFT_KEY);
       toast.success(agent ? "Agent updated" : "Agent created");
       onSaved();
     } catch (err: any) {
@@ -1024,6 +1234,20 @@ export function AgentForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {draftRestored && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+          <span>Restored an unsaved draft from earlier — pick up where you left off.</span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 shrink-0 gap-1 px-2 text-xs text-amber-700 hover:text-amber-900 dark:text-amber-300 dark:hover:text-amber-100 cursor-pointer"
+            onClick={clearDraftAndReset}
+          >
+            <Trash2 className="h-3 w-3" /> Clear draft
+          </Button>
+        </div>
+      )}
       {/* The docs say it, the form should too: nothing here blocks saving
           except a name and a model. Everything else ships with defaults. */}
       <p className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
@@ -2485,7 +2709,7 @@ export function AgentForm({
       {/* Sticky inside the dialog's scroll container: a six-tab form should
           never make anyone scroll to find out how to save it. */}
       <div className="sticky bottom-0 -mx-6 -mb-6 border-t border-border/60 bg-background/95 px-6 py-3 backdrop-blur">
-        <Button type="submit" className="w-full" disabled={loading}>
+        <Button type="submit" className="w-full cursor-pointer" disabled={loading}>
           {loading ? "Saving..." : agent ? "Update Agent" : "Create Agent"}
         </Button>
       </div>
