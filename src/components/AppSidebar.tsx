@@ -14,6 +14,7 @@ import {
   SidebarMenuItem,
   SidebarHeader,
   SidebarFooter,
+  SidebarResizeHandle,
   useSidebar,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
@@ -62,8 +63,11 @@ export function AppSidebar() {
   );
 
   return (
-    <Sidebar collapsible="icon" className="border-r border-sidebar-border">
-      <SidebarHeader className="p-4 group-data-[collapsible=icon]:p-2">
+    // collapsible="offcanvas": the sidebar slides completely off-screen when
+    // collapsed — no icon rail remains — and the main content reclaims the
+    // freed width via the spacer div's transition-[width] to 0.
+    <Sidebar collapsible="offcanvas" className="border-r border-sidebar-border">
+      <SidebarHeader className="p-4">
         <Link to="/" className="flex items-center gap-2" title="Back to AgentSwarms home">
           <img
             src={agentSwarmsLogo}
@@ -110,6 +114,11 @@ export function AppSidebar() {
           {!collapsed && <span>Sign Out</span>}
         </Button>
       </SidebarFooter>
+
+      {/* Draggable resize handle — desktop only, hidden on mobile.
+          Lets the user drag the right edge to any width in [200, 400] px.
+          State and width are persisted to localStorage. */}
+      <SidebarResizeHandle />
     </Sidebar>
   );
 }
