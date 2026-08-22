@@ -12,6 +12,7 @@
 /.vinxi
 /.wrangler
 /.tanstack
+src/routeTree.gen.ts
 
 # supabase CLI local state
 /supabase/.temp
