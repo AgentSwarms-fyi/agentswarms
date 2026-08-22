@@ -14,6 +14,7 @@ import {
   SidebarMenuItem,
   SidebarHeader,
   SidebarFooter,
+  SidebarRail,
   useSidebar,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
@@ -110,6 +111,7 @@ export function AppSidebar() {
           {!collapsed && <span>Sign Out</span>}
         </Button>
       </SidebarFooter>
+      <SidebarRail />
     </Sidebar>
   );
 }
