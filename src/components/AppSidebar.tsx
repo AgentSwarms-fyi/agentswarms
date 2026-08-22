@@ -63,8 +63,8 @@ export function AppSidebar() {
   );
 
   return (
-    <Sidebar collapsible="icon" className="border-r border-sidebar-border">
-      <SidebarHeader className="p-4 group-data-[collapsible=icon]:p-2">
+    <Sidebar collapsible="offcanvas" className="border-r border-sidebar-border">
+      <SidebarHeader className="p-4">
         <Link to="/" className="flex items-center gap-2" title="Back to AgentSwarms home">
           <img
             src={agentSwarmsLogo}
