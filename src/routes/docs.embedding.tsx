@@ -485,6 +485,83 @@ const { turns, activeTurn, ask, isRunning, error } = useAgentAnalyst({
         no anonymous visitor can ever release the gate.
       </Callout>
 
+      <H2 id="troubleshooting">When an embed does not work</H2>
+      <P>
+        Every refusal below is deliberate and comes back as a message rather than a blank frame, so
+        the fastest diagnosis is to read what the embed actually says. The browser console shows the
+        same text with its status code.
+      </P>
+      <Table
+        headers={["What you see", "What it means", "Fix"]}
+        rows={[
+          [
+            <em key="a">"This embed is not authorized to be called from this origin."</em>,
+            "The page's origin is not on the key's domain allow-list. By far the most common one, and it usually appears the moment you move from local testing to a real site.",
+            <>
+              Add the exact origin — scheme and host, and <C key="p">www.</C> counts. Staging and
+              production are different origins.
+            </>,
+          ],
+          [
+            <em key="b">"This embed key has expired."</em>,
+            "The key had an expiry date and it has passed.",
+            "Create a new key and swap the snippet. Expiry cannot be extended after the fact.",
+          ],
+          [
+            <em key="c">"This embed has been disabled by its owner."</em>,
+            "Someone toggled it off — often deliberately, during an incident.",
+            "Re-enable it in Integrations → Web Embedding, once you know why it was disabled.",
+          ],
+          [
+            <em key="d">"This embed key does not exist."</em>,
+            "The key was deleted, or the snippet was copied with a character missing.",
+            "Compare against the key in the dialog. Deleted keys never come back — create a new one.",
+          ],
+          [
+            <em key="e">"This embed key is for a dashboard, not a chat."</em>,
+            "The key's resource type does not match the endpoint or embed path being used.",
+            <>
+              Use the path for the type — <C key="q">/embed/bi/</C> for dashboards,{" "}
+              <C key="r">/embed/agent/</C> for agents.
+            </>,
+          ],
+          [
+            <em key="f">"Rate limited — please slow down."</em>,
+            "One visitor, or one script, exceeded the per-key rate limit.",
+            "Usually nothing — it is the control working. Investigate if it persists, because it may be a script rather than a person.",
+          ],
+          [
+            "A polite notice instead of an answer",
+            "The key's monthly budget is exhausted, or a guardrail refused the request. Both are answers, not errors, which is why nothing looks broken.",
+            <>
+              Raise or reset the cap in{" "}
+              <DocLink key="g" to="/docs/budgets">
+                Budgets
+              </DocLink>
+              , or loosen the rule in{" "}
+              <DocLink key="h" to="/docs/guardrails">
+                Guardrails
+              </DocLink>
+              .
+            </>,
+          ],
+        ]}
+      />
+      <Callout kind="warn" title="Works on your machine, fails on the real site">
+        Almost always the allow-list. There are two separate origin checks and they can disagree:
+        the browser-set <C>Origin</C> header on the API call, and the origin the embed page reports
+        for the page hosting it. A reverse proxy, a preview deployment on a generated hostname, or
+        an <C>iframe</C> nested inside another frame can each make the second one something you did
+        not expect. Add every origin the widget genuinely loads from, and remember that{" "}
+        <C>https://example.com</C> and <C>https://www.example.com</C> are two of them.
+      </Callout>
+      <Callout kind="why" title="Why a blocked embed still costs you nothing">
+        Refusals happen before the model is called, so a wrong domain, an expired key or an
+        exhausted budget cannot spend anything. Denials are audited with their reason, which is what
+        makes "it stopped working on Tuesday" answerable — check the audit trail before assuming a
+        code change broke it.
+      </Callout>
+
       <H2 id="checklist">Pre-publish checklist</H2>
       <UL>
         <li>Domains restricted to sites you control.</li>

@@ -76,6 +76,53 @@ function SkillsDoc() {
         </li>
       </UL>
 
+      <H2 id="loading">How skills reach the model</H2>
+      <P>
+        Attached skills are composed into the agent's system prompt on every turn — but{" "}
+        <em>how much</em> of each skill goes in depends on how much you have attached, because a
+        prompt full of playbooks for situations that are not happening this turn costs tokens and
+        crowds the model's reasoning.
+      </P>
+      <Table
+        headers={["Combined skill size", "What the prompt carries", "What the model does"]}
+        rows={[
+          [
+            <>
+              Up to <C key="a">SKILLS_INLINE_MAX_CHARS</C> (default 8,000 characters)
+            </>,
+            "Every skill's full body, inline.",
+            "Reads them directly — one round trip, exactly as skills have always worked.",
+          ],
+          [
+            "Above the limit",
+            "A compact index: each skill's name and a one-line summary.",
+            <>
+              Calls the <C key="b">use_skill</C> tool with a skill's exact name to load its full
+              instructions before applying it. Only the skills relevant to the current request are
+              loaded.
+            </>,
+          ],
+        ]}
+      />
+      <Callout kind="why" title="Why the default keeps everything inline">
+        All six sample skills together are about 6,700 characters, so the default limit means every
+        configuration built from them behaves exactly as before — one prompt, no extra round trip.
+        The index mode exists for heavy setups: ten skills, or two very long ones. There, inlining
+        means resending every playbook on every turn while the model needs at most one or two of
+        them — the index keeps the prompt small and the model pulls exactly what the request calls
+        for.
+      </Callout>
+      <Callout kind="info" title="Swarm nodes are unaffected in practice">
+        A swarm node attaches its own skills, and well-built nodes are narrow — one or two skills
+        each — so they stay comfortably under the limit and keep the classic inline behaviour. The
+        same gate protects a node that is ever overloaded, but if you find yourself attaching ten
+        skills to one node, the better fix is usually{" "}
+        <DocLink to="/docs/swarms" hash="patterns">
+          more nodes with narrower jobs
+        </DocLink>
+        .
+      </Callout>
+
       <H2 id="skill-tool-prompt">Skill, tool, or just the system prompt?</H2>
       <P>
         These three are easy to confuse because all of them change what an agent does. They are not

@@ -34,8 +34,10 @@ import {
   Info,
   AlertTriangle,
   Lightbulb,
+  List,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { DocsSearch } from "./DocsSearch";
 
 export type DocItem = {
   to: string;
@@ -122,8 +124,14 @@ function SidebarLinks({ current }: { current: string }) {
               const active = item.to === current;
               return (
                 <li key={item.to}>
+                  {/* TanStack's Link sets aria-current="page" itself, and by
+                      default it fuzzy-matches — /docs is a parent of every
+                      docs route, so Introduction announced itself as the
+                      current page from everywhere. exact makes the built-in
+                      announcement agree with the visual highlight. */}
                   <Link
                     to={item.to}
+                    activeOptions={{ exact: true }}
                     className={
                       "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition " +
                       (active
@@ -149,6 +157,7 @@ export function DocsSidebar({ current }: { current: string }) {
   const currentItem = DOCS_NAV.find((d) => d.to === current);
   return (
     <nav aria-label="Documentation">
+      <DocsSearch />
       {/* Mobile: collapsible disclosure so content stays above the fold */}
       <div className="lg:hidden">
         <button
@@ -163,7 +172,7 @@ export function DocsSidebar({ current }: { current: string }) {
           </span>
           <ChevronDown
             className={cn(
-              "h-4 w-4 text-muted-foreground transition-transform",
+              "h-4 w-4 text-muted-foreground transition-transform motion-reduce:transition-none",
               mobileOpen && "rotate-180",
             )}
           />
@@ -186,9 +195,89 @@ export function DocsSidebar({ current }: { current: string }) {
   );
 }
 
+type Heading = { id: string; text: string; level: number };
+
 /**
- * "On this page" rail. Scans the rendered article for h2[id] and h3[id] after
- * mount and tracks the one currently in view — no per-page wiring needed.
+ * The page's headings plus whichever is currently in view.
+ *
+ * Shared so the sticky rail and the collapsible version below cannot drift:
+ * they are the same list rendered twice at different widths, and a second
+ * implementation would eventually disagree about what counts as a section.
+ */
+function useHeadings(pathname: string): { headings: Heading[]; activeId: string | null } {
+  const [headings, setHeadings] = useState<Heading[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const article = document.querySelector("article");
+    if (!article) return;
+
+    let intersection: IntersectionObserver | null = null;
+    let lastKey = "";
+
+    const scan = () => {
+      const els = Array.from(article.querySelectorAll<HTMLHeadingElement>("h2[id], h3[id]"));
+      // Re-observing on every mutation would thrash; the id list is a cheap
+      // and exact test for "did the sections actually change".
+      const key = els.map((el) => el.id).join("|");
+      if (key === lastKey) return;
+      lastKey = key;
+
+      setHeadings(
+        els.map((el) => ({
+          id: el.id,
+          text: el.textContent ?? "",
+          level: el.tagName === "H3" ? 3 : 2,
+        })),
+      );
+
+      intersection?.disconnect();
+      if (els.length === 0) {
+        setActiveId(null);
+        return;
+      }
+      setActiveId(null);
+
+      const visible = new Map<string, number>();
+      intersection = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (entry.isIntersecting) visible.set(entry.target.id, entry.intersectionRatio);
+            else visible.delete(entry.target.id);
+          });
+          for (const el of els) {
+            if (visible.has(el.id)) {
+              setActiveId(el.id);
+              return;
+            }
+          }
+        },
+        { rootMargin: "-96px 0px -60% 0px", threshold: [0, 0.5, 1] },
+      );
+      els.forEach((el) => intersection!.observe(el));
+    };
+
+    // Scanning once on pathname change was the bug. Routes are lazily split,
+    // so when this effect runs after a client-side navigation the new page's
+    // content has usually not been committed yet — the scan then read the
+    // PREVIOUS page's headings and the rail filled with links to ids that do
+    // not exist here, which click and do nothing. Whether it happened at all
+    // depended on whether the chunk was already cached, which is why it looked
+    // intermittent and page-specific.
+    scan();
+    const mutation = new MutationObserver(scan);
+    mutation.observe(article, { childList: true, subtree: true });
+    return () => {
+      mutation.disconnect();
+      intersection?.disconnect();
+    };
+  }, [pathname]);
+
+  return { headings, activeId };
+}
+
+/**
+ * "On this page" rail, shown from xl up where there is a third column for it.
  *
  * H3s are included because leaving them out hid 143 subsections across these
  * pages — 42% of every heading written, each already carrying an id and so
@@ -197,44 +286,7 @@ export function DocsSidebar({ current }: { current: string }) {
  * chapter titles: /docs/swarms has 11 H2s and 19 H3s.
  */
 export function DocsToc({ pathname }: { pathname: string }) {
-  const [headings, setHeadings] = useState<{ id: string; text: string; level: number }[]>([]);
-  const [activeId, setActiveId] = useState<string | null>(null);
-
-  useEffect(() => {
-    const els = Array.from(
-      document.querySelectorAll<HTMLHeadingElement>("article h2[id], article h3[id]"),
-    );
-    setHeadings(
-      els.map((el) => ({
-        id: el.id,
-        text: el.textContent ?? "",
-        level: el.tagName === "H3" ? 3 : 2,
-      })),
-    );
-    if (els.length === 0) {
-      setActiveId(null);
-      return;
-    }
-
-    const visible = new Map<string, number>();
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) visible.set(entry.target.id, entry.intersectionRatio);
-          else visible.delete(entry.target.id);
-        });
-        for (const el of els) {
-          if (visible.has(el.id)) {
-            setActiveId(el.id);
-            return;
-          }
-        }
-      },
-      { rootMargin: "-96px 0px -60% 0px", threshold: [0, 0.5, 1] },
-    );
-    els.forEach((el) => observer.observe(el));
-    return () => observer.disconnect();
-  }, [pathname]);
+  const { headings, activeId } = useHeadings(pathname);
 
   if (headings.length < 2) return null;
 
@@ -248,8 +300,9 @@ export function DocsToc({ pathname }: { pathname: string }) {
           <li key={h.id}>
             <a
               href={`#${h.id}`}
+              aria-current={activeId === h.id ? "location" : undefined}
               className={cn(
-                "-ml-px block border-l py-0.5 leading-snug transition",
+                "-ml-px block border-l py-0.5 leading-snug transition motion-reduce:transition-none",
                 h.level === 3 ? "pl-6 text-[12px]" : "pl-3 text-[13px]",
                 activeId === h.id
                   ? "border-primary font-medium text-foreground"
@@ -261,6 +314,68 @@ export function DocsToc({ pathname }: { pathname: string }) {
           </li>
         ))}
       </ul>
+    </nav>
+  );
+}
+
+/**
+ * The same "on this page" list, as a disclosure for screens too narrow for the
+ * sticky rail — which is everything below xl, i.e. every phone and tablet and
+ * a split-screen laptop window.
+ *
+ * Worth having because the rail is not decoration on these pages: /docs/swarms
+ * lists thirty sections, and without this a reader on a tablet had no way to
+ * reach any of them except scrolling. Collapsed by default so it costs one
+ * line above the article, and closes on selection so the page is not left with
+ * a panel covering what was just jumped to.
+ */
+export function DocsTocCompact({ pathname }: { pathname: string }) {
+  const { headings } = useHeadings(pathname);
+  const [open, setOpen] = useState(false);
+
+  // Reset when navigating: a panel left open from the previous page is noise.
+  useEffect(() => setOpen(false), [pathname]);
+
+  if (headings.length < 2) return null;
+
+  return (
+    <nav aria-label="On this page" className="mb-6 print:hidden xl:hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between rounded-xl border border-border/50 bg-card/40 px-3 py-2.5 text-sm"
+      >
+        <span className="flex items-center gap-2 font-medium text-foreground">
+          <List className="h-4 w-4 text-primary" />
+          On this page
+          <span className="text-xs font-normal text-muted-foreground">({headings.length})</span>
+        </span>
+        <ChevronDown
+          className={cn(
+            "h-4 w-4 text-muted-foreground transition-transform motion-reduce:transition-none",
+            open && "rotate-180",
+          )}
+        />
+      </button>
+      {open && (
+        <ul className="mt-2 max-h-[50vh] space-y-1 overflow-y-auto rounded-xl border border-border/50 bg-card/40 p-3">
+          {headings.map((h) => (
+            <li key={h.id}>
+              <a
+                href={`#${h.id}`}
+                onClick={() => setOpen(false)}
+                className={cn(
+                  "block rounded py-1 leading-snug text-muted-foreground hover:text-foreground",
+                  h.level === 3 ? "pl-4 text-[12px]" : "text-[13px]",
+                )}
+              >
+                {h.text}
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
     </nav>
   );
 }

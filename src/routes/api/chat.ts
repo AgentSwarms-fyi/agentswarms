@@ -1503,6 +1503,9 @@ export const Route = createFileRoute("/api/chat")({
           }
           let citations: Citation[] = [];
           let effectiveSystemPrompt = body.systemPrompt;
+          // Skills whose bodies stay out of the prompt this turn — see the
+          // deferral branch below. Consumed when the tool registry is built.
+          let deferredSkills: Array<{ name: string; body: string }> = [];
 
           // ===== Skills injection =====
           // Resolve effective skill ids: per-call body.skillIds wins over the
@@ -1536,7 +1539,30 @@ export const Route = createFileRoute("/api/chat")({
                 }
                 const resolved = resolveSkills(effectiveSkillIds, userSkillRows);
                 if (resolved.length > 0) {
-                  const block = buildSkillsPromptBlock(resolved);
+                  // Small skill sets are inlined whole — one round trip, and
+                  // the behaviour every existing agent already has. Past the
+                  // budget, resending every body on every turn is mostly
+                  // resending playbooks for situations that are not happening
+                  // this turn: the prompt carries an index instead, and the
+                  // use_skill tool serves a body when the model decides a
+                  // skill applies.
+                  const {
+                    skillsPromptMode,
+                    buildSkillsIndexBlock,
+                    SKILLS_INLINE_MAX_CHARS_DEFAULT,
+                  } = await import("@/lib/skills");
+                  const inlineMax = (() => {
+                    const n = Number(process.env.SKILLS_INLINE_MAX_CHARS);
+                    return Number.isFinite(n) && n > 0 ? n : SKILLS_INLINE_MAX_CHARS_DEFAULT;
+                  })();
+                  const mode = skillsPromptMode(resolved, inlineMax);
+                  const block =
+                    mode === "inline"
+                      ? buildSkillsPromptBlock(resolved)
+                      : buildSkillsIndexBlock(resolved);
+                  if (mode === "deferred") {
+                    deferredSkills = resolved.map((s) => ({ name: s.name, body: s.body }));
+                  }
                   effectiveSystemPrompt = effectiveSystemPrompt
                     ? `${block}\n\n${effectiveSystemPrompt}`
                     : block;
@@ -2007,7 +2033,12 @@ export const Route = createFileRoute("/api/chat")({
               }
             }
 
-            if (transport && transport.apiKey && sbForTools && allowList && allowList.length > 0) {
+            // Deferred skills need the tool loop even when the agent has no
+            // other tools: the prompt's skill index promises use_skill, and
+            // the only way to keep that promise is to run the loop that can
+            // serve it.
+            const wantsToolLoop = (allowList && allowList.length > 0) || deferredSkills.length > 0;
+            if (transport && transport.apiKey && sbForTools && wantsToolLoop) {
               const mergedConfigs = resolveToolConfigs();
               const resolved = await resolveAgentTools(
                 {
@@ -2017,7 +2048,12 @@ export const Route = createFileRoute("/api/chat")({
                   sb: sbForTools,
                   scopeUserId: toolScopeUserId,
                 },
-                { enabledTools: allowList, toolConfigs: mergedConfigs, extraKbIds },
+                {
+                  enabledTools: allowList ?? [],
+                  toolConfigs: mergedConfigs,
+                  extraKbIds,
+                  deferredSkills,
+                },
               );
               if (resolved.tools.length > 0) {
                 const toolEvents: ToolEvent[] = [];

@@ -1,7 +1,5 @@
 <div align="center">
-  <img src="public/og-image.png" alt="AgentSwarms" width="140" style="border-radius:28px" />
-
-  <h1>AgentSwarms</h1>
+  <img src="public/banner.png" alt="AgentSwarms — Unified Agentic AI and Business Intelligence" width="100%" />
 
   <p><strong>Deploy your own agentic AI &amp; business-intelligence platform.</strong><br />
   Build agents, run multi-agent swarms, ground them in your data, and inspect

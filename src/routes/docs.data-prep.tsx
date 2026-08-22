@@ -271,6 +271,64 @@ date_trunc('month', ordered_at)`}</Code>
         column profile in the <DocLink to="/docs/data">catalog</DocLink> shows the null rate.
       </Callout>
 
+      <H2 id="worked">Worked example — a messy export to a monthly table</H2>
+      <P>
+        The nine steps above are documented one at a time; this is what they look like assembled.
+        The situation: a raw order export where test orders are mixed in with real ones, the same
+        order appears twice when it was edited, and finance wants revenue by month and product — not
+        eleven thousand rows.
+      </P>
+      <Steps
+        items={[
+          {
+            title: "Filter rows — keep only what counts",
+            body: (
+              <>
+                Two conditions combined with <C>AND</C>: <C>status = 'settled'</C> and{" "}
+                <C>NOT contains(product, 'test')</C>. Do this first — every later step gets cheaper
+                and the preview stops being dominated by rows you were always going to drop.
+              </>
+            ),
+          },
+          {
+            title: "Remove duplicates — one row per order",
+            body: (
+              <>
+                Duplicate defined by <C>order_id</C>. The export re-emits an order each time it is
+                edited, so without this step every edited order counts its revenue twice — the
+                classic inflated-total bug, invisible until someone reconciles against the source.
+              </>
+            ),
+          },
+          {
+            title: "Calculated field — the month to group by",
+            body: (
+              <>
+                Name <C>order_month</C>, expression <C>date_trunc('month', created_at)</C>, type
+                date. Grouping by a truncated date beats grouping by a formatted string: it sorts
+                correctly and BI treats it as a real time axis.
+              </>
+            ),
+          },
+          {
+            title: "Summarize — the shape finance asked for",
+            body: (
+              <>
+                Group by <C>order_month</C> and <C>product</C>; measure <strong>Sum</strong> of{" "}
+                <C>amount</C>. The output is one row per month per product, ready for a chart or a
+                metric.
+              </>
+            ),
+          },
+        ]}
+      />
+      <Callout kind="warn" title="The order is the logic">
+        Run Summarize before Remove duplicates and the duplicates are already baked into the sums —
+        the step ordering warning above is not hypothetical, and this flow is the standard example
+        of it. Filter → dedupe → derive → aggregate is the order that makes each step see only what
+        it should.
+      </Callout>
+
       <H2 id="save-refresh">Saving and refreshing</H2>
       <Steps
         items={[

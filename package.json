@@ -1,6 +1,6 @@
 {
   "name": "agentswarms",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "The hands-on playground for learning Agentic AI — build agents, run multi-agent swarms, and inspect traces in your browser.",
   "license": "Elastic-2.0",
   "repository": {
@@ -20,6 +20,8 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "check:docs": "node scripts/check-docs.mjs",
+    "check:md-docs": "node scripts/check-md-docs.mjs",
+    "docs:index": "node scripts/build-docs-index.mjs",
     "format": "prettier --write .",
     "test": "vitest run",
     "test:watch": "vitest",

@@ -487,6 +487,34 @@ GROUP BY region`}</Code>
         makes a dashboard stop being read.
       </Callout>
 
+      <H3 id="non-chart-widgets">Two widgets that plot nothing</H3>
+      <P>
+        Not everything on a dashboard is a chart. Two widget types take no data at all, and they are
+        what turns a wall of numbers into something a reader can follow without being told what it
+        means.
+      </P>
+      <Table
+        headers={["Widget", "Takes", "Use it for"]}
+        rows={[
+          [
+            <C key="a">text</C>,
+            "A title and Markdown content — no fields, no query.",
+            "The executive summary at the top, a definition of a metric people keep misreading, a note on why last month looks odd.",
+          ],
+          [
+            <C key="b">image</C>,
+            "An uploaded image or an image URL.",
+            "A logo, an architecture diagram, a photograph — anything the numbers are about but cannot show.",
+          ],
+        ]}
+      />
+      <Callout kind="why" title="A dashboard nobody can read is a dashboard nobody uses">
+        These two cost nothing to add and are the difference between a page that answers a question
+        and a page that presents evidence and leaves the reader to infer the question. A text widget
+        stating what the dashboard is for, and one sentence per section saying what good looks like,
+        does more for adoption than another chart.
+      </Callout>
+
       <H2 id="formatting">Number formatting</H2>
       <Table
         headers={["Option", "Values", "Notes"]}

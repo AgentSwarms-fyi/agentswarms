@@ -1272,10 +1272,61 @@ export async function resolveAgentTools(
     // sample/shared KB without having an agent record). When provided,
     // kb_search is wired up even if the agent itself has no KB.
     extraKbIds?: string[] | null;
+    // Skills whose bodies were left OUT of the system prompt because their
+    // combined size crossed the inline budget (see skillsPromptMode). The
+    // prompt carries only an index of names and summaries; this registers the
+    // use_skill tool that serves a body on demand. Purely request-scoped —
+    // the handler closes over these objects and touches no storage, which is
+    // also why it is safe on headless runs.
+    deferredSkills?: Array<{ name: string; body: string }> | null;
   },
 ): Promise<ResolvedTools> {
   const tools: ToolDef[] = [];
   const handlers = new Map<string, ToolHandler>();
+
+  // ── Deferred skill bodies ─────────────────────────────────────────────
+  // Registered first and unconditionally when present: the system prompt has
+  // already promised the model that use_skill exists, and a prompt that names
+  // a tool the request does not carry trains the model to stop trusting the
+  // prompt.
+  {
+    const deferred = (overrides?.deferredSkills ?? []).filter(
+      (s) => s && typeof s.name === "string" && s.name && typeof s.body === "string",
+    );
+    if (deferred.length > 0) {
+      const byName = new Map(deferred.map((s) => [s.name, s.body]));
+      tools.push({
+        type: "function",
+        function: {
+          name: "use_skill",
+          description:
+            "Load the full instructions for one of the skills listed in your skill index. " +
+            "Call this before applying a skill — the index carries only summaries.",
+          parameters: {
+            type: "object",
+            properties: {
+              skill: {
+                type: "string",
+                description: "Exact skill name from the index.",
+                enum: deferred.map((s) => s.name),
+              },
+            },
+            required: ["skill"],
+          },
+        },
+      });
+      handlers.set("use_skill", async (_c, args) => {
+        const name = typeof args?.skill === "string" ? args.skill : "";
+        const skillBody = byName.get(name);
+        if (!skillBody) {
+          return JSON.stringify({
+            error: `Unknown skill "${name}". Available: ${[...byName.keys()].join(", ")}`,
+          });
+        }
+        return JSON.stringify({ skill: name, instructions: skillBody });
+      });
+    }
+  }
   const enabled = {
     kb: false,
     web: false,

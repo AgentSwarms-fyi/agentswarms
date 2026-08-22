@@ -19,6 +19,7 @@
 // Exits non-zero when anything fails, so CI can gate on it.
 import fs from "node:fs";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 
 const ROUTES = "src/routes";
 const DOCS = fs.readdirSync(ROUTES).filter((f) => /^docs\./.test(f));
@@ -295,6 +296,21 @@ for (const f of DOCS) {
     }
   }
 
+  // Every widget the BI picker offers should appear on the BI page. The two
+  // that plot nothing — a Markdown text block and an image — were missing for
+  // exactly the reason they are easy to miss: the page is organised around
+  // chart types, and these are not charts.
+  if (page === "bi") {
+    const meta = read("src/lib/biVizMeta.ts");
+    const seg = meta.slice(
+      meta.indexOf("VIZ_REQUIREMENTS"),
+      meta.indexOf("\n};", meta.indexOf("VIZ_REQUIREMENTS")),
+    );
+    const widgets = [...new Set([...seg.matchAll(/^\s{2}([a-z_]+):\s*\{/gm)].map((m) => m[1]))];
+    const absent = widgets.filter((w) => !new RegExp(`<C[^>]*>${w}</C>`).test(src));
+    if (absent.length) fail("undocumented widget", `${page}: ${absent.join(", ")}`);
+  }
+
   // Tool ids named in prose must exist in the registry.
   for (const m of src.matchAll(/<C[^>]*>([a-z][a-z0-9_]{3,})<\/C>/g)) {
     if (/^(kb|web|mcp|sql|metric|n8n)_/.test(m[1]) && !toolIds.has(m[1]))
@@ -351,6 +367,16 @@ for (const f of DOCS) {
     if (teachesSecretNaming && page === "secrets") continue;
     fail("unknown env var", `${page}: ${v}`);
   }
+}
+
+// The search box filters a generated index. If a heading is added and the
+// index is not rebuilt, that section is simply unfindable — silently, since
+// the page itself looks perfect.
+{
+  const gen = spawnSync(process.execPath, ["scripts/build-docs-index.mjs", "--check"], {
+    encoding: "utf8",
+  });
+  if (gen.status !== 0) fail("stale search index", "run: npm run docs:index");
 }
 
 // ── Report ──────────────────────────────────────────────────────────────────

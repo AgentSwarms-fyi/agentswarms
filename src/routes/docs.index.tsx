@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import {
-  CardGrid,
   Callout,
+  CardGrid,
   DocLink,
   DocsHeader,
   H2,
@@ -273,6 +273,50 @@ function IntroductionPage() {
         your account and your agreement with that vendor. See{" "}
         <DocLink to="/docs/models">Models &amp; providers</DocLink>.
       </P>
+
+      <H2 id="help">When the docs do not have it</H2>
+      <P>
+        These pages describe the platform as it ships. For anything they do not cover — a question
+        about your own setup, a bug, or a feature that should exist — there are three places, and
+        which one you want depends on what kind of answer you need.
+      </P>
+      <Table
+        headers={["Where", "Best for"]}
+        rows={[
+          [
+            <a
+              key="d"
+              href="https://discord.gg/wKrpyBqtJ"
+              className="text-primary underline-offset-4 hover:underline"
+            >
+              Discord
+            </a>,
+            "A question with no obvious answer, a sanity check on an approach, or anything where a conversation beats a written report. Fastest route to a human.",
+          ],
+          [
+            <a
+              key="g"
+              href="https://github.com/AgentSwarms-fyi/agentswarms/issues"
+              className="text-primary underline-offset-4 hover:underline"
+            >
+              GitHub issues
+            </a>,
+            "Something reproducibly wrong, or a feature request worth keeping a record of. Include the version, what you expected, and what happened.",
+          ],
+          [
+            <DocLink key="c" to="/contact">
+              Contact
+            </DocLink>,
+            "Anything you would rather not post in public — an instance-specific detail, a security report.",
+          ],
+        ]}
+      />
+      <Callout kind="info" title="Bring the trace">
+        Almost every question about a wrong answer is settled by the run's trace, which records what
+        was retrieved, which tools ran and what each step produced. Reading it yourself usually
+        answers the question outright; pasting the relevant step makes someone else's answer far
+        quicker. See <DocLink to="/docs/debugging">Logs &amp; traces</DocLink>.
+      </Callout>
 
       <NextPrev current="/docs" />
     </>
