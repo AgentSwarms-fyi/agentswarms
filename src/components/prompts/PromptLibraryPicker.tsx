@@ -129,7 +129,7 @@ export function PromptLibraryPicker({
       <PopoverContent
         align={align}
         side="bottom"
-        className="w-[min(680px,calc(100vw-2rem))] max-h-[min(520px,var(--radix-popover-content-available-height))] p-0 overflow-hidden flex flex-col"
+        className="w-[min(680px,var(--radix-popover-content-available-width))] max-h-[min(520px,var(--radix-popover-content-available-height))] p-0 overflow-hidden flex flex-col"
         sideOffset={6}
         collisionPadding={12}
       >
@@ -183,7 +183,12 @@ export function PromptLibraryPicker({
             </select>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 flex-1 min-h-0 h-[min(300px,calc(100vh-18rem))] min-w-0">
+          {/* Height comes from the flex parent, which is bounded by the
+              popover's own max-height. A fixed h-[...] keyed to 100vh ignored
+              how much room the popover actually got — inside a dialog that is
+              far less than the viewport — so the panes overflowed and were
+              clipped by the overflow-hidden above. */}
+          <div className="grid grid-cols-2 gap-3 flex-1 min-h-0 min-w-0">
             {/* List */}
             <div className="border border-border rounded-md min-w-0 min-h-0 overflow-y-auto overscroll-contain">
               <div className="p-1.5 space-y-1">
