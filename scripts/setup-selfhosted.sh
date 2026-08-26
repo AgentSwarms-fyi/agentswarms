@@ -228,7 +228,20 @@ setenv() {
     printf '%s="%s"\n' "$k" "$v" >> .env
   fi
 }
-setenv SUPABASE_URL                 "$SB_URL"
+# The browser and the SERVER HALF need DIFFERENT URLs when the app runs in a
+# container. localhost:8000 is Kong from the host and from a browser, but
+# inside the app container localhost is that container -- the fetch simply
+# fails, and the app reports it as an auth error because every server-side
+# Supabase call goes through it. Supabase self-hosted is its own compose
+# project here, not a shared network, so the app reaches it across the host
+# gateway. With --dev the app runs ON the host and the plain URL is right.
+SB_URL_SERVER="$SB_URL"
+case " ${APP_FLAGS[*]-} " in
+  *" --dev "*) : ;;
+  *) SB_URL_SERVER="$(printf '%s' "$SB_URL" | sed -E 's#//(localhost|127\.0\.0\.1)(:|/|$)#//host.docker.internal\2#')" ;;
+esac
+[ "$SB_URL_SERVER" = "$SB_URL" ] || say "Server-side Supabase URL for the container: $SB_URL_SERVER"
+setenv SUPABASE_URL                 "$SB_URL_SERVER"
 setenv SUPABASE_PUBLISHABLE_KEY     "$ANON_KEY"
 setenv SUPABASE_SERVICE_ROLE_KEY    "$SERVICE_KEY"
 setenv VITE_SUPABASE_URL            "$SB_URL"

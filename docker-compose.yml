@@ -48,6 +48,13 @@ services:
     # the setting saves but never reaches the proxy.
     volumes:
       - ./deploy/notebooks/egress:/etc/agentswarms/egress
+    # Self-hosted Supabase runs as its own compose project, so the app reaches
+    # it across the host gateway rather than by service name. Docker Desktop
+    # resolves host.docker.internal on its own; Linux needs this mapping, and
+    # without it a SUPABASE_URL pointing at the host does not resolve at all.
+    # Harmless when Supabase is hosted -- nothing looks the name up then.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     # nb-internal lets notebook kernels call back for governed model/KB access;
     # js-internal lets the app reach the (optional) JS sandbox by service name.
     networks: [default, nb-internal, js-internal]
