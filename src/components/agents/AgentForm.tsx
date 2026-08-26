@@ -1491,6 +1491,17 @@ export function AgentForm({
               <Select
                 value={useCustomModel ? "__custom__" : model}
                 onValueChange={(v) => {
+                  // Ignore an empty payload. Radix mirrors the value into a
+                  // hidden native <select> for form compatibility, and when an
+                  // option is added in the SAME render that selects it -- which
+                  // is exactly what picking from the registry does, since the
+                  // chosen id is unioned into the list as it is chosen -- the
+                  // mirror resolves its value before the new <option> exists,
+                  // settles on "", and echoes that back through here. Writing
+                  // it to state wiped the selection one render after it landed.
+                  // No SelectItem carries an empty value (Radix forbids it), so
+                  // an empty payload is always that artifact, never a choice.
+                  if (!v) return;
                   if (v === "__custom__") {
                     setUseCustomModel(true);
                   } else {
