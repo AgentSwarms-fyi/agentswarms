@@ -139,13 +139,24 @@ if [ "$MODE" = "docker" ]; then
   if [ "$SANDBOX" -eq 1 ]; then
     echo "  JS sandbox: custom-code nodes now run in DEPLOYED and SCHEDULED swarm runs too."
     # Report what the service actually says, rather than assuming the build
-    # that just started is healthy.
-    if command -v curl >/dev/null 2>&1 && curl -fsS --max-time 5 http://127.0.0.1:8091/health >/dev/null 2>&1; then
-      echo "    health: OK (http://127.0.0.1:8091/health)"
+    # that just started is healthy. Ask the container itself: js-sandbox sits on
+    # an internal network, which publishes no host port, so curl'ing a loopback
+    # port here would report "unhealthy" for a service that is perfectly fine.
+    # Its image is dependency-free Node, so node is the client it has.
+    SANDBOX_PROBE="fetch('http://127.0.0.1:8091/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+    if docker compose $PROFILE_FLAGS exec -T js-sandbox node -e "$SANDBOX_PROBE" >/dev/null 2>&1; then
+      echo "    health: OK (reached in-network at js-sandbox:8091)"
     else
-      echo "    health: not answering yet — give it a few seconds, then: curl http://127.0.0.1:8091/health"
+      echo "    health: not answering yet - give it a few seconds, then:"
+      echo "      docker compose --profile sandbox exec -T js-sandbox \\"
+      echo "        node -e \"fetch('http://127.0.0.1:8091/health').then(r=>r.text()).then(console.log)\""
     fi
-    echo "    Running the app with 'npm run dev' instead of in Compose? Set JS_SANDBOX_URL=\"http://127.0.0.1:8091\" in .env."
+    echo "    Running the app with 'npm run dev' instead of in Compose? The container"
+    echo "      publishes no host port (its network is internal: true), so run the"
+    echo "      service on the host instead - it is dependency-free Node:"
+    echo "        INTERNAL_RUN_SECRET=\"<same value as .env>\" node services/js-sandbox/server.mjs"
+    echo "      then set JS_SANDBOX_URL=\"http://127.0.0.1:8091\" in .env. Note a host"
+    echo "      process has none of the container's isolation - keep it to dev."
   fi
 else
   say "Starting dev server (Ctrl+C to stop). Open http://localhost:8080"

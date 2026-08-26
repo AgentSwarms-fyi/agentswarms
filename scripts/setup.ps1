@@ -120,12 +120,23 @@ if ($Dev) {
   if ($Sandbox) {
     Write-Host "  JS sandbox: custom-code nodes now run in DEPLOYED and SCHEDULED swarm runs too."
     # Report what the service actually says rather than assuming it is healthy.
-    try {
-      $null = Invoke-WebRequest -Uri "http://127.0.0.1:8091/health" -TimeoutSec 5 -UseBasicParsing
-      Write-Host "    health: OK (http://127.0.0.1:8091/health)"
-    } catch {
-      Write-Host "    health: not answering yet - give it a few seconds, then: curl http://127.0.0.1:8091/health"
+    # Ask the container itself: js-sandbox sits on an internal network, which
+    # publishes no host port, so probing a loopback port here would report
+    # "unhealthy" for a service that is perfectly fine. Its image is
+    # dependency-free Node, so node is the client it has.
+    $probe = "fetch('http://127.0.0.1:8091/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+    docker compose @profiles exec -T js-sandbox node -e $probe *> $null
+    if ($LASTEXITCODE -eq 0) {
+      Write-Host "    health: OK (reached in-network at js-sandbox:8091)"
+    } else {
+      Write-Host "    health: not answering yet - give it a few seconds, then:"
+      Write-Host "      docker compose --profile sandbox exec -T js-sandbox node -e ""fetch('http://127.0.0.1:8091/health').then(r=>r.text()).then(console.log)"""
     }
-    Write-Host "    Running the app with 'npm run dev' instead of in Compose? Set JS_SANDBOX_URL=""http://127.0.0.1:8091"" in .env."
+    Write-Host "    Running the app with 'npm run dev' instead of in Compose? The container"
+    Write-Host "      publishes no host port (its network is internal: true), so run the"
+    Write-Host "      service on the host instead - it is dependency-free Node:"
+    Write-Host "        `$env:INTERNAL_RUN_SECRET=""<same value as .env>""; node services/js-sandbox/server.mjs"
+    Write-Host "      then set JS_SANDBOX_URL=""http://127.0.0.1:8091"" in .env. Note a host"
+    Write-Host "      process has none of the container's isolation - keep it to dev."
   }
 }

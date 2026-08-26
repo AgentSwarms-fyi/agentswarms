@@ -192,9 +192,17 @@ services:
       JS_SANDBOX_MEM_MB: ${JS_SANDBOX_MEM_MB:-128}
     expose:
       - "8091"
-    # Published on LOOPBACK only, so `npm run dev` on the host can reach it at
-    # http://localhost:8091. Never 0.0.0.0: this endpoint executes code, and its
-    # only guard is the shared secret.
+    # Loopback-scoped, never 0.0.0.0: this endpoint executes code, and its only
+    # guard is the shared secret.
+    #
+    # NOTE this binding does not take effect as long as the service sits only on
+    # `js-internal` (internal: true) below - Docker publishes no host port from
+    # an internal-only network, and you get NetworkSettings.Ports "8091/tcp":[].
+    # That is intended: under Compose the app reaches the sandbox in-network as
+    # js-sandbox:8091 and no host port is wanted. It is kept as a safety net, so
+    # that if the network is ever made routable the port lands on loopback
+    # rather than every interface. To reach the sandbox from `npm run dev` on
+    # the host, run the service directly instead - see docs/DEPLOYMENT.md.
     ports:
       - "127.0.0.1:8091:8091"
     networks: [js-internal]
