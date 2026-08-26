@@ -335,11 +335,23 @@ superuser first. What each is for:
 the CLI at the database directly:
 
 ```bash
-npx supabase db push --db-url "postgresql://postgres:<POSTGRES_PASSWORD>@<db-host>:5432/postgres"
+npx supabase db push --db-url "postgresql://postgres:<POSTGRES_PASSWORD>@<db-host>:5432/postgres?sslmode=disable"
 ```
+
+`?sslmode=disable` is not optional: the CLI negotiates TLS by default, and a
+stock self-hosted Postgres serves plaintext, so without it the push fails with
+`tls error (The server does not support SSL connections)` before running
+anything.
+
+Note also which service answers on `5432`. Current stacks publish the
+**supavisor pooler** there and never expose the `db` container's own port to the
+host, so the pooler username (`postgres.<POOLER_TENANT_ID>`) is the one that
+authenticates. A URL with the bare `postgres` user reaches the same pooler, not
+Postgres directly.
 
 Storage buckets and their RLS policies are created by the migrations, so there
 is nothing to click in Studio afterwards.
+
 
 **Verified, at the 146-migration mark.** The whole set was applied to a stock
 `supabase/postgres:15.8.1.060` container: 146 applied, 0 failed, producing 98
