@@ -335,11 +335,23 @@ superuser first. What each is for:
 the CLI at the database directly:
 
 ```bash
-npx supabase db push --db-url "postgresql://postgres:<POSTGRES_PASSWORD>@<db-host>:5432/postgres"
+npx supabase db push --db-url "postgresql://postgres:<POSTGRES_PASSWORD>@<db-host>:5432/postgres?sslmode=disable"
 ```
+
+`?sslmode=disable` is not optional: the CLI negotiates TLS by default, and a
+stock self-hosted Postgres serves plaintext, so without it the push fails with
+`tls error (The server does not support SSL connections)` before running
+anything.
+
+Note also which service answers on `5432`. Current stacks publish the
+**supavisor pooler** there and never expose the `db` container's own port to the
+host, so the pooler username (`postgres.<POOLER_TENANT_ID>`) is the one that
+authenticates. A URL with the bare `postgres` user reaches the same pooler, not
+Postgres directly.
 
 Storage buckets and their RLS policies are created by the migrations, so there
 is nothing to click in Studio afterwards.
+
 
 **Verified, at the 146-migration mark.** The whole set was applied to a stock
 `supabase/postgres:15.8.1.060` container: 146 applied, 0 failed, producing 98
@@ -896,12 +908,26 @@ docker compose --profile sandbox up -d --build
 ```
 
 No address to configure inside Compose: the app defaults to `js-sandbox:8091`.
-Running the app on the host with `npm run dev` instead? Point it at the
-published loopback port:
+
+Running the app on the host with `npm run dev` instead? The container is **not
+reachable from the host**. It sits only on `js-internal`, and Docker publishes
+no host port from an `internal: true` network — the `127.0.0.1:8091` mapping in
+`docker-compose.yml` is kept as a safety net for a future routable network, but
+while the network is internal it binds nothing (`NetworkSettings.Ports` reports
+`"8091/tcp":[]`). Run the service on the host instead; it is dependency-free
+Node, so there is nothing to install:
+
+```bash
+INTERNAL_RUN_SECRET="<same value as your .env>" node services/js-sandbox/server.mjs
+```
 
 ```bash
 JS_SANDBOX_URL="http://127.0.0.1:8091"
 ```
+
+A host process has none of the container's isolation — no read-only root, no
+dropped capabilities, no blocked egress — so keep that to local development and
+let Compose run it everywhere else.
 
 **How it is isolated.** Every layer here is deliberate, and stricter than the
 notebook runtime because a snippet needs nothing at all:
@@ -926,8 +952,13 @@ _inside_ the sandbox realm and passes only JSON strings across the boundary.
 **Verify it after deploying:**
 
 ```bash
-curl -s http://127.0.0.1:8091/health
+docker compose --profile sandbox exec -T js-sandbox \
+  node -e "fetch('http://127.0.0.1:8091/health').then(r=>r.text()).then(console.log)"
 ```
+
+Ask the container, not the host: with no published port there is nothing on the
+host's `8091` to curl, and the image carries no `curl` or `wget` — it is
+dependency-free by design, so `node` is the client it has. Expect `{"ok":true}`.
 
 Then deploy a swarm with a Function node and run it through its API key. The
 Deploy dialog also reports the sandbox's state: it warns only when custom-code

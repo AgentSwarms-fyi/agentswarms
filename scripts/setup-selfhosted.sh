@@ -141,7 +141,16 @@ TENANT="$(sb_get POOLER_TENANT_ID)"; TENANT="${TENANT:-agentswarms}"
 
 # ── 4. start the stack and wait until it is REALLY ready ────────────────────
 say "Starting Supabase (docker compose up -d) — first pull downloads ~2 GB of images"
-( cd "$SB_DIR/docker" && docker compose up -d )
+# First boot initialises Postgres (bootstrap migrations, the extra databases,
+# the pg_graphql migrations). On slower volume I/O that outlasts the health wait
+# Compose gives the services depending on it, and they abort in "created" while
+# Postgres itself goes healthy moments later. Retrying starts the ones that gave
+# up; it is not a fix for a genuinely broken database, which fails again here.
+start_stack() { ( cd "$SB_DIR/docker" && docker compose up -d ); }
+if ! start_stack; then
+  warn "Services gave up waiting on Postgres first-boot init - retrying once"
+  start_stack || die "Supabase stack failed to start - check: (cd $SB_DIR/docker && docker compose ps && docker compose logs db)"
+fi
 
 say "Waiting for the auth service (up to ${WAIT_SECS}s)"
 deadline=$(( $(date +%s) + WAIT_SECS ))
@@ -171,12 +180,12 @@ done
 # ── 6. apply the AgentSwarms schema ──────────────────────────────────────────
 # supabase link is for Cloud projects; against self-hosted we point the CLI at
 # the database directly, through the session pooler the stack publishes on 5432.
-DB_URL="postgresql://postgres.${TENANT}:${PG_PW}@127.0.0.1:5432/postgres"
+DB_URL="postgresql://postgres.${TENANT}:${PG_PW}@127.0.0.1:5432/postgres?sslmode=disable"
 say "Applying database migrations (npx supabase db push)"
 if ! npx --yes supabase db push --db-url "$DB_URL"; then
   # Older stacks publish Postgres directly instead of through the pooler.
   warn "Push via the pooler failed — retrying against Postgres directly"
-  DB_URL="postgresql://postgres:${PG_PW}@127.0.0.1:5432/postgres"
+  DB_URL="postgresql://postgres:${PG_PW}@127.0.0.1:5432/postgres?sslmode=disable"
   npx --yes supabase db push --db-url "$DB_URL" || die "Migrations failed — see output above"
 fi
 
