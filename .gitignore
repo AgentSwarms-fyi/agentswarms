@@ -47,6 +47,8 @@ supabase-docker/
 # Backups/copies of .env — same secrets, and the patterns above do not match
 # names like .env.production.bak or .env.cloud.local.copy
 .env.*.bak
+.env.bak*
+.env.backup*
 .env.*.backup
 .env.*.copy
 .env.*.orig
