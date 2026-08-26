@@ -18,6 +18,7 @@ import { toast } from "sonner";
 import { getModelRegistry, type RegistryModel } from "@/utils/modelRegistry.functions";
 import { isProviderSupported, isModelSupported } from "@/lib/providerSupport";
 import { modelMatchesAnyRule, useMyModelRules } from "@/hooks/use-iam";
+import { useAuth } from "@/hooks/use-auth";
 import { clickable } from "@/lib/clickable";
 
 type Props = {
@@ -34,14 +35,22 @@ export function ModelRegistryPicker({ trigger, defaultModality = "text", onPick 
   const [modality, setModality] = useState(defaultModality);
   const [provider, setProvider] = useState<string>("all");
 
+  // The registry read runs AS the caller: the server fn validates an
+  // { access_token } object and uses it to resolve the user before querying.
+  // Calling it with no argument fails that validation before any query runs,
+  // which surfaced here as a "Failed to load registry: ... expected object,
+  // received undefined" toast rather than an empty list.
+  const { session } = useAuth();
+  const accessToken = session?.access_token;
+
   useEffect(() => {
-    if (!open || models.length > 0) return;
+    if (!open || models.length > 0 || !accessToken) return;
     setLoading(true);
-    getModelRegistry()
+    getModelRegistry({ data: { access_token: accessToken } })
       .then((res) => setModels(res.models))
       .catch((e) => toast.error(`Failed to load registry: ${(e as Error).message}`))
       .finally(() => setLoading(false));
-  }, [open, models.length]);
+  }, [open, models.length, accessToken]);
 
   const providers = useMemo(() => {
     const map = new Map<string, { slug: string; label: string; count: number }>();
