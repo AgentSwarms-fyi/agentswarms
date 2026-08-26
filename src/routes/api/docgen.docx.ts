@@ -39,8 +39,13 @@ export const Route = createFileRoute("/api/docgen/docx")({
         const auth = request.headers.get("authorization") || "";
         const token = auth.replace(/^Bearer\s+/i, "");
         if (!token) return json({ error: "Unauthorized" }, 401);
+        // SERVER url first. VITE_SUPABASE_URL is the browser's copy, inlined at
+        // build time, and the two differ whenever the app runs in a container
+        // beside a self-hosted Supabase: the browser reaches it on localhost,
+        // the container cannot. Reading the browser copy here made getUser()
+        // fail with ECONNREFUSED, which this route reported as "Unauthorized".
         const userClient = createClient(
-          import.meta.env.VITE_SUPABASE_URL!,
+          (process.env.SUPABASE_URL || import.meta.env.VITE_SUPABASE_URL)!,
           import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY!,
           { global: { headers: { Authorization: `Bearer ${token}` } } },
         );

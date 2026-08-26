@@ -58,7 +58,7 @@ export const Route = createFileRoute("/api/skills/generate")({
           // Verify the caller — RLS would block any DB write anyway, but we
           // also gate the AI call so anonymous traffic can't burn credits.
           const userClient = createClient(
-            import.meta.env.VITE_SUPABASE_URL!,
+            (process.env.SUPABASE_URL || import.meta.env.VITE_SUPABASE_URL)!,
             import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY!,
             { global: { headers: { Authorization: `Bearer ${token}` } } },
           );

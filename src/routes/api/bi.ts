@@ -64,7 +64,7 @@ export const Route = createFileRoute("/api/bi")({
         const token = auth.replace(/^Bearer\s+/i, "");
         if (!token) return json({ error: "Unauthorized" }, 401);
 
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL!;
+        const supabaseUrl = (process.env.SUPABASE_URL || import.meta.env.VITE_SUPABASE_URL)!;
         const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY!;
         const userClient = createClient(supabaseUrl, supabaseKey, {
           global: { headers: { Authorization: `Bearer ${token}` } },

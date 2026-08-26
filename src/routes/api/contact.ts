@@ -93,7 +93,7 @@ export const Route = createFileRoute("/api/contact")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const supabaseUrl = process.env.SUPABASE_URL || import.meta.env.VITE_SUPABASE_URL;
         const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
         const adminEmail = process.env.CONTACT_ADMIN_EMAIL;
 
