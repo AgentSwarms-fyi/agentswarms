@@ -37,6 +37,10 @@ import {
   isTextModelId,
   parseModelChoice,
 } from "@/utils/providers/modelChoice";
+import {
+  getInstanceProviderStatus,
+  type InstanceProviderStatus,
+} from "@/utils/providers/instanceProviders.functions";
 import { PROVIDER_LABELS, type ProviderId } from "@/utils/providers/types";
 
 /** Shown for OpenRouter when the live /models fetch is empty or fails. */
@@ -114,15 +118,23 @@ export function fetchConnectedIntegrations(): Promise<ConnectedIntegration[]> {
     Promise.resolve(
       supabase.from("provider_credentials").select("provider, default_model, is_active"),
     ),
+    // The instance-wide key is a THIRD source, and the one these pickers used
+    // to miss. An operator who sets OPENROUTER_API_KEY expects OpenRouter to
+    // work everywhere without anyone connecting anything; agent chat and
+    // swarms already behave that way. A failure here is not fatal — it just
+    // means we fall back to whatever the two tables hold.
+    getInstanceProviderStatus().catch(
+      () => ({ openrouter: false, openrouterDefaultModel: null }) as InstanceProviderStatus,
+    ),
   ])
-    .then(([legacy, creds]) => {
+    .then(([legacy, creds, instance]) => {
       // A failed read is not an account without providers. Throwing here is
       // what lets callers tell "you have none" from "we could not find out".
       if (legacy.error) throw new Error(legacy.error.message);
       if (creds.error) throw new Error(creds.error.message);
-      return [legacy, creds] as const;
+      return [legacy, creds, instance] as const;
     })
-    .then(([legacy, creds]) => {
+    .then(([legacy, creds, instance]) => {
       const byProvider = new Map<string, ConnectedIntegration>();
       for (const r of legacy.data ?? []) {
         if (r.is_active === false || !r.provider || !isBiCompatProvider(r.provider)) continue;
@@ -143,6 +155,15 @@ export function fetchConnectedIntegrations(): Promise<ConnectedIntegration[]> {
         byProvider.set(r.provider, {
           provider: r.provider,
           default_model: r.default_model ?? prev?.default_model ?? null,
+        });
+      }
+      // Added last and only when absent, so a user's own OpenRouter key --
+      // with their own default model and billing -- always takes precedence
+      // over the instance one.
+      if (instance.openrouter && !byProvider.has("openrouter")) {
+        byProvider.set("openrouter", {
+          provider: "openrouter",
+          default_model: instance.openrouterDefaultModel,
         });
       }
       integrationsCache = [...byProvider.values()];
