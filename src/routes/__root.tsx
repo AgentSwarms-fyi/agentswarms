@@ -2,6 +2,7 @@ import { Outlet, Link, createRootRoute, HeadContent, Scripts } from "@tanstack/r
 import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/hooks/use-theme";
 import { CookieConsent } from "@/components/CookieConsent";
+import { SchemaHealthGuard } from "@/components/SchemaHealthGuard";
 
 // Runs before React hydrates — sets the .dark class from localStorage so the
 // page never flashes the wrong theme. Falls back to dark (the app default).
@@ -171,6 +172,7 @@ function RootComponent() {
       <Outlet />
       <Toaster />
       <CookieConsent />
+      <SchemaHealthGuard />
     </ThemeProvider>
   );
 }
