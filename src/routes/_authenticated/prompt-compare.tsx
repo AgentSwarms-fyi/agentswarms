@@ -5,14 +5,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { ModelCombobox } from "@/components/models/ModelCombobox";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { MarkdownMessage } from "@/components/playground/MarkdownMessage";
 import { toast } from "sonner";
@@ -470,18 +464,20 @@ function ModelSelector({
       <Badge variant="outline" className="shrink-0 text-[10px]">
         {label}
       </Badge>
-      <Select value={value} onValueChange={onChange} disabled={disabled}>
-        <SelectTrigger className="h-8 text-xs">
-          <SelectValue placeholder="Select model" />
-        </SelectTrigger>
-        <SelectContent>
-          {MODELS.map((m) => (
-            <SelectItem key={m.id} value={m.id} className="text-xs">
-              {m.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      {/* The whole OpenRouter catalogue, searchable. MODELS below is a curated
+          nine — fine as a starting point, but comparing anything outside it was
+          impossible, which is an odd limit on a tool whose entire purpose is
+          comparing models. It stays as the fallback list and still supplies the
+          friendly labels used elsewhere on this page. */}
+      <ModelCombobox
+        value={value}
+        onChange={onChange}
+        provider="openrouter"
+        fallbackModels={MODELS.map((m) => m.id)}
+        disabled={disabled}
+        placeholder="Select model"
+        className="h-8"
+      />
     </div>
   );
 }

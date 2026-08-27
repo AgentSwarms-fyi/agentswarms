@@ -45,6 +45,7 @@ import {
   Boxes,
 } from "lucide-react";
 import { ModelRegistryPicker } from "@/components/agents/ModelRegistryPicker";
+import { ModelCombobox } from "@/components/models/ModelCombobox";
 import { PromptLibraryPicker } from "@/components/prompts/PromptLibraryPicker";
 import { SkillPicker } from "@/components/skills/SkillPicker";
 import { isImageModelId } from "@/lib/providerSupport";
@@ -651,9 +652,6 @@ export function AgentForm({
   // static suggestions whenever the user picks the ollama provider.
   const ollamaLive = useOllamaModels(provider === "ollama");
   const [model, setModel] = useState(agent?.llm_model || "google/gemini-3-flash-preview");
-  // Sticky once chosen, so typing an id the catalogue happens to contain
-  // does not yank the field back to the dropdown mid-edit.
-  const [useCustomModel, setUseCustomModel] = useState(false);
   const [temperature, setTemperature] = useState(agent?.temperature || 0.7);
   const [maxTokens, setMaxTokens] = useState(agent?.max_tokens || 4096);
   const [n8nWebhook, setN8nWebhook] = useState(agent?.n8n_webhook_url || "");
@@ -1481,62 +1479,27 @@ export function AgentForm({
                 }
               />
             </div>
-            {/* The provider's own catalogue, as a list you can pick from.
-                `suggestedModels` is capped for the badge row below; this reads
-                the full live list so a 300-model provider like OpenRouter is
-                actually browsable instead of being 24 chips and a text box.
-                Falls back to free text when the catalogue is empty (provider
-                not connected yet, or an id it does not publish). */}
-            {modelOptions.length > 0 && (
-              <Select
-                value={useCustomModel ? "__custom__" : model}
-                onValueChange={(v) => {
-                  // Ignore an empty payload. Radix mirrors the value into a
-                  // hidden native <select> for form compatibility, and when an
-                  // option is added in the SAME render that selects it -- which
-                  // is exactly what picking from the registry does, since the
-                  // chosen id is unioned into the list as it is chosen -- the
-                  // mirror resolves its value before the new <option> exists,
-                  // settles on "", and echoes that back through here. Writing
-                  // it to state wiped the selection one render after it landed.
-                  // No SelectItem carries an empty value (Radix forbids it), so
-                  // an empty payload is always that artifact, never a choice.
-                  if (!v) return;
-                  if (v === "__custom__") {
-                    setUseCustomModel(true);
-                  } else {
-                    setUseCustomModel(false);
-                    setModel(v);
-                  }
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a model" />
-                </SelectTrigger>
-                <SelectContent className="max-h-72">
-                  {modelOptions.map((m) => (
-                    <SelectItem key={m.id} value={m.id}>
-                      <span className="flex items-center gap-1.5">
-                        <span className="font-mono text-xs">{m.id}</span>
-                        {m.free && (
-                          <span className="rounded-sm border border-emerald-500/40 bg-emerald-500/10 px-1 text-[9px] uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
-                            Free
-                          </span>
-                        )}
-                      </span>
-                    </SelectItem>
-                  ))}
-                  <SelectItem value="__custom__">Custom model name…</SelectItem>
-                </SelectContent>
-              </Select>
-            )}
-            {(useCustomModel || modelOptions.length === 0) && (
-              <Input
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                placeholder="model-name"
-              />
-            )}
+            {/* Searchable, over the provider's live catalogue — the same
+                component swarm nodes use, so the two editors behave the same.
+                It replaces a plain Select that listed 400+ options with no way
+                to filter them, plus a separate "Custom model name…" mode and
+                free-text box; the combobox offers an unlisted id inline
+                instead, so the extra state is gone. */}
+            <ModelCombobox
+              value={model}
+              onChange={setModel}
+              provider={provider}
+              fallbackModels={suggestedModels.map((m) => m.id)}
+              isAllowed={(m) => isModelAllowedByRules(myModelRules, provider, m)}
+              placeholder="Search or type a model id..."
+              renderBadge={(m) =>
+                isImageModelId(m) ? (
+                  <span className="ml-2 shrink-0 rounded-sm border border-primary/40 bg-primary/10 px-1 text-[9px] uppercase tracking-wider text-primary">
+                    Image
+                  </span>
+                ) : null
+              }
+            />
             {suggestedModels.length > 0 && (
               <div className="flex flex-wrap gap-1 mt-1">
                 {suggestedModels.map(({ id: m, free }) => (
