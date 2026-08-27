@@ -79,17 +79,11 @@ export const Route = createFileRoute("/api/kb/ingest-url")({
           return Response.json({ error: "Knowledge base not found" }, { status: 404 });
         }
 
+        // No Firecrawl key is no longer fatal: the built-in fetcher reads
+        // server-rendered pages, which is most documentation. Without this,
+        // "add a URL to a knowledge base" was unavailable entirely to anyone
+        // who had not signed up for a third-party service.
         const firecrawlKey = process.env.FIRECRAWL_API_KEY;
-        if (!firecrawlKey) {
-          return Response.json(
-            {
-              error:
-                "Firecrawl is not connected. Open Connectors and link Firecrawl, then try again.",
-              code: "FIRECRAWL_NOT_CONNECTED",
-            },
-            { status: 412 },
-          );
-        }
 
         // Upsert source row (insert if no source_id, otherwise update existing).
         let sourceId = body.source_id;
@@ -125,30 +119,45 @@ export const Route = createFileRoute("/api/kb/ingest-url")({
         let markdown = "";
         let title = body.label || body.url;
         try {
-          const res = await fetch(`${FIRECRAWL_BASE}/scrape`, {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${firecrawlKey}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              url: body.url,
-              formats: ["markdown"],
-              onlyMainContent: true,
-            }),
-          });
-          if (!res.ok) {
-            const txt = await res.text().catch(() => "");
-            throw new Error(`Firecrawl ${res.status}: ${txt.slice(0, 300)}`);
+          if (!firecrawlKey) {
+            const { nativeScrape } = await import("@/utils/nativeScrape.server");
+            const r = await nativeScrape(body.url);
+            markdown = r.markdown;
+            if (r.title) title = r.title;
+            if (r.thin) {
+              // Saving the empty shell of a JavaScript-rendered page would put
+              // a document in the knowledge base that answers nothing, so fail
+              // with the reason instead.
+              throw new Error(
+                "The page returned almost no text with the built-in fetcher — it is most likely rendered by JavaScript. Connect Firecrawl to ingest pages like this.",
+              );
+            }
+          } else {
+            const res = await fetch(`${FIRECRAWL_BASE}/scrape`, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${firecrawlKey}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                url: body.url,
+                formats: ["markdown"],
+                onlyMainContent: true,
+              }),
+            });
+            if (!res.ok) {
+              const txt = await res.text().catch(() => "");
+              throw new Error(`Firecrawl ${res.status}: ${txt.slice(0, 300)}`);
+            }
+            const json = (await res.json()) as {
+              data?: { markdown?: string; metadata?: { title?: string } };
+              markdown?: string;
+              metadata?: { title?: string };
+            };
+            markdown = json.data?.markdown || json.markdown || "";
+            const metaTitle = json.data?.metadata?.title || json.metadata?.title;
+            if (metaTitle) title = metaTitle;
           }
-          const json = (await res.json()) as {
-            data?: { markdown?: string; metadata?: { title?: string } };
-            markdown?: string;
-            metadata?: { title?: string };
-          };
-          markdown = json.data?.markdown || json.markdown || "";
-          const metaTitle = json.data?.metadata?.title || json.metadata?.title;
-          if (metaTitle) title = metaTitle;
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           await admin
@@ -164,7 +173,9 @@ export const Route = createFileRoute("/api/kb/ingest-url")({
             .from("kb_sources")
             .update({
               status: "error",
-              error: "Firecrawl returned no extractable text for this URL.",
+              error: firecrawlKey
+                ? "Firecrawl returned no extractable text for this URL."
+                : "The built-in fetcher found no extractable text at this URL.",
             })
             .eq("id", sourceId)
             .eq("user_id", user.id);

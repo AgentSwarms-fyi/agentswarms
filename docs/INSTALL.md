@@ -372,12 +372,37 @@ clean markdown). How well they work depends on whether a key is configured —
 
 | Setup                                                        | `web_search`                                                                                                                                           | `web_browse`                                               |
 | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------- |
-| **No key** (default)                                         | Works, but falls back to DuckDuckGo's free Instant Answer API — only entity summaries + a few related topics, so thin/often empty for ordinary queries | **Unavailable** (hidden from the agent until a key exists) |
+| **No key** (default)                                         | Works, but falls back to DuckDuckGo's free Instant Answer API — only entity summaries + a few related topics, so thin/often empty for ordinary queries | Works via the **built-in fetcher** — server-rendered pages only, no JavaScript |
 | **Firecrawl connector** (Integrations page → **Web Search**) | Real web search via [Firecrawl](https://firecrawl.dev) for every agent — key stored encrypted, no restart                                              | Full-page reads via Firecrawl                              |
 | **`FIRECRAWL_API_KEY` in `.env`** (workspace-wide)           | Same as above, set via env instead of the UI                                                                                                           | Full-page reads via Firecrawl                              |
 | **Per-agent key** (agent editor, no `.env` change)           | Bring your own **Brave / SerpAPI / Tavily** key                                                                                                        | Bring your own **ScrapingBee** or custom **Firecrawl** key |
 
-So if web search "isn't really searching," that's the DuckDuckGo fallback.
+#### The built-in fetcher (no key needed)
+
+`web_browse` and **adding a URL to a knowledge base** both work without any key.
+The built-in fetcher requests the page through the same SSRF guard described
+below, strips navigation, headers, footers and cookie banners, and converts what
+is left to markdown — including tables, which stay tables rather than being
+flattened into prose.
+
+**It does not run JavaScript.** That is the whole difference between it and
+Firecrawl. A server-rendered page — documentation, a blog post, a licence, a
+GitHub README, an RFC — converts cleanly. A client-rendered single-page app
+returns its empty shell, because the text was never in the HTML the server sent.
+When that happens the fetcher does not pretend: the result is marked `thin` and
+carries a note saying the page is probably JavaScript-rendered and that Firecrawl
+can read it. Knowledge-base ingestion refuses such a page outright rather than
+saving a document that answers nothing.
+
+Other limits worth knowing: 8 MiB per page, a 20-second timeout, HTML and plain
+text only (a PDF or Office URL is refused rather than mangled), and no crawling
+— one URL per call, no link-following.
+
+So if web search "isn't really searching," that's the DuckDuckGo fallback — and
+that is a category difference, not a quality one. The Instant Answer API returns
+encyclopedia-style entries for recognised entities and has no ranked web results
+at all, which is why ordinary queries come back empty however they are phrased.
+
 Easiest fix: open **Integrations → Web Search**, paste a Firecrawl key (from
 [firecrawl.dev](https://firecrawl.dev)) and click **Validate & Save** — it takes
 effect immediately, no restart. You can also set `FIRECRAWL_API_KEY` in `.env`,
@@ -385,7 +410,8 @@ or give one agent its own key in the agent editor. Resolution order for the
 built-in Firecrawl path is: per-agent key → `FIRECRAWL_API_KEY` → the
 Integrations connector.
 
-Every URL fetched by `web_browse` is chosen by the model, so it's routed through
+Every URL fetched by `web_browse` is chosen by the model — including by the
+built-in fetcher — so it's routed through
 the same SSRF guard as swarm HTTP nodes and connector tests: cloud instance
 metadata / link-local addresses are always refused, and you can block all
 private/internal targets with `BLOCK_PRIVATE_NETWORK_FETCH=true` (recommended

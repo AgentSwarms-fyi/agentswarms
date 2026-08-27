@@ -200,7 +200,9 @@ export const webBrowseTool: ToolDef = {
     name: "web_browse",
     description:
       "Fetch and read a single web page as clean markdown. Use after web_search when you need the " +
-      "full text of a specific result (e.g. an article, filing, blog post). Powered by Firecrawl.",
+      "full text of a specific result (e.g. an article, filing, blog post). Uses Firecrawl when a " +
+      "key is configured; otherwise a built-in fetcher that reads server-rendered pages but does not " +
+      "run JavaScript — such a page comes back marked `thin` with a note saying so.",
     parameters: {
       type: "object",
       properties: {
@@ -285,7 +287,7 @@ async function duckDuckGoSearch(query: string): Promise<string> {
       related,
       note:
         !j.AbstractText && related.length === 0
-          ? "DuckDuckGo returned no summary. For richer results, link the Firecrawl connector in Integrations."
+          ? "No entity summary for this query. This built-in fallback is DuckDuckGo's Instant Answer API, which returns encyclopedia-style entries rather than ranked web results, so ordinary queries often come back empty. Connect Firecrawl on the Integrations page, or set a Brave/SerpAPI/Tavily key on the agent, for real web search."
           : undefined,
     });
   } catch (e) {
@@ -469,6 +471,32 @@ export async function runWebSearch(
   return duckDuckGoSearch(q);
 }
 
+/**
+ * web_browse via the built-in fetcher. Shapes its result like the Firecrawl
+ * branch so the model sees one contract regardless of which path ran.
+ */
+async function nativeBrowse(url: string, upstreamError?: string): Promise<string> {
+  try {
+    const { nativeScrape } = await import("@/utils/nativeScrape.server");
+    const r = await nativeScrape(url, { maxChars: 12000 });
+    return JSON.stringify({
+      provider: "native",
+      url: r.finalUrl || r.url,
+      title: r.title,
+      markdown: r.markdown,
+      thin: r.thin || undefined,
+      note: r.note,
+      upstream_error: upstreamError,
+    });
+  } catch (e) {
+    return JSON.stringify({
+      provider: "native",
+      error: (e as Error).message,
+      upstream_error: upstreamError,
+    });
+  }
+}
+
 export async function runWebBrowse(
   ctx: AgentToolContext,
   args: { url: string },
@@ -520,11 +548,11 @@ export async function runWebBrowse(
   // Firecrawl integration (Integrations page).
   const key = await resolveFirecrawlKey(ctx, provider === "firecrawl_custom" ? userKey : undefined);
   if (!key) {
-    return JSON.stringify({
-      error:
-        "web_browse needs a Firecrawl key. Connect Firecrawl on the Integrations page, set FIRECRAWL_API_KEY, choose 'Firecrawl (custom API key)' here and paste a key, or pick the ScrapingBee provider with your key.",
-      provider: "firecrawl",
-    });
+    // No key anywhere: fall back to the built-in fetcher rather than refusing.
+    // web_search already degrades to a free provider instead of disappearing;
+    // this makes web_browse behave the same way. It cannot run JavaScript, so
+    // the result says so when a page comes back empty.
+    return await nativeBrowse(url);
   }
   try {
     const r = await fetch("https://api.firecrawl.dev/v2/scrape", {
@@ -534,7 +562,11 @@ export async function runWebBrowse(
     });
     if (!r.ok) {
       const t = await r.text().catch(() => "");
-      return JSON.stringify({ error: `Firecrawl scrape ${r.status}: ${t.slice(0, 200)}` });
+      // A key that is present but rejected (exhausted credits, 5xx) used to end
+      // the call. The built-in fetcher can still read a server-rendered page,
+      // so try it before giving up and keep the upstream reason in the result.
+      const fallback = await nativeBrowse(url, `Firecrawl scrape ${r.status}: ${t.slice(0, 200)}`);
+      return fallback;
     }
     const j = (await r.json()) as {
       data?: { markdown?: string; metadata?: { title?: string; sourceURL?: string } };
@@ -1445,12 +1477,11 @@ export async function resolveAgentTools(
   // ScrapingBee), or the user's Firecrawl integration on the Integrations page.
   // Without this widening, agents that only connected Firecrawl in the UI (or
   // pasted their own key) wouldn't see the tool.
-  let hasWebBrowseKey =
-    !!process.env.FIRECRAWL_API_KEY || !!(cfg.web_browse?.api_key && cfg.web_browse.api_key.trim());
-  if (!hasWebBrowseKey && allows("web_browse")) {
-    hasWebBrowseKey = !!(await loadFirecrawlIntegrationKey(ctx));
-  }
-  if (allows("web_browse") && hasWebBrowseKey) {
+  // web_browse is no longer gated on a key. Without one it runs the built-in
+  // fetcher, which reads server-rendered pages and reports when a page needs
+  // JavaScript. Hiding the tool entirely meant an agent could not read a URL
+  // it had just found with web_search, which degrades rather than disappears.
+  if (allows("web_browse")) {
     tools.push(webBrowseTool);
     handlers.set("web_browse", (c, a) => runWebBrowse(c, a, cfg.web_browse));
     enabled.web_browse = true;

@@ -155,7 +155,7 @@ function SelfHostingPage() {
           [<C key="d">OPENAI_API_KEY</C>, "Workspace-wide OpenAI key"],
           [
             <C key="e">FIRECRAWL_API_KEY</C>,
-            "Workspace-wide web search and page fetching for the web_search / web_browse tools",
+            "Workspace-wide web search and JavaScript-rendered page fetching for web_search / web_browse. Optional: without it, web_browse uses the built-in fetcher (server-rendered pages only) and web_search falls back to DuckDuckGo entity lookups.",
           ],
         ]}
       />

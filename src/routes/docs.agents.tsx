@@ -358,7 +358,7 @@ If the customer is angry, or asks for a refund above $500, reply only:
               Web Browser <C key="b">web_browse</C>
             </>,
             "Nothing, or a ScrapingBee key",
-            "Fetch one URL as clean markdown. Private and link-local addresses are refused.",
+            "Fetch one URL as clean markdown. Works with no key via the built-in fetcher, which does not run JavaScript — a client-rendered page comes back flagged as thin. A Firecrawl or ScrapingBee key adds JavaScript rendering. Private and link-local addresses are refused.",
           ],
           [
             <>

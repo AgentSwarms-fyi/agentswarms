@@ -395,8 +395,9 @@ export function AddSourceDialog({
               />
             </div>
             <p className="text-[11px] text-muted-foreground">
-              Powered by Firecrawl. Only the page's main content is captured (no nav / footer).
-              Re-sync any time to refresh.
+              Only the page's main content is captured (no nav / footer). Uses Firecrawl when a key
+              is connected, otherwise the built-in fetcher, which reads server-rendered pages but
+              does not run JavaScript. Re-sync any time to refresh.
             </p>
           </TabsContent>
 

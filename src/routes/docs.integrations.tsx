@@ -167,10 +167,19 @@ function IntegrationsDoc() {
         <C>web_search</C> and <C>web_browse</C> tools for every agent that has them enabled.
       </P>
       <Callout kind="info" title="It works with no key at all">
-        Without a key, <C>web_search</C> still runs — it falls back to DuckDuckGo, with noticeably
-        thinner results — and <C>web_browse</C> is unavailable, because reading a full page is the
-        part that needs a real crawler. Connect a key when search quality starts costing you
-        answers, not before.
+        <C>web_browse</C> falls back to a <strong>built-in fetcher</strong>: it requests the page,
+        strips navigation, headers, footers and cookie banners, and converts what is left to
+        markdown — tables included. It does <strong>not</strong> run JavaScript, so a
+        server-rendered page (documentation, a blog post, a licence, a GitHub README) reads cleanly
+        while a client-rendered app returns its empty shell. When that happens the result is flagged
+        as thin and says so, rather than handing the model nothing and calling it an answer. Adding
+        a URL as a knowledge-base source uses the same fetcher.
+        <br />
+        <br />
+        <C>web_search</C> falls back to DuckDuckGo's Instant Answer API. That is a category
+        difference rather than a quality one: it returns encyclopedia-style entries for recognised
+        entities and has no ranked web results at all, so ordinary queries come back empty however
+        they are phrased. A key is what turns it into real search.
       </Callout>
       <P>The same setting can come from three places, in this order:</P>
       <Table
