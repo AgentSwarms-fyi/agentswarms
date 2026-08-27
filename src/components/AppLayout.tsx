@@ -29,7 +29,7 @@ export function AppLayout() {
               the window, so this changes nothing for them. */}
           <header
             data-app-header
-            className="sticky top-0 z-40 flex h-12 items-center justify-between border-b border-header-border bg-header/95 px-4 text-header-foreground backdrop-blur-md"
+            className="sticky top-0 z-40 flex h-12 items-center justify-between border-b border-header-border bg-header px-4 text-header-foreground backdrop-blur-md"
           >
             <SidebarTrigger />
             <div className="flex items-center gap-2">

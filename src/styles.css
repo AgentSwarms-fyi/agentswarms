@@ -248,10 +248,13 @@ html {
   --chart-5: oklch(0.6 0.17 25);
 
   /* The chrome. Near-black with a blue cast rather than pure grey, so it
-     reads as deliberate next to the teal accent instead of washed out. */
-  --header: oklch(0.205 0.014 258);
+     reads as deliberate next to the teal accent instead of washed out.
+     Top bar and sidebar share ONE colour: they are a single continuous frame
+     around the workspace, and two near-blacks a shade apart just look like a
+     seam nobody intended. */
+  --header: oklch(0.185 0.014 258);
   --header-foreground: oklch(0.97 0.004 250);
-  --header-border: oklch(1 0 0 / 12%);
+  --header-border: oklch(1 0 0 / 10%);
   --sidebar: oklch(0.185 0.014 258);
   --sidebar-foreground: oklch(0.93 0.006 250);
   /* Brighter than the content primary: this one sits on a dark ground and
@@ -260,7 +263,13 @@ html {
   --sidebar-primary-foreground: oklch(0.17 0.012 240);
   --sidebar-accent: oklch(0.26 0.012 256);
   --sidebar-accent-foreground: oklch(0.97 0.004 250);
-  --sidebar-border: oklch(1 0 0 / 10%);
+  /* OPAQUE, unlike the other themes. The sidebar container draws a
+     full-height right border on a TRANSPARENT element, so a translucent white
+     composites against whatever is behind it — which here is the light page,
+     turning a subtle divider into a bright white line running up the side of
+     the dark top bar. An opaque chrome tone reads as an edge against the
+     sidebar and disappears against the header. */
+  --sidebar-border: oklch(0.245 0.014 258);
   --sidebar-ring: oklch(0.74 0.13 195);
 }
 
@@ -274,8 +283,8 @@ html {
 .native [data-app-header] {
   --foreground: oklch(0.97 0.004 250);
   --muted-foreground: oklch(0.73 0.012 252);
-  --border: oklch(1 0 0 / 12%);
-  --input: oklch(1 0 0 / 16%);
+  --border: oklch(0.245 0.014 258);
+  --input: oklch(0.28 0.014 258);
   --card: oklch(1 0 0 / 7%);
   --card-foreground: oklch(0.97 0.004 250);
   --muted: oklch(1 0 0 / 10%);
