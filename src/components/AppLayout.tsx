@@ -27,7 +27,10 @@ export function AppLayout() {
               approvals/alerts controls otherwise leave the screen one scroll
               in. Canvas-style routes pin their own height and never scroll
               the window, so this changes nothing for them. */}
-          <header className="sticky top-0 z-40 flex h-12 items-center justify-between border-b border-border bg-background/80 px-4 backdrop-blur-md">
+          <header
+            data-app-header
+            className="sticky top-0 z-40 flex h-12 items-center justify-between border-b border-header-border bg-header/95 px-4 text-header-foreground backdrop-blur-md"
+          >
             <SidebarTrigger />
             <div className="flex items-center gap-2">
               {/* Search-field-shaped trigger: the affordance teaches the

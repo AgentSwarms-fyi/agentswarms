@@ -4,14 +4,21 @@ import { ThemeProvider } from "@/hooks/use-theme";
 import { CookieConsent } from "@/components/CookieConsent";
 import { SchemaHealthGuard } from "@/components/SchemaHealthGuard";
 
-// Runs before React hydrates — sets the .dark class from localStorage so the
-// page never flashes the wrong theme. Falls back to dark (the app default).
+// Runs before React hydrates — sets the theme class from localStorage so the
+// page never flashes the wrong one. Falls back to the app default, which is
+// now "native" (dark chrome, light workspace).
+//
+// Kept in sync BY HAND with applyTheme/readInitialTheme in hooks/use-theme:
+// this has to be a string that runs before any bundle loads, so it cannot
+// import them. If the theme list changes, change it here too.
 const themeBootScript = `
 (function(){try{
   var t = localStorage.getItem('agentswarms.theme.v2');
   var d = document.documentElement;
-  if (t === 'light') { d.classList.remove('dark'); d.style.colorScheme='light'; }
-  else { d.classList.add('dark'); d.style.colorScheme='dark'; }
+  d.classList.remove('dark','native');
+  if (t === 'light') { d.style.colorScheme='light'; }
+  else if (t === 'dark') { d.classList.add('dark'); d.style.colorScheme='dark'; }
+  else { d.classList.add('native'); d.style.colorScheme='light'; }
 }catch(e){}})();
 `;
 // AgentSwarms - Educational Agentic AI Platform

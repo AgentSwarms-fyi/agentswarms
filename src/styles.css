@@ -96,6 +96,9 @@ html {
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
+  --color-header: var(--header);
+  --color-header-foreground: var(--header-foreground);
+  --color-header-border: var(--header-border);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -140,6 +143,12 @@ html {
   --chart-3: oklch(0.4 0.07 227);
   --chart-4: oklch(0.83 0.19 84);
   --chart-5: oklch(0.77 0.19 70);
+  /* The top bar matches the page in light and dark; only the Native theme
+     breaks them apart. Defined here so every theme has a value and the
+     header never falls back to an unset variable. */
+  --header: oklch(0.985 0.002 250);
+  --header-foreground: oklch(0.15 0.04 265);
+  --header-border: oklch(0.93 0.013 255);
   --sidebar: oklch(0.98 0.003 248);
   --sidebar-foreground: oklch(0.15 0.04 265);
   --sidebar-primary: oklch(0.52 0.12 205);
@@ -182,6 +191,9 @@ html {
   --chart-3: oklch(0.72 0.13 70);
   --chart-4: oklch(0.68 0.14 250);
   --chart-5: oklch(0.65 0.15 25);
+  --header: oklch(0.125 0.008 255);
+  --header-foreground: oklch(0.99 0.003 250);
+  --header-border: oklch(1 0 0 / 18%);
   --sidebar: oklch(0.145 0.008 253);
   --sidebar-foreground: oklch(0.95 0.005 250);
   --sidebar-primary: oklch(0.72 0.13 195);
@@ -190,6 +202,88 @@ html {
   --sidebar-accent-foreground: oklch(0.95 0.005 250);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.72 0.13 195);
+}
+
+/* AgentSwarms Native — dark navigation chrome, light working pane.
+   The console pattern: the top bar and sidebar stay dark so navigation reads
+   as a persistent frame, while content sits on light surfaces where dense
+   tables, charts and long documents are easiest to read.
+
+   It works cleanly because the chrome is already token-driven: the sidebar
+   styles itself entirely from --sidebar-* and carries no `dark:` variants, so
+   giving those tokens dark values is enough. The header needed --header-*,
+   since it previously borrowed --background and would have gone light with
+   the page. Nothing else in the app needs to know this theme exists. */
+.native {
+  --radius: 0.625rem;
+  /* Content surfaces: a hair cooler and flatter than the light theme, so
+     white cards lift off the page without shadows. */
+  --background: oklch(0.968 0.002 250);
+  --foreground: oklch(0.17 0.03 262);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.17 0.03 262);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.17 0.03 262);
+  --primary: oklch(0.48 0.13 218);
+  --primary-foreground: oklch(0.99 0.002 250);
+  --secondary: oklch(0.955 0.005 248);
+  --secondary-foreground: oklch(0.22 0.03 262);
+  --muted: oklch(0.955 0.005 248);
+  --muted-foreground: oklch(0.44 0.025 258);
+  --accent: oklch(0.945 0.008 240);
+  --accent-foreground: oklch(0.22 0.03 262);
+  --destructive: oklch(0.55 0.22 27);
+  --destructive-foreground: oklch(0.99 0.002 250);
+  --border: oklch(0.9 0.008 252);
+  --input: oklch(0.9 0.008 252);
+  --ring: oklch(0.48 0.13 218);
+  --nexus-glow: oklch(0.6 0.14 205);
+  --nexus-surface: oklch(0.965 0.01 205);
+  --success: oklch(0.55 0.16 148);
+  --warning: oklch(0.7 0.16 72);
+  --chart-1: oklch(0.48 0.13 218);
+  --chart-2: oklch(0.58 0.12 178);
+  --chart-3: oklch(0.62 0.15 62);
+  --chart-4: oklch(0.55 0.15 285);
+  --chart-5: oklch(0.6 0.17 25);
+
+  /* The chrome. Near-black with a blue cast rather than pure grey, so it
+     reads as deliberate next to the teal accent instead of washed out. */
+  --header: oklch(0.205 0.014 258);
+  --header-foreground: oklch(0.97 0.004 250);
+  --header-border: oklch(1 0 0 / 12%);
+  --sidebar: oklch(0.185 0.014 258);
+  --sidebar-foreground: oklch(0.93 0.006 250);
+  /* Brighter than the content primary: this one sits on a dark ground and
+     needs the lift to stay legible. */
+  --sidebar-primary: oklch(0.74 0.13 195);
+  --sidebar-primary-foreground: oklch(0.17 0.012 240);
+  --sidebar-accent: oklch(0.26 0.012 256);
+  --sidebar-accent-foreground: oklch(0.97 0.004 250);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.74 0.13 195);
+}
+
+/* The chrome still uses a few CONTENT tokens — a muted section label in the
+   sidebar, a card-tinted search button in the header. In light and dark those
+   resolve correctly because the chrome shares the page's palette. In Native it
+   does not, and a muted grey label on a near-black bar is invisible.
+   Rebinding just those tokens for the two chrome subtrees keeps every existing
+   class working without editing a single component. */
+.native [data-sidebar="sidebar"],
+.native [data-app-header] {
+  --foreground: oklch(0.97 0.004 250);
+  --muted-foreground: oklch(0.73 0.012 252);
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 16%);
+  --card: oklch(1 0 0 / 7%);
+  --card-foreground: oklch(0.97 0.004 250);
+  --muted: oklch(1 0 0 / 10%);
+  --accent: oklch(1 0 0 / 12%);
+  --accent-foreground: oklch(0.97 0.004 250);
+  --primary: oklch(0.74 0.13 195);
+  --primary-foreground: oklch(0.17 0.012 240);
+  --ring: oklch(0.74 0.13 195);
 }
 
 @layer base {

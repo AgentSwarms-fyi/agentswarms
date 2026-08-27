@@ -2109,8 +2109,10 @@ function SwarmsCanvas({
               onPaneClick={() => setSelectedNodeId(null)}
               nodeTypes={nodeTypes}
               fitView
+              // XYFlow's colorMode is light|dark only, and Native's canvas sits on
+              // the light content surface — so anything but dark maps to light.
               fitViewOptions={{ padding: 0.2 }}
-              colorMode={theme}
+              colorMode={theme === "dark" ? "dark" : "light"}
               proOptions={{ hideAttribution: true }}
             >
               <Background

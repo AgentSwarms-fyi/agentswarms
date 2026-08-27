@@ -3,7 +3,7 @@
 // the sidebar renders, so the two can never disagree.
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { Moon, Plus, Sun } from "lucide-react";
+import { Monitor, Moon, Plus, Sun } from "lucide-react";
 
 import {
   CommandDialog,
@@ -16,7 +16,7 @@ import {
   CommandShortcut,
 } from "@/components/ui/command";
 import { NAV_GROUPS } from "@/lib/appNav";
-import { useTheme } from "@/hooks/use-theme";
+import { THEMES, useTheme } from "@/hooks/use-theme";
 import { useIsSuperadmin } from "@/hooks/use-iam";
 
 const CREATE_ACTIONS = [
@@ -35,7 +35,7 @@ export function CommandPalette({
   onOpenChange: (open: boolean) => void;
 }) {
   const navigate = useNavigate();
-  const { theme, toggle } = useTheme();
+  const { theme, setTheme } = useTheme();
   const isSuperadmin = useIsSuperadmin();
 
   const groups = useMemo(() => {
@@ -102,15 +102,21 @@ export function CommandPalette({
         ))}
         <CommandSeparator />
         <CommandGroup heading="Preferences">
-          <CommandItem onSelect={() => run(toggle)}>
-            {theme === "dark" ? (
-              <Sun className="mr-2 h-4 w-4 text-muted-foreground" />
-            ) : (
-              <Moon className="mr-2 h-4 w-4 text-muted-foreground" />
-            )}
-            Switch to {theme === "dark" ? "light" : "dark"} theme
-            <CommandShortcut>theme</CommandShortcut>
-          </CommandItem>
+          {/* One entry per theme rather than a toggle: with three of them,
+              "switch to the other one" no longer names anything. */}
+          {THEMES.map((t) => (
+            <CommandItem key={t.id} onSelect={() => run(() => setTheme(t.id))}>
+              {t.id === "dark" ? (
+                <Moon className="mr-2 h-4 w-4 text-muted-foreground" />
+              ) : t.id === "light" ? (
+                <Sun className="mr-2 h-4 w-4 text-muted-foreground" />
+              ) : (
+                <Monitor className="mr-2 h-4 w-4 text-muted-foreground" />
+              )}
+              {t.label}
+              {theme === t.id && <CommandShortcut>current</CommandShortcut>}
+            </CommandItem>
+          ))}
         </CommandGroup>
       </CommandList>
     </CommandDialog>
