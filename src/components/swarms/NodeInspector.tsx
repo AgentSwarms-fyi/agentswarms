@@ -11,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { ModelCombobox } from "@/components/models/ModelCombobox";
 import { supabase } from "@/integrations/supabase/client";
 import { agentToNodePatch, type DroppedSetting } from "@/lib/agentToSwarmNode";
 import { fetchAgentCard, type AgentCard } from "@/lib/a2aClient";
@@ -662,35 +663,27 @@ export function NodeInspector({
             </Section>
 
             <Section label="Model">
-              {suggestedModels.length > 0 ? (
-                <Select
-                  value={suggestedModels.includes(currentModel) ? currentModel : ""}
-                  onValueChange={(v) => onChange({ model: v })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Pick a model or type a custom one below" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {suggestedModels.map((m) => (
-                      <SelectItem key={m} value={m}>
-                        <span className="inline-flex items-center gap-2">
-                          <span className="font-mono text-xs">{m}</span>
-                          {isImageModelId(m) && (
-                            <span className="rounded-sm border border-primary/40 bg-primary/10 px-1.5 py-0 text-[9px] uppercase tracking-wider text-primary">
-                              Image
-                            </span>
-                          )}
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : null}
-              <Input
+              {/* The provider's live catalogue, searchable. This used to be a
+                  plain Select over MODEL_SUGGESTIONS -- about a dozen bundled
+                  ids -- so picking any of OpenRouter's several hundred meant
+                  typing the exact id from memory into the box below. The
+                  bundled list is still passed as the fallback for a provider
+                  that publishes no catalogue, or before the first fetch lands,
+                  and an unlisted id can still be typed and used. */}
+              <ModelCombobox
                 value={currentModel}
-                onChange={(e) => onChange({ model: e.target.value })}
-                placeholder="e.g. gpt-5, claude-opus-4-7, custom-model-id"
-                className="font-mono text-xs mt-2"
+                onChange={(m) => onChange({ model: m })}
+                provider={currentProvider}
+                fallbackModels={suggestedModels}
+                isAllowed={(m) => isModelAllowedByRules(myModelRules, currentProvider, m)}
+                placeholder="Search or type a model id..."
+                renderBadge={(m) =>
+                  isImageModelId(m) ? (
+                    <span className="ml-2 shrink-0 rounded-sm border border-primary/40 bg-primary/10 px-1 text-[9px] uppercase tracking-wider text-primary">
+                      Image
+                    </span>
+                  ) : null
+                }
               />
               <p className="text-[10px] text-muted-foreground mt-1">
                 {isImageModelId(currentModel)
