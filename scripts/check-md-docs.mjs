@@ -28,6 +28,13 @@ const FILES = [
     // Judging it against today's tree produces only noise.
     .filter((f) => f.endsWith(".md") && f !== "ADVERSARIAL_LOG.md")
     .map((f) => "docs/" + f),
+  // readdirSync returns the top level only, so the engineering chapters would
+  // otherwise be the one part of the corpus nothing checks — which is exactly
+  // where stale file paths accumulate, since every page is about the source.
+  ...fs
+    .readdirSync("docs/engineering")
+    .filter((f) => f.endsWith(".md"))
+    .map((f) => "docs/engineering/" + f),
 ];
 
 /**

@@ -382,14 +382,21 @@ SITE_URL="https://your-domain.com"`}</Code>
 
       <H4>JavaScript sandbox</H4>
       <P>
-        Backs the swarm <C>function</C> node. Without <C>JS_SANDBOX_URL</C> the node runs in an
-        isolated in-process worker; point it at a separate sandbox service to move that execution
-        off the app process entirely.
+        Backs the swarm <C>function</C> node. User-authored code never runs in the app process,
+        which holds the service-role key and every decrypted provider credential. Leaving{" "}
+        <C>JS_SANDBOX_URL</C> unset does not mean in-process: the app probes{" "}
+        <C>http://js-sandbox:8091</C>, then <C>http://127.0.0.1:8091</C>, and uses whichever
+        answers. Set the variable only to point somewhere else. If nothing answers, the node is
+        refused with a message explaining how to enable it.
       </P>
       <Table
         headers={["Variable", "Default", "Purpose"]}
         rows={[
-          [<C key="a">JS_SANDBOX_URL</C>, "unset (in-process)", "External sandbox service."],
+          [
+            <C key="a">JS_SANDBOX_URL</C>,
+            "unset (auto-discovered)",
+            "External sandbox service. Without one, function nodes are refused.",
+          ],
           [<C key="b">JS_SANDBOX_MAX_TIMEOUT_MS</C>, "5000", "Ceiling on one function node."],
           [<C key="c">JS_SANDBOX_MAX_CONCURRENT</C>, "4", "Simultaneous executions."],
           [<C key="d">JS_SANDBOX_MEM_MB</C>, "128", "Memory ceiling per execution."],

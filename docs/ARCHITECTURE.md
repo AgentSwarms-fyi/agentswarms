@@ -6,6 +6,11 @@ See also **[Scale and limits](./SCALE_AND_LIMITS.md)** for where each module's
 work executes (warehouse pushdown vs. local DuckDB) and every row, timeout and
 concurrency cap.
 
+This page is the map. **[The engineering behind AgentSwarms](./engineering/README.md)**
+is the territory: how a request acquires an identity, how the agent and swarm
+runtimes actually execute, the three sandboxes and the threat model each answers,
+and the conventions that keep all of it from drifting.
+
 ## Tech stack
 
 | Layer        | Tech                                                                                                                                                                                                |

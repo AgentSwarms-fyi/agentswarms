@@ -2229,6 +2229,8 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "docs/INSTALL.md",
       "email_send_log",
       "function",
+      "http://127.0.0.1:8091",
+      "http://js-sandbox:8091",
       "http://localhost:8080",
       "max_connections",
       "noreply@example.com",
