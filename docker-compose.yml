@@ -130,6 +130,7 @@ services:
     volumes:
       - ./deploy/notebooks/egress/squid.conf:/etc/squid/squid.conf:ro
       - ./deploy/notebooks/egress/allowed_domains:/etc/squid/allowed_domains:ro
+      - ./deploy/notebooks/egress/allowed_ips:/etc/squid/allowed_ips:ro
     networks: [default, nb-internal, nb-dev]
     restart: unless-stopped
 

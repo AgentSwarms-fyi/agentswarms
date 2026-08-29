@@ -26,6 +26,7 @@ import {
   Activity,
   NotebookPen,
   PieChart,
+  Waypoints,
   Code2,
   LifeBuoy,
   Wrench,
@@ -69,6 +70,7 @@ export const NAV_GROUPS: NavGroup[] = [
       // Semantic Layer, everyone else comes here to find a metric to use.
       { title: "Metrics", url: "/metrics", icon: Sigma },
       { title: "BI Workspace", url: "/bi", icon: PieChart },
+      { title: "ETL Pipelines", url: "/etl", icon: Waypoints },
       { title: "Developer workspace", url: "/notebooks", icon: NotebookPen },
     ],
   },

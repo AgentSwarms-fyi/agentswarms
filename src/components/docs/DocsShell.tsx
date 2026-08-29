@@ -19,6 +19,7 @@ import {
   GraduationCap,
   Database,
   Workflow,
+  Waypoints,
   BookOpen,
   Layers,
   PieChart,
@@ -76,6 +77,7 @@ export const DOCS_GROUPS: DocGroup[] = [
     items: [
       { to: "/docs/data", label: "Data Catalog & SQL", icon: Database },
       { to: "/docs/data-prep", label: "Data preparation", icon: Workflow },
+      { to: "/docs/etl", label: "ETL Pipelines", icon: Waypoints },
       { to: "/docs/knowledge", label: "Knowledge Base", icon: BookOpen },
       { to: "/docs/semantics", label: "Semantic Layer", icon: Layers },
       { to: "/docs/bi", label: "BI Workspace", icon: PieChart },

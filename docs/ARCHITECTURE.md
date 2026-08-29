@@ -49,6 +49,10 @@ agentswarms/
   `ConfigSchema` entry. See [Data sources & connectors](./DATA_SOURCES.md).
 - **Charts** — `ChartSpec` + the renderers under `src/components/bi/` drive
   every visual type.
+- **ETL pipelines** — `src/utils/etl/codegen.ts` compiles the visual step graph
+  to Python; a new step kind is one union member + one `stepLine` case + a line
+  in the builder palette. Execution rides the notebook runtime unchanged. See
+  [ETL pipelines](./ETL_PIPELINES.md).
 - **Document generation** — `src/lib/docGen/` (typed plans → client-side
   builders). See [Agent Chat & document generation](./AGENT_CHAT.md).
 - **Custom code** — user-authored JavaScript (Function nodes, custom

@@ -12,7 +12,7 @@
 // implying success.
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { renderEgressAllowlist } from "./egress";
+import { renderEgressAllowlist, renderEgressIpAllowlist } from "./egress";
 
 export type EgressApplyResult = {
   applied: boolean;
@@ -94,6 +94,14 @@ export async function applyEgressAllowlist(hosts: string[]): Promise<EgressApply
   try {
     await fs.mkdir(path.dirname(file), { recursive: true });
     await fs.writeFile(file, body, "utf8");
+    // Raw-IP entries go into the sibling dst file — dstdomain cannot match
+    // them, so leaving them in allowed_domains would silently deny a LAN
+    // MinIO while the admin field claimed otherwise.
+    await fs.writeFile(
+      path.join(path.dirname(file), "allowed_ips"),
+      renderEgressIpAllowlist(hosts ?? []),
+      "utf8",
+    );
   } catch (e) {
     const err = e as NodeJS.ErrnoException;
     const hint =

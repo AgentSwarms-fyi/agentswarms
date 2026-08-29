@@ -415,3 +415,12 @@ Automate S1–S13 as a pytest that drives a real session through the gateway and
 ## 15. Rough effort
 
 Phase 1 (MVP) ≈ the bulk; phases 2–3 are hardening + K8s. Estimate ~1.5–3 weeks of focused work to a production-ready phase 3, plus image maintenance. Phase 1 alone yields a demoable "real LangChain in a notebook" on a single host.
+
+## Raw-IP egress destinations
+
+`dstdomain` entries in squid never match a URL that names an IP address, so
+addresses in the admin egress allow-list (a LAN MinIO, an internal service)
+are written to a second ACL file, `allowed_ips` (squid `dst`), mounted next to
+`allowed_domains`. `Safe_ports` additionally includes 9000 and 19000 for
+S3-compatible stores. Both files regenerate whenever an administrator saves
+runtime settings, and the proxy is restarted to pick them up.

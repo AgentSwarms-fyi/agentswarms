@@ -10,200 +10,140 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as Char91indexChar93RouteImport } from './routes/[index]'
-import { Route as IndexRouteImport } from './routes/index'
-import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
-import { Route as AboutRouteImport } from './routes/about'
-import { Route as ArchitectureRouteImport } from './routes/architecture'
-import { Route as ContactRouteImport } from './routes/contact'
-import { Route as DocsRouteImport } from './routes/docs'
-import { Route as EngineCheckRouteImport } from './routes/engine-check'
-import { Route as LicenseRouteImport } from './routes/license'
-import { Route as LoginRouteImport } from './routes/login'
-import { Route as PrivacyRouteImport } from './routes/privacy'
-import { Route as ResetPasswordRouteImport } from './routes/reset-password'
-import { Route as RobotsDottxtRouteImport } from './routes/robots[.]txt'
-import { Route as SecurityRouteImport } from './routes/security'
 import { Route as TermsRouteImport } from './routes/terms'
-import { Route as AuthenticatedAccountRouteImport } from './routes/_authenticated/account'
-import { Route as AuthenticatedAgentsRouteImport } from './routes/_authenticated/agents'
-import { Route as AuthenticatedAiAnalystRouteImport } from './routes/_authenticated/ai-analyst'
-import { Route as AuthenticatedAnalyticsRouteImport } from './routes/_authenticated/analytics'
-import { Route as AuthenticatedAuditRouteImport } from './routes/_authenticated/audit'
-import { Route as AuthenticatedBiRouteImport } from './routes/_authenticated/bi'
-import { Route as AuthenticatedBudgetsRouteImport } from './routes/_authenticated/budgets'
-import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
-import { Route as AuthenticatedDataSqlRouteImport } from './routes/_authenticated/data-sql'
-import { Route as AuthenticatedEmbedsRouteImport } from './routes/_authenticated/embeds'
-import { Route as AuthenticatedEvaluationsRouteImport } from './routes/_authenticated/evaluations'
-import { Route as AuthenticatedImagePlaygroundRouteImport } from './routes/_authenticated/image-playground'
-import { Route as AuthenticatedIntegrationsRouteImport } from './routes/_authenticated/integrations'
-import { Route as AuthenticatedKnowledgeRouteImport } from './routes/_authenticated/knowledge'
-import { Route as AuthenticatedMcpRouteImport } from './routes/_authenticated/mcp'
-import { Route as AuthenticatedMcpBuilderRouteImport } from './routes/_authenticated/mcp-builder'
-import { Route as AuthenticatedMetricsRouteImport } from './routes/_authenticated/metrics'
-import { Route as AuthenticatedModelRegistryRouteImport } from './routes/_authenticated/model-registry'
-import { Route as AuthenticatedMonitoringRouteImport } from './routes/_authenticated/monitoring'
-import { Route as AuthenticatedNotebooksRouteImport } from './routes/_authenticated/notebooks'
-import { Route as AuthenticatedPlaygroundRouteImport } from './routes/_authenticated/playground'
-import { Route as AuthenticatedPromptCompareRouteImport } from './routes/_authenticated/prompt-compare'
-import { Route as AuthenticatedPromptsRouteImport } from './routes/_authenticated/prompts'
-import { Route as AuthenticatedSecretsRouteImport } from './routes/_authenticated/secrets'
-import { Route as AuthenticatedSemanticsRouteImport } from './routes/_authenticated/semantics'
-import { Route as AuthenticatedSkillsRouteImport } from './routes/_authenticated/skills'
-import { Route as AuthenticatedSwarmsRouteImport } from './routes/_authenticated/swarms'
-import { Route as AuthenticatedTracesRouteImport } from './routes/_authenticated/traces'
-import { Route as ApiA2aRouteImport } from './routes/api/a2a'
-import { Route as ApiBiRouteImport } from './routes/api/bi'
-import { Route as ApiChatRouteImport } from './routes/api/chat'
-import { Route as ApiContactRouteImport } from './routes/api/contact'
-import { Route as ApiEmbedRouteImport } from './routes/api/embed'
-import { Route as ApiHealthRouteImport } from './routes/api/health'
-import { Route as ApiMetricsRouteImport } from './routes/api/metrics'
-import { Route as ApiPythonAgentRouteImport } from './routes/api/python-agent'
-import { Route as ApiPythonChatRouteImport } from './routes/api/python-chat'
-import { Route as ApiPythonKbRouteImport } from './routes/api/python-kb'
+import { Route as SecurityRouteImport } from './routes/security'
+import { Route as RobotsDottxtRouteImport } from './routes/robots[.]txt'
+import { Route as ResetPasswordRouteImport } from './routes/reset-password'
+import { Route as PrivacyRouteImport } from './routes/privacy'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as LicenseRouteImport } from './routes/license'
+import { Route as EngineCheckRouteImport } from './routes/engine-check'
+import { Route as DocsRouteImport } from './routes/docs'
+import { Route as ContactRouteImport } from './routes/contact'
+import { Route as ArchitectureRouteImport } from './routes/architecture'
+import { Route as AboutRouteImport } from './routes/about'
+import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
+import { Route as IndexRouteImport } from './routes/index'
 import { Route as DocsIndexRouteImport } from './routes/docs.index'
-import { Route as DocsAccountRouteImport } from './routes/docs.account'
-import { Route as DocsAgentsRouteImport } from './routes/docs.agents'
-import { Route as DocsAnalyticsRouteImport } from './routes/docs.analytics'
-import { Route as DocsApiRouteImport } from './routes/docs.api'
-import { Route as DocsBiRouteImport } from './routes/docs.bi'
-import { Route as DocsBudgetsRouteImport } from './routes/docs.budgets'
-import { Route as DocsConceptsRouteImport } from './routes/docs.concepts'
-import { Route as DocsDashboardRouteImport } from './routes/docs.dashboard'
-import { Route as DocsDataRouteImport } from './routes/docs.data'
-import { Route as DocsDataPrepRouteImport } from './routes/docs.data-prep'
-import { Route as DocsDebuggingRouteImport } from './routes/docs.debugging'
-import { Route as DocsEmbeddingRouteImport } from './routes/docs.embedding'
-import { Route as DocsGuardrailsRouteImport } from './routes/docs.guardrails'
-import { Route as DocsIamRouteImport } from './routes/docs.iam'
-import { Route as DocsIntegrationsRouteImport } from './routes/docs.integrations'
-import { Route as DocsKnowledgeRouteImport } from './routes/docs.knowledge'
-import { Route as DocsMcpRouteImport } from './routes/docs.mcp'
-import { Route as DocsModelsRouteImport } from './routes/docs.models'
-import { Route as DocsNotebooksRouteImport } from './routes/docs.notebooks'
-import { Route as DocsPlaygroundRouteImport } from './routes/docs.playground'
-import { Route as DocsQuickstartRouteImport } from './routes/docs.quickstart'
-import { Route as DocsSecretsRouteImport } from './routes/docs.secrets'
-import { Route as DocsSelfHostingRouteImport } from './routes/docs.self-hosting'
-import { Route as DocsSemanticsRouteImport } from './routes/docs.semantics'
-import { Route as DocsSkillsRouteImport } from './routes/docs.skills'
-import { Route as DocsSwarmsRouteImport } from './routes/docs.swarms'
 import { Route as EmailUnsubscribeRouteImport } from './routes/email/unsubscribe'
-import { Route as AuthenticatedAdminIamRouteImport } from './routes/_authenticated/admin.iam'
-import { Route as AuthenticatedAdminRuntimeRouteImport } from './routes/_authenticated/admin.runtime'
-import { Route as AuthenticatedAnalyticsObservabilityRouteImport } from './routes/_authenticated/analytics_.observability'
-import { Route as AuthenticatedBiDashboardIdRouteImport } from './routes/_authenticated/bi_.$dashboardId'
-import { Route as AuthenticatedMcpBuilderAppIdRouteImport } from './routes/_authenticated/mcp-builder_.$appId'
-import { Route as ApiAuditExportRouteImport } from './routes/api/audit.export'
-import { Route as ApiAuthSsoConfigRouteImport } from './routes/api/auth/sso-config'
-import { Route as ApiBiCronRouteImport } from './routes/api/bi.cron'
-import { Route as ApiBiDirectQueryRouteImport } from './routes/api/bi.direct-query'
-import { Route as ApiDataUploadRouteImport } from './routes/api/data.upload'
-import { Route as ApiDocgenDocxRouteImport } from './routes/api/docgen.docx'
-import { Route as ApiDocgenPptxRouteImport } from './routes/api/docgen.pptx'
-import { Route as ApiDocgenStatusRouteImport } from './routes/api/docgen.status'
-import { Route as ApiDocgenXlsxRouteImport } from './routes/api/docgen.xlsx'
-import { Route as ApiEmailSendRouteImport } from './routes/api/email/send'
-import { Route as ApiEmbedAnalystRouteImport } from './routes/api/embed.analyst'
-import { Route as ApiEmbedChatRouteImport } from './routes/api/embed.chat'
-import { Route as ApiHealthReadyRouteImport } from './routes/api/health.ready'
-import { Route as ApiKbBuildGraphRouteImport } from './routes/api/kb/build-graph'
-import { Route as ApiKbIngestGithubRouteImport } from './routes/api/kb/ingest-github'
-import { Route as ApiKbIngestUrlRouteImport } from './routes/api/kb/ingest-url'
-import { Route as ApiKbSourcesRouteImport } from './routes/api/kb/sources'
-import { Route as ApiNotebookRunRouteImport } from './routes/api/notebook.run'
-import { Route as ApiNotebookRuntimeRouteImport } from './routes/api/notebook.runtime'
-import { Route as ApiObjectstoreQueryRouteImport } from './routes/api/objectstore/query'
-import { Route as ApiSkillsGenerateRouteImport } from './routes/api/skills.generate'
-import { Route as ApiSlackCommandRouteImport } from './routes/api/slack.command'
-import { Route as ApiSwarmRunRouteImport } from './routes/api/swarm.run'
-import { Route as ApiTemplatesProvisionRouteImport } from './routes/api/templates.provision'
-import { Route as ApiWarehouseQueryRouteImport } from './routes/api/warehouse/query'
-import { Route as ApiWarehouseSchemaRouteImport } from './routes/api/warehouse/schema'
-import { Route as EmbedAgentKeyRouteImport } from './routes/embed.agent.$key'
-import { Route as EmbedAnalystKeyRouteImport } from './routes/embed.analyst.$key'
-import { Route as EmbedBiKeyRouteImport } from './routes/embed.bi.$key'
-import { Route as EmbedSwarmKeyRouteImport } from './routes/embed.swarm.$key'
+import { Route as DocsSwarmsRouteImport } from './routes/docs.swarms'
+import { Route as DocsSkillsRouteImport } from './routes/docs.skills'
+import { Route as DocsSemanticsRouteImport } from './routes/docs.semantics'
+import { Route as DocsSelfHostingRouteImport } from './routes/docs.self-hosting'
+import { Route as DocsSecretsRouteImport } from './routes/docs.secrets'
+import { Route as DocsQuickstartRouteImport } from './routes/docs.quickstart'
+import { Route as DocsPlaygroundRouteImport } from './routes/docs.playground'
+import { Route as DocsNotebooksRouteImport } from './routes/docs.notebooks'
+import { Route as DocsModelsRouteImport } from './routes/docs.models'
+import { Route as DocsMcpRouteImport } from './routes/docs.mcp'
+import { Route as DocsKnowledgeRouteImport } from './routes/docs.knowledge'
+import { Route as DocsIntegrationsRouteImport } from './routes/docs.integrations'
+import { Route as DocsIamRouteImport } from './routes/docs.iam'
+import { Route as DocsGuardrailsRouteImport } from './routes/docs.guardrails'
+import { Route as DocsEtlRouteImport } from './routes/docs.etl'
+import { Route as DocsEmbeddingRouteImport } from './routes/docs.embedding'
+import { Route as DocsDebuggingRouteImport } from './routes/docs.debugging'
+import { Route as DocsDataPrepRouteImport } from './routes/docs.data-prep'
+import { Route as DocsDataRouteImport } from './routes/docs.data'
+import { Route as DocsDashboardRouteImport } from './routes/docs.dashboard'
+import { Route as DocsConceptsRouteImport } from './routes/docs.concepts'
+import { Route as DocsBudgetsRouteImport } from './routes/docs.budgets'
+import { Route as DocsBiRouteImport } from './routes/docs.bi'
+import { Route as DocsApiRouteImport } from './routes/docs.api'
+import { Route as DocsAnalyticsRouteImport } from './routes/docs.analytics'
+import { Route as DocsAgentsRouteImport } from './routes/docs.agents'
+import { Route as DocsAccountRouteImport } from './routes/docs.account'
+import { Route as ApiPythonKbRouteImport } from './routes/api/python-kb'
+import { Route as ApiPythonChatRouteImport } from './routes/api/python-chat'
+import { Route as ApiPythonAgentRouteImport } from './routes/api/python-agent'
+import { Route as ApiMetricsRouteImport } from './routes/api/metrics'
+import { Route as ApiHealthRouteImport } from './routes/api/health'
+import { Route as ApiEmbedRouteImport } from './routes/api/embed'
+import { Route as ApiContactRouteImport } from './routes/api/contact'
+import { Route as ApiChatRouteImport } from './routes/api/chat'
+import { Route as ApiBiRouteImport } from './routes/api/bi'
+import { Route as ApiA2aRouteImport } from './routes/api/a2a'
+import { Route as AuthenticatedTracesRouteImport } from './routes/_authenticated/traces'
+import { Route as AuthenticatedSwarmsRouteImport } from './routes/_authenticated/swarms'
+import { Route as AuthenticatedSkillsRouteImport } from './routes/_authenticated/skills'
+import { Route as AuthenticatedSemanticsRouteImport } from './routes/_authenticated/semantics'
+import { Route as AuthenticatedSecretsRouteImport } from './routes/_authenticated/secrets'
+import { Route as AuthenticatedPromptsRouteImport } from './routes/_authenticated/prompts'
+import { Route as AuthenticatedPromptCompareRouteImport } from './routes/_authenticated/prompt-compare'
+import { Route as AuthenticatedPlaygroundRouteImport } from './routes/_authenticated/playground'
+import { Route as AuthenticatedNotebooksRouteImport } from './routes/_authenticated/notebooks'
+import { Route as AuthenticatedMonitoringRouteImport } from './routes/_authenticated/monitoring'
+import { Route as AuthenticatedModelRegistryRouteImport } from './routes/_authenticated/model-registry'
+import { Route as AuthenticatedMetricsRouteImport } from './routes/_authenticated/metrics'
+import { Route as AuthenticatedMcpBuilderRouteImport } from './routes/_authenticated/mcp-builder'
+import { Route as AuthenticatedMcpRouteImport } from './routes/_authenticated/mcp'
+import { Route as AuthenticatedKnowledgeRouteImport } from './routes/_authenticated/knowledge'
+import { Route as AuthenticatedIntegrationsRouteImport } from './routes/_authenticated/integrations'
+import { Route as AuthenticatedImagePlaygroundRouteImport } from './routes/_authenticated/image-playground'
+import { Route as AuthenticatedEvaluationsRouteImport } from './routes/_authenticated/evaluations'
+import { Route as AuthenticatedEtlRouteImport } from './routes/_authenticated/etl'
+import { Route as AuthenticatedEmbedsRouteImport } from './routes/_authenticated/embeds'
+import { Route as AuthenticatedDataSqlRouteImport } from './routes/_authenticated/data-sql'
+import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
+import { Route as AuthenticatedBudgetsRouteImport } from './routes/_authenticated/budgets'
+import { Route as AuthenticatedBiRouteImport } from './routes/_authenticated/bi'
+import { Route as AuthenticatedAuditRouteImport } from './routes/_authenticated/audit'
+import { Route as AuthenticatedAnalyticsRouteImport } from './routes/_authenticated/analytics'
+import { Route as AuthenticatedAiAnalystRouteImport } from './routes/_authenticated/ai-analyst'
+import { Route as AuthenticatedAgentsRouteImport } from './routes/_authenticated/agents'
+import { Route as AuthenticatedAccountRouteImport } from './routes/_authenticated/account'
 import { Route as ShareBiSlugRouteImport } from './routes/share.bi.$slug'
-import { Route as AuthenticatedAnalyticsObservabilityRunIdRouteImport } from './routes/_authenticated/analytics_.observability.$runId'
-import { Route as AuthenticatedNotebooksPyPyNotebookIdRouteImport } from './routes/_authenticated/notebooks.py.$pyNotebookId'
-import { Route as AuthenticatedNotebooksSampleSampleSlugRouteImport } from './routes/_authenticated/notebooks.sample.$sampleSlug'
-import { Route as ApiKbSourcesSyncRouteImport } from './routes/api/kb/sources.sync'
-import { Route as ApiMcpSSlugRouteImport } from './routes/api/mcp.s.$slug'
-import { Route as ApiNotebookRunStatusRouteImport } from './routes/api/notebook.run.status'
-import { Route as ApiNotebookRuntimeReapRouteImport } from './routes/api/notebook.runtime.reap'
-import { Route as ApiNotebookRuntimeResultRouteImport } from './routes/api/notebook.runtime.result'
-import { Route as ApiNotebookRuntimeSourceRouteImport } from './routes/api/notebook.runtime.source'
+import { Route as EmbedSwarmKeyRouteImport } from './routes/embed.swarm.$key'
+import { Route as EmbedBiKeyRouteImport } from './routes/embed.bi.$key'
+import { Route as EmbedAnalystKeyRouteImport } from './routes/embed.analyst.$key'
+import { Route as EmbedAgentKeyRouteImport } from './routes/embed.agent.$key'
+import { Route as ApiWarehouseSchemaRouteImport } from './routes/api/warehouse/schema'
+import { Route as ApiWarehouseQueryRouteImport } from './routes/api/warehouse/query'
+import { Route as ApiTemplatesProvisionRouteImport } from './routes/api/templates.provision'
+import { Route as ApiSwarmRunRouteImport } from './routes/api/swarm.run'
+import { Route as ApiSlackCommandRouteImport } from './routes/api/slack.command'
+import { Route as ApiSkillsGenerateRouteImport } from './routes/api/skills.generate'
+import { Route as ApiObjectstoreQueryRouteImport } from './routes/api/objectstore/query'
+import { Route as ApiNotebookRuntimeRouteImport } from './routes/api/notebook.runtime'
+import { Route as ApiNotebookRunRouteImport } from './routes/api/notebook.run'
+import { Route as ApiKbSourcesRouteImport } from './routes/api/kb/sources'
+import { Route as ApiKbIngestUrlRouteImport } from './routes/api/kb/ingest-url'
+import { Route as ApiKbIngestGithubRouteImport } from './routes/api/kb/ingest-github'
+import { Route as ApiKbBuildGraphRouteImport } from './routes/api/kb/build-graph'
+import { Route as ApiHealthReadyRouteImport } from './routes/api/health.ready'
+import { Route as ApiEtlRunRouteImport } from './routes/api/etl.run'
+import { Route as ApiEtlGenerateRouteImport } from './routes/api/etl.generate'
+import { Route as ApiEmbedChatRouteImport } from './routes/api/embed.chat'
+import { Route as ApiEmbedAnalystRouteImport } from './routes/api/embed.analyst'
+import { Route as ApiEmailSendRouteImport } from './routes/api/email/send'
+import { Route as ApiDocgenXlsxRouteImport } from './routes/api/docgen.xlsx'
+import { Route as ApiDocgenStatusRouteImport } from './routes/api/docgen.status'
+import { Route as ApiDocgenPptxRouteImport } from './routes/api/docgen.pptx'
+import { Route as ApiDocgenDocxRouteImport } from './routes/api/docgen.docx'
+import { Route as ApiDataUploadRouteImport } from './routes/api/data.upload'
+import { Route as ApiBiDirectQueryRouteImport } from './routes/api/bi.direct-query'
+import { Route as ApiBiCronRouteImport } from './routes/api/bi.cron'
+import { Route as ApiAuthSsoConfigRouteImport } from './routes/api/auth/sso-config'
+import { Route as ApiAuditExportRouteImport } from './routes/api/audit.export'
+import { Route as AuthenticatedMcpBuilderAppIdRouteImport } from './routes/_authenticated/mcp-builder_.$appId'
+import { Route as AuthenticatedBiDashboardIdRouteImport } from './routes/_authenticated/bi_.$dashboardId'
+import { Route as AuthenticatedAnalyticsObservabilityRouteImport } from './routes/_authenticated/analytics_.observability'
+import { Route as AuthenticatedAdminRuntimeRouteImport } from './routes/_authenticated/admin.runtime'
+import { Route as AuthenticatedAdminIamRouteImport } from './routes/_authenticated/admin.iam'
 import { Route as ApiPublicHooksRefreshModelRegistryRouteImport } from './routes/api/public/hooks/refresh-model-registry'
+import { Route as ApiNotebookRuntimeSourceRouteImport } from './routes/api/notebook.runtime.source'
+import { Route as ApiNotebookRuntimeResultRouteImport } from './routes/api/notebook.runtime.result'
+import { Route as ApiNotebookRuntimeReapRouteImport } from './routes/api/notebook.runtime.reap'
+import { Route as ApiNotebookRunStatusRouteImport } from './routes/api/notebook.run.status'
+import { Route as ApiMcpSSlugRouteImport } from './routes/api/mcp.s.$slug'
+import { Route as ApiKbSourcesSyncRouteImport } from './routes/api/kb/sources.sync'
+import { Route as AuthenticatedNotebooksSampleSampleSlugRouteImport } from './routes/_authenticated/notebooks.sample.$sampleSlug'
+import { Route as AuthenticatedNotebooksPyPyNotebookIdRouteImport } from './routes/_authenticated/notebooks.py.$pyNotebookId'
+import { Route as AuthenticatedAnalyticsObservabilityRunIdRouteImport } from './routes/_authenticated/analytics_.observability.$runId'
 
 const Char91indexChar93Route = Char91indexChar93RouteImport.update({
   id: '/index',
   path: '/index',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AuthenticatedRoute = AuthenticatedRouteImport.update({
-  id: '/_authenticated',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AboutRoute = AboutRouteImport.update({
-  id: '/about',
-  path: '/about',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ArchitectureRoute = ArchitectureRouteImport.update({
-  id: '/architecture',
-  path: '/architecture',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ContactRoute = ContactRouteImport.update({
-  id: '/contact',
-  path: '/contact',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DocsRoute = DocsRouteImport.update({
-  id: '/docs',
-  path: '/docs',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const EngineCheckRoute = EngineCheckRouteImport.update({
-  id: '/engine-check',
-  path: '/engine-check',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const LicenseRoute = LicenseRouteImport.update({
-  id: '/license',
-  path: '/license',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const LoginRoute = LoginRouteImport.update({
-  id: '/login',
-  path: '/login',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PrivacyRoute = PrivacyRouteImport.update({
-  id: '/privacy',
-  path: '/privacy',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ResetPasswordRoute = ResetPasswordRouteImport.update({
-  id: '/reset-password',
-  path: '/reset-password',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const RobotsDottxtRoute = RobotsDottxtRouteImport.update({
-  id: '/robots.txt',
-  path: '/robots.txt',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SecurityRoute = SecurityRouteImport.update({
-  id: '/security',
-  path: '/security',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TermsRoute = TermsRouteImport.update({
@@ -211,113 +151,293 @@ const TermsRoute = TermsRouteImport.update({
   path: '/terms',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedAccountRoute = AuthenticatedAccountRouteImport.update({
-  id: '/account',
-  path: '/account',
-  getParentRoute: () => AuthenticatedRoute,
+const SecurityRoute = SecurityRouteImport.update({
+  id: '/security',
+  path: '/security',
+  getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedAgentsRoute = AuthenticatedAgentsRouteImport.update({
-  id: '/agents',
-  path: '/agents',
-  getParentRoute: () => AuthenticatedRoute,
+const RobotsDottxtRoute = RobotsDottxtRouteImport.update({
+  id: '/robots.txt',
+  path: '/robots.txt',
+  getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedAiAnalystRoute = AuthenticatedAiAnalystRouteImport.update({
-  id: '/ai-analyst',
-  path: '/ai-analyst',
-  getParentRoute: () => AuthenticatedRoute,
+const ResetPasswordRoute = ResetPasswordRouteImport.update({
+  id: '/reset-password',
+  path: '/reset-password',
+  getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedAnalyticsRoute = AuthenticatedAnalyticsRouteImport.update({
-  id: '/analytics',
-  path: '/analytics',
-  getParentRoute: () => AuthenticatedRoute,
+const PrivacyRoute = PrivacyRouteImport.update({
+  id: '/privacy',
+  path: '/privacy',
+  getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedAuditRoute = AuthenticatedAuditRouteImport.update({
-  id: '/audit',
-  path: '/audit',
-  getParentRoute: () => AuthenticatedRoute,
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedBiRoute = AuthenticatedBiRouteImport.update({
-  id: '/bi',
-  path: '/bi',
-  getParentRoute: () => AuthenticatedRoute,
+const LicenseRoute = LicenseRouteImport.update({
+  id: '/license',
+  path: '/license',
+  getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedBudgetsRoute = AuthenticatedBudgetsRouteImport.update({
-  id: '/budgets',
-  path: '/budgets',
-  getParentRoute: () => AuthenticatedRoute,
+const EngineCheckRoute = EngineCheckRouteImport.update({
+  id: '/engine-check',
+  path: '/engine-check',
+  getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
-  id: '/dashboard',
-  path: '/dashboard',
-  getParentRoute: () => AuthenticatedRoute,
+const DocsRoute = DocsRouteImport.update({
+  id: '/docs',
+  path: '/docs',
+  getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedDataSqlRoute = AuthenticatedDataSqlRouteImport.update({
-  id: '/data-sql',
-  path: '/data-sql',
-  getParentRoute: () => AuthenticatedRoute,
+const ContactRoute = ContactRouteImport.update({
+  id: '/contact',
+  path: '/contact',
+  getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedEmbedsRoute = AuthenticatedEmbedsRouteImport.update({
-  id: '/embeds',
-  path: '/embeds',
-  getParentRoute: () => AuthenticatedRoute,
+const ArchitectureRoute = ArchitectureRouteImport.update({
+  id: '/architecture',
+  path: '/architecture',
+  getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedEvaluationsRoute =
-  AuthenticatedEvaluationsRouteImport.update({
-    id: '/evaluations',
-    path: '/evaluations',
-    getParentRoute: () => AuthenticatedRoute,
-  } as any)
-const AuthenticatedImagePlaygroundRoute =
-  AuthenticatedImagePlaygroundRouteImport.update({
-    id: '/image-playground',
-    path: '/image-playground',
-    getParentRoute: () => AuthenticatedRoute,
-  } as any)
-const AuthenticatedIntegrationsRoute =
-  AuthenticatedIntegrationsRouteImport.update({
-    id: '/integrations',
-    path: '/integrations',
-    getParentRoute: () => AuthenticatedRoute,
-  } as any)
-const AuthenticatedKnowledgeRoute = AuthenticatedKnowledgeRouteImport.update({
-  id: '/knowledge',
-  path: '/knowledge',
-  getParentRoute: () => AuthenticatedRoute,
+const AboutRoute = AboutRouteImport.update({
+  id: '/about',
+  path: '/about',
+  getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedMcpRoute = AuthenticatedMcpRouteImport.update({
-  id: '/mcp',
-  path: '/mcp',
-  getParentRoute: () => AuthenticatedRoute,
+const AuthenticatedRoute = AuthenticatedRouteImport.update({
+  id: '/_authenticated',
+  getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedMcpBuilderRoute = AuthenticatedMcpBuilderRouteImport.update({
-  id: '/mcp-builder',
-  path: '/mcp-builder',
-  getParentRoute: () => AuthenticatedRoute,
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedMetricsRoute = AuthenticatedMetricsRouteImport.update({
-  id: '/metrics',
-  path: '/metrics',
-  getParentRoute: () => AuthenticatedRoute,
+const DocsIndexRoute = DocsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => DocsRoute,
 } as any)
-const AuthenticatedModelRegistryRoute =
-  AuthenticatedModelRegistryRouteImport.update({
-    id: '/model-registry',
-    path: '/model-registry',
-    getParentRoute: () => AuthenticatedRoute,
-  } as any)
-const AuthenticatedMonitoringRoute = AuthenticatedMonitoringRouteImport.update({
-  id: '/monitoring',
-  path: '/monitoring',
-  getParentRoute: () => AuthenticatedRoute,
+const EmailUnsubscribeRoute = EmailUnsubscribeRouteImport.update({
+  id: '/email/unsubscribe',
+  path: '/email/unsubscribe',
+  getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedNotebooksRoute = AuthenticatedNotebooksRouteImport.update({
-  id: '/notebooks',
-  path: '/notebooks',
-  getParentRoute: () => AuthenticatedRoute,
+const DocsSwarmsRoute = DocsSwarmsRouteImport.update({
+  id: '/swarms',
+  path: '/swarms',
+  getParentRoute: () => DocsRoute,
 } as any)
-const AuthenticatedPlaygroundRoute = AuthenticatedPlaygroundRouteImport.update({
+const DocsSkillsRoute = DocsSkillsRouteImport.update({
+  id: '/skills',
+  path: '/skills',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsSemanticsRoute = DocsSemanticsRouteImport.update({
+  id: '/semantics',
+  path: '/semantics',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsSelfHostingRoute = DocsSelfHostingRouteImport.update({
+  id: '/self-hosting',
+  path: '/self-hosting',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsSecretsRoute = DocsSecretsRouteImport.update({
+  id: '/secrets',
+  path: '/secrets',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsQuickstartRoute = DocsQuickstartRouteImport.update({
+  id: '/quickstart',
+  path: '/quickstart',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsPlaygroundRoute = DocsPlaygroundRouteImport.update({
   id: '/playground',
   path: '/playground',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsNotebooksRoute = DocsNotebooksRouteImport.update({
+  id: '/notebooks',
+  path: '/notebooks',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsModelsRoute = DocsModelsRouteImport.update({
+  id: '/models',
+  path: '/models',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsMcpRoute = DocsMcpRouteImport.update({
+  id: '/mcp',
+  path: '/mcp',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsKnowledgeRoute = DocsKnowledgeRouteImport.update({
+  id: '/knowledge',
+  path: '/knowledge',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsIntegrationsRoute = DocsIntegrationsRouteImport.update({
+  id: '/integrations',
+  path: '/integrations',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsIamRoute = DocsIamRouteImport.update({
+  id: '/iam',
+  path: '/iam',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsGuardrailsRoute = DocsGuardrailsRouteImport.update({
+  id: '/guardrails',
+  path: '/guardrails',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsEtlRoute = DocsEtlRouteImport.update({
+  id: '/etl',
+  path: '/etl',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsEmbeddingRoute = DocsEmbeddingRouteImport.update({
+  id: '/embedding',
+  path: '/embedding',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsDebuggingRoute = DocsDebuggingRouteImport.update({
+  id: '/debugging',
+  path: '/debugging',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsDataPrepRoute = DocsDataPrepRouteImport.update({
+  id: '/data-prep',
+  path: '/data-prep',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsDataRoute = DocsDataRouteImport.update({
+  id: '/data',
+  path: '/data',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsDashboardRoute = DocsDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsConceptsRoute = DocsConceptsRouteImport.update({
+  id: '/concepts',
+  path: '/concepts',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsBudgetsRoute = DocsBudgetsRouteImport.update({
+  id: '/budgets',
+  path: '/budgets',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsBiRoute = DocsBiRouteImport.update({
+  id: '/bi',
+  path: '/bi',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsApiRoute = DocsApiRouteImport.update({
+  id: '/api',
+  path: '/api',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsAnalyticsRoute = DocsAnalyticsRouteImport.update({
+  id: '/analytics',
+  path: '/analytics',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsAgentsRoute = DocsAgentsRouteImport.update({
+  id: '/agents',
+  path: '/agents',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsAccountRoute = DocsAccountRouteImport.update({
+  id: '/account',
+  path: '/account',
+  getParentRoute: () => DocsRoute,
+} as any)
+const ApiPythonKbRoute = ApiPythonKbRouteImport.update({
+  id: '/api/python-kb',
+  path: '/api/python-kb',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPythonChatRoute = ApiPythonChatRouteImport.update({
+  id: '/api/python-chat',
+  path: '/api/python-chat',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPythonAgentRoute = ApiPythonAgentRouteImport.update({
+  id: '/api/python-agent',
+  path: '/api/python-agent',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMetricsRoute = ApiMetricsRouteImport.update({
+  id: '/api/metrics',
+  path: '/api/metrics',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiHealthRoute = ApiHealthRouteImport.update({
+  id: '/api/health',
+  path: '/api/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiEmbedRoute = ApiEmbedRouteImport.update({
+  id: '/api/embed',
+  path: '/api/embed',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiContactRoute = ApiContactRouteImport.update({
+  id: '/api/contact',
+  path: '/api/contact',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiChatRoute = ApiChatRouteImport.update({
+  id: '/api/chat',
+  path: '/api/chat',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiBiRoute = ApiBiRouteImport.update({
+  id: '/api/bi',
+  path: '/api/bi',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiA2aRoute = ApiA2aRouteImport.update({
+  id: '/api/a2a',
+  path: '/api/a2a',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedTracesRoute = AuthenticatedTracesRouteImport.update({
+  id: '/traces',
+  path: '/traces',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedSwarmsRoute = AuthenticatedSwarmsRouteImport.update({
+  id: '/swarms',
+  path: '/swarms',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedSkillsRoute = AuthenticatedSkillsRouteImport.update({
+  id: '/skills',
+  path: '/skills',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedSemanticsRoute = AuthenticatedSemanticsRouteImport.update({
+  id: '/semantics',
+  path: '/semantics',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedSecretsRoute = AuthenticatedSecretsRouteImport.update({
+  id: '/secrets',
+  path: '/secrets',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedPromptsRoute = AuthenticatedPromptsRouteImport.update({
+  id: '/prompts',
+  path: '/prompts',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedPromptCompareRoute =
@@ -326,241 +446,289 @@ const AuthenticatedPromptCompareRoute =
     path: '/prompt-compare',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
-const AuthenticatedPromptsRoute = AuthenticatedPromptsRouteImport.update({
-  id: '/prompts',
-  path: '/prompts',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
-const AuthenticatedSecretsRoute = AuthenticatedSecretsRouteImport.update({
-  id: '/secrets',
-  path: '/secrets',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
-const AuthenticatedSemanticsRoute = AuthenticatedSemanticsRouteImport.update({
-  id: '/semantics',
-  path: '/semantics',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
-const AuthenticatedSkillsRoute = AuthenticatedSkillsRouteImport.update({
-  id: '/skills',
-  path: '/skills',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
-const AuthenticatedSwarmsRoute = AuthenticatedSwarmsRouteImport.update({
-  id: '/swarms',
-  path: '/swarms',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
-const AuthenticatedTracesRoute = AuthenticatedTracesRouteImport.update({
-  id: '/traces',
-  path: '/traces',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
-const ApiA2aRoute = ApiA2aRouteImport.update({
-  id: '/api/a2a',
-  path: '/api/a2a',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiBiRoute = ApiBiRouteImport.update({
-  id: '/api/bi',
-  path: '/api/bi',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiChatRoute = ApiChatRouteImport.update({
-  id: '/api/chat',
-  path: '/api/chat',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiContactRoute = ApiContactRouteImport.update({
-  id: '/api/contact',
-  path: '/api/contact',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiEmbedRoute = ApiEmbedRouteImport.update({
-  id: '/api/embed',
-  path: '/api/embed',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiHealthRoute = ApiHealthRouteImport.update({
-  id: '/api/health',
-  path: '/api/health',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiMetricsRoute = ApiMetricsRouteImport.update({
-  id: '/api/metrics',
-  path: '/api/metrics',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiPythonAgentRoute = ApiPythonAgentRouteImport.update({
-  id: '/api/python-agent',
-  path: '/api/python-agent',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiPythonChatRoute = ApiPythonChatRouteImport.update({
-  id: '/api/python-chat',
-  path: '/api/python-chat',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiPythonKbRoute = ApiPythonKbRouteImport.update({
-  id: '/api/python-kb',
-  path: '/api/python-kb',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DocsIndexRoute = DocsIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => DocsRoute,
-} as any)
-const DocsAccountRoute = DocsAccountRouteImport.update({
-  id: '/account',
-  path: '/account',
-  getParentRoute: () => DocsRoute,
-} as any)
-const DocsAgentsRoute = DocsAgentsRouteImport.update({
-  id: '/agents',
-  path: '/agents',
-  getParentRoute: () => DocsRoute,
-} as any)
-const DocsAnalyticsRoute = DocsAnalyticsRouteImport.update({
-  id: '/analytics',
-  path: '/analytics',
-  getParentRoute: () => DocsRoute,
-} as any)
-const DocsApiRoute = DocsApiRouteImport.update({
-  id: '/api',
-  path: '/api',
-  getParentRoute: () => DocsRoute,
-} as any)
-const DocsBiRoute = DocsBiRouteImport.update({
-  id: '/bi',
-  path: '/bi',
-  getParentRoute: () => DocsRoute,
-} as any)
-const DocsBudgetsRoute = DocsBudgetsRouteImport.update({
-  id: '/budgets',
-  path: '/budgets',
-  getParentRoute: () => DocsRoute,
-} as any)
-const DocsConceptsRoute = DocsConceptsRouteImport.update({
-  id: '/concepts',
-  path: '/concepts',
-  getParentRoute: () => DocsRoute,
-} as any)
-const DocsDashboardRoute = DocsDashboardRouteImport.update({
-  id: '/dashboard',
-  path: '/dashboard',
-  getParentRoute: () => DocsRoute,
-} as any)
-const DocsDataRoute = DocsDataRouteImport.update({
-  id: '/data',
-  path: '/data',
-  getParentRoute: () => DocsRoute,
-} as any)
-const DocsDataPrepRoute = DocsDataPrepRouteImport.update({
-  id: '/data-prep',
-  path: '/data-prep',
-  getParentRoute: () => DocsRoute,
-} as any)
-const DocsDebuggingRoute = DocsDebuggingRouteImport.update({
-  id: '/debugging',
-  path: '/debugging',
-  getParentRoute: () => DocsRoute,
-} as any)
-const DocsEmbeddingRoute = DocsEmbeddingRouteImport.update({
-  id: '/embedding',
-  path: '/embedding',
-  getParentRoute: () => DocsRoute,
-} as any)
-const DocsGuardrailsRoute = DocsGuardrailsRouteImport.update({
-  id: '/guardrails',
-  path: '/guardrails',
-  getParentRoute: () => DocsRoute,
-} as any)
-const DocsIamRoute = DocsIamRouteImport.update({
-  id: '/iam',
-  path: '/iam',
-  getParentRoute: () => DocsRoute,
-} as any)
-const DocsIntegrationsRoute = DocsIntegrationsRouteImport.update({
-  id: '/integrations',
-  path: '/integrations',
-  getParentRoute: () => DocsRoute,
-} as any)
-const DocsKnowledgeRoute = DocsKnowledgeRouteImport.update({
-  id: '/knowledge',
-  path: '/knowledge',
-  getParentRoute: () => DocsRoute,
-} as any)
-const DocsMcpRoute = DocsMcpRouteImport.update({
-  id: '/mcp',
-  path: '/mcp',
-  getParentRoute: () => DocsRoute,
-} as any)
-const DocsModelsRoute = DocsModelsRouteImport.update({
-  id: '/models',
-  path: '/models',
-  getParentRoute: () => DocsRoute,
-} as any)
-const DocsNotebooksRoute = DocsNotebooksRouteImport.update({
-  id: '/notebooks',
-  path: '/notebooks',
-  getParentRoute: () => DocsRoute,
-} as any)
-const DocsPlaygroundRoute = DocsPlaygroundRouteImport.update({
+const AuthenticatedPlaygroundRoute = AuthenticatedPlaygroundRouteImport.update({
   id: '/playground',
   path: '/playground',
-  getParentRoute: () => DocsRoute,
-} as any)
-const DocsQuickstartRoute = DocsQuickstartRouteImport.update({
-  id: '/quickstart',
-  path: '/quickstart',
-  getParentRoute: () => DocsRoute,
-} as any)
-const DocsSecretsRoute = DocsSecretsRouteImport.update({
-  id: '/secrets',
-  path: '/secrets',
-  getParentRoute: () => DocsRoute,
-} as any)
-const DocsSelfHostingRoute = DocsSelfHostingRouteImport.update({
-  id: '/self-hosting',
-  path: '/self-hosting',
-  getParentRoute: () => DocsRoute,
-} as any)
-const DocsSemanticsRoute = DocsSemanticsRouteImport.update({
-  id: '/semantics',
-  path: '/semantics',
-  getParentRoute: () => DocsRoute,
-} as any)
-const DocsSkillsRoute = DocsSkillsRouteImport.update({
-  id: '/skills',
-  path: '/skills',
-  getParentRoute: () => DocsRoute,
-} as any)
-const DocsSwarmsRoute = DocsSwarmsRouteImport.update({
-  id: '/swarms',
-  path: '/swarms',
-  getParentRoute: () => DocsRoute,
-} as any)
-const EmailUnsubscribeRoute = EmailUnsubscribeRouteImport.update({
-  id: '/email/unsubscribe',
-  path: '/email/unsubscribe',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AuthenticatedAdminIamRoute = AuthenticatedAdminIamRouteImport.update({
-  id: '/admin/iam',
-  path: '/admin/iam',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
-const AuthenticatedAdminRuntimeRoute =
-  AuthenticatedAdminRuntimeRouteImport.update({
-    id: '/admin/runtime',
-    path: '/admin/runtime',
+const AuthenticatedNotebooksRoute = AuthenticatedNotebooksRouteImport.update({
+  id: '/notebooks',
+  path: '/notebooks',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedMonitoringRoute = AuthenticatedMonitoringRouteImport.update({
+  id: '/monitoring',
+  path: '/monitoring',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedModelRegistryRoute =
+  AuthenticatedModelRegistryRouteImport.update({
+    id: '/model-registry',
+    path: '/model-registry',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
-const AuthenticatedAnalyticsObservabilityRoute =
-  AuthenticatedAnalyticsObservabilityRouteImport.update({
-    id: '/analytics_/observability',
-    path: '/analytics/observability',
+const AuthenticatedMetricsRoute = AuthenticatedMetricsRouteImport.update({
+  id: '/metrics',
+  path: '/metrics',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedMcpBuilderRoute = AuthenticatedMcpBuilderRouteImport.update({
+  id: '/mcp-builder',
+  path: '/mcp-builder',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedMcpRoute = AuthenticatedMcpRouteImport.update({
+  id: '/mcp',
+  path: '/mcp',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedKnowledgeRoute = AuthenticatedKnowledgeRouteImport.update({
+  id: '/knowledge',
+  path: '/knowledge',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedIntegrationsRoute =
+  AuthenticatedIntegrationsRouteImport.update({
+    id: '/integrations',
+    path: '/integrations',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedImagePlaygroundRoute =
+  AuthenticatedImagePlaygroundRouteImport.update({
+    id: '/image-playground',
+    path: '/image-playground',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedEvaluationsRoute =
+  AuthenticatedEvaluationsRouteImport.update({
+    id: '/evaluations',
+    path: '/evaluations',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedEtlRoute = AuthenticatedEtlRouteImport.update({
+  id: '/etl',
+  path: '/etl',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedEmbedsRoute = AuthenticatedEmbedsRouteImport.update({
+  id: '/embeds',
+  path: '/embeds',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedDataSqlRoute = AuthenticatedDataSqlRouteImport.update({
+  id: '/data-sql',
+  path: '/data-sql',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedBudgetsRoute = AuthenticatedBudgetsRouteImport.update({
+  id: '/budgets',
+  path: '/budgets',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedBiRoute = AuthenticatedBiRouteImport.update({
+  id: '/bi',
+  path: '/bi',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedAuditRoute = AuthenticatedAuditRouteImport.update({
+  id: '/audit',
+  path: '/audit',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedAnalyticsRoute = AuthenticatedAnalyticsRouteImport.update({
+  id: '/analytics',
+  path: '/analytics',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedAiAnalystRoute = AuthenticatedAiAnalystRouteImport.update({
+  id: '/ai-analyst',
+  path: '/ai-analyst',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedAgentsRoute = AuthenticatedAgentsRouteImport.update({
+  id: '/agents',
+  path: '/agents',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedAccountRoute = AuthenticatedAccountRouteImport.update({
+  id: '/account',
+  path: '/account',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const ShareBiSlugRoute = ShareBiSlugRouteImport.update({
+  id: '/share/bi/$slug',
+  path: '/share/bi/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EmbedSwarmKeyRoute = EmbedSwarmKeyRouteImport.update({
+  id: '/embed/swarm/$key',
+  path: '/embed/swarm/$key',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EmbedBiKeyRoute = EmbedBiKeyRouteImport.update({
+  id: '/embed/bi/$key',
+  path: '/embed/bi/$key',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EmbedAnalystKeyRoute = EmbedAnalystKeyRouteImport.update({
+  id: '/embed/analyst/$key',
+  path: '/embed/analyst/$key',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EmbedAgentKeyRoute = EmbedAgentKeyRouteImport.update({
+  id: '/embed/agent/$key',
+  path: '/embed/agent/$key',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiWarehouseSchemaRoute = ApiWarehouseSchemaRouteImport.update({
+  id: '/api/warehouse/schema',
+  path: '/api/warehouse/schema',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiWarehouseQueryRoute = ApiWarehouseQueryRouteImport.update({
+  id: '/api/warehouse/query',
+  path: '/api/warehouse/query',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiTemplatesProvisionRoute = ApiTemplatesProvisionRouteImport.update({
+  id: '/api/templates/provision',
+  path: '/api/templates/provision',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiSwarmRunRoute = ApiSwarmRunRouteImport.update({
+  id: '/api/swarm/run',
+  path: '/api/swarm/run',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiSlackCommandRoute = ApiSlackCommandRouteImport.update({
+  id: '/api/slack/command',
+  path: '/api/slack/command',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiSkillsGenerateRoute = ApiSkillsGenerateRouteImport.update({
+  id: '/api/skills/generate',
+  path: '/api/skills/generate',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiObjectstoreQueryRoute = ApiObjectstoreQueryRouteImport.update({
+  id: '/api/objectstore/query',
+  path: '/api/objectstore/query',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiNotebookRuntimeRoute = ApiNotebookRuntimeRouteImport.update({
+  id: '/api/notebook/runtime',
+  path: '/api/notebook/runtime',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiNotebookRunRoute = ApiNotebookRunRouteImport.update({
+  id: '/api/notebook/run',
+  path: '/api/notebook/run',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiKbSourcesRoute = ApiKbSourcesRouteImport.update({
+  id: '/api/kb/sources',
+  path: '/api/kb/sources',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiKbIngestUrlRoute = ApiKbIngestUrlRouteImport.update({
+  id: '/api/kb/ingest-url',
+  path: '/api/kb/ingest-url',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiKbIngestGithubRoute = ApiKbIngestGithubRouteImport.update({
+  id: '/api/kb/ingest-github',
+  path: '/api/kb/ingest-github',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiKbBuildGraphRoute = ApiKbBuildGraphRouteImport.update({
+  id: '/api/kb/build-graph',
+  path: '/api/kb/build-graph',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiHealthReadyRoute = ApiHealthReadyRouteImport.update({
+  id: '/ready',
+  path: '/ready',
+  getParentRoute: () => ApiHealthRoute,
+} as any)
+const ApiEtlRunRoute = ApiEtlRunRouteImport.update({
+  id: '/api/etl/run',
+  path: '/api/etl/run',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiEtlGenerateRoute = ApiEtlGenerateRouteImport.update({
+  id: '/api/etl/generate',
+  path: '/api/etl/generate',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiEmbedChatRoute = ApiEmbedChatRouteImport.update({
+  id: '/chat',
+  path: '/chat',
+  getParentRoute: () => ApiEmbedRoute,
+} as any)
+const ApiEmbedAnalystRoute = ApiEmbedAnalystRouteImport.update({
+  id: '/analyst',
+  path: '/analyst',
+  getParentRoute: () => ApiEmbedRoute,
+} as any)
+const ApiEmailSendRoute = ApiEmailSendRouteImport.update({
+  id: '/api/email/send',
+  path: '/api/email/send',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiDocgenXlsxRoute = ApiDocgenXlsxRouteImport.update({
+  id: '/api/docgen/xlsx',
+  path: '/api/docgen/xlsx',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiDocgenStatusRoute = ApiDocgenStatusRouteImport.update({
+  id: '/api/docgen/status',
+  path: '/api/docgen/status',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiDocgenPptxRoute = ApiDocgenPptxRouteImport.update({
+  id: '/api/docgen/pptx',
+  path: '/api/docgen/pptx',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiDocgenDocxRoute = ApiDocgenDocxRouteImport.update({
+  id: '/api/docgen/docx',
+  path: '/api/docgen/docx',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiDataUploadRoute = ApiDataUploadRouteImport.update({
+  id: '/api/data/upload',
+  path: '/api/data/upload',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiBiDirectQueryRoute = ApiBiDirectQueryRouteImport.update({
+  id: '/direct-query',
+  path: '/direct-query',
+  getParentRoute: () => ApiBiRoute,
+} as any)
+const ApiBiCronRoute = ApiBiCronRouteImport.update({
+  id: '/cron',
+  path: '/cron',
+  getParentRoute: () => ApiBiRoute,
+} as any)
+const ApiAuthSsoConfigRoute = ApiAuthSsoConfigRouteImport.update({
+  id: '/api/auth/sso-config',
+  path: '/api/auth/sso-config',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAuditExportRoute = ApiAuditExportRouteImport.update({
+  id: '/api/audit/export',
+  path: '/api/audit/export',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedMcpBuilderAppIdRoute =
+  AuthenticatedMcpBuilderAppIdRouteImport.update({
+    id: '/mcp-builder_/$appId',
+    path: '/mcp-builder/$appId',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
 const AuthenticatedBiDashboardIdRoute =
@@ -569,210 +737,28 @@ const AuthenticatedBiDashboardIdRoute =
     path: '/bi/$dashboardId',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
-const AuthenticatedMcpBuilderAppIdRoute =
-  AuthenticatedMcpBuilderAppIdRouteImport.update({
-    id: '/mcp-builder_/$appId',
-    path: '/mcp-builder/$appId',
+const AuthenticatedAnalyticsObservabilityRoute =
+  AuthenticatedAnalyticsObservabilityRouteImport.update({
+    id: '/analytics_/observability',
+    path: '/analytics/observability',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
-const ApiAuditExportRoute = ApiAuditExportRouteImport.update({
-  id: '/api/audit/export',
-  path: '/api/audit/export',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiAuthSsoConfigRoute = ApiAuthSsoConfigRouteImport.update({
-  id: '/api/auth/sso-config',
-  path: '/api/auth/sso-config',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiBiCronRoute = ApiBiCronRouteImport.update({
-  id: '/cron',
-  path: '/cron',
-  getParentRoute: () => ApiBiRoute,
-} as any)
-const ApiBiDirectQueryRoute = ApiBiDirectQueryRouteImport.update({
-  id: '/direct-query',
-  path: '/direct-query',
-  getParentRoute: () => ApiBiRoute,
-} as any)
-const ApiDataUploadRoute = ApiDataUploadRouteImport.update({
-  id: '/api/data/upload',
-  path: '/api/data/upload',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiDocgenDocxRoute = ApiDocgenDocxRouteImport.update({
-  id: '/api/docgen/docx',
-  path: '/api/docgen/docx',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiDocgenPptxRoute = ApiDocgenPptxRouteImport.update({
-  id: '/api/docgen/pptx',
-  path: '/api/docgen/pptx',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiDocgenStatusRoute = ApiDocgenStatusRouteImport.update({
-  id: '/api/docgen/status',
-  path: '/api/docgen/status',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiDocgenXlsxRoute = ApiDocgenXlsxRouteImport.update({
-  id: '/api/docgen/xlsx',
-  path: '/api/docgen/xlsx',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiEmailSendRoute = ApiEmailSendRouteImport.update({
-  id: '/api/email/send',
-  path: '/api/email/send',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiEmbedAnalystRoute = ApiEmbedAnalystRouteImport.update({
-  id: '/analyst',
-  path: '/analyst',
-  getParentRoute: () => ApiEmbedRoute,
-} as any)
-const ApiEmbedChatRoute = ApiEmbedChatRouteImport.update({
-  id: '/chat',
-  path: '/chat',
-  getParentRoute: () => ApiEmbedRoute,
-} as any)
-const ApiHealthReadyRoute = ApiHealthReadyRouteImport.update({
-  id: '/ready',
-  path: '/ready',
-  getParentRoute: () => ApiHealthRoute,
-} as any)
-const ApiKbBuildGraphRoute = ApiKbBuildGraphRouteImport.update({
-  id: '/api/kb/build-graph',
-  path: '/api/kb/build-graph',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiKbIngestGithubRoute = ApiKbIngestGithubRouteImport.update({
-  id: '/api/kb/ingest-github',
-  path: '/api/kb/ingest-github',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiKbIngestUrlRoute = ApiKbIngestUrlRouteImport.update({
-  id: '/api/kb/ingest-url',
-  path: '/api/kb/ingest-url',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiKbSourcesRoute = ApiKbSourcesRouteImport.update({
-  id: '/api/kb/sources',
-  path: '/api/kb/sources',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiNotebookRunRoute = ApiNotebookRunRouteImport.update({
-  id: '/api/notebook/run',
-  path: '/api/notebook/run',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiNotebookRuntimeRoute = ApiNotebookRuntimeRouteImport.update({
-  id: '/api/notebook/runtime',
-  path: '/api/notebook/runtime',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiObjectstoreQueryRoute = ApiObjectstoreQueryRouteImport.update({
-  id: '/api/objectstore/query',
-  path: '/api/objectstore/query',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiSkillsGenerateRoute = ApiSkillsGenerateRouteImport.update({
-  id: '/api/skills/generate',
-  path: '/api/skills/generate',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiSlackCommandRoute = ApiSlackCommandRouteImport.update({
-  id: '/api/slack/command',
-  path: '/api/slack/command',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiSwarmRunRoute = ApiSwarmRunRouteImport.update({
-  id: '/api/swarm/run',
-  path: '/api/swarm/run',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiTemplatesProvisionRoute = ApiTemplatesProvisionRouteImport.update({
-  id: '/api/templates/provision',
-  path: '/api/templates/provision',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiWarehouseQueryRoute = ApiWarehouseQueryRouteImport.update({
-  id: '/api/warehouse/query',
-  path: '/api/warehouse/query',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiWarehouseSchemaRoute = ApiWarehouseSchemaRouteImport.update({
-  id: '/api/warehouse/schema',
-  path: '/api/warehouse/schema',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const EmbedAgentKeyRoute = EmbedAgentKeyRouteImport.update({
-  id: '/embed/agent/$key',
-  path: '/embed/agent/$key',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const EmbedAnalystKeyRoute = EmbedAnalystKeyRouteImport.update({
-  id: '/embed/analyst/$key',
-  path: '/embed/analyst/$key',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const EmbedBiKeyRoute = EmbedBiKeyRouteImport.update({
-  id: '/embed/bi/$key',
-  path: '/embed/bi/$key',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const EmbedSwarmKeyRoute = EmbedSwarmKeyRouteImport.update({
-  id: '/embed/swarm/$key',
-  path: '/embed/swarm/$key',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ShareBiSlugRoute = ShareBiSlugRouteImport.update({
-  id: '/share/bi/$slug',
-  path: '/share/bi/$slug',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AuthenticatedAnalyticsObservabilityRunIdRoute =
-  AuthenticatedAnalyticsObservabilityRunIdRouteImport.update({
-    id: '/$runId',
-    path: '/$runId',
-    getParentRoute: () => AuthenticatedAnalyticsObservabilityRoute,
+const AuthenticatedAdminRuntimeRoute =
+  AuthenticatedAdminRuntimeRouteImport.update({
+    id: '/admin/runtime',
+    path: '/admin/runtime',
+    getParentRoute: () => AuthenticatedRoute,
   } as any)
-const AuthenticatedNotebooksPyPyNotebookIdRoute =
-  AuthenticatedNotebooksPyPyNotebookIdRouteImport.update({
-    id: '/py/$pyNotebookId',
-    path: '/py/$pyNotebookId',
-    getParentRoute: () => AuthenticatedNotebooksRoute,
-  } as any)
-const AuthenticatedNotebooksSampleSampleSlugRoute =
-  AuthenticatedNotebooksSampleSampleSlugRouteImport.update({
-    id: '/sample/$sampleSlug',
-    path: '/sample/$sampleSlug',
-    getParentRoute: () => AuthenticatedNotebooksRoute,
-  } as any)
-const ApiKbSourcesSyncRoute = ApiKbSourcesSyncRouteImport.update({
-  id: '/sync',
-  path: '/sync',
-  getParentRoute: () => ApiKbSourcesRoute,
+const AuthenticatedAdminIamRoute = AuthenticatedAdminIamRouteImport.update({
+  id: '/admin/iam',
+  path: '/admin/iam',
+  getParentRoute: () => AuthenticatedRoute,
 } as any)
-const ApiMcpSSlugRoute = ApiMcpSSlugRouteImport.update({
-  id: '/api/mcp/s/$slug',
-  path: '/api/mcp/s/$slug',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiNotebookRunStatusRoute = ApiNotebookRunStatusRouteImport.update({
-  id: '/status',
-  path: '/status',
-  getParentRoute: () => ApiNotebookRunRoute,
-} as any)
-const ApiNotebookRuntimeReapRoute = ApiNotebookRuntimeReapRouteImport.update({
-  id: '/reap',
-  path: '/reap',
-  getParentRoute: () => ApiNotebookRuntimeRoute,
-} as any)
-const ApiNotebookRuntimeResultRoute =
-  ApiNotebookRuntimeResultRouteImport.update({
-    id: '/result',
-    path: '/result',
-    getParentRoute: () => ApiNotebookRuntimeRoute,
+const ApiPublicHooksRefreshModelRegistryRoute =
+  ApiPublicHooksRefreshModelRegistryRouteImport.update({
+    id: '/api/public/hooks/refresh-model-registry',
+    path: '/api/public/hooks/refresh-model-registry',
+    getParentRoute: () => rootRouteImport,
   } as any)
 const ApiNotebookRuntimeSourceRoute =
   ApiNotebookRuntimeSourceRouteImport.update({
@@ -780,11 +766,49 @@ const ApiNotebookRuntimeSourceRoute =
     path: '/source',
     getParentRoute: () => ApiNotebookRuntimeRoute,
   } as any)
-const ApiPublicHooksRefreshModelRegistryRoute =
-  ApiPublicHooksRefreshModelRegistryRouteImport.update({
-    id: '/api/public/hooks/refresh-model-registry',
-    path: '/api/public/hooks/refresh-model-registry',
-    getParentRoute: () => rootRouteImport,
+const ApiNotebookRuntimeResultRoute =
+  ApiNotebookRuntimeResultRouteImport.update({
+    id: '/result',
+    path: '/result',
+    getParentRoute: () => ApiNotebookRuntimeRoute,
+  } as any)
+const ApiNotebookRuntimeReapRoute = ApiNotebookRuntimeReapRouteImport.update({
+  id: '/reap',
+  path: '/reap',
+  getParentRoute: () => ApiNotebookRuntimeRoute,
+} as any)
+const ApiNotebookRunStatusRoute = ApiNotebookRunStatusRouteImport.update({
+  id: '/status',
+  path: '/status',
+  getParentRoute: () => ApiNotebookRunRoute,
+} as any)
+const ApiMcpSSlugRoute = ApiMcpSSlugRouteImport.update({
+  id: '/api/mcp/s/$slug',
+  path: '/api/mcp/s/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiKbSourcesSyncRoute = ApiKbSourcesSyncRouteImport.update({
+  id: '/sync',
+  path: '/sync',
+  getParentRoute: () => ApiKbSourcesRoute,
+} as any)
+const AuthenticatedNotebooksSampleSampleSlugRoute =
+  AuthenticatedNotebooksSampleSampleSlugRouteImport.update({
+    id: '/sample/$sampleSlug',
+    path: '/sample/$sampleSlug',
+    getParentRoute: () => AuthenticatedNotebooksRoute,
+  } as any)
+const AuthenticatedNotebooksPyPyNotebookIdRoute =
+  AuthenticatedNotebooksPyPyNotebookIdRouteImport.update({
+    id: '/py/$pyNotebookId',
+    path: '/py/$pyNotebookId',
+    getParentRoute: () => AuthenticatedNotebooksRoute,
+  } as any)
+const AuthenticatedAnalyticsObservabilityRunIdRoute =
+  AuthenticatedAnalyticsObservabilityRunIdRouteImport.update({
+    id: '/$runId',
+    path: '/$runId',
+    getParentRoute: () => AuthenticatedAnalyticsObservabilityRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
@@ -812,6 +836,7 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/data-sql': typeof AuthenticatedDataSqlRoute
   '/embeds': typeof AuthenticatedEmbedsRoute
+  '/etl': typeof AuthenticatedEtlRoute
   '/evaluations': typeof AuthenticatedEvaluationsRoute
   '/image-playground': typeof AuthenticatedImagePlaygroundRoute
   '/integrations': typeof AuthenticatedIntegrationsRoute
@@ -852,6 +877,7 @@ export interface FileRoutesByFullPath {
   '/docs/data-prep': typeof DocsDataPrepRoute
   '/docs/debugging': typeof DocsDebuggingRoute
   '/docs/embedding': typeof DocsEmbeddingRoute
+  '/docs/etl': typeof DocsEtlRoute
   '/docs/guardrails': typeof DocsGuardrailsRoute
   '/docs/iam': typeof DocsIamRoute
   '/docs/integrations': typeof DocsIntegrationsRoute
@@ -885,6 +911,8 @@ export interface FileRoutesByFullPath {
   '/api/email/send': typeof ApiEmailSendRoute
   '/api/embed/analyst': typeof ApiEmbedAnalystRoute
   '/api/embed/chat': typeof ApiEmbedChatRoute
+  '/api/etl/generate': typeof ApiEtlGenerateRoute
+  '/api/etl/run': typeof ApiEtlRunRoute
   '/api/health/ready': typeof ApiHealthReadyRoute
   '/api/kb/build-graph': typeof ApiKbBuildGraphRoute
   '/api/kb/ingest-github': typeof ApiKbIngestGithubRoute
@@ -939,6 +967,7 @@ export interface FileRoutesByTo {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/data-sql': typeof AuthenticatedDataSqlRoute
   '/embeds': typeof AuthenticatedEmbedsRoute
+  '/etl': typeof AuthenticatedEtlRoute
   '/evaluations': typeof AuthenticatedEvaluationsRoute
   '/image-playground': typeof AuthenticatedImagePlaygroundRoute
   '/integrations': typeof AuthenticatedIntegrationsRoute
@@ -979,6 +1008,7 @@ export interface FileRoutesByTo {
   '/docs/data-prep': typeof DocsDataPrepRoute
   '/docs/debugging': typeof DocsDebuggingRoute
   '/docs/embedding': typeof DocsEmbeddingRoute
+  '/docs/etl': typeof DocsEtlRoute
   '/docs/guardrails': typeof DocsGuardrailsRoute
   '/docs/iam': typeof DocsIamRoute
   '/docs/integrations': typeof DocsIntegrationsRoute
@@ -1012,6 +1042,8 @@ export interface FileRoutesByTo {
   '/api/email/send': typeof ApiEmailSendRoute
   '/api/embed/analyst': typeof ApiEmbedAnalystRoute
   '/api/embed/chat': typeof ApiEmbedChatRoute
+  '/api/etl/generate': typeof ApiEtlGenerateRoute
+  '/api/etl/run': typeof ApiEtlRunRoute
   '/api/health/ready': typeof ApiHealthReadyRoute
   '/api/kb/build-graph': typeof ApiKbBuildGraphRoute
   '/api/kb/ingest-github': typeof ApiKbIngestGithubRoute
@@ -1069,6 +1101,7 @@ export interface FileRoutesById {
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/data-sql': typeof AuthenticatedDataSqlRoute
   '/_authenticated/embeds': typeof AuthenticatedEmbedsRoute
+  '/_authenticated/etl': typeof AuthenticatedEtlRoute
   '/_authenticated/evaluations': typeof AuthenticatedEvaluationsRoute
   '/_authenticated/image-playground': typeof AuthenticatedImagePlaygroundRoute
   '/_authenticated/integrations': typeof AuthenticatedIntegrationsRoute
@@ -1109,6 +1142,7 @@ export interface FileRoutesById {
   '/docs/data-prep': typeof DocsDataPrepRoute
   '/docs/debugging': typeof DocsDebuggingRoute
   '/docs/embedding': typeof DocsEmbeddingRoute
+  '/docs/etl': typeof DocsEtlRoute
   '/docs/guardrails': typeof DocsGuardrailsRoute
   '/docs/iam': typeof DocsIamRoute
   '/docs/integrations': typeof DocsIntegrationsRoute
@@ -1142,6 +1176,8 @@ export interface FileRoutesById {
   '/api/email/send': typeof ApiEmailSendRoute
   '/api/embed/analyst': typeof ApiEmbedAnalystRoute
   '/api/embed/chat': typeof ApiEmbedChatRoute
+  '/api/etl/generate': typeof ApiEtlGenerateRoute
+  '/api/etl/run': typeof ApiEtlRunRoute
   '/api/health/ready': typeof ApiHealthReadyRoute
   '/api/kb/build-graph': typeof ApiKbBuildGraphRoute
   '/api/kb/ingest-github': typeof ApiKbIngestGithubRoute
@@ -1199,6 +1235,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/data-sql'
     | '/embeds'
+    | '/etl'
     | '/evaluations'
     | '/image-playground'
     | '/integrations'
@@ -1239,6 +1276,7 @@ export interface FileRouteTypes {
     | '/docs/data-prep'
     | '/docs/debugging'
     | '/docs/embedding'
+    | '/docs/etl'
     | '/docs/guardrails'
     | '/docs/iam'
     | '/docs/integrations'
@@ -1272,6 +1310,8 @@ export interface FileRouteTypes {
     | '/api/email/send'
     | '/api/embed/analyst'
     | '/api/embed/chat'
+    | '/api/etl/generate'
+    | '/api/etl/run'
     | '/api/health/ready'
     | '/api/kb/build-graph'
     | '/api/kb/ingest-github'
@@ -1326,6 +1366,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/data-sql'
     | '/embeds'
+    | '/etl'
     | '/evaluations'
     | '/image-playground'
     | '/integrations'
@@ -1366,6 +1407,7 @@ export interface FileRouteTypes {
     | '/docs/data-prep'
     | '/docs/debugging'
     | '/docs/embedding'
+    | '/docs/etl'
     | '/docs/guardrails'
     | '/docs/iam'
     | '/docs/integrations'
@@ -1399,6 +1441,8 @@ export interface FileRouteTypes {
     | '/api/email/send'
     | '/api/embed/analyst'
     | '/api/embed/chat'
+    | '/api/etl/generate'
+    | '/api/etl/run'
     | '/api/health/ready'
     | '/api/kb/build-graph'
     | '/api/kb/ingest-github'
@@ -1455,6 +1499,7 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard'
     | '/_authenticated/data-sql'
     | '/_authenticated/embeds'
+    | '/_authenticated/etl'
     | '/_authenticated/evaluations'
     | '/_authenticated/image-playground'
     | '/_authenticated/integrations'
@@ -1495,6 +1540,7 @@ export interface FileRouteTypes {
     | '/docs/data-prep'
     | '/docs/debugging'
     | '/docs/embedding'
+    | '/docs/etl'
     | '/docs/guardrails'
     | '/docs/iam'
     | '/docs/integrations'
@@ -1528,6 +1574,8 @@ export interface FileRouteTypes {
     | '/api/email/send'
     | '/api/embed/analyst'
     | '/api/embed/chat'
+    | '/api/etl/generate'
+    | '/api/etl/run'
     | '/api/health/ready'
     | '/api/kb/build-graph'
     | '/api/kb/ingest-github'
@@ -1594,6 +1642,8 @@ export interface RootRouteChildren {
   ApiDocgenStatusRoute: typeof ApiDocgenStatusRoute
   ApiDocgenXlsxRoute: typeof ApiDocgenXlsxRoute
   ApiEmailSendRoute: typeof ApiEmailSendRoute
+  ApiEtlGenerateRoute: typeof ApiEtlGenerateRoute
+  ApiEtlRunRoute: typeof ApiEtlRunRoute
   ApiKbBuildGraphRoute: typeof ApiKbBuildGraphRoute
   ApiKbIngestGithubRoute: typeof ApiKbIngestGithubRoute
   ApiKbIngestUrlRoute: typeof ApiKbIngestUrlRoute
@@ -1625,88 +1675,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof Char91indexChar93RouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/_authenticated': {
-      id: '/_authenticated'
-      path: ''
-      fullPath: '/'
-      preLoaderRoute: typeof AuthenticatedRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/about': {
-      id: '/about'
-      path: '/about'
-      fullPath: '/about'
-      preLoaderRoute: typeof AboutRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/architecture': {
-      id: '/architecture'
-      path: '/architecture'
-      fullPath: '/architecture'
-      preLoaderRoute: typeof ArchitectureRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/contact': {
-      id: '/contact'
-      path: '/contact'
-      fullPath: '/contact'
-      preLoaderRoute: typeof ContactRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/docs': {
-      id: '/docs'
-      path: '/docs'
-      fullPath: '/docs'
-      preLoaderRoute: typeof DocsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/engine-check': {
-      id: '/engine-check'
-      path: '/engine-check'
-      fullPath: '/engine-check'
-      preLoaderRoute: typeof EngineCheckRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/license': {
-      id: '/license'
-      path: '/license'
-      fullPath: '/license'
-      preLoaderRoute: typeof LicenseRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/privacy': {
-      id: '/privacy'
-      path: '/privacy'
-      fullPath: '/privacy'
-      preLoaderRoute: typeof PrivacyRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/reset-password': {
-      id: '/reset-password'
-      path: '/reset-password'
-      fullPath: '/reset-password'
-      preLoaderRoute: typeof ResetPasswordRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/robots.txt': {
-      id: '/robots.txt'
-      path: '/robots.txt'
-      fullPath: '/robots.txt'
-      preLoaderRoute: typeof RobotsDottxtRouteImport
+    '/terms': {
+      id: '/terms'
+      path: '/terms'
+      fullPath: '/terms'
+      preLoaderRoute: typeof TermsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/security': {
@@ -1716,277 +1689,88 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SecurityRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/terms': {
-      id: '/terms'
-      path: '/terms'
-      fullPath: '/terms'
-      preLoaderRoute: typeof TermsRouteImport
+    '/robots.txt': {
+      id: '/robots.txt'
+      path: '/robots.txt'
+      fullPath: '/robots.txt'
+      preLoaderRoute: typeof RobotsDottxtRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_authenticated/account': {
-      id: '/_authenticated/account'
-      path: '/account'
-      fullPath: '/account'
-      preLoaderRoute: typeof AuthenticatedAccountRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/agents': {
-      id: '/_authenticated/agents'
-      path: '/agents'
-      fullPath: '/agents'
-      preLoaderRoute: typeof AuthenticatedAgentsRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/ai-analyst': {
-      id: '/_authenticated/ai-analyst'
-      path: '/ai-analyst'
-      fullPath: '/ai-analyst'
-      preLoaderRoute: typeof AuthenticatedAiAnalystRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/analytics': {
-      id: '/_authenticated/analytics'
-      path: '/analytics'
-      fullPath: '/analytics'
-      preLoaderRoute: typeof AuthenticatedAnalyticsRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/audit': {
-      id: '/_authenticated/audit'
-      path: '/audit'
-      fullPath: '/audit'
-      preLoaderRoute: typeof AuthenticatedAuditRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/bi': {
-      id: '/_authenticated/bi'
-      path: '/bi'
-      fullPath: '/bi'
-      preLoaderRoute: typeof AuthenticatedBiRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/budgets': {
-      id: '/_authenticated/budgets'
-      path: '/budgets'
-      fullPath: '/budgets'
-      preLoaderRoute: typeof AuthenticatedBudgetsRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/dashboard': {
-      id: '/_authenticated/dashboard'
-      path: '/dashboard'
-      fullPath: '/dashboard'
-      preLoaderRoute: typeof AuthenticatedDashboardRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/data-sql': {
-      id: '/_authenticated/data-sql'
-      path: '/data-sql'
-      fullPath: '/data-sql'
-      preLoaderRoute: typeof AuthenticatedDataSqlRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/embeds': {
-      id: '/_authenticated/embeds'
-      path: '/embeds'
-      fullPath: '/embeds'
-      preLoaderRoute: typeof AuthenticatedEmbedsRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/evaluations': {
-      id: '/_authenticated/evaluations'
-      path: '/evaluations'
-      fullPath: '/evaluations'
-      preLoaderRoute: typeof AuthenticatedEvaluationsRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/image-playground': {
-      id: '/_authenticated/image-playground'
-      path: '/image-playground'
-      fullPath: '/image-playground'
-      preLoaderRoute: typeof AuthenticatedImagePlaygroundRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/integrations': {
-      id: '/_authenticated/integrations'
-      path: '/integrations'
-      fullPath: '/integrations'
-      preLoaderRoute: typeof AuthenticatedIntegrationsRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/knowledge': {
-      id: '/_authenticated/knowledge'
-      path: '/knowledge'
-      fullPath: '/knowledge'
-      preLoaderRoute: typeof AuthenticatedKnowledgeRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/mcp': {
-      id: '/_authenticated/mcp'
-      path: '/mcp'
-      fullPath: '/mcp'
-      preLoaderRoute: typeof AuthenticatedMcpRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/mcp-builder': {
-      id: '/_authenticated/mcp-builder'
-      path: '/mcp-builder'
-      fullPath: '/mcp-builder'
-      preLoaderRoute: typeof AuthenticatedMcpBuilderRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/metrics': {
-      id: '/_authenticated/metrics'
-      path: '/metrics'
-      fullPath: '/metrics'
-      preLoaderRoute: typeof AuthenticatedMetricsRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/model-registry': {
-      id: '/_authenticated/model-registry'
-      path: '/model-registry'
-      fullPath: '/model-registry'
-      preLoaderRoute: typeof AuthenticatedModelRegistryRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/monitoring': {
-      id: '/_authenticated/monitoring'
-      path: '/monitoring'
-      fullPath: '/monitoring'
-      preLoaderRoute: typeof AuthenticatedMonitoringRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/notebooks': {
-      id: '/_authenticated/notebooks'
-      path: '/notebooks'
-      fullPath: '/notebooks'
-      preLoaderRoute: typeof AuthenticatedNotebooksRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/playground': {
-      id: '/_authenticated/playground'
-      path: '/playground'
-      fullPath: '/playground'
-      preLoaderRoute: typeof AuthenticatedPlaygroundRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/prompt-compare': {
-      id: '/_authenticated/prompt-compare'
-      path: '/prompt-compare'
-      fullPath: '/prompt-compare'
-      preLoaderRoute: typeof AuthenticatedPromptCompareRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/prompts': {
-      id: '/_authenticated/prompts'
-      path: '/prompts'
-      fullPath: '/prompts'
-      preLoaderRoute: typeof AuthenticatedPromptsRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/secrets': {
-      id: '/_authenticated/secrets'
-      path: '/secrets'
-      fullPath: '/secrets'
-      preLoaderRoute: typeof AuthenticatedSecretsRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/semantics': {
-      id: '/_authenticated/semantics'
-      path: '/semantics'
-      fullPath: '/semantics'
-      preLoaderRoute: typeof AuthenticatedSemanticsRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/skills': {
-      id: '/_authenticated/skills'
-      path: '/skills'
-      fullPath: '/skills'
-      preLoaderRoute: typeof AuthenticatedSkillsRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/swarms': {
-      id: '/_authenticated/swarms'
-      path: '/swarms'
-      fullPath: '/swarms'
-      preLoaderRoute: typeof AuthenticatedSwarmsRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/traces': {
-      id: '/_authenticated/traces'
-      path: '/traces'
-      fullPath: '/traces'
-      preLoaderRoute: typeof AuthenticatedTracesRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/api/a2a': {
-      id: '/api/a2a'
-      path: '/api/a2a'
-      fullPath: '/api/a2a'
-      preLoaderRoute: typeof ApiA2aRouteImport
+    '/reset-password': {
+      id: '/reset-password'
+      path: '/reset-password'
+      fullPath: '/reset-password'
+      preLoaderRoute: typeof ResetPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/bi': {
-      id: '/api/bi'
-      path: '/api/bi'
-      fullPath: '/api/bi'
-      preLoaderRoute: typeof ApiBiRouteImport
+    '/privacy': {
+      id: '/privacy'
+      path: '/privacy'
+      fullPath: '/privacy'
+      preLoaderRoute: typeof PrivacyRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/chat': {
-      id: '/api/chat'
-      path: '/api/chat'
-      fullPath: '/api/chat'
-      preLoaderRoute: typeof ApiChatRouteImport
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/contact': {
-      id: '/api/contact'
-      path: '/api/contact'
-      fullPath: '/api/contact'
-      preLoaderRoute: typeof ApiContactRouteImport
+    '/license': {
+      id: '/license'
+      path: '/license'
+      fullPath: '/license'
+      preLoaderRoute: typeof LicenseRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/embed': {
-      id: '/api/embed'
-      path: '/api/embed'
-      fullPath: '/api/embed'
-      preLoaderRoute: typeof ApiEmbedRouteImport
+    '/engine-check': {
+      id: '/engine-check'
+      path: '/engine-check'
+      fullPath: '/engine-check'
+      preLoaderRoute: typeof EngineCheckRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/health': {
-      id: '/api/health'
-      path: '/api/health'
-      fullPath: '/api/health'
-      preLoaderRoute: typeof ApiHealthRouteImport
+    '/docs': {
+      id: '/docs'
+      path: '/docs'
+      fullPath: '/docs'
+      preLoaderRoute: typeof DocsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/metrics': {
-      id: '/api/metrics'
-      path: '/api/metrics'
-      fullPath: '/api/metrics'
-      preLoaderRoute: typeof ApiMetricsRouteImport
+    '/contact': {
+      id: '/contact'
+      path: '/contact'
+      fullPath: '/contact'
+      preLoaderRoute: typeof ContactRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/python-agent': {
-      id: '/api/python-agent'
-      path: '/api/python-agent'
-      fullPath: '/api/python-agent'
-      preLoaderRoute: typeof ApiPythonAgentRouteImport
+    '/architecture': {
+      id: '/architecture'
+      path: '/architecture'
+      fullPath: '/architecture'
+      preLoaderRoute: typeof ArchitectureRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/python-chat': {
-      id: '/api/python-chat'
-      path: '/api/python-chat'
-      fullPath: '/api/python-chat'
-      preLoaderRoute: typeof ApiPythonChatRouteImport
+    '/about': {
+      id: '/about'
+      path: '/about'
+      fullPath: '/about'
+      preLoaderRoute: typeof AboutRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/python-kb': {
-      id: '/api/python-kb'
-      path: '/api/python-kb'
-      fullPath: '/api/python-kb'
-      preLoaderRoute: typeof ApiPythonKbRouteImport
+    '/_authenticated': {
+      id: '/_authenticated'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AuthenticatedRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/docs/': {
@@ -1996,172 +1780,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DocsIndexRouteImport
       parentRoute: typeof DocsRoute
     }
-    '/docs/account': {
-      id: '/docs/account'
-      path: '/account'
-      fullPath: '/docs/account'
-      preLoaderRoute: typeof DocsAccountRouteImport
-      parentRoute: typeof DocsRoute
+    '/email/unsubscribe': {
+      id: '/email/unsubscribe'
+      path: '/email/unsubscribe'
+      fullPath: '/email/unsubscribe'
+      preLoaderRoute: typeof EmailUnsubscribeRouteImport
+      parentRoute: typeof rootRouteImport
     }
-    '/docs/agents': {
-      id: '/docs/agents'
-      path: '/agents'
-      fullPath: '/docs/agents'
-      preLoaderRoute: typeof DocsAgentsRouteImport
-      parentRoute: typeof DocsRoute
-    }
-    '/docs/analytics': {
-      id: '/docs/analytics'
-      path: '/analytics'
-      fullPath: '/docs/analytics'
-      preLoaderRoute: typeof DocsAnalyticsRouteImport
-      parentRoute: typeof DocsRoute
-    }
-    '/docs/api': {
-      id: '/docs/api'
-      path: '/api'
-      fullPath: '/docs/api'
-      preLoaderRoute: typeof DocsApiRouteImport
-      parentRoute: typeof DocsRoute
-    }
-    '/docs/bi': {
-      id: '/docs/bi'
-      path: '/bi'
-      fullPath: '/docs/bi'
-      preLoaderRoute: typeof DocsBiRouteImport
-      parentRoute: typeof DocsRoute
-    }
-    '/docs/budgets': {
-      id: '/docs/budgets'
-      path: '/budgets'
-      fullPath: '/docs/budgets'
-      preLoaderRoute: typeof DocsBudgetsRouteImport
-      parentRoute: typeof DocsRoute
-    }
-    '/docs/concepts': {
-      id: '/docs/concepts'
-      path: '/concepts'
-      fullPath: '/docs/concepts'
-      preLoaderRoute: typeof DocsConceptsRouteImport
-      parentRoute: typeof DocsRoute
-    }
-    '/docs/dashboard': {
-      id: '/docs/dashboard'
-      path: '/dashboard'
-      fullPath: '/docs/dashboard'
-      preLoaderRoute: typeof DocsDashboardRouteImport
-      parentRoute: typeof DocsRoute
-    }
-    '/docs/data': {
-      id: '/docs/data'
-      path: '/data'
-      fullPath: '/docs/data'
-      preLoaderRoute: typeof DocsDataRouteImport
-      parentRoute: typeof DocsRoute
-    }
-    '/docs/data-prep': {
-      id: '/docs/data-prep'
-      path: '/data-prep'
-      fullPath: '/docs/data-prep'
-      preLoaderRoute: typeof DocsDataPrepRouteImport
-      parentRoute: typeof DocsRoute
-    }
-    '/docs/debugging': {
-      id: '/docs/debugging'
-      path: '/debugging'
-      fullPath: '/docs/debugging'
-      preLoaderRoute: typeof DocsDebuggingRouteImport
-      parentRoute: typeof DocsRoute
-    }
-    '/docs/embedding': {
-      id: '/docs/embedding'
-      path: '/embedding'
-      fullPath: '/docs/embedding'
-      preLoaderRoute: typeof DocsEmbeddingRouteImport
-      parentRoute: typeof DocsRoute
-    }
-    '/docs/guardrails': {
-      id: '/docs/guardrails'
-      path: '/guardrails'
-      fullPath: '/docs/guardrails'
-      preLoaderRoute: typeof DocsGuardrailsRouteImport
-      parentRoute: typeof DocsRoute
-    }
-    '/docs/iam': {
-      id: '/docs/iam'
-      path: '/iam'
-      fullPath: '/docs/iam'
-      preLoaderRoute: typeof DocsIamRouteImport
-      parentRoute: typeof DocsRoute
-    }
-    '/docs/integrations': {
-      id: '/docs/integrations'
-      path: '/integrations'
-      fullPath: '/docs/integrations'
-      preLoaderRoute: typeof DocsIntegrationsRouteImport
-      parentRoute: typeof DocsRoute
-    }
-    '/docs/knowledge': {
-      id: '/docs/knowledge'
-      path: '/knowledge'
-      fullPath: '/docs/knowledge'
-      preLoaderRoute: typeof DocsKnowledgeRouteImport
-      parentRoute: typeof DocsRoute
-    }
-    '/docs/mcp': {
-      id: '/docs/mcp'
-      path: '/mcp'
-      fullPath: '/docs/mcp'
-      preLoaderRoute: typeof DocsMcpRouteImport
-      parentRoute: typeof DocsRoute
-    }
-    '/docs/models': {
-      id: '/docs/models'
-      path: '/models'
-      fullPath: '/docs/models'
-      preLoaderRoute: typeof DocsModelsRouteImport
-      parentRoute: typeof DocsRoute
-    }
-    '/docs/notebooks': {
-      id: '/docs/notebooks'
-      path: '/notebooks'
-      fullPath: '/docs/notebooks'
-      preLoaderRoute: typeof DocsNotebooksRouteImport
-      parentRoute: typeof DocsRoute
-    }
-    '/docs/playground': {
-      id: '/docs/playground'
-      path: '/playground'
-      fullPath: '/docs/playground'
-      preLoaderRoute: typeof DocsPlaygroundRouteImport
-      parentRoute: typeof DocsRoute
-    }
-    '/docs/quickstart': {
-      id: '/docs/quickstart'
-      path: '/quickstart'
-      fullPath: '/docs/quickstart'
-      preLoaderRoute: typeof DocsQuickstartRouteImport
-      parentRoute: typeof DocsRoute
-    }
-    '/docs/secrets': {
-      id: '/docs/secrets'
-      path: '/secrets'
-      fullPath: '/docs/secrets'
-      preLoaderRoute: typeof DocsSecretsRouteImport
-      parentRoute: typeof DocsRoute
-    }
-    '/docs/self-hosting': {
-      id: '/docs/self-hosting'
-      path: '/self-hosting'
-      fullPath: '/docs/self-hosting'
-      preLoaderRoute: typeof DocsSelfHostingRouteImport
-      parentRoute: typeof DocsRoute
-    }
-    '/docs/semantics': {
-      id: '/docs/semantics'
-      path: '/semantics'
-      fullPath: '/docs/semantics'
-      preLoaderRoute: typeof DocsSemanticsRouteImport
+    '/docs/swarms': {
+      id: '/docs/swarms'
+      path: '/swarms'
+      fullPath: '/docs/swarms'
+      preLoaderRoute: typeof DocsSwarmsRouteImport
       parentRoute: typeof DocsRoute
     }
     '/docs/skills': {
@@ -2171,256 +1801,459 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DocsSkillsRouteImport
       parentRoute: typeof DocsRoute
     }
-    '/docs/swarms': {
-      id: '/docs/swarms'
-      path: '/swarms'
-      fullPath: '/docs/swarms'
-      preLoaderRoute: typeof DocsSwarmsRouteImport
+    '/docs/semantics': {
+      id: '/docs/semantics'
+      path: '/semantics'
+      fullPath: '/docs/semantics'
+      preLoaderRoute: typeof DocsSemanticsRouteImport
       parentRoute: typeof DocsRoute
     }
-    '/email/unsubscribe': {
-      id: '/email/unsubscribe'
-      path: '/email/unsubscribe'
-      fullPath: '/email/unsubscribe'
-      preLoaderRoute: typeof EmailUnsubscribeRouteImport
+    '/docs/self-hosting': {
+      id: '/docs/self-hosting'
+      path: '/self-hosting'
+      fullPath: '/docs/self-hosting'
+      preLoaderRoute: typeof DocsSelfHostingRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/secrets': {
+      id: '/docs/secrets'
+      path: '/secrets'
+      fullPath: '/docs/secrets'
+      preLoaderRoute: typeof DocsSecretsRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/quickstart': {
+      id: '/docs/quickstart'
+      path: '/quickstart'
+      fullPath: '/docs/quickstart'
+      preLoaderRoute: typeof DocsQuickstartRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/playground': {
+      id: '/docs/playground'
+      path: '/playground'
+      fullPath: '/docs/playground'
+      preLoaderRoute: typeof DocsPlaygroundRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/notebooks': {
+      id: '/docs/notebooks'
+      path: '/notebooks'
+      fullPath: '/docs/notebooks'
+      preLoaderRoute: typeof DocsNotebooksRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/models': {
+      id: '/docs/models'
+      path: '/models'
+      fullPath: '/docs/models'
+      preLoaderRoute: typeof DocsModelsRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/mcp': {
+      id: '/docs/mcp'
+      path: '/mcp'
+      fullPath: '/docs/mcp'
+      preLoaderRoute: typeof DocsMcpRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/knowledge': {
+      id: '/docs/knowledge'
+      path: '/knowledge'
+      fullPath: '/docs/knowledge'
+      preLoaderRoute: typeof DocsKnowledgeRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/integrations': {
+      id: '/docs/integrations'
+      path: '/integrations'
+      fullPath: '/docs/integrations'
+      preLoaderRoute: typeof DocsIntegrationsRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/iam': {
+      id: '/docs/iam'
+      path: '/iam'
+      fullPath: '/docs/iam'
+      preLoaderRoute: typeof DocsIamRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/guardrails': {
+      id: '/docs/guardrails'
+      path: '/guardrails'
+      fullPath: '/docs/guardrails'
+      preLoaderRoute: typeof DocsGuardrailsRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/etl': {
+      id: '/docs/etl'
+      path: '/etl'
+      fullPath: '/docs/etl'
+      preLoaderRoute: typeof DocsEtlRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/embedding': {
+      id: '/docs/embedding'
+      path: '/embedding'
+      fullPath: '/docs/embedding'
+      preLoaderRoute: typeof DocsEmbeddingRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/debugging': {
+      id: '/docs/debugging'
+      path: '/debugging'
+      fullPath: '/docs/debugging'
+      preLoaderRoute: typeof DocsDebuggingRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/data-prep': {
+      id: '/docs/data-prep'
+      path: '/data-prep'
+      fullPath: '/docs/data-prep'
+      preLoaderRoute: typeof DocsDataPrepRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/data': {
+      id: '/docs/data'
+      path: '/data'
+      fullPath: '/docs/data'
+      preLoaderRoute: typeof DocsDataRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/dashboard': {
+      id: '/docs/dashboard'
+      path: '/dashboard'
+      fullPath: '/docs/dashboard'
+      preLoaderRoute: typeof DocsDashboardRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/concepts': {
+      id: '/docs/concepts'
+      path: '/concepts'
+      fullPath: '/docs/concepts'
+      preLoaderRoute: typeof DocsConceptsRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/budgets': {
+      id: '/docs/budgets'
+      path: '/budgets'
+      fullPath: '/docs/budgets'
+      preLoaderRoute: typeof DocsBudgetsRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/bi': {
+      id: '/docs/bi'
+      path: '/bi'
+      fullPath: '/docs/bi'
+      preLoaderRoute: typeof DocsBiRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/api': {
+      id: '/docs/api'
+      path: '/api'
+      fullPath: '/docs/api'
+      preLoaderRoute: typeof DocsApiRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/analytics': {
+      id: '/docs/analytics'
+      path: '/analytics'
+      fullPath: '/docs/analytics'
+      preLoaderRoute: typeof DocsAnalyticsRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/agents': {
+      id: '/docs/agents'
+      path: '/agents'
+      fullPath: '/docs/agents'
+      preLoaderRoute: typeof DocsAgentsRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/account': {
+      id: '/docs/account'
+      path: '/account'
+      fullPath: '/docs/account'
+      preLoaderRoute: typeof DocsAccountRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/api/python-kb': {
+      id: '/api/python-kb'
+      path: '/api/python-kb'
+      fullPath: '/api/python-kb'
+      preLoaderRoute: typeof ApiPythonKbRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_authenticated/admin/iam': {
-      id: '/_authenticated/admin/iam'
-      path: '/admin/iam'
-      fullPath: '/admin/iam'
-      preLoaderRoute: typeof AuthenticatedAdminIamRouteImport
+    '/api/python-chat': {
+      id: '/api/python-chat'
+      path: '/api/python-chat'
+      fullPath: '/api/python-chat'
+      preLoaderRoute: typeof ApiPythonChatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/python-agent': {
+      id: '/api/python-agent'
+      path: '/api/python-agent'
+      fullPath: '/api/python-agent'
+      preLoaderRoute: typeof ApiPythonAgentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/metrics': {
+      id: '/api/metrics'
+      path: '/api/metrics'
+      fullPath: '/api/metrics'
+      preLoaderRoute: typeof ApiMetricsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/health': {
+      id: '/api/health'
+      path: '/api/health'
+      fullPath: '/api/health'
+      preLoaderRoute: typeof ApiHealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/embed': {
+      id: '/api/embed'
+      path: '/api/embed'
+      fullPath: '/api/embed'
+      preLoaderRoute: typeof ApiEmbedRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/contact': {
+      id: '/api/contact'
+      path: '/api/contact'
+      fullPath: '/api/contact'
+      preLoaderRoute: typeof ApiContactRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/chat': {
+      id: '/api/chat'
+      path: '/api/chat'
+      fullPath: '/api/chat'
+      preLoaderRoute: typeof ApiChatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/bi': {
+      id: '/api/bi'
+      path: '/api/bi'
+      fullPath: '/api/bi'
+      preLoaderRoute: typeof ApiBiRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/a2a': {
+      id: '/api/a2a'
+      path: '/api/a2a'
+      fullPath: '/api/a2a'
+      preLoaderRoute: typeof ApiA2aRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated/traces': {
+      id: '/_authenticated/traces'
+      path: '/traces'
+      fullPath: '/traces'
+      preLoaderRoute: typeof AuthenticatedTracesRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
-    '/_authenticated/admin/runtime': {
-      id: '/_authenticated/admin/runtime'
-      path: '/admin/runtime'
-      fullPath: '/admin/runtime'
-      preLoaderRoute: typeof AuthenticatedAdminRuntimeRouteImport
+    '/_authenticated/swarms': {
+      id: '/_authenticated/swarms'
+      path: '/swarms'
+      fullPath: '/swarms'
+      preLoaderRoute: typeof AuthenticatedSwarmsRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
-    '/_authenticated/analytics_/observability': {
-      id: '/_authenticated/analytics_/observability'
-      path: '/analytics/observability'
-      fullPath: '/analytics/observability'
-      preLoaderRoute: typeof AuthenticatedAnalyticsObservabilityRouteImport
+    '/_authenticated/skills': {
+      id: '/_authenticated/skills'
+      path: '/skills'
+      fullPath: '/skills'
+      preLoaderRoute: typeof AuthenticatedSkillsRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
-    '/_authenticated/bi_/$dashboardId': {
-      id: '/_authenticated/bi_/$dashboardId'
-      path: '/bi/$dashboardId'
-      fullPath: '/bi/$dashboardId'
-      preLoaderRoute: typeof AuthenticatedBiDashboardIdRouteImport
+    '/_authenticated/semantics': {
+      id: '/_authenticated/semantics'
+      path: '/semantics'
+      fullPath: '/semantics'
+      preLoaderRoute: typeof AuthenticatedSemanticsRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
-    '/_authenticated/mcp-builder_/$appId': {
-      id: '/_authenticated/mcp-builder_/$appId'
-      path: '/mcp-builder/$appId'
-      fullPath: '/mcp-builder/$appId'
-      preLoaderRoute: typeof AuthenticatedMcpBuilderAppIdRouteImport
+    '/_authenticated/secrets': {
+      id: '/_authenticated/secrets'
+      path: '/secrets'
+      fullPath: '/secrets'
+      preLoaderRoute: typeof AuthenticatedSecretsRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
-    '/api/audit/export': {
-      id: '/api/audit/export'
-      path: '/api/audit/export'
-      fullPath: '/api/audit/export'
-      preLoaderRoute: typeof ApiAuditExportRouteImport
-      parentRoute: typeof rootRouteImport
+    '/_authenticated/prompts': {
+      id: '/_authenticated/prompts'
+      path: '/prompts'
+      fullPath: '/prompts'
+      preLoaderRoute: typeof AuthenticatedPromptsRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    '/api/auth/sso-config': {
-      id: '/api/auth/sso-config'
-      path: '/api/auth/sso-config'
-      fullPath: '/api/auth/sso-config'
-      preLoaderRoute: typeof ApiAuthSsoConfigRouteImport
-      parentRoute: typeof rootRouteImport
+    '/_authenticated/prompt-compare': {
+      id: '/_authenticated/prompt-compare'
+      path: '/prompt-compare'
+      fullPath: '/prompt-compare'
+      preLoaderRoute: typeof AuthenticatedPromptCompareRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    '/api/bi/cron': {
-      id: '/api/bi/cron'
-      path: '/cron'
-      fullPath: '/api/bi/cron'
-      preLoaderRoute: typeof ApiBiCronRouteImport
-      parentRoute: typeof ApiBiRoute
+    '/_authenticated/playground': {
+      id: '/_authenticated/playground'
+      path: '/playground'
+      fullPath: '/playground'
+      preLoaderRoute: typeof AuthenticatedPlaygroundRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    '/api/bi/direct-query': {
-      id: '/api/bi/direct-query'
-      path: '/direct-query'
-      fullPath: '/api/bi/direct-query'
-      preLoaderRoute: typeof ApiBiDirectQueryRouteImport
-      parentRoute: typeof ApiBiRoute
+    '/_authenticated/notebooks': {
+      id: '/_authenticated/notebooks'
+      path: '/notebooks'
+      fullPath: '/notebooks'
+      preLoaderRoute: typeof AuthenticatedNotebooksRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    '/api/data/upload': {
-      id: '/api/data/upload'
-      path: '/api/data/upload'
-      fullPath: '/api/data/upload'
-      preLoaderRoute: typeof ApiDataUploadRouteImport
-      parentRoute: typeof rootRouteImport
+    '/_authenticated/monitoring': {
+      id: '/_authenticated/monitoring'
+      path: '/monitoring'
+      fullPath: '/monitoring'
+      preLoaderRoute: typeof AuthenticatedMonitoringRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    '/api/docgen/docx': {
-      id: '/api/docgen/docx'
-      path: '/api/docgen/docx'
-      fullPath: '/api/docgen/docx'
-      preLoaderRoute: typeof ApiDocgenDocxRouteImport
-      parentRoute: typeof rootRouteImport
+    '/_authenticated/model-registry': {
+      id: '/_authenticated/model-registry'
+      path: '/model-registry'
+      fullPath: '/model-registry'
+      preLoaderRoute: typeof AuthenticatedModelRegistryRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    '/api/docgen/pptx': {
-      id: '/api/docgen/pptx'
-      path: '/api/docgen/pptx'
-      fullPath: '/api/docgen/pptx'
-      preLoaderRoute: typeof ApiDocgenPptxRouteImport
-      parentRoute: typeof rootRouteImport
+    '/_authenticated/metrics': {
+      id: '/_authenticated/metrics'
+      path: '/metrics'
+      fullPath: '/metrics'
+      preLoaderRoute: typeof AuthenticatedMetricsRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    '/api/docgen/status': {
-      id: '/api/docgen/status'
-      path: '/api/docgen/status'
-      fullPath: '/api/docgen/status'
-      preLoaderRoute: typeof ApiDocgenStatusRouteImport
-      parentRoute: typeof rootRouteImport
+    '/_authenticated/mcp-builder': {
+      id: '/_authenticated/mcp-builder'
+      path: '/mcp-builder'
+      fullPath: '/mcp-builder'
+      preLoaderRoute: typeof AuthenticatedMcpBuilderRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    '/api/docgen/xlsx': {
-      id: '/api/docgen/xlsx'
-      path: '/api/docgen/xlsx'
-      fullPath: '/api/docgen/xlsx'
-      preLoaderRoute: typeof ApiDocgenXlsxRouteImport
-      parentRoute: typeof rootRouteImport
+    '/_authenticated/mcp': {
+      id: '/_authenticated/mcp'
+      path: '/mcp'
+      fullPath: '/mcp'
+      preLoaderRoute: typeof AuthenticatedMcpRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    '/api/email/send': {
-      id: '/api/email/send'
-      path: '/api/email/send'
-      fullPath: '/api/email/send'
-      preLoaderRoute: typeof ApiEmailSendRouteImport
-      parentRoute: typeof rootRouteImport
+    '/_authenticated/knowledge': {
+      id: '/_authenticated/knowledge'
+      path: '/knowledge'
+      fullPath: '/knowledge'
+      preLoaderRoute: typeof AuthenticatedKnowledgeRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    '/api/embed/analyst': {
-      id: '/api/embed/analyst'
-      path: '/analyst'
-      fullPath: '/api/embed/analyst'
-      preLoaderRoute: typeof ApiEmbedAnalystRouteImport
-      parentRoute: typeof ApiEmbedRoute
+    '/_authenticated/integrations': {
+      id: '/_authenticated/integrations'
+      path: '/integrations'
+      fullPath: '/integrations'
+      preLoaderRoute: typeof AuthenticatedIntegrationsRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    '/api/embed/chat': {
-      id: '/api/embed/chat'
-      path: '/chat'
-      fullPath: '/api/embed/chat'
-      preLoaderRoute: typeof ApiEmbedChatRouteImport
-      parentRoute: typeof ApiEmbedRoute
+    '/_authenticated/image-playground': {
+      id: '/_authenticated/image-playground'
+      path: '/image-playground'
+      fullPath: '/image-playground'
+      preLoaderRoute: typeof AuthenticatedImagePlaygroundRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    '/api/health/ready': {
-      id: '/api/health/ready'
-      path: '/ready'
-      fullPath: '/api/health/ready'
-      preLoaderRoute: typeof ApiHealthReadyRouteImport
-      parentRoute: typeof ApiHealthRoute
+    '/_authenticated/evaluations': {
+      id: '/_authenticated/evaluations'
+      path: '/evaluations'
+      fullPath: '/evaluations'
+      preLoaderRoute: typeof AuthenticatedEvaluationsRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    '/api/kb/build-graph': {
-      id: '/api/kb/build-graph'
-      path: '/api/kb/build-graph'
-      fullPath: '/api/kb/build-graph'
-      preLoaderRoute: typeof ApiKbBuildGraphRouteImport
-      parentRoute: typeof rootRouteImport
+    '/_authenticated/etl': {
+      id: '/_authenticated/etl'
+      path: '/etl'
+      fullPath: '/etl'
+      preLoaderRoute: typeof AuthenticatedEtlRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    '/api/kb/ingest-github': {
-      id: '/api/kb/ingest-github'
-      path: '/api/kb/ingest-github'
-      fullPath: '/api/kb/ingest-github'
-      preLoaderRoute: typeof ApiKbIngestGithubRouteImport
-      parentRoute: typeof rootRouteImport
+    '/_authenticated/embeds': {
+      id: '/_authenticated/embeds'
+      path: '/embeds'
+      fullPath: '/embeds'
+      preLoaderRoute: typeof AuthenticatedEmbedsRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    '/api/kb/ingest-url': {
-      id: '/api/kb/ingest-url'
-      path: '/api/kb/ingest-url'
-      fullPath: '/api/kb/ingest-url'
-      preLoaderRoute: typeof ApiKbIngestUrlRouteImport
-      parentRoute: typeof rootRouteImport
+    '/_authenticated/data-sql': {
+      id: '/_authenticated/data-sql'
+      path: '/data-sql'
+      fullPath: '/data-sql'
+      preLoaderRoute: typeof AuthenticatedDataSqlRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    '/api/kb/sources': {
-      id: '/api/kb/sources'
-      path: '/api/kb/sources'
-      fullPath: '/api/kb/sources'
-      preLoaderRoute: typeof ApiKbSourcesRouteImport
-      parentRoute: typeof rootRouteImport
+    '/_authenticated/dashboard': {
+      id: '/_authenticated/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof AuthenticatedDashboardRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    '/api/notebook/run': {
-      id: '/api/notebook/run'
-      path: '/api/notebook/run'
-      fullPath: '/api/notebook/run'
-      preLoaderRoute: typeof ApiNotebookRunRouteImport
-      parentRoute: typeof rootRouteImport
+    '/_authenticated/budgets': {
+      id: '/_authenticated/budgets'
+      path: '/budgets'
+      fullPath: '/budgets'
+      preLoaderRoute: typeof AuthenticatedBudgetsRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    '/api/notebook/runtime': {
-      id: '/api/notebook/runtime'
-      path: '/api/notebook/runtime'
-      fullPath: '/api/notebook/runtime'
-      preLoaderRoute: typeof ApiNotebookRuntimeRouteImport
-      parentRoute: typeof rootRouteImport
+    '/_authenticated/bi': {
+      id: '/_authenticated/bi'
+      path: '/bi'
+      fullPath: '/bi'
+      preLoaderRoute: typeof AuthenticatedBiRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    '/api/objectstore/query': {
-      id: '/api/objectstore/query'
-      path: '/api/objectstore/query'
-      fullPath: '/api/objectstore/query'
-      preLoaderRoute: typeof ApiObjectstoreQueryRouteImport
-      parentRoute: typeof rootRouteImport
+    '/_authenticated/audit': {
+      id: '/_authenticated/audit'
+      path: '/audit'
+      fullPath: '/audit'
+      preLoaderRoute: typeof AuthenticatedAuditRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    '/api/skills/generate': {
-      id: '/api/skills/generate'
-      path: '/api/skills/generate'
-      fullPath: '/api/skills/generate'
-      preLoaderRoute: typeof ApiSkillsGenerateRouteImport
-      parentRoute: typeof rootRouteImport
+    '/_authenticated/analytics': {
+      id: '/_authenticated/analytics'
+      path: '/analytics'
+      fullPath: '/analytics'
+      preLoaderRoute: typeof AuthenticatedAnalyticsRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    '/api/slack/command': {
-      id: '/api/slack/command'
-      path: '/api/slack/command'
-      fullPath: '/api/slack/command'
-      preLoaderRoute: typeof ApiSlackCommandRouteImport
-      parentRoute: typeof rootRouteImport
+    '/_authenticated/ai-analyst': {
+      id: '/_authenticated/ai-analyst'
+      path: '/ai-analyst'
+      fullPath: '/ai-analyst'
+      preLoaderRoute: typeof AuthenticatedAiAnalystRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    '/api/swarm/run': {
-      id: '/api/swarm/run'
-      path: '/api/swarm/run'
-      fullPath: '/api/swarm/run'
-      preLoaderRoute: typeof ApiSwarmRunRouteImport
-      parentRoute: typeof rootRouteImport
+    '/_authenticated/agents': {
+      id: '/_authenticated/agents'
+      path: '/agents'
+      fullPath: '/agents'
+      preLoaderRoute: typeof AuthenticatedAgentsRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    '/api/templates/provision': {
-      id: '/api/templates/provision'
-      path: '/api/templates/provision'
-      fullPath: '/api/templates/provision'
-      preLoaderRoute: typeof ApiTemplatesProvisionRouteImport
-      parentRoute: typeof rootRouteImport
+    '/_authenticated/account': {
+      id: '/_authenticated/account'
+      path: '/account'
+      fullPath: '/account'
+      preLoaderRoute: typeof AuthenticatedAccountRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    '/api/warehouse/query': {
-      id: '/api/warehouse/query'
-      path: '/api/warehouse/query'
-      fullPath: '/api/warehouse/query'
-      preLoaderRoute: typeof ApiWarehouseQueryRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/warehouse/schema': {
-      id: '/api/warehouse/schema'
-      path: '/api/warehouse/schema'
-      fullPath: '/api/warehouse/schema'
-      preLoaderRoute: typeof ApiWarehouseSchemaRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/embed/agent/$key': {
-      id: '/embed/agent/$key'
-      path: '/embed/agent/$key'
-      fullPath: '/embed/agent/$key'
-      preLoaderRoute: typeof EmbedAgentKeyRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/embed/analyst/$key': {
-      id: '/embed/analyst/$key'
-      path: '/embed/analyst/$key'
-      fullPath: '/embed/analyst/$key'
-      preLoaderRoute: typeof EmbedAnalystKeyRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/embed/bi/$key': {
-      id: '/embed/bi/$key'
-      path: '/embed/bi/$key'
-      fullPath: '/embed/bi/$key'
-      preLoaderRoute: typeof EmbedBiKeyRouteImport
+    '/share/bi/$slug': {
+      id: '/share/bi/$slug'
+      path: '/share/bi/$slug'
+      fullPath: '/share/bi/$slug'
+      preLoaderRoute: typeof ShareBiSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/embed/swarm/$key': {
@@ -2430,60 +2263,270 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof EmbedSwarmKeyRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/share/bi/$slug': {
-      id: '/share/bi/$slug'
-      path: '/share/bi/$slug'
-      fullPath: '/share/bi/$slug'
-      preLoaderRoute: typeof ShareBiSlugRouteImport
+    '/embed/bi/$key': {
+      id: '/embed/bi/$key'
+      path: '/embed/bi/$key'
+      fullPath: '/embed/bi/$key'
+      preLoaderRoute: typeof EmbedBiKeyRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_authenticated/analytics_/observability/$runId': {
-      id: '/_authenticated/analytics_/observability/$runId'
-      path: '/$runId'
-      fullPath: '/analytics/observability/$runId'
-      preLoaderRoute: typeof AuthenticatedAnalyticsObservabilityRunIdRouteImport
-      parentRoute: typeof AuthenticatedAnalyticsObservabilityRoute
-    }
-    '/_authenticated/notebooks/py/$pyNotebookId': {
-      id: '/_authenticated/notebooks/py/$pyNotebookId'
-      path: '/py/$pyNotebookId'
-      fullPath: '/notebooks/py/$pyNotebookId'
-      preLoaderRoute: typeof AuthenticatedNotebooksPyPyNotebookIdRouteImport
-      parentRoute: typeof AuthenticatedNotebooksRoute
-    }
-    '/_authenticated/notebooks/sample/$sampleSlug': {
-      id: '/_authenticated/notebooks/sample/$sampleSlug'
-      path: '/sample/$sampleSlug'
-      fullPath: '/notebooks/sample/$sampleSlug'
-      preLoaderRoute: typeof AuthenticatedNotebooksSampleSampleSlugRouteImport
-      parentRoute: typeof AuthenticatedNotebooksRoute
-    }
-    '/api/kb/sources/sync': {
-      id: '/api/kb/sources/sync'
-      path: '/sync'
-      fullPath: '/api/kb/sources/sync'
-      preLoaderRoute: typeof ApiKbSourcesSyncRouteImport
-      parentRoute: typeof ApiKbSourcesRoute
-    }
-    '/api/mcp/s/$slug': {
-      id: '/api/mcp/s/$slug'
-      path: '/api/mcp/s/$slug'
-      fullPath: '/api/mcp/s/$slug'
-      preLoaderRoute: typeof ApiMcpSSlugRouteImport
+    '/embed/analyst/$key': {
+      id: '/embed/analyst/$key'
+      path: '/embed/analyst/$key'
+      fullPath: '/embed/analyst/$key'
+      preLoaderRoute: typeof EmbedAnalystKeyRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/notebook/run/status': {
-      id: '/api/notebook/run/status'
-      path: '/status'
-      fullPath: '/api/notebook/run/status'
-      preLoaderRoute: typeof ApiNotebookRunStatusRouteImport
-      parentRoute: typeof ApiNotebookRunRoute
+    '/embed/agent/$key': {
+      id: '/embed/agent/$key'
+      path: '/embed/agent/$key'
+      fullPath: '/embed/agent/$key'
+      preLoaderRoute: typeof EmbedAgentKeyRouteImport
+      parentRoute: typeof rootRouteImport
     }
-    '/api/notebook/runtime/reap': {
-      id: '/api/notebook/runtime/reap'
-      path: '/reap'
-      fullPath: '/api/notebook/runtime/reap'
-      preLoaderRoute: typeof ApiNotebookRuntimeReapRouteImport
+    '/api/warehouse/schema': {
+      id: '/api/warehouse/schema'
+      path: '/api/warehouse/schema'
+      fullPath: '/api/warehouse/schema'
+      preLoaderRoute: typeof ApiWarehouseSchemaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/warehouse/query': {
+      id: '/api/warehouse/query'
+      path: '/api/warehouse/query'
+      fullPath: '/api/warehouse/query'
+      preLoaderRoute: typeof ApiWarehouseQueryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/templates/provision': {
+      id: '/api/templates/provision'
+      path: '/api/templates/provision'
+      fullPath: '/api/templates/provision'
+      preLoaderRoute: typeof ApiTemplatesProvisionRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/swarm/run': {
+      id: '/api/swarm/run'
+      path: '/api/swarm/run'
+      fullPath: '/api/swarm/run'
+      preLoaderRoute: typeof ApiSwarmRunRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/slack/command': {
+      id: '/api/slack/command'
+      path: '/api/slack/command'
+      fullPath: '/api/slack/command'
+      preLoaderRoute: typeof ApiSlackCommandRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/skills/generate': {
+      id: '/api/skills/generate'
+      path: '/api/skills/generate'
+      fullPath: '/api/skills/generate'
+      preLoaderRoute: typeof ApiSkillsGenerateRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/objectstore/query': {
+      id: '/api/objectstore/query'
+      path: '/api/objectstore/query'
+      fullPath: '/api/objectstore/query'
+      preLoaderRoute: typeof ApiObjectstoreQueryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/notebook/runtime': {
+      id: '/api/notebook/runtime'
+      path: '/api/notebook/runtime'
+      fullPath: '/api/notebook/runtime'
+      preLoaderRoute: typeof ApiNotebookRuntimeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/notebook/run': {
+      id: '/api/notebook/run'
+      path: '/api/notebook/run'
+      fullPath: '/api/notebook/run'
+      preLoaderRoute: typeof ApiNotebookRunRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/kb/sources': {
+      id: '/api/kb/sources'
+      path: '/api/kb/sources'
+      fullPath: '/api/kb/sources'
+      preLoaderRoute: typeof ApiKbSourcesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/kb/ingest-url': {
+      id: '/api/kb/ingest-url'
+      path: '/api/kb/ingest-url'
+      fullPath: '/api/kb/ingest-url'
+      preLoaderRoute: typeof ApiKbIngestUrlRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/kb/ingest-github': {
+      id: '/api/kb/ingest-github'
+      path: '/api/kb/ingest-github'
+      fullPath: '/api/kb/ingest-github'
+      preLoaderRoute: typeof ApiKbIngestGithubRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/kb/build-graph': {
+      id: '/api/kb/build-graph'
+      path: '/api/kb/build-graph'
+      fullPath: '/api/kb/build-graph'
+      preLoaderRoute: typeof ApiKbBuildGraphRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/health/ready': {
+      id: '/api/health/ready'
+      path: '/ready'
+      fullPath: '/api/health/ready'
+      preLoaderRoute: typeof ApiHealthReadyRouteImport
+      parentRoute: typeof ApiHealthRoute
+    }
+    '/api/etl/run': {
+      id: '/api/etl/run'
+      path: '/api/etl/run'
+      fullPath: '/api/etl/run'
+      preLoaderRoute: typeof ApiEtlRunRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/etl/generate': {
+      id: '/api/etl/generate'
+      path: '/api/etl/generate'
+      fullPath: '/api/etl/generate'
+      preLoaderRoute: typeof ApiEtlGenerateRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/embed/chat': {
+      id: '/api/embed/chat'
+      path: '/chat'
+      fullPath: '/api/embed/chat'
+      preLoaderRoute: typeof ApiEmbedChatRouteImport
+      parentRoute: typeof ApiEmbedRoute
+    }
+    '/api/embed/analyst': {
+      id: '/api/embed/analyst'
+      path: '/analyst'
+      fullPath: '/api/embed/analyst'
+      preLoaderRoute: typeof ApiEmbedAnalystRouteImport
+      parentRoute: typeof ApiEmbedRoute
+    }
+    '/api/email/send': {
+      id: '/api/email/send'
+      path: '/api/email/send'
+      fullPath: '/api/email/send'
+      preLoaderRoute: typeof ApiEmailSendRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/docgen/xlsx': {
+      id: '/api/docgen/xlsx'
+      path: '/api/docgen/xlsx'
+      fullPath: '/api/docgen/xlsx'
+      preLoaderRoute: typeof ApiDocgenXlsxRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/docgen/status': {
+      id: '/api/docgen/status'
+      path: '/api/docgen/status'
+      fullPath: '/api/docgen/status'
+      preLoaderRoute: typeof ApiDocgenStatusRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/docgen/pptx': {
+      id: '/api/docgen/pptx'
+      path: '/api/docgen/pptx'
+      fullPath: '/api/docgen/pptx'
+      preLoaderRoute: typeof ApiDocgenPptxRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/docgen/docx': {
+      id: '/api/docgen/docx'
+      path: '/api/docgen/docx'
+      fullPath: '/api/docgen/docx'
+      preLoaderRoute: typeof ApiDocgenDocxRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/data/upload': {
+      id: '/api/data/upload'
+      path: '/api/data/upload'
+      fullPath: '/api/data/upload'
+      preLoaderRoute: typeof ApiDataUploadRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/bi/direct-query': {
+      id: '/api/bi/direct-query'
+      path: '/direct-query'
+      fullPath: '/api/bi/direct-query'
+      preLoaderRoute: typeof ApiBiDirectQueryRouteImport
+      parentRoute: typeof ApiBiRoute
+    }
+    '/api/bi/cron': {
+      id: '/api/bi/cron'
+      path: '/cron'
+      fullPath: '/api/bi/cron'
+      preLoaderRoute: typeof ApiBiCronRouteImport
+      parentRoute: typeof ApiBiRoute
+    }
+    '/api/auth/sso-config': {
+      id: '/api/auth/sso-config'
+      path: '/api/auth/sso-config'
+      fullPath: '/api/auth/sso-config'
+      preLoaderRoute: typeof ApiAuthSsoConfigRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/audit/export': {
+      id: '/api/audit/export'
+      path: '/api/audit/export'
+      fullPath: '/api/audit/export'
+      preLoaderRoute: typeof ApiAuditExportRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated/mcp-builder_/$appId': {
+      id: '/_authenticated/mcp-builder_/$appId'
+      path: '/mcp-builder/$appId'
+      fullPath: '/mcp-builder/$appId'
+      preLoaderRoute: typeof AuthenticatedMcpBuilderAppIdRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/bi_/$dashboardId': {
+      id: '/_authenticated/bi_/$dashboardId'
+      path: '/bi/$dashboardId'
+      fullPath: '/bi/$dashboardId'
+      preLoaderRoute: typeof AuthenticatedBiDashboardIdRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/analytics_/observability': {
+      id: '/_authenticated/analytics_/observability'
+      path: '/analytics/observability'
+      fullPath: '/analytics/observability'
+      preLoaderRoute: typeof AuthenticatedAnalyticsObservabilityRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/admin/runtime': {
+      id: '/_authenticated/admin/runtime'
+      path: '/admin/runtime'
+      fullPath: '/admin/runtime'
+      preLoaderRoute: typeof AuthenticatedAdminRuntimeRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/admin/iam': {
+      id: '/_authenticated/admin/iam'
+      path: '/admin/iam'
+      fullPath: '/admin/iam'
+      preLoaderRoute: typeof AuthenticatedAdminIamRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/api/public/hooks/refresh-model-registry': {
+      id: '/api/public/hooks/refresh-model-registry'
+      path: '/api/public/hooks/refresh-model-registry'
+      fullPath: '/api/public/hooks/refresh-model-registry'
+      preLoaderRoute: typeof ApiPublicHooksRefreshModelRegistryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/notebook/runtime/source': {
+      id: '/api/notebook/runtime/source'
+      path: '/source'
+      fullPath: '/api/notebook/runtime/source'
+      preLoaderRoute: typeof ApiNotebookRuntimeSourceRouteImport
       parentRoute: typeof ApiNotebookRuntimeRoute
     }
     '/api/notebook/runtime/result': {
@@ -2493,19 +2536,54 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiNotebookRuntimeResultRouteImport
       parentRoute: typeof ApiNotebookRuntimeRoute
     }
-    '/api/notebook/runtime/source': {
-      id: '/api/notebook/runtime/source'
-      path: '/source'
-      fullPath: '/api/notebook/runtime/source'
-      preLoaderRoute: typeof ApiNotebookRuntimeSourceRouteImport
+    '/api/notebook/runtime/reap': {
+      id: '/api/notebook/runtime/reap'
+      path: '/reap'
+      fullPath: '/api/notebook/runtime/reap'
+      preLoaderRoute: typeof ApiNotebookRuntimeReapRouteImport
       parentRoute: typeof ApiNotebookRuntimeRoute
     }
-    '/api/public/hooks/refresh-model-registry': {
-      id: '/api/public/hooks/refresh-model-registry'
-      path: '/api/public/hooks/refresh-model-registry'
-      fullPath: '/api/public/hooks/refresh-model-registry'
-      preLoaderRoute: typeof ApiPublicHooksRefreshModelRegistryRouteImport
+    '/api/notebook/run/status': {
+      id: '/api/notebook/run/status'
+      path: '/status'
+      fullPath: '/api/notebook/run/status'
+      preLoaderRoute: typeof ApiNotebookRunStatusRouteImport
+      parentRoute: typeof ApiNotebookRunRoute
+    }
+    '/api/mcp/s/$slug': {
+      id: '/api/mcp/s/$slug'
+      path: '/api/mcp/s/$slug'
+      fullPath: '/api/mcp/s/$slug'
+      preLoaderRoute: typeof ApiMcpSSlugRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/api/kb/sources/sync': {
+      id: '/api/kb/sources/sync'
+      path: '/sync'
+      fullPath: '/api/kb/sources/sync'
+      preLoaderRoute: typeof ApiKbSourcesSyncRouteImport
+      parentRoute: typeof ApiKbSourcesRoute
+    }
+    '/_authenticated/notebooks/sample/$sampleSlug': {
+      id: '/_authenticated/notebooks/sample/$sampleSlug'
+      path: '/sample/$sampleSlug'
+      fullPath: '/notebooks/sample/$sampleSlug'
+      preLoaderRoute: typeof AuthenticatedNotebooksSampleSampleSlugRouteImport
+      parentRoute: typeof AuthenticatedNotebooksRoute
+    }
+    '/_authenticated/notebooks/py/$pyNotebookId': {
+      id: '/_authenticated/notebooks/py/$pyNotebookId'
+      path: '/py/$pyNotebookId'
+      fullPath: '/notebooks/py/$pyNotebookId'
+      preLoaderRoute: typeof AuthenticatedNotebooksPyPyNotebookIdRouteImport
+      parentRoute: typeof AuthenticatedNotebooksRoute
+    }
+    '/_authenticated/analytics_/observability/$runId': {
+      id: '/_authenticated/analytics_/observability/$runId'
+      path: '/$runId'
+      fullPath: '/analytics/observability/$runId'
+      preLoaderRoute: typeof AuthenticatedAnalyticsObservabilityRunIdRouteImport
+      parentRoute: typeof AuthenticatedAnalyticsObservabilityRoute
     }
   }
 }
@@ -2554,6 +2632,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedDataSqlRoute: typeof AuthenticatedDataSqlRoute
   AuthenticatedEmbedsRoute: typeof AuthenticatedEmbedsRoute
+  AuthenticatedEtlRoute: typeof AuthenticatedEtlRoute
   AuthenticatedEvaluationsRoute: typeof AuthenticatedEvaluationsRoute
   AuthenticatedImagePlaygroundRoute: typeof AuthenticatedImagePlaygroundRoute
   AuthenticatedIntegrationsRoute: typeof AuthenticatedIntegrationsRoute
@@ -2590,6 +2669,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedDataSqlRoute: AuthenticatedDataSqlRoute,
   AuthenticatedEmbedsRoute: AuthenticatedEmbedsRoute,
+  AuthenticatedEtlRoute: AuthenticatedEtlRoute,
   AuthenticatedEvaluationsRoute: AuthenticatedEvaluationsRoute,
   AuthenticatedImagePlaygroundRoute: AuthenticatedImagePlaygroundRoute,
   AuthenticatedIntegrationsRoute: AuthenticatedIntegrationsRoute,
@@ -2633,6 +2713,7 @@ interface DocsRouteChildren {
   DocsDataPrepRoute: typeof DocsDataPrepRoute
   DocsDebuggingRoute: typeof DocsDebuggingRoute
   DocsEmbeddingRoute: typeof DocsEmbeddingRoute
+  DocsEtlRoute: typeof DocsEtlRoute
   DocsGuardrailsRoute: typeof DocsGuardrailsRoute
   DocsIamRoute: typeof DocsIamRoute
   DocsIntegrationsRoute: typeof DocsIntegrationsRoute
@@ -2663,6 +2744,7 @@ const DocsRouteChildren: DocsRouteChildren = {
   DocsDataPrepRoute: DocsDataPrepRoute,
   DocsDebuggingRoute: DocsDebuggingRoute,
   DocsEmbeddingRoute: DocsEmbeddingRoute,
+  DocsEtlRoute: DocsEtlRoute,
   DocsGuardrailsRoute: DocsGuardrailsRoute,
   DocsIamRoute: DocsIamRoute,
   DocsIntegrationsRoute: DocsIntegrationsRoute,
@@ -2794,6 +2876,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiDocgenStatusRoute: ApiDocgenStatusRoute,
   ApiDocgenXlsxRoute: ApiDocgenXlsxRoute,
   ApiEmailSendRoute: ApiEmailSendRoute,
+  ApiEtlGenerateRoute: ApiEtlGenerateRoute,
+  ApiEtlRunRoute: ApiEtlRunRoute,
   ApiKbBuildGraphRoute: ApiKbBuildGraphRoute,
   ApiKbIngestGithubRoute: ApiKbIngestGithubRoute,
   ApiKbIngestUrlRoute: ApiKbIngestUrlRoute,

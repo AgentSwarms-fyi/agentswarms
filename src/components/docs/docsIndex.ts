@@ -1177,6 +1177,110 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     ]
   },
   {
+    "route": "/docs/etl",
+    "title": "ETL Pipelines",
+    "description": "Move data from APIs, databases, warehouses and files into destinations the Data Catalog, BI, the AI Analyst and agents can query. Build on a visual canvas, write Python, or generate it with AI — every run executes in the same sandboxed runtime with full logs and audit.",
+    "terms": [
+      "*/15",
+      "/etl-samples/",
+      "ETL_DEST_ACCESS_KEY_ID",
+      "ETL_DEST_BUCKET_URL",
+      "ETL_DEST_ENDPOINT_URL",
+      "ETL_DEST_SECRET_ACCESS_KEY",
+      "ETL_TRIGGER_PER_MIN",
+      "Europe/Berlin",
+      "append",
+      "entrypoint(inputs)",
+      "entrypoint(inputs=None)",
+      "merge",
+      "notebooks",
+      "raw/orders/*.csv",
+      "replace"
+    ],
+    "headings": [
+      {
+        "id": "when-to-use",
+        "text": "When a pipeline is the right tool",
+        "level": 2
+      },
+      {
+        "id": "building",
+        "text": "Building one",
+        "level": 2
+      },
+      {
+        "id": "canvas",
+        "text": "The visual canvas",
+        "level": 3
+      },
+      {
+        "id": "code",
+        "text": "Code",
+        "level": 3
+      },
+      {
+        "id": "ai",
+        "text": "AI generate and refine",
+        "level": 3
+      },
+      {
+        "id": "samples",
+        "text": "Sample pipelines",
+        "level": 2
+      },
+      {
+        "id": "connections",
+        "text": "Connections and supported systems",
+        "level": 2
+      },
+      {
+        "id": "how-it-runs",
+        "text": "How a run executes",
+        "level": 2
+      },
+      {
+        "id": "credentials",
+        "text": "Credentials and secrets",
+        "level": 2
+      },
+      {
+        "id": "scheduling",
+        "text": "Schedules, triggers and chaining",
+        "level": 2
+      },
+      {
+        "id": "retries",
+        "text": "Retries and overlap",
+        "level": 3
+      },
+      {
+        "id": "parameters",
+        "text": "Parameters and backfills",
+        "level": 3
+      },
+      {
+        "id": "incremental",
+        "text": "Engine-managed incremental loads",
+        "level": 3
+      },
+      {
+        "id": "ecosystem",
+        "text": "Where the data goes next",
+        "level": 2
+      },
+      {
+        "id": "observability",
+        "text": "Observability, logs, audit and IAM",
+        "level": 2
+      },
+      {
+        "id": "limits",
+        "text": "Limits, stated plainly",
+        "level": 2
+      }
+    ]
+  },
+  {
     "route": "/docs/guardrails",
     "title": "Guardrails & PII",
     "description": "Checks that run outside the model, on the way in and on the way out — which is why they still hold when someone talks the agent out of its instructions.",

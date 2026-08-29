@@ -1,0 +1,3 @@
+# Allowlisted egress IPs for notebook kernels (squid dst).
+# dstdomain cannot match raw-IP URLs, so IP entries from
+# notebook_runtime_settings.egress_allowlist are written here.

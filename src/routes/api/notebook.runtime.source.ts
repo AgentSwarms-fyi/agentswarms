@@ -69,10 +69,59 @@ async function handle(request: Request): Promise<Response> {
 
   const { data: session } = await supabaseAdmin
     .from("notebook_runtime_sessions")
-    .select("notebook_id, mcp_app_id, entrypoint")
+    .select("notebook_id, mcp_app_id, etl_run_id, entrypoint, inputs")
     .eq("id", claims.sid)
     .eq("user_id", claims.sub)
     .maybeSingle();
+
+  // ETL batch sessions have two parts: the default returns the run's script
+  // (prelude + pinned code); {"part":"etl_env"} returns the resolved secret
+  // env + pip requirements. Split so credentials never ride inside code text —
+  // the same reasoning as the MCP bundle's env field, one step further.
+  if (session?.etl_run_id) {
+    let part = "";
+    let tableId = "";
+    try {
+      const body = (await request.json()) as { part?: string; table_id?: string };
+      part = body?.part ?? "";
+      tableId = typeof body?.table_id === "string" ? body.table_id : "";
+    } catch {
+      /* empty body = default part */
+    }
+    const etl = await import("@/utils/etl/service.server");
+    const out =
+      part === "etl_dataset"
+        ? await etl.etlDatasetFor(tableId, claims.sub)
+        : part === "etl_env"
+          ? await etl.etlEnvFor(session.etl_run_id, claims.sub)
+          : await etl.etlBundleFor(session.etl_run_id, claims.sub);
+    return "error" in out ? json(404, out) : json(200, out);
+  }
+
+  // ETL node previews: no run row — the pipeline + node ride in the session's
+  // inputs, and the bundle is compiled fresh (sampled sources, no loads).
+  {
+    const etl = await import("@/utils/etl/service.server");
+    const stash = etl.etlPreviewStashOf(session?.inputs);
+    if (stash) {
+      let part = "";
+      let tableId = "";
+      try {
+        const body = (await request.json()) as { part?: string; table_id?: string };
+        part = body?.part ?? "";
+        tableId = typeof body?.table_id === "string" ? body.table_id : "";
+      } catch {
+        /* empty body = default part */
+      }
+      const out =
+        part === "etl_dataset"
+          ? await etl.etlDatasetFor(tableId, claims.sub)
+          : part === "etl_env"
+            ? await etl.etlPreviewEnvFor(stash, claims.sub)
+            : await etl.etlPreviewBundleFor(stash, claims.sub);
+      return "error" in out ? json(404, out) : json(200, out);
+    }
+  }
 
   if (session?.mcp_app_id) return mcpAppBundle(session.mcp_app_id, claims.sub);
 

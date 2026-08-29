@@ -76,6 +76,7 @@ Where the global limiter is used today, and what each protects:
 | `/api/embed/chat`      | per embed key | 30                                  |
 | `/api/embed/analyst`   | per embed key | 5                                   |
 | `/api/bi/direct-query` | per caller    | configured                          |
+| `/api/etl/run`         | per pipeline  | `ETL_TRIGGER_PER_MIN` (6)           |
 
 The embed numbers are the tightest in the product, which follows from embeds
 being the only anonymous surface where someone else pays the bill.

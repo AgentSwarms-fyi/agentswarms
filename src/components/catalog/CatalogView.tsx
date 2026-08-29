@@ -284,6 +284,12 @@ export function CatalogView({
   }, [myId, token, listConnectionsFn]);
 
   const reload = useCallback(async () => {
+    // Local hydration runs ALONGSIDE the crawled reads, not inside the same
+    // await: it spins up DuckDB-WASM, and a wedged worker (cold dev-server
+    // optimize, slow disk) used to hold the ENTIRE catalog at skeletons even
+    // though every crawled query had long since returned. It still refreshes
+    // on every reload and sets its own state when it lands.
+    void reloadLocal();
     try {
       const [src, ast, lin, terms, srcLin] = await Promise.all([
         listCatalogSources(),
@@ -291,9 +297,6 @@ export function CatalogView({
         loadLineageIndex(),
         listGlossaryTerms(),
         loadCatalogLineage(),
-        // Refresh has to cover local datasets too, or it silently refreshes
-        // only half the list the user is looking at.
-        reloadLocal(),
       ]);
       setSources(src);
       setAssets(ast);

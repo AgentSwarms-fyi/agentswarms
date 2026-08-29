@@ -113,7 +113,8 @@ notebooks, Deep-mode documents and headless custom code stay unavailable.
   `http://localhost:8080` so email links resolve (INSTALL.md §3.3).
 - Prefer a live-reloading dev setup instead of a container? Use
   `npm install && npm run dev` — see [INSTALL.md](./INSTALL.md).
-- Want notebooks to run real Python? Add the optional runtime with
+- Want notebooks to run real Python (and ETL pipelines to run at all)? Add
+  the optional runtime with
   `docker compose --profile notebooks up -d --build` — see
   [Developer-workspace runtime](#developer-workspace-python-runtime).
 - Want **Deep-mode** document generation? Add the renderer with

@@ -5,6 +5,7 @@
 // Only the two read operations the crawler needs: ListObjectsV2 and
 // ranged GetObject (for schema sampling).
 import { createHash, createHmac } from "node:crypto";
+import zlib from "node:zlib";
 
 import Papa from "papaparse";
 
@@ -249,9 +250,16 @@ export type InferredColumn = {
 };
 
 export function fileFormat(key: string): string | null {
-  const base = key.toLowerCase();
-  if (base.endsWith(".gz") || base.endsWith(".zip") || base.endsWith(".zst")) return "compressed";
+  let base = key.toLowerCase();
+  // Stream-compressed files keep their inner format ("orders.jsonl.gz" IS
+  // ndjson — dlt and most writers gzip text formats by default). Archives
+  // (.zip) and zstd stay opaque: we cannot sample inside them.
+  if (base.endsWith(".zip") || base.endsWith(".zst")) return "compressed";
+  const gzipped = base.endsWith(".gz");
+  if (gzipped) base = base.slice(0, -3);
   const ext = base.split(".").pop() ?? "";
+  if (gzipped && !["csv", "tsv", "txt", "json", "jsonl", "ndjson"].includes(ext))
+    return "compressed";
   if (["csv", "tsv", "txt"].includes(ext)) return "csv";
   if (ext === "json") return "json";
   if (["jsonl", "ndjson"].includes(ext)) return "ndjson";
@@ -323,8 +331,17 @@ function columnsFromRecords(records: Record<string, unknown>[]): InferredColumn[
  * Returns [] when the format is binary or the sample is unparsable —
  * the asset is still cataloged, just without column metadata.
  */
-export function inferColumns(format: string | null, buf: Buffer): InferredColumn[] {
+export function inferColumns(format: string | null, buf: Buffer, key?: string): InferredColumn[] {
   if (!format || ["parquet", "orc", "avro", "compressed"].includes(format)) return [];
+  if (key?.toLowerCase().endsWith(".gz")) {
+    // A ranged GET returns a truncated gzip stream; Z_SYNC_FLUSH hands back
+    // whatever decompressed cleanly instead of throwing at the missing tail.
+    try {
+      buf = zlib.gunzipSync(buf, { finishFlush: zlib.constants.Z_SYNC_FLUSH });
+    } catch {
+      return [];
+    }
+  }
   let text = buf.toString("utf8");
   try {
     if (format === "csv") {

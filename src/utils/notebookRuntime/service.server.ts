@@ -105,6 +105,8 @@ export async function startSession(opts: {
   userId: string;
   notebookId?: string | null;
   mcpAppId?: string | null;
+  /** Batch only: this session executes an ETL run (source route serves its bundle). */
+  etlRunId?: string | null;
   kind: KernelKind;
   entrypoint?: string | null;
   inputs?: unknown;
@@ -137,6 +139,7 @@ export async function startSession(opts: {
       user_id: opts.userId,
       notebook_id: notebookId,
       mcp_app_id: opts.mcpAppId ?? null,
+      etl_run_id: opts.etlRunId ?? null,
       kind: opts.kind,
       status: batch ? "running" : "starting",
       backend: settings.backend,

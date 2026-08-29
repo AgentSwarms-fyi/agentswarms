@@ -998,6 +998,7 @@ export type Database = {
           downstream_column: string | null;
           downstream_fqn: string;
           id: string;
+          pipeline_id: string | null;
           source_id: string;
           source_system: string;
           upstream_column: string | null;
@@ -1009,6 +1010,7 @@ export type Database = {
           downstream_column?: string | null;
           downstream_fqn: string;
           id?: string;
+          pipeline_id?: string | null;
           source_id: string;
           source_system?: string;
           upstream_column?: string | null;
@@ -1020,6 +1022,7 @@ export type Database = {
           downstream_column?: string | null;
           downstream_fqn?: string;
           id?: string;
+          pipeline_id?: string | null;
           source_id?: string;
           source_system?: string;
           upstream_column?: string | null;
@@ -1362,6 +1365,237 @@ export type Database = {
           viewer_secret?: Json | null;
         };
         Relationships: [];
+      };
+      etl_pipeline_versions: {
+        Row: {
+          created_at: string;
+          graph: Json | null;
+          id: string;
+          mode: string;
+          name: string;
+          pipeline_id: string;
+          requirements: string;
+          source_code: string;
+          user_id: string;
+          version_no: number;
+        };
+        Insert: {
+          created_at?: string;
+          graph?: Json | null;
+          id?: string;
+          mode: string;
+          name: string;
+          pipeline_id: string;
+          requirements?: string;
+          source_code?: string;
+          user_id: string;
+          version_no: number;
+        };
+        Update: {
+          created_at?: string;
+          graph?: Json | null;
+          id?: string;
+          mode?: string;
+          name?: string;
+          pipeline_id?: string;
+          requirements?: string;
+          source_code?: string;
+          user_id?: string;
+          version_no?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "etl_pipeline_versions_pipeline_id_fkey";
+            columns: ["pipeline_id"];
+            isOneToOne: false;
+            referencedRelation: "etl_pipelines";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      etl_pipelines: {
+        Row: {
+          created_at: string;
+          allow_concurrent: boolean;
+          cron_expr: string | null;
+          default_params: Json | null;
+          retry_count: number;
+          run_after: string | null;
+          timezone: string | null;
+          description: string | null;
+          dest_catalog_source_id: string | null;
+          graph: Json | null;
+          id: string;
+          is_active: boolean;
+          last_run_at: string | null;
+          last_run_status: string | null;
+          mode: string;
+          name: string;
+          next_run_at: string | null;
+          requirements: string;
+          schedule: string;
+          secret_refs: string;
+          source_code: string;
+          timeout_minutes: number;
+          trigger_token_hash: string | null;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          allow_concurrent?: boolean;
+          cron_expr?: string | null;
+          default_params?: Json | null;
+          retry_count?: number;
+          run_after?: string | null;
+          timezone?: string | null;
+          description?: string | null;
+          dest_catalog_source_id?: string | null;
+          graph?: Json | null;
+          id?: string;
+          is_active?: boolean;
+          last_run_at?: string | null;
+          last_run_status?: string | null;
+          mode?: string;
+          name: string;
+          next_run_at?: string | null;
+          requirements?: string;
+          schedule?: string;
+          secret_refs?: string;
+          source_code?: string;
+          timeout_minutes?: number;
+          trigger_token_hash?: string | null;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          allow_concurrent?: boolean;
+          cron_expr?: string | null;
+          default_params?: Json | null;
+          retry_count?: number;
+          run_after?: string | null;
+          timezone?: string | null;
+          description?: string | null;
+          dest_catalog_source_id?: string | null;
+          graph?: Json | null;
+          id?: string;
+          is_active?: boolean;
+          last_run_at?: string | null;
+          last_run_status?: string | null;
+          mode?: string;
+          name?: string;
+          next_run_at?: string | null;
+          requirements?: string;
+          schedule?: string;
+          secret_refs?: string;
+          source_code?: string;
+          timeout_minutes?: number;
+          trigger_token_hash?: string | null;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      etl_pipeline_state: {
+        Row: {
+          cursor_value: string | null;
+          node_id: string;
+          pipeline_id: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          cursor_value?: string | null;
+          node_id: string;
+          pipeline_id: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          cursor_value?: string | null;
+          node_id?: string;
+          pipeline_id?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "etl_pipeline_state_pipeline_id_fkey";
+            columns: ["pipeline_id"];
+            isOneToOne: false;
+            referencedRelation: "etl_pipelines";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      etl_runs: {
+        Row: {
+          created_at: string;
+          attempt: number;
+          params: Json | null;
+          retries_remaining: number;
+          retry_at: string | null;
+          error: string | null;
+          finished_at: string | null;
+          id: string;
+          logs: string | null;
+          metrics: Json | null;
+          pipeline_id: string;
+          session_id: string | null;
+          source_code: string;
+          started_at: string | null;
+          status: string;
+          trigger: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          attempt?: number;
+          params?: Json | null;
+          retries_remaining?: number;
+          retry_at?: string | null;
+          error?: string | null;
+          finished_at?: string | null;
+          id?: string;
+          logs?: string | null;
+          metrics?: Json | null;
+          pipeline_id: string;
+          session_id?: string | null;
+          source_code?: string;
+          started_at?: string | null;
+          status?: string;
+          trigger?: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          attempt?: number;
+          params?: Json | null;
+          retries_remaining?: number;
+          retry_at?: string | null;
+          error?: string | null;
+          finished_at?: string | null;
+          id?: string;
+          logs?: string | null;
+          metrics?: Json | null;
+          pipeline_id?: string;
+          session_id?: string | null;
+          source_code?: string;
+          started_at?: string | null;
+          status?: string;
+          trigger?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "etl_runs_pipeline_id_fkey";
+            columns: ["pipeline_id"];
+            isOneToOne: false;
+            referencedRelation: "etl_pipelines";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       email_send_log: {
         Row: {
@@ -4019,6 +4253,7 @@ export type Database = {
           created_at: string;
           endpoint: string | null;
           entrypoint: string | null;
+          etl_run_id: string | null;
           error: string | null;
           expires_at: string | null;
           id: string;
@@ -4044,6 +4279,7 @@ export type Database = {
           created_at?: string;
           endpoint?: string | null;
           entrypoint?: string | null;
+          etl_run_id?: string | null;
           error?: string | null;
           expires_at?: string | null;
           id?: string;
@@ -4069,6 +4305,7 @@ export type Database = {
           created_at?: string;
           endpoint?: string | null;
           entrypoint?: string | null;
+          etl_run_id?: string | null;
           error?: string | null;
           expires_at?: string | null;
           id?: string;

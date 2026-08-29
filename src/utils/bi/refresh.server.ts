@@ -1072,6 +1072,8 @@ export type CronPassResult = {
   /** Datasets whose quality tests were re-evaluated this pass. */
   quality_checks: number;
   catalog_crawls: number;
+  /** Scheduled ETL pipelines started this pass. */
+  etl_runs: number;
   swarm_schedules: number;
   kernels_reaped: number;
 };
@@ -1096,6 +1098,7 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
     analyses: 0,
     quality_checks: 0,
     catalog_crawls: 0,
+    etl_runs: 0,
     swarm_schedules: 0,
     kernels_reaped: 0,
   };
@@ -1126,6 +1129,13 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
       .then((m) => m.processDueCatalogCrawls(force))
       .catch((e) => {
         console.warn("[catalog-scheduler] processing failed:", (e as Error).message);
+        return 0;
+      });
+    // Scheduled ETL pipelines ride the same sweep and lease.
+    const etl_runs = await import("@/utils/etl/schedule.server")
+      .then((m) => m.processDueEtlPipelines(force))
+      .catch((e) => {
+        console.warn("[etl-scheduler] processing failed:", (e as Error).message);
         return 0;
       });
     await import("@/utils/audit.server")
@@ -1203,6 +1213,7 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
       prep_flows,
       quality_checks,
       catalog_crawls,
+      etl_runs,
       analyses,
       swarm_schedules,
       kernels_reaped,

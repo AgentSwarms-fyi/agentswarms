@@ -360,9 +360,21 @@ type ObjectGroup = {
  * into one "dataset" asset (the Glue-crawler convention for partitioned
  * data lakes); lone files become individual assets.
  */
+/**
+ * Metadata paths by data-lake convention: any segment starting with "_" or "."
+ * is tool bookkeeping, not data — the same rule Spark, Hive and Athena apply.
+ * Concretely this hides dlt's _dlt_loads/_dlt_version/_dlt_pipeline_state
+ * folders and pipeline watermarks under _state/, which an ETL destination
+ * crawl would otherwise present as datasets beside the real tables.
+ */
+export function isMetadataPath(key: string): boolean {
+  return key.split("/").some((seg) => seg.startsWith("_") || seg.startsWith("."));
+}
+
 export function groupObjects(objects: StoredObject[]): ObjectGroup[] {
   const groups = new Map<string, ObjectGroup>();
   for (const o of objects) {
+    if (isMetadataPath(o.key)) continue;
     const slash = o.key.lastIndexOf("/");
     const dir = slash === -1 ? "" : o.key.slice(0, slash);
     const format = fileFormat(o.key);
@@ -402,8 +414,14 @@ export async function crawlObjectStorage(
   );
   const sampleBudget = new Set(ranked.slice(0, MAX_SAMPLES).map((g) => g));
 
+  // A folder of same-format files is a dataset even when the folder holds a
+  // single file: table-per-folder layouts (dlt, Hive, Iceberg data dirs) write
+  // exactly one file per load, and the folder name IS the table name. Only a
+  // bare file at the bucket root stays a plain file asset.
+  const isDatasetGroup = (g: ObjectGroup) =>
+    g.format !== null && (g.objects.length > 1 || g.dir !== "");
   const groupFqn = (g: ObjectGroup) =>
-    g.objects.length > 1 && g.format !== null ? `${g.dir || "."}/*.${g.format}` : g.objects[0].key;
+    isDatasetGroup(g) ? `${g.dir || "."}/*.${g.format}` : g.objects[0].key;
   const unchangedSince = (g: ObjectGroup) =>
     Boolean(since) && g.objects.every((o) => o.last_modified !== "" && o.last_modified <= since!);
 
@@ -411,7 +429,7 @@ export async function crawlObjectStorage(
   const assets: CrawledAsset[] = [];
   for (const g of groups) {
     const totalSize = g.objects.reduce((s, o) => s + o.size, 0);
-    const isDataset = g.objects.length > 1 && g.format !== null;
+    const isDataset = isDatasetGroup(g);
     // Sample the largest object of the group for schema inference —
     // unless the group is unchanged since the last crawl and we already
     // hold its inferred schema (incremental crawl: no GETs re-issued).
@@ -433,7 +451,7 @@ export async function crawlObjectStorage(
       const biggest = [...g.objects].sort((a, b) => b.size - a.size)[0];
       try {
         const buf = await sampleObject(cfg, biggest.key, SAMPLE_BYTES);
-        inferred = inferColumns(g.format, buf);
+        inferred = inferColumns(g.format, buf, biggest.key);
         const perFile = estimateRows(buf, biggest.size, g.format);
         if (perFile !== null) {
           // Scale the per-byte density across the whole group.
@@ -710,7 +728,13 @@ async function persistLineage(
   sourceId: string,
   edges: LineageEdge[],
 ): Promise<void> {
-  await supabaseAdmin.from("catalog_lineage").delete().eq("source_id", sourceId);
+  // Only this reader's own rows: ETL runs write pipeline lineage for the same
+  // source under source_system 'etl', and a crawl must not wipe those.
+  await supabaseAdmin
+    .from("catalog_lineage")
+    .delete()
+    .eq("source_id", sourceId)
+    .eq("source_system", "databricks");
   if (edges.length === 0) return;
   const rows = edges.map((e) => ({
     user_id: userId,
