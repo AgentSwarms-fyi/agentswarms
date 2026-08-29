@@ -56,6 +56,14 @@ container could not reach. No migrations in this release.
   and provider keys as `.env` itself and sat one `git add -A` away from being
   committed.
 
+- **One command brings up every service.** Six of the seven services sit behind
+  profiles, so a plain `docker compose up` deliberately starts the app alone —
+  which left no single command for the whole stack short of naming all three
+  profiles by hand. Every profiled service now also carries `all`, so
+  `docker compose --profile all up -d --build` starts everything. A test fails
+  if a service is ever added without it, because a profile that quietly stops
+  meaning "all" breaks nothing and errors nowhere.
+
 ### Schema health check
 
 - **An unapplied migration now says so.** A contributor pulls code expecting a
@@ -123,7 +131,9 @@ container could not reach. No migrations in this release.
 
 ### Upgrading
 
-No migrations and no new environment variables. The one thing to know is that
+No migrations and no new environment variables. To bring up the optional
+services too, use `docker compose --profile all up -d --build`. The one thing to
+know is that
 **AgentSwarms Native is now the default theme**, so an installation where nobody
 picked a theme explicitly will look different after this upgrade. Dark and light
 are unchanged and still selectable.

@@ -104,7 +104,8 @@ It cannot create your Supabase project or guess its keys: it writes the `.env`
 and tells you which values to fill in, then you re-run it. Open
 **http://localhost:8080** when it finishes.
 
-`--all` turns on the three optional profiles described below. Plain
+`--all` turns on the three optional profiles described below; the Compose
+equivalent is `docker compose --profile all up -d --build`. Plain
 `docker compose up --build` starts the app alone — enough to try it, but
 notebooks, Deep-mode documents and headless custom code stay unavailable.
 
@@ -351,7 +352,6 @@ Postgres directly.
 
 Storage buckets and their RLS policies are created by the migrations, so there
 is nothing to click in Studio afterwards.
-
 
 **Verified, at the 146-migration mark.** The whole set was applied to a stock
 `supabase/postgres:15.8.1.060` container: 146 applied, 0 failed, producing 98

@@ -6,6 +6,7 @@
 // when the container will be killed at a much lower limit.
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import yaml from "js-yaml";
 import { describe, expect, it } from "vitest";
 import {
   formatBytes,
@@ -149,13 +150,16 @@ describe("service catalogue", () => {
   });
 
   it("names a real compose profile for every optional service", () => {
-    const compose = readFileSync(resolve("docker-compose.yml"), "utf-8");
+    // Parsed, not string-matched: a service may sit in several profiles (each
+    // also carries `all`), so the bracket formatting is not the claim here.
+    const compose = yaml.load(readFileSync(resolve("docker-compose.yml"), "utf-8")) as {
+      services: Record<string, { profiles?: string[] }>;
+    };
+    const declared = new Set(Object.values(compose.services).flatMap((s) => s.profiles ?? []));
     for (const s of SERVICE_CATALOGUE) {
       if (!s.optional) continue;
       expect(s.profile, `${s.id} has no profile`).toBeTruthy();
-      expect(compose, `profile ${s.profile} is not in compose`).toContain(
-        `profiles: [${s.profile}]`,
-      );
+      expect([...declared], `profile ${s.profile} is not in compose`).toContain(s.profile);
     }
   });
 });

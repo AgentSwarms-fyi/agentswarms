@@ -148,16 +148,16 @@ What the script does, in order — each step is the automated version of the
 manual walkthrough in
 [DEPLOYMENT.md § Self-hosted Supabase](./DEPLOYMENT.md#self-hosted-supabase-complete-data-residency):
 
-| Step                    | What happens                                                                                                                                                                                              |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Download & run**      | Clones the official `supabase/docker` stack into `supabase-docker/` (git-ignored) and starts it. First run pulls ~2 GB of images.                                                                          |
-| **Generate secrets**    | Postgres password, `JWT_SECRET`, and the `ANON` / `SERVICE_ROLE` API keys **signed from that secret** (HS256, locally — nothing leaves your machine), plus the Studio dashboard login and vault keys.        |
-| **Wait properly**       | Waits for the auth service to answer **and for the storage service to finish its own boot migrations** — pushing the schema too early fails three migrations (see DEPLOYMENT.md § "Apply the schema").      |
-| **Extensions**          | Ensures the five required Postgres extensions exist (`vector`, `pg_net`, `pg_cron`, `pgmq`, `supabase_vault`).                                                                                             |
-| **Schema**              | Applies all migrations with `npx supabase db push --db-url ...` pointed at your own database.                                                                                                              |
-| **Admin user**          | Creates your account via the auth admin API, email pre-confirmed, and sets it as `ADMIN_EMAIL` — the instance's bootstrap superadmin.                                                                       |
-| **Wire the app**        | Writes `SUPABASE_URL`, both keys, the `VITE_` copies, `ADMIN_EMAIL`/`VITE_ADMIN_EMAIL` and `SITE_URL` into `.env` — nothing to copy by hand.                                                                |
-| **Install & start**     | Hands over to `scripts/setup.sh` (same flags: `--all`, `--dev`, `--docgen`, ...) which installs dependencies, generates the remaining app secrets, and brings the stack up.                                 |
+| Step                 | What happens                                                                                                                                                                                           |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Download & run**   | Clones the official `supabase/docker` stack into `supabase-docker/` (git-ignored) and starts it. First run pulls ~2 GB of images.                                                                      |
+| **Generate secrets** | Postgres password, `JWT_SECRET`, and the `ANON` / `SERVICE_ROLE` API keys **signed from that secret** (HS256, locally — nothing leaves your machine), plus the Studio dashboard login and vault keys.  |
+| **Wait properly**    | Waits for the auth service to answer **and for the storage service to finish its own boot migrations** — pushing the schema too early fails three migrations (see DEPLOYMENT.md § "Apply the schema"). |
+| **Extensions**       | Ensures the five required Postgres extensions exist (`vector`, `pg_net`, `pg_cron`, `pgmq`, `supabase_vault`).                                                                                         |
+| **Schema**           | Applies all migrations with `npx supabase db push --db-url ...` pointed at your own database.                                                                                                          |
+| **Admin user**       | Creates your account via the auth admin API, email pre-confirmed, and sets it as `ADMIN_EMAIL` — the instance's bootstrap superadmin.                                                                  |
+| **Wire the app**     | Writes `SUPABASE_URL`, both keys, the `VITE_` copies, `ADMIN_EMAIL`/`VITE_ADMIN_EMAIL` and `SITE_URL` into `.env` — nothing to copy by hand.                                                           |
+| **Install & start**  | Hands over to `scripts/setup.sh` (same flags: `--all`, `--dev`, `--docgen`, ...) which installs dependencies, generates the remaining app secrets, and brings the stack up.                            |
 
 Notes worth knowing before you run it:
 
@@ -370,12 +370,12 @@ Agents can be given two web tools in the agent editor (**Build → Agents → ed
 clean markdown). How well they work depends on whether a key is configured —
 **no key is required to start**, but the free fallback is limited:
 
-| Setup                                                        | `web_search`                                                                                                                                           | `web_browse`                                               |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------- |
+| Setup                                                        | `web_search`                                                                                                                                           | `web_browse`                                                                   |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------ |
 | **No key** (default)                                         | Works, but falls back to DuckDuckGo's free Instant Answer API — only entity summaries + a few related topics, so thin/often empty for ordinary queries | Works via the **built-in fetcher** — server-rendered pages only, no JavaScript |
-| **Firecrawl connector** (Integrations page → **Web Search**) | Real web search via [Firecrawl](https://firecrawl.dev) for every agent — key stored encrypted, no restart                                              | Full-page reads via Firecrawl                              |
-| **`FIRECRAWL_API_KEY` in `.env`** (workspace-wide)           | Same as above, set via env instead of the UI                                                                                                           | Full-page reads via Firecrawl                              |
-| **Per-agent key** (agent editor, no `.env` change)           | Bring your own **Brave / SerpAPI / Tavily** key                                                                                                        | Bring your own **ScrapingBee** or custom **Firecrawl** key |
+| **Firecrawl connector** (Integrations page → **Web Search**) | Real web search via [Firecrawl](https://firecrawl.dev) for every agent — key stored encrypted, no restart                                              | Full-page reads via Firecrawl                                                  |
+| **`FIRECRAWL_API_KEY` in `.env`** (workspace-wide)           | Same as above, set via env instead of the UI                                                                                                           | Full-page reads via Firecrawl                                                  |
+| **Per-agent key** (agent editor, no `.env` change)           | Bring your own **Brave / SerpAPI / Tavily** key                                                                                                        | Bring your own **ScrapingBee** or custom **Firecrawl** key                     |
 
 #### The built-in fetcher (no key needed)
 
@@ -472,7 +472,7 @@ powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -All
 Or with Compose directly:
 
 ```bash
-docker compose --profile docgen --profile notebooks --profile sandbox up -d --build
+docker compose --profile all up -d --build
 ```
 
 Why they are opt-in rather than always on: the renderer image carries
