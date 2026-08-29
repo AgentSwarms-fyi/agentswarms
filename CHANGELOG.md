@@ -12,6 +12,124 @@ development branch and may be ahead of the latest tag.
 
 ---
 
+## 1.2.2 — 2026-08-29
+
+**A new default look, and a self-hosted install that actually starts.** Thirty-five
+commits. The visible half is AgentSwarms Native — dark navigation chrome around a
+light working pane — which is now the default theme. The half that matters more is
+a cluster of Docker self-hosting failures that all reported themselves as
+"Unauthorized" while the real error was a connection refused to a Supabase the
+container could not reach. No migrations in this release.
+
+### AgentSwarms Native
+
+- **A new theme, and the default.** Dark navigation chrome around a light working
+  pane — the pattern the Oracle and AWS consoles use. Navigation reads as a
+  persistent frame while content sits on light surfaces, which is where dense
+  tables, charts and long documents are easiest to read. Dark and light are
+  untouched and still selectable.
+- **One continuous chrome.** The first pass left a white seam where the sidebar
+  met the top bar: a full-height right border drawn on a transparent element, so
+  the translucent border colour composited against the page rather than against
+  the chrome it was supposed to divide.
+
+### Self-hosting
+
+- **Every server-side Supabase call failed under Docker**, and said
+  "Unauthorized" while doing it. Resolving the caller is the first thing those
+  handlers do, so a `connect ECONNREFUSED 127.0.0.1:8000` surfaced as a rejected
+  token. The containerized app now gets a Supabase URL it can actually reach.
+- **Document generation failed the same way.** PowerPoint, Word and Excel export
+  returned "Unauthorized" on a self-hosted install; server routes now resolve
+  Supabase from the server URL.
+- **`setup-selfhosted.sh` could not complete against a stock stack.** The
+  migration step built its connection string without `sslmode`, so the Supabase
+  CLI negotiated TLS against a containerized Postgres serving plaintext. A
+  first-boot race is fixed alongside it.
+- **The js-sandbox health check pointed at a port that is never bound.** The
+  sandbox sits only on an internal Docker network, so the check reported "not
+  answering yet" for a service that was working, and the host-dev instructions it
+  printed could not work at all.
+- **`.env` backups are ignored properly.** The existing rules covered `.env`,
+  `.env.local` and `.env.*.local` — none of which match `.env.cloud.bak`,
+  `.env.production.backup` or `.env.old.copy`. Those hold the same service-role
+  and provider keys as `.env` itself and sat one `git add -A` away from being
+  committed.
+
+### Schema health check
+
+- **An unapplied migration now says so.** A contributor pulls code expecting a
+  column a recent migration added, never re-applies migrations, and PostgREST
+  rejects the query — which until now surfaced as a broken page or an unhandled
+  rejection with no hint that "run your migrations" is the fix.
+- **Two layers of detection:** a proactive check on mount and a reactive fetch
+  interceptor that catches the failure when it happens, deduped by table and
+  column.
+- **A modal that hands you the command.** The specific table and column issues
+  found, with the migration filename and description where known, and three
+  copyable commands — `supabase db push`, `migration up`, and a danger-styled
+  `db reset`. Dismissing is session-scoped, because the problem has not gone away
+  just because the modal did.
+- **Mounted for every route, authenticated or not.** An unapplied migration can
+  break the public landing page's queries as easily as a dashboard's.
+- **Its limits are written down.** RLS-locked tables can false-negative and the
+  curated check list is deliberately not exhaustive — see
+  `docs/SCHEMA_HEALTH_CHECK.md`, which also records the two gotchas found testing
+  it against a live project.
+
+### Model selection
+
+- **Pick a model from a list, not a text box.** Choosing a model meant typing an
+  exact id into a free-text field, with a row of suggestions capped at 24 so a
+  large catalogue would not become a wall of badges — which left an OpenRouter
+  user with 24 chips and a text box in front of roughly 400 models.
+- **Swarm nodes search the provider's real catalogue.** A node offered
+  `MODEL_SUGGESTIONS`, a bundled hand-maintained list of about a dozen ids per
+  provider, when the app already fetches the full list for the agent editor.
+- **The same picker in the agent editor and prompt compare**, after an audit of
+  every model picker in the app — most were already fine, since the BI selector
+  has had search for a while and is shared by fourteen call sites.
+- **"Browse registry" stopped failing with a validation error** — "expected
+  object, received undefined", on every open.
+- **The dropdown stopped wiping a registry pick.** The toast said "Selected Jamba
+  Large 1.7" and the control fell back to "Select a model" one render later.
+
+### Also
+
+- **Read a web page without a third-party key.** `web_browse` was hidden from the
+  model unless a Firecrawl key existed, and adding a URL to a knowledge base
+  returned `FIRECRAWL_NOT_CONNECTED` — while `web_search`, its sibling, degraded
+  to a free provider rather than disappearing. Both surfaces now have the same
+  floor.
+- **An instance-wide OpenRouter key counts as a connected provider in BI.** On an
+  instance whose only provider was `OPENROUTER_API_KEY` in `.env`, the analyst's
+  "New analyst" dialog said "Connect a model provider in Integrations" while agent
+  chat and swarms called OpenRouter through that same key without complaint.
+- **A resizable sidebar.** A drag handle on the right edge clamped to 200-400px,
+  `Cmd/Ctrl+\` alongside the existing `Cmd/Ctrl+B`, and both the collapsed state
+  and chosen width persisted to localStorage rather than to a cookie nothing read
+  back. Dragging below 100px auto-hides it, VS Code style, and a Show/Hide toggle
+  in the profile menu works without finding the header trigger.
+- **Collapse hides the sidebar completely**, rather than leaving a 48px icon rail
+  behind.
+- **The Create Agent form survives an accidental dismissal.** Clicking outside the
+  dialog unmounts the form entirely and threw away everything typed into it. Every
+  field it manages — guardrails, tool toggles, MCP allow-lists, knowledge-base
+  links, memory config, not just name and prompt — now round-trips through a
+  sessionStorage draft.
+- **Popovers stay inside the dialogs that were clipping them.** The Prompt Library
+  popover in the Agent Builder lost the first characters of every title and its
+  "Use this prompt" button could not be reached at all.
+
+### Upgrading
+
+No migrations and no new environment variables. The one thing to know is that
+**AgentSwarms Native is now the default theme**, so an installation where nobody
+picked a theme explicitly will look different after this upgrade. Dark and light
+are unchanged and still selectable.
+
+---
+
 ## 1.2.1 — 2026-08-20
 
 **What the app says when it does not know.** Eighty-two commits and 234 files,

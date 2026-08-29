@@ -1,6 +1,6 @@
 {
   "name": "agentswarms",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "The hands-on playground for learning Agentic AI — build agents, run multi-agent swarms, and inspect traces in your browser.",
   "license": "Elastic-2.0",
   "repository": {
