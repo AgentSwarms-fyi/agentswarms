@@ -1245,6 +1245,14 @@ export function compilePreview(graph: EtlGraph, nodeId: string): string {
     const c = n.config as Extract<EtlTransformConfig, { type: "python" }>;
     lines.push(``, `def _fn_${n.id}(df):`, indent(c.code, "    "), `    return df`, ``);
   }
+  // A lakehouse source's reader calls _lakehouse_con(), so the preview must
+  // emit that helper too. Without it the preview died with a NameError while
+  // the same graph ran fine as a pipeline — the preview is a SECOND compiler
+  // over the same nodes, and anything the source functions depend on has to be
+  // emitted by both.
+  if (slice.some((n) => (n.config as { type?: string }).type === "lakehouse")) {
+    lines.push(``, lakehouseAttachFn());
+  }
   if (gates.length) {
     lines.push(``, `_quality = []`);
     for (const n of gates) lines.push(``, gateFn(n), ``);
@@ -1262,12 +1270,20 @@ export function compilePreview(graph: EtlGraph, nodeId: string): string {
       lines.push(`    f_${n.id} = ${transformExpr(n, ins)}`);
     }
   }
+  // Every ancestor frame already exists here, so reporting each one's columns
+  // costs nothing and lets ONE preview fill the column pickers for the whole
+  // chain — otherwise configuring a transform means previewing its parent
+  // first, which is backwards.
+  const framed = slice.filter((n) => n.kind !== "target").map((n) => n.id);
   lines.push(
     `    _pv = f_${frameNode}.head(${PREVIEW_RESULT_ROWS})`,
+    `    _by_node = {}`,
+    ...framed.map((id) => `    _by_node['${id}'] = [str(c) for c in f_${id}.columns]`),
     `    preview = {`,
     `        'columns': [{'name': str(c), 'type': str(t)} for c, t in zip(_pv.columns, _pv.dtypes)],`,
     `        'rows': json.loads(_pv.to_json(orient='records', date_format='iso')),`,
     `        'total_sampled': int(len(f_${frameNode})),`,
+    `        'columns_by_node': _by_node,`,
     `    }`,
     `    print('[etl] preview: ' + str(len(_pv)) + ' row(s), ' + str(len(_pv.columns)) + ' column(s)')`,
     `    return {'preview': preview}`,

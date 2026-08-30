@@ -47,6 +47,12 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import {
+  AggregationsEditor,
+  ColumnChips,
+  ColumnCombo,
+  RenameEditor,
+} from "@/components/etl/TransformFields";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -1250,7 +1256,16 @@ function PlatformDatasetPicker({
   );
 }
 
-function NodePreview({ pipelineId, nodeId }: { pipelineId: string; nodeId: string }) {
+function NodePreview({
+  pipelineId,
+  nodeId,
+  onColumns,
+}: {
+  pipelineId: string;
+  nodeId: string;
+  /** Column names this preview resolved, so the field editors can offer them. */
+  onColumns?: (nodeId: string, columns: string[]) => void;
+}) {
   const { session } = useAuth();
   const token = session?.access_token ?? "";
   const startFn = useServerFn(previewEtlNode);
@@ -1285,6 +1300,16 @@ function NodePreview({ pipelineId, nodeId }: { pipelineId: string; nodeId: strin
         if (res.status === "succeeded" && res.preview) {
           setResult(res.preview);
           setState("done");
+          // The run reports every ancestor's columns, not just this node's,
+          // so configuring a transform doesn't require previewing its parent
+          // first.
+          for (const [id, cols] of Object.entries(res.preview.columns_by_node ?? {})) {
+            onColumns?.(id, cols.map(String));
+          }
+          onColumns?.(
+            nodeId,
+            res.preview.columns.map((col) => String(col.name)),
+          );
           return;
         }
         if (["error", "stopped"].includes(res.status)) {
@@ -1373,9 +1398,12 @@ const QUALITY_CHECK_OPTIONS: { value: QualityRule["check"]; label: string }[] = 
 function QualityRulesEditor({
   rules,
   onChange,
+  columns,
 }: {
   rules: QualityRule[];
   onChange: (rules: QualityRule[]) => void;
+  /** Upstream columns, so the rule's column is picked rather than typed. */
+  columns: string[];
 }) {
   const patch = (i: number, p: Partial<QualityRule>) =>
     onChange(rules.map((r, j) => (j === i ? { ...r, ...p } : r)));
@@ -1415,11 +1443,11 @@ function QualityRulesEditor({
             </Select>
           </div>
           {r.check !== "row_count_min" && (
-            <Input
-              placeholder="column"
-              className="h-7 font-mono text-xs"
+            <ColumnCombo
               value={r.column ?? ""}
-              onChange={(e) => patch(i, { column: e.target.value })}
+              onChange={(v) => patch(i, { column: v })}
+              columns={columns}
+              className="w-full"
             />
           )}
           {(r.check === "range" || r.check === "row_count_min") && (
@@ -1553,6 +1581,15 @@ function CanvasBuilder({
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showCode, setShowCode] = useState(false);
+  // Column names each node's preview resolved. Kept here rather than inside
+  // the preview dialog so configuring node B can offer the columns node A
+  // produced — which is the only way a column picker is useful at all.
+  const [columnsByNode, setColumnsByNode] = useState<Record<string, string[]>>({});
+  const rememberColumns = useCallback(
+    (nodeId: string, columns: string[]) =>
+      setColumnsByNode((prev) => ({ ...prev, [nodeId]: columns })),
+    [],
+  );
   const { theme } = useTheme();
   const isDark = theme === "dark";
 
@@ -1762,6 +1799,8 @@ function CanvasBuilder({
             node={selected}
             graph={graph}
             pipelineId={pipelineId}
+            columnsByNode={columnsByNode}
+            onColumns={rememberColumns}
             onChange={updateSelected}
             onDelete={() => {
               onChange({
@@ -1823,12 +1862,17 @@ function NodePanel({
   pipelineId,
   onChange,
   onDelete,
+  columnsByNode,
+  onColumns,
 }: {
   node: EtlNode;
   graph: EtlGraph;
   pipelineId: string;
   onChange: (config: EtlNode["config"], label?: string) => void;
   onDelete: () => void;
+  /** Columns a preview has resolved, per node id. */
+  columnsByNode: Record<string, string[]>;
+  onColumns: (nodeId: string, columns: string[]) => void;
 }) {
   const { session } = useAuth();
   const [storageSources, setStorageSources] = useState<CatalogSource[]>([]);
@@ -1838,6 +1882,17 @@ function NodePanel({
   const c = node.config as { type: string } & Record<string, unknown>;
   const needsStorage = c.type === "object_storage";
   const needsDb = c.type === "database";
+
+  // A transform is configured against the columns arriving from upstream, not
+  // its own output — those don't exist until it runs. Fall back to this node's
+  // own known columns for a source, where input and output are the same thing.
+  const upstreamColumns = useMemo(() => {
+    const ins = graph.edges.filter((e) => e.to === node.id).map((e) => e.from);
+    const seen = new Set<string>();
+    for (const id of ins) for (const col of columnsByNode[id] ?? []) seen.add(col);
+    if (!seen.size) for (const col of columnsByNode[node.id] ?? []) seen.add(col);
+    return [...seen];
+  }, [graph.edges, node.id, columnsByNode]);
 
   useEffect(() => {
     if (needsStorage) {
@@ -1876,7 +1931,7 @@ function NodePanel({
           className="h-8"
         />
       </div>
-      <NodePreview pipelineId={pipelineId} nodeId={node.id} />
+      <NodePreview pipelineId={pipelineId} nodeId={node.id} onColumns={onColumns} />
 
       {needsStorage && (
         <div>
@@ -2192,32 +2247,29 @@ function NodePanel({
             onChange={(e) => set({ expr: e.target.value })}
             placeholder="amount > 0 and country == 'DE'"
           />
+          {upstreamColumns.length > 0 && (
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Available: <span className="font-mono">{upstreamColumns.join(", ")}</span>
+            </p>
+          )}
         </Field>
       )}
       {c.type === "select" && (
-        <Field label="Columns to keep (comma-separated)">
-          <Input
-            className="h-8 font-mono text-xs"
-            value={csv(c.columns as string[])}
-            onChange={(e) => set({ columns: unCsv(e.target.value) })}
+        <Field label="Columns to keep">
+          <ColumnChips
+            value={(c.columns as string[]) ?? []}
+            onChange={(columns) => set({ columns })}
+            columns={upstreamColumns}
+            emptyMeans="Nothing picked yet — pick at least one column to keep."
           />
         </Field>
       )}
       {c.type === "rename" && (
-        <Field label="old:new, comma-separated">
-          <Input
-            className="h-8 font-mono text-xs"
-            value={Object.entries((c.mapping as Record<string, string>) ?? {})
-              .map(([a, b]) => `${a}:${b}`)
-              .join(", ")}
-            onChange={(e) => {
-              const mapping: Record<string, string> = {};
-              for (const pair of e.target.value.split(",")) {
-                const [from, to] = pair.split(":").map((x) => x.trim());
-                if (from && to) mapping[from] = to;
-              }
-              set({ mapping });
-            }}
+        <Field label="Rename columns">
+          <RenameEditor
+            value={(c.mapping as Record<string, string>) ?? {}}
+            onChange={(mapping) => set({ mapping })}
+            columns={upstreamColumns}
           />
         </Field>
       )}
@@ -2237,6 +2289,11 @@ function NodePanel({
               onChange={(e) => set({ expr: e.target.value })}
               placeholder="price * quantity"
             />
+            {upstreamColumns.length > 0 && (
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Available: <span className="font-mono">{upstreamColumns.join(", ")}</span>
+              </p>
+            )}
           </Field>
         </>
       )}
@@ -2278,61 +2335,52 @@ function NodePanel({
               </SelectContent>
             </Select>
           </Field>
-          <Field label="Left keys (comma-separated)">
-            <Input
-              className="h-8 font-mono text-xs"
-              value={csv(c.left_on as string[])}
-              onChange={(e) => set({ left_on: unCsv(e.target.value) })}
+          <Field label="Left keys">
+            <ColumnChips
+              value={(c.left_on as string[]) ?? []}
+              onChange={(left_on) => set({ left_on })}
+              columns={upstreamColumns}
+              emptyMeans="Pick the column(s) to match on."
             />
           </Field>
           <Field label="Right keys">
-            <Input
-              className="h-8 font-mono text-xs"
-              value={csv(c.right_on as string[])}
-              onChange={(e) => set({ right_on: unCsv(e.target.value) })}
+            <ColumnChips
+              value={(c.right_on as string[]) ?? []}
+              onChange={(right_on) => set({ right_on })}
+              columns={upstreamColumns}
+              emptyMeans="Defaults to the left keys when empty."
             />
           </Field>
         </>
       )}
       {c.type === "aggregate" && (
         <>
-          <Field label="Group by (comma-separated)">
-            <Input
-              className="h-8 font-mono text-xs"
-              value={csv(c.group_by as string[])}
-              onChange={(e) => set({ group_by: unCsv(e.target.value) })}
+          <Field label="Group by">
+            <ColumnChips
+              value={(c.group_by as string[]) ?? []}
+              onChange={(group_by) => set({ group_by })}
+              columns={upstreamColumns}
+              emptyMeans="No grouping — the aggregations run over every row."
             />
           </Field>
-          <Field label="Aggregations (col:fn:as per line)">
-            <Textarea
-              rows={3}
-              className="font-mono text-xs"
-              value={((c.aggs as { column: string; fn: string; as: string }[]) ?? [])
-                .map((a) => `${a.column}:${a.fn}:${a.as}`)
-                .join("\n")}
-              onChange={(e) => {
-                const aggs = e.target.value
-                  .split("\n")
-                  .map((line) => {
-                    const [column, fn, as] = line.split(":").map((x) => x.trim());
-                    return column && fn && as ? { column, fn, as } : null;
-                  })
-                  .filter(Boolean);
-                set({ aggs });
-              }}
-              placeholder={"amount:sum:total_amount\nid:count:orders"}
+          <Field label="Aggregations">
+            <AggregationsEditor
+              value={(c.aggs as { column: string; fn: string; as: string }[]) ?? []}
+              onChange={(aggs) => set({ aggs })}
+              columns={upstreamColumns}
+              functions={AGG_FNS}
             />
           </Field>
-          <p className="text-[11px] text-muted-foreground">Functions: {AGG_FNS.join(", ")}</p>
         </>
       )}
       {c.type === "sort" && (
         <>
-          <Field label="Sort by (comma-separated)">
-            <Input
-              className="h-8 font-mono text-xs"
-              value={csv(c.by as string[])}
-              onChange={(e) => set({ by: unCsv(e.target.value) })}
+          <Field label="Sort by">
+            <ColumnChips
+              value={(c.by as string[]) ?? []}
+              onChange={(by) => set({ by })}
+              columns={upstreamColumns}
+              emptyMeans="Pick at least one column to sort on."
             />
           </Field>
           <label className="flex items-center gap-2 text-xs">
@@ -2345,11 +2393,16 @@ function NodePanel({
         </>
       )}
       {(c.type === "dedupe" || c.type === "drop_nulls") && (
-        <Field label="Columns (empty = whole row)">
-          <Input
-            className="h-8 font-mono text-xs"
-            value={csv(c.columns as string[])}
-            onChange={(e) => set({ columns: unCsv(e.target.value) })}
+        <Field label="Columns">
+          <ColumnChips
+            value={(c.columns as string[]) ?? []}
+            onChange={(columns) => set({ columns })}
+            columns={upstreamColumns}
+            emptyMeans={
+              c.type === "dedupe"
+                ? "Empty — a row counts as duplicate only if every column matches."
+                : "Empty — a row is dropped if any column is null."
+            }
           />
         </Field>
       )}
@@ -2362,11 +2415,12 @@ function NodePanel({
               onChange={(e) => set({ value: e.target.value })}
             />
           </Field>
-          <Field label="Columns (empty = all)">
-            <Input
-              className="h-8 font-mono text-xs"
-              value={csv(c.columns as string[])}
-              onChange={(e) => set({ columns: unCsv(e.target.value) })}
+          <Field label="Columns">
+            <ColumnChips
+              value={(c.columns as string[]) ?? []}
+              onChange={(columns) => set({ columns })}
+              columns={upstreamColumns}
+              emptyMeans="Empty — every column is filled."
             />
           </Field>
         </>
@@ -2385,6 +2439,7 @@ function NodePanel({
         <QualityRulesEditor
           rules={(c.rules as QualityRule[]) ?? []}
           onChange={(rules) => set({ rules })}
+          columns={upstreamColumns}
         />
       )}
       {c.type === "sql" && (

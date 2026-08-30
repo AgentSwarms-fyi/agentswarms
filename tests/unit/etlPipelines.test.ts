@@ -893,6 +893,61 @@ describe("compilePreview", () => {
     expect(code).toContain(".head(50)");
   });
 
+  it("emits every helper its source functions call", () => {
+    // THE BUG: a lakehouse source's reader calls _lakehouse_con(), which
+    // compileGraph emitted and compilePreview did not. The pipeline ran fine
+    // and "Preview data" died with NameError: name '_lakehouse_con' is not
+    // defined. The preview is a SECOND compiler over the same nodes, so
+    // anything a source function depends on has to be emitted by both.
+    const lake: EtlGraph = {
+      nodes: [
+        node("s", "source", {
+          type: "lakehouse",
+          schema: "analytics",
+          mode: "table",
+          table: "orders",
+        }),
+        node("agg", "transform", {
+          type: "aggregate",
+          group_by: ["customer"],
+          aggs: [{ column: "amount", fn: "sum", as: "total" }],
+        }),
+        // A preview validates the WHOLE graph first, so the fixture needs a
+        // target even though the preview never loads into it.
+        node("out", "target", {
+          type: "lakehouse",
+          schema: "analytics",
+          table: "rollup",
+          write_mode: "replace",
+        }),
+      ],
+      edges: [
+        { from: "s", to: "agg" },
+        { from: "agg", to: "out" },
+      ],
+    };
+    const code = compilePreview(lake, "agg");
+    assertParsesAsPython(code);
+    expect(code).toContain("def _lakehouse_con()");
+    // Defined before the source function that calls it.
+    expect(code.indexOf("def _lakehouse_con()")).toBeLessThan(code.indexOf("def _src_s"));
+  });
+
+  it("reports every ancestor's columns, not just the previewed node's", () => {
+    // Otherwise configuring a transform means previewing its parent first,
+    // which is backwards — the pickers would be empty exactly when you need
+    // them.
+    const code = compilePreview(g, "f");
+    expect(code).toContain("_by_node['a'] = [str(c) for c in f_a.columns]");
+    expect(code).toContain("_by_node['f'] = [str(c) for c in f_f.columns]");
+    expect(code).toContain("'columns_by_node': _by_node,");
+  });
+
+  it("does not try to report columns for a target, which has no frame", () => {
+    const code = compilePreview(g, "t");
+    expect(code).not.toContain("f_t.columns");
+  });
+
   it("previewing a target shows the frame it would load", () => {
     const code = compilePreview(g, "t");
     expect(code).toContain("_pv = f_j.head(50)");

@@ -678,6 +678,8 @@ export type EtlPreviewResult = {
     columns: { name: string; type: string }[];
     rows: Record<string, EtlPreviewCell>[];
     total_sampled: number;
+    /** Columns of every ancestor frame, so one preview fills the pickers. */
+    columns_by_node?: Record<string, string[]>;
   } | null;
   error: string | null;
 };
@@ -741,6 +743,7 @@ export const getEtlPreview = createServerFn({ method: "POST" })
         columns: { name: string; type: string }[];
         rows: Record<string, unknown>[];
         total_sampled: number;
+        columns_by_node?: Record<string, string[]>;
       };
     } | null;
     const raw = result?.preview;
@@ -750,6 +753,7 @@ export const getEtlPreview = createServerFn({ method: "POST" })
         ? {
             columns: raw.columns,
             total_sampled: raw.total_sampled,
+            columns_by_node: raw.columns_by_node,
             rows: raw.rows.map((r) =>
               Object.fromEntries(Object.entries(r).map(([k, v]) => [k, previewCell(v)])),
             ),
