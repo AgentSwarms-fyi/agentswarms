@@ -424,3 +424,26 @@ are written to a second ACL file, `allowed_ips` (squid `dst`), mounted next to
 `allowed_domains`. `Safe_ports` additionally includes 9000 and 19000 for
 S3-compatible stores. Both files regenerate whenever an administrator saves
 runtime settings, and the proxy is restarted to pick them up.
+
+## What is always allowed, and why you must not hand-edit the files
+
+Two categories bypass the operator's list entirely:
+
+- **The baseline** (`EGRESS_BASELINE`): PyPI and `duckdb.org`. Without PyPI a
+  kernel cannot `pip install`; without the DuckDB extension registry an ETL
+  **lakehouse** node cannot load `ducklake` and dies before reading a row.
+- **This deployment's own infrastructure** (`platformEgressHosts()`): the
+  lakehouse object store from `LAKEHOUSE_S3_ENDPOINT`. The platform configured
+  it, so requiring an operator to allow-list it again is a trap.
+
+Both matter because of how the failures present. A squid denial comes back as
+HTTP 403, and DuckDB reports _any_ 403 on an S3 read as
+`Authentication Failure ... credentials did not work` — so a proxy problem
+looks exactly like a credentials problem and sends you after a bug that isn't
+there.
+
+`allowed_domains` and `allowed_ips` are **generated**. Editing them by hand
+appears to work until the next settings save rewrites both files from the
+stored list and silently drops your entry. Anything that must always be
+reachable belongs in the baseline in `src/utils/notebookRuntime/egress.ts`,
+not in the generated file.

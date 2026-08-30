@@ -4,8 +4,13 @@
 // rules can be unit-tested — `.server.ts` files are import-protected.
 
 /** Hosts always permitted, whatever the operator configures. Without PyPI a
- *  kernel cannot `pip install` anything, which defeats the runtime's purpose. */
-export const EGRESS_BASELINE = ["pypi.org", "files.pythonhosted.org"];
+ *  kernel cannot `pip install` anything, which defeats the runtime's purpose;
+ *  without the DuckDB extension registry an ETL lakehouse node cannot load
+ *  `ducklake` and dies before it reads a single row. Both are platform
+ *  requirements rather than operator preferences, which is why neither may be
+ *  hand-written into the generated ACL file — a settings save regenerates that
+ *  file and would silently drop them. */
+export const EGRESS_BASELINE = ["pypi.org", "files.pythonhosted.org", "duckdb.org"];
 
 /**
  * Normalise one operator-entered host into a squid `dstdomain` token.

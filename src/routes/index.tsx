@@ -10,9 +10,11 @@ import {
   BrainCircuit,
   ChevronDown,
   Code2,
+  Clock,
   Container,
   Cpu,
   Database,
+  FileStack,
   Gauge,
   GraduationCap,
   KeyRound,
@@ -26,6 +28,7 @@ import {
   Settings,
   Sigma,
   Share2,
+  Snowflake,
   ShieldCheck,
   Wand2,
   Workflow,
@@ -39,6 +42,7 @@ import { GlowCard } from "@/components/marketing/GlowCard";
 import { Reveal } from "@/components/marketing/Reveal";
 import { DeckMock } from "@/components/marketing/HomeMocks";
 import { BiDashboardMock, GenerateFlowMock } from "@/components/marketing/BiMocks";
+import { LakehouseMock } from "@/components/marketing/DataMocks";
 import {
   AnalystTraceMock,
   FanOutRefusalMock,
@@ -525,10 +529,12 @@ function LandingPage() {
                   own infrastructure
                 </h1>
                 <p className="max-w-xl text-lg leading-relaxed text-muted-foreground lg:text-xl">
-                  The source-available agentic AI platform you deploy yourself: visual agent
-                  builder, multi-agent swarm canvas, RAG, and a full AI-native BI suite —
-                  dashboards, alerts, and an analyst that writes the SQL. One Supabase project. One
-                  Docker command. Any model provider.
+                  The source-available agentic AI{" "}
+                  <em className="not-italic text-foreground/90">and data</em> platform you deploy
+                  yourself: agent builder, swarm canvas and RAG on one side; ETL pipelines, a
+                  columnar lakehouse and AI-native BI on the other — so the agents answer from data
+                  you loaded, modelled and governed yourself. One Supabase project. One Docker
+                  command. Any model provider.
                 </p>
               </motion.div>
 
@@ -1027,6 +1033,110 @@ function LandingPage() {
                 ))}
               </div>
             </Reveal>
+          </div>
+        </section>
+
+        {/* Data platform — the half that gets data IN and makes it queryable */}
+        <section id="data" className="relative overflow-hidden border-t border-border/60 py-24">
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-[radial-gradient(55%_60%_at_50%_0%,color-mix(in_oklch,var(--primary)_8%,transparent),transparent)]" />
+          <div className="relative mx-auto max-w-7xl px-6">
+            <SectionHeading
+              className="mb-14 max-w-3xl"
+              eyebrow="Data platform"
+              title="Load it, store it, govern it — without leaving the app."
+              lede="An agent is only as good as the data under it. Move data in with visual ETL, land it in a columnar lakehouse you own, and every table shows up for BI, the AI Analyst, agents and swarms with the same permissions and the same audit trail."
+            />
+
+            <div className="grid items-start gap-12 lg:grid-cols-12">
+              <div className="space-y-6 lg:col-span-5">
+                <div className="space-y-4">
+                  {[
+                    {
+                      icon: Workflow,
+                      title: "Visual ETL, or Python — your choice",
+                      body: "Drag sources into joins, aggregates and quality gates, and read the compiled Python one toggle away. Object storage, databases, HTTP APIs and change-data-capture in; schedules, retries with backoff, and incremental watermarks around it.",
+                    },
+                    {
+                      icon: Snowflake,
+                      title: "A lakehouse you actually own",
+                      body: "DuckDB over zstd Parquet in your own bucket, with a transactional catalog. Columnar scans, snapshot time travel, and compute that stays stateless — so it scales with your app rather than a cluster you rent.",
+                    },
+                    {
+                      icon: ShieldCheck,
+                      title: "Governed at the row and the column",
+                      body: "Share a schema, then narrow it: which rows a reader sees, and which column values are blanked or scrambled. Enforced by rewriting the query's parse tree, so a CTE or an alias can't slip past it.",
+                    },
+                  ].map((f, i) => (
+                    <Reveal key={f.title} delay={0.06 * i}>
+                      <div className="flex gap-4">
+                        <div className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                          <f.icon className="h-5 w-5 text-primary" />
+                        </div>
+                        <div>
+                          <h3 className="text-base font-semibold">{f.title}</h3>
+                          <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                            {f.body}
+                          </p>
+                        </div>
+                      </div>
+                    </Reveal>
+                  ))}
+                </div>
+              </div>
+
+              <Reveal className="lg:col-span-7" delay={0.1}>
+                <div className="relative">
+                  <div className="pointer-events-none absolute -inset-6 rounded-3xl bg-[radial-gradient(60%_60%_at_50%_40%,color-mix(in_oklch,var(--primary)_12%,transparent),transparent)] blur-2xl" />
+                  <LakehouseMock />
+                </div>
+              </Reveal>
+            </div>
+
+            {/* Warehouse capability grid */}
+            <div className="mt-16 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {[
+                {
+                  icon: Gauge,
+                  title: "Built to stay fast",
+                  body: "Partition on the columns you filter by, and repeat queries come back from a cache keyed on the catalog snapshot — so a write invalidates it instead of a timer. Explain shows the plan and what it actually scanned.",
+                },
+                {
+                  icon: Layers,
+                  title: "Materialized views",
+                  body: "Save a query as a table rebuilt hourly, daily or weekly. Each rebuild is one commit, so readers never catch a half-built table — and a failed rebuild leaves the previous data standing.",
+                },
+                {
+                  icon: Clock,
+                  title: "Time travel",
+                  body: "Every write creates a snapshot. Read a table as it stood at any of them, and compact or expire the history on a schedule.",
+                },
+                {
+                  icon: FileStack,
+                  title: "Query your data lake in place",
+                  body: "Mount an S3 bucket as a read-only schema and join raw Parquet, CSV or JSON against lakehouse tables in one query. Nothing is copied, and each mount's credential is scoped to its own prefix.",
+                },
+                {
+                  icon: Bot,
+                  title: "Wired into the agents",
+                  body: "The lakehouse registers as a warehouse with no credentials to enter, so BI dashboards, the AI Analyst and any agent's warehouse_query tool reach it the moment it exists.",
+                },
+                {
+                  icon: Activity,
+                  title: "Every statement accounted for",
+                  body: "One governed chokepoint classifies and checks each query before the engine sees it, then records it in history and the audit trail — refusals included.",
+                },
+              ].map((c, i) => (
+                <Reveal key={c.title} delay={0.05 * i}>
+                  <GlowCard className="h-full">
+                    <div className="mb-3 inline-flex rounded-lg bg-primary/10 p-2">
+                      <c.icon className="h-4 w-4 text-primary" />
+                    </div>
+                    <h3 className="text-base font-semibold">{c.title}</h3>
+                    <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{c.body}</p>
+                  </GlowCard>
+                </Reveal>
+              ))}
+            </div>
           </div>
         </section>
 

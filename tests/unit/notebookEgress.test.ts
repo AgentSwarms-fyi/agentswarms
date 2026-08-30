@@ -21,6 +21,7 @@ import {
   EGRESS_BASELINE,
   normalizeEgressHost,
   renderEgressAllowlist,
+  renderEgressIpAllowlist,
 } from "@/utils/notebookRuntime/egress";
 
 const entries = (s: string) => s.split("\n").filter((l) => l.trim() && !l.startsWith("#"));
@@ -148,5 +149,57 @@ describe("the admin UI says which entries it will discard", () => {
   it("ignores comment lines rather than reporting them as errors", () => {
     // The renderer already skips them; flagging them would be a false alarm.
     expect(ui).toMatch(/!s\.startsWith\("#"\)/);
+  });
+});
+
+describe("destinations the platform itself needs", () => {
+  // THE BUG THESE WERE WRITTEN FOR: the DuckDB extension registry was
+  // hand-added to the GENERATED allowed_domains file. That file is rewritten
+  // from scratch whenever an administrator saves runtime settings, so the
+  // entry vanished on the next save and every ETL lakehouse node started
+  // failing with "Failed to download extension ducklake (HTTP 403)" — a squid
+  // denial wearing a DuckDB error message. A platform requirement has to live
+  // in the baseline, not in the file the baseline generates.
+  it("keeps the DuckDB extension registry in the baseline", () => {
+    expect(EGRESS_BASELINE).toContain("duckdb.org");
+    const out = renderEgressAllowlist([]);
+    expect(out).toContain(".duckdb.org");
+  });
+
+  it("still permits PyPI, whatever the operator sets", () => {
+    // An operator who clears the field must not lock kernels out of pip.
+    const out = renderEgressAllowlist(["example.com"]);
+    expect(out).toContain(".pypi.org");
+    expect(out).toContain(".files.pythonhosted.org");
+    expect(out).toContain(".example.com");
+  });
+
+  it("the generated file warns that hand edits are overwritten", () => {
+    // The whole failure above came from someone (us) editing it by hand.
+    expect(renderEgressAllowlist([])).toMatch(/overwritten whenever an administrator saves/);
+  });
+
+  it("adds the lakehouse object store without the operator listing it", () => {
+    const apply = readFileSync("src/utils/notebookRuntime/egressApply.server.ts", "utf8");
+    // A self-hosted MinIO endpoint is usually a raw IP, which squid can only
+    // match through the dst file — and DuckDB reports the resulting 403 as an
+    // authentication failure, sending you after a credential bug that is not
+    // there.
+    expect(apply).toContain("LAKEHOUSE_S3_ENDPOINT");
+    expect(apply).toContain("export function platformEgressHosts()");
+    // Both files must be rendered from the combined list, not just one.
+    expect(apply).toContain("const all = [...(hosts ?? []), ...platformEgressHosts()]");
+    expect(apply).toContain("renderEgressAllowlist(all)");
+    expect(apply).toContain("renderEgressIpAllowlist(all)");
+  });
+
+  it("routes a host:port endpoint to the dst file, not dstdomain", () => {
+    // dstdomain cannot match an address, so an IP endpoint belongs in the IP
+    // file with its port stripped — and must NOT end up in allowed_domains.
+    expect(renderEgressIpAllowlist(["192.168.1.85:19000"])).toContain("192.168.1.85");
+    expect(renderEgressAllowlist(["192.168.1.85:19000"])).not.toContain("192.168.1.85");
+    // A real hostname endpoint goes the other way.
+    expect(renderEgressAllowlist(["minio.internal:9000"])).toContain(".minio.internal");
+    expect(renderEgressIpAllowlist(["minio.internal:9000"])).not.toContain("minio.internal");
   });
 });

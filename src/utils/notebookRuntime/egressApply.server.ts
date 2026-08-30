@@ -14,6 +14,24 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { renderEgressAllowlist, renderEgressIpAllowlist } from "./egress";
 
+/**
+ * Destinations the PLATFORM configured, unioned in so an operator never has to
+ * allow-list infrastructure this deployment set up itself.
+ *
+ * The lakehouse object store is the case that proves the need: an ETL
+ * lakehouse node reads and writes Parquet over S3 from inside a kernel, and
+ * when that endpoint is a raw IP — the norm for a self-hosted MinIO — squid
+ * denies it with a 403 that DuckDB reports as "Authentication Failure ...
+ * credentials did not work". That message sends you hunting a credential bug
+ * which does not exist, exactly the misdirection this module exists to stop.
+ */
+export function platformEgressHosts(): string[] {
+  const out: string[] = [];
+  const endpoint = process.env.LAKEHOUSE_S3_ENDPOINT?.trim();
+  if (endpoint) out.push(endpoint);
+  return out;
+}
+
 export type EgressApplyResult = {
   applied: boolean;
   /** Human-readable explanation when applied is false. */
@@ -88,7 +106,9 @@ async function restartProxy(): Promise<{ ok: boolean; reason?: string }> {
  */
 export async function applyEgressAllowlist(hosts: string[]): Promise<EgressApplyResult> {
   const file = allowlistPath();
-  const body = renderEgressAllowlist(hosts ?? []);
+  // The operator's list plus whatever this deployment configured for itself.
+  const all = [...(hosts ?? []), ...platformEgressHosts()];
+  const body = renderEgressAllowlist(all);
   const count = body.split("\n").filter((l) => l && !l.startsWith("#")).length;
 
   try {
@@ -99,7 +119,7 @@ export async function applyEgressAllowlist(hosts: string[]): Promise<EgressApply
     // MinIO while the admin field claimed otherwise.
     await fs.writeFile(
       path.join(path.dirname(file), "allowed_ips"),
-      renderEgressIpAllowlist(hosts ?? []),
+      renderEgressIpAllowlist(all),
       "utf8",
     );
   } catch (e) {
