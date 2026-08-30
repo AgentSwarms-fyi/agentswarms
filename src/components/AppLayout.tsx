@@ -10,6 +10,8 @@ import { GlobalCreateMenu } from "@/components/GlobalCreateMenu";
 import { CommandPalette, useCommandPalette } from "@/components/CommandPalette";
 import { Search } from "lucide-react";
 import { Outlet } from "@tanstack/react-router";
+import { useSessionRestore } from "@/hooks/use-session-restore";
+import { SessionRestoreBanner } from "@/components/SessionRestoreBanner";
 
 export function AppLayout() {
   // Route-change motion is the router's defaultViewTransition (see
@@ -18,11 +20,19 @@ export function AppLayout() {
   const palette = useCommandPalette();
   const isMac =
     typeof navigator !== "undefined" && /Mac|iP(hone|ad|od)/.test(navigator.platform || "");
+  const { orphanedSession, restore, startFresh } = useSessionRestore();
   return (
     <SidebarProvider>
       <div className="flex min-h-screen w-full">
         <AppSidebar />
         <div className="flex flex-1 flex-col min-w-0">
+          {orphanedSession && (
+            <SessionRestoreBanner
+              session={orphanedSession}
+              onRestore={restore}
+              onStartFresh={startFresh}
+            />
+          )}
           {/* Sticky: on window-scrolling pages (dashboard, lists) the create/
               approvals/alerts controls otherwise leave the screen one scroll
               in. Canvas-style routes pin their own height and never scroll
