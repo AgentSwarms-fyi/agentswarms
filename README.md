@@ -86,7 +86,7 @@ asks a clarifying question instead of guessing when one is genuinely needed.
 
 ![Part of an "AI Analyst" analysis steps and result](docs/screenshots/analyst-step2.png)
 
-**ETL pipelines** — move data between systems on a Glue-style canvas: sources
+**ETL pipelines** — move data between systems on a canvas or write ETL code in Python: sources
 into joins, aggregates, quality gates and targets, with the compiled Python one
 toggle away and AI generate/refine on your own model. Runs execute on a
 sandboxed kernel — credentials reach process memory only, never the code or the
