@@ -1537,3 +1537,29 @@ describe("egress IP renderer", () => {
     expect(body).not.toContain("pypi.org");
   });
 });
+
+describe("catalog lineage for every target", () => {
+  const svc = readFileSync(resolve(process.cwd(), "src/utils/etl/service.server.ts"), "utf8");
+
+  it("records lineage even when the destination is not a catalog source", () => {
+    // THE BUG: the lineage block sat inside `if (pipeline.dest_catalog_source_id)`,
+    // which a LAKEHOUSE-target pipeline never has — the lakehouse browses
+    // itself. Those pipelines therefore recorded no edges at all, so a number
+    // on a dashboard could not be traced back to the files it came from.
+    const crawlGate = svc.indexOf("if (pipeline.dest_catalog_source_id) {");
+    const lineage = svc.indexOf('await supabaseAdmin.from("catalog_lineage").insert(edges)');
+    expect(crawlGate).toBeGreaterThan(-1);
+    expect(lineage).toBeGreaterThan(-1);
+    // The crawl stays gated (there is nothing to crawl); lineage must not be.
+    const gateBlockEnd = svc.indexOf("}", svc.indexOf("crawlDestination(pipeline)"));
+    expect(lineage).toBeGreaterThan(gateBlockEnd);
+  });
+
+  it("falls back to the upstream source, because source_id is NOT NULL", () => {
+    expect(svc).toContain("const lineageSourceId =");
+    expect(svc).toContain("upstreamSourceId");
+    // No catalog source anywhere means no edge can be written at all — better
+    // than throwing inside a run that already loaded successfully.
+    expect(svc).toContain("if (targets.length && lineageSourceId)");
+  });
+});

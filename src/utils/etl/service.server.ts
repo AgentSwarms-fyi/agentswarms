@@ -426,10 +426,21 @@ export function etlPrelude(): string {
     `_reqs = [r for r in (_bundle.get('requirements') or []) if r.strip()]`,
     `if _reqs:`,
     `    print('[etl] installing ' + str(len(_reqs)) + ' package(s)')`,
-    `    _sp.run(`,
+    `    # -q keeps a SUCCESSFUL install out of the logs, but check=True with -q`,
+    `    # reports a failure as bare "non-zero exit status" and throws away the`,
+    `    # one thing that explains it — a version conflict, an unreachable host,`,
+    `    # or ~/.local's tmpfs filling up all look identical. Capture instead,`,
+    `    # and print what pip said only when it matters.`,
+    `    _p = _sp.run(`,
     `        [_sys.executable, '-m', 'pip', 'install', '--user', '--no-input', '-q', *_reqs],`,
-    `        check=True,`,
+    `        capture_output=True, text=True,`,
     `    )`,
+    `    if _p.returncode != 0:`,
+    `        print('[etl] pip install FAILED (exit ' + str(_p.returncode) + ') for: ' + ', '.join(_reqs))`,
+    `        for _stream in (_p.stdout, _p.stderr):`,
+    `            if _stream and _stream.strip():`,
+    `                print(_stream[-4000:])`,
+    `        raise RuntimeError('pip install failed — see the output above')`,
     `    # The sandbox mounts an EMPTY tmpfs at ~/.local, so the user site dir`,
     `    # did not exist when this interpreter started and is NOT on sys.path --`,
     `    # pip just created it, so add it now or every install is invisible.`,
@@ -1129,7 +1140,16 @@ export async function finalizeEtlRun(
       void crawlDestination(pipeline).catch((e) =>
         console.warn("[etl] post-run crawl failed:", (e as Error).message),
       );
+    }
 
+    // Lineage is recorded for EVERY target, not only crawlable ones. A pipeline
+    // that lands in the built-in lakehouse has no destination catalog source —
+    // the lakehouse browses itself — and gating lineage on one meant those
+    // pipelines recorded no edges at all, so a number on a dashboard could not
+    // be traced back to the files it came from. The edge is attached to the
+    // catalog source that holds the UPSTREAM instead, which is the source whose
+    // lineage view should show where its data went.
+    {
       // Catalog lineage: each source descriptor feeds each produced asset.
       // Scoped to source_system 'etl' so crawler-derived lineage (Databricks
       // system tables) and pipeline-derived lineage coexist per source.
@@ -1141,7 +1161,17 @@ export async function finalizeEtlRun(
           ((metrics as { lineage_sources?: unknown[] } | null)?.lineage_sources ?? []).map(String),
         ),
       ];
-      if (targets.length) {
+      // source_id is NOT NULL, so an edge needs a catalog source to belong to:
+      // the destination's when there is one, otherwise the first source node's.
+      const graphNodes = (normalizeGraph(pipeline.graph)?.nodes ?? []) as EtlNode[];
+      const upstreamSourceId = graphNodes
+        .filter((n) => n.kind === "source")
+        .map((n) => (n.config as { catalog_source_id?: string }).catalog_source_id)
+        .find(Boolean);
+      const lineageSourceId =
+        (pipeline.dest_catalog_source_id as string | null) ?? upstreamSourceId ?? null;
+
+      if (targets.length && lineageSourceId) {
         // Wholesale replace of THIS pipeline's edges: targets can be renamed
         // between runs, so a delete keyed on the new fqns would strand the old.
         await supabaseAdmin
@@ -1152,7 +1182,7 @@ export async function finalizeEtlRun(
         const edges = (sources.length ? sources : [`etl:${pipeline.name}`]).flatMap((up) =>
           targets.map((down) => ({
             user_id: pipeline.user_id,
-            source_id: pipeline.dest_catalog_source_id as string,
+            source_id: lineageSourceId,
             pipeline_id: pipeline.id,
             upstream_fqn: up.slice(0, 512),
             downstream_fqn: down,
