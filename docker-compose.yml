@@ -134,6 +134,23 @@ services:
     networks: [default, nb-internal, nb-dev]
     restart: unless-stopped
 
+  # ── Lakehouse catalog (opt-in: --profile lakehouse) ──────────────────────────
+  # The DuckLake transactional catalog: schemas, table manifests and snapshots
+  # live here while table DATA lives as Parquet in object storage. Any
+  # Postgres 12+ works; this one exists so a single-host deployment has zero
+  # extra moving parts. Point LAKEHOUSE_CATALOG_URL at it (or at your own).
+  lakehouse-catalog:
+    image: postgres:16
+    profiles: [lakehouse, all]
+    environment:
+      POSTGRES_USER: ${LAKEHOUSE_CATALOG_USER:-lakehouse}
+      POSTGRES_PASSWORD: ${LAKEHOUSE_CATALOG_PASSWORD:-change-me}
+      POSTGRES_DB: lakehouse_catalog
+    volumes:
+      - lakehouse-catalog-data:/var/lib/postgresql/data
+    networks: [default]
+    restart: unless-stopped
+
   # ── Server-side Office renderer (opt-in: --profile docgen) ───────────────────
   # python-pptx (native editable charts/tables + LibreOffice render-verify),
   # python-docx (multi-page Word) and openpyxl (Excel with LibreOffice formula
@@ -247,3 +264,6 @@ networks:
   # gateway reachability, weaker egress isolation — dev only.
   nb-dev:
     name: agentswarms_nb-dev
+
+volumes:
+  lakehouse-catalog-data:

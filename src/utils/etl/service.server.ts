@@ -227,11 +227,14 @@ export async function resolveRunEnv(
   // reports the new maximum in metrics.watermarks and finalizeEtlRun persists
   // it. Server-held state, so a pipeline cannot skip data by mis-editing a
   // bucket object — and an operator can inspect it in etl_pipeline_state.
-  const incrementalNodes = (graph?.nodes ?? []).filter(
-    (n) =>
-      ((n as EtlNode).config as { incremental?: { cursor_column?: string } }).incremental
-        ?.cursor_column,
-  );
+  const incrementalNodes = (graph?.nodes ?? []).filter((n) => {
+    const c = (n as EtlNode).config as {
+      incremental?: { cursor_column?: string };
+      mode?: string;
+      type?: string;
+    };
+    return Boolean(c.incremental?.cursor_column) || c.mode === "cdc" || c.type === "ingest";
+  });
   if (incrementalNodes.length) {
     const { data: state } = await supabaseAdmin
       .from("etl_pipeline_state")
@@ -241,6 +244,52 @@ export async function resolveRunEnv(
     for (const node of incrementalNodes) {
       const value = cursors.get(node.id);
       if (value) env[`${envKey(node.id)}_CURSOR`] = value;
+    }
+  }
+
+  // Lakehouse nodes: the sandbox attaches the SAME DuckLake catalog the app
+  // uses. Access is checked HERE, as the pipeline's owner — the sandbox holds
+  // engine-level credentials, so a schema the owner cannot reach must never
+  // become reachable by writing its name into a graph.
+  const lakehouseNodes = (graph?.nodes ?? []).filter(
+    (n) => ((n as EtlNode).config as { type?: string }).type === "lakehouse",
+  );
+  if (lakehouseNodes.length) {
+    const { lakehouseConfig, accessibleSchemas, catalogUrlToLibpq } =
+      await import("@/utils/lakehouse/core.server");
+    const cfg = lakehouseConfig();
+    if (!cfg) {
+      throw new Error(
+        "This pipeline uses the lakehouse, but the deployment has no lakehouse configured (LAKEHOUSE_CATALOG_URL).",
+      );
+    }
+    const allowed = new Set((await accessibleSchemas(pipeline.user_id)).map((sch) => sch.name));
+    for (const node of lakehouseNodes) {
+      const schema = ((node as EtlNode).config as { schema?: string }).schema ?? "";
+      if (!allowed.has(schema)) {
+        throw new Error(
+          `Node "${(node as EtlNode).label || node.id}": no access to lakehouse schema "${schema}" — ` +
+            `it doesn't exist, or nobody shared it with this pipeline's owner`,
+        );
+      }
+    }
+    env.ETL_LAKEHOUSE_CATALOG = catalogUrlToLibpq(cfg.catalog);
+    env.ETL_LAKEHOUSE_DATA_URL = cfg.dataUrl;
+    env.ETL_LAKEHOUSE_S3_KEY_ID = cfg.s3.keyId;
+    env.ETL_LAKEHOUSE_S3_SECRET = cfg.s3.secret;
+    env.ETL_LAKEHOUSE_S3_URL_STYLE = cfg.s3.urlStyle;
+    env.ETL_LAKEHOUSE_S3_USE_SSL = cfg.s3.useSsl ? "true" : "false";
+    if (cfg.s3.endpoint) env.ETL_LAKEHOUSE_S3_ENDPOINT = cfg.s3.endpoint;
+    // The catalog string carries the catalog Postgres password; the log
+    // scrubber must erase it wherever a stack trace prints it.
+    secretValues.push(env.ETL_LAKEHOUSE_CATALOG, cfg.s3.secret);
+  }
+
+  // CDC slots are named server-side so two pipelines can never collide on one
+  // slot by both defaulting a node id like "n1".
+  for (const node of graph?.nodes ?? []) {
+    if (((node as EtlNode).config as { mode?: string }).mode === "cdc") {
+      env[`${envKey(node.id)}_SLOT`] = cdcSlotName(pipeline.id, node.id);
     }
   }
 
@@ -307,6 +356,60 @@ export function scrubSecrets(text: string, secretValues: string[]): string {
  * (so secrets never appear in code), then pip-installs the pipeline's
  * requirements. Underscore-prefixed names keep the user's namespace clean.
  */
+/** Deterministic, pipeline-scoped replication-slot name (Postgres: 63 chars, [a-z0-9_]). */
+export function cdcSlotName(pipelineId: string, nodeId: string): string {
+  const pid = pipelineId.replace(/-/g, "").slice(0, 10);
+  const nid = nodeId.toLowerCase().replace(/[^a-z0-9_]/g, "");
+  return `aswarm_${pid}_${nid}`.slice(0, 63);
+}
+
+/**
+ * Best-effort drop of a pipeline's CDC replication slots. A leaked slot makes
+ * the source Postgres retain WAL FOREVER, so deletion must at least try; a
+ * dead or unreachable database only costs a warning, never blocks the delete.
+ */
+export async function dropCdcSlots(pipeline: EtlPipelineRow): Promise<void> {
+  const graph = normalizeGraph(pipeline.graph);
+  const cdcNodes = (graph?.nodes ?? []).filter(
+    (n) => ((n as EtlNode).config as { mode?: string }).mode === "cdc",
+  );
+  if (!cdcNodes.length) return;
+  const { executeWarehouseQuery } = await import("@/utils/warehouse/drivers.server");
+  const { loadWarehouseConnectionForUser } = await import("@/utils/warehouse/connections.server");
+  for (const node of cdcNodes) {
+    const connectionId = ((node as EtlNode).config as { connection_id?: string }).connection_id;
+    if (!connectionId) continue;
+    const slot = cdcSlotName(pipeline.id, node.id);
+    try {
+      const conn = await loadWarehouseConnectionForUser(
+        supabaseAdmin,
+        { connectionId },
+        pipeline.user_id,
+      );
+      await executeWarehouseQuery(
+        conn.config,
+        `SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = '${slot.replace(/[^a-z0-9_]/g, "")}'`,
+        10,
+      );
+      console.log(`[etl] cdc: dropped slot ${slot}`);
+    } catch (e) {
+      console.warn(`[etl] cdc: could not drop slot ${slot}: ${(e as Error).message}`);
+    }
+  }
+}
+
+export type EtlAlertPolicy = { on_failure: boolean; on_success: boolean; on_recovery: boolean };
+
+/** The pipeline's alert policy, with pre-migration rows getting the defaults. */
+export function etlAlertPolicy(pipeline: { alerts?: unknown }): EtlAlertPolicy {
+  const raw = (pipeline.alerts ?? {}) as Partial<EtlAlertPolicy>;
+  return {
+    on_failure: raw.on_failure !== false,
+    on_success: raw.on_success === true,
+    on_recovery: raw.on_recovery !== false,
+  };
+}
+
 export function etlPrelude(): string {
   return [
     `import json as _j, os as _os, subprocess as _sp, sys as _sys`,
@@ -402,11 +505,77 @@ export async function etlPreviewEnvFor(
   const graph = normalizeGraph(pipeline.graph);
   if (!graph) return { error: "This pipeline has no visual graph to preview" };
   const { env } = await resolveRunEnv(pipeline, { skipTargets: true });
+  env.AGENTSWARMS_ETL_PREVIEW = "1";
   const requirements = previewRequirementsFor(graph)
     .split("\n")
     .map((l) => l.trim())
     .filter(Boolean);
   return { env, requirements };
+}
+
+/** Streamed-rows drain ceiling per run. */
+const ETL_INGEST_MAX_ROWS = 100_000;
+
+/**
+ * The "etl_ingest" part: this pipeline's staged webhook rows. When consuming,
+ * everything at or below the cursor — durably loaded by the previous run —
+ * is deleted first; what remains (and anything newer) comes back with its
+ * staging id so the run can report a new cursor. Previews read without
+ * consuming.
+ */
+export async function etlIngestFor(
+  pipelineId: string,
+  userId: string,
+  opts: { cursor?: string | null; consume?: boolean },
+): Promise<
+  { rows: Record<string, unknown>[]; max_id: number | null; truncated: boolean } | { error: string }
+> {
+  const { data: pipeline } = await supabaseAdmin
+    .from("etl_pipelines")
+    .select("id")
+    .eq("id", pipelineId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!pipeline) return { error: "Pipeline not found for this session" };
+
+  const cursor = Number(opts.cursor);
+  if (opts.consume && Number.isFinite(cursor) && cursor > 0) {
+    await supabaseAdmin
+      .from("etl_ingest_events")
+      .delete()
+      .eq("pipeline_id", pipelineId)
+      .lte("id", cursor);
+  }
+
+  const PAGE = 1000;
+  const rows: Record<string, unknown>[] = [];
+  let maxId: number | null = null;
+  let truncated = false;
+  for (let from = 0; ; ) {
+    const { data: chunk, error } = await supabaseAdmin
+      .from("etl_ingest_events")
+      .select("id, payload, received_at")
+      .eq("pipeline_id", pipelineId)
+      .gt("id", from)
+      .order("id", { ascending: true })
+      .limit(PAGE);
+    if (error) return { error: error.message };
+    if (!chunk?.length) break;
+    for (const r of chunk) {
+      rows.push({
+        ...(r.payload as Record<string, unknown>),
+        _ingest_id: r.id,
+        _ingest_received_at: r.received_at,
+      });
+      maxId = r.id;
+    }
+    from = chunk[chunk.length - 1].id;
+    if (rows.length >= ETL_INGEST_MAX_ROWS) {
+      truncated = true;
+      break;
+    }
+  }
+  return { rows, max_id: maxId, truncated };
 }
 
 /** Row ceiling for datasets served into a pipeline — beyond it, truncate loudly. */
@@ -635,7 +804,7 @@ async function failOrRetry(
 
   if ((run.retries_remaining ?? 0) > 0) {
     const retryAt = new Date(Date.now() + backoffMs(run.attempt)).toISOString();
-    await supabaseAdmin
+    const { data: claimed } = await supabaseAdmin
       .from("etl_runs")
       .update({
         status: "retrying",
@@ -644,7 +813,10 @@ async function failOrRetry(
         error: errorMessage.slice(0, 4000),
         logs,
       })
-      .eq("id", runId);
+      .eq("id", runId)
+      .in("status", ["queued", "running", "retrying"])
+      .select("id");
+    if (!claimed?.length) return;
     auditEvent({
       userId: pipeline.user_id,
       action: "etl.run.retry_scheduled",
@@ -656,7 +828,7 @@ async function failOrRetry(
     return;
   }
 
-  await supabaseAdmin
+  const { data: claimedFail } = await supabaseAdmin
     .from("etl_runs")
     .update({
       status: "failed",
@@ -664,7 +836,10 @@ async function failOrRetry(
       logs,
       finished_at: stamp,
     })
-    .eq("id", runId);
+    .eq("id", runId)
+    .in("status", ["queued", "running", "retrying"])
+    .select("id");
+  if (!claimedFail?.length) return;
   await supabaseAdmin
     .from("etl_pipelines")
     .update({ last_run_at: stamp, last_run_status: "failed" })
@@ -677,11 +852,13 @@ async function failOrRetry(
     resourceName: pipeline.name,
     detail: { run_id: runId, attempts: run.attempt, error: errorMessage.slice(0, 500) },
   });
-  void notifyUser(pipeline.user_id, {
-    title: `Pipeline "${pipeline.name}" failed`,
-    body: `${errorMessage.slice(0, 450)} (after ${run.attempt} attempt${run.attempt > 1 ? "s" : ""})`,
-    link: "/etl",
-  }).catch(() => {});
+  if (etlAlertPolicy(pipeline).on_failure) {
+    void notifyUser(pipeline.user_id, {
+      title: `Pipeline "${pipeline.name}" failed`,
+      body: `${errorMessage.slice(0, 450)} (after ${run.attempt} attempt${run.attempt > 1 ? "s" : ""})`,
+      link: "/etl",
+    }).catch(() => {});
+  }
 }
 
 /**
@@ -779,6 +956,15 @@ export async function restartEtlAttempt(runId: string): Promise<boolean> {
     .eq("status", "retrying")
     .maybeSingle();
   if (!run) return false;
+  // Claim the retry: retrying -> queued, exactly one winner. Without this,
+  // two app replicas sweeping the same due retry both launch an attempt.
+  const { data: claimed } = await supabaseAdmin
+    .from("etl_runs")
+    .update({ status: "queued", retry_at: null })
+    .eq("id", runId)
+    .eq("status", "retrying")
+    .select("id");
+  if (!claimed?.length) return false;
   const { data: pipeline } = await supabaseAdmin
     .from("etl_pipelines")
     .select("*")
@@ -851,16 +1037,42 @@ export async function finalizeEtlRun(
   // story of a retried run reads top to bottom in one place.
   const priorLogs = (run as { logs?: string | null }).logs ?? "";
   const logs = `${priorLogs}${priorLogs ? "\n" : ""}${attemptLogs}`.slice(-LOG_CAP);
-  await supabaseAdmin
+  // The terminal write is also the CLAIM: only a run still in a live status
+  // can be finalised, and exactly one caller wins it — so a duplicate result
+  // callback (or an orphan-reaper race with the real callback, or two app
+  // replicas) cannot double-fire chains, alerts, lineage or crawls.
+  const { data: claimed } = await supabaseAdmin
     .from("etl_runs")
     .update({ status: "succeeded", logs, error: null, metrics, finished_at: now })
-    .eq("id", etlRunId);
+    .eq("id", etlRunId)
+    .in("status", ["queued", "running", "retrying"])
+    .select("id");
+  if (!claimed?.length) return;
 
   if (pipeline) {
+    // The row in hand still carries the PREVIOUS run's status — read the
+    // recovery transition off it before stamping the new one.
+    const wasFailing = pipeline.last_run_status === "failed";
     await supabaseAdmin
       .from("etl_pipelines")
       .update({ last_run_at: now, last_run_status: "succeeded" })
       .eq("id", pipeline.id);
+
+    const alerts = etlAlertPolicy(pipeline);
+    const rowsLoaded = (metrics as { rows_loaded?: number } | null)?.rows_loaded;
+    if (alerts.on_recovery && wasFailing) {
+      void notifyUser(pipeline.user_id, {
+        title: `Pipeline "${pipeline.name}" recovered`,
+        body: `Back to green${typeof rowsLoaded === "number" ? ` — ${rowsLoaded} row(s) loaded` : ""} after the previous run failed.`,
+        link: "/etl",
+      }).catch(() => {});
+    } else if (alerts.on_success) {
+      void notifyUser(pipeline.user_id, {
+        title: `Pipeline "${pipeline.name}" succeeded`,
+        body: typeof rowsLoaded === "number" ? `${rowsLoaded} row(s) loaded.` : "Run finished.",
+        link: "/etl",
+      }).catch(() => {});
+    }
 
     auditEvent({
       userId: run.user_id,

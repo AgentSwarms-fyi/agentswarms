@@ -72,6 +72,13 @@ const UpsertSchema = z.object({
   cron_expr: z.string().max(120).nullable().optional(),
   timezone: z.string().max(60).nullable().optional(),
   retry_count: z.number().int().min(0).max(5).optional(),
+  alerts: z
+    .object({
+      on_failure: z.boolean(),
+      on_success: z.boolean(),
+      on_recovery: z.boolean(),
+    })
+    .optional(),
   allow_concurrent: z.boolean().optional(),
   default_params: z.record(z.string(), z.unknown()).nullable().optional(),
   run_after: z.string().uuid().nullable().optional(),
@@ -339,6 +346,7 @@ export const saveEtlPipeline = createServerFn({ method: "POST" })
         cron_expr: data.cron_expr ?? null,
         timezone: data.timezone ?? null,
         retry_count: data.retry_count ?? 0,
+        ...(data.alerts ? { alerts: data.alerts as never } : {}),
         allow_concurrent: data.allow_concurrent ?? false,
         default_params: (data.default_params ?? null) as never,
         run_after: data.run_after ?? null,
@@ -440,6 +448,18 @@ export const deleteEtlPipeline = createServerFn({ method: "POST" })
       .eq("user_id", userId)
       .maybeSingle();
     if (!row) return { ok: false };
+    // CDC slots die with the pipeline (best-effort — see dropCdcSlots).
+    {
+      const { data: full } = await supabaseAdmin
+        .from("etl_pipelines")
+        .select("*")
+        .eq("id", data.id)
+        .maybeSingle();
+      if (full) {
+        const { dropCdcSlots } = await import("@/utils/etl/service.server");
+        await dropCdcSlots(full);
+      }
+    }
     const { error } = await supabaseAdmin.from("etl_pipelines").delete().eq("id", data.id);
     if (error) throw new Error(error.message);
     auditEvent({
@@ -742,4 +762,56 @@ export const getEtlPreview = createServerFn({ method: "POST" })
             "Preview failed")
           : null,
     };
+  });
+
+export const duplicateEtlPipeline = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z.object({ access_token: z.string().min(1), id: z.string().uuid() }).parse(input),
+  )
+  .handler(async ({ data }): Promise<{ id: string; name: string }> => {
+    const userId = await resolveCaller(data.access_token);
+    const { data: src } = await supabaseAdmin
+      .from("etl_pipelines")
+      .select("*")
+      .eq("id", data.id)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (!src) throw new Error("Pipeline not found");
+    // The copy is a STAGING artifact: manual schedule, inactive clock state,
+    // its own trigger token, no run history. Connections and destination are
+    // carried over so the user re-points only what should differ.
+    const name = `${src.name} (copy)`.slice(0, 120);
+    const token_hash = createHash("sha256").update(randomBytes(24).toString("hex")).digest("hex");
+    const { data: created, error } = await supabaseAdmin
+      .from("etl_pipelines")
+      .insert({
+        user_id: userId,
+        name,
+        description: src.description,
+        mode: src.mode,
+        graph: src.graph as never,
+        source_code: src.source_code,
+        requirements: src.requirements,
+        secret_refs: src.secret_refs,
+        dest_catalog_source_id: src.dest_catalog_source_id,
+        schedule: "manual",
+        retry_count: src.retry_count,
+        allow_concurrent: src.allow_concurrent,
+        default_params: src.default_params as never,
+        timeout_minutes: src.timeout_minutes,
+        alerts: src.alerts as never,
+        trigger_token_hash: token_hash,
+      })
+      .select("id")
+      .single();
+    if (error || !created) throw new Error(error?.message ?? "Failed to duplicate");
+    auditEvent({
+      userId,
+      action: "etl.pipeline.duplicate",
+      resourceType: "etl_pipeline",
+      resourceId: created.id,
+      resourceName: name,
+      detail: { source_pipeline_id: data.id },
+    });
+    return { id: created.id, name };
   });

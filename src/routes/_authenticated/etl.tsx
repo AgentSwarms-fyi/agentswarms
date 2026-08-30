@@ -111,12 +111,14 @@ import {
   type EtlTransformConfig,
   type QualityRule,
 } from "@/utils/etl/codegen";
+import { getLakehouseOverview } from "@/utils/lakehouse.functions";
 import { ETL_TEMPLATES } from "@/lib/etlTemplates";
 import { listWarehouseConnections } from "@/utils/warehouse.functions";
 import type { WarehouseConnectionSummary } from "@/utils/warehouse/types";
 import {
   cancelEtlRunFn,
   deleteEtlPipeline,
+  duplicateEtlPipeline,
   getEtlOverview,
   getEtlPipeline,
   getEtlRunLogs,
@@ -241,7 +243,7 @@ function EtlPage() {
       </div>
 
       {/* ── Health strip ── */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
         <StatCard label="Pipelines" value={data ? String(data.pipelines.length) : "—"} />
         <StatCard
           label="Scheduled"
@@ -275,6 +277,11 @@ function EtlPage() {
         <StatCard
           label="Rows loaded · 7d"
           value={stats ? stats.rows_loaded_7d.toLocaleString() : "—"}
+        />
+        <StatCard
+          label="Runtime · 7d"
+          value={stats ? fmtRuntime(stats.runtime_ms_7d) : "—"}
+          hint="sandbox time across pipelines"
         />
       </div>
 
@@ -408,6 +415,15 @@ function RunDots({ pulse }: { pulse?: { recent: string[]; success_rate: number |
   );
 }
 
+/** Human runtime: 47s, 12m 3s, 1h 12m. */
+function fmtRuntime(ms: number): string {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${s % 60}s`;
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+
 function scheduleLabel(p: OverviewPipeline): string {
   if (p.schedule === "cron") {
     return `cron ${p.cron_expr ?? "?"}${p.timezone ? ` (${p.timezone})` : ""}`;
@@ -444,13 +460,19 @@ function PipelineRow({
   onChanged,
 }: {
   p: OverviewPipeline;
-  pulse?: { recent: string[]; success_rate: number | null };
+  pulse?: {
+    recent: string[];
+    success_rate: number | null;
+    runtime_ms_7d: number;
+    rows_7d: number;
+  };
   onOpen: () => void;
   onChanged: () => void;
 }) {
   const { session } = useAuth();
   const runFn = useServerFn(runEtlPipeline);
   const deleteFn = useServerFn(deleteEtlPipeline);
+  const duplicateFn = useServerFn(duplicateEtlPipeline);
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -494,6 +516,12 @@ function PipelineRow({
             <span>last run: {fmtWhen(p.last_run_at)}</span>
             {p.schedule !== "manual" && p.is_active && <span>next: {fmtWhen(p.next_run_at)}</span>}
             {(p.retry_count ?? 0) > 0 && <span>retries: {p.retry_count}</span>}
+            {pulse && pulse.runtime_ms_7d > 0 && (
+              <span title="Sandbox runtime attributed to this pipeline, last 7 days">
+                runtime 7d: {fmtRuntime(pulse.runtime_ms_7d)}
+              </span>
+            )}
+            {pulse && pulse.rows_7d > 0 && <span>rows 7d: {pulse.rows_7d.toLocaleString()}</span>}
           </div>
           <div className="mt-1.5">
             <RunDots pulse={pulse} />
@@ -504,6 +532,24 @@ function PipelineRow({
           <Button size="sm" variant="outline" onClick={runNow} disabled={busy}>
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
             <span className="ml-1 hidden sm:inline">Run</span>
+          </Button>
+          <Button
+            size="icon"
+            variant="ghost"
+            title="Duplicate — a manual-schedule copy for staging or promotion"
+            onClick={async () => {
+              try {
+                const res = await duplicateFn({
+                  data: { access_token: session?.access_token ?? "", id: p.id },
+                });
+                toast.success(`Created "${res.name}"`);
+                onChanged();
+              } catch (e) {
+                toast.error((e as Error).message);
+              }
+            }}
+          >
+            <Copy className="h-4 w-4" />
           </Button>
           <Button size="icon" variant="ghost" onClick={() => setConfirmDelete(true)}>
             <Trash2 className="h-4 w-4" />
@@ -695,6 +741,7 @@ type EditorPipeline = {
   cron_expr: string | null;
   timezone: string | null;
   retry_count: number;
+  alerts: { on_failure: boolean; on_success: boolean; on_recovery: boolean } | null;
   allow_concurrent: boolean;
   default_params: Record<string, unknown> | null;
   run_after: string | null;
@@ -737,6 +784,11 @@ function PipelineEditor({ id, onBack }: { id: string; onBack: () => void }) {
           cron_expr: row.cron_expr,
           timezone: row.timezone,
           retry_count: row.retry_count ?? 0,
+          alerts: (row as { alerts?: EditorPipeline["alerts"] }).alerts ?? {
+            on_failure: true,
+            on_success: false,
+            on_recovery: true,
+          },
           allow_concurrent: row.allow_concurrent ?? false,
           default_params: (row.default_params as Record<string, unknown> | null) ?? null,
           run_after: row.run_after,
@@ -782,6 +834,7 @@ function PipelineEditor({ id, onBack }: { id: string; onBack: () => void }) {
           cron_expr: p.cron_expr,
           timezone: p.timezone,
           retry_count: p.retry_count,
+          alerts: p.alerts ?? undefined,
           allow_concurrent: p.allow_concurrent,
           default_params: p.default_params,
           run_after: p.run_after,
@@ -987,6 +1040,8 @@ const SOURCE_TYPES = [
   { type: "database", label: "Database / warehouse" },
   { type: "http_api", label: "HTTP API (JSON)" },
   { type: "platform_dataset", label: "Platform dataset" },
+  { type: "lakehouse", label: "Lakehouse table" },
+  { type: "ingest", label: "Streamed rows (push)" },
   { type: "python", label: "Custom Python" },
 ] as const;
 
@@ -1011,6 +1066,8 @@ const TRANSFORM_TYPES = [
 const TARGET_TYPES = [
   { type: "object_storage", label: "Object storage" },
   { type: "database", label: "Database / warehouse" },
+  { type: "lakehouse", label: "Lakehouse table" },
+  { type: "http_api", label: "HTTP API (reverse ETL)" },
 ] as const;
 
 function typeLabel(node: EtlNode): string {
@@ -1039,6 +1096,12 @@ function defaultNodeConfig(
     }
   }
   if (kind === "target") {
+    if (type === "http_api") {
+      return { type: "http_api", url: "https://", method: "POST", batch_size: 500 };
+    }
+    if (type === "lakehouse") {
+      return { type: "lakehouse", schema: "", table: "", write_mode: "replace" };
+    }
     return type === "database"
       ? { type: "database", dataset: "public", table: "etl_output", write_mode: "replace" }
       : {
@@ -1052,6 +1115,10 @@ function defaultNodeConfig(
   switch (type) {
     case "platform_dataset":
       return { type, table_id: "" };
+    case "ingest":
+      return { type };
+    case "lakehouse":
+      return { type, schema: "", mode: "table", table: "" };
     case "filter":
       return { type, expr: "amount > 0" };
     case "select":
@@ -1090,6 +1157,54 @@ function defaultNodeConfig(
  * produces. Polls the preview session until it lands; the pipeline itself is
  * untouched (no loads, no watermark movement).
  */
+/** Lakehouse schemas the signed-in user can reach (owned + IAM-granted). */
+function LakehouseSchemaPicker({
+  value,
+  onPick,
+}: {
+  value: string;
+  onPick: (schema: string) => void;
+}) {
+  const { session } = useAuth();
+  const token = session?.access_token ?? "";
+  const overviewFn = useServerFn(getLakehouseOverview);
+  const [schemas, setSchemas] = useState<string[]>([]);
+  const [enabled, setEnabled] = useState(true);
+  useEffect(() => {
+    if (!token) return;
+    void overviewFn({ data: { access_token: token } })
+      .then((res) => {
+        setEnabled(res.enabled);
+        setSchemas(res.schemas.map((sch) => sch.name));
+      })
+      .catch(() => setSchemas([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+  if (!enabled) {
+    return (
+      <p className="text-[11px] text-red-500">
+        The lakehouse isn&apos;t configured on this deployment — this node can&apos;t run.
+      </p>
+    );
+  }
+  return (
+    <Field label="Lakehouse schema">
+      <Select value={value} onValueChange={onPick}>
+        <SelectTrigger className="h-8">
+          <SelectValue placeholder="Choose a schema" />
+        </SelectTrigger>
+        <SelectContent>
+          {schemas.map((sch) => (
+            <SelectItem key={sch} value={sch}>
+              {sch}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </Field>
+  );
+}
+
 /** Datasets already on the platform: uploads, prep outputs, connector syncs. */
 function PlatformDatasetPicker({
   tableId,
@@ -1832,6 +1947,99 @@ function NodePanel({
         </div>
       )}
 
+      {c.type === "lakehouse" && (
+        <>
+          <LakehouseSchemaPicker
+            value={(c.schema as string) ?? ""}
+            onPick={(schema) => set({ schema })}
+          />
+          {node.kind === "source" ? (
+            <>
+              <Field label="Read">
+                <Select
+                  value={(c.mode as string) ?? "table"}
+                  onValueChange={(v) => set({ mode: v })}
+                >
+                  <SelectTrigger className="h-8">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="table">Whole table</SelectItem>
+                    <SelectItem value="query">SQL query</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+              {c.mode === "query" ? (
+                <Field label="Query (schema-qualified)">
+                  <Textarea
+                    rows={3}
+                    className="font-mono text-xs"
+                    value={(c.query as string) ?? ""}
+                    onChange={(e) => set({ query: e.target.value })}
+                    placeholder="SELECT * FROM analytics.orders WHERE amount > 100"
+                  />
+                </Field>
+              ) : (
+                <Field label="Table">
+                  <Input
+                    className="h-8 font-mono text-xs"
+                    value={(c.table as string) ?? ""}
+                    onChange={(e) => set({ table: e.target.value.toLowerCase() })}
+                    placeholder="orders"
+                  />
+                </Field>
+              )}
+            </>
+          ) : (
+            <>
+              <Field label="Table">
+                <Input
+                  className="h-8 font-mono text-xs"
+                  value={(c.table as string) ?? ""}
+                  onChange={(e) => set({ table: e.target.value.toLowerCase() })}
+                  placeholder="orders"
+                />
+              </Field>
+              <Field label="Write mode">
+                <Select
+                  value={(c.write_mode as string) ?? "replace"}
+                  onValueChange={(v) => set({ write_mode: v })}
+                >
+                  <SelectTrigger className="h-8">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="replace">Replace</SelectItem>
+                    <SelectItem value="append">Append</SelectItem>
+                    <SelectItem value="merge">Merge (upsert)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+              {c.write_mode === "merge" && (
+                <Field label="Primary key columns">
+                  <Input
+                    className="h-8 font-mono text-xs"
+                    value={csv(c.primary_key as string[])}
+                    onChange={(e) => set({ primary_key: unCsv(e.target.value) })}
+                    placeholder="id"
+                  />
+                </Field>
+              )}
+            </>
+          )}
+          <p className="text-[11px] text-muted-foreground">
+            Writes commit to the lakehouse as ACID snapshots. The pipeline owner must have access to
+            the schema — share it from Admin → IAM.
+          </p>
+        </>
+      )}
+      {c.type === "ingest" && node.kind === "source" && (
+        <p className="text-[11px] text-muted-foreground">
+          Drains rows pushed to <span className="font-mono">POST /api/etl/ingest</span> with this
+          pipeline&apos;s trigger token (Settings → External trigger). Each run loads everything
+          received since the last run — push, then trigger a run for near-real-time.
+        </p>
+      )}
       {c.type === "platform_dataset" && node.kind === "source" && (
         <PlatformDatasetPicker
           tableId={(c.table_id as string) ?? ""}
@@ -1874,10 +2082,11 @@ function NodePanel({
               <SelectContent>
                 <SelectItem value="table">Whole table</SelectItem>
                 <SelectItem value="query">SQL query</SelectItem>
+                <SelectItem value="cdc">Change data capture</SelectItem>
               </SelectContent>
             </Select>
           </Field>
-          {c.mode === "table" ? (
+          {c.mode === "table" || c.mode === "cdc" ? (
             <Field label="Table">
               <Input
                 className="h-8 font-mono text-xs"
@@ -1897,32 +2106,55 @@ function NodePanel({
               />
             </Field>
           )}
+          {c.mode === "cdc" && (
+            <>
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-xs font-medium">Initial snapshot</div>
+                  <div className="text-[11px] text-muted-foreground">
+                    Full table read on the first run, before changes stream.
+                  </div>
+                </div>
+                <Switch
+                  checked={(c.initial_snapshot as boolean | undefined) !== false}
+                  onCheckedChange={(v) => set({ initial_snapshot: v })}
+                />
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Reads a PostgreSQL logical-replication slot (wal2json) the engine creates and
+                manages. Rows carry _cdc_action / _cdc_deleted / _cdc_lsn; a merge target with
+                primary keys applies updates and deletes automatically.
+              </p>
+            </>
+          )}
         </>
       )}
-      {(c.type === "database" || c.type === "object_storage") && node.kind === "source" && (
-        <Field label="Incremental cursor column (optional)">
-          <Input
-            className="h-8 font-mono text-xs"
-            value={
-              ((c.incremental as { cursor_column?: string } | undefined)?.cursor_column as
-                | string
-                | undefined) ?? ""
-            }
-            onChange={(e) =>
-              set({
-                incremental: e.target.value.trim()
-                  ? { cursor_column: e.target.value.trim() }
-                  : undefined,
-              })
-            }
-            placeholder="updated_at"
-          />
-          <p className="mt-1 text-[11px] text-muted-foreground">
-            Only rows above the stored watermark load; the engine advances it after each successful
-            run.
-          </p>
-        </Field>
-      )}
+      {(c.type === "database" || c.type === "object_storage") &&
+        node.kind === "source" &&
+        c.mode !== "cdc" && (
+          <Field label="Incremental cursor column (optional)">
+            <Input
+              className="h-8 font-mono text-xs"
+              value={
+                ((c.incremental as { cursor_column?: string } | undefined)?.cursor_column as
+                  | string
+                  | undefined) ?? ""
+              }
+              onChange={(e) =>
+                set({
+                  incremental: e.target.value.trim()
+                    ? { cursor_column: e.target.value.trim() }
+                    : undefined,
+                })
+              }
+              placeholder="updated_at"
+            />
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Only rows above the stored watermark load; the engine advances it after each
+              successful run.
+            </p>
+          </Field>
+        )}
       {c.type === "http_api" && (
         <>
           <Field label="URL">
@@ -2166,7 +2398,66 @@ function NodePanel({
         </Field>
       )}
 
-      {node.kind === "target" && (
+      {node.kind === "target" && c.type === "http_api" && (
+        <>
+          <Field label="URL">
+            <Input
+              className="h-8 font-mono text-xs"
+              value={(c.url as string) ?? ""}
+              onChange={(e) => set({ url: e.target.value })}
+              placeholder="https://api.example.com/records"
+            />
+          </Field>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Method">
+              <Select
+                value={(c.method as string) ?? "POST"}
+                onValueChange={(v) => set({ method: v })}
+              >
+                <SelectTrigger className="h-8">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {["POST", "PUT", "PATCH"].map((m) => (
+                    <SelectItem key={m} value={m}>
+                      {m}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label="Rows per request">
+              <Input
+                type="number"
+                className="h-8 font-mono text-xs"
+                value={(c.batch_size as number) ?? 500}
+                onChange={(e) => set({ batch_size: Number(e.target.value) || 500 })}
+              />
+            </Field>
+          </div>
+          <Field label="Wrap key (optional)">
+            <Input
+              className="h-8 font-mono text-xs"
+              value={(c.wrap_key as string) ?? ""}
+              onChange={(e) => set({ wrap_key: e.target.value })}
+              placeholder="records"
+            />
+          </Field>
+          <Field label="Bearer token env var (optional)">
+            <Input
+              className="h-8 font-mono text-xs"
+              value={(c.auth_env as string) ?? ""}
+              onChange={(e) => set({ auth_env: e.target.value.trim() || undefined })}
+              placeholder="MY_API_TOKEN"
+            />
+          </Field>
+          <p className="text-[11px] text-muted-foreground">
+            Bind the env var to a secret under Settings → secret bindings; it is sent as a Bearer
+            Authorization header and scrubbed from logs.
+          </p>
+        </>
+      )}
+      {node.kind === "target" && c.type !== "http_api" && c.type !== "lakehouse" && (
         <>
           <div className="grid grid-cols-2 gap-2">
             <Field label={c.type === "database" ? "Schema" : "Dataset"}>
@@ -2185,20 +2476,47 @@ function NodePanel({
             </Field>
           </div>
           {c.type === "object_storage" && (
-            <Field label="File format">
-              <Select value={c.format as string} onValueChange={(v) => set({ format: v })}>
-                <SelectTrigger className="h-8">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {["parquet", "csv", "jsonl"].map((f) => (
-                    <SelectItem key={f} value={f}>
-                      {f.toUpperCase()}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Table format">
+                <Select
+                  value={(c.table_format as string) ?? "none"}
+                  onValueChange={(v) =>
+                    set(
+                      v === "none"
+                        ? { table_format: "none" }
+                        : { table_format: v, format: "parquet" },
+                    )
+                  }
+                >
+                  <SelectTrigger className="h-8">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Plain files</SelectItem>
+                    <SelectItem value="delta">Delta Lake</SelectItem>
+                    <SelectItem value="iceberg">Iceberg</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field label="File format">
+                <Select
+                  value={c.format as string}
+                  onValueChange={(v) => set({ format: v })}
+                  disabled={c.table_format === "delta" || c.table_format === "iceberg"}
+                >
+                  <SelectTrigger className="h-8">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {["parquet", "csv", "jsonl"].map((f) => (
+                      <SelectItem key={f} value={f}>
+                        {f.toUpperCase()}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+            </div>
           )}
           <Field label="Write mode">
             <Select value={c.write_mode as string} onValueChange={(v) => set({ write_mode: v })}>
@@ -2925,6 +3243,45 @@ function SettingsTab({
   -H "Content-Type: application/json" \\
   -d '{"pipeline_id": "${p.id}"}'`}
             </pre>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Alerts</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              Delivered in-app and to every notification channel connected on the Integrations page
+              (Slack, Teams, Discord, webhooks).
+            </p>
+            {(
+              [
+                ["on_failure", "Run fails", "After every retry is exhausted."],
+                ["on_recovery", "Run recovers", "First success after a failure."],
+                ["on_success", "Every success", "Noisy on tight schedules — off by default."],
+              ] as const
+            ).map(([key, label, hint]) => (
+              <div key={key} className="flex items-center justify-between">
+                <div>
+                  <div className="text-xs font-medium">{label}</div>
+                  <div className="text-[11px] text-muted-foreground">{hint}</div>
+                </div>
+                <Switch
+                  checked={p.alerts?.[key] ?? (key === "on_success" ? false : true)}
+                  onCheckedChange={(v) =>
+                    onPatch({
+                      alerts: {
+                        on_failure: p.alerts?.on_failure ?? true,
+                        on_success: p.alerts?.on_success ?? false,
+                        on_recovery: p.alerts?.on_recovery ?? true,
+                        [key]: v,
+                      },
+                    })
+                  }
+                />
+              </div>
+            ))}
           </CardContent>
         </Card>
 

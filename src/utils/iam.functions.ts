@@ -61,7 +61,8 @@ export type IamGrantRow = {
     | "integration"
     | "provider_credential"
     | "warehouse_connection"
-    | "saas_connection";
+    | "saas_connection"
+    | "lakehouse_schema";
   resource_id: string;
   resource_name: string | null; // null = resource was deleted
   resource_owner_id: string | null;
@@ -85,7 +86,8 @@ export type IamResourceOption = {
     | "provider_credential"
     | "warehouse_connection"
     | "saas_connection"
-    | "ai_analyst";
+    | "ai_analyst"
+    | "lakehouse_schema";
   id: string;
   name: string;
   owner_user_id: string | null;
@@ -714,6 +716,7 @@ export const iamListGrantableResources = createServerFn({ method: "POST" })
       { data: warehouses },
       { data: saasSources },
       { data: analysts },
+      { data: lakehouseSchemas },
     ] = await Promise.all([
       supabaseAdmin.from("knowledge_bases").select("id, name, user_id").order("name"),
       supabaseAdmin
@@ -741,6 +744,7 @@ export const iamListGrantableResources = createServerFn({ method: "POST" })
         .order("name"),
       supabaseAdmin.from("saas_connections").select("id, name, provider, user_id").order("name"),
       supabaseAdmin.from("ai_analysts").select("id, name, user_id").order("name"),
+      supabaseAdmin.from("lakehouse_schemas").select("id, name, user_id").order("name"),
     ]);
     const resources: IamResourceOption[] = [
       ...(kbs ?? []).map((k) => ({
@@ -815,6 +819,14 @@ export const iamListGrantableResources = createServerFn({ method: "POST" })
         id: a.id,
         name: a.name,
         owner_user_id: a.user_id,
+      })),
+      // Sharing a lakehouse schema shares QUERY + WRITE on its tables; the
+      // engine-side chokepoint enforces it on every statement.
+      ...(lakehouseSchemas ?? []).map((l) => ({
+        resource_type: "lakehouse_schema" as const,
+        id: l.id,
+        name: `${l.name} (lakehouse)`,
+        owner_user_id: l.user_id,
       })),
     ];
     return { ok: true, resources };
@@ -986,6 +998,7 @@ export const iamCreateGrant = createServerFn({ method: "POST" })
           "warehouse_connection",
           "saas_connection",
           "ai_analyst",
+          "lakehouse_schema",
         ]),
         resource_id: z.string().uuid(),
         principal_type: z.enum(["user", "group"]),

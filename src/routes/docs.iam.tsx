@@ -177,7 +177,7 @@ function IamPage() {
       <H2 id="sharing">Resource sharing</H2>
       <P>
         Grant a user or group <strong>read-only</strong> access to a resource owned by someone else,
-        under <strong>Admin → IAM → Access</strong>. Eleven resource types are grantable, enforced
+        under <strong>Admin → IAM → Access</strong>. Twelve resource types are grantable, enforced
         by a database constraint:
       </P>
       <Table

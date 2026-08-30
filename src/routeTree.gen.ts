@@ -36,6 +36,7 @@ import { Route as DocsPlaygroundRouteImport } from './routes/docs.playground'
 import { Route as DocsNotebooksRouteImport } from './routes/docs.notebooks'
 import { Route as DocsModelsRouteImport } from './routes/docs.models'
 import { Route as DocsMcpRouteImport } from './routes/docs.mcp'
+import { Route as DocsLakehouseRouteImport } from './routes/docs.lakehouse'
 import { Route as DocsKnowledgeRouteImport } from './routes/docs.knowledge'
 import { Route as DocsIntegrationsRouteImport } from './routes/docs.integrations'
 import { Route as DocsIamRouteImport } from './routes/docs.iam'
@@ -77,6 +78,7 @@ import { Route as AuthenticatedModelRegistryRouteImport } from './routes/_authen
 import { Route as AuthenticatedMetricsRouteImport } from './routes/_authenticated/metrics'
 import { Route as AuthenticatedMcpBuilderRouteImport } from './routes/_authenticated/mcp-builder'
 import { Route as AuthenticatedMcpRouteImport } from './routes/_authenticated/mcp'
+import { Route as AuthenticatedLakehouseRouteImport } from './routes/_authenticated/lakehouse'
 import { Route as AuthenticatedKnowledgeRouteImport } from './routes/_authenticated/knowledge'
 import { Route as AuthenticatedIntegrationsRouteImport } from './routes/_authenticated/integrations'
 import { Route as AuthenticatedImagePlaygroundRouteImport } from './routes/_authenticated/image-playground'
@@ -106,12 +108,14 @@ import { Route as ApiSkillsGenerateRouteImport } from './routes/api/skills.gener
 import { Route as ApiObjectstoreQueryRouteImport } from './routes/api/objectstore/query'
 import { Route as ApiNotebookRuntimeRouteImport } from './routes/api/notebook.runtime'
 import { Route as ApiNotebookRunRouteImport } from './routes/api/notebook.run'
+import { Route as ApiLakehouseGenerateRouteImport } from './routes/api/lakehouse.generate'
 import { Route as ApiKbSourcesRouteImport } from './routes/api/kb/sources'
 import { Route as ApiKbIngestUrlRouteImport } from './routes/api/kb/ingest-url'
 import { Route as ApiKbIngestGithubRouteImport } from './routes/api/kb/ingest-github'
 import { Route as ApiKbBuildGraphRouteImport } from './routes/api/kb/build-graph'
 import { Route as ApiHealthReadyRouteImport } from './routes/api/health.ready'
 import { Route as ApiEtlRunRouteImport } from './routes/api/etl.run'
+import { Route as ApiEtlIngestRouteImport } from './routes/api/etl.ingest'
 import { Route as ApiEtlGenerateRouteImport } from './routes/api/etl.generate'
 import { Route as ApiEmbedChatRouteImport } from './routes/api/embed.chat'
 import { Route as ApiEmbedAnalystRouteImport } from './routes/api/embed.analyst'
@@ -273,6 +277,11 @@ const DocsModelsRoute = DocsModelsRouteImport.update({
 const DocsMcpRoute = DocsMcpRouteImport.update({
   id: '/mcp',
   path: '/mcp',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsLakehouseRoute = DocsLakehouseRouteImport.update({
+  id: '/lakehouse',
+  path: '/lakehouse',
   getParentRoute: () => DocsRoute,
 } as any)
 const DocsKnowledgeRoute = DocsKnowledgeRouteImport.update({
@@ -482,6 +491,11 @@ const AuthenticatedMcpRoute = AuthenticatedMcpRouteImport.update({
   path: '/mcp',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedLakehouseRoute = AuthenticatedLakehouseRouteImport.update({
+  id: '/lakehouse',
+  path: '/lakehouse',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 const AuthenticatedKnowledgeRoute = AuthenticatedKnowledgeRouteImport.update({
   id: '/knowledge',
   path: '/knowledge',
@@ -630,6 +644,11 @@ const ApiNotebookRunRoute = ApiNotebookRunRouteImport.update({
   path: '/api/notebook/run',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiLakehouseGenerateRoute = ApiLakehouseGenerateRouteImport.update({
+  id: '/api/lakehouse/generate',
+  path: '/api/lakehouse/generate',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiKbSourcesRoute = ApiKbSourcesRouteImport.update({
   id: '/api/kb/sources',
   path: '/api/kb/sources',
@@ -658,6 +677,11 @@ const ApiHealthReadyRoute = ApiHealthReadyRouteImport.update({
 const ApiEtlRunRoute = ApiEtlRunRouteImport.update({
   id: '/api/etl/run',
   path: '/api/etl/run',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiEtlIngestRoute = ApiEtlIngestRouteImport.update({
+  id: '/api/etl/ingest',
+  path: '/api/etl/ingest',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiEtlGenerateRoute = ApiEtlGenerateRouteImport.update({
@@ -841,6 +865,7 @@ export interface FileRoutesByFullPath {
   '/image-playground': typeof AuthenticatedImagePlaygroundRoute
   '/integrations': typeof AuthenticatedIntegrationsRoute
   '/knowledge': typeof AuthenticatedKnowledgeRoute
+  '/lakehouse': typeof AuthenticatedLakehouseRoute
   '/mcp': typeof AuthenticatedMcpRoute
   '/mcp-builder': typeof AuthenticatedMcpBuilderRoute
   '/metrics': typeof AuthenticatedMetricsRoute
@@ -882,6 +907,7 @@ export interface FileRoutesByFullPath {
   '/docs/iam': typeof DocsIamRoute
   '/docs/integrations': typeof DocsIntegrationsRoute
   '/docs/knowledge': typeof DocsKnowledgeRoute
+  '/docs/lakehouse': typeof DocsLakehouseRoute
   '/docs/mcp': typeof DocsMcpRoute
   '/docs/models': typeof DocsModelsRoute
   '/docs/notebooks': typeof DocsNotebooksRoute
@@ -912,12 +938,14 @@ export interface FileRoutesByFullPath {
   '/api/embed/analyst': typeof ApiEmbedAnalystRoute
   '/api/embed/chat': typeof ApiEmbedChatRoute
   '/api/etl/generate': typeof ApiEtlGenerateRoute
+  '/api/etl/ingest': typeof ApiEtlIngestRoute
   '/api/etl/run': typeof ApiEtlRunRoute
   '/api/health/ready': typeof ApiHealthReadyRoute
   '/api/kb/build-graph': typeof ApiKbBuildGraphRoute
   '/api/kb/ingest-github': typeof ApiKbIngestGithubRoute
   '/api/kb/ingest-url': typeof ApiKbIngestUrlRoute
   '/api/kb/sources': typeof ApiKbSourcesRouteWithChildren
+  '/api/lakehouse/generate': typeof ApiLakehouseGenerateRoute
   '/api/notebook/run': typeof ApiNotebookRunRouteWithChildren
   '/api/notebook/runtime': typeof ApiNotebookRuntimeRouteWithChildren
   '/api/objectstore/query': typeof ApiObjectstoreQueryRoute
@@ -972,6 +1000,7 @@ export interface FileRoutesByTo {
   '/image-playground': typeof AuthenticatedImagePlaygroundRoute
   '/integrations': typeof AuthenticatedIntegrationsRoute
   '/knowledge': typeof AuthenticatedKnowledgeRoute
+  '/lakehouse': typeof AuthenticatedLakehouseRoute
   '/mcp': typeof AuthenticatedMcpRoute
   '/mcp-builder': typeof AuthenticatedMcpBuilderRoute
   '/metrics': typeof AuthenticatedMetricsRoute
@@ -1013,6 +1042,7 @@ export interface FileRoutesByTo {
   '/docs/iam': typeof DocsIamRoute
   '/docs/integrations': typeof DocsIntegrationsRoute
   '/docs/knowledge': typeof DocsKnowledgeRoute
+  '/docs/lakehouse': typeof DocsLakehouseRoute
   '/docs/mcp': typeof DocsMcpRoute
   '/docs/models': typeof DocsModelsRoute
   '/docs/notebooks': typeof DocsNotebooksRoute
@@ -1043,12 +1073,14 @@ export interface FileRoutesByTo {
   '/api/embed/analyst': typeof ApiEmbedAnalystRoute
   '/api/embed/chat': typeof ApiEmbedChatRoute
   '/api/etl/generate': typeof ApiEtlGenerateRoute
+  '/api/etl/ingest': typeof ApiEtlIngestRoute
   '/api/etl/run': typeof ApiEtlRunRoute
   '/api/health/ready': typeof ApiHealthReadyRoute
   '/api/kb/build-graph': typeof ApiKbBuildGraphRoute
   '/api/kb/ingest-github': typeof ApiKbIngestGithubRoute
   '/api/kb/ingest-url': typeof ApiKbIngestUrlRoute
   '/api/kb/sources': typeof ApiKbSourcesRouteWithChildren
+  '/api/lakehouse/generate': typeof ApiLakehouseGenerateRoute
   '/api/notebook/run': typeof ApiNotebookRunRouteWithChildren
   '/api/notebook/runtime': typeof ApiNotebookRuntimeRouteWithChildren
   '/api/objectstore/query': typeof ApiObjectstoreQueryRoute
@@ -1106,6 +1138,7 @@ export interface FileRoutesById {
   '/_authenticated/image-playground': typeof AuthenticatedImagePlaygroundRoute
   '/_authenticated/integrations': typeof AuthenticatedIntegrationsRoute
   '/_authenticated/knowledge': typeof AuthenticatedKnowledgeRoute
+  '/_authenticated/lakehouse': typeof AuthenticatedLakehouseRoute
   '/_authenticated/mcp': typeof AuthenticatedMcpRoute
   '/_authenticated/mcp-builder': typeof AuthenticatedMcpBuilderRoute
   '/_authenticated/metrics': typeof AuthenticatedMetricsRoute
@@ -1147,6 +1180,7 @@ export interface FileRoutesById {
   '/docs/iam': typeof DocsIamRoute
   '/docs/integrations': typeof DocsIntegrationsRoute
   '/docs/knowledge': typeof DocsKnowledgeRoute
+  '/docs/lakehouse': typeof DocsLakehouseRoute
   '/docs/mcp': typeof DocsMcpRoute
   '/docs/models': typeof DocsModelsRoute
   '/docs/notebooks': typeof DocsNotebooksRoute
@@ -1177,12 +1211,14 @@ export interface FileRoutesById {
   '/api/embed/analyst': typeof ApiEmbedAnalystRoute
   '/api/embed/chat': typeof ApiEmbedChatRoute
   '/api/etl/generate': typeof ApiEtlGenerateRoute
+  '/api/etl/ingest': typeof ApiEtlIngestRoute
   '/api/etl/run': typeof ApiEtlRunRoute
   '/api/health/ready': typeof ApiHealthReadyRoute
   '/api/kb/build-graph': typeof ApiKbBuildGraphRoute
   '/api/kb/ingest-github': typeof ApiKbIngestGithubRoute
   '/api/kb/ingest-url': typeof ApiKbIngestUrlRoute
   '/api/kb/sources': typeof ApiKbSourcesRouteWithChildren
+  '/api/lakehouse/generate': typeof ApiLakehouseGenerateRoute
   '/api/notebook/run': typeof ApiNotebookRunRouteWithChildren
   '/api/notebook/runtime': typeof ApiNotebookRuntimeRouteWithChildren
   '/api/objectstore/query': typeof ApiObjectstoreQueryRoute
@@ -1240,6 +1276,7 @@ export interface FileRouteTypes {
     | '/image-playground'
     | '/integrations'
     | '/knowledge'
+    | '/lakehouse'
     | '/mcp'
     | '/mcp-builder'
     | '/metrics'
@@ -1281,6 +1318,7 @@ export interface FileRouteTypes {
     | '/docs/iam'
     | '/docs/integrations'
     | '/docs/knowledge'
+    | '/docs/lakehouse'
     | '/docs/mcp'
     | '/docs/models'
     | '/docs/notebooks'
@@ -1311,12 +1349,14 @@ export interface FileRouteTypes {
     | '/api/embed/analyst'
     | '/api/embed/chat'
     | '/api/etl/generate'
+    | '/api/etl/ingest'
     | '/api/etl/run'
     | '/api/health/ready'
     | '/api/kb/build-graph'
     | '/api/kb/ingest-github'
     | '/api/kb/ingest-url'
     | '/api/kb/sources'
+    | '/api/lakehouse/generate'
     | '/api/notebook/run'
     | '/api/notebook/runtime'
     | '/api/objectstore/query'
@@ -1371,6 +1411,7 @@ export interface FileRouteTypes {
     | '/image-playground'
     | '/integrations'
     | '/knowledge'
+    | '/lakehouse'
     | '/mcp'
     | '/mcp-builder'
     | '/metrics'
@@ -1412,6 +1453,7 @@ export interface FileRouteTypes {
     | '/docs/iam'
     | '/docs/integrations'
     | '/docs/knowledge'
+    | '/docs/lakehouse'
     | '/docs/mcp'
     | '/docs/models'
     | '/docs/notebooks'
@@ -1442,12 +1484,14 @@ export interface FileRouteTypes {
     | '/api/embed/analyst'
     | '/api/embed/chat'
     | '/api/etl/generate'
+    | '/api/etl/ingest'
     | '/api/etl/run'
     | '/api/health/ready'
     | '/api/kb/build-graph'
     | '/api/kb/ingest-github'
     | '/api/kb/ingest-url'
     | '/api/kb/sources'
+    | '/api/lakehouse/generate'
     | '/api/notebook/run'
     | '/api/notebook/runtime'
     | '/api/objectstore/query'
@@ -1504,6 +1548,7 @@ export interface FileRouteTypes {
     | '/_authenticated/image-playground'
     | '/_authenticated/integrations'
     | '/_authenticated/knowledge'
+    | '/_authenticated/lakehouse'
     | '/_authenticated/mcp'
     | '/_authenticated/mcp-builder'
     | '/_authenticated/metrics'
@@ -1545,6 +1590,7 @@ export interface FileRouteTypes {
     | '/docs/iam'
     | '/docs/integrations'
     | '/docs/knowledge'
+    | '/docs/lakehouse'
     | '/docs/mcp'
     | '/docs/models'
     | '/docs/notebooks'
@@ -1575,12 +1621,14 @@ export interface FileRouteTypes {
     | '/api/embed/analyst'
     | '/api/embed/chat'
     | '/api/etl/generate'
+    | '/api/etl/ingest'
     | '/api/etl/run'
     | '/api/health/ready'
     | '/api/kb/build-graph'
     | '/api/kb/ingest-github'
     | '/api/kb/ingest-url'
     | '/api/kb/sources'
+    | '/api/lakehouse/generate'
     | '/api/notebook/run'
     | '/api/notebook/runtime'
     | '/api/objectstore/query'
@@ -1643,11 +1691,13 @@ export interface RootRouteChildren {
   ApiDocgenXlsxRoute: typeof ApiDocgenXlsxRoute
   ApiEmailSendRoute: typeof ApiEmailSendRoute
   ApiEtlGenerateRoute: typeof ApiEtlGenerateRoute
+  ApiEtlIngestRoute: typeof ApiEtlIngestRoute
   ApiEtlRunRoute: typeof ApiEtlRunRoute
   ApiKbBuildGraphRoute: typeof ApiKbBuildGraphRoute
   ApiKbIngestGithubRoute: typeof ApiKbIngestGithubRoute
   ApiKbIngestUrlRoute: typeof ApiKbIngestUrlRoute
   ApiKbSourcesRoute: typeof ApiKbSourcesRouteWithChildren
+  ApiLakehouseGenerateRoute: typeof ApiLakehouseGenerateRoute
   ApiNotebookRunRoute: typeof ApiNotebookRunRouteWithChildren
   ApiNotebookRuntimeRoute: typeof ApiNotebookRuntimeRouteWithChildren
   ApiObjectstoreQueryRoute: typeof ApiObjectstoreQueryRoute
@@ -1855,6 +1905,13 @@ declare module '@tanstack/react-router' {
       path: '/mcp'
       fullPath: '/docs/mcp'
       preLoaderRoute: typeof DocsMcpRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/lakehouse': {
+      id: '/docs/lakehouse'
+      path: '/lakehouse'
+      fullPath: '/docs/lakehouse'
+      preLoaderRoute: typeof DocsLakehouseRouteImport
       parentRoute: typeof DocsRoute
     }
     '/docs/knowledge': {
@@ -2144,6 +2201,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedMcpRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/lakehouse': {
+      id: '/_authenticated/lakehouse'
+      path: '/lakehouse'
+      fullPath: '/lakehouse'
+      preLoaderRoute: typeof AuthenticatedLakehouseRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/knowledge': {
       id: '/_authenticated/knowledge'
       path: '/knowledge'
@@ -2347,6 +2411,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiNotebookRunRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/lakehouse/generate': {
+      id: '/api/lakehouse/generate'
+      path: '/api/lakehouse/generate'
+      fullPath: '/api/lakehouse/generate'
+      preLoaderRoute: typeof ApiLakehouseGenerateRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/kb/sources': {
       id: '/api/kb/sources'
       path: '/api/kb/sources'
@@ -2387,6 +2458,13 @@ declare module '@tanstack/react-router' {
       path: '/api/etl/run'
       fullPath: '/api/etl/run'
       preLoaderRoute: typeof ApiEtlRunRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/etl/ingest': {
+      id: '/api/etl/ingest'
+      path: '/api/etl/ingest'
+      fullPath: '/api/etl/ingest'
+      preLoaderRoute: typeof ApiEtlIngestRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/etl/generate': {
@@ -2637,6 +2715,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedImagePlaygroundRoute: typeof AuthenticatedImagePlaygroundRoute
   AuthenticatedIntegrationsRoute: typeof AuthenticatedIntegrationsRoute
   AuthenticatedKnowledgeRoute: typeof AuthenticatedKnowledgeRoute
+  AuthenticatedLakehouseRoute: typeof AuthenticatedLakehouseRoute
   AuthenticatedMcpRoute: typeof AuthenticatedMcpRoute
   AuthenticatedMcpBuilderRoute: typeof AuthenticatedMcpBuilderRoute
   AuthenticatedMetricsRoute: typeof AuthenticatedMetricsRoute
@@ -2674,6 +2753,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedImagePlaygroundRoute: AuthenticatedImagePlaygroundRoute,
   AuthenticatedIntegrationsRoute: AuthenticatedIntegrationsRoute,
   AuthenticatedKnowledgeRoute: AuthenticatedKnowledgeRoute,
+  AuthenticatedLakehouseRoute: AuthenticatedLakehouseRoute,
   AuthenticatedMcpRoute: AuthenticatedMcpRoute,
   AuthenticatedMcpBuilderRoute: AuthenticatedMcpBuilderRoute,
   AuthenticatedMetricsRoute: AuthenticatedMetricsRoute,
@@ -2718,6 +2798,7 @@ interface DocsRouteChildren {
   DocsIamRoute: typeof DocsIamRoute
   DocsIntegrationsRoute: typeof DocsIntegrationsRoute
   DocsKnowledgeRoute: typeof DocsKnowledgeRoute
+  DocsLakehouseRoute: typeof DocsLakehouseRoute
   DocsMcpRoute: typeof DocsMcpRoute
   DocsModelsRoute: typeof DocsModelsRoute
   DocsNotebooksRoute: typeof DocsNotebooksRoute
@@ -2749,6 +2830,7 @@ const DocsRouteChildren: DocsRouteChildren = {
   DocsIamRoute: DocsIamRoute,
   DocsIntegrationsRoute: DocsIntegrationsRoute,
   DocsKnowledgeRoute: DocsKnowledgeRoute,
+  DocsLakehouseRoute: DocsLakehouseRoute,
   DocsMcpRoute: DocsMcpRoute,
   DocsModelsRoute: DocsModelsRoute,
   DocsNotebooksRoute: DocsNotebooksRoute,
@@ -2877,11 +2959,13 @@ const rootRouteChildren: RootRouteChildren = {
   ApiDocgenXlsxRoute: ApiDocgenXlsxRoute,
   ApiEmailSendRoute: ApiEmailSendRoute,
   ApiEtlGenerateRoute: ApiEtlGenerateRoute,
+  ApiEtlIngestRoute: ApiEtlIngestRoute,
   ApiEtlRunRoute: ApiEtlRunRoute,
   ApiKbBuildGraphRoute: ApiKbBuildGraphRoute,
   ApiKbIngestGithubRoute: ApiKbIngestGithubRoute,
   ApiKbIngestUrlRoute: ApiKbIngestUrlRoute,
   ApiKbSourcesRoute: ApiKbSourcesRouteWithChildren,
+  ApiLakehouseGenerateRoute: ApiLakehouseGenerateRoute,
   ApiNotebookRunRoute: ApiNotebookRunRouteWithChildren,
   ApiNotebookRuntimeRoute: ApiNotebookRuntimeRouteWithChildren,
   ApiObjectstoreQueryRoute: ApiObjectstoreQueryRoute,

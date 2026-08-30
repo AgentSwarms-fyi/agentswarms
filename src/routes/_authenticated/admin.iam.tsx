@@ -1161,7 +1161,8 @@ function AccessTab({
     | "provider_credential"
     | "warehouse_connection"
     | "saas_connection"
-    | "ai_analyst";
+    | "ai_analyst"
+    | "lakehouse_schema";
   const [shareResourceType, setShareResourceType] = useState<ShareResourceType>("knowledge_base");
   const [shareResourceId, setShareResourceId] = useState("");
   const [sharePrincipalType, setSharePrincipalType] = useState<"group" | "user">("group");
@@ -1196,6 +1197,7 @@ function AccessTab({
     // Sharing an analyst shares its USE, not the owner's data access: the
     // grantee's questions run as them. Their saved analyses stay their own.
     { value: "ai_analyst", label: "🧠 AI analyst" },
+    { value: "lakehouse_schema", label: "🗄️ Lakehouse schema" },
   ];
   const shareableOfType = resources.filter((r) => r.resource_type === shareResourceType);
 

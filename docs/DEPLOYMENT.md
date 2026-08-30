@@ -6,6 +6,13 @@ This guide takes you from a clone to a running instance, with a path for every
 setup — **trying it on your own laptop**, a **single cloud VM**, an
 **autoscaled fleet behind a load balancer**, or **Kubernetes**.
 
+> **Sizing note for ETL:** pipeline runs are single-container pandas
+> processes — the working set of one run must fit in a kernel's RAM
+> (default 4 GB). See "Data-size limits and machine sizing" and
+> "Horizontal scaling" in [ETL_PIPELINES.md](./ETL_PIPELINES.md) before
+> choosing instance sizes; app replicas behind a load balancer are
+> supported (scheduler decisions are atomic claims).
+
 ## How the pieces fit (read this first)
 
 AgentSwarms is two things:

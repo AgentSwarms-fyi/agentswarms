@@ -58,7 +58,11 @@ export async function processDueEtlPipelines(force = false): Promise<number> {
   const { data: due } = await query;
   let started = 0;
   for (const pipeline of (due ?? []) as EtlPipelineRow[]) {
-    await supabaseAdmin
+    // The clock advance doubles as a compare-and-set CLAIM: only the sweep
+    // that still sees the old next_run_at wins the row, so app replicas
+    // behind a load balancer can all run this sweep without double-starting
+    // a due pipeline.
+    let claim = supabaseAdmin
       .from("etl_pipelines")
       .update({
         next_run_at: nextEtlRunAt(
@@ -69,6 +73,12 @@ export async function processDueEtlPipelines(force = false): Promise<number> {
         ),
       })
       .eq("id", pipeline.id);
+    claim =
+      pipeline.next_run_at === null
+        ? claim.is("next_run_at", null)
+        : claim.eq("next_run_at", pipeline.next_run_at);
+    const { data: won } = await claim.select("id");
+    if (!won?.length) continue; // another replica claimed this tick
     const res = await startEtlRun(pipeline, "schedule");
     if (res.ok) started++;
     else console.warn(`[etl-schedule] "${pipeline.name}" did not start: ${res.error}`);

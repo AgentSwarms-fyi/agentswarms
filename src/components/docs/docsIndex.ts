@@ -1190,8 +1190,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "ETL_TRIGGER_PER_MIN",
       "Europe/Berlin",
       "append",
+      "docker",
+      "e2b",
       "entrypoint(inputs)",
       "entrypoint(inputs=None)",
+      "k8s",
       "merge",
       "notebooks",
       "raw/orders/*.csv",
@@ -1271,6 +1274,16 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "observability",
         "text": "Observability, logs, audit and IAM",
+        "level": 2
+      },
+      {
+        "id": "sizing",
+        "text": "Data-size limits and machine sizing",
+        "level": 2
+      },
+      {
+        "id": "scaling",
+        "text": "Horizontal scaling",
         "level": 2
       },
       {
@@ -1735,6 +1748,86 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "quality",
         "text": "Getting better results",
         "level": 3
+      }
+    ]
+  },
+  {
+    "route": "/docs/lakehouse",
+    "title": "Lakehouse",
+    "description": "The built-in columnar warehouse — DuckDB attached to a DuckLake catalog. Use it wherever you'd reach for a data warehouse: fast analytical SQL over tables you own, with open Parquet in your own object storage, a transactional catalog, and stateless compute on every app replica.",
+    "terms": [
+      ".env.example",
+      "ATTACH",
+      "COPY",
+      "DELETE",
+      "INSERT",
+      "INSTALL",
+      "LAKEHOUSE_*",
+      "LAKEHOUSE_CATALOG_URL",
+      "LAKEHOUSE_MEMORY_LIMIT",
+      "LAKEHOUSE_SPILL_LIMIT",
+      "MERGE",
+      "SET",
+      "SUMMARIZE",
+      "UPDATE",
+      "cached",
+      "docs/LAKEHOUSE.md"
+    ],
+    "headings": [
+      {
+        "id": "what",
+        "text": "What it is",
+        "level": 2
+      },
+      {
+        "id": "use",
+        "text": "Working in the Lakehouse",
+        "level": 2
+      },
+      {
+        "id": "lake",
+        "text": "Querying your data lake",
+        "level": 2
+      },
+      {
+        "id": "fast",
+        "text": "Making queries fast",
+        "level": 2
+      },
+      {
+        "id": "matviews",
+        "text": "Materialized views",
+        "level": 2
+      },
+      {
+        "id": "policies",
+        "text": "Row and column security",
+        "level": 2
+      },
+      {
+        "id": "concurrency",
+        "text": "Concurrent writes",
+        "level": 2
+      },
+      {
+        "id": "maintenance",
+        "text": "Maintenance and compaction",
+        "level": 2
+      },
+      {
+        "id": "governance",
+        "text": "Governance and access",
+        "level": 2
+      },
+      {
+        "id": "ecosystem",
+        "text": "Across the ecosystem",
+        "level": 2
+      },
+      {
+        "id": "scaling",
+        "text": "Scaling and limits",
+        "level": 2
       }
     ]
   },

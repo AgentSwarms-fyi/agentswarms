@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { SAAS_PROVIDERS } from "@/utils/saas/types";
-import { WAREHOUSE_PROVIDERS } from "@/utils/warehouse/types";
+import { EXTERNAL_WAREHOUSE_PROVIDERS } from "@/utils/warehouse/types";
 
 const SKIP = new Set(["node_modules", ".git", "dist", ".output", ".vinxi", "coverage"]);
 
@@ -260,11 +260,13 @@ describe("connector counts in prose match the code", () => {
   });
 
   it("the numbers the docs do state are the real ones", () => {
-    expect(WAREHOUSE_PROVIDERS.length).toBe(22);
+    expect(EXTERNAL_WAREHOUSE_PROVIDERS.length).toBe(22);
     expect(SAAS_PROVIDERS.length).toBe(5);
     const readme = readFileSync("README.md", "utf8");
-    expect(readme).toContain(`${WAREHOUSE_PROVIDERS.length} databases and warehouses`);
-    expect(readme).toContain(`${WAREHOUSE_PROVIDERS.length + SAAS_PROVIDERS.length} connectors`);
+    expect(readme).toContain(`${EXTERNAL_WAREHOUSE_PROVIDERS.length} databases and warehouses`);
+    expect(readme).toContain(
+      `${EXTERNAL_WAREHOUSE_PROVIDERS.length + SAAS_PROVIDERS.length} connectors`,
+    );
   });
 });
 

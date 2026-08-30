@@ -181,8 +181,9 @@ describe("the trust pages describe the software that exists", () => {
     // the number the code exports — PARSED from the claim itself: a bare
     // toContain("22 ") matched SVG path coordinates and let a wrong count
     // survive its own mutation test.
-    const { WAREHOUSE_PROVIDERS } = await import("@/utils/warehouse/types");
-    const n = WAREHOUSE_PROVIDERS.length;
+    const { EXTERNAL_WAREHOUSE_PROVIDERS } = await import("@/utils/warehouse/types");
+    // The lakehouse is a built-in provider, not an external connector.
+    const n = EXTERNAL_WAREHOUSE_PROVIDERS.length;
     expect(n).toBe(22);
     for (const [page, claim] of [
       ["src/routes/architecture.tsx", /(\d+) warehouse connectors/],

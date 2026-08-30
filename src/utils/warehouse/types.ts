@@ -27,7 +27,9 @@ export type WarehouseProvider =
   // ── TDS (SQL Server) wire protocol ────────────────────────────────────
   | "sqlserver"
   // ── Own HTTP protocol ─────────────────────────────────────────────────
-  | "clickhouse";
+  | "clickhouse"
+  // ── Built-in ──────────────────────────────────────────────────────────
+  | "lakehouse";
 
 /**
  * The wire protocol a provider speaks.
@@ -74,6 +76,7 @@ export const PROVIDER_FAMILY: Record<WarehouseProvider, WireFamily> = {
   athena: "own",
   oracle: "own",
   clickhouse: "own",
+  lakehouse: "own",
 };
 
 /**
@@ -125,7 +128,17 @@ export const WAREHOUSE_PROVIDERS: WarehouseProvider[] = [
   "starrocks",
   "doris",
   "planetscale",
+  "lakehouse",
 ];
+
+/**
+ * Connectors to EXTERNAL systems — the number the marketing/docs pages count.
+ * The built-in lakehouse is a first-class provider but not a "connector", so
+ * it is excluded here (and only here). tests/unit/docsFactCheck pins this.
+ */
+export const EXTERNAL_WAREHOUSE_PROVIDERS: WarehouseProvider[] = WAREHOUSE_PROVIDERS.filter(
+  (p) => p !== "lakehouse",
+);
 
 export const WAREHOUSE_LABELS: Record<WarehouseProvider, string> = {
   redshift: "Amazon Redshift",
@@ -150,6 +163,7 @@ export const WAREHOUSE_LABELS: Record<WarehouseProvider, string> = {
   starrocks: "StarRocks",
   doris: "Apache Doris",
   planetscale: "PlanetScale",
+  lakehouse: "AgentSwarms Lakehouse (built-in)",
 };
 
 /**
@@ -195,6 +209,12 @@ export type WarehouseConfig =
       username: string;
       password: string;
       database?: string;
+    }
+  | {
+      provider: "lakehouse";
+      /** Stamped server-side at save: queries run under THIS user's schema
+       *  grants — the standard "a shared connection runs as its owner". */
+      user_id?: string;
     }
   | {
       provider: "redshift";

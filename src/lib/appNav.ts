@@ -1,6 +1,7 @@
 // The app's navigation map — single source of truth shared by the sidebar
 // and the command palette, so a new page added here appears in both.
 import {
+  Warehouse,
   BrainCircuit,
   LayoutDashboard,
   Layers,
@@ -71,6 +72,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { title: "Metrics", url: "/metrics", icon: Sigma },
       { title: "BI Workspace", url: "/bi", icon: PieChart },
       { title: "ETL Pipelines", url: "/etl", icon: Waypoints },
+      { title: "Lakehouse", url: "/lakehouse", icon: Warehouse },
       { title: "Developer workspace", url: "/notebooks", icon: NotebookPen },
     ],
   },

@@ -28,6 +28,8 @@ import {
   type EtlNode,
 } from "@/utils/etl/codegen";
 import {
+  cdcSlotName,
+  etlAlertPolicy,
   etlPrelude,
   nativeDestCreds,
   scrubSecrets,
@@ -469,6 +471,335 @@ describe("nextEtlRunAt", () => {
     expect(nextEtlRunAt("daily", from)).toBe("2026-01-02T00:00:00.000Z");
     expect(nextEtlRunAt("weekly", from)).toBe("2026-01-08T00:00:00.000Z");
     expect(nextEtlRunAt("manual", from)).toBeNull();
+  });
+});
+
+// ── Lakehouse nodes ─────────────────────────────────────────────────────────
+
+describe("lakehouse pipeline nodes", () => {
+  const g = (over: Record<string, unknown> = {}): EtlGraph => ({
+    nodes: [
+      node("s", "source", {
+        type: "lakehouse",
+        schema: "analytics",
+        mode: "table",
+        table: "orders",
+      }),
+      node("t", "target", {
+        type: "lakehouse",
+        schema: "analytics",
+        table: "rollup",
+        write_mode: "replace",
+        ...over,
+      }),
+    ],
+    edges: [{ from: "s", to: "t" }],
+  });
+
+  it("attaches the shared catalog from env and makes lake the current catalog", () => {
+    const code = compileGraph(g());
+    assertParsesAsPython(code);
+    expect(code).toContain("ATTACH 'ducklake:postgres:");
+    expect(code).toContain('con.execute("USE lake")');
+    // No credential literal — everything arrives as env, like every connector.
+    expect(code).toContain("os.environ['ETL_LAKEHOUSE_CATALOG']");
+    expect(code).not.toMatch(/password=\w+/);
+  });
+
+  it("the extension directory dodges the sandbox's read-only HOME and noexec /tmp", () => {
+    // Both were real failures: ~/.duckdb is read-only, and a .so downloaded
+    // into /tmp cannot be mapped. ~/.local is writable AND executable.
+    const code = compileGraph(g());
+    expect(code).toContain("'.local', 'duckdb'");
+    expect(code).not.toContain("tempfile.mkdtemp(prefix='duckdb-ext");
+  });
+
+  it("write modes compile to the right statements", () => {
+    expect(compileGraph(g())).toContain("CREATE OR REPLACE TABLE");
+    const append = compileGraph(g({ write_mode: "append" }));
+    expect(append).toContain("CREATE TABLE IF NOT EXISTS");
+    expect(append).toContain("INSERT INTO");
+    const merge = compileGraph(g({ write_mode: "merge", primary_key: ["id"] }));
+    // Upsert is delete-then-insert inside ONE transaction — a reader never
+    // sees the gap.
+    expect(merge).toContain("BEGIN TRANSACTION");
+    expect(merge).toContain("DELETE FROM");
+    expect(merge.indexOf("BEGIN TRANSACTION")).toBeLessThan(merge.indexOf("COMMIT"));
+    expect(() => compileGraph(g({ write_mode: "merge" }))).toThrow(/primary key/);
+  });
+
+  it("needs duckdb and NOT dlt — a lakehouse pipeline never imports it", () => {
+    const reqs = requirementsFor(g());
+    expect(reqs).toContain("duckdb>=1.4");
+    expect(reqs).not.toContain("dlt");
+    expect(compileGraph(g())).not.toContain("import dlt");
+  });
+
+  it("schema access is checked server-side, as the pipeline owner", () => {
+    const svc = read("src/utils/etl/service.server.ts");
+    expect(svc).toContain("accessibleSchemas(pipeline.user_id)");
+    expect(svc).toContain("no access to lakehouse schema");
+    // The catalog string carries a password — it must be scrubbed from logs.
+    expect(svc).toContain("secretValues.push(env.ETL_LAKEHOUSE_CATALOG");
+  });
+
+  it("lineage names the lakehouse table it read", () => {
+    expect(compileGraph(g())).toContain("'lineage_sources': ['lakehouse:analytics.orders']");
+  });
+});
+
+// ── Reverse ETL (HTTP targets) ──────────────────────────────────────────────
+
+describe("http api targets", () => {
+  const g = (over: Record<string, unknown> = {}): EtlGraph => ({
+    nodes: [
+      node("s", "source", { type: "python", code: "df = None" }),
+      node("t", "target", {
+        type: "http_api",
+        url: "https://api.example.com/records",
+        method: "POST",
+        batch_size: 2,
+        wrap_key: "records",
+        auth_env: "MY_TOKEN",
+        ...over,
+      }),
+    ],
+    edges: [{ from: "s", to: "t" }],
+  });
+
+  it("batches rows, wraps them and sends the bound bearer", () => {
+    const code = compileGraph(g());
+    assertParsesAsPython(code);
+    expect(code).toContain("range(0, len(_records), 2)");
+    expect(code).toContain("_body = {'records': _chunk}");
+    expect(code).toContain("os.environ['MY_TOKEN']");
+    expect(code).toContain("_resp.raise_for_status()");
+    expect(code).toContain("'fqn': 'http:https://api.example.com/records'");
+    // No dlt destination machinery for this target.
+    expect(code).not.toContain("filesystem(");
+  });
+
+  it("an unwrapped target posts the bare array and skips auth without a binding", () => {
+    const code = compileGraph(g({ wrap_key: "", auth_env: undefined }));
+    assertParsesAsPython(code);
+    expect(code).toContain("_body = _chunk");
+    expect(code).not.toContain("Authorization");
+  });
+
+  it("refuses a target with no URL", () => {
+    expect(() => compileGraph(g({ url: "" }))).toThrow(/needs a URL/);
+  });
+});
+
+// ── Streamed-row sources ────────────────────────────────────────────────────
+
+describe("ingest sources", () => {
+  const g: EtlGraph = {
+    nodes: [
+      node("s", "source", { type: "ingest" }),
+      node("t", "target", {
+        type: "object_storage",
+        dataset: "stream",
+        table: "events",
+        format: "parquet",
+        write_mode: "append",
+      }),
+    ],
+    edges: [{ from: "s", to: "t" }],
+  };
+
+  it("drains over the session channel with the engine cursor, cdc-style", () => {
+    const code = compileGraph(g);
+    assertParsesAsPython(code);
+    expect(code).toContain("'part': 'etl_ingest'");
+    expect(code).toContain("os.environ.get('ETL_S_CURSOR')");
+    // Previews must not consume the backlog.
+    expect(code).toContain("os.environ.get('AGENTSWARMS_ETL_PREVIEW') != '1'");
+    // The max staged id becomes the watermark for the next run's consume.
+    expect(code).toContain("_watermarks['s'] = str(_ingest_last_s)");
+  });
+
+  it("the drain deletes at-or-below the cursor only when consuming", () => {
+    const svc = read("src/utils/etl/service.server.ts");
+    const fn = svc.slice(svc.indexOf("export async function etlIngestFor"));
+    expect(fn).toContain('.lte("id", cursor)');
+    expect(fn).toContain("opts.consume &&");
+    const route = read("src/routes/api/notebook.runtime.source.ts");
+    // Preview branch hard-codes consume: false regardless of the request.
+    expect(route).toContain("etlIngestFor(stash.pipeline_id, claims.sub, { consume: false })");
+  });
+
+  it("the ingest endpoint authenticates like the trigger and caps its inputs", () => {
+    const route = read("src/routes/api/etl.ingest.ts");
+    expect(route).toContain("timingSafeEqual");
+    expect(route).toContain("rateLimitedGlobal");
+    expect(route).toContain("MAX_BACKLOG");
+    expect(route).not.toContain("Invalid token");
+  });
+});
+
+// ── Change data capture ─────────────────────────────────────────────────────
+
+const cdcGraph = (target: Record<string, unknown>, snapshot = true): EtlGraph => ({
+  nodes: [
+    node("s", "source", {
+      type: "database",
+      provider: "postgres",
+      connection_id: "c1",
+      mode: "cdc",
+      table: "public.customers",
+      initial_snapshot: snapshot,
+    }),
+    node("t", "target", target),
+  ],
+  edges: [{ from: "s", to: "t" }],
+});
+
+const deltaMergeTarget = {
+  type: "object_storage",
+  dataset: "mirror",
+  table: "customers",
+  format: "parquet",
+  table_format: "delta",
+  write_mode: "merge",
+  primary_key: ["id"],
+};
+
+describe("change data capture", () => {
+  it("peeks the slot, consumes only what the previous run durably loaded", () => {
+    const code = compileGraph(cdcGraph(deltaMergeTarget));
+    assertParsesAsPython(code);
+    // Peek for reading; get (consume) ONLY up to the stored cursor.
+    expect(code).toContain("pg_logical_slot_peek_changes");
+    expect(code).toContain("pg_logical_slot_get_changes(:s, CAST(:lsn AS pg_lsn)");
+    expect(code).toContain("os.environ.get('ETL_S_CURSOR')");
+    // The slot name comes from the engine, not the graph.
+    expect(code).toContain("os.environ.get('ETL_S_SLOT'");
+    // Snapshot happens AFTER slot creation, so no change can fall in the gap.
+    const created = code.indexOf("pg_create_logical_replication_slot");
+    const snap = code.indexOf("SELECT * FROM public.customers");
+    expect(created).toBeGreaterThan(-1);
+    expect(snap).toBeGreaterThan(created);
+  });
+
+  it("a cdc-fed delta merge applies the log: upsert strategy + hard-delete pass", () => {
+    const code = compileGraph(cdcGraph(deltaMergeTarget));
+    expect(code).toContain("'strategy': 'upsert'");
+    expect(code).toContain("'_cdc_deleted': {'hard_delete': True}");
+    // dlt's delta upsert never deletes — the explicit pass after the load does.
+    expect(code).toContain(`.delete("_cdc_deleted = true")`);
+    expect(code.indexOf("pipe.run")).toBeLessThan(code.indexOf('.delete("_cdc_deleted'));
+  });
+
+  it("a plain-file target keeps the raw event log — no delete pass", () => {
+    const code = compileGraph(
+      cdcGraph({
+        type: "object_storage",
+        dataset: "log",
+        table: "events",
+        format: "parquet",
+        write_mode: "append",
+      }),
+    );
+    assertParsesAsPython(code);
+    expect(code).not.toContain('.delete("_cdc_deleted');
+  });
+
+  it("cdc is refused off postgres families and without a table", () => {
+    const bad = cdcGraph(deltaMergeTarget);
+    (bad.nodes[0].config as { provider?: string }).provider = "mysql";
+    expect(() => compileGraph(bad)).toThrow(/PostgreSQL-family/);
+    const noTable = cdcGraph(deltaMergeTarget);
+    (noTable.nodes[0].config as { table?: string }).table = "";
+    expect(() => compileGraph(noTable)).toThrow(/needs a table/);
+  });
+
+  it("lineage names the captured table", () => {
+    expect(compileGraph(cdcGraph(deltaMergeTarget))).toContain(
+      "'lineage_sources': ['cdc:public.customers']",
+    );
+  });
+
+  it("slot names are pipeline-scoped, sanitized and postgres-legal", () => {
+    const slot = cdcSlotName("bdf8b21e-389f-4729-931f-71fd51986703", "Node-1");
+    expect(slot).toBe("aswarm_bdf8b21e38_node1");
+    expect(slot.length).toBeLessThanOrEqual(63);
+    expect(slot).toMatch(/^[a-z0-9_]+$/);
+  });
+});
+
+// ── Open-table formats ──────────────────────────────────────────────────────
+
+const lakeGraph = (table_format?: string): EtlGraph => ({
+  nodes: [
+    node("s", "source", { type: "python", code: "df = None" }),
+    node("t", "target", {
+      type: "object_storage",
+      dataset: "lake",
+      table: "orders",
+      format: "csv",
+      ...(table_format ? { table_format } : {}),
+      write_mode: "replace",
+    }),
+  ],
+  edges: [{ from: "s", to: "t" }],
+});
+
+describe("open-table formats", () => {
+  it("delta and iceberg ride the resource and force parquet materialisation", () => {
+    for (const tf of ["delta", "iceberg"]) {
+      const code = compileGraph(lakeGraph(tf));
+      assertParsesAsPython(code);
+      expect(code).toContain(`table_format='${tf}',`);
+      // The chosen csv file format is overridden — table formats ARE parquet.
+      expect(code).toContain("loader_file_format='parquet'");
+      expect(code).not.toContain("loader_file_format='csv'");
+    }
+    const plain = compileGraph(lakeGraph());
+    expect(plain).not.toContain("table_format=");
+    expect(plain).toContain("loader_file_format='csv'");
+  });
+
+  it("lineage fqns follow each format's real on-disk layout", () => {
+    expect(compileGraph(lakeGraph("delta"))).toContain("'fqn': 'lake/orders/*.parquet'");
+    expect(compileGraph(lakeGraph("iceberg"))).toContain("'fqn': 'lake/orders/data/*.parquet'");
+  });
+
+  it("requirements pull the matching dlt extra", () => {
+    expect(requirementsFor(lakeGraph("delta"))).toContain("dlt[deltalake]>=1.3");
+    expect(requirementsFor(lakeGraph("iceberg"))).toContain("dlt[pyiceberg]>=1.3");
+    expect(requirementsFor(lakeGraph())).not.toContain("deltalake");
+  });
+});
+
+// ── Alert policy ────────────────────────────────────────────────────────────
+
+describe("etlAlertPolicy", () => {
+  it("pre-migration rows get failure+recovery on, success off", () => {
+    expect(etlAlertPolicy({})).toEqual({
+      on_failure: true,
+      on_success: false,
+      on_recovery: true,
+    });
+    expect(etlAlertPolicy({ alerts: null })).toEqual({
+      on_failure: true,
+      on_success: false,
+      on_recovery: true,
+    });
+  });
+
+  it("explicit choices are honored, including switching the defaults off", () => {
+    expect(
+      etlAlertPolicy({ alerts: { on_failure: false, on_success: true, on_recovery: false } }),
+    ).toEqual({ on_failure: false, on_success: true, on_recovery: false });
+  });
+
+  it("junk in the column degrades to the defaults, not a crash", () => {
+    expect(etlAlertPolicy({ alerts: "yes please" })).toEqual({
+      on_failure: true,
+      on_success: false,
+      on_recovery: true,
+    });
   });
 });
 
@@ -1006,6 +1337,59 @@ describe("etl wiring", () => {
     const svc = read("src/utils/etl/service.server.ts");
     expect(svc).toContain('if (opts?.skipTargets && node.kind === "target") continue;');
     expect(svc).toContain("resolveRunEnv(pipeline, { skipTargets: true })");
+  });
+
+  it("run-outcome notifications obey the pipeline's alert policy", () => {
+    const svc = read("src/utils/etl/service.server.ts");
+    // Failure alert is gated, not unconditional.
+    expect(svc).toContain("if (etlAlertPolicy(pipeline).on_failure)");
+    // The recovery transition reads the PREVIOUS status before it is stamped
+    // over, and recovery outranks the plain success alert.
+    const i = svc.indexOf('const wasFailing = pipeline.last_run_status === "failed"');
+    const j = svc.indexOf('last_run_status: "succeeded"');
+    expect(i).toBeGreaterThan(-1);
+    expect(i).toBeLessThan(j);
+    expect(svc).toContain("if (alerts.on_recovery && wasFailing)");
+    expect(svc).toContain("} else if (alerts.on_success)");
+  });
+
+  it("cdc slots are engine-named at launch and dropped with the pipeline", () => {
+    const svc = read("src/utils/etl/service.server.ts");
+    expect(svc).toContain("cdcSlotName(pipeline.id, node.id)");
+    expect(svc).toContain("export async function dropCdcSlots");
+    expect(svc).toContain("pg_drop_replication_slot");
+    const fns = read("src/utils/etl.functions.ts");
+    // The delete handler runs the drop BEFORE the row (and its graph) is gone.
+    const drop = fns.indexOf("dropCdcSlots(full)");
+    const del = fns.indexOf('from("etl_pipelines").delete()');
+    expect(drop).toBeGreaterThan(-1);
+    expect(drop).toBeLessThan(del);
+  });
+
+  it("duplicating a pipeline stages it: manual schedule, fresh token, no history", () => {
+    const fns = read("src/utils/etl.functions.ts");
+    const dup = fns.slice(fns.indexOf("export const duplicateEtlPipeline"));
+    expect(dup).toContain('schedule: "manual"');
+    expect(dup).toContain("randomBytes(24)");
+    expect(dup).toContain("etl.pipeline.duplicate");
+    // The copy must NOT inherit the original's trigger token hash.
+    expect(dup).not.toContain("trigger_token_hash: src.trigger_token_hash");
+  });
+
+  it("every scheduler decision is an atomic claim — replica-safe behind a LB", () => {
+    const sched = read("src/utils/etl/schedule.server.ts");
+    // Due pipelines: the clock advance compare-and-sets on the OLD next_run_at.
+    expect(sched).toContain('claim.eq("next_run_at", pipeline.next_run_at)');
+    expect(sched).toContain("if (!won?.length) continue;");
+    const svc = read("src/utils/etl/service.server.ts");
+    // Retries: retrying -> queued, one winner.
+    expect(svc).toContain('.eq("status", "retrying")\n    .select("id")');
+    // Finalisation (either verdict): only a live run can be claimed, once.
+    const successClaim = svc.indexOf('.in("status", ["queued", "running", "retrying"])');
+    expect(successClaim).toBeGreaterThan(-1);
+    expect(
+      svc.split('.in("status", ["queued", "running", "retrying"])').length,
+    ).toBeGreaterThanOrEqual(4);
   });
 
   it("failures flow through one retry ladder from both failure paths", () => {

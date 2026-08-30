@@ -19,10 +19,24 @@ export type PipelinePulse = {
   recent: string[];
   /** Success rate over those finished runs; null when none finished. */
   success_rate: number | null;
+  /** Sandbox runtime attributed to this pipeline over the 7-day window. */
+  runtime_ms_7d: number;
+  /** Rows loaded by this pipeline's succeeded runs over the window. */
+  rows_7d: number;
 };
+
+/** Wall-clock a run actually held a sandbox; 0 while queued or unstamped. */
+export function runDurationMs(r: OverviewRun, now: Date): number {
+  if (!r.started_at) return 0;
+  const start = new Date(r.started_at).getTime();
+  const end = r.finished_at ? new Date(r.finished_at).getTime() : now.getTime();
+  return Math.max(0, end - start);
+}
 
 export type EtlOverviewStats = {
   runs_7d: number;
+  /** Total sandbox runtime across all pipelines in the window. */
+  runtime_ms_7d: number;
   succeeded_7d: number;
   failed_7d: number;
   /** Of FINISHED runs in the window — live/cancelled runs are not verdicts. */
@@ -70,15 +84,23 @@ export function computeEtlOverview(
   }
 
   const perPipeline: Record<string, PipelinePulse> = {};
+  let runtime7d = 0;
   for (const [id, list] of byPipeline) {
     // Callers pass runs newest-first; keep that order and cap.
     const recent = list.slice(0, PULSE_LIMIT).map((r) => r.status);
     const finished = list.filter((r) => r.status === "succeeded" || r.status === "failed");
+    const inWindow = list.filter((r) => new Date(r.created_at).getTime() >= weekAgo);
+    const runtime = inWindow.reduce((acc, r) => acc + runDurationMs(r, now), 0);
+    runtime7d += runtime;
     perPipeline[id] = {
       recent,
       success_rate: finished.length
         ? finished.filter((r) => r.status === "succeeded").length / finished.length
         : null,
+      runtime_ms_7d: runtime,
+      rows_7d: inWindow
+        .filter((r) => r.status === "succeeded")
+        .reduce((acc, r) => acc + rowsLoadedOf(r.metrics), 0),
     };
   }
 
@@ -86,6 +108,7 @@ export function computeEtlOverview(
   return {
     stats: {
       runs_7d: runs7d,
+      runtime_ms_7d: runtime7d,
       succeeded_7d: ok7d,
       failed_7d: failed7d,
       success_rate_7d: finished7d ? ok7d / finished7d : null,

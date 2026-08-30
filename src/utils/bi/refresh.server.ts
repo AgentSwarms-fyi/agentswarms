@@ -1074,6 +1074,8 @@ export type CronPassResult = {
   catalog_crawls: number;
   /** Scheduled ETL pipelines started this pass. */
   etl_runs: number;
+  /** Materialized views refreshed this pass. */
+  matview_refreshes: number;
   swarm_schedules: number;
   kernels_reaped: number;
 };
@@ -1099,6 +1101,7 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
     quality_checks: 0,
     catalog_crawls: 0,
     etl_runs: 0,
+    matview_refreshes: 0,
     swarm_schedules: 0,
     kernels_reaped: 0,
   };
@@ -1138,6 +1141,34 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
         console.warn("[etl-scheduler] processing failed:", (e as Error).message);
         return 0;
       });
+
+    // Scheduled materialized-view refreshes ride the same sweep and the same
+    // compare-and-set claim, so every replica can run this pass safely.
+    const matview_refreshes = await import("@/utils/lakehouse/matviews.server")
+      .then((m) => m.processDueMaterializedViews(force))
+      .catch((e) => {
+        console.warn("[lakehouse-matview] sweep failed:", (e as Error).message);
+        return 0;
+      });
+
+    // Lakehouse maintenance rides the same pass, but hourly: compaction is
+    // cheap on an idle catalog and pointless every minute. Any replica may run
+    // it — the steps are idempotent and DuckLake serialises them through the
+    // catalog — and a failure here never touches the rest of the sweep.
+    if (force || new Date().getMinutes() < 2) {
+      try {
+        const { runLakehouseMaintenance } = await import("@/utils/lakehouse/core.server");
+        const res = await runLakehouseMaintenance();
+        if (res.ran) {
+          const failed = res.steps.filter((st) => !st.ok).length;
+          console.log(
+            `[lakehouse] maintenance: ${res.steps.length - failed}/${res.steps.length} steps ok`,
+          );
+        }
+      } catch (e) {
+        console.warn("[lakehouse] maintenance pass failed:", (e as Error).message);
+      }
+    }
     await import("@/utils/audit.server")
       .then((m) => m.purgeAuditEvents(force))
       .catch((e) => console.warn("[audit-purge] failed:", (e as Error).message));
@@ -1214,6 +1245,7 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
       quality_checks,
       catalog_crawls,
       etl_runs,
+      matview_refreshes,
       analyses,
       swarm_schedules,
       kernels_reaped,

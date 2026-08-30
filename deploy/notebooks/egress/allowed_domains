@@ -5,6 +5,10 @@
 # PyPI (runtime pip install)
 .pypi.org
 .pythonhosted.org
+# DuckDB extension registry — needed by lakehouse ETL nodes, which load the
+# ducklake/postgres/httpfs extensions at run time. Without it the run fails
+# with "Failed to download extension (HTTP 403)": squid refused it, not DuckDB.
+.duckdb.org
 # Direct LLM endpoints (only needed if users call providers directly; model
 # calls via agentswarms.chat() are brokered by the platform and don't use this).
 .openrouter.ai

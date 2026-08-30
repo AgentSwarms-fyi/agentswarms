@@ -12,7 +12,8 @@ export type ServiceId =
   | "js-sandbox"
   | "notebook-gateway"
   | "notebook-egress"
-  | "notebook-docker-proxy";
+  | "notebook-docker-proxy"
+  | "lakehouse-catalog";
 
 export type ServiceStatus =
   /** Answered, and answered correctly. */
@@ -74,7 +75,7 @@ export const SERVICE_CATALOGUE: {
   /** Path appended to each candidate. */
   path: string;
   /** A 2xx that is not JSON is still fine for some of these. */
-  expect: "json-ok" | "any-2xx" | "docker-ping";
+  expect: "json-ok" | "any-2xx" | "docker-ping" | "tcp-open";
 }[] = [
   {
     id: "docgen",
@@ -129,6 +130,19 @@ export const SERVICE_CATALOGUE: {
     ],
     path: "/",
     expect: "any-2xx",
+  },
+  {
+    id: "lakehouse-catalog",
+    hostPublished: false,
+    label: "Lakehouse catalog",
+    purpose:
+      "DuckLake's transactional catalog (schemas, snapshots, file manifests). Without it, the Lakehouse page says it is not configured.",
+    profile: "lakehouse",
+    optional: true,
+    // Postgres speaks no HTTP — an open TCP socket is the whole claim.
+    candidates: ["tcp://lakehouse-catalog:5432", "tcp://127.0.0.1:5432"],
+    path: "",
+    expect: "tcp-open",
   },
   {
     id: "notebook-docker-proxy",

@@ -1053,6 +1053,24 @@ async function oracleQuery(
   return { columns, data, truncated };
 }
 
+async function lakehouseDriverQuery(
+  config: Extract<WarehouseConfig, { provider: "lakehouse" }>,
+  sql: string,
+  maxRows: number,
+): Promise<{ columns: WarehouseColumn[]; data: unknown[][]; truncated: boolean }> {
+  if (!config.user_id) throw new Error("Lakehouse connection is missing its owner — re-save it");
+  const { runLakehouseStatement } = await import("@/utils/lakehouse/core.server");
+  const res = await runLakehouseStatement(config.user_id, sql, {
+    rowCap: maxRows,
+    auditVia: "warehouse-connection",
+  });
+  return {
+    columns: res.columns.map((c) => ({ name: c.name, type: c.type })),
+    data: res.rows,
+    truncated: res.truncated,
+  };
+}
+
 // ── Public entry points ──────────────────────────────────────────────────────
 
 export async function executeWarehouseQuery(
@@ -1075,6 +1093,9 @@ export async function executeWarehouseQuery(
     data: unknown[][];
     truncated: boolean;
   }> => {
+    // The built-in lakehouse routes through its own governed chokepoint —
+    // schema grants, audit and history apply to BI exactly as to the UI.
+    if (config.provider === "lakehouse") return lakehouseDriverQuery(config, safeSql, cappedRows);
     // Wire-compatible providers route to the driver for their family FIRST, so
     // adding CockroachDB or MariaDB never means adding a connection routine.
     const family = PROVIDER_FAMILY[config.provider];
@@ -1128,6 +1149,35 @@ export async function executeWarehouseQuery(
 }
 
 export async function listWarehouseTables(config: WarehouseConfig): Promise<WarehouseTable[]> {
+  if (config.provider === "lakehouse") {
+    if (!config.user_id) throw new Error("Lakehouse connection is missing its owner — re-save it");
+    const { accessibleSchemas, lakehouseConnection } =
+      await import("@/utils/lakehouse/core.server");
+    const allowed = await accessibleSchemas(config.user_id);
+    if (!allowed.length) return [];
+    const c = await lakehouseConnection();
+    try {
+      const names = allowed.map((s) => `'${s.name}'`).join(", ");
+      const rows = await (
+        await c.run(
+          `SELECT table_schema, table_name, column_name, data_type
+           FROM information_schema.columns
+           WHERE table_catalog = 'lake' AND table_schema IN (${names})
+           ORDER BY table_schema, table_name, ordinal_position`,
+        )
+      ).getRows();
+      const tables = new Map<string, WarehouseTable>();
+      for (const r of rows) {
+        const key = `${String(r[0])}.${String(r[1])}`;
+        const t = tables.get(key) ?? { schema: String(r[0]), name: String(r[1]), columns: [] };
+        t.columns.push({ name: String(r[2]), type: String(r[3]) });
+        tables.set(key, t);
+      }
+      return [...tables.values()];
+    } finally {
+      c.closeSync();
+    }
+  }
   let sql = "";
 
   // Every wire-compatible family member exposes the ANSI information_schema,
@@ -1224,6 +1274,19 @@ async function runColumnsQuery(config: WarehouseConfig, sql: string): Promise<Wa
 
 /** Cheap connectivity probe used by the "Test connection" button. */
 export async function testWarehouseConnection(config: WarehouseConfig): Promise<void> {
+  if (config.provider === "lakehouse") {
+    const { lakehouseEnabled, lakehouseConnection } = await import("@/utils/lakehouse/core.server");
+    if (!lakehouseEnabled()) {
+      throw new Error("The lakehouse is not configured on this deployment (LAKEHOUSE_CATALOG_URL)");
+    }
+    const c = await lakehouseConnection();
+    try {
+      await c.run("SELECT 1");
+    } finally {
+      c.closeSync();
+    }
+    return;
+  }
   // Oracle has no bare `SELECT 1` — it must select FROM DUAL.
   const probe = config.provider === "oracle" ? "SELECT 1 FROM DUAL" : "SELECT 1";
   await executeWarehouseQuery(config, probe, 1);

@@ -83,7 +83,11 @@ describe("every provider is reachable by the driver", () => {
     // The dispatcher handles postgres/mysql/tds families up front; everything
     // else needs an explicit case. Reading the source is unusual in a test,
     // but the alternative is a live connection to twenty-two databases.
-    const ownProviders = WAREHOUSE_PROVIDERS.filter((p) => PROVIDER_FAMILY[p] === "own");
+    // lakehouse dispatches through an early guard (its own governed engine),
+    // not the provider switch — verified separately below.
+    const ownProviders = WAREHOUSE_PROVIDERS.filter(
+      (p) => PROVIDER_FAMILY[p] === "own" && p !== "lakehouse",
+    );
     for (const p of ownProviders) {
       expect(
         dispatchSrc.includes(`case "${p}":`),
@@ -105,10 +109,19 @@ describe("every provider is reachable by the driver", () => {
   it("can browse schemas for every provider", () => {
     // listWarehouseTables throws a clear error rather than returning nothing,
     // but a provider reaching that branch is still a half-finished connector.
-    const ownProviders = WAREHOUSE_PROVIDERS.filter((p) => PROVIDER_FAMILY[p] === "own");
+    const ownProviders = WAREHOUSE_PROVIDERS.filter(
+      (p) => PROVIDER_FAMILY[p] === "own" && p !== "lakehouse",
+    );
     for (const p of ownProviders) {
       expect(listSrc.includes(`case "${p}":`), `"${p}" has no schema-listing query`).toBe(true);
     }
+  });
+
+  it("lakehouse is dispatched by its own early guard, before the switch", () => {
+    // No case in the switch — an early `if` routes it to the governed engine
+    // for both query and schema-listing.
+    expect(dispatchSrc).toContain('config.provider === "lakehouse"');
+    expect(listSrc).toContain('config.provider === "lakehouse"');
   });
 });
 

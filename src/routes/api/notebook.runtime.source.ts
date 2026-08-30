@@ -81,14 +81,34 @@ async function handle(request: Request): Promise<Response> {
   if (session?.etl_run_id) {
     let part = "";
     let tableId = "";
+    let cursor: string | null = null;
+    let consume = false;
     try {
-      const body = (await request.json()) as { part?: string; table_id?: string };
+      const body = (await request.json()) as {
+        part?: string;
+        table_id?: string;
+        cursor?: string | null;
+        consume?: boolean;
+      };
       part = body?.part ?? "";
       tableId = typeof body?.table_id === "string" ? body.table_id : "";
+      cursor = typeof body?.cursor === "string" ? body.cursor : null;
+      consume = body?.consume === true;
     } catch {
       /* empty body = default part */
     }
     const etl = await import("@/utils/etl/service.server");
+    if (part === "etl_ingest") {
+      const { data: run } = await supabaseAdmin
+        .from("etl_runs")
+        .select("pipeline_id")
+        .eq("id", session.etl_run_id)
+        .maybeSingle();
+      const out = run
+        ? await etl.etlIngestFor(run.pipeline_id, claims.sub, { cursor, consume })
+        : { error: "ETL run not found for this session" };
+      return "error" in out ? json(404, out) : json(200, out);
+    }
     const out =
       part === "etl_dataset"
         ? await etl.etlDatasetFor(tableId, claims.sub)
@@ -114,11 +134,14 @@ async function handle(request: Request): Promise<Response> {
         /* empty body = default part */
       }
       const out =
-        part === "etl_dataset"
-          ? await etl.etlDatasetFor(tableId, claims.sub)
-          : part === "etl_env"
-            ? await etl.etlPreviewEnvFor(stash, claims.sub)
-            : await etl.etlPreviewBundleFor(stash, claims.sub);
+        part === "etl_ingest"
+          ? // Previews read the backlog without consuming, whatever the flag says.
+            await etl.etlIngestFor(stash.pipeline_id, claims.sub, { consume: false })
+          : part === "etl_dataset"
+            ? await etl.etlDatasetFor(tableId, claims.sub)
+            : part === "etl_env"
+              ? await etl.etlPreviewEnvFor(stash, claims.sub)
+              : await etl.etlPreviewBundleFor(stash, claims.sub);
       return "error" in out ? json(404, out) : json(200, out);
     }
   }

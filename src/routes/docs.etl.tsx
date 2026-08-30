@@ -98,7 +98,7 @@ function EtlDocsPage() {
                 Object storage files (CSV, TSV, JSON, JSONL, Parquet, Excel — with glob patterns
                 like <C>raw/orders/*.csv</C>), a database or warehouse table or SQL query, an HTTP
                 API returning JSON, a platform dataset (uploads, prep outputs, connector-synced
-                tables), or custom Python.
+                tables), a Lakehouse table, or custom Python.
               </>
             ),
           },
@@ -114,7 +114,9 @@ function EtlDocsPage() {
                 <C>&lt;bucket&gt;/&lt;dataset&gt;/&lt;table&gt;/</C>) or a database/warehouse table
                 — each with <C>replace</C>, <C>append</C> or <C>merge</C> (upsert on primary keys).
                 SQL-family databases load over SQLAlchemy; Snowflake, BigQuery and Databricks load
-                through their native bulk paths using the connection you already added.
+                through their native bulk paths using the connection you already added. Bucket
+                targets can also write Delta Lake or Iceberg tables instead of plain files, and a
+                Lakehouse target writes ACID, snapshotted tables into the built-in warehouse.
               </>
             ),
           },
@@ -331,6 +333,18 @@ function EtlDocsPage() {
             body: "After every successful run the linked catalog source is crawled, so new tables appear as assets without waiting for a crawl schedule.",
           },
           {
+            title: "Streamed rows and reverse ETL",
+            body: "Push JSON rows to /api/etl/ingest under the pipeline's trigger token and an ingest source drains them exactly once per run. On the way out, an HTTP API target sends rows to any external endpoint in authenticated JSON batches.",
+          },
+          {
+            title: "Change data capture from PostgreSQL",
+            body: "A database source in CDC mode streams inserts, updates and deletes from a logical-replication slot the engine creates and manages. Point it at a Delta merge target and you get a continuously-applied mirror of the source table — deletes included.",
+          },
+          {
+            title: "Failures reach you where you work",
+            body: "Per-pipeline alerts on failure, recovery, or every success — delivered in-app and mirrored to the Slack, Teams, Discord or webhook channels connected on the Integrations page.",
+          },
+          {
             title: "Preview any node on sampled data",
             body: "Select a node and Preview data runs its upstream steps in the sandbox on sampled sources, showing the rows and column types that node produces — before anything is loaded anywhere.",
           },
@@ -371,11 +385,61 @@ function EtlDocsPage() {
         model allow-lists.
       </P>
 
+      <H2 id="sizing">Data-size limits and machine sizing</H2>
+      <P>
+        Each run executes in <strong>one sandbox container</strong> as an in-memory process — there
+        is no distributed engine, so a single run never spans machines and its working set must fit
+        in the container&apos;s RAM. Rule of thumb: transforms need 3–5× the raw data size in memory
+        (joins, wide aggregations and SCD comparisons sit at the high end). The per-kernel ceiling
+        is the batch memory limit under Admin → Developer runtime (default 4&nbsp;GB, 2 CPUs).
+      </P>
+      <Table
+        headers={["Data per run", "Transforms", "Kernel memory", "Host machine"]}
+        rows={[
+          ["≤ 100 MB", "anything", "2 GB (default)", "4 GB / 2 vCPU"],
+          ["100 MB – 1 GB", "filters, derives, dedupe", "4 GB", "8 GB / 4 vCPU"],
+          ["100 MB – 1 GB", "joins, aggregations, SCD", "8 GB", "16 GB / 4 vCPU"],
+          ["1 – 5 GB", "simple linear transforms", "16 GB", "32 GB / 8 vCPU"],
+          ["1 – 5 GB", "joins / wide reshapes", "24–32 GB", "64 GB / 8+ vCPU"],
+          ["> 5–10 GB", "any", "— not this tool", "load raw, transform in the warehouse"],
+        ]}
+      />
+      <P>
+        The host figures cover kernels plus the app; multiply the kernel column by how many runs you
+        allow at once. Past a few GB per run, change the shape of the work instead of the machine:
+        narrow reads with incremental cursors or CDC, load raw into Snowflake / BigQuery /
+        Databricks and transform there (ELT), or split into chained pipelines with bounded working
+        sets. A run that outgrows its kernel dies as a failed run whose logs end abruptly — that is
+        the container OOM.
+      </P>
+
+      <H2 id="scaling">Horizontal scaling</H2>
+      <P>
+        Two layers scale independently. <strong>Run execution scales out</strong> through the
+        runtime backend: <C>docker</C> runs kernels on one host (scale that host up), <C>k8s</C>{" "}
+        schedules every run as its own pod across the cluster — the horizontal path — and <C>e2b</C>{" "}
+        rents externally hosted sandboxes. The unit of parallelism is the run: ten pipelines can
+        execute on ten nodes, but one run&apos;s dataframe lives on one machine.
+      </P>
+      <P>
+        <strong>The app tier is safe behind a load balancer.</strong> Replicas are stateless (all
+        state is in the database) and every scheduler decision is an atomic claim: a due
+        pipeline&apos;s clock advance is a compare-and-set one replica wins, a due retry claims
+        retrying→queued with one winner, and finalisation claims the terminal status exactly once —
+        so chains, alerts, lineage and crawls cannot double-fire even when replicas race. No sticky
+        sessions needed; trigger, ingest and result callbacks work on any replica. The one per-host
+        concern is the egress allowlist, which each Docker host&apos;s proxy reads locally.
+      </P>
+
       <H2 id="limits">Limits, stated plainly</H2>
       <UL>
         <li>
           Database connectivity covers the three wire families in the table above; the rest stage
           through object storage. The refusal happens at save time, with the message telling you so.
+        </li>
+        <li>
+          One run = one container: data is processed in memory on a single machine. Size guidance
+          and the scale-out story live in the two sections above.
         </li>
         <li>
           The first run pays a cold start plus a package install — a couple of minutes for the full

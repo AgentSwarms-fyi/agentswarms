@@ -145,6 +145,40 @@ function classify(columns: { name: string; type: string; sample?: string }[]): {
 
 /** Best-effort row estimates from provider stats — one query, never COUNT(*). */
 async function rowEstimates(config: WarehouseConfig): Promise<Map<string, number>> {
+  if (config.provider === "lakehouse") {
+    // Counts through the same governed engine the queries use — the schema
+    // list is already access-filtered by the connection owner's grants.
+    if (!config.user_id) return new Map();
+    const { accessibleSchemas, lakehouseConnection } =
+      await import("@/utils/lakehouse/core.server");
+    const allowed = await accessibleSchemas(config.user_id);
+    if (!allowed.length) return new Map();
+    const c = await lakehouseConnection();
+    try {
+      const names = allowed.map((sch) => `'${sch.name}'`).join(", ");
+      const tables = await (
+        await c.run(
+          `SELECT table_schema, table_name FROM information_schema.tables
+           WHERE table_catalog = 'lake' AND table_schema IN (${names}) LIMIT 100`,
+        )
+      ).getRows();
+      if (!tables.length) return new Map();
+      const union = tables
+        .map(
+          (r) =>
+            `SELECT '${String(r[0])}' AS s, '${String(r[1])}' AS t, count(*)::BIGINT AS rc FROM "${String(r[0])}"."${String(r[1])}"`,
+        )
+        .join(" UNION ALL ");
+      const counts = await (await c.run(union)).getRows();
+      return new Map(
+        counts.map((r) => [`${String(r[0])}.${String(r[1])}`.toLowerCase(), Number(r[2])]),
+      );
+    } catch {
+      return new Map();
+    } finally {
+      c.closeSync();
+    }
+  }
   const sqlByProvider: Partial<Record<WarehouseConfig["provider"], string>> = {
     postgres: `SELECT n.nspname AS s, c.relname AS t, GREATEST(c.reltuples, 0)::bigint AS rc
       FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -368,7 +402,14 @@ type ObjectGroup = {
  * crawl would otherwise present as datasets beside the real tables.
  */
 export function isMetadataPath(key: string): boolean {
-  return key.split("/").some((seg) => seg.startsWith("_") || seg.startsWith("."));
+  const segs = key.split("/");
+  if (segs.some((seg) => seg.startsWith("_") || seg.startsWith("."))) return true;
+  // Iceberg table layout: <table>/metadata/*.metadata.json + manifest avros
+  // beside <table>/data/*.parquet. Delta hides itself (_delta_log), Iceberg
+  // does not — scope the rule to json/avro under a metadata/ segment so a
+  // real dataset named "metadata" full of csvs still catalogs.
+  const inMetadataDir = segs.slice(0, -1).includes("metadata");
+  return inMetadataDir && /\.(json|avro|txt)$/i.test(key);
 }
 
 export function groupObjects(objects: StoredObject[]): ObjectGroup[] {

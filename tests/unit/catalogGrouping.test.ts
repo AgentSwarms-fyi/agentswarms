@@ -48,6 +48,19 @@ describe("groupObjects", () => {
   });
 });
 
+describe("isMetadataPath and Iceberg layouts", () => {
+  it("hides Iceberg metadata trees but not datasets that happen to be named metadata", () => {
+    expect(isMetadataPath("lake/orders/metadata/00000-abc.metadata.json")).toBe(true);
+    expect(isMetadataPath("lake/orders/metadata/snap-1-abc.avro")).toBe(true);
+    // Parquet under a metadata dir is somebody's data, not table bookkeeping.
+    expect(isMetadataPath("warehouse/metadata/part1.parquet")).toBe(false);
+    // Iceberg data files stay visible.
+    expect(isMetadataPath("lake/orders/data/00000-0-abc.parquet")).toBe(false);
+    // Delta bookkeeping was already hidden by the underscore rule.
+    expect(isMetadataPath("lake/orders/_delta_log/0.json")).toBe(true);
+  });
+});
+
 describe("fileFormat", () => {
   it("sees through gzip to the inner text format (dlt gzips jsonl by default)", () => {
     expect(fileFormat("finance/x/file.jsonl.gz")).toBe("ndjson");

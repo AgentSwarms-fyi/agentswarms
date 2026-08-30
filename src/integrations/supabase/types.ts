@@ -890,6 +890,168 @@ export type Database = {
         };
         Relationships: [];
       };
+      lakehouse_materialized_views: {
+        Row: {
+          created_at: string;
+          id: string;
+          is_active: boolean;
+          last_duration_ms: number | null;
+          last_error: string | null;
+          last_refreshed_at: string | null;
+          last_row_count: number | null;
+          last_status: string | null;
+          next_run_at: string | null;
+          schedule: string;
+          schema_name: string;
+          sql: string;
+          table_name: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          id?: string;
+          is_active?: boolean;
+          last_duration_ms?: number | null;
+          last_error?: string | null;
+          last_refreshed_at?: string | null;
+          last_row_count?: number | null;
+          last_status?: string | null;
+          next_run_at?: string | null;
+          schedule?: string;
+          schema_name: string;
+          sql: string;
+          table_name: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          is_active?: boolean;
+          last_duration_ms?: number | null;
+          last_error?: string | null;
+          last_refreshed_at?: string | null;
+          last_row_count?: number | null;
+          last_status?: string | null;
+          next_run_at?: string | null;
+          schedule?: string;
+          schema_name?: string;
+          sql?: string;
+          table_name?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      lakehouse_query_history: {
+        Row: {
+          cached: boolean;
+          created_at: string;
+          duration_ms: number | null;
+          error: string | null;
+          id: number;
+          kind: string;
+          retries: number;
+          row_count: number | null;
+          rows_scanned: number | null;
+          sql: string;
+          status: string;
+          user_id: string;
+        };
+        Insert: {
+          cached?: boolean;
+          created_at?: string;
+          duration_ms?: number | null;
+          error?: string | null;
+          id?: number;
+          kind: string;
+          retries?: number;
+          row_count?: number | null;
+          rows_scanned?: number | null;
+          sql: string;
+          status: string;
+          user_id: string;
+        };
+        Update: {
+          cached?: boolean;
+          created_at?: string;
+          duration_ms?: number | null;
+          error?: string | null;
+          id?: number;
+          kind?: string;
+          retries?: number;
+          row_count?: number | null;
+          rows_scanned?: number | null;
+          sql?: string;
+          status?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      lakehouse_table_policies: {
+        Row: {
+          created_at: string;
+          id: string;
+          mask_style: string;
+          masked_columns: string[];
+          row_filter: string | null;
+          schema_name: string;
+          table_name: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          id?: string;
+          mask_style?: string;
+          masked_columns?: string[];
+          row_filter?: string | null;
+          schema_name: string;
+          table_name: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          mask_style?: string;
+          masked_columns?: string[];
+          row_filter?: string | null;
+          schema_name?: string;
+          table_name?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      lakehouse_schemas: {
+        Row: {
+          created_at: string;
+          description: string | null;
+          id: string;
+          lake_source_id: string | null;
+          name: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          description?: string | null;
+          id?: string;
+          lake_source_id?: string | null;
+          name: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          description?: string | null;
+          id?: string;
+          lake_source_id?: string | null;
+          name?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       notifications: {
         Row: {
           body: string;
@@ -1366,6 +1528,38 @@ export type Database = {
         };
         Relationships: [];
       };
+      etl_ingest_events: {
+        Row: {
+          id: number;
+          payload: Json;
+          pipeline_id: string;
+          received_at: string;
+          user_id: string;
+        };
+        Insert: {
+          id?: number;
+          payload: Json;
+          pipeline_id: string;
+          received_at?: string;
+          user_id: string;
+        };
+        Update: {
+          id?: number;
+          payload?: Json;
+          pipeline_id?: string;
+          received_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "etl_ingest_events_pipeline_id_fkey";
+            columns: ["pipeline_id"];
+            isOneToOne: false;
+            referencedRelation: "etl_pipelines";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       etl_pipeline_versions: {
         Row: {
           created_at: string;
@@ -1416,6 +1610,7 @@ export type Database = {
       etl_pipelines: {
         Row: {
           created_at: string;
+          alerts: Json;
           allow_concurrent: boolean;
           cron_expr: string | null;
           default_params: Json | null;
@@ -1443,6 +1638,7 @@ export type Database = {
         };
         Insert: {
           created_at?: string;
+          alerts?: Json;
           allow_concurrent?: boolean;
           cron_expr?: string | null;
           default_params?: Json | null;
@@ -1470,6 +1666,7 @@ export type Database = {
         };
         Update: {
           created_at?: string;
+          alerts?: Json;
           allow_concurrent?: boolean;
           cron_expr?: string | null;
           default_params?: Json | null;

@@ -43,13 +43,20 @@ export type EtlSourceConfig =
       connection_id?: string;
       /** Cached at selection time so the compiler can pick the right driver. */
       provider?: string;
-      mode: "table" | "query";
+      /** cdc: Postgres logical replication (wal2json slot, batch-consumed). */
+      mode: "table" | "query" | "cdc";
       table?: string;
       query?: string;
+      /** cdc only: full table read on first run (slot created first, so no gap). */
+      initial_snapshot?: boolean;
       /** Engine-managed incremental — pushed down as a WHERE on the cursor. */
       incremental?: { cursor_column: string };
     }
   | { type: "http_api"; url: string; records_path?: string }
+  | {
+      /** Rows pushed to /api/etl/ingest under the trigger token; drained here. */
+      type: "ingest";
+    }
   | { type: "python"; code: string }
   | {
       /** A dataset already on the platform: uploaded, prep-flow output, or synced from a SaaS connector. */
@@ -57,6 +64,14 @@ export type EtlSourceConfig =
       table_id: string;
       /** Display + lineage label; the id is what is fetched. */
       table_name?: string;
+    }
+  | {
+      /** The built-in lakehouse, read through its own engine in the sandbox. */
+      type: "lakehouse";
+      schema: string;
+      mode: "table" | "query";
+      table?: string;
+      query?: string;
     };
 
 export type QualityCheck =
@@ -109,6 +124,8 @@ export type EtlTargetConfig =
       dataset: string;
       table: string;
       format: TargetFileFormat;
+      /** Open-table formats on top of the bucket; plain files when absent. */
+      table_format?: "none" | "delta" | "iceberg";
       write_mode: "replace" | "append" | "merge";
       primary_key?: string[];
       /** evolve (default) loads whatever arrives; warn logs drift; strict aborts. */
@@ -125,6 +142,25 @@ export type EtlTargetConfig =
       primary_key?: string[];
       /** evolve (default) loads whatever arrives; warn logs drift; strict aborts. */
       schema_policy?: "evolve" | "warn" | "strict";
+    }
+  | {
+      /** Load into the built-in lakehouse — ACID, snapshotted, catalogued. */
+      type: "lakehouse";
+      schema: string;
+      table: string;
+      write_mode: "replace" | "append" | "merge";
+      primary_key?: string[];
+    }
+  | {
+      /** Reverse ETL: push rows into an external API in JSON batches. */
+      type: "http_api";
+      url: string;
+      method?: "POST" | "PUT" | "PATCH";
+      /** Env var carrying a bearer token — bind one via a secret in Settings. */
+      auth_env?: string;
+      batch_size?: number;
+      /** Wrap each batch as {<wrap_key>: rows}; bare array when empty. */
+      wrap_key?: string;
     };
 
 export type EtlNode = {
@@ -336,6 +372,49 @@ function sourceFn(node: EtlNode): string {
   const c = node.config as EtlSourceConfig;
   const key = envKey(node.id);
   const head = `def _src_${node.id}():`;
+  if (c.type === "lakehouse") {
+    const schema = pyIdent(c.schema, "Lakehouse schema");
+    const sql =
+      c.mode === "table"
+        ? `SELECT * FROM "${schema}"."${pyIdent(c.table ?? "", "Lakehouse table")}"`
+        : (c.query ?? "");
+    if (!sql.trim()) throw new Error(`Lakehouse source "${node.label || node.id}" has no query`);
+    return [
+      head,
+      `    # Built-in lakehouse: columnar read straight into a frame.`,
+      `    con = _lakehouse_con()`,
+      `    try:`,
+      `        return con.execute(${pyStr(sql)}).df()`,
+      `    finally:`,
+      `        con.close()`,
+    ].join("\n");
+  }
+  if (c.type === "ingest") {
+    return [
+      head,
+      `    # Streamed rows: drain the pipeline's ingest staging over the`,
+      `    # session's own channel. Rows the previous run durably loaded (id`,
+      `    # <= the engine cursor) are deleted server-side first; everything`,
+      `    # newer comes back — the CDC consume/peek shape, same guarantees.`,
+      `    global _ingest_last_${node.id}`,
+      `    import requests`,
+      `    resp = requests.post(`,
+      `        os.environ['AGENTSWARMS_ORIGIN'].rstrip('/') + '/api/notebook/runtime/source',`,
+      `        json={`,
+      `            'part': 'etl_ingest',`,
+      `            'cursor': os.environ.get('${envKey(node.id)}_CURSOR'),`,
+      `            'consume': os.environ.get('AGENTSWARMS_ETL_PREVIEW') != '1',`,
+      `        },`,
+      `        headers={'Authorization': 'Bearer ' + os.environ.get('AGENTSWARMS_TOKEN', '')},`,
+      `        timeout=300,`,
+      `    )`,
+      `    resp.raise_for_status()`,
+      `    _payload = resp.json()`,
+      `    _ingest_last_${node.id} = _payload.get('max_id')`,
+      `    print('[etl] ingest: ' + str(len(_payload['rows'])) + ' streamed row(s)')`,
+      `    return pd.DataFrame(_payload['rows'])`,
+    ].join("\n");
+  }
   if (c.type === "platform_dataset") {
     return [
       head,
@@ -385,6 +464,58 @@ function sourceFn(node: EtlNode): string {
           ]
         : []),
       `    return out`,
+    ].join("\n");
+  }
+  if (c.type === "database" && c.mode === "cdc") {
+    const table = (c.table ?? "").replace(/[^A-Za-z0-9_.]/g, "");
+    const snapshot = c.initial_snapshot !== false;
+    return [
+      head,
+      `    # Log-based CDC: a wal2json logical slot is peeked (never consumed`,
+      `    # blind) each run; what the PREVIOUS run durably loaded — its LSN`,
+      `    # rides the engine cursor — is consumed first. Crash between peek`,
+      `    # and load re-reads the same changes: at-least-once, never lost.`,
+      `    global _cdc_last_${node.id}`,
+      `    import json as _json`,
+      `    import sqlalchemy as sa`,
+      `    engine = sa.create_engine(os.environ['${key}_URL'])`,
+      `    slot = os.environ.get('${key}_SLOT', 'aswarm_${node.id.toLowerCase().replace(/[^a-z0-9_]/g, "")}')`,
+      `    consumed = os.environ.get('${key}_CURSOR')`,
+      `    rows = []`,
+      `    with engine.connect().execution_options(isolation_level='AUTOCOMMIT') as con:`,
+      `        exists = con.execute(sa.text("SELECT 1 FROM pg_replication_slots WHERE slot_name = :s"), {'s': slot}).scalar()`,
+      `        if not exists:`,
+      `            con.execute(sa.text("SELECT pg_create_logical_replication_slot(:s, 'wal2json')"), {'s': slot})`,
+      `            print('[etl] cdc: created slot ' + slot)`,
+      ...(snapshot
+        ? [
+            `            snap = pd.read_sql(sa.text(${pyStr(`SELECT * FROM ${table}`)}), con)`,
+            `            snap['_cdc_action'] = 'I'`,
+            `            snap['_cdc_deleted'] = False`,
+            `            snap['_cdc_lsn'] = '0/0'`,
+            `            print('[etl] cdc: initial snapshot ' + str(len(snap)) + ' row(s)')`,
+            `            _cdc_last_${node.id} = None`,
+            `            return snap`,
+          ]
+        : []),
+      `        elif consumed:`,
+      `            con.execute(sa.text("SELECT count(*) FROM pg_logical_slot_get_changes(:s, CAST(:lsn AS pg_lsn), NULL, 'format-version', '2', 'add-tables', :t)"), {'s': slot, 'lsn': consumed, 't': ${pyStr(table)}})`,
+      `        res = con.execute(sa.text("SELECT lsn::text, data FROM pg_logical_slot_peek_changes(:s, NULL, NULL, 'format-version', '2', 'add-tables', :t)"), {'s': slot, 't': ${pyStr(table)}})`,
+      `        last = None`,
+      `        for lsn, data in res:`,
+      `            ch = _json.loads(data)`,
+      `            last = lsn`,
+      `            if ch.get('action') not in ('I', 'U', 'D'):`,
+      `                continue`,
+      `            cols = ch.get('columns') or ch.get('identity') or []`,
+      `            row = {c['name']: c['value'] for c in cols}`,
+      `            row['_cdc_action'] = ch['action']`,
+      `            row['_cdc_deleted'] = ch['action'] == 'D'`,
+      `            row['_cdc_lsn'] = lsn`,
+      `            rows.append(row)`,
+      `    _cdc_last_${node.id} = last`,
+      `    print('[etl] cdc: ' + str(len(rows)) + ' change(s) from slot ' + slot)`,
+      `    return pd.DataFrame(rows, columns=(list(rows[0].keys()) if rows else ['_cdc_action', '_cdc_deleted', '_cdc_lsn']))`,
     ].join("\n");
   }
   if (c.type === "database") {
@@ -534,6 +665,46 @@ function gateFn(node: EtlNode): string {
   return lines.join("\n");
 }
 
+/**
+ * The sandbox-side lakehouse attach. Credentials arrive as env (resolved
+ * server-side, never in code text) exactly like every other connector; the
+ * engine here is the SAME DuckLake catalog the app uses, so a pipeline's
+ * writes are ordinary ACID commits other readers see immediately.
+ */
+function lakehouseAttachFn(): string {
+  return [
+    `def _lakehouse_con():`,
+    `    import duckdb`,
+    `    # Extension directory. The sandbox's HOME is READ-ONLY (so DuckDB's`,
+    `    # default ~/.duckdb fails) and /tmp is mounted NOEXEC (so a .so there`,
+    `    # downloads fine but cannot be mapped). ~/.local is the one path that`,
+    `    # is both writable and executable — it is where pip --user puts`,
+    `    # compiled wheels, which the interpreter already loads.`,
+    `    _ext = os.path.join(os.path.expanduser('~'), '.local', 'duckdb')`,
+    `    os.makedirs(_ext, exist_ok=True)`,
+    `    con = duckdb.connect(config={'home_directory': _ext, 'extension_directory': _ext})`,
+    `    con.execute("INSTALL ducklake; INSTALL postgres; INSTALL httpfs;")`,
+    `    con.execute("LOAD ducklake; LOAD postgres; LOAD httpfs;")`,
+    `    _ep = os.environ.get('ETL_LAKEHOUSE_S3_ENDPOINT')`,
+    `    _sec = ["TYPE s3", "KEY_ID '" + os.environ['ETL_LAKEHOUSE_S3_KEY_ID'] + "'",`,
+    `            "SECRET '" + os.environ['ETL_LAKEHOUSE_S3_SECRET'] + "'",`,
+    `            "URL_STYLE '" + os.environ.get('ETL_LAKEHOUSE_S3_URL_STYLE', 'path') + "'",`,
+    `            "USE_SSL " + os.environ.get('ETL_LAKEHOUSE_S3_USE_SSL', 'false')]`,
+    `    if _ep:`,
+    `        _sec.append("ENDPOINT '" + _ep + "'")`,
+    `    con.execute("CREATE OR REPLACE SECRET lh (" + ", ".join(_sec) + ")")`,
+    `    con.execute(`,
+    `        "ATTACH 'ducklake:postgres:" + os.environ['ETL_LAKEHOUSE_CATALOG'] +`,
+    `        "' AS lake (DATA_PATH '" + os.environ['ETL_LAKEHOUSE_DATA_URL'] + "')"`,
+    `    )`,
+    `    # Make 'lake' the current catalog so schema.table resolves the way it`,
+    `    # does everywhere else in the product.`,
+    `    con.execute("USE lake")`,
+    `    return con`,
+    ``,
+  ].join("\n");
+}
+
 /** The expression list for pandas named aggregation. */
 function aggArgs(aggs: { column: string; fn: AggFn; as: string }[]): string {
   return aggs
@@ -600,18 +771,103 @@ function transformExpr(node: EtlNode, ins: string[]): string {
   }
 }
 
-function targetBlock(node: EtlNode, input: string): string {
+function targetBlock(node: EtlNode, input: string, cdcInput = false): string {
   const c = node.config as EtlTargetConfig;
+  if (c.type === "lakehouse") {
+    const schema = pyIdent(c.schema, "Lakehouse schema");
+    const table = pyIdent(c.table, "Lakehouse table");
+    const fq = `"${schema}"."${table}"`;
+    if (c.write_mode === "merge" && !c.primary_key?.length) {
+      throw new Error(`Merge into "${node.label || node.id}" needs primary key columns`);
+    }
+    const load =
+      c.write_mode === "replace"
+        ? [`        con.execute('CREATE OR REPLACE TABLE ${fq} AS SELECT * FROM _src')`]
+        : c.write_mode === "append"
+          ? [
+              `        con.execute('CREATE TABLE IF NOT EXISTS ${fq} AS SELECT * FROM _src WHERE false')`,
+              `        con.execute('INSERT INTO ${fq} SELECT * FROM _src')`,
+            ]
+          : [
+              // Upsert: delete the incoming keys, then insert — one transaction,
+              // so a reader never sees the gap between the two.
+              `        con.execute('CREATE TABLE IF NOT EXISTS ${fq} AS SELECT * FROM _src WHERE false')`,
+              `        con.execute('BEGIN TRANSACTION')`,
+              `        con.execute(${pyStr(
+                `DELETE FROM ${fq} WHERE (${(c.primary_key ?? [])
+                  .map((k) => `"${pyIdent(k, "Primary key column")}"`)
+                  .join(", ")}) IN (SELECT ${(c.primary_key ?? [])
+                  .map((k) => `"${pyIdent(k, "Primary key column")}"`)
+                  .join(", ")} FROM _src)`,
+              )})`,
+              `        con.execute('INSERT INTO ${fq} SELECT * FROM _src')`,
+              `        con.execute('COMMIT')`,
+            ];
+    return [
+      `    # target ${node.id}: lakehouse → ${schema}.${table} (${c.write_mode})`,
+      `    _src = ${input}`,
+      `    con = _lakehouse_con()`,
+      `    try:`,
+      `        con.register('_src', _src)`,
+      ...load,
+      `    finally:`,
+      `        con.close()`,
+      `    _loads.append({'target': '${schema}.${table}', 'fqn': '${schema}.${table}', 'rows': int(len(${input})), 'load_id': None})`,
+    ].join("\n");
+  }
+  if (c.type === "http_api") {
+    const method = c.method === "PUT" || c.method === "PATCH" ? c.method : "POST";
+    const batch = Math.min(5000, Math.max(1, Math.floor(c.batch_size ?? 500)));
+    const wrap = (c.wrap_key ?? "").trim();
+    if (!c.url?.trim()) throw new Error(`HTTP target "${node.label || node.id}" needs a URL`);
+    return [
+      `    # target ${node.id}: reverse ETL → ${method} ${c.url}`,
+      `    import requests`,
+      `    _hdrs = {'Content-Type': 'application/json'}`,
+      ...(c.auth_env
+        ? [
+            `    if os.environ.get(${pyStr(c.auth_env)}):`,
+            `        _hdrs['Authorization'] = 'Bearer ' + os.environ[${pyStr(c.auth_env)}]`,
+          ]
+        : []),
+      `    _records = json.loads(${input}.to_json(orient='records', date_format='iso'))`,
+      `    _sent = 0`,
+      `    for _i in range(0, len(_records), ${batch}):`,
+      `        _chunk = _records[_i:_i + ${batch}]`,
+      wrap ? `        _body = {${pyStr(wrap)}: _chunk}` : `        _body = _chunk`,
+      `        _resp = requests.request(${pyStr(method)}, ${pyStr(c.url)}, json=_body, headers=_hdrs, timeout=120)`,
+      `        _resp.raise_for_status()`,
+      `        _sent += len(_chunk)`,
+      `        print('[etl] http target: ' + str(_sent) + '/' + str(len(_records)) + ' row(s) sent')`,
+      `    _loads.append({'target': ${pyStr(c.url)}, 'fqn': ${pyStr(`http:${c.url}`)}, 'rows': int(len(${input})), 'load_id': None})`,
+    ].join("\n");
+  }
   const key = envKey(node.id);
   const dataset = pyIdent(c.dataset, "Target dataset");
   const table = pyIdent(c.table, "Target table");
   if (c.write_mode === "merge" && !c.primary_key?.length) {
     throw new Error(`Merge on target "${node.label || node.id}" needs primary key columns`);
   }
+  const tableFormat =
+    c.type === "object_storage" && (c.table_format === "delta" || c.table_format === "iceberg")
+      ? c.table_format
+      : null;
   const resourceArgs = [
     `        name='${table}',`,
+    // Open-table formats: dlt's filesystem destination writes a Delta table
+    // (delta-rs) or an Iceberg table (pyiceberg) instead of loose files.
+    ...(tableFormat ? [`        table_format='${tableFormat}',`] : []),
+    // A merge target fed by CDC applies the log correctly: latest event per
+    // key wins (dedup on LSN, descending) and delete events delete the row.
+    ...(cdcInput && c.write_mode === "merge"
+      ? [
+          `        columns={'_cdc_lsn': {'dedup_sort': 'desc'}, '_cdc_deleted': {'hard_delete': True}},`,
+        ]
+      : []),
     c.write_mode === "merge"
-      ? `        write_disposition={'disposition': 'merge'},\n        primary_key=[${(c.primary_key ?? []).map((k) => pyStr(k)).join(", ")}],`
+      ? // Delta only implements the upsert merge strategy — and upsert is also
+        // what makes the hard_delete hint actually delete rows.
+        `        write_disposition={'disposition': 'merge'${tableFormat === "delta" ? ", 'strategy': 'upsert'" : ""}},\n        primary_key=[${(c.primary_key ?? []).map((k) => pyStr(k)).join(", ")}],`
       : `        write_disposition=${pyStr(c.write_mode)},`,
   ].join("\n");
 
@@ -667,8 +923,22 @@ function targetBlock(node: EtlNode, input: string): string {
 
   const run =
     c.type === "object_storage"
-      ? `    info = pipe.run(resource, loader_file_format=${pyStr(c.format)})`
+      ? tableFormat
+        ? `    info = pipe.run(resource, loader_file_format='parquet')`
+        : `    info = pipe.run(resource, loader_file_format=${pyStr(c.format)})`
       : `    info = pipe.run(resource)`;
+
+  const cdcDeltaApply =
+    cdcInput && c.write_mode === "merge" && tableFormat === "delta"
+      ? [
+          // dlt's delta upsert has no hard-delete path (checked: its merge
+          // builder only ever update/inserts), so delete events land as rows
+          // flagged _cdc_deleted — this transactional delete applies them.
+          `    from dlt.common.libs.deltalake import get_delta_tables`,
+          `    get_delta_tables(pipe, '${table}')['${table}'].delete("_cdc_deleted = true")`,
+          `    print('[etl] cdc: applied hard deletes to ${dataset}.${table}')`,
+        ].join("\n")
+      : null;
 
   return [
     driftLines,
@@ -680,9 +950,14 @@ function targetBlock(node: EtlNode, input: string): string {
     resourceArgs,
     `    )`,
     run,
+    ...(cdcDeltaApply ? [cdcDeltaApply] : []),
     `    _loads.append({'target': '${dataset}.${table}', 'fqn': ${
       c.type === "object_storage"
-        ? `'${dataset}/${table}/*.${c.format === "jsonl" ? "ndjson" : c.format}'`
+        ? tableFormat === "iceberg"
+          ? `'${dataset}/${table}/data/*.parquet'`
+          : tableFormat === "delta"
+            ? `'${dataset}/${table}/*.parquet'`
+            : `'${dataset}/${table}/*.${c.format === "jsonl" ? "ndjson" : c.format}'`
         : `'${dataset}.${table}'`
     }, 'rows': int(len(${input})), 'load_id': str(info.loads_ids[0]) if info.loads_ids else None})`,
   ].join("\n");
@@ -708,8 +983,17 @@ export function compileGraph(graph: EtlGraph): string {
 
   // Refuse unsupported database providers at compile time, not in a container.
   for (const n of order) {
-    const c = n.config as { type?: string; provider?: string };
-    if (c.type !== "database" || !c.provider) continue;
+    const c = n.config as { type?: string; provider?: string; mode?: string; table?: string };
+    if (c.type !== "database") continue;
+    if (n.kind === "source" && c.mode === "cdc") {
+      if (dbFamily(c.provider) !== "postgres")
+        throw new Error(
+          `CDC source "${n.label || n.id}" needs a PostgreSQL-family connection — logical replication is what feeds it.`,
+        );
+      if (!c.table?.trim())
+        throw new Error(`CDC source "${n.label || n.id}" needs a table (schema.table)`);
+    }
+    if (!c.provider) continue;
     const okAsTarget = n.kind === "target" && nativeWarehouseTarget(c.provider) !== null;
     if (!dbFamily(c.provider) && !okAsTarget) {
       throw new Error(
@@ -749,6 +1033,9 @@ export function compileGraph(graph: EtlGraph): string {
     const c = n.config as Extract<EtlTransformConfig, { type: "python" }>;
     lines.push(``, `def _fn_${n.id}(df):`, indent(c.code, "    "), `    return df`, ``);
   }
+  if (order.some((n) => (n.config as { type?: string }).type === "lakehouse")) {
+    lines.push(``, lakehouseAttachFn());
+  }
   const gates = order.filter(
     (n) => n.kind === "transform" && (n.config as { type?: string }).type === "quality_gate",
   );
@@ -760,11 +1047,26 @@ export function compileGraph(graph: EtlGraph): string {
   for (const n of order.filter((x) => x.kind === "source")) {
     lines.push(``, sourceFn(n), ``);
   }
+  for (const n of order.filter(
+    (x) => x.kind === "source" && (x.config as { mode?: string }).mode === "cdc",
+  )) {
+    lines.push(`_cdc_last_${n.id} = None`);
+  }
+  for (const n of order.filter(
+    (x) => x.kind === "source" && (x.config as { type?: string }).type === "ingest",
+  )) {
+    lines.push(`_ingest_last_${n.id} = None`);
+  }
 
   const incremental = order.filter(
     (n) =>
       n.kind === "source" &&
-      (n.config as { incremental?: { cursor_column?: string } }).incremental?.cursor_column,
+      ((n.config as { incremental?: { cursor_column?: string } }).incremental?.cursor_column ||
+        (n.config as { mode?: string }).mode === "cdc" ||
+        (n.config as { type?: string }).type === "ingest"),
+  );
+  const cdcNodes = order.filter(
+    (n) => n.kind === "source" && (n.config as { mode?: string }).mode === "cdc",
   );
 
   // Upstream descriptors for catalog lineage: close enough to the crawler's
@@ -779,13 +1081,22 @@ export function compileGraph(graph: EtlGraph): string {
         table?: string;
         table_id?: string;
         table_name?: string;
+        schema?: string;
         mode?: string;
         url?: string;
       };
       if (c.type === "object_storage") return c.path ?? "";
-      if (c.type === "database") return c.mode === "table" ? (c.table ?? "") : "sql-query";
+      if (c.type === "database")
+        return c.mode === "table"
+          ? (c.table ?? "")
+          : c.mode === "cdc"
+            ? `cdc:${c.table ?? ""}`
+            : "sql-query";
       if (c.type === "http_api") return c.url ?? "";
       if (c.type === "platform_dataset") return `platform:${c.table_name ?? c.table_id ?? ""}`;
+      if (c.type === "ingest") return "webhook-ingest";
+      if (c.type === "lakehouse")
+        return `lakehouse:${c.schema ?? ""}${c.table ? `.${c.table}` : ""}`;
       return "python";
     })
     .filter(Boolean);
@@ -800,6 +1111,20 @@ export function compileGraph(graph: EtlGraph): string {
         `    if not isinstance(f_${n.id}, pd.DataFrame):`,
         `        f_${n.id} = pd.DataFrame(f_${n.id})`,
       );
+      if ((n.config as { type?: string }).type === "ingest") {
+        lines.push(
+          `    if _ingest_last_${n.id} is not None:`,
+          `        _watermarks['${n.id}'] = str(_ingest_last_${n.id})`,
+        );
+      }
+      if ((n.config as { mode?: string }).mode === "cdc") {
+        // The source fn stashes the last peeked LSN; reporting it as the
+        // watermark is what lets the NEXT run consume up to it.
+        lines.push(
+          `    if _cdc_last_${n.id}:`,
+          `        _watermarks['${n.id}'] = _cdc_last_${n.id}`,
+        );
+      }
       const inc = (n.config as { incremental?: { cursor_column?: string } }).incremental;
       if (inc?.cursor_column) {
         // Report the new high-water mark; on an empty read, report nothing so
@@ -814,13 +1139,18 @@ export function compileGraph(graph: EtlGraph): string {
     }
   }
 
-  lines.push(``, `    import dlt`);
+  // dlt is imported only when a target actually loads through it — a
+  // lakehouse- or HTTP-only pipeline neither installs nor imports it.
+  if (hasStorageTarget || hasDbTarget) lines.push(``, `    import dlt`);
   if (hasStorageTarget) lines.push(`    from dlt.destinations import filesystem`);
   if (hasDbTarget) lines.push(`    from dlt.destinations import sqlalchemy as sqlalchemy_dest`);
   lines.push(`    _loads = []`);
   lines.push(`    _schemas = {}`);
   for (const n of order.filter((x) => x.kind === "target")) {
-    lines.push(``, targetBlock(n, `f_${incoming.get(n.id)![0]}`));
+    const inputId = incoming.get(n.id)![0];
+    const inputNode = order.find((x) => x.id === inputId);
+    const cdcInput = (inputNode?.config as { mode?: string } | undefined)?.mode === "cdc";
+    lines.push(``, targetBlock(n, `f_${inputId}`, cdcInput));
   }
 
   lines.push(
@@ -967,6 +1297,8 @@ export function requirementsFor(graph: EtlGraph): string {
       }
       if (c.type === "http_api") reqs.add("requests");
       if (c.type === "platform_dataset") reqs.add("requests");
+      if (c.type === "ingest") reqs.add("requests");
+      if (c.type === "lakehouse") reqs.add("duckdb>=1.4");
       if (c.type === "database") {
         reqs.add("sqlalchemy");
         const fam = dbFamily(c.provider);
@@ -974,9 +1306,22 @@ export function requirementsFor(graph: EtlGraph): string {
       }
     }
     if (n.kind === "transform" && c.type === "sql") reqs.add("ibis-framework[duckdb]");
+    if (n.kind === "target" && c.type === "http_api") {
+      reqs.add("requests");
+      continue;
+    }
+    if (n.kind === "target" && c.type === "lakehouse") {
+      reqs.add("duckdb>=1.4");
+      continue;
+    }
     if (n.kind === "target") {
       anyDlt = true;
-      if (c.type === "object_storage") reqs.add("dlt[filesystem]>=1.3");
+      if (c.type === "object_storage") {
+        reqs.add("dlt[filesystem]>=1.3");
+        const tf = (c as { table_format?: string }).table_format;
+        if (tf === "delta") reqs.add("dlt[deltalake]>=1.3");
+        if (tf === "iceberg") reqs.add("dlt[pyiceberg]>=1.3");
+      }
       if (c.type === "database") {
         const native = nativeWarehouseTarget(c.provider);
         if (native) {
@@ -989,7 +1334,15 @@ export function requirementsFor(graph: EtlGraph): string {
       }
     }
   }
-  if (!anyDlt) reqs.add("dlt[filesystem]>=1.3");
+  // The dlt fallback exists for graphs whose targets the compiler cannot see
+  // (code mode). A graph with targets that need NO dlt — lakehouse, HTTP —
+  // must not pay for a large install it never imports.
+  const hasNonDltTarget = (graph.nodes ?? []).some(
+    (n) =>
+      n.kind === "target" &&
+      ["lakehouse", "http_api"].includes((n.config as { type?: string }).type ?? ""),
+  );
+  if (!anyDlt && !hasNonDltTarget) reqs.add("dlt[filesystem]>=1.3");
   return [...reqs].sort().join("\n");
 }
 

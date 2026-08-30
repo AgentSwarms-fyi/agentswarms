@@ -192,6 +192,7 @@ describe("the grantable list does not drift from the database", () => {
       "nine",
       "ten",
       "eleven",
+      "twelve",
     ];
     expect(stated![1].toLowerCase()).toBe(words[dbTypes.size]);
   });

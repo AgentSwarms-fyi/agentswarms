@@ -37,6 +37,30 @@ async function probeOne(entry: (typeof SERVICE_CATALOGUE)[number]): Promise<Serv
     const url = `${candidate}${entry.path}`;
     lastEndpoint = candidate;
     const started = Date.now();
+    if (entry.expect === "tcp-open") {
+      // No protocol above TCP to speak (Postgres et al) — an accepted
+      // connection is the whole health claim.
+      try {
+        const { connect } = await import("node:net");
+        const target = new URL(candidate);
+        await new Promise<void>((resolvePromise, reject) => {
+          const sock = connect({ host: target.hostname, port: Number(target.port || 5432) }, () => {
+            sock.end();
+            resolvePromise();
+          });
+          sock.setTimeout(PROBE_TIMEOUT_MS, () => {
+            sock.destroy();
+            reject(new Error("timeout"));
+          });
+          sock.on("error", reject);
+        });
+        return { ...base, status: "up", latencyMs: Date.now() - started, endpoint: candidate };
+      } catch (e) {
+        const msg = (e as Error).message ?? String(e);
+        if (/ENOTFOUND|EAI_AGAIN|timeout/i.test(msg)) networkNameUnreachable = true;
+        continue;
+      }
+    }
     try {
       const res = await fetch(url, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
       const latencyMs = Date.now() - started;

@@ -98,6 +98,100 @@ Verified against the seeded `orders.csv` (308 rows, planted defects): warn
 `range(amount, min 0)` removed 4 — 304 rows loaded; flipping the null rule to
 `fail` aborted the run with the rule and row count in the error.
 
+## Streamed rows (webhook ingest)
+
+`POST /api/etl/ingest` (same Bearer trigger token as `/api/etl/run`) stages
+JSON rows for a pipeline — up to 1,000 rows / 1MB per request, 500k backlog
+cap, globally rate-limited. An **ingest** source node drains the staging in id
+order with the CDC consume/peek shape: each run first deletes what the
+previous run durably loaded (ids at or below the engine cursor), then reads
+the rest and reports the new max id as its watermark. Push whenever events
+happen and let the schedule load them, or call `/api/etl/run` right after
+pushing for near-real-time. Rows arrive with `_ingest_id` and
+`_ingest_received_at` alongside their own fields. Node previews read the
+backlog without consuming it. Verified live: 3 pushed rows loaded, 2 more
+pushed, second run drained the first 3 and loaded exactly the 2 new ones.
+
+## Reverse ETL (HTTP API targets)
+
+The **HTTP API** target pushes the incoming frame to an external endpoint in
+JSON batches (`POST`/`PUT`/`PATCH`, configurable rows-per-request, optional
+`{<wrap_key>: rows}` envelope). Auth is a Bearer token read from an env var
+bound to a platform secret (Settings → secret bindings) — resolved in the
+sandbox's memory and scrubbed from logs. A non-2xx response fails the run,
+which the retry ladder then handles. Verified live against a local sink:
+5 rows arrived as 3 batches with the bound bearer header, and the token
+never appeared in run logs.
+
+## Cost attribution
+
+The dashboard's **Runtime · 7d** card totals sandbox wall-clock across
+pipelines, and each pipeline row shows its own `runtime 7d` and `rows 7d` —
+computed from run start/finish stamps in `computeEtlOverview`, so a
+still-running run accrues up to now and queued time costs nothing.
+
+## Staging copies
+
+**Duplicate** (copy icon on a pipeline row) creates `<name> (copy)`: same
+graph, code, destination, alert policy and defaults — but manual schedule, a
+fresh trigger token and no run history. Re-point its connections and
+destination, then enable its schedule to promote.
+
+## Change data capture
+
+A database source in **CDC** mode reads a PostgreSQL logical-replication slot
+(wal2json, format v2) instead of querying the table. The engine names and
+creates the slot (`aswarm_<pipeline>_<node>`), takes an optional initial
+snapshot AFTER slot creation so nothing falls in the gap, and hands each run
+last run's durably-loaded LSN as the cursor: a run first CONSUMES the slot up
+to that LSN, then PEEKS everything newer — a crash between read and load
+re-reads the same changes rather than losing them (at-least-once). Rows carry
+`_cdc_action` (I/U/D), `_cdc_deleted` and `_cdc_lsn`.
+
+What the target does with the log is the target's choice:
+
+- **Append / plain files** — a change event log, every version kept.
+- **Merge + Delta table** — an applied mirror of the source table: dlt's
+  upsert merge handles inserts and updates, and an explicit transactional
+  delete pass applies `_cdc_deleted` rows (dlt's delta upsert has no
+  hard-delete path of its own — its merge builder only update/inserts).
+
+Deleting a pipeline drops its slots best-effort — a leaked slot would make
+the source database retain WAL forever. Requirements: PostgreSQL family with
+`wal_level = logical` and the wal2json plugin (Debian/Ubuntu:
+`postgresql-<v>-wal2json`), plus TCP reachability from the runtime network.
+
+Verified live against a wal2json Postgres: snapshot, then three mutation
+rounds — the Delta mirror matched the source table exactly (inserts, updates
+AND deletes), the LSN cursor advanced through `etl_pipeline_state`, and
+deleting the pipeline removed the slot.
+
+## Open-table formats
+
+An object-storage target can write **Delta Lake** or **Iceberg** tables
+instead of plain files (Table format on the target node). dlt's filesystem
+destination does the writing — delta-rs for Delta, pyiceberg for Iceberg —
+so the result is a real table: `_delta_log/` transaction log, or Iceberg's
+`data/` + `metadata/` tree with manifests and snapshots. File format is
+forced to Parquet (that is what the table formats materialise); requirements
+pull `dlt[deltalake]` / `dlt[pyiceberg]` automatically. The crawler hides
+each format's bookkeeping (underscore rule for Delta; json/avro under a
+`metadata/` segment for Iceberg) and catalogs the data files as one asset,
+which is also the fqn lineage records. Verified live against MinIO: both
+formats written, crawled as single clean assets with correct row counts.
+
+## Alerts
+
+Each pipeline has an alert policy (Settings → Alerts): **run fails** (on by
+default, fires only after the retry ladder is exhausted), **run recovers**
+(on by default — the first success after a failure), and **every success**
+(off by default; noisy on tight schedules). Delivery goes through the
+platform's notification chokepoint: an in-app notification row plus a
+best-effort mirror to every Slack / Teams / Discord / generic-webhook channel
+connected on the Integrations page. A dead webhook never fails the run —
+channel errors are logged and surfaced as delivery-health badges on the
+Integrations page.
+
 ## Platform dataset sources
 
 The **Platform dataset** source node reads a dataset that already lives on the
@@ -192,6 +286,78 @@ sees through gzip. dlt writes text formats gzipped by default
 (`file.jsonl.gz`), which used to register as an opaque `compressed` asset;
 the format detector now reports the inner format and column inference
 decompresses the ranged-GET sample (sync-flush, so a truncated tail is fine).
+
+## Data-size limits and machine sizing
+
+Each run executes in ONE sandbox container as an in-memory pandas process —
+there is no distributed engine. That is the honest boundary of this feature:
+a single run never spans machines, and its working set must fit in the
+container's RAM. Pandas typically needs **3–5× the raw data size** in memory
+(joins, wide aggregations and SCD-style self-comparisons sit at the high
+end), and the per-kernel ceiling is the **batch memory limit** in Admin →
+Developer runtime (default 4096 MB, 2 CPUs).
+
+Sizing guidance for the machine running the kernels (the Docker host in the
+default setup — add the app itself ~1 GB, Postgres/Supabase if co-hosted,
+and multiply the kernel column by how many runs you allow concurrently):
+
+| Data per run  | Transforms                      | Kernel mem limit  | Host machine (kernels + app) |
+| ------------- | ------------------------------- | ----------------- | ---------------------------- |
+| ≤ 100 MB      | anything                        | 2 GB (default ok) | 4 GB / 2 vCPU                |
+| 100 MB – 1 GB | filters, derives, dedupe        | 4 GB              | 8 GB / 4 vCPU                |
+| 100 MB – 1 GB | joins, aggregations, SCD, fuzzy | 8 GB              | 16 GB / 4 vCPU               |
+| 1 – 5 GB      | simple linear transforms        | 16 GB             | 32 GB / 8 vCPU               |
+| 1 – 5 GB      | joins / wide reshapes           | 24–32 GB          | 64 GB / 8+ vCPU              |
+| > 5–10 GB     | any                             | — not this tool   | see below                    |
+
+Past a few GB per run, do not grow the kernel — change the shape of the work:
+
+1. **Narrow the read**: incremental cursors (or CDC) so each run moves only
+   the delta, not the history.
+2. **Push transforms to the warehouse**: load raw with a light pipeline into
+   Snowflake / BigQuery / Databricks (native bulk targets) and transform
+   there — ELT instead of ETL.
+3. Split one huge pipeline into chained smaller ones (`run after`), each with
+   a bounded working set.
+
+A run that exceeds its kernel memory dies with a container OOM (surfaced as
+a failed run whose logs end abruptly); raise the batch memory limit or apply
+one of the three moves above.
+
+## Horizontal scaling
+
+Two layers scale independently:
+
+**Run execution (the data plane) scales out.** Kernels are dispatched
+through a backend selected in Admin → Developer runtime:
+
+- `docker` — kernels run on one Docker host; scale UP that host, and cap
+  concurrency with the runtime's session limits.
+- `k8s` — every run is its own pod, scheduled across the cluster; this is
+  the horizontal path. Many pipelines run in parallel across nodes.
+- `e2b` — runs land in externally hosted sandboxes; capacity is theirs.
+
+Whichever backend, the unit of parallelism is the RUN: ten pipelines can
+execute on ten nodes at once, but one run's dataframe still lives on one
+machine (see sizing above).
+
+**The app tier scales out behind a load balancer.** App replicas are
+stateless — all state lives in Postgres — and the ETL engine's scheduler
+decisions are ATOMIC CLAIMS, so replicas do not duplicate work:
+
+- a due pipeline's clock advance is a compare-and-set on `next_run_at`; one
+  replica wins the tick, the rest skip it;
+- a due retry claims `retrying → queued` with one winner;
+- run finalisation claims the terminal status from a live one exactly once,
+  so chains, alerts, lineage and crawls cannot double-fire even if the
+  result callback and the orphan reaper race.
+
+Requirements for a multi-replica deployment: all replicas share the same
+database and the same runtime backend; sticky sessions are not needed
+(result callbacks and trigger/ingest endpoints work on any replica). The one
+per-host concern is the egress allowlist files, which each Docker host's
+squid reads locally — apply egress changes on every host (the k8s backend
+carries egress policy in its own manifests).
 
 ## Credentials
 

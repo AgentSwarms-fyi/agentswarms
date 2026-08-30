@@ -3,7 +3,13 @@
 // someone glances at it, so the aggregation is pure and pinned here.
 import { describe, expect, it } from "vitest";
 
-import { computeEtlOverview, rowsLoadedOf, PULSE_LIMIT, type OverviewRun } from "@/lib/etlOverview";
+import {
+  computeEtlOverview,
+  runDurationMs,
+  rowsLoadedOf,
+  PULSE_LIMIT,
+  type OverviewRun,
+} from "@/lib/etlOverview";
 
 const NOW = new Date("2026-08-29T12:00:00Z");
 
@@ -102,5 +108,51 @@ describe("rowsLoadedOf", () => {
     expect(rowsLoadedOf({ rows_loaded: "12" })).toBe(0);
     expect(rowsLoadedOf({ rows_loaded: NaN })).toBe(0);
     expect(rowsLoadedOf({ rows_loaded: 42 })).toBe(42);
+  });
+});
+
+describe("runtime attribution", () => {
+  const now = new Date("2026-08-30T12:00:00Z");
+  const mk = (over: Partial<OverviewRun>): OverviewRun => ({
+    pipeline_id: "p1",
+    status: "succeeded",
+    trigger: "manual",
+    attempt: 1,
+    created_at: "2026-08-30T10:00:00Z",
+    started_at: "2026-08-30T10:00:00Z",
+    finished_at: "2026-08-30T10:01:00Z",
+    metrics: { rows_loaded: 10 },
+    ...over,
+  });
+
+  it("sums per-pipeline sandbox time and rows over the window", () => {
+    const { stats, per_pipeline } = computeEtlOverview(
+      [
+        mk({}),
+        mk({ finished_at: "2026-08-30T10:02:30Z", metrics: { rows_loaded: 5 } }),
+        // A failed run still burned sandbox time but loads nothing.
+        mk({ status: "failed", finished_at: "2026-08-30T10:00:30Z", metrics: null }),
+        // Out of window: contributes to neither.
+        mk({
+          created_at: "2026-08-01T00:00:00Z",
+          started_at: "2026-08-01T00:00:00Z",
+          finished_at: "2026-08-01T01:00:00Z",
+        }),
+      ],
+      now,
+    );
+    expect(per_pipeline.p1.runtime_ms_7d).toBe(60_000 + 150_000 + 30_000);
+    expect(per_pipeline.p1.rows_7d).toBe(15);
+    expect(stats.runtime_ms_7d).toBe(240_000);
+  });
+
+  it("a still-running run accrues up to now; queued runs accrue nothing", () => {
+    expect(
+      runDurationMs(
+        mk({ status: "running", finished_at: null, started_at: "2026-08-30T11:58:00Z" }),
+        now,
+      ),
+    ).toBe(120_000);
+    expect(runDurationMs(mk({ started_at: null, finished_at: null }), now)).toBe(0);
   });
 });
