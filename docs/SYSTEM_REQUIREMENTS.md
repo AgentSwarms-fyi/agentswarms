@@ -73,6 +73,108 @@ users** have an in-flight request, and ~1–3 % hold an open notebook.
 | **Storage total**          | 60 GB                    | 100 GB                                 | 500 GB                                                                                                   | 1 TB                                                                  |
 | Multi-instance flags       | —                        | —                                      | `DISABLE_INPROCESS_SCHEDULER=1` + external cron ([details](./DEPLOYMENT.md#scheduling--background-jobs)) | same + `/api/metrics` + [alert pack](../deploy/prometheus/alerts.yml) |
 
+## 3a. Sizing ETL and the lakehouse
+
+The table above sizes the app tier for **request traffic**. ETL and the
+lakehouse are a different workload with different arithmetic, and the defaults
+are deliberately small enough to be safe on a 2 vCPU VM — they do not grow on
+their own. All the knobs below live in **Admin → Developer runtime → Compute
+resources** and none is capped by the application.
+
+### The three facts that drive every number
+
+1. **One ETL run = one batch sandbox.** It costs exactly `batch_cpu_limit` CPU
+   and `batch_mem_limit_mb` RAM for as long as it runs. Concurrency is bounded
+   by `etl_max_concurrent_runs_per_user`, so a user's worst case is
+   `concurrent runs × batch CPU / batch memory`. The admin page prints that
+   product for you.
+2. **The lakehouse engine runs inside each app process**, not in a sandbox. Its
+   memory limit is therefore **per replica** — 8 replicas at 16 GB is 128 GB of
+   intent, not 16. Size it against `host RAM ÷ replicas`, leaving room for the
+   app itself.
+3. **The app is a single Node process per container.** Node runs JS on one
+   thread, so one container uses roughly one core for request serving no matter
+   how big the host is. See [§3b](#3b-one-big-host) — this is the fact that
+   decides how a large machine is used.
+
+### Worked ETL sizes
+
+Measured on the pipeline in
+[End to end: data and AI](./END_TO_END_DATA_AND_AI.md) — 4 CSV sources, 17
+nodes including a SQL transform, a quality gate and a lakehouse target:
+
+| Workload                                                   | Batch CPU / memory | Concurrent runs | Sandbox scratch | Notes                                                                |
+| ---------------------------------------------------------- | ------------------ | --------------- | --------------- | -------------------------------------------------------------------- |
+| **Light** — a few thousand rows, CSV/API sources           | `2` / `4096`       | `3` (default)   | `1024`          | The defaults. Runs in about a minute, most of it package install.    |
+| **Typical** — low millions of rows, joins and aggregates   | `4` / `16384`      | `4`             | `2048`          | pandas needs 3–5× the raw size in memory; joins sit at the high end. |
+| **Heavy** — tens of millions, wide frames, several sources | `8` / `65536`      | `4`             | `4096`          | Past this, push the work into the lakehouse (SQL) instead of pandas. |
+
+Per-run memory is sized in detail — by data size _and_ transform shape — in
+[ETL pipelines § Data-size limits and machine sizing](./ETL_PIPELINES.md#data-size-limits-and-machine-sizing).
+The table here is the host-level view: what to set so several of those runs
+can happen at once.
+
+> **Raise sandbox scratch before anything else.** A pipeline that uses both the
+> SQL transform (`ibis-framework[duckdb]`, ~447 MB installed) and a lakehouse
+> node (DuckDB extensions into the same tmpfs) needs more than the 512 MB
+> default and fails intermittently without it — reported as a bare pip exit
+> code. 2 GB is the smallest number that removes the problem.
+
+**pandas is the memory ceiling, not the row count.** ETL transforms operate on
+an in-memory DataFrame, so a 5 GB CSV needs far more than 5 GB. When a pipeline
+starts needing tens of gigabytes, the answer is not a bigger sandbox — it is a
+lakehouse SQL step, which streams and spills to disk instead.
+
+### Worked lakehouse sizes
+
+| Workload                           | Memory limit    | Threads | Notes                                                      |
+| ---------------------------------- | --------------- | ------- | ---------------------------------------------------------- |
+| Dashboards and metric queries      | `2GB` (default) | `4`     | Aggregates over Parquet; the result cache absorbs repeats. |
+| Interactive analysis, larger joins | `8–16GB`        | `8`     | Spills past the limit rather than failing.                 |
+| Heavy analytical queries           | `32GB+`         | `12+`   | Consider dedicating replicas to analytics — see below.     |
+
+Remember these are **per replica**. `LAKEHOUSE_SPILL_LIMIT` (default 20 GB)
+bounds the disk a spilling query may use; give each replica real scratch disk,
+not a RAM-backed tmpfs.
+
+## 3b. One big host
+
+A 64-core / 512 GB bare-metal server does **not** serve 64 cores' worth of
+traffic from one container, because the app is one Node process. To use a large
+machine, run **many app containers on it** behind a local load balancer, then
+size the per-replica knobs against `host ÷ replicas`.
+
+Worked example — **16 OCPU / 128 GB**, mixed traffic and ETL:
+
+| Component              | Allocation        | Reasoning                                                              |
+| ---------------------- | ----------------- | ---------------------------------------------------------------------- |
+| App replicas           | 6 containers      | ~6 cores of JS execution; each also hosts a lakehouse engine           |
+| Lakehouse memory limit | `8GB` per replica | 6 × 8 = 48 GB worst case if every replica runs a heavy query at once   |
+| Lakehouse threads      | `4`               | 6 replicas × 4 = 24 threads, oversubscribed on purpose — queries burst |
+| Batch CPU / memory     | `4` / `16384`     | 4 concurrent ETL runs ≈ 16 cores and 64 GB at full tilt                |
+| Concurrent runs / user | `4`               | Matches the line above                                                 |
+| Pipelines per sweep    | `8`               | A start rate, not a concurrency cap — sweeps run every 60s             |
+| Sandbox scratch        | `2048`            | See the warning above                                                  |
+
+That deliberately does not sum to 128 GB. ETL sandboxes, the lakehouse engines
+and the app all share the host, and a machine allocated to exactly 100 % has
+nowhere to put a spike.
+
+**Separating the two workloads scales better than one big pool.** A heavy
+analytical query and a user request compete inside the same process, so at
+larger sizes run two groups: replicas sized for traffic with a small lakehouse
+limit, and one or two replicas with a large limit that the load balancer keeps
+out of the request path.
+
+### What does not scale by adding replicas
+
+- **Scheduled work.** `runCronPass` takes a fleet-wide lease, so at most one
+  sweep runs across the whole fleet at a time. That is what stops N replicas
+  double-firing a schedule; it also means scheduled throughput is governed by
+  the per-sweep knobs, not by replica count.
+- **Postgres.** Every replica shares one Supabase project. Past a few hundred
+  concurrent users the database, not the app tier, is the ceiling.
+
 ### Storage growth
 
 Rules of thumb (all tunable via retention settings):

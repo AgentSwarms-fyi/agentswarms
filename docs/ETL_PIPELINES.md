@@ -314,11 +314,18 @@ Past a few GB per run, do not grow the kernel — change the shape of the work:
 
 1. **Narrow the read**: incremental cursors (or CDC) so each run moves only
    the delta, not the history.
-2. **Push transforms to the warehouse**: load raw with a light pipeline into
-   Snowflake / BigQuery / Databricks (native bulk targets) and transform
-   there — ELT instead of ETL.
+2. **Push transforms into the lakehouse**: land raw with a light pipeline into
+   a lakehouse target, then do the joins and aggregations in SQL. DuckDB
+   streams and spills to disk instead of holding a frame in RAM, so this is
+   the move that changes the ceiling rather than raising it. The same applies
+   to an external warehouse — load raw into Snowflake / BigQuery / Databricks
+   (native bulk targets) and transform there. ELT instead of ETL.
 3. Split one huge pipeline into chained smaller ones (`run after`), each with
    a bounded working set.
+
+Host-level sizing — how many of these runs can happen at once, and how that
+interacts with the lakehouse engine and app replicas on the same machine — is
+in [System requirements § Sizing ETL and the lakehouse](./SYSTEM_REQUIREMENTS.md#3a-sizing-etl-and-the-lakehouse).
 
 A run that exceeds its kernel memory dies with a container OOM (surfaced as
 a failed run whose logs end abruptly); raise the batch memory limit or apply

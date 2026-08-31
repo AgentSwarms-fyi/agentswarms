@@ -313,6 +313,14 @@ story, not a cluster), and cold reads pay object-storage latency. Small
 inserts are held **inlined** in the catalog until flushed — that is why a
 fresh table can show real row counts with `0 B` of Parquet.
 
+**The engine runs inside each app process**, so its memory limit is per
+replica: eight replicas at 16 GB is 128 GB of intent, not 16. Size it against
+`host RAM ÷ replicas`, and at larger scales consider keeping one or two
+replicas with a high limit out of the request path, since a heavy analytical
+query and a user request otherwise compete inside the same process. Worked
+numbers are in
+[System requirements § Sizing ETL and the lakehouse](./SYSTEM_REQUIREMENTS.md#3a-sizing-etl-and-the-lakehouse).
+
 Two per-replica behaviours are worth knowing when you scale out. The result
 cache is local to each replica, so the same query behind a round-robin load
 balancer may be a hit on one replica and a miss on another — correctness is
