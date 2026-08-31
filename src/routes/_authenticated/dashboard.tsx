@@ -39,6 +39,11 @@ import {
   Columns,
   Code2,
   Wrench,
+  Waypoints,
+  Warehouse,
+  Layers,
+  BrainCircuit,
+  Sigma,
 } from "lucide-react";
 import { SWARM_TEMPLATES } from "@/lib/swarmTemplates";
 import { cn } from "@/lib/utils";
@@ -73,80 +78,119 @@ const TRACE_FETCH_LIMIT = 200;
 
 const cardCls = "rounded-xl border border-border bg-card shadow-sm";
 
-// Curated feature highlights — the areas of the platform worth discovering
-// first, each with its own accent so the grid reads as a map, not a list.
-const FEATURES = [
+// Curated feature highlights, in the two halves the platform actually has:
+// agents that can act, and a data platform worth pointing them at. The split
+// is not decoration — this page listed nine agent-side surfaces and none of
+// ETL, the lakehouse, the semantic layer or the AI Analyst, so half the
+// product was undiscoverable from the page that exists to introduce it.
+const FEATURE_GROUPS = [
   {
-    title: "BI Workspace",
-    desc: "AI-generated dashboards, 20+ visuals, ontology maps, schedules & alerts.",
-    to: "/bi" as const,
-    icon: PieChart,
-    badge: null,
-    color: "text-fuchsia-600 bg-fuchsia-50 dark:text-fuchsia-300 dark:bg-fuchsia-500/15",
+    group: "Build",
+    blurb: "Agents, swarms and the things they call.",
+    items: [
+      {
+        title: "Playground",
+        desc: "Chat with any model or saved agent — tools, memory and RAG included.",
+        to: "/playground" as const,
+        icon: MessageSquare,
+        badge: null,
+        color: "text-violet-600 bg-violet-50 dark:text-violet-300 dark:bg-violet-500/15",
+      },
+      {
+        title: "Knowledge & RAG",
+        desc: "Vector search over your documents with BYOK embeddings and re-ranking.",
+        to: "/knowledge" as const,
+        icon: BookOpen,
+        badge: null,
+        color: "text-emerald-600 bg-emerald-50 dark:text-emerald-300 dark:bg-emerald-500/15",
+      },
+      {
+        title: "MCP Builder",
+        desc: "Write MCP servers in Python (FastMCP) and expose them as APIs.",
+        to: "/mcp-builder" as const,
+        icon: Wrench,
+        badge: null,
+        color: "text-cyan-600 bg-cyan-50 dark:text-cyan-300 dark:bg-cyan-500/15",
+      },
+      {
+        title: "Developer workspace",
+        desc: "Production Python notebooks on sandboxed server kernels.",
+        to: "/notebooks" as const,
+        icon: NotebookPen,
+        badge: null,
+        color: "text-amber-600 bg-amber-50 dark:text-amber-300 dark:bg-amber-500/15",
+      },
+    ],
   },
   {
-    title: "Data & SQL Agents",
-    desc: "Chat with CSVs, Postgres, MySQL and warehouses; visual prep flows.",
-    to: "/data-sql" as const,
-    icon: Database,
-    badge: null,
-    color: "text-sky-600 bg-sky-50 dark:text-sky-300 dark:bg-sky-500/15",
-  },
-  {
-    title: "Knowledge & RAG",
-    desc: "Vector search over your documents with BYOK embeddings and re-ranking.",
-    to: "/knowledge" as const,
-    icon: BookOpen,
-    badge: null,
-    color: "text-emerald-600 bg-emerald-50 dark:text-emerald-300 dark:bg-emerald-500/15",
-  },
-  {
-    title: "Developer workspace",
-    desc: "Production Python notebooks on sandboxed server kernels.",
-    to: "/notebooks" as const,
-    icon: NotebookPen,
-    badge: "New",
-    color: "text-amber-600 bg-amber-50 dark:text-amber-300 dark:bg-amber-500/15",
-  },
-  {
-    title: "MCP Builder",
-    desc: "Write MCP servers in Python (FastMCP) and expose them as APIs.",
-    to: "/mcp-builder" as const,
-    icon: Wrench,
-    badge: "New",
-    color: "text-cyan-600 bg-cyan-50 dark:text-cyan-300 dark:bg-cyan-500/15",
-  },
-  {
-    title: "Playground",
-    desc: "Chat with any model or saved agent — tools, memory and RAG included.",
-    to: "/playground" as const,
-    icon: MessageSquare,
-    badge: null,
-    color: "text-violet-600 bg-violet-50 dark:text-violet-300 dark:bg-violet-500/15",
-  },
-  {
-    title: "Image Playground",
-    desc: "Generate and iterate on images with your connected providers.",
-    to: "/image-playground" as const,
-    icon: ImageIcon,
-    badge: null,
-    color: "text-rose-600 bg-rose-50 dark:text-rose-300 dark:bg-rose-500/15",
-  },
-  {
-    title: "Prompt Compare",
-    desc: "Run one prompt across models side by side and pick a winner.",
-    to: "/prompt-compare" as const,
-    icon: Columns,
-    badge: null,
-    color: "text-indigo-600 bg-indigo-50 dark:text-indigo-300 dark:bg-indigo-500/15",
-  },
-  {
-    title: "Integrations",
-    desc: "Bring your own keys: LLM providers, warehouses, MCP servers and secrets.",
-    to: "/integrations" as const,
-    icon: Puzzle,
-    badge: null,
-    color: "text-teal-600 bg-teal-50 dark:text-teal-300 dark:bg-teal-500/15",
+    group: "Data & BI",
+    blurb: "Get data in, store it, define it once, then ask it questions.",
+    items: [
+      {
+        title: "ETL Pipelines",
+        desc: "Visual or Python pipelines from storage, databases, APIs and CDC.",
+        to: "/etl" as const,
+        icon: Waypoints,
+        badge: "New",
+        color: "text-orange-600 bg-orange-50 dark:text-orange-300 dark:bg-orange-500/15",
+      },
+      {
+        title: "Lakehouse",
+        desc: "Columnar SQL over Parquet you own — snapshots, time travel, policies.",
+        to: "/lakehouse" as const,
+        icon: Warehouse,
+        badge: "New",
+        color: "text-teal-600 bg-teal-50 dark:text-teal-300 dark:bg-teal-500/15",
+      },
+      {
+        title: "Semantic Layer",
+        desc: "Define a metric once; BI, the analyst and agents all compute it the same.",
+        to: "/semantics" as const,
+        icon: Layers,
+        badge: null,
+        color: "text-indigo-600 bg-indigo-50 dark:text-indigo-300 dark:bg-indigo-500/15",
+      },
+      {
+        title: "AI Analyst",
+        desc: "Plans a question into steps, writes the SQL, and shows its working.",
+        to: "/ai-analyst" as const,
+        icon: BrainCircuit,
+        badge: null,
+        color: "text-fuchsia-600 bg-fuchsia-50 dark:text-fuchsia-300 dark:bg-fuchsia-500/15",
+      },
+      {
+        title: "BI Workspace",
+        desc: "AI-generated dashboards, 20+ visuals, ontology maps, schedules & alerts.",
+        to: "/bi" as const,
+        icon: PieChart,
+        badge: null,
+        color: "text-rose-600 bg-rose-50 dark:text-rose-300 dark:bg-rose-500/15",
+      },
+      {
+        title: "Data Catalog",
+        desc: "Crawl warehouses and buckets; lineage, profiling and PII flags.",
+        to: "/data-sql" as const,
+        icon: Database,
+        badge: null,
+        color: "text-sky-600 bg-sky-50 dark:text-sky-300 dark:bg-sky-500/15",
+      },
+      {
+        title: "Metrics",
+        desc: "The governed metric catalogue your dashboards and agents share.",
+        to: "/metrics" as const,
+        icon: Sigma,
+        badge: null,
+        color: "text-lime-600 bg-lime-50 dark:text-lime-300 dark:bg-lime-500/15",
+      },
+      {
+        title: "Integrations",
+        desc: "Bring your own keys: LLM providers, warehouses, MCP servers and secrets.",
+        to: "/integrations" as const,
+        icon: Puzzle,
+        badge: null,
+        color: "text-slate-600 bg-slate-100 dark:text-slate-300 dark:bg-slate-500/15",
+      },
+    ],
   },
 ];
 
@@ -166,6 +210,13 @@ function DashboardPage() {
     conversations: 0,
     integrations: 0,
     knowledgeBases: 0,
+    // The data half. None of this was counted here, so a deployment with a
+    // full lakehouse and a dozen pipelines looked, from its own dashboard,
+    // exactly like one with nothing in it.
+    pipelines: 0,
+    lakehouseTables: 0,
+    dashboards: 0,
+    metrics: 0,
   });
   const [traces, setTraces] = useState<Trace[]>([]);
   const [userName, setUserName] = useState<string>("there");
@@ -180,7 +231,14 @@ function DashboardPage() {
    * so a source that stopped syncing three weeks ago looked exactly like one
    * that synced this morning from anywhere but its own settings page.
    */
-  const [health, setHealth] = useState({ syncs: 0, warehouses: 0, schedules: 0 });
+  const [health, setHealth] = useState({
+    syncs: 0,
+    warehouses: 0,
+    schedules: 0,
+    // A pipeline that failed at 3am is the same class of problem: already
+    // recorded, and findable only by opening ETL and looking.
+    pipelineRuns: 0,
+  });
   /** Month-to-date spend against the cap, computed the same way /budgets does. */
   const [budget, setBudget] = useState<{ spend: number; cap: number } | null>(null);
 
@@ -204,14 +262,34 @@ function DashboardPage() {
           .limit(TRACE_FETCH_LIMIT),
         supabase.auth.getUser(),
       ]);
-      setStats({
+      setStats((prev) => ({
+        ...prev,
         agents: a.count ?? 0,
         swarms: s.count ?? 0,
         conversations: c.count ?? 0,
         integrations: i.count ?? 0,
         knowledgeBases: k.count ?? 0,
-      });
+      }));
       setTraces((t.data ?? []) as Trace[]);
+
+      // The data-platform counts load separately and never fail the page: a
+      // deployment that has not migrated the lakehouse tables yet gets an
+      // error back from the count, not a throw, and should still see the rest
+      // of its dashboard.
+      void Promise.all([
+        supabase.from("etl_pipelines").select("id", { count: "exact", head: true }),
+        supabase.from("lakehouse_schemas").select("id", { count: "exact", head: true }),
+        supabase.from("bi_dashboards").select("id", { count: "exact", head: true }),
+        supabase.from("semantic_models").select("id", { count: "exact", head: true }),
+      ]).then(([p, lh, d, sm]) =>
+        setStats((prev) => ({
+          ...prev,
+          pipelines: p.count ?? 0,
+          lakehouseTables: lh.count ?? 0,
+          dashboards: d.count ?? 0,
+          metrics: sm.count ?? 0,
+        })),
+      );
 
       // Health + budget are loaded SEPARATELY and never allowed to fail the
       // page. A count against a table a deployment has not migrated yet
@@ -221,7 +299,8 @@ function DashboardPage() {
       const monthStart = new Date();
       monthStart.setUTCDate(1);
       monthStart.setUTCHours(0, 0, 0, 0);
-      const [sy, wh, sc, cap, spend] = await Promise.all([
+      const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const [sy, wh, sc, pr, cap, spend] = await Promise.all([
         supabase
           .from("saas_connections")
           .select("id", { count: "exact", head: true })
@@ -234,6 +313,11 @@ function DashboardPage() {
           .from("swarm_schedules")
           .select("id", { count: "exact", head: true })
           .eq("last_run_status", "error"),
+        supabase
+          .from("etl_runs")
+          .select("id", { count: "exact", head: true })
+          .eq("status", "failed")
+          .gte("created_at", dayAgo),
         supabase.from("budget_settings").select("monthly_cap_usd").limit(1).maybeSingle(),
         // Aggregated in the database. This used to select every trace row for
         // the month and sum cost_usd in the browser, so a truncated result set
@@ -246,6 +330,7 @@ function DashboardPage() {
         syncs: sy.count ?? 0,
         warehouses: wh.count ?? 0,
         schedules: sc.count ?? 0,
+        pipelineRuns: pr.count ?? 0,
       });
       const capUsd = Number(cap.data?.monthly_cap_usd ?? 0);
       // Only show the badge when the figure is known. A failed lookup used to
@@ -335,6 +420,40 @@ function DashboardPage() {
     },
   ] as const;
 
+  // The data half, counted the same way. Shown as its own row rather than
+  // appended to the one above, because "4 pipelines" and "12 agents" answer
+  // different questions and a nine-tile strip reads as noise.
+  const dataStats = [
+    {
+      label: "Pipelines",
+      value: stats.pipelines,
+      icon: Waypoints,
+      to: "/etl",
+      color: "text-orange-600 bg-orange-50 dark:text-orange-300 dark:bg-orange-500/15",
+    },
+    {
+      label: "Lakehouse schemas",
+      value: stats.lakehouseTables,
+      icon: Warehouse,
+      to: "/lakehouse",
+      color: "text-teal-600 bg-teal-50 dark:text-teal-300 dark:bg-teal-500/15",
+    },
+    {
+      label: "Semantic models",
+      value: stats.metrics,
+      icon: Layers,
+      to: "/semantics",
+      color: "text-indigo-600 bg-indigo-50 dark:text-indigo-300 dark:bg-indigo-500/15",
+    },
+    {
+      label: "Dashboards",
+      value: stats.dashboards,
+      icon: PieChart,
+      to: "/bi",
+      color: "text-fuchsia-600 bg-fuchsia-50 dark:text-fuchsia-300 dark:bg-fuchsia-500/15",
+    },
+  ] as const;
+
   const actionTiles = [
     {
       title: "Open the Playground",
@@ -419,6 +538,7 @@ function DashboardPage() {
           {(health.syncs > 0 ||
             health.warehouses > 0 ||
             health.schedules > 0 ||
+            health.pipelineRuns > 0 ||
             (budget && budget.spend >= budget.cap * 0.8)) && (
             <div className="relative mt-5 flex flex-wrap items-center gap-2">
               {health.syncs > 0 && (
@@ -444,6 +564,15 @@ function DashboardPage() {
                   className="inline-flex items-center gap-1.5 rounded-lg bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive ring-1 ring-destructive/20 transition hover:bg-destructive/15"
                 >
                   {health.schedules} scheduled {health.schedules === 1 ? "run" : "runs"} failed
+                </Link>
+              )}
+              {health.pipelineRuns > 0 && (
+                <Link
+                  to="/etl"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive ring-1 ring-destructive/20 transition hover:bg-destructive/15"
+                >
+                  {health.pipelineRuns} pipeline {health.pipelineRuns === 1 ? "run" : "runs"} failed
+                  today
                 </Link>
               )}
               {budget && budget.spend >= budget.cap * 0.8 && (
@@ -498,40 +627,55 @@ function DashboardPage() {
               Explore the platform
             </h2>
             <p className="text-sm text-muted-foreground">
-              The important pieces of AgentSwarms, one click away.
+              Two halves that need each other: agents that can act, and a data platform worth
+              pointing them at.
             </p>
           </header>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {FEATURES.map((f) => (
-              <Link
-                key={f.title}
-                to={f.to}
-                aria-label={f.title}
-                className="group flex flex-col gap-3 rounded-xl bg-card p-4 ring-1 ring-border transition hover:-translate-y-0.5 hover:shadow-md hover:ring-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-              >
-                <div className="flex items-start justify-between">
-                  <div
-                    className={cn(
-                      "grid h-10 w-10 place-items-center rounded-lg transition-transform group-hover:scale-105",
-                      f.color,
-                    )}
-                  >
-                    <f.icon className="h-5 w-5" strokeWidth={1.6} />
-                  </div>
-                  {f.badge && (
-                    <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-primary">
-                      {f.badge}
-                    </span>
-                  )}
+          <div className="space-y-5">
+            {FEATURE_GROUPS.map((g) => (
+              <div key={g.group}>
+                <div className="mb-2 flex items-baseline gap-2">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-foreground">
+                    {g.group}
+                  </h3>
+                  <p className="text-xs text-muted-foreground">{g.blurb}</p>
                 </div>
-                <div>
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-medium text-foreground">{f.title}</p>
-                    <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground opacity-0 transition group-hover:opacity-100" />
-                  </div>
-                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{f.desc}</p>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  {g.items.map((f) => (
+                    <Link
+                      key={f.title}
+                      to={f.to}
+                      aria-label={f.title}
+                      className="group flex flex-col gap-3 rounded-xl bg-card p-4 ring-1 ring-border transition hover:-translate-y-0.5 hover:shadow-md hover:ring-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div
+                          className={cn(
+                            "grid h-10 w-10 place-items-center rounded-lg transition-transform group-hover:scale-105",
+                            f.color,
+                          )}
+                        >
+                          <f.icon className="h-5 w-5" strokeWidth={1.6} />
+                        </div>
+                        {f.badge && (
+                          <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-primary">
+                            {f.badge}
+                          </span>
+                        )}
+                      </div>
+                      <div>
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-sm font-medium text-foreground">{f.title}</p>
+                          <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground opacity-0 transition group-hover:opacity-100" />
+                        </div>
+                        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                          {f.desc}
+                        </p>
+                      </div>
+                    </Link>
+                  ))}
                 </div>
-              </Link>
+              </div>
             ))}
           </div>
         </section>
@@ -648,6 +792,36 @@ function DashboardPage() {
             </Link>
           ))}
         </div>
+
+        {/* Data-platform counts, one row down. Only rendered once something
+            exists: a row of four zeroes on a fresh install is discouraging
+            noise, and the feature grid above already advertises the surfaces. */}
+        {dataStats.some((d) => d.value > 0) && (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {dataStats.map((c) => (
+              <Link
+                key={c.label}
+                to={c.to}
+                className={cn(
+                  cardCls,
+                  "group flex items-center justify-between p-4 transition hover:-translate-y-0.5 hover:shadow-md",
+                )}
+              >
+                <div>
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    {c.label}
+                  </span>
+                  <div className="mt-2 text-2xl font-semibold tabular-nums text-foreground">
+                    {c.value}
+                  </div>
+                </div>
+                <div className={cn("grid h-10 w-10 place-items-center rounded-lg", c.color)}>
+                  <c.icon className="h-5 w-5" strokeWidth={1.6} />
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
 
         {/* ───── Empty state ───── */}
         {isEmpty && (
