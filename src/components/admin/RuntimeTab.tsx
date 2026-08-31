@@ -38,11 +38,14 @@ function NumberField({
   value,
   onChange,
   hint,
+  warn,
 }: {
   label: string;
   value: number;
   onChange: (n: number) => void;
   hint?: string;
+  /** Shown when the value exceeds what this host reports — advice, not a block. */
+  warn?: string | null;
 }) {
   return (
     <div className="space-y-1">
@@ -51,9 +54,13 @@ function NumberField({
         type="number"
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="h-8"
+        className={`h-8 ${warn ? "border-amber-500/60" : ""}`}
       />
-      {hint ? <p className="text-[10px] text-muted-foreground">{hint}</p> : null}
+      {warn ? (
+        <p className="text-[10px] text-amber-600 dark:text-amber-500">{warn}</p>
+      ) : hint ? (
+        <p className="text-[10px] text-muted-foreground">{hint}</p>
+      ) : null}
     </div>
   );
 }
@@ -290,6 +297,99 @@ export function RuntimeTab({ token }: { token: string }) {
         </div>
       </div>
 
+      {/* Compute resources — how much of this machine the platform may use */}
+      <div className="space-y-3 rounded-lg border border-border/60 p-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <p className="text-sm font-medium">Compute resources</p>
+          {state?.host && (
+            <p className="text-[11px] text-muted-foreground">
+              This host reports{" "}
+              <span className="font-medium text-foreground">{state.host.cpus} CPU</span> and{" "}
+              <span className="font-medium text-foreground">
+                {(state.host.totalMemMb / 1024).toFixed(1)} GB
+              </span>{" "}
+              RAM
+            </p>
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Nothing here is capped by the application — a bigger machine can be used in full. Values
+          above what the host reports are flagged but still allowed, because a container&apos;s view
+          of its host is not always the whole story.
+        </p>
+
+        <p className="text-xs font-medium text-muted-foreground">Lakehouse query engine</p>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="space-y-1">
+            <Label className="text-xs">Memory limit</Label>
+            <Input
+              value={form.lakehouse_memory_limit}
+              onChange={(e) => set("lakehouse_memory_limit", e.target.value)}
+              placeholder="2GB"
+              className="h-8"
+            />
+            <p className="text-[10px] text-muted-foreground">
+              e.g. 48GB. Queries past it spill to disk rather than failing.
+            </p>
+          </div>
+          <NumberField
+            label="Threads"
+            value={form.lakehouse_threads}
+            onChange={(n) => set("lakehouse_threads", n)}
+            hint="per query engine"
+            warn={
+              state?.host && form.lakehouse_threads > state.host.cpus
+                ? `More than the ${state.host.cpus} CPU this host reports`
+                : null
+            }
+          />
+          <NumberField
+            label="Sandbox scratch (MB)"
+            value={form.sandbox_tmpfs_mb}
+            onChange={(n) => set("sandbox_tmpfs_mb", n)}
+            hint="~/.local + ~/work per sandbox"
+            warn={
+              form.sandbox_tmpfs_mb < 1024
+                ? "Under 1 GB, a pipeline using both the SQL transform and a lakehouse node can run out mid-install"
+                : null
+            }
+          />
+        </div>
+
+        <p className="text-xs font-medium text-muted-foreground">ETL throughput</p>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <NumberField
+            label="Concurrent runs / user"
+            value={form.etl_max_concurrent_runs_per_user}
+            onChange={(n) => set("etl_max_concurrent_runs_per_user", n)}
+          />
+          <NumberField
+            label="Pipelines started per sweep"
+            value={form.etl_pipelines_per_sweep}
+            onChange={(n) => set("etl_pipelines_per_sweep", n)}
+            hint="sweeps run every 60s"
+          />
+          <div className="space-y-1">
+            <Label className="text-xs">Batch capacity</Label>
+            <p className="rounded-md border border-border/60 bg-muted/40 px-2 py-1.5 text-[11px] text-muted-foreground">
+              {form.etl_max_concurrent_runs_per_user} runs × {Number(form.batch_cpu_limit) || 0} CPU
+              / {(form.batch_mem_limit_mb / 1024).toFixed(1)} GB ={" "}
+              <span className="font-medium text-foreground">
+                {(
+                  form.etl_max_concurrent_runs_per_user * (Number(form.batch_cpu_limit) || 0)
+                ).toFixed(1)}{" "}
+                CPU /{" "}
+                {((form.etl_max_concurrent_runs_per_user * form.batch_mem_limit_mb) / 1024).toFixed(
+                  1,
+                )}{" "}
+                GB
+              </span>{" "}
+              per user at full tilt
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* Limits */}
       <div className="space-y-3 rounded-lg border border-border/60 p-3">
         <p className="text-sm font-medium">Limits</p>
@@ -330,6 +430,11 @@ export function RuntimeTab({ token }: { token: string }) {
             label="Interactive memory (MB)"
             value={form.mem_limit_mb}
             onChange={(n) => set("mem_limit_mb", n)}
+            warn={
+              state?.host && form.mem_limit_mb > state.host.totalMemMb
+                ? `More than this host's ${(state.host.totalMemMb / 1024).toFixed(1)} GB`
+                : null
+            }
           />
           <div />
           <NumberField
@@ -337,11 +442,21 @@ export function RuntimeTab({ token }: { token: string }) {
             value={Number(form.batch_cpu_limit)}
             onChange={(n) => set("batch_cpu_limit", String(n))}
             hint="cores"
+            warn={
+              state?.host && Number(form.batch_cpu_limit) > state.host.cpus
+                ? `More than the ${state.host.cpus} CPU this host reports`
+                : null
+            }
           />
           <NumberField
             label="Batch memory (MB)"
             value={form.batch_mem_limit_mb}
             onChange={(n) => set("batch_mem_limit_mb", n)}
+            warn={
+              state?.host && form.batch_mem_limit_mb > state.host.totalMemMb
+                ? `More than this host's ${(state.host.totalMemMb / 1024).toFixed(1)} GB`
+                : null
+            }
           />
           <NumberField
             label="Batch max (min)"

@@ -102,6 +102,7 @@ export class DockerOrchestrator implements NotebookOrchestrator {
     const memBytes = spec.memLimitMb * 1024 * 1024;
     // Docker wants CPU as NanoCPUs (1 CPU = 1e9).
     const nanoCpus = Math.round(parseFloat(spec.cpuLimit || "1") * 1e9);
+    const tmpfsMb = Math.max(64, Math.trunc(spec.tmpfsMb ?? 512));
 
     const body = {
       Image: spec.image,
@@ -135,8 +136,13 @@ export class DockerOrchestrator implements NotebookOrchestrator {
         // "Permission denied" (and runtime pip install breaks). Sticky world-write
         // is safe here — each container is a single-tenant, ephemeral sandbox.
         Tmpfs: {
-          "/home/runner/work": "rw,exec,size=512m,mode=1777",
-          "/home/runner/.local": "rw,exec,size=512m,mode=1777",
+          // Sized from Admin -> Developer runtime. 512 MB was hardcoded, and a
+          // pipeline that uses both the SQL transform and a lakehouse node
+          // installs ~447 MB of wheels plus DuckDB extensions into ~/.local —
+          // close enough to the ceiling to fail intermittently, reported as a
+          // bare pip exit code.
+          "/home/runner/work": `rw,exec,size=${tmpfsMb}m,mode=1777`,
+          "/home/runner/.local": `rw,exec,size=${tmpfsMb}m,mode=1777`,
           "/tmp": "rw,size=256m,mode=1777",
         },
         // When the app runs on the HOST (dev), Docker Desktop cannot route to

@@ -1,6 +1,8 @@
 // Resolves the effective server-runtime configuration (the single settings row,
 // with a few env overrides for deploy-time wiring) and the per-user capability
 // check. Used by every /api/notebook/runtime/* route.
+import os from "node:os";
+
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { runtimeSecretConfigured } from "./token.server";
 
@@ -23,7 +25,76 @@ export type RuntimeSettings = {
   batchMaxMinutes: number;
   egressAllowlist: string[];
   pipAllowed: boolean;
+  /** Writable tmpfs per sandbox (~/.local and ~/work), in MB. */
+  sandboxTmpfsMb: number;
 };
+
+/**
+ * Compute limits that are NOT about the notebook sandbox — the in-process
+ * lakehouse engine and ETL throughput — resolved the same way: the settings
+ * row wins, then the environment variable, then the built-in default.
+ *
+ * They live in the runtime settings row because that is the one place an
+ * operator already goes to say how much of the host this deployment may use.
+ */
+export type PlatformResourceSettings = {
+  lakehouseMemoryLimit: string;
+  lakehouseThreads: number;
+  etlMaxConcurrentRunsPerUser: number;
+  etlPipelinesPerSweep: number;
+};
+
+/** A stored override only counts when it is a usable positive number. */
+function positive(v: number | null | undefined): number | undefined {
+  return typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.trunc(v) : undefined;
+}
+
+function envInt(name: string): number | undefined {
+  const n = Number(process.env[name]?.trim());
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : undefined;
+}
+
+/**
+ * The compute knobs, resolved. Deliberately NOT capped here: an operator who
+ * has bought a 64-core machine is allowed to use it, and a ceiling written
+ * into the code is a ceiling nobody can raise without a release. The admin UI
+ * shows what the host actually has and warns when a value exceeds it, which
+ * informs the decision instead of overriding it.
+ */
+export async function getPlatformResources(): Promise<PlatformResourceSettings> {
+  const { data } = await supabaseAdmin
+    .from("notebook_runtime_settings")
+    .select(
+      "lakehouse_memory_limit, lakehouse_threads, etl_max_concurrent_runs_per_user, etl_pipelines_per_sweep",
+    )
+    .eq("id", true)
+    .maybeSingle();
+
+  return {
+    lakehouseMemoryLimit:
+      data?.lakehouse_memory_limit?.trim() || process.env.LAKEHOUSE_MEMORY_LIMIT?.trim() || "2GB",
+    lakehouseThreads: positive(data?.lakehouse_threads) ?? envInt("LAKEHOUSE_THREADS") ?? 4,
+    etlMaxConcurrentRunsPerUser:
+      positive(data?.etl_max_concurrent_runs_per_user) ??
+      envInt("ETL_MAX_CONCURRENT_RUNS_PER_USER") ??
+      3,
+    etlPipelinesPerSweep:
+      positive(data?.etl_pipelines_per_sweep) ?? envInt("ETL_PIPELINES_PER_SWEEP") ?? 3,
+  };
+}
+
+/**
+ * What this host actually has, so the admin UI can size against reality rather
+ * than against a number someone guessed. In a container these report the
+ * cgroup's view where the runtime exposes it, and the host's otherwise — which
+ * is why the UI presents them as guidance, not as a limit.
+ */
+export function hostResources(): { cpus: number; totalMemMb: number } {
+  return {
+    cpus: Math.max(1, os.cpus()?.length ?? 1),
+    totalMemMb: Math.max(1, Math.round(os.totalmem() / (1024 * 1024))),
+  };
+}
 
 function envBool(name: string): boolean | undefined {
   const v = process.env[name];
@@ -67,6 +138,7 @@ export async function getRuntimeSettings(): Promise<RuntimeSettings> {
     batchCpuLimit: data?.batch_cpu_limit ?? "2",
     batchMemLimitMb: data?.batch_mem_limit_mb ?? 4096,
     batchMaxMinutes: data?.batch_max_minutes ?? 120,
+    sandboxTmpfsMb: positive(data?.sandbox_tmpfs_mb) ?? 512,
     egressAllowlist: data?.egress_allowlist ?? [
       "pypi.org",
       "files.pythonhosted.org",

@@ -12,7 +12,8 @@ import {
   type EtlPipelineRow,
 } from "./service.server";
 
-const PIPELINES_PER_SWEEP = 3;
+/** Fallback only — the effective value comes from Admin -> Developer runtime. */
+const DEFAULT_PIPELINES_PER_SWEEP = 3;
 const RETRIES_PER_SWEEP = 5;
 
 export function nextEtlRunAt(
@@ -46,13 +47,16 @@ export function nextEtlRunAt(
  */
 export async function processDueEtlPipelines(force = false): Promise<number> {
   const nowIso = new Date().toISOString();
+  const { getPlatformResources } = await import("@/utils/notebookRuntime/config.server");
+  const perSweep =
+    (await getPlatformResources()).etlPipelinesPerSweep || DEFAULT_PIPELINES_PER_SWEEP;
   let query = supabaseAdmin
     .from("etl_pipelines")
     .select("*")
     .eq("is_active", true)
     .neq("schedule", "manual")
     .order("next_run_at", { ascending: true })
-    .limit(PIPELINES_PER_SWEEP);
+    .limit(perSweep);
   if (!force) query = query.lte("next_run_at", nowIso);
 
   const { data: due } = await query;

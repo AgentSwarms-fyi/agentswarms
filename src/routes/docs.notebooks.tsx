@@ -162,7 +162,11 @@ function NotebooksDoc() {
         capabilities dropped, no-new-privileges, CPU/memory/PID limits, and outbound network
         restricted to an operator-managed allowlist. Kernels are ephemeral — files written during a
         session are discarded on teardown; notebooks themselves live in the database. Operators
-        enable and tune all of this under <strong>Admin → Developer runtime</strong>.
+        enable and tune all of this under <strong>Admin → Developer runtime</strong>. That page also
+        holds <strong>Compute resources</strong> — CPU, memory, sandbox scratch space, ETL
+        concurrency and the lakehouse engine's limits. None of them is capped by the app: the page
+        reports what the host actually has and lets you spend it, warning rather than blocking when
+        a value goes past what it detected.
       </Note>
 
       <H2 id="where-they-fit">Where the workspace fits</H2>

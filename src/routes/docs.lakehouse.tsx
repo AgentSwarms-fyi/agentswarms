@@ -138,6 +138,12 @@ function LakehouseDocsPage() {
         and the engine validates those.
       </P>
       <P>
+        Memory and threads are editable under{" "}
+        <strong>Admin → Developer runtime → Compute resources</strong>, which wins over the
+        environment variables below — so a running deployment can be retuned without a redeploy, and
+        neither is capped by the app.
+      </P>
+      <P>
         Each engine gets <C>LAKEHOUSE_MEMORY_LIMIT</C> (default 2GB) and spills past it to disk
         bounded by <C>LAKEHOUSE_SPILL_LIMIT</C> (default 20GB). Both are set together deliberately:
         with a memory limit and no spill directory, DuckDB fails a query rather than spilling, so a

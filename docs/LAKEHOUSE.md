@@ -118,7 +118,12 @@ entry and returned the new content. Two neighbouring settings were measured and
 deliberately left off: HTTP metadata caching was slower and less consistent, and
 Parquet prefetching bought nothing. Disable with `LAKEHOUSE_METADATA_CACHE=false`.
 
-**Memory and spill.** Each engine gets `LAKEHOUSE_MEMORY_LIMIT` (default 2GB)
+**Memory and spill.** Both of the engine's sizing knobs are editable under
+**Admin → Developer runtime → Compute resources**, which takes precedence over
+the environment variables below — so you can retune a running deployment
+without a redeploy, and neither is capped by the application.
+
+Each engine gets `LAKEHOUSE_MEMORY_LIMIT` (default 2GB)
 and spills past it to a temp directory bounded by `LAKEHOUSE_SPILL_LIMIT`
 (default 20GB). Both are set together deliberately: DuckDB's behaviour with a
 memory limit and _no_ temp directory is to fail the query rather than spill, so

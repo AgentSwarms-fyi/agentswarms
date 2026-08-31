@@ -35,7 +35,8 @@ export type EtlRunRow = Database["public"]["Tables"]["etl_runs"]["Row"];
 /** Same shape the MCP builder accepts: KEY={{secret:NAME}} lines only. */
 const SECRET_BINDING_RE = /^([A-Za-z_][A-Za-z0-9_]*)=(\{\{\s*secret:[A-Za-z][A-Za-z0-9_]*\s*\}\})$/;
 
-const MAX_CONCURRENT_RUNS_PER_USER = 3;
+/** Fallback only — the effective value comes from Admin -> Developer runtime. */
+const DEFAULT_MAX_CONCURRENT_RUNS_PER_USER = 3;
 const LOG_CAP = 200_000;
 
 // ── Environment resolution ──────────────────────────────────────────────────
@@ -698,10 +699,16 @@ export async function startEtlRun(
     .select("id", { count: "exact", head: true })
     .eq("user_id", pipeline.user_id)
     .in("status", ["queued", "running"]);
-  if ((count ?? 0) >= MAX_CONCURRENT_RUNS_PER_USER) {
+  const { getPlatformResources } = await import("@/utils/notebookRuntime/config.server");
+  const maxConcurrent =
+    (await getPlatformResources()).etlMaxConcurrentRunsPerUser ||
+    DEFAULT_MAX_CONCURRENT_RUNS_PER_USER;
+  if ((count ?? 0) >= maxConcurrent) {
     return {
       ok: false,
-      error: `Concurrent run limit reached (${MAX_CONCURRENT_RUNS_PER_USER}). Wait for a running pipeline to finish.`,
+      error:
+        `Concurrent run limit reached (${maxConcurrent}). Wait for a running pipeline to ` +
+        `finish, or raise the limit under Admin -> Developer runtime.`,
     };
   }
 

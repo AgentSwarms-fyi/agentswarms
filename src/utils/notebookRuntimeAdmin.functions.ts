@@ -27,6 +27,11 @@ export type NbRuntimeSettings = {
   mem_limit_mb: number;
   batch_cpu_limit: string;
   batch_mem_limit_mb: number;
+  lakehouse_memory_limit: string;
+  lakehouse_threads: number;
+  etl_max_concurrent_runs_per_user: number;
+  etl_pipelines_per_sweep: number;
+  sandbox_tmpfs_mb: number;
   batch_max_minutes: number;
   egress_allowlist: string[];
   pip_allowed: boolean;
@@ -47,7 +52,32 @@ export type NbRuntimeState = {
   grants: NbRuntimeGrant[];
   users: { id: string; email: string | null }[];
   groups: { id: string; name: string }[];
+  /**
+   * What THIS host reports. Shown beside the sizing fields so an operator sizes
+   * against the machine they actually have — the point of removing the caps was
+   * to let a big box be used, not to make the numbers meaningless.
+   */
+  host: { cpus: number; totalMemMb: number };
 };
+
+/**
+ * A CPU allowance like "2", "0.5" or "12". The previous rule was
+ * `z.string().min(1).max(16)` — a STRING LENGTH check, which accepted "banana"
+ * and rejected nothing an operator would plausibly type. It never bounded the
+ * value at all.
+ */
+/** LAKEHOUSE_THREADS as a usable number, or undefined when unset/garbage. */
+function envThreads(): number | undefined {
+  const n = Number(process.env.LAKEHOUSE_THREADS?.trim());
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : undefined;
+}
+
+const positiveNumericString = z
+  .string()
+  .trim()
+  .regex(/^\d+(\.\d+)?$/, "Enter a number of cores, e.g. 4 or 0.5")
+  .refine((v) => Number(v) > 0, "Must be greater than zero")
+  .optional();
 
 const DEFAULTS: NbRuntimeSettings = {
   server_runtime_enabled: false,
@@ -63,6 +93,11 @@ const DEFAULTS: NbRuntimeSettings = {
   mem_limit_mb: 2048,
   batch_cpu_limit: "2",
   batch_mem_limit_mb: 4096,
+  lakehouse_memory_limit: "2GB",
+  lakehouse_threads: 4,
+  etl_max_concurrent_runs_per_user: 3,
+  etl_pipelines_per_sweep: 3,
+  sandbox_tmpfs_mb: 512,
   batch_max_minutes: 120,
   egress_allowlist: ["pypi.org", "files.pythonhosted.org", "openrouter.ai", "api.openai.com"],
   pip_allowed: true,
@@ -74,6 +109,7 @@ export const nbRuntimeGetState = createServerFn({ method: "POST" })
     const guard = await requireSuperadmin(data.access_token);
     if (!guard.ok) return guard;
 
+    const { hostResources } = await import("@/utils/notebookRuntime/config.server");
     const [settingsRes, grantsRes, groupsRes, usersRes] = await Promise.all([
       supabaseAdmin.from("notebook_runtime_settings").select("*").eq("id", true).maybeSingle(),
       supabaseAdmin.from("notebook_runtime_grants").select("id, principal_type, principal_id"),
@@ -97,6 +133,14 @@ export const nbRuntimeGetState = createServerFn({ method: "POST" })
           mem_limit_mb: row.mem_limit_mb,
           batch_cpu_limit: row.batch_cpu_limit,
           batch_mem_limit_mb: row.batch_mem_limit_mb,
+          // NULL means "not overridden" — show the value actually in force so
+          // the field is never blank and never lies about what is running.
+          lakehouse_memory_limit:
+            row.lakehouse_memory_limit ?? process.env.LAKEHOUSE_MEMORY_LIMIT?.trim() ?? "2GB",
+          lakehouse_threads: row.lakehouse_threads ?? envThreads() ?? 4,
+          etl_max_concurrent_runs_per_user: row.etl_max_concurrent_runs_per_user ?? 3,
+          etl_pipelines_per_sweep: row.etl_pipelines_per_sweep ?? 3,
+          sandbox_tmpfs_mb: row.sandbox_tmpfs_mb ?? 512,
           batch_max_minutes: row.batch_max_minutes,
           egress_allowlist: row.egress_allowlist,
           pip_allowed: row.pip_allowed,
@@ -124,6 +168,7 @@ export const nbRuntimeGetState = createServerFn({ method: "POST" })
       grants,
       users,
       groups,
+      host: hostResources(),
     };
   });
 
@@ -136,16 +181,35 @@ export const nbRuntimeUpdateSettings = createServerFn({ method: "POST" })
         require_grant: z.boolean().optional(),
         backend: z.enum(["docker", "k8s", "e2b"]).optional(),
         default_image: z.string().min(1).max(300).optional(),
-        max_sessions_per_user: z.number().int().min(1).max(50).optional(),
-        max_sessions_total: z.number().int().min(1).max(1000).optional(),
-        idle_ttl_minutes: z.number().int().min(1).max(1440).optional(),
-        session_max_minutes: z.number().int().min(1).max(1440).optional(),
-        cell_timeout_seconds: z.number().int().min(5).max(3600).optional(),
-        cpu_limit: z.string().min(1).max(16).optional(),
-        mem_limit_mb: z.number().int().min(256).max(65536).optional(),
-        batch_cpu_limit: z.string().min(1).max(16).optional(),
-        batch_mem_limit_mb: z.number().int().min(256).max(131072).optional(),
-        batch_max_minutes: z.number().int().min(1).max(1440).optional(),
+        // These are SIZING knobs, so the only real rule is "a usable positive
+        // number". The former ceilings (64 GB interactive, 128 GB batch, 8
+        // lakehouse threads) were invented, not derived from anything — and on
+        // a large host they capped the machine below what its owner had paid
+        // for, with no way to raise them short of a release. The admin UI shows
+        // the host's actual CPU and memory and warns when a value exceeds it,
+        // which informs the operator instead of overruling them.
+        max_sessions_per_user: z.number().int().min(1).optional(),
+        max_sessions_total: z.number().int().min(1).optional(),
+        idle_ttl_minutes: z.number().int().min(1).max(10080).optional(),
+        session_max_minutes: z.number().int().min(1).max(10080).optional(),
+        cell_timeout_seconds: z.number().int().min(5).max(86400).optional(),
+        cpu_limit: positiveNumericString,
+        mem_limit_mb: z.number().int().min(256).optional(),
+        batch_cpu_limit: positiveNumericString,
+        batch_mem_limit_mb: z.number().int().min(256).optional(),
+        batch_max_minutes: z.number().int().min(1).max(10080).optional(),
+        // Lakehouse engine (in this process, not a sandbox).
+        lakehouse_memory_limit: z
+          .string()
+          .trim()
+          .regex(/^\d+(\.\d+)?\s*(B|KB|MB|GB|TB|KiB|MiB|GiB|TiB)$/i, "Use a size like 48GB")
+          .max(32)
+          .optional(),
+        lakehouse_threads: z.number().int().min(1).optional(),
+        // ETL throughput.
+        etl_max_concurrent_runs_per_user: z.number().int().min(1).optional(),
+        etl_pipelines_per_sweep: z.number().int().min(1).optional(),
+        sandbox_tmpfs_mb: z.number().int().min(64).optional(),
         egress_allowlist: z.array(z.string().min(1).max(255)).max(200).optional(),
         pip_allowed: z.boolean().optional(),
       })

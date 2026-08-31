@@ -416,6 +416,132 @@ Automate S1–S13 as a pytest that drives a real session through the gateway and
 
 Phase 1 (MVP) ≈ the bulk; phases 2–3 are hardening + K8s. Estimate ~1.5–3 weeks of focused work to a production-ready phase 3, plus image maintenance. Phase 1 alone yields a demoable "real LangChain in a notebook" on a single host.
 
+## Compute resources — spending the machine you actually bought
+
+Every limit that decides how much of the host this deployment may use is
+editable under **Admin → Developer runtime → Compute resources**. None of them
+is capped by the application: if you run on a 64-core box, you can tell it to
+use 64 cores.
+
+The page shows what the host reports (CPU and RAM) beside the fields, and
+flags a value that exceeds it — as advice, not a block, because a container's
+view of its host is not always the whole story.
+
+| Setting                        | Default         | What it governs                                                                                        |
+| ------------------------------ | --------------- | ------------------------------------------------------------------------------------------------------ |
+| Lakehouse **memory limit**     | `2GB`           | Memory per lakehouse query engine, in this process. Queries past it spill to disk rather than failing. |
+| Lakehouse **threads**          | `4`             | Threads per lakehouse query engine.                                                                    |
+| **Sandbox scratch**            | `512 MB`        | Writable tmpfs per sandbox for `~/.local` (pip installs) and `~/work`.                                 |
+| ETL **concurrent runs / user** | `3`             | Pipelines one user may have running at once.                                                           |
+| ETL **pipelines per sweep**    | `3`             | Due pipelines started per scheduler sweep (sweeps run every 60s).                                      |
+| **Batch CPU / memory**         | `2` / `4096 MB` | Per ETL run — each run is one batch sandbox.                                                           |
+| **Interactive CPU / memory**   | `1` / `2048 MB` | Per open notebook kernel.                                                                              |
+
+Each resolves in the order **setting → environment variable → built-in
+default**, so a value set in the UI beats a stale `LAKEHOUSE_THREADS` left in
+`.env` from an earlier deploy. Leave a field at its default and the environment
+variable still works exactly as before.
+
+### Sizing a large host
+
+The defaults are deliberately small — they have to be safe on a 2 vCPU VM. They
+do not grow on their own, so on a big machine you must raise them or most of it
+sits idle. The **Batch capacity** readout on the page does this arithmetic for
+you: `concurrent runs × batch CPU / batch memory`.
+
+For a **16 OCPU / 128 GB** host running heavy ETL, a reasonable starting point:
+
+| Setting                | Value   | Reasoning                                                           |
+| ---------------------- | ------- | ------------------------------------------------------------------- |
+| Batch CPU              | `4`     | 4 concurrent heavy runs ≈ 16 cores at full tilt                     |
+| Batch memory           | `16384` | 4 × 16 GB = 64 GB for ETL                                           |
+| Concurrent runs / user | `4`     | Matches the arithmetic above                                        |
+| Pipelines per sweep    | `8`     | A sweep runs every 60s; this is a start rate, not a concurrency cap |
+| Lakehouse memory limit | `32GB`  | The engine is in the app process, so leave room for it and the OS   |
+| Lakehouse threads      | `12`    | Leaves headroom for request handling                                |
+| Sandbox scratch        | `2048`  | See below                                                           |
+
+Deliberately **not** summing to 128 GB: ETL sandboxes, the lakehouse engine and
+the app all share the host, and a machine allocated to exactly 100% has nowhere
+to put a spike.
+
+> **Raise sandbox scratch before running heavy pipelines.** A pipeline that uses
+> both the SQL transform (`ibis-framework[duckdb]`, ~447 MB installed) and a
+> lakehouse node (DuckDB extensions into the same tmpfs) sits close enough to
+> the 512 MB default to fail intermittently — and pip reports it as a bare exit
+> code. 2 GB removes the problem.
+
+### ARM (Ampere A1, Graviton)
+
+Verified end to end on `linux/arm64`: the Node runtime, DuckDB's native
+bindings, the `ducklake` / `httpfs` / `postgres_scanner` extensions, and the
+ETL Python stack (duckdb, pandas, pyarrow all ship prebuilt `manylinux`
+aarch64 wheels — nothing compiles). No image pins an architecture. Given
+Ampere A1 pricing, it is often the better-value shape for this workload.
+
+## Compute resources — spending the machine you actually bought
+
+Every limit that decides how much of the host this deployment may use is
+editable under **Admin → Developer runtime → Compute resources**. None of them
+is capped by the application: if you run on a 64-core box, you can tell it to
+use 64 cores.
+
+The page shows what the host reports (CPU and RAM) beside the fields, and
+flags a value that exceeds it — as advice, not a block, because a container's
+view of its host is not always the whole story.
+
+| Setting                        | Default         | What it governs                                                                                        |
+| ------------------------------ | --------------- | ------------------------------------------------------------------------------------------------------ |
+| Lakehouse **memory limit**     | `2GB`           | Memory per lakehouse query engine, in this process. Queries past it spill to disk rather than failing. |
+| Lakehouse **threads**          | `4`             | Threads per lakehouse query engine.                                                                    |
+| **Sandbox scratch**            | `512 MB`        | Writable tmpfs per sandbox for `~/.local` (pip installs) and `~/work`.                                 |
+| ETL **concurrent runs / user** | `3`             | Pipelines one user may have running at once.                                                           |
+| ETL **pipelines per sweep**    | `3`             | Due pipelines started per scheduler sweep (sweeps run every 60s).                                      |
+| **Batch CPU / memory**         | `2` / `4096 MB` | Per ETL run — each run is one batch sandbox.                                                           |
+| **Interactive CPU / memory**   | `1` / `2048 MB` | Per open notebook kernel.                                                                              |
+
+Each resolves in the order **setting → environment variable → built-in
+default**, so a value set in the UI beats a stale `LAKEHOUSE_THREADS` left in
+`.env` from an earlier deploy. Leave a field at its default and the environment
+variable still works exactly as before.
+
+### Sizing a large host
+
+The defaults are deliberately small — they have to be safe on a 2 vCPU VM. They
+do not grow on their own, so on a big machine you must raise them or most of it
+sits idle. The **Batch capacity** readout on the page does this arithmetic for
+you: `concurrent runs × batch CPU / batch memory`.
+
+For a **16 OCPU / 128 GB** host running heavy ETL, a reasonable starting point:
+
+| Setting                | Value   | Reasoning                                                           |
+| ---------------------- | ------- | ------------------------------------------------------------------- |
+| Batch CPU              | `4`     | 4 concurrent heavy runs ≈ 16 cores at full tilt                     |
+| Batch memory           | `16384` | 4 × 16 GB = 64 GB for ETL                                           |
+| Concurrent runs / user | `4`     | Matches the arithmetic above                                        |
+| Pipelines per sweep    | `8`     | A sweep runs every 60s; this is a start rate, not a concurrency cap |
+| Lakehouse memory limit | `32GB`  | The engine is in the app process, so leave room for it and the OS   |
+| Lakehouse threads      | `12`    | Leaves headroom for request handling                                |
+| Sandbox scratch        | `2048`  | See below                                                           |
+
+Deliberately **not** summing to 128 GB: ETL sandboxes, the lakehouse engine and
+the app all share the host, and a machine allocated to exactly 100% has nowhere
+to put a spike.
+
+> **Raise sandbox scratch before running heavy pipelines.** A pipeline that uses
+> both the SQL transform (`ibis-framework[duckdb]`, ~447 MB installed) and a
+> lakehouse node (DuckDB extensions into the same tmpfs) sits close enough to
+> the 512 MB default to fail intermittently — and pip reports it as a bare exit
+> code. 2 GB removes the problem.
+
+### ARM (Ampere A1, Graviton)
+
+Verified end to end on `linux/arm64`: the Node runtime, DuckDB's native
+bindings, the `ducklake` / `httpfs` / `postgres_scanner` extensions, and the
+ETL Python stack (duckdb, pandas, pyarrow all ship prebuilt `manylinux`
+aarch64 wheels — nothing compiles). No image pins an architecture. Given
+Ampere A1 pricing, it is often the better-value shape for this workload.
+
 ## Raw-IP egress destinations
 
 `dstdomain` entries in squid never match a URL that names an IP address, so

@@ -26,6 +26,8 @@ export type KernelSpec = {
   image: string;
   cpuLimit: string;
   memLimitMb: number;
+  /** Writable tmpfs per sandbox for ~/.local and ~/work, in MB. */
+  tmpfsMb?: number;
   /** hard wall-clock ceiling for the sandbox; 0 = none (long-lived services) */
   timeoutSeconds: number;
   /** injected into the container environment (session token, callback URL, proxy…) */

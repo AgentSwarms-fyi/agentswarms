@@ -92,8 +92,13 @@ function sq(v: string): string {
 
 async function createEngine(cfg: LakehouseConfig): Promise<DuckDBInstance> {
   const { DuckDBInstance } = await import("@duckdb/node-api");
+  // Admin -> Developer runtime wins, then the env var, then the default. The
+  // old form clamped threads to 2-8 regardless, which meant a 16-core host
+  // could never be told to use more than half of itself.
+  const { getPlatformResources } = await import("@/utils/notebookRuntime/config.server");
+  const resources = await getPlatformResources();
   const instance = await DuckDBInstance.create(":memory:", {
-    threads: String(Math.max(2, Math.min(8, Number(process.env.LAKEHOUSE_THREADS ?? 4)))),
+    threads: String(Math.max(1, resources.lakehouseThreads)),
   });
   const c = await instance.connect();
   try {
@@ -115,7 +120,7 @@ async function createEngine(cfg: LakehouseConfig): Promise<DuckDBInstance> {
     // behaviour for a shared engine.
     const spillDir = path.join(os.tmpdir(), "agentswarms-lakehouse-spill");
     await fs.mkdir(spillDir, { recursive: true }).catch(() => {});
-    await c.run(`SET memory_limit=${sq(process.env.LAKEHOUSE_MEMORY_LIMIT?.trim() || "2GB")};`);
+    await c.run(`SET memory_limit=${sq(resources.lakehouseMemoryLimit)};`);
     await c.run(`SET temp_directory=${sq(spillDir.replace(/\\/g, "/"))};`);
     await c.run(
       `SET max_temp_directory_size=${sq(process.env.LAKEHOUSE_SPILL_LIMIT?.trim() || "20GB")};`,

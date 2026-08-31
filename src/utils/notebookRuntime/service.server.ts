@@ -186,6 +186,7 @@ export async function startSession(opts: {
       image: settings.image,
       cpuLimit: cpu,
       memLimitMb: mem,
+      tmpfsMb: settings.sandboxTmpfsMb,
       // 0 = no wall-clock ceiling, which is what a long-lived service needs.
       timeoutSeconds: service ? 0 : maxMin * 60,
       env,

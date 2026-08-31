@@ -4525,6 +4525,11 @@ export type Database = {
       notebook_runtime_settings: {
         Row: {
           backend: string;
+          etl_max_concurrent_runs_per_user: number | null;
+          etl_pipelines_per_sweep: number | null;
+          lakehouse_memory_limit: string | null;
+          lakehouse_threads: number | null;
+          sandbox_tmpfs_mb: number | null;
           batch_cpu_limit: string;
           batch_max_minutes: number;
           batch_mem_limit_mb: number;
@@ -4546,6 +4551,11 @@ export type Database = {
         Insert: {
           api_key_id?: string | null;
           backend?: string;
+          etl_max_concurrent_runs_per_user?: number | null;
+          etl_pipelines_per_sweep?: number | null;
+          lakehouse_memory_limit?: string | null;
+          lakehouse_threads?: number | null;
+          sandbox_tmpfs_mb?: number | null;
           batch_cpu_limit?: string;
           batch_max_minutes?: number;
           batch_mem_limit_mb?: number;
@@ -4567,6 +4577,11 @@ export type Database = {
         Update: {
           api_key_id?: string | null;
           backend?: string;
+          etl_max_concurrent_runs_per_user?: number | null;
+          etl_pipelines_per_sweep?: number | null;
+          lakehouse_memory_limit?: string | null;
+          lakehouse_threads?: number | null;
+          sandbox_tmpfs_mb?: number | null;
           batch_cpu_limit?: string;
           batch_max_minutes?: number;
           batch_mem_limit_mb?: number;

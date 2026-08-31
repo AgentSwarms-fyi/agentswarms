@@ -257,8 +257,12 @@ describe("performance surfaces", () => {
     expect(core).toContain("SET memory_limit=");
     expect(core).toContain("SET temp_directory=");
     expect(core).toContain("SET max_temp_directory_size=");
-    expect(core).toContain("LAKEHOUSE_MEMORY_LIMIT");
+    // The memory limit now arrives from the resolver (Admin -> Developer
+    // runtime, then the env var), so the engine no longer reads the variable
+    // itself; the spill ceiling is still a deploy-time knob.
+    expect(core).toContain("resources.lakehouseMemoryLimit");
     expect(core).toContain("LAKEHOUSE_SPILL_LIMIT");
+    expect(read("src/utils/notebookRuntime/config.server.ts")).toContain("LAKEHOUSE_MEMORY_LIMIT");
     // Windows backslashes are not legal inside a DuckDB path literal.
     expect(core).toMatch(/temp_directory=\$\{sq\(spillDir\.replace\(/);
   });
