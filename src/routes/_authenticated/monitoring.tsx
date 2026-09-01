@@ -263,6 +263,23 @@ function MonitoringPage() {
         </div>
       )}
 
+      {/* WHOSE numbers these are.
+          Behind a load balancer or a Kubernetes Service, each refresh can be
+          answered by a different replica, and the figures below belong to that
+          one alone. Without naming it, CPU appears to jump about when it is
+          really several machines taking turns — the sort of thing that costs an
+          hour before anyone suspects it. On Kubernetes the hostname IS the pod
+          name, so this doubles as "which pod am I looking at". */}
+      {metrics && (
+        <p className="mb-3 text-[11px] text-muted-foreground">
+          Reporting from <span className="font-mono text-foreground">{metrics.hostname}</span> ·{" "}
+          {metrics.role} node · {metrics.workers} worker
+          {metrics.workers === 1 ? "" : "s"}
+          {metrics.workers > 1 && " sharing this instance's memory"}. Behind a load balancer these
+          figures describe the replica that answered, not the fleet.
+        </p>
+      )}
+
       {/* Hardware */}
       <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Gauge
@@ -321,12 +338,14 @@ function MonitoringPage() {
         />
       </div>
 
-      {/* Capacity: what is held in columnar form, and the choice per dataset.
-          Sits here because this is the page about what the system is using. */}
-      <CapacityPanel userId={user?.id} />
-
-      {/* Services */}
-      <Card className="overflow-hidden">
+      {/* Services.
+          ABOVE capacity, not below it. This page is opened when something looks
+          wrong, and the first question is "what is down". Capacity used to come
+          first and listed every dataset in the workspace — a dozen rows, most of
+          them holding nothing — which pushed the health list a screen and a half
+          below the resource cards. Ordering here is triage order: the machine,
+          then what is broken, then what is stored. */}
+      <Card className="mb-5 overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/40 px-4 py-2">
           <p className="text-sm font-semibold">Services</p>
           <p className="text-[11px] text-muted-foreground">
@@ -343,6 +362,9 @@ function MonitoringPage() {
           ))}
         </div>
       </Card>
+
+      {/* Capacity: what is held in columnar form, and the choice per dataset. */}
+      <CapacityPanel userId={user?.id} />
 
       {metrics && (
         <p className="mt-3 text-[11px] text-muted-foreground">

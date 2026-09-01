@@ -13,9 +13,27 @@
 // health check itself — which would otherwise look like a liveness failure.
 import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { appRole } from "@/utils/appRole";
 
 const HEADERS = { "Content-Type": "application/json", "Cache-Control": "no-store" };
 const DB_TIMEOUT_MS = 3000;
+
+// An analytics node answers "no" here ON PURPOSE, so a load balancer stops
+// sending it interactive traffic while /api/health keeps reporting it alive and
+// the orchestrator leaves it running. That is the whole of APP_ROLE=analytics:
+// readiness routes traffic, liveness decides restarts, and the two disagreeing
+// is precisely how you hold a node out of the request path without needing a
+// feature from your load balancer. See src/utils/appRole.ts.
+function analyticsNotReady(): Response {
+  return new Response(
+    JSON.stringify({
+      status: "not_ready",
+      role: "analytics",
+      reason: "APP_ROLE=analytics — this node is held out of the interactive pool by design",
+    }),
+    { status: 503, headers: HEADERS },
+  );
+}
 
 async function dbReachable(): Promise<{ ok: boolean; error?: string }> {
   try {
@@ -39,6 +57,10 @@ export const Route = createFileRoute("/api/health/ready")({
   server: {
     handlers: {
       GET: async () => {
+        // Checked before the database round trip: the answer cannot change, so
+        // probing Postgres every few seconds from a node nobody routes to is
+        // pure load on the one component that is already the fleet's ceiling.
+        if (appRole() === "analytics") return analyticsNotReady();
         const db = await dbReachable();
         const body = db.ok
           ? { status: "ready", checks: { db: true } }
@@ -46,6 +68,9 @@ export const Route = createFileRoute("/api/health/ready")({
         return new Response(JSON.stringify(body), { status: db.ok ? 200 : 503, headers: HEADERS });
       },
       HEAD: async () => {
+        if (appRole() === "analytics") {
+          return new Response(null, { status: 503, headers: { "Cache-Control": "no-store" } });
+        }
         const db = await dbReachable();
         return new Response(null, {
           status: db.ok ? 200 : 503,

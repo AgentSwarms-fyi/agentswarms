@@ -20,6 +20,7 @@ import { describe, expect, it } from "vitest";
 import {
   EGRESS_BASELINE,
   normalizeEgressHost,
+  normalizeEgressIp,
   renderEgressAllowlist,
   renderEgressIpAllowlist,
 } from "@/utils/notebookRuntime/egress";
@@ -127,12 +128,19 @@ describe("the admin UI says which entries it will discard", () => {
   // dropped after it.
   const ui = readFileSync("src/components/admin/RuntimeTab.tsx", "utf8");
 
-  it("derives the rejected list with the SAME function that drops them", () => {
+  it("derives the rejected list with the SAME functions that drop them", () => {
     // A second copy of the rule here would be a warning that can disagree with
     // the behaviour it is describing — which is the failure mode this codebase
     // has hit three times over.
-    expect(ui).toMatch(/import \{ normalizeEgressHost \} from "@\/utils\/notebookRuntime\/egress"/);
+    //
+    // BOTH normalisers, because the list renders into two ACL files. Asking
+    // only the hostname one is how the warning came to report a working LAN
+    // address as ignored.
+    expect(ui).toMatch(
+      /import \{ normalizeEgressHost, normalizeEgressIp \} from "@\/utils\/notebookRuntime\/egress"/,
+    );
     expect(ui).toMatch(/normalizeEgressHost\(s\) === null/);
+    expect(ui).toMatch(/normalizeEgressIp\(s\) === null/);
   });
 
   it("does not re-implement the hostname rule in the component", () => {
@@ -143,7 +151,7 @@ describe("the admin UI says which entries it will discard", () => {
 
   it("renders a warning only when something was rejected", () => {
     expect(ui).toMatch(/rejectedEgress\.length > 0 &&/);
-    expect(ui).toMatch(/Ignored — not a hostname the proxy can match/);
+    expect(ui).toMatch(/Ignored — neither a hostname nor an IP address/);
   });
 
   it("ignores comment lines rather than reporting them as errors", () => {
@@ -201,5 +209,49 @@ describe("destinations the platform itself needs", () => {
     // A real hostname endpoint goes the other way.
     expect(renderEgressAllowlist(["minio.internal:9000"])).toContain(".minio.internal");
     expect(renderEgressIpAllowlist(["minio.internal:9000"])).not.toContain("minio.internal");
+  });
+});
+
+// FOUND FROM THE UI. The admin field showed "Ignored — not a hostname the proxy
+// can match: 192.168.1.85" while squid was, on the very next line of its access
+// log, ALLOWING that address out of the dst file. The warning asked only
+// normalizeEgressHost, which rejects addresses by design because they are inert
+// as dstdomain entries — true of one file, false of the pair. An operator
+// reading it concludes IP allow-listing is impossible and goes hunting a
+// problem that does not exist.
+describe("the admin warning agrees with what the proxy actually honours", () => {
+  // The predicate the UI filters on, kept identical to RuntimeTab's.
+  const ignored = (s: string) => normalizeEgressHost(s) === null && normalizeEgressIp(s) === null;
+
+  it("does not call an entry ignored when a rendered ACL contains it", () => {
+    for (const raw of [
+      "192.168.1.85",
+      "192.168.1.85:19000",
+      "http://192.168.1.85:19000",
+      "10.0.0.1",
+      "github.com",
+      "minio.internal:9000",
+    ]) {
+      const written =
+        entries(renderEgressAllowlist([raw])).some((l) =>
+          l.includes(raw.replace(/^\w+:\/\//, "").replace(/:\d+$/, "")),
+        ) || entries(renderEgressIpAllowlist([raw])).length > 0;
+      expect(ignored(raw), `${raw} is written to an ACL but reported as ignored`).toBe(!written);
+    }
+  });
+
+  it("still flags what neither file can take", () => {
+    // The warning has to keep earning its place: a typo must still be called
+    // out, or it saves silently and the operator believes egress is permitted.
+    for (const raw of ["not a host", "-lead.com", "999.1.1.1", "localhost"]) {
+      expect(ignored(raw), `${raw} should be reported as ignored`).toBe(true);
+    }
+  });
+
+  it("is wired into the admin field, not just available to it", () => {
+    const tab = readFileSync("src/components/admin/RuntimeTab.tsx", "utf8");
+    expect(tab).toContain("normalizeEgressIp(s) === null");
+    // The old copy told operators an IP "cannot be used here". It can.
+    expect(tab).not.toContain("An IP address cannot be");
   });
 });

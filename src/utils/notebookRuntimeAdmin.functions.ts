@@ -56,8 +56,12 @@ export type NbRuntimeState = {
    * What THIS host reports. Shown beside the sizing fields so an operator sizes
    * against the machine they actually have — the point of removing the caps was
    * to let a big box be used, not to make the numbers meaningless.
+   *
+   * `workers` is how many app processes are running. Per-process settings (the
+   * lakehouse engine especially) are charged once per worker, so without it the
+   * page shows a per-machine budget for a per-process number.
    */
-  host: { cpus: number; totalMemMb: number };
+  host: { cpus: number; totalMemMb: number; workers: number };
 };
 
 /**

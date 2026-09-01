@@ -18,6 +18,7 @@
     "build": "cross-env NODE_OPTIONS=--max-old-space-size=6144 vite build --sourcemap false",
     "build:dev": "cross-env NODE_OPTIONS=--max-old-space-size=6144 vite build --mode development --sourcemap false",
     "preview": "vite preview",
+    "start": "node server.mjs",
     "lint": "eslint .",
     "check:docs": "node scripts/check-docs.mjs",
     "check:md-docs": "node scripts/check-md-docs.mjs",

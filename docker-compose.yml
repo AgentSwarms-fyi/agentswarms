@@ -148,7 +148,15 @@ services:
       POSTGRES_DB: lakehouse_catalog
     volumes:
       - lakehouse-catalog-data:/var/lib/postgresql/data
-    networks: [default]
+    # nb-internal is LOAD-BEARING, not tidiness. An ETL pipeline with a
+    # lakehouse target attaches DuckLake from inside a notebook kernel, and
+    # kernels sit on that `internal` network with no route off it except the
+    # HTTP egress proxy. Parquet travels over HTTP and so goes through the
+    # proxy; the CATALOG is a raw Postgres TCP connection and cannot. With the
+    # catalog only on `default`, every lakehouse-target pipeline failed with
+    # "Network is unreachable" the moment the app ran in a container rather
+    # than under `npm run dev` (dev kernels get the routable nb-dev network).
+    networks: [default, nb-internal]
     restart: unless-stopped
 
   # ── Server-side Office renderer (opt-in: --profile docgen) ───────────────────

@@ -12,6 +12,7 @@ import { z } from "zod";
 import { requireSuperadmin } from "@/utils/iam.server";
 import { SERVICE_CATALOGUE, type ServiceProbe, type SystemMetrics } from "@/lib/serviceHealth";
 import { resolveInternalOrigin } from "@/utils/internalOrigin.server";
+import { appRole } from "@/utils/appRole";
 
 const PROBE_TIMEOUT_MS = 2500;
 
@@ -332,6 +333,8 @@ export const systemMetrics = createServerFn({ method: "POST" })
     const load = os.loadavg() as [number, number, number];
     return {
       hostname: os.hostname(),
+      role: appRole(),
+      workers: Number(process.env.AGENTSWARMS_WORKERS) || 1,
       platform: `${os.type()} ${os.release()} (${os.arch()})`,
       nodeVersion: process.version,
       uptimeSeconds: process.uptime(),

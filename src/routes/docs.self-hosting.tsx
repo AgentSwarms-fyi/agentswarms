@@ -697,12 +697,199 @@ BI_CRON_TOKEN="..."`}</Code>
           },
           {
             name: "Kubernetes",
-            body: "Manifests are provided for the app and the notebook runtime, including the egress policy that keeps kernels off the open internet.",
+            body: (
+              <>
+                Reference manifests ship for the app (<C>deploy/k8s/app/</C>) and the notebook
+                runtime (<C>deploy/k8s/notebooks/</C>), including the egress policy that keeps
+                kernels off the open internet. Three things bite in practice: set{" "}
+                <C>resources.limits.cpu</C>, because the worker count follows it; probe liveness on{" "}
+                <C>/api/health</C> and readiness on <C>/api/health/ready</C>, which answer different
+                questions; and strip the quotes from <C>.env</C> before{" "}
+                <C>kubectl create secret --from-env-file</C> — unlike Docker Compose it keeps them,
+                and every pod then fails readiness with <C>Invalid supabaseUrl</C>.
+              </>
+            ),
+          },
+        ]}
+      />
+
+      <H3 id="kubernetes">Kubernetes, in detail</H3>
+      <P>
+        <strong>Fully self-hosted, one command.</strong> Supabase runs in your cluster too — nothing
+        leaves it, and nothing is optional:
+      </P>
+      <Code lang="bash">{`ADMIN_EMAIL=you@corp.com ADMIN_PASSWORD='...' bash scripts/setup-k8s.sh
+kubectl -n agentswarms port-forward svc/agentswarms 8080:80`}</Code>
+      <P>
+        Needs <C>kubectl</C>, <C>helm</C> and a cluster. It generates every secret — including the
+        anon and service-role keys <strong>signed</strong> from the JWT secret, since they are JWTs
+        and a random string there gives you a stack that starts and then rejects every request —
+        installs Supabase, applies the schema, creates your admin user, then starts the app with the
+        Office renderer, the JS sandbox and the lakehouse catalog. Re-running is safe.
+      </P>
+      <Callout title="Supabase comes from the community Helm chart, on purpose">
+        Self-hosted Supabase is a dozen services whose bootstrap SQL, roles and per-service
+        environment change between versions. An earlier version of this page shipped hand-written
+        manifests for them; it took five fixes before Postgres would start, the last being the role
+        bootstrap (<C>authenticator</C>, <C>anon</C>, <C>supabase_auth_admin</C>) that a bare{" "}
+        <C>supabase/postgres</C> image does not create. That is upstream&rsquo;s wiring, and
+        maintaining a second copy of it guarantees falling behind. The chart is pinned by{" "}
+        <C>SUPABASE_CHART_VERSION</C>; our own four Deployments stay as plain manifests.
+      </Callout>
+      <P>
+        <strong>Bringing your own Supabase</strong> (Cloud, or one you already run)?{" "}
+        <C>deploy/k8s/app/agentswarms.yaml</C> is the app on its own — namespace, web{" "}
+        <C>Deployment</C>, optional analytics <C>Deployment</C>, <C>Service</C>, an HPA and the cron{" "}
+        <C>CronJob</C>. It has been applied to a real cluster; the notes below are what failed
+        there.
+      </P>
+      <Code lang="bash">{`# kubectl keeps the quotes docker compose strips
+sed -E 's/^([A-Za-z_][A-Za-z0-9_]*)="(.*)"$/\\1=\\2/' .env > .env.k8s
+kubectl create secret generic agentswarms-env -n agentswarms --from-env-file=.env.k8s && rm .env.k8s
+kubectl apply -f deploy/k8s/app/agentswarms.yaml`}</Code>
+      <FieldList
+        items={[
+          {
+            name: "Strip quotes from .env first",
+            body: (
+              <>
+                Docker Compose removes the quotes around a value; <C>kubectl create secret</C> keeps
+                them, so <C>SUPABASE_URL</C> arrives as a literal <C>&quot;https://…&quot;</C>.
+                Every pod then fails readiness with <C>Invalid supabaseUrl</C> and the Service ends
+                up with no endpoints at all.
+              </>
+            ),
+          },
+          {
+            name: "Always set resources.limits.cpu",
+            body: (
+              <>
+                The worker count follows the pod&rsquo;s CPU limit. With no limit, a pod on a
+                64-core node forks 64 workers at ~0.5&ndash;1 GB each and is OOMKilled — a crash
+                loop with no obvious cause. Measured on an 8-core node: <C>cpu: &quot;2&quot;</C>{" "}
+                gives two workers, <C>cpu: 500m</C> gives one.
+              </>
+            ),
+          },
+          {
+            name: "Probe liveness and readiness separately",
+            body: (
+              <>
+                Liveness on <C>/api/health</C> decides restarts; readiness on{" "}
+                <C>/api/health/ready</C> decides routing. A pool that probes only liveness keeps
+                sending traffic to pods that cannot reach the database.
+              </>
+            ),
+          },
+          {
+            name: "No readiness probe on analytics pods",
+            body: (
+              <>
+                <C>APP_ROLE=analytics</C> answers readiness 503 for ever, and Kubernetes gates
+                rollout progress on readiness — so a new pod never becomes Ready, the old one is
+                never retired, and <C>kubectl rollout status</C> hangs on &ldquo;1 old replicas are
+                pending termination&rdquo;. Exclude those pods from the <C>Service</C> by label
+                instead, as the shipped manifest does.
+              </>
+            ),
+          },
+          {
+            name: "Add what Compose was defaulting for you",
+            body: (
+              <>
+                <C>docker-compose.yml</C> fills a dozen values with <C>${"{VAR:-default}"}</C> and
+                Kubernetes has no equivalent, so a Secret built from that <C>.env</C> is missing
+                them and the pod stops with <C>couldn&apos;t find key … in Secret</C>. Three matter:{" "}
+                <C>BI_CRON_TOKEN</C> (the CronJob), <C>INTERNAL_RUN_SECRET</C> (the JS sandbox,
+                which Compose defaulted to the service-role key) and{" "}
+                <C>LAKEHOUSE_CATALOG_PASSWORD</C> (the catalog, which Compose defaulted to{" "}
+                <C>change-me</C>).
+              </>
+            ),
+          },
+          {
+            name: "Optional services get their own pods",
+            body: (
+              <>
+                <C>deploy/k8s/app/services.yaml</C> covers the Office renderer, the JS sandbox and
+                the lakehouse catalog — each its own Deployment and <C>Service</C>, found by the
+                same name the app uses under Compose. The catalog is a <C>StatefulSet</C> with a
+                volume rather than a Deployment, because it holds the one part of the lakehouse that
+                cannot be rebuilt from object storage; in production prefer a managed Postgres. The
+                notebook runtime is separate again, in <C>deploy/k8s/notebooks/</C>.
+              </>
+            ),
+          },
+          {
+            name: "Hardened by default",
+            body: (
+              <>
+                The image drops to a non-root user, and both app Deployments run <C>runAsNonRoot</C>{" "}
+                with a read-only root filesystem, all capabilities dropped and no Kubernetes API
+                token mounted — <C>/tmp</C> is an <C>emptyDir</C> because the lakehouse engine
+                spills there. The JS sandbox, which runs user-supplied code, adds a{" "}
+                <C>NetworkPolicy</C> denying it egress outright (your CNI has to enforce policy —
+                Docker Desktop&rsquo;s default does not).
+              </>
+            ),
+          },
+          {
+            name: "Monitoring shows one pod, not the fleet",
+            body: (
+              <>
+                <strong>Observability → Monitoring</strong> reports the replica that answered — the
+                page names it, and on Kubernetes that name is the pod. For fleet-wide numbers use
+                your cluster metrics; this page is for looking at one instance and at what is down.
+              </>
+            ),
           },
         ]}
       />
 
       <H2 id="scaling">Scaling</H2>
+      <H3 id="scaling-up">One machine, all of it</H3>
+      <P>
+        A single instance already uses the whole machine. The container entrypoint forks{" "}
+        <strong>one worker per available CPU</strong> and they share the port, so a 16- or 64-core
+        host is used without configuration. Rendering a page costs roughly 30 ms of CPU, and that is
+        what the extra workers buy — static assets were never the bottleneck.
+      </P>
+      <P>
+        &quot;Available&quot; means the CPU quota, not the host: in a container the count is capped
+        by the cgroup limit, so <C>--cpus=2</C> forks two however large the machine underneath is.
+        Override with <C>WEB_CONCURRENCY</C> only on purpose — <C>1</C> is the right value when you
+        run many small one-core containers instead, so workers don&apos;t fight over a fraction of a
+        CPU. The number chosen is logged at startup.
+      </P>
+      <P>
+        Two things behave differently once workers multiply. The scheduler does <strong>not</strong>{" "}
+        — it holds a fleet-wide lease, so exactly one sweep runs no matter how many workers or
+        replicas exist. The lakehouse query engine <strong>does</strong>: it lives in each process,
+        so its memory limit applies per worker. A 16-core host at <C>LAKEHOUSE_MEMORY_LIMIT=16GB</C>{" "}
+        is 256 GB of intent, not 16 — size that limit against host RAM divided by workers. It is a
+        ceiling rather than a reservation, so idle workers hold nothing, but the worst case is what
+        an out-of-memory kill needs.
+      </P>
+      <H3 id="scaling-analytics">Analytics-only nodes</H3>
+      <P>
+        A heavy lakehouse query and a page render share one Node process, so a thirty-second{" "}
+        <C>GROUP BY</C> can stall interactive traffic on the node running it. Set{" "}
+        <C>APP_ROLE=analytics</C> on the nodes you want kept out of the request path. Such a node
+        reports <strong>not ready</strong> at <C>/api/health/ready</C> while staying{" "}
+        <strong>alive</strong> at <C>/api/health</C> — readiness decides routing and liveness
+        decides restarts, so it drains itself out of the interactive pool with no load-balancer
+        feature required, and nothing restarts it. Point your readiness check at{" "}
+        <C>/api/health/ready</C> for this to work.
+      </P>
+      <P>
+        It also defaults to a <strong>single worker</strong>, because the engine is per process:
+        forking would split the large memory limit you set into independent copies that could each
+        claim the whole figure. <C>WEB_CONCURRENCY</C> still overrides. Scheduled work — BI
+        refreshes, materialized-view rebuilds — still runs there, which is the point; pair it with{" "}
+        <C>DISABLE_INPROCESS_SCHEDULER</C> on the interactive tier. The role is a routing
+        declaration, not access control, so pointing a browser straight at one still works.
+      </P>
+      <H3 id="scaling-out">Then more machines</H3>
       <P>
         The app tier is stateless — no sticky sessions needed, so put as many instances behind a
         load balancer as you like. Two things need attention when you do:

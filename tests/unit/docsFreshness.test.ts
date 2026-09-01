@@ -130,6 +130,14 @@ const UNDOCUMENTED_ON_PURPOSE = new Map<string, string>([
     "how orcIsolated.server passes the statement to its child — env rather " +
       "than argv so nothing sensitive shows in the process list",
   ],
+  [
+    "AGENTSWARMS_WORKERS",
+    "server.mjs publishes its own worker count to the workers it forked, so " +
+      "the app can size per-process resources without re-deriving the number " +
+      "and disagreeing with it. Derived from WEB_CONCURRENCY / the CPU quota / " +
+      "APP_ROLE, all of which ARE documented. Setting it by hand would not " +
+      "change how many processes exist, only what the admin page believes",
+  ],
   // Developer tooling, documented in the script/file that reads them.
   ["BENCH_N", "scripts/bench-pool.ts, documented in its header"],
   ["BENCH_PG_HOST", "scripts/bench-pool.ts"],

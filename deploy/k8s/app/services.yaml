@@ -1,0 +1,311 @@
+# The optional services, as their own Deployments.
+#
+# Each of these is a separate container in Compose behind a profile, and each
+# becomes its own Deployment + Service here — the app finds them by service
+# name, so the addresses below match the Compose defaults and need no extra
+# configuration. Apply only the ones whose feature you want:
+#
+#   kubectl apply -f deploy/k8s/app/services.yaml
+#
+# The notebook runtime is NOT here: it needs a namespace, RBAC, a quota and a
+# NetworkPolicy of its own, and lives in deploy/k8s/notebooks/.
+#
+# WHAT EACH ONE COSTS YOU IF IT IS ABSENT — none of them break the platform:
+#
+#   docgen           Deep-mode PowerPoint / Word / Excel export. Without it,
+#                    Agent Chat falls back to the in-browser builder.
+#   js-sandbox       Function and custom-component nodes in DEPLOYED and
+#                    SCHEDULED swarm runs. Without it those nodes are
+#                    canvas-only.
+#   lakehouse-catalog  The lakehouse. Without it the Lakehouse page says it is
+#                    not configured rather than half-working.
+#
+# ── ADD THESE TO THE SECRET BEFORE APPLYING ─────────────────────────────────
+#
+# docker-compose fills several variables with `${VAR:-default}`. Kubernetes has
+# no equivalent, so a Secret built from a .env that relies on those defaults is
+# simply missing them, and the pod fails with
+# `couldn't find key … in Secret` — which names the key but not the reason.
+#
+#   INTERNAL_RUN_SECRET         js-sandbox. Compose defaults it to the
+#                               service-role key; set it explicitly here.
+#   LAKEHOUSE_CATALOG_PASSWORD  the catalog. Compose defaults it to
+#                               "change-me". There is deliberately no default
+#                               here: silently standing up a database on a
+#                               well-known password is worse than not starting.
+#
+# DOCGEN_TOKEN and OPENROUTER_API_KEY are marked optional below, so their
+# absence degrades a feature rather than stopping a pod.
+---
+# ── Office renderer ─────────────────────────────────────────────────────────
+# Stateless and bursty: it renders a document and forgets it.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentswarms-docgen
+  namespace: agentswarms
+  labels:
+    app.kubernetes.io/name: agentswarms
+    app.kubernetes.io/component: docgen
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agentswarms
+      app.kubernetes.io/component: docgen
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agentswarms
+        app.kubernetes.io/component: docgen
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: docgen
+          image: agentswarms/docgen:latest
+          # REQUIRED, not decoration: a `:latest` tag defaults to
+          # imagePullPolicy: Always, so Kubernetes ignores the image you built
+          # locally and tries Docker Hub — ImagePullBackOff on a cluster where
+          # the image was sitting there all along. Pin a digest or a real
+          # version tag when you publish to a registry.
+          imagePullPolicy: IfNotPresent
+          # NOTE: this image currently runs as root, so no runAsNonRoot here —
+          # asserting it would leave the pod in CreateContainerConfigError.
+          # Fixing the image is tracked; until then the container at least
+          # drops capabilities and cannot escalate.
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          ports:
+            - name: http
+              containerPort: 8099
+          env:
+            # LibreOffice renders into a temp directory, so no read-only root
+            # filesystem here without mapping every path it uses.
+            - name: DOCGEN_TOKEN
+              valueFrom:
+                secretKeyRef: { name: agentswarms-env, key: DOCGEN_TOKEN, optional: true }
+            - name: OPENROUTER_API_KEY
+              valueFrom:
+                secretKeyRef: { name: agentswarms-env, key: OPENROUTER_API_KEY, optional: true }
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: "1", memory: 2Gi }
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 20
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: docgen
+  namespace: agentswarms
+spec:
+  selector:
+    app.kubernetes.io/name: agentswarms
+    app.kubernetes.io/component: docgen
+  ports:
+    - name: http
+      port: 8099
+      targetPort: http
+---
+# ── JS sandbox ──────────────────────────────────────────────────────────────
+# This one runs USER-SUPPLIED JavaScript, so it gets the strictest posture in
+# the file: non-root (which its image already is), read-only root filesystem,
+# no capabilities, no privilege escalation, and — below — a NetworkPolicy that
+# denies it egress entirely.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentswarms-js-sandbox
+  namespace: agentswarms
+  labels:
+    app.kubernetes.io/name: agentswarms
+    app.kubernetes.io/component: js-sandbox
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agentswarms
+      app.kubernetes.io/component: js-sandbox
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agentswarms
+        app.kubernetes.io/component: js-sandbox
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: js-sandbox
+          image: agentswarms/js-sandbox:latest
+          # See the note on docgen: `:latest` implies Always, which breaks a
+          # locally-built image.
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          ports:
+            - name: http
+              containerPort: 8091
+          env:
+            - name: PORT
+              value: "8091"
+            # The app signs its calls with this; the sandbox refuses anything
+            # unsigned. Same value both sides.
+            - name: INTERNAL_RUN_SECRET
+              valueFrom:
+                secretKeyRef: { name: agentswarms-env, key: INTERNAL_RUN_SECRET }
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: "1", memory: 512Mi }
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 20
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: js-sandbox
+  namespace: agentswarms
+spec:
+  selector:
+    app.kubernetes.io/name: agentswarms
+    app.kubernetes.io/component: js-sandbox
+  ports:
+    - name: http
+      port: 8091
+      targetPort: http
+---
+# Untrusted code should not be able to reach anything. Ingress from the app
+# only; egress denied outright — the sandbox has no legitimate reason to open a
+# connection, so this is the network equivalent of its 2-second timeout.
+#
+# Requires a CNI that enforces NetworkPolicy (Calico, Cilium, most managed
+# clusters). Docker Desktop's default CNI does NOT, so this is inert there —
+# check before relying on it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: js-sandbox-isolation
+  namespace: agentswarms
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agentswarms
+      app.kubernetes.io/component: js-sandbox
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: agentswarms
+      ports:
+        - protocol: TCP
+          port: 8091
+  egress: []
+---
+# ── Lakehouse catalog ───────────────────────────────────────────────────────
+# A StatefulSet, not a Deployment: this holds the DuckLake catalog — schemas,
+# table manifests and snapshots — and it is the one piece of the lakehouse whose
+# loss cannot be recovered from object storage. A Deployment with an emptyDir
+# would lose every table definition on reschedule while the Parquet sat there
+# intact and unreadable.
+#
+# IN PRODUCTION, PREFER MANAGED POSTGRES. Point LAKEHOUSE_CATALOG_URL at RDS /
+# Cloud SQL / Supabase and delete this section. Running your own database is a
+# backup and upgrade commitment, and this one is small enough that the managed
+# option costs little.
+apiVersion: v1
+kind: Service
+metadata:
+  name: lakehouse-catalog
+  namespace: agentswarms
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: agentswarms
+    app.kubernetes.io/component: lakehouse-catalog
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: lakehouse-catalog
+  namespace: agentswarms
+  labels:
+    app.kubernetes.io/name: agentswarms
+    app.kubernetes.io/component: lakehouse-catalog
+spec:
+  serviceName: lakehouse-catalog
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agentswarms
+      app.kubernetes.io/component: lakehouse-catalog
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agentswarms
+        app.kubernetes.io/component: lakehouse-catalog
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        # The official postgres image starts as root and drops to uid 999
+        # itself. Pinning the user here keeps the data directory's ownership
+        # right across restarts.
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+      containers:
+        - name: postgres
+          image: postgres:16
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: lakehouse_catalog
+            - name: POSTGRES_USER
+              value: lakehouse
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: agentswarms-env, key: LAKEHOUSE_CATALOG_PASSWORD }
+            # Postgres refuses to initialise into a non-empty directory, and a
+            # mounted volume has lost+found in it.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: "2", memory: 2Gi }
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "lakehouse", "-d", "lakehouse_catalog"] }
+            periodSeconds: 10
+          livenessProbe:
+            exec: { command: ["pg_isready", "-U", "lakehouse", "-d", "lakehouse_catalog"] }
+            periodSeconds: 20
+            failureThreshold: 5
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi

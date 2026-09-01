@@ -197,6 +197,22 @@ Details, production hardening and the manual equivalent:
 **[INSTALL.md § self-hosted](./docs/INSTALL.md#option-b--self-hosted-supabase-docker-no-account-needed)**
 and **[DEPLOYMENT.md § Self-hosted Supabase](./docs/DEPLOYMENT.md#self-hosted-supabase-complete-data-residency)**.
 
+**On Kubernetes, fully self-hosted** — the same thing on a cluster, with
+Supabase itself running as pods. One command brings up everything: Postgres,
+authentication, the REST and Realtime APIs, file storage, the app, the Office
+renderer, the JS sandbox and the lakehouse catalog. Nothing is optional and
+nothing leaves the cluster:
+
+```bash
+ADMIN_EMAIL=you@corp.com ADMIN_PASSWORD='...' bash scripts/setup-k8s.sh
+kubectl -n agentswarms port-forward svc/agentswarms 8080:80   # then http://localhost:8080
+```
+
+It generates every secret (including the API keys **signed** from the JWT
+secret), applies the schema, creates your admin user, and waits for each piece
+in the order that actually works. See
+**[DEPLOYMENT.md § Kubernetes](./docs/DEPLOYMENT.md#d-kubernetes)**.
+
 Or do it by hand — there is no separate backend to install, since **Supabase
 _is_ the backend** (Postgres + Auth + Storage), run as a free-tier hosted
 project rather than installing anything yourself:

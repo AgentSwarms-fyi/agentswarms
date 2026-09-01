@@ -43,6 +43,26 @@ RUN npm run build
 
 EXPOSE 8080
 
-# `vite preview` serves the built TanStack Start server bundle on Node
-# (client assets + SSR + all /api routes).
-CMD ["npm", "run", "preview", "--", "--host", "0.0.0.0", "--port", "8080", "--strictPort"]
+# Drop root. `npm ci` and the build above need to write node_modules and dist,
+# so this comes after them; from here the app only reads /app.
+#
+# The one path it WRITES is the egress allow-list directory, which compose
+# mounts from the host. If that mount is not writable by uid 1000 the admin
+# save reports "Could not write … Mount the egress config directory writable
+# into the app container" and the settings still save — a legible failure
+# rather than a silent one. Verified running non-root with a read-only root
+# filesystem and a tmpfs /tmp: SSR and every API route work unchanged.
+USER node
+
+# server.mjs serves the built TanStack Start bundle: client assets, SSR and
+# every /api route, forking one worker per CPU.
+#
+# This used to be `vite preview`, which Vite documents as a way to look at a
+# production build locally. It worked, but it is a single Node process — one
+# core of request handling however large the host — and it pulls the dev
+# toolchain into the runtime. Measured on an 8-core box: SSR went from 19 to
+# 55 req/s and p50 from 460ms to 127ms just by forking workers.
+#
+# Set WEB_CONCURRENCY=1 when running many small containers instead (one core
+# each), so the workers do not fight over a fractional CPU quota.
+CMD ["node", "server.mjs"]

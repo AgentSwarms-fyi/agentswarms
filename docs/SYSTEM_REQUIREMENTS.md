@@ -25,13 +25,13 @@ across US, Europe, Middle East, India and APJC regions.
 AgentSwarms is deliberately light to host. Understanding _why_ makes every
 sizing decision below obvious:
 
-| Component                               | What it is                                                                                                                                        | Resource profile                                                                                                                                                                             |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **App server**                          | One stateless Node process (SSR + API + in-process scheduler). Scales horizontally behind any load balancer — no sticky sessions.                 | CPU-light, ~0.5–1 GB RSS. Almost all "AI work" is streaming JSON between the browser and an LLM API.                                                                                         |
-| **PostgreSQL (Supabase)**               | Auth, RLS data, traces, audit, BI results, vectors (pgvector). Use [Supabase Cloud](https://supabase.com/pricing) (free tier works) or self-host. | The main stateful component. Grows with traces/audit/KB — see [storage growth](#storage-growth).                                                                                             |
-| **LLM calls**                           | External by default (BYOK: OpenRouter, OpenAI, Anthropic, Bedrock, …).                                                                            | **No GPU needed.** Your cost here is _tokens_, not hardware — see [§4](#4-token-budgets). GPUs only enter the picture if you self-host models ([§5](#5-gpu-sizing-self-hosted-models-only)). |
-| **Notebook / MCP runtime** _(optional)_ | Sandboxed Docker containers for the Developer workspace (Python Lab) and MCP Builder.                                                             | Each interactive sandbox is capped at **2 GB RAM** (batch: 4 GB) and ~1 CPU by default. Size the host for _concurrent_ sandboxes, not total users.                                           |
-| **docgen-service** _(optional)_         | Python sidecar rendering PPTX/DOCX/XLSX.                                                                                                          | Bursty; 1 vCPU / 1–2 GB is fine for teams.                                                                                                                                                   |
+| Component                               | What it is                                                                                                                                          | Resource profile                                                                                                                                                                             |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **App server**                          | Stateless Node (SSR + API + in-process scheduler), clustered one worker per CPU. Scales horizontally behind any load balancer — no sticky sessions. | ~0.5–1 GB RSS **per worker**. Almost all "AI work" is streaming JSON to an LLM API, but SSR costs ~30 ms CPU per page — see [§3b](#3b-one-big-host-measured).                                |
+| **PostgreSQL (Supabase)**               | Auth, RLS data, traces, audit, BI results, vectors (pgvector). Use [Supabase Cloud](https://supabase.com/pricing) (free tier works) or self-host.   | The main stateful component. Grows with traces/audit/KB — see [storage growth](#storage-growth).                                                                                             |
+| **LLM calls**                           | External by default (BYOK: OpenRouter, OpenAI, Anthropic, Bedrock, …).                                                                              | **No GPU needed.** Your cost here is _tokens_, not hardware — see [§4](#4-token-budgets). GPUs only enter the picture if you self-host models ([§5](#5-gpu-sizing-self-hosted-models-only)). |
+| **Notebook / MCP runtime** _(optional)_ | Sandboxed Docker containers for the Developer workspace (Python Lab) and MCP Builder.                                                               | Each interactive sandbox is capped at **2 GB RAM** (batch: 4 GB) and ~1 CPU by default. Size the host for _concurrent_ sandboxes, not total users.                                           |
+| **docgen-service** _(optional)_         | Python sidecar rendering PPTX/DOCX/XLSX.                                                                                                            | Bursty; 1 vCPU / 1–2 GB is fine for teams.                                                                                                                                                   |
 
 Heavy load therefore means: many concurrent SSE streams (cheap), scheduled
 BI refreshes / swarm runs (short CPU bursts), and — the only genuinely heavy
@@ -88,14 +88,15 @@ resources** and none is capped by the application.
    by `etl_max_concurrent_runs_per_user`, so a user's worst case is
    `concurrent runs × batch CPU / batch memory`. The admin page prints that
    product for you.
-2. **The lakehouse engine runs inside each app process**, not in a sandbox. Its
-   memory limit is therefore **per replica** — 8 replicas at 16 GB is 128 GB of
-   intent, not 16. Size it against `host RAM ÷ replicas`, leaving room for the
-   app itself.
-3. **The app is a single Node process per container.** Node runs JS on one
-   thread, so one container uses roughly one core for request serving no matter
-   how big the host is. See [§3b](#3b-one-big-host) — this is the fact that
-   decides how a large machine is used.
+2. **The lakehouse engine runs inside each app process**, not in a sandbox. The
+   app forks one worker process per CPU, so its memory limit is charged **per
+   worker** — a 16-core host at 16 GB is 256 GB of intent, not 16. Size it
+   against `host RAM ÷ workers`, leaving room for the app itself. (A ceiling,
+   not a reservation: idle workers hold nothing.)
+3. **The app forks one worker per CPU.** `server.mjs` clusters by default, so a
+   big host is used without extra configuration. Set `WEB_CONCURRENCY=1` when
+   you run many small containers instead — see
+   [§3b](#3b-one-big-host-measured).
 
 ### Worked ETL sizes
 
@@ -133,28 +134,60 @@ lakehouse SQL step, which streams and spills to disk instead.
 | Interactive analysis, larger joins | `8–16GB`        | `8`     | Spills past the limit rather than failing.                 |
 | Heavy analytical queries           | `32GB+`         | `12+`   | Consider dedicating replicas to analytics — see below.     |
 
-Remember these are **per replica**. `LAKEHOUSE_SPILL_LIMIT` (default 20 GB)
-bounds the disk a spilling query may use; give each replica real scratch disk,
-not a RAM-backed tmpfs.
+Remember these are **per worker process**, and the app runs one worker per CPU —
+multiply before you compare against host RAM. `LAKEHOUSE_SPILL_LIMIT`
+(default 20 GB) bounds the disk a spilling query may use; give each replica real
+scratch disk, not a RAM-backed tmpfs.
 
-## 3b. One big host
+## 3b. One big host, measured
 
-A 64-core / 512 GB bare-metal server does **not** serve 64 cores' worth of
-traffic from one container, because the app is one Node process. To use a large
-machine, run **many app containers on it** behind a local load balancer, then
-size the per-replica knobs against `host ÷ replicas`.
+Numbers below are **measured, not derived** — `server.mjs` under load on an
+8-core / 23 GB machine that was also running six Docker containers and a dev
+server. Treat them as a conservative floor; a dedicated host does better.
 
-Worked example — **16 OCPU / 128 GB**, mixed traffic and ETL:
+| What                          | 1 worker             | 8 workers                |
+| ----------------------------- | -------------------- | ------------------------ |
+| Static asset, 50 connections  | 1,940 req/s          | 1,944 req/s              |
+| SSR page, 1 connection (idle) | 28 req/s, p50 30 ms  | 24 req/s, p50 33 ms      |
+| SSR page, 10 connections      | 19 req/s, p50 460 ms | **55 req/s, p50 127 ms** |
 
-| Component              | Allocation        | Reasoning                                                              |
-| ---------------------- | ----------------- | ---------------------------------------------------------------------- |
-| App replicas           | 6 containers      | ~6 cores of JS execution; each also hosts a lakehouse engine           |
-| Lakehouse memory limit | `8GB` per replica | 6 × 8 = 48 GB worst case if every replica runs a heavy query at once   |
-| Lakehouse threads      | `4`               | 6 replicas × 4 = 24 threads, oversubscribed on purpose — queries burst |
-| Batch CPU / memory     | `4` / `16384`     | 4 concurrent ETL runs ≈ 16 cores and 64 GB at full tilt                |
-| Concurrent runs / user | `4`               | Matches the line above                                                 |
-| Pipelines per sweep    | `8`               | A start rate, not a concurrency cap — sweeps run every 60s             |
-| Sandbox scratch        | `2048`            | See the warning above                                                  |
+Three things follow, and they decide every sizing decision:
+
+- **SSR is the bottleneck; the HTTP layer is not.** Static assets serve ~65×
+  faster than rendered pages and are unaffected by worker count. One rendered
+  page costs about **30 ms of CPU**, so plan on roughly **25–30 SSR requests per
+  second per core** and put a CDN in front of `/assets` if you can.
+- **Clustering is what converts cores into throughput.** Under load, forking
+  workers took SSR from 19 to 55 req/s and cut p50 from 460 ms to 127 ms. It
+  does nothing when the server is idle — a single request costs the same 30 ms
+  either way — which is exactly the expected shape: clustering removes queueing,
+  it does not make rendering faster.
+- **Scaling is sub-linear.** 8 workers gave ~2.9×, not 8×. Some of that is this
+  box being busy, and some is real: workers share memory bandwidth and one
+  Postgres. Size on the measured ratio, not the core count.
+
+`server.mjs` forks one worker per CPU by default, so a large machine is used
+without extra work — one container is enough, and inside a container the count
+follows the CPU quota rather than the host. Running many small containers is
+equally valid; set `WEB_CONCURRENCY=1` there so workers do not fight over a
+fractional quota. Either way, **size the per-process knobs against the number of
+worker processes**, which is `cores × replicas` — not the replica count.
+
+Worked example — **16 OCPU / 128 GB**, mixed traffic and ETL, one app container:
+
+| Component              | Allocation    | Reasoning                                                                   |
+| ---------------------- | ------------- | --------------------------------------------------------------------------- |
+| App container          | 1, `cpus=8`   | 8 workers of JS execution; the other 8 cores are for ETL sandboxes          |
+| Lakehouse memory limit | `6GB`         | Per **worker**: 8 × 6 = 48 GB worst case if every worker runs a heavy query |
+| Lakehouse threads      | `4`           | 8 workers × 4 = 32 threads, oversubscribed on purpose — queries burst       |
+| Batch CPU / memory     | `4` / `16384` | 4 concurrent ETL runs ≈ 16 cores and 64 GB at full tilt                     |
+| Concurrent runs / user | `4`           | Matches the line above                                                      |
+| Pipelines per sweep    | `8`           | A start rate, not a concurrency cap — sweeps run every 60s                  |
+| Sandbox scratch        | `2048`        | See the warning above                                                       |
+
+The lakehouse figure is the one people get wrong. It is charged **per worker
+process**, so raising `WEB_CONCURRENCY` or moving to a bigger box silently
+multiplies it — halve the limit when you double the workers.
 
 That deliberately does not sum to 128 GB. ETL sandboxes, the lakehouse engines
 and the app all share the host, and a machine allocated to exactly 100 % has
@@ -162,18 +195,68 @@ nowhere to put a spike.
 
 **Separating the two workloads scales better than one big pool.** A heavy
 analytical query and a user request compete inside the same process, so at
-larger sizes run two groups: replicas sized for traffic with a small lakehouse
-limit, and one or two replicas with a large limit that the load balancer keeps
-out of the request path.
+larger sizes run two groups: nodes sized for traffic with a small lakehouse
+limit, and one or two with `APP_ROLE=analytics` and a large one. That role holds
+a node out of the interactive pool by reporting not-ready to the load balancer
+while staying alive, and defaults it to a single worker so the large limit is
+not multiplied — see
+[Deployment § Analytics-only nodes](./DEPLOYMENT.md#analytics-only-nodes).
 
 ### What does not scale by adding replicas
 
-- **Scheduled work.** `runCronPass` takes a fleet-wide lease, so at most one
-  sweep runs across the whole fleet at a time. That is what stops N replicas
-  double-firing a schedule; it also means scheduled throughput is governed by
-  the per-sweep knobs, not by replica count.
-- **Postgres.** Every replica shares one Supabase project. Past a few hundred
-  concurrent users the database, not the app tier, is the ceiling.
+**Scheduled work.** `runCronPass` takes a fleet-wide lease, so at most one sweep
+runs across the whole fleet at a time. That is what stops N replicas
+double-firing a schedule, and it makes scheduled throughput a **start rate**
+rather than a function of replica count:
+
+```
+pipelines started per minute  =  PIPELINES_PER_SWEEP     (the tick is 60s)
+```
+
+Adding replicas does not raise it; raising the per-sweep number does, and it is
+editable under **Admin → Developer runtime**. Two things bound how far:
+
+- **A sweep has to finish inside the tick.** Measured on this deployment, an
+  _idle_ sweep — nothing due in any of the nine job categories — costs
+  **~2.1 s** steady-state (7.8 s on the first, cold call). Real work adds to
+  that. Once a sweep exceeds 60 s the next tick finds the lease held and returns
+  `skipped: true`, so the effective rate degrades from "once per minute" to
+  "once per sweep duration" without any error being raised.
+- **Concurrency is capped separately** by `MAX_CONCURRENT_RUNS_PER_USER`. The
+  start rate governs how fast work is picked up; that governs how much runs at
+  once.
+
+Note that the in-process tick is **per worker process**, so a 16-core host ticks
+16 times a minute and 15 of those immediately lose the lease. Harmless, but it
+is 16× the lease traffic for no gain — another reason to set
+`DISABLE_INPROCESS_SCHEDULER=1` and drive sweeps from one external cron once you
+are past a single small box.
+
+**Postgres — the real ceiling.** Every replica and every worker shares one
+Supabase project, and nothing above changes that. What helps is knowing what
+actually touches it:
+
+| Load                                        | Hits Postgres?                                                                                                                                                                                                    |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Page renders, auth, RLS reads               | Yes — over HTTPS (PostgREST), so **connections do not multiply** with replicas or workers                                                                                                                         |
+| Traces, audit, BI results                   | Yes, and they _grow_ — see [storage growth](#storage-growth); retention purges are the control                                                                                                                    |
+| Scheduled sweeps                            | Yes: nine category queries every tick, per worker unless the in-process scheduler is off                                                                                                                          |
+| **Analytical queries over your own data**   | **No** — the lakehouse is DuckDB over Parquet. This is the product's main answer to the ceiling                                                                                                                   |
+| Lakehouse _catalog_ (DuckLake transactions) | Yes, as **raw connections held per worker process** that has served a lakehouse request (the engine is built lazily) — the one place clustering multiplies connections. It is your catalog Postgres, not Supabase |
+| Warehouse connectors                        | Raw pools, bounded by `WAREHOUSE_POOL_MAX_KEYS` × replicas                                                                                                                                                        |
+
+The levers, in the order worth reaching for: move analytical load onto the
+lakehouse (where it does not touch Postgres at all); keep retention windows
+short so traces and audit do not dominate the working set; raise the Supabase
+compute tier; put direct connections behind a pooler (Supavisor/PgBouncer); and
+add read replicas for read-heavy BI if your plan offers them.
+
+> **No load test has been run against Postgres.** The app tier's numbers in
+> [§3b](#3b-one-big-host-measured) are measured; the database ceiling is not.
+> Anyone quoting a concurrent-user figure for it — including this page — is
+> reasoning from architecture, not from a benchmark. Treat "a few hundred
+> concurrent users" as the point to start watching database metrics, not as a
+> measured limit.
 
 ### Storage growth
 

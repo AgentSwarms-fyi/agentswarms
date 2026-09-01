@@ -17,8 +17,9 @@ setup — **trying it on your own laptop**, a **single cloud VM**, an
 
 AgentSwarms is two things:
 
-- **The app** — a single Node process (TanStack Start) that serves the web UI,
-  server-side rendering, and every `/api` route on **port 8080**. It is
+- **The app** — a Node service (TanStack Start) that serves the web UI,
+  server-side rendering, and every `/api` route on **port 8080**, forking one
+  worker per available CPU so a big host is used without configuration. It is
   **stateless**: authentication is a Supabase JWT carried on each request, and
   all durable data lives in Supabase — nothing important is written to local
   disk. That's what makes it easy to containerize and to run as many copies of.
@@ -170,6 +171,77 @@ needed.** To update: `git pull && docker compose up -d --build`.
 
 ## C. Autoscaled VMs behind a load balancer
 
+### Scale up before you scale out
+
+One instance already uses the whole machine. `server.mjs` (the container's
+entrypoint, also `npm start`) forks **one worker per available CPU**, all
+accepting on the same port, so a 16- or 64-core box is used without any
+configuration. Rendering a page is the expensive part — roughly 30 ms of CPU —
+and that is what the extra workers buy you; static assets were never the
+bottleneck. Measured numbers are in
+[System requirements § 3b](./SYSTEM_REQUIREMENTS.md#3b-one-big-host-measured).
+
+**"Available" means the CPU quota, not the host.** In a container the worker
+count is capped by the cgroup CPU limit, so `--cpus=2` forks 2 regardless of how
+large the machine underneath is. You only need `WEB_CONCURRENCY` to override the
+default deliberately:
+
+| Situation                              | Setting                                   |
+| -------------------------------------- | ----------------------------------------- |
+| One big VM or bare-metal host          | leave unset — every core is used          |
+| Container with a CPU limit             | leave unset — the quota is detected       |
+| Many small containers, one core each   | `WEB_CONCURRENCY=1` (no primary, no fork) |
+| Deliberately capping a noisy neighbour | `WEB_CONCURRENCY=<n>`                     |
+
+The count is logged at startup (`primary … forking N workers`), so check the
+container's first log line if the number surprises you.
+
+**Two things behave differently under clustering.** The **scheduler** does not
+multiply — it holds a fleet-wide lease, so exactly one sweep runs however many
+workers or replicas exist. The **lakehouse query engine** does: it lives in each
+_process_, so its memory limit applies per worker. A 16-core host with
+`LAKEHOUSE_MEMORY_LIMIT=16GB` is 256 GB of intent, not 16. Size that limit
+against `host RAM ÷ workers` — it is a ceiling rather than a reservation, so
+idle workers hold nothing, but the worst case is what an OOM kill needs. See
+[Lakehouse](./LAKEHOUSE.md).
+
+### Analytics-only nodes
+
+A heavy lakehouse query and a page render share one Node process, so a
+thirty-second `GROUP BY` can stall interactive traffic on the node running it.
+Set **`APP_ROLE=analytics`** on the nodes you want to keep out of the request
+path:
+
+```bash
+APP_ROLE=analytics
+LAKEHOUSE_MEMORY_LIMIT=64GB
+```
+
+That node reports **not ready** at `/api/health/ready` (HTTP 503) while staying
+**alive** at `/api/health` (HTTP 200). Every load balancer and orchestrator
+already understands that pair — readiness decides routing, liveness decides
+restarts — so the node drains itself out of the interactive pool with no
+LB-specific configuration, and nothing restarts it. Point your readiness/health
+check at `/api/health/ready` for this to work; a pool checking only
+`/api/health` will keep sending it traffic.
+
+It also **defaults to a single worker**, because the engine is per process:
+forking would split the large memory limit you just set into N independent
+copies, each able to claim the whole figure. `WEB_CONCURRENCY` still overrides
+if you want otherwise.
+
+What still reaches an analytics node: the in-process scheduler (BI refreshes,
+materialized-view rebuilds — the analytical work you want there), and anything
+addressed to it directly. The role is a routing declaration, not access control,
+so pointing a browser at one still works, which is what you want when
+investigating it. `curl /api/health` reports `role` and `workers`.
+
+The complementary setting on the interactive tier is
+`DISABLE_INPROCESS_SCHEDULER=1`, so scheduled work lands on the analytics nodes
+rather than competing with page renders.
+
+### Then scale out
+
 The app tier scales horizontally: run N identical containers across VMs behind
 an L7 load balancer and add/remove instances on demand. **No sticky sessions
 required** — any instance can serve any request (auth is a stateless JWT; all
@@ -227,11 +299,126 @@ tier. The core web/agent/BI/RAG platform scales regardless.
 
 ## D. Kubernetes
 
-Run the app as a normal `Deployment` + `Service` + `Ingress` (health/readiness
-probe on `/api/health`), backed by your Supabase project, with the same env as
-Docker. Because the app is stateless you can scale the `Deployment` replica
-count or attach an HPA freely — apply the [scheduler setting](#c-autoscaled-vms-behind-a-load-balancer)
-(`DISABLE_INPROCESS_SCHEDULER=1` + a `CronJob` calling `/api/bi/cron`).
+Two ways in. **Fully self-hosted** — Supabase in your cluster too, one command —
+or **bring your own Supabase** (Cloud or existing) and deploy just the app.
+
+### D1. Fully self-hosted, one command
+
+```bash
+ADMIN_EMAIL=you@corp.com ADMIN_PASSWORD='...' bash scripts/setup-k8s.sh
+```
+
+```bash
+kubectl -n agentswarms port-forward svc/agentswarms 8080:80   # then http://localhost:8080
+```
+
+Needs `kubectl`, `helm` and a reachable cluster. It generates every secret —
+including the anon and service-role keys **signed** from the JWT secret, because
+they are JWTs and a random string there yields a stack that starts and then
+rejects every request — installs Supabase, applies the schema, creates your
+admin user, and starts the app with the Office renderer, the JS sandbox and the
+lakehouse catalog. Re-running is safe: secrets are reused, `helm upgrade
+--install` is idempotent.
+
+**Supabase comes from the community Helm chart**
+([supabase-community/supabase-kubernetes](https://github.com/supabase-community/supabase-kubernetes)),
+pinned by `SUPABASE_CHART_VERSION`. That is a deliberate choice. Self-hosted
+Supabase is a dozen services — Kong, Studio, Postgres, PostgREST, Realtime,
+Storage, Meta, GoTrue, Edge Functions, Logflare, Vector, Imgproxy, MinIO — whose
+bootstrap SQL, roles and per-service environment move between versions. An
+earlier version of this guide shipped hand-written manifests for them; it needed
+five fixes before Postgres would start, the last being the role bootstrap
+(`authenticator`, `anon`, `supabase_auth_admin` …) that a bare `supabase/postgres`
+image does not create. All of it was upstream's wiring, re-derived by hand and
+certain to fall behind. The chart tracks upstream; we track the chart version.
+
+Our own components stay as plain manifests below, because they are four
+Deployments we control.
+
+### D2. Bring your own Supabase
+
+A reference manifest ships in **`deploy/k8s/app/agentswarms.yaml`** — namespace,
+web `Deployment`, optional analytics `Deployment`, `Service`, `HorizontalPodAutoscaler`
+and the cron `CronJob`. It has been applied to a real cluster; the notes below
+are things that failed there, not hypotheticals.
+
+**Create the Secret with the quotes stripped.** Docker Compose removes the
+quotes around a value in `.env`; `kubectl create secret --from-env-file` keeps
+them. Passing your working `.env` straight in yields
+`SUPABASE_URL='"https://…"'`, every pod fails readiness with
+`Invalid supabaseUrl: Must be a valid HTTP or HTTPS URL`, and the Service ends
+up with no endpoints at all:
+
+```bash
+sed -E 's/^([A-Za-z_][A-Za-z0-9_]*)="(.*)"$/\1=\2/' .env > .env.k8s
+```
+
+```bash
+kubectl create secret generic agentswarms-env --namespace agentswarms --from-env-file=.env.k8s && rm .env.k8s
+```
+
+**Add the variables Compose was defaulting for you.** `docker-compose.yml`
+fills a dozen values with `${VAR:-default}`; Kubernetes has no equivalent, so a
+Secret built from a `.env` that relied on those defaults is missing them and the
+pod stops with `couldn't find key … in Secret`. The three that matter:
+
+| Variable                     | Needed by      | What Compose defaulted it to   |
+| ---------------------------- | -------------- | ------------------------------ |
+| `BI_CRON_TOKEN`              | the `CronJob`  | nothing — it was already yours |
+| `INTERNAL_RUN_SECRET`        | the JS sandbox | the service-role key           |
+| `LAKEHOUSE_CATALOG_PASSWORD` | the catalog    | `change-me`                    |
+
+```bash
+kubectl apply -f deploy/k8s/app/agentswarms.yaml
+```
+
+**The optional services get their own Deployments.** `deploy/k8s/app/services.yaml`
+covers the Office renderer, the JS sandbox and the lakehouse catalog — each its
+own pod behind its own `Service`, found by the same name the app uses under
+Compose. Apply it if you want those features:
+
+```bash
+kubectl apply -f deploy/k8s/app/services.yaml
+```
+
+The catalog is a `StatefulSet` with a `PersistentVolumeClaim`, not a
+`Deployment`: it holds the DuckLake catalog, which is the one part of the
+lakehouse that cannot be rebuilt from object storage. In production prefer a
+managed Postgres and point `LAKEHOUSE_CATALOG_URL` at it. The notebook runtime
+is separate again — it needs its own namespace, RBAC and quota, in
+`deploy/k8s/notebooks/`.
+
+**Security posture.** The app image drops to a non-root user, and both app
+Deployments run with `runAsNonRoot`, a read-only root filesystem, all
+capabilities dropped and no API token mounted; `/tmp` is an `emptyDir` because
+the lakehouse engine spills there. Verified in-cluster — `id` reports uid 1000
+and a write to `/` is refused. The JS sandbox, which runs user-supplied code,
+adds a `NetworkPolicy` denying it egress outright (needs a CNI that enforces
+policy — Docker Desktop's default does not).
+
+The app is stateless, so replica count and the HPA are free to move. Two probe
+details matter: **liveness** on `/api/health`, **readiness** on
+`/api/health/ready`. They are different questions — liveness decides restarts,
+readiness decides routing — and `APP_ROLE=analytics` depends on being able to
+answer them differently (see
+[Analytics-only nodes](#analytics-only-nodes)). A pool that probes only
+`/api/health` will keep routing to analytics pods and to pods that cannot reach
+the database.
+
+**Set `resources.limits.cpu`.** The worker count comes from the pod's CPU limit,
+so a pod with no limit on a 64-core node forks 64 workers at ~0.5–1 GB RSS each.
+With a limit set, sizing follows it — verified on an 8-core node: `cpu: "2"`
+logged `forking 2 workers`, and `cpu: 500m` logged `single process`. Give memory
+at least `1Gi` per worker plus headroom.
+
+**Do not put a readiness probe on an analytics `Deployment`.** `APP_ROLE=analytics`
+answers readiness with 503 for ever, and Kubernetes gates rollout progress on
+readiness — so a new pod never becomes Ready, the old one is never retired, and
+`kubectl rollout status` hangs on _"1 old replicas are pending termination"_
+until you kill it. Keep the liveness probe and exclude those pods from the
+`Service` by label, as the shipped manifest does. The role's 503 is still what
+holds a node out of a pool that health-checks readiness directly — a cloud LB
+target group, or a single `Deployment` serving mixed roles.
 
 Kubernetes is also the way to scale the **Developer-workspace Python runtime**
 across nodes: it launches a pod per notebook session (cluster-addressable,

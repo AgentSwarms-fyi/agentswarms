@@ -100,6 +100,8 @@ function LakehousePage() {
   const overviewFn = useServerFn(getLakehouseOverview);
 
   const [data, setData] = useState<LakehouseOverview | null>(null);
+  /** Why the overview could not be read, or null. Rendered — see reload(). */
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [selected, setSelected] = useState<{ schema: string; table: string } | null>(null);
   const [tab, setTab] = useState("query");
   const [sql, setSql] = useState("");
@@ -108,7 +110,13 @@ function LakehousePage() {
     if (!token) return;
     try {
       setData(await overviewFn({ data: { access_token: token } }));
+      setLoadError(null);
     } catch (e) {
+      // FOUND FROM THE UI. A toast was the only signal, so a failed load left
+      // the page as a permanent pair of skeletons: the toast expires, and after
+      // that nothing on screen distinguishes "still loading" from "the catalog
+      // is unreachable". The page has to hold the reason, not announce it once.
+      setLoadError((e as Error).message);
       toast.error((e as Error).message);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -146,7 +154,23 @@ function LakehousePage() {
         </div>
       </div>
 
-      {data === null ? (
+      {data === null && loadError !== null ? (
+        <Card>
+          <CardContent className="space-y-3 py-8 text-sm">
+            <p className="font-medium">The lakehouse could not be reached.</p>
+            <p className="rounded bg-muted px-2 py-1.5 font-mono text-xs break-all">{loadError}</p>
+            <p className="text-muted-foreground">
+              Both halves have to be reachable from this server: the catalog Postgres (
+              <code className="font-mono">LAKEHOUSE_CATALOG_URL</code>) and the object store (
+              <code className="font-mono">LAKEHOUSE_S3_ENDPOINT</code>). The tables themselves are
+              fine — this is a connection problem, not a data one.
+            </p>
+            <Button variant="outline" size="sm" onClick={reload}>
+              <RefreshCw className="mr-1 h-4 w-4" /> Try again
+            </Button>
+          </CardContent>
+        </Card>
+      ) : data === null ? (
         <div className="flex min-h-0 flex-1 gap-3">
           <Skeleton className="hidden w-64 flex-none lg:block xl:w-72" />
           <Skeleton className="min-w-0 flex-1" />

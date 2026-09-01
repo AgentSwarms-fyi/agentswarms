@@ -36,6 +36,30 @@ One implementation detail that is LOAD-BEARING: the engine attaches with
 the string as a file path and silently creates a single-writer duckdb-file
 catalog — the exact opposite of this design. A wiring test pins the prefix.
 
+### The catalog must be reachable from the notebook network
+
+An ETL pipeline with a **lakehouse target** attaches DuckLake from inside a
+notebook kernel, not from the app. Kernels run on `nb-internal`, a Docker
+network with `internal: true` — no route off it — and reach the outside world
+only through the HTTP egress proxy. Parquet is HTTP and goes through the proxy;
+**the catalog is a raw Postgres TCP connection and cannot**. So the catalog has
+to be on the kernel's network, not merely reachable from the app:
+
+- **Compose users**: nothing to do. `lakehouse-catalog` joins `nb-internal`, and
+  `LAKEHOUSE_CATALOG_URL` should name it by service — `lakehouse-catalog:5432`,
+  not a host IP or a published port, neither of which an internal network can
+  route to.
+- **External catalog** (managed Postgres, another host): kernels cannot reach it
+  at all. Either attach that host's container to `nb-internal`, or move kernels
+  to a network that has a route with `NOTEBOOK_NETWORK=<network>` — weaker
+  isolation, because egress control then rests on the proxy environment
+  variables alone rather than on the network.
+
+The symptom when this is wrong is `connection to server at "…" failed: Network
+is unreachable` in the pipeline run log. It appears **only in production**: under
+`npm run dev` the orchestrator places kernels on the routable `nb-dev` network
+instead, so the whole class of failure is invisible in development.
+
 ## What you get
 
 - **Warehouse SQL** — full DuckDB: joins, window functions, CTEs, `SUMMARIZE`,
@@ -97,8 +121,10 @@ editor shows up in the UI too.
 snapshot id, so **any write invalidates it automatically** — there is no TTL
 to tune and no way to read a stale answer after an insert. It is keyed per
 user and consulted _after_ the access check, so a revoked grant cannot read a
-warm result. The cache is per-replica and in-memory: a restart simply re-earns
-it, and replicas never need to coordinate.
+warm result. The cache is in-memory and per worker process — the app runs one
+worker per CPU, so a repeat only hits when it lands on the same worker. That
+costs hit rate, never correctness: a miss just re-runs the query, and workers
+never need to coordinate.
 
 **`Explain`.** Runs `EXPLAIN ANALYZE` and shows the plan the engine chose plus
 what it cost — rows scanned, engine time, rows returned. "Rows scanned" is the
@@ -313,20 +339,33 @@ story, not a cluster), and cold reads pay object-storage latency. Small
 inserts are held **inlined** in the catalog until flushed — that is why a
 fresh table can show real row counts with `0 B` of Parquet.
 
-**The engine runs inside each app process**, so its memory limit is per
-replica: eight replicas at 16 GB is 128 GB of intent, not 16. Size it against
-`host RAM ÷ replicas`, and at larger scales consider keeping one or two
-replicas with a high limit out of the request path, since a heavy analytical
-query and a user request otherwise compete inside the same process. Worked
-numbers are in
+**The engine runs inside each app PROCESS**, and the app forks one worker
+process per available CPU — so the memory limit multiplies by workers first and
+replicas second. A single 16-core host set to 16 GB is **256 GB of intent, not
+16**. Size it against `host RAM ÷ workers`, not `÷ replicas`; `WEB_CONCURRENCY`
+is what sets the worker count
+([Deployment § Scale up before you scale out](./DEPLOYMENT.md#scale-up-before-you-scale-out)).
+
+The limit is a ceiling, not a reservation — an idle worker holds nothing, so
+the multiplied figure is the worst case of every worker running a heavy query at
+once, not steady-state usage. It is still the number to size against, because
+that worst case is what an OOM kill needs.
+
+At larger scales, give the heavy work its own nodes: **`APP_ROLE=analytics`**
+holds a node out of the interactive pool (it reports not-ready to the load
+balancer while staying alive) and defaults it to a single worker, so a large
+memory limit means what you meant by it. Otherwise a thirty-second `GROUP BY`
+and a page render compete inside the same process. See
+[Deployment § Analytics-only nodes](./DEPLOYMENT.md#analytics-only-nodes).
+Worked numbers are in
 [System requirements § Sizing ETL and the lakehouse](./SYSTEM_REQUIREMENTS.md#3a-sizing-etl-and-the-lakehouse).
 
-Two per-replica behaviours are worth knowing when you scale out. The result
-cache is local to each replica, so the same query behind a round-robin load
-balancer may be a hit on one replica and a miss on another — correctness is
-unaffected (the snapshot id is in the key), only the timing varies. And spill
-files are local disk: give each replica real scratch space, not a tmpfs sized
-for a container's RAM.
+Two process-local behaviours are worth knowing when you scale. The result cache
+belongs to a single worker process, so the same query may be a hit on one worker
+and a miss on the next — true across replicas behind a load balancer and equally
+true across workers inside one replica. Correctness is unaffected (the snapshot
+id is in the key), only the timing varies. And spill files are local disk: give
+each replica real scratch space, not a tmpfs sized for a container's RAM.
 
 ## Verified live
 

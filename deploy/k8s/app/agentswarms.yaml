@@ -1,0 +1,349 @@
+# Kubernetes reference deployment for the AgentSwarms app tier.
+#
+# The app is stateless — all durable state is in Supabase — so this is an
+# ordinary Deployment + Service + Ingress. Adjust the namespace, image, host and
+# resource numbers for your cluster, create the Secret, then:
+#
+#   kubectl apply -f deploy/k8s/app/agentswarms.yaml
+#
+# CREATING THE SECRET: do NOT hand your .env straight to
+# `kubectl create secret --from-env-file`. Docker Compose strips the quotes
+# around a value; kubectl keeps them, so SUPABASE_URL="https://..." becomes the
+# literal string `"https://..."` and the app rejects it with
+# `Invalid supabaseUrl: Must be a valid HTTP or HTTPS URL`. Strip them first:
+#
+#   sed -E 's/^([A-Za-z_][A-Za-z0-9_]*)="(.*)"$/\1=\2/' .env > .env.k8s
+#   kubectl create secret generic agentswarms-env \
+#     --namespace agentswarms --from-env-file=.env.k8s && rm .env.k8s
+#
+# PowerShell:
+#   (Get-Content .env) -replace '^([A-Za-z_][A-Za-z0-9_]*)="(.*)"$', '$1=$2' |
+#     Set-Content .env.k8s
+#
+# The secret must include BI_CRON_TOKEN, or the CronJob below stays in
+# CreateContainerConfigError — it is the credential the sweep authenticates with.
+#
+# The notebook runtime is a SEPARATE manifest with its own namespace and RBAC:
+# deploy/k8s/notebooks/notebook-runtime.yaml. You only need it if you enable the
+# Developer workspace.
+#
+# THREE THINGS HERE ARE LOAD-BEARING, and each is a mistake worth not making:
+#
+#  1. `resources.limits.cpu` is REQUIRED, not advisory. The container forks one
+#     worker per available CPU. With no limit, "available" is the NODE's core
+#     count — a pod on a 64-core node forks 64 workers at ~0.5-1 GB RSS each and
+#     is OOMKilled, which presents as a crash loop with no obvious cause.
+#
+#  2. The readiness probe must point at /api/health/ready, NOT /api/health.
+#     Liveness answers "is the process alive"; readiness answers "should traffic
+#     come here". Analytics nodes (below) rely on the two disagreeing.
+#
+#  3. The scheduler holds a fleet-wide lease, so scheduled throughput does not
+#     grow with replicas. Web pods therefore set DISABLE_INPROCESS_SCHEDULER=1
+#     and one CronJob drives sweeps — otherwise every worker of every replica
+#     ticks each minute and all but one immediately lose the lease.
+#
+# See docs/DEPLOYMENT.md § "Autoscaled VMs behind a load balancer" and
+# docs/SYSTEM_REQUIREMENTS.md § 3b for the measured numbers behind these.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agentswarms
+  labels:
+    app.kubernetes.io/part-of: agentswarms
+---
+# The interactive tier: serves the UI, SSR and every /api route.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentswarms-web
+  namespace: agentswarms
+  labels:
+    app.kubernetes.io/name: agentswarms
+    app.kubernetes.io/component: web
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agentswarms
+      app.kubernetes.io/component: web
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agentswarms
+        app.kubernetes.io/component: web
+    spec:
+      # The app never calls the Kubernetes API. Mounting a token it does not use
+      # is a credential sitting in a pod for no reason. (The NOTEBOOK runtime
+      # does call the API, and has its own ServiceAccount and Role — see
+      # deploy/k8s/notebooks/.)
+      automountServiceAccountToken: false
+      # Spread replicas across nodes. Without this the scheduler may put every
+      # replica on one node, and "2 replicas" survives exactly as much as one.
+      # ScheduleAnyway, not DoNotSchedule: on a single-node cluster a hard
+      # constraint would leave the second replica Pending for ever.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: agentswarms
+              app.kubernetes.io/component: web
+      # server.mjs drains on SIGTERM (stops accepting, finishes what is in
+      # flight). This gives it room; streamed chat responses are the long pole.
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: app
+          image: agentswarms:latest
+          # IfNotPresent suits a locally-built image. In production pin a
+          # DIGEST (agentswarms@sha256:…), or use a real version tag with
+          # Always — `:latest` with IfNotPresent means a node that already has
+          # something called "latest" never fetches your new build.
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          ports:
+            - name: http
+              containerPort: 8080
+          volumeMounts:
+            # readOnlyRootFilesystem means the lakehouse engine's spill
+            # directory needs somewhere real to go. Size this against
+            # LAKEHOUSE_SPILL_LIMIT if this tier serves lakehouse queries.
+            - name: tmp
+              mountPath: /tmp
+          envFrom:
+            - secretRef:
+                name: agentswarms-env
+          env:
+            # One external CronJob drives sweeps instead (see below), so the
+            # per-worker 60s tick is off here.
+            - name: DISABLE_INPROCESS_SCHEDULER
+              value: "1"
+            # Number of proxies in front. 1 = an Ingress alone; 2 with a CDN.
+            # MCP key IP allow-lists are checked against the address this picks.
+            - name: TRUSTED_PROXY_HOPS
+              value: "1"
+          resources:
+            requests:
+              cpu: "1"
+              memory: 1Gi
+            limits:
+              # Worker count follows THIS number: 2 CPU -> 2 workers. Memory
+              # must cover ~0.5-1 GB per worker plus the lakehouse engine's
+              # limit per worker if this tier serves lakehouse queries.
+              cpu: "2"
+              memory: 4Gi
+          livenessProbe:
+            httpGet: { path: /api/health, port: http }
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            # Cheap DB reachability check; a pod that cannot reach Supabase is
+            # pulled from the Service rather than served traffic.
+            httpGet: { path: /api/health/ready, port: http }
+            periodSeconds: 10
+            failureThreshold: 3
+          startupProbe:
+            # SSR bundles take a moment to warm; without this a slow first boot
+            # trips the liveness probe and restarts a healthy pod.
+            httpGet: { path: /api/health, port: http }
+            periodSeconds: 5
+            failureThreshold: 30
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+# Keep at least one web pod serving through a node drain or a cluster upgrade.
+# Without this, `kubectl drain` may evict every replica at once and the Service
+# has no endpoints for as long as the new pods take to become Ready.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: agentswarms-web
+  namespace: agentswarms
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agentswarms
+      app.kubernetes.io/component: web
+---
+# The analytics tier (optional). A heavy lakehouse query and a page render
+# compete inside one process, so these pods take the analytical work and are
+# held OUT of the Service: APP_ROLE=analytics makes readiness report 503 while
+# liveness stays 200, so Kubernetes removes them from Endpoints without
+# restarting them. They keep the in-process scheduler, so scheduled refreshes
+# and materialized-view rebuilds land here.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentswarms-analytics
+  namespace: agentswarms
+  labels:
+    app.kubernetes.io/name: agentswarms
+    app.kubernetes.io/component: analytics
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agentswarms
+      app.kubernetes.io/component: analytics
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agentswarms
+        app.kubernetes.io/component: analytics
+    spec:
+      automountServiceAccountToken: false
+      # Longer than the web tier: a heavy analytical query in flight is what
+      # this pod exists to run, and killing it mid-scan wastes the whole scan.
+      terminationGracePeriodSeconds: 120
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: app
+          image: agentswarms:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          ports:
+            - name: http
+              containerPort: 8080
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          envFrom:
+            - secretRef:
+                name: agentswarms-env
+          env:
+            - name: APP_ROLE
+              value: analytics
+            # Sized for ONE big engine. APP_ROLE=analytics already defaults to a
+            # single worker for exactly this reason — the engine is per process,
+            # so forking would divide this figure into copies that can each
+            # claim all of it.
+            - name: LAKEHOUSE_MEMORY_LIMIT
+              value: 12GB
+          resources:
+            requests:
+              cpu: "1"
+              memory: 4Gi
+            limits:
+              cpu: "4"
+              memory: 16Gi
+          livenessProbe:
+            httpGet: { path: /api/health, port: http }
+            periodSeconds: 10
+            failureThreshold: 3
+          # DELIBERATELY NO readinessProbe, and this is not an oversight.
+          #
+          # MEASURED: adding one here wedges the Deployment permanently.
+          # APP_ROLE=analytics answers /api/health/ready with 503 by design, so
+          # a new pod never becomes Ready, so the rolling update never retires
+          # the old one — `kubectl rollout status` reported "1 old replicas are
+          # pending termination" indefinitely and would hang any CI/CD deploy.
+          # Kubernetes uses readiness to gate rollout progress, so a probe that
+          # can never pass is a probe that can never finish a deploy.
+          #
+          # The Service already excludes these pods by their component label,
+          # which is the mechanism doing the work in THIS manifest. The role's
+          # 503 still matters for the topology where there is no separate
+          # Deployment to wedge: one Deployment serving mixed roles, or a cloud
+          # load balancer whose target group health-checks readiness directly.
+      volumes:
+        # Bigger than the web tier's: this is where a spilling analytical query
+        # goes when it exceeds LAKEHOUSE_MEMORY_LIMIT. An emptyDir sized below
+        # LAKEHOUSE_SPILL_LIMIT turns "slower query" back into "failed query".
+        - name: tmp
+          emptyDir: { sizeLimit: 20Gi }
+---
+# Selects the web component only. The analytics pods carry a different
+# component label AND fail readiness, so they stay out of Endpoints twice over.
+apiVersion: v1
+kind: Service
+metadata:
+  name: agentswarms
+  namespace: agentswarms
+spec:
+  selector:
+    app.kubernetes.io/name: agentswarms
+    app.kubernetes.io/component: web
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: agentswarms-web
+  namespace: agentswarms
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: agentswarms-web
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          # SSR is CPU-bound (~30 ms per render), so CPU is the honest signal
+          # here — unlike a mostly-IO service, where it would lag.
+          averageUtilization: 70
+---
+# Scheduled work: BI refreshes, alerts, prep flows, catalog crawls, scheduled
+# swarms, kernel reaping. ONE CronJob for the whole fleet — a fleet-wide lease
+# already prevents double-firing, so this is about not wasting lease attempts.
+#
+# Idle sweeps measured at ~2s; if yours approach 60s, sweeps serialise and the
+# effective rate silently drops. Raise PIPELINES_PER_SWEEP (Admin -> Developer
+# runtime) rather than the schedule.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: agentswarms-cron
+  namespace: agentswarms
+spec:
+  schedule: "* * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: curl
+              image: curlimages/curl:8.11.1
+              env:
+                - name: BI_CRON_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: agentswarms-env
+                      key: BI_CRON_TOKEN
+              command:
+                - sh
+                - -c
+                - >
+                  curl -sS -X POST
+                  -H "Authorization: Bearer $BI_CRON_TOKEN"
+                  http://agentswarms.agentswarms.svc.cluster.local/api/bi/cron

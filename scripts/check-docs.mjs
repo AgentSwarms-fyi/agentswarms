@@ -167,7 +167,10 @@ const envHaystack = (() => {
   };
   walk("src");
   walk("scripts");
-  for (const f of [".env.example", "docker-compose.yml", "Dockerfile"])
+  // server.mjs is the production entry — PORT, HOST and WEB_CONCURRENCY are
+  // read there and nowhere under src/, so without it a correctly documented
+  // variable would be reported as one the runtime never reads.
+  for (const f of ["server.mjs", ".env.example", "docker-compose.yml", "Dockerfile"])
     if (fs.existsSync(f)) parts.push(read(f));
   return parts.join("\n");
 })();

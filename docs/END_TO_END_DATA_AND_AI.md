@@ -35,18 +35,22 @@ one in a visible place.
 Joining these three systems the obvious way:
 
 ```
-naive total                     372,915.09
-actual net revenue (USD)        453,202.39
+naive total                     363,161.35
+actual net revenue (USD)        408,332.36
 ```
 
-The naive answer is **17.7% low** — and it is wrong in both directions at
+The naive answer is **11.1% low** — and it is wrong in both directions at
 once. Duplicates inflate it, cancelled orders inflate it, the currencies make
 it meaningless, and dropped orphan customers pull it back down further than
 all of that lifts it. Two large errors partially cancelling is exactly why
 nobody notices.
 
-Of the true total, **$67,737.28 (15%) belongs to customers the CRM has not
+Of the true total, **$55,604.70 (13.6%) belongs to customers the CRM has not
 sent yet**. An inner join throws that away without a word.
+
+Both figures come from `scripts/seed-revenue-walkthrough.mjs`, which computes
+them in plain arithmetic over the rows it generates — independently of the
+pipeline it is used to check.
 
 ---
 
@@ -62,22 +66,38 @@ customers.csv  ─┘        gate                      (836 rows)               
                                                                                              row/column security
 ```
 
-Everything after the raw files is reproducible from this document.
+**All of it is reproducible, raw files included** — see Step 1.
 
 ---
 
 ## Step 1 — Land the raw data
 
-Four CSVs go into object storage, exactly as three upstream systems would drop
-them. In the walkthrough these live in the MinIO bucket already registered in
-**Data Catalog** as a storage source:
+Five CSVs go into object storage, exactly as three upstream systems would drop
+them. Generate them with the seed script, which is deterministic — a fixed seed,
+no clock, no `Math.random()` — so your files are byte-identical to the ones every
+number below was measured from:
+
+```bash
+node scripts/seed-revenue-walkthrough.mjs seed/revenue
+```
+
+Then upload them to the bucket registered in **Data Catalog** as a storage
+source (the walkthrough uses MinIO):
+
+```bash
+mc cp --recursive seed/revenue/ local/etl/raw/revenue/
+```
 
 ```
-s3://etl/raw/revenue/payments/payments.csv     943 rows  (66 duplicated, 41 refunds, 6 null amounts)
-s3://etl/raw/revenue/orders/orders.csv         900 rows  (64 cancelled, 3 currencies)
-s3://etl/raw/revenue/customers/customers.csv    52 rows  (8 more arrive later)
-s3://etl/raw/revenue/fx_rates/fx_rates.csv       3 rows
+s3://etl/raw/revenue/payments/payments.csv          1,007 rows  (66 retried ids, 41 refunds, 6 null amounts)
+s3://etl/raw/revenue/orders/orders.csv                900 rows  (64 cancelled)
+s3://etl/raw/revenue/customers/customers.csv           52 rows  (8 more arrive in customers_batch2.csv)
+s3://etl/raw/revenue/customers/customers_batch2.csv     8 rows  (same glob — late-arriving dimension)
+s3://etl/raw/revenue/fx_rates/fx_rates.csv              3 rows  (USD, EUR, GBP)
 ```
+
+Ten of the 70 customer ids the orders reference appear in **no** customer file at
+all. That is deliberate, and it is what Step 2's LEFT join exists to survive.
 
 > **Bring your own data instead.** Any S3-compatible bucket works — add it under
 > **Data Catalog → Add source**, then point the pipeline's source nodes at your
@@ -110,7 +130,7 @@ defect:
 Two of these deserve emphasis, because they are the ones people get wrong:
 
 **The LEFT join is the whole trick.** An inner join here is the natural thing
-to write and it is wrong. It does not error; it quietly under-reports by 15%,
+to write and it is wrong. It does not error; it quietly under-reports by 13.6%,
 and it under-reports _more_ the faster you are winning new customers — because
 new customers are exactly the ones the CRM has not synced yet. Your worst
 reporting month is your best sales month.
@@ -133,17 +153,23 @@ lineage    : raw/revenue/{payments,fx_rates,orders,customers}/*.csv → analytic
 And the number:
 
 ```
-net revenue (USD)   453,202.39      ← matches ground truth exactly
+net revenue (USD)   408,332.36      ← matches ground truth exactly
 ```
+
+That is not a figure copied out of the warehouse and pasted here. The seed
+script computes it independently — plain arithmetic over the rows it just
+wrote, no DuckDB, no pipeline — and prints it at the end of its run. The
+pipeline agreeing to the cent is what makes the walkthrough a test rather than
+an illustration.
 
 | Region    | Net revenue | Orders |
 | --------- | ----------- | ------ |
-| APAC      | 130,989.53  | 236    |
-| EMEA      | 130,378.02  | 242    |
-| AMER      | 124,097.55  | 232    |
-| (unknown) | 67,737.28   | 126    |
+| APAC      | 123,376.12  | 242    |
+| AMER      | 119,069.66  | 238    |
+| EMEA      | 110,281.88  | 242    |
+| (unknown) | 55,604.70   | 114    |
 
-That `(unknown)` row is the point. It is not an error — it is 15% of your
+That `(unknown)` row is the point. It is not an error — it is 13.6% of your
 revenue, visible and labelled, instead of missing and silent.
 
 > **Tip — build it from the middle.** Click any node and press **Preview data**
@@ -155,26 +181,32 @@ revenue, visible and labelled, instead of missing and silent.
 
 ## Step 3 — Let the late data arrive
 
-The CRM finally exports the 8 customers it was missing. Drop the new file
+The CRM finally exports 8 of the customers it was missing. Drop the new file
 beside the old one — the source path is a glob (`customers/*.csv`), so the next
-run just picks it up — and re-run.
+run just picks it up — and re-run. To reproduce this, run the pipeline once with
+`customers_batch2.csv` absent from the bucket, then again with it present.
 
 |                 | Before the late batch | After          |
 | --------------- | --------------------- | -------------- |
-| **Net revenue** | **453,202.39**        | **453,202.39** |
-| APAC            | 130,989.53            | 161,660.26     |
-| AMER            | 124,097.55            | 155,240.24     |
-| EMEA            | 130,378.02            | 136,301.89     |
-| (unknown)       | 67,737.28             | **0.00**       |
+| **Net revenue** | **408,332.36**        | **408,332.36** |
+| APAC            | 101,214.85            | 123,376.12     |
+| AMER            | 106,257.60            | 119,069.66     |
+| EMEA            | 95,547.96             | 110,281.88     |
+| (unknown)       | 105,311.95            | 55,604.70      |
 
-**The total did not move.** The revenue was never lost, so nothing had to be
-restated — it simply moved out of `(unknown)` and into the regions it always
-belonged to.
+**The total did not move — to the cent.** The revenue was never lost, so nothing
+had to be restated; it simply moved out of `(unknown)` and into the regions it
+always belonged to.
 
-Compare that with the inner-join version, where the total would have _jumped
-by $67,737_ the day the CRM caught up, and somebody would have had to explain
-why last month's number changed. That conversation is the real cost of the
-wrong join, and it happens weeks after the mistake.
+Compare that with the inner-join version, where the total would have _jumped by
+$49,707_ the day the CRM caught up, and somebody would have had to explain why
+last month's number changed. That conversation is the real cost of the wrong
+join, and it happens weeks after the mistake.
+
+`(unknown)` does not fall to zero, and that is deliberate: ten customer ids in
+the orders appear in no CRM export at all. Some data never arrives. The point of
+the LEFT join is not that the gap closes — it is that the gap is **visible and
+priced** while it is open, and that the total is right either way.
 
 ---
 
@@ -208,7 +240,7 @@ Asking in business words now compiles to SQL:
 ```
 net revenue, all up
   SQL: SELECT SUM(net_usd) AS "net_revenue" FROM analytics.revenue_facts
-  →    453,202.39
+  →    408,332.36
 
 AOV by plan
   SQL: SELECT plan, (SUM(net_usd)) / nullif((COUNT(*)), 0) AS "avg_order_value", …
@@ -259,9 +291,10 @@ same governed chokepoint as everyone else:
 
 ```
 SELECT region, round(sum(net_usd),2) FROM analytics.revenue_facts GROUP BY 1 ORDER BY 2 DESC
-  APAC  161,660.26
-  AMER  155,240.24
-  EMEA  136,301.89
+  APAC       123,376.12
+  AMER       119,069.66
+  EMEA       110,281.88
+  (unknown)   55,604.70
 ```
 
 Same numbers as the dashboard. And the boundary holds:
@@ -301,13 +334,13 @@ The result, same table, same semantic model, same dashboard:
 
 |                             | Owner            | EMEA manager                       |
 | --------------------------- | ---------------- | ---------------------------------- |
-| Net revenue                 | 453,202.39       | **136,301.89**                     |
-| Orders                      | 836              | **251**                            |
+| Net revenue                 | 408,332.36       | **110,281.88**                     |
+| Orders                      | 836              | **242**                            |
 | `customer_name`             | `Customer 006`   | `5d899a73b8ac43c2a2d0014f86e5e7c0` |
 | Regions visible             | APAC, AMER, EMEA | EMEA only                          |
 | `DELETE FROM revenue_facts` | allowed          | refused                            |
 
-The manager's 136,301.89 is exactly the EMEA figure from the region
+The manager's 110,281.88 is exactly the EMEA figure from the region
 breakdown — they are not seeing a different _number_, they are seeing a
 correct _subset_.
 

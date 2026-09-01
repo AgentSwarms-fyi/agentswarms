@@ -12,7 +12,7 @@
 // mirrors are a cache over the same rows — so the control is safe to give
 // people without a warning attached.
 import { useCallback, useEffect, useState } from "react";
-import { Database, HardDrive, Loader2 } from "lucide-react";
+import { ChevronDown, Database, HardDrive, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -46,6 +46,8 @@ type Row = {
 export function CapacityPanel({ userId }: { userId: string | undefined }) {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
+  /** Show the datasets holding nothing too — the per-dataset storage control. */
+  const [expanded, setExpanded] = useState(false);
 
   const load = useCallback(async () => {
     if (!userId) return;
@@ -91,6 +93,18 @@ export function CapacityPanel({ userId }: { userId: string | undefined }) {
   const held = (rows ?? []).filter((r) => (r.parquet_bytes ?? 0) > 0);
   const usedBytes = held.reduce((n, r) => n + (r.parquet_bytes ?? 0), 0);
 
+  // SHOW WHAT IS USING SOMETHING; hide what is not.
+  //
+  // This panel used to list every dataset in the workspace, most of them saying
+  // "Not mirrored — reads its rows directly", i.e. holding nothing. On a
+  // workspace with a dozen datasets that is a dozen rows of nothing between the
+  // machine's resource cards and the service health list — the two things the
+  // page exists for. The rows that hold bytes are observability; the rest are a
+  // configuration list, and a configuration list should not outrank service
+  // status on the page you open when something is wrong.
+  const visible = expanded ? (rows ?? []) : held;
+  const hiddenCount = (rows?.length ?? 0) - held.length;
+
   return (
     <Card className="overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/40 px-4 py-2">
@@ -111,8 +125,12 @@ export function CapacityPanel({ userId }: { userId: string | undefined }) {
           <p className="p-4 text-sm text-muted-foreground">
             No datasets yet. Upload one and it will appear here with its storage mode.
           </p>
+        ) : visible.length === 0 ? (
+          <p className="px-4 py-2.5 text-xs text-muted-foreground">
+            Nothing is mirrored — every dataset reads its rows directly, so no memory is held.
+          </p>
         ) : (
-          rows.map((r) => {
+          visible.map((r) => {
             const rowCount = r.parquet_rows ?? 0;
             // The panel cannot know the server's thresholds, so it explains
             // an EXPLICIT mode exactly and leaves `auto` to say what it did
@@ -177,6 +195,21 @@ export function CapacityPanel({ userId }: { userId: string | undefined }) {
           })
         )}
       </div>
+
+      {hiddenCount > 0 && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="flex w-full items-center gap-1.5 border-t px-4 py-2 text-left text-[11px] text-muted-foreground hover:bg-muted/40"
+        >
+          <ChevronDown
+            className={`h-3.5 w-3.5 transition-transform ${expanded ? "rotate-180" : ""}`}
+          />
+          {expanded
+            ? "Hide datasets that hold nothing"
+            : `Show ${hiddenCount} dataset${hiddenCount === 1 ? "" : "s"} holding nothing, to change how they are stored`}
+        </button>
+      )}
 
       <p className="border-t bg-muted/20 px-4 py-2 text-[11px] leading-relaxed text-muted-foreground">
         A mirror is a <strong>cache over the same rows</strong>, so changing a mode — or having one

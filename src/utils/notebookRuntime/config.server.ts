@@ -88,11 +88,23 @@ export async function getPlatformResources(): Promise<PlatformResourceSettings> 
  * than against a number someone guessed. In a container these report the
  * cgroup's view where the runtime exposes it, and the host's otherwise — which
  * is why the UI presents them as guidance, not as a limit.
+ *
+ * `cpus` uses availableParallelism rather than os.cpus().length: the latter
+ * reports the MACHINE even under a CPU quota (measured: 8 inside a --cpus=2
+ * container), which would have had the admin page sizing against cores this
+ * deployment is not allowed to use.
+ *
+ * `workers` is how many app PROCESSES exist, published by server.mjs rather
+ * than re-derived here so the two can never disagree. It matters because
+ * per-process resources — the lakehouse engine above all — are charged once per
+ * worker, not once per host. Absent under `vite dev`, where the answer is 1.
  */
-export function hostResources(): { cpus: number; totalMemMb: number } {
+export function hostResources(): { cpus: number; totalMemMb: number; workers: number } {
+  const declared = Number(process.env.AGENTSWARMS_WORKERS);
   return {
-    cpus: Math.max(1, os.cpus()?.length ?? 1),
+    cpus: Math.max(1, os.availableParallelism?.() ?? os.cpus()?.length ?? 1),
     totalMemMb: Math.max(1, Math.round(os.totalmem() / (1024 * 1024))),
+    workers: Number.isFinite(declared) && declared >= 1 ? Math.trunc(declared) : 1,
   };
 }
 

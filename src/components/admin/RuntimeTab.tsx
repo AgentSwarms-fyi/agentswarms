@@ -14,7 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { normalizeEgressHost } from "@/utils/notebookRuntime/egress";
+import { normalizeEgressHost, normalizeEgressIp } from "@/utils/notebookRuntime/egress";
 import {
   Select,
   SelectContent,
@@ -65,6 +65,20 @@ function NumberField({
   );
 }
 
+/**
+ * A DuckDB memory-limit string ("2GB", "512MB", "1.5 GiB") as GB, or null when
+ * it is not parseable — in which case the capacity readout stays hidden rather
+ * than guessing. Bare numbers are GB, matching how the field is documented.
+ */
+function memoryLimitGb(raw: string): number | null {
+  const m = /^\s*([\d.]+)\s*([kmgt])?i?b?\s*$/i.exec(raw ?? "");
+  if (!m) return null;
+  const n = Number(m[1]);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const perUnit: Record<string, number> = { k: 1 / 1024 ** 2, m: 1 / 1024, g: 1, t: 1024 };
+  return n * (perUnit[(m[2] ?? "g").toLowerCase()] ?? 1);
+}
+
 export function RuntimeTab({ token }: { token: string }) {
   const getStateFn = useServerFn(nbRuntimeGetState);
   const updateFn = useServerFn(nbRuntimeUpdateSettings);
@@ -74,12 +88,31 @@ export function RuntimeTab({ token }: { token: string }) {
   const [state, setState] = useState<NbRuntimeState | null>(null);
   const [form, setForm] = useState<NbRuntimeSettings | null>(null);
   const [egressText, setEgressText] = useState("");
-  // Lines the squid ACL renderer will drop. Uses the SAME function that does
-  // the dropping, so the warning cannot disagree with the behaviour.
+  // Lines the squid ACL renderer will drop. Uses the SAME functions that do the
+  // dropping, so the warning cannot disagree with the behaviour.
+  //
+  // BOTH of them, which is the whole subtlety: the list is rendered into two
+  // ACL files — hostnames into dstdomain, addresses into dst — so an entry is
+  // only really discarded when neither claims it. Checking normalizeEgressHost
+  // alone (as this did) reported every IP as ignored, including the self-hosted
+  // MinIO address that the dst file was added to support and that the proxy was
+  // already honouring. A security control that under-reports its own coverage
+  // sends operators looking for a problem that is not there.
   const rejectedEgress = egressText
     .split("\n")
     .map((s) => s.trim())
-    .filter((s) => s && !s.startsWith("#") && normalizeEgressHost(s) === null);
+    .filter(
+      (s) =>
+        s && !s.startsWith("#") && normalizeEgressHost(s) === null && normalizeEgressIp(s) === null,
+    );
+  // Worker processes, reported by the server rather than derived from the CPU
+  // count — WEB_CONCURRENCY and a container's CPU quota both move it.
+  const workers = state?.host?.workers ?? 1;
+  const lakehousePerWorkerGb = form ? memoryLimitGb(form.lakehouse_memory_limit) : null;
+  const lakehouseTotalGb =
+    lakehousePerWorkerGb === null ? null : lakehousePerWorkerGb * Math.max(1, workers);
+  const lakehouseOverHost =
+    lakehouseTotalGb !== null && !!state?.host && lakehouseTotalGb > state.host.totalMemMb / 1024;
   const [saving, setSaving] = useState(false);
   const [grantType, setGrantType] = useState<"user" | "group">("group");
   const [grantId, setGrantId] = useState("");
@@ -354,6 +387,36 @@ export function RuntimeTab({ token }: { token: string }) {
                 : null
             }
           />
+          {/*
+            THE MULTIPLIER, SPELLED OUT. The engine lives in each app PROCESS
+            and the server forks one worker per CPU, so this limit is charged
+            once per worker — a number that used to be invisible here and reads
+            as a per-machine budget. On a 16-core host, "16GB" is 256 GB of
+            intent. The batch row below has always shown its product; this is
+            the same courtesy for the setting most likely to OOM a box.
+          */}
+          {lakehouseTotalGb !== null && (
+            <div className="space-y-1 sm:col-span-3">
+              <Label className="text-xs">Lakehouse capacity</Label>
+              <p
+                className={
+                  "rounded-md border px-2 py-1.5 text-[11px] " +
+                  (lakehouseOverHost
+                    ? "border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                    : "border-border/60 bg-muted/40 text-muted-foreground")
+                }
+              >
+                {form.lakehouse_memory_limit} × {workers} worker{workers === 1 ? "" : "s"} ={" "}
+                <span className={lakehouseOverHost ? "font-medium" : "font-medium text-foreground"}>
+                  {lakehouseTotalGb.toFixed(1)} GB
+                </span>{" "}
+                if every worker runs a heavy query at once
+                {lakehouseOverHost && state?.host
+                  ? ` — more than the ${(state.host.totalMemMb / 1024).toFixed(1)} GB this host reports. It is a ceiling rather than a reservation, so idle workers hold nothing, but that is the figure an out-of-memory kill cares about.`
+                  : "."}
+              </p>
+            </div>
+          )}
         </div>
 
         <p className="text-xs font-medium text-muted-foreground">ETL throughput</p>
@@ -480,20 +543,20 @@ export function RuntimeTab({ token }: { token: string }) {
           className="font-mono text-xs"
         />
         {/*
-          SAY WHICH LINES WILL BE DISCARDED. The list is normalised into a squid
-          dstdomain ACL, and anything that is not a usable hostname is dropped —
-          IP addresses in particular, since dstdomain matches by DNS suffix and
-          could never match an address. Until now that happened silently: an
-          operator typed 10.0.0.1, watched it save, and believed egress to it
-          was permitted. It was not, and nothing said so. Rejecting an entry
-          correctly is only half the job on a security control; the other half
-          is telling the person who typed it.
+          SAY WHICH LINES WILL BE DISCARDED. The list is normalised into two
+          squid ACLs — hostnames into dstdomain, addresses into dst — and
+          anything neither file can take is dropped. Until this warning existed
+          that happened silently: an operator typed a typo, watched it save, and
+          believed egress to it was permitted. It was not, and nothing said so.
+          Rejecting an entry correctly is only half the job on a security
+          control; the other half is telling the person who typed it — and not
+          crying wolf over entries that ARE being honoured.
         */}
         {rejectedEgress.length > 0 && (
           <p className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-600 dark:text-amber-400">
-            Ignored — not a hostname the proxy can match:{" "}
-            <span className="font-mono">{rejectedEgress.join(", ")}</span>. An IP address cannot be
-            used here; the allow-list matches domains and their subdomains.
+            Ignored — neither a hostname nor an IP address:{" "}
+            <span className="font-mono">{rejectedEgress.join(", ")}</span>. A hostname matches that
+            domain and its subdomains; an IP address is matched exactly.
           </p>
         )}
         <label className="flex items-center gap-2 pt-1 text-xs">

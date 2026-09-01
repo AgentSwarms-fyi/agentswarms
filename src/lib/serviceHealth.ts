@@ -171,7 +171,18 @@ export type MemoryUsage = {
 };
 
 export type SystemMetrics = {
+  /**
+   * Whichever instance answered this request. On Kubernetes this is the POD
+   * NAME, which is the point: behind a Service with N replicas, each refresh
+   * of this page can be answered by a different one, and the numbers below
+   * belong to that one only. Without saying so, the CPU figure looks like it
+   * is jumping around when it is really three different machines taking turns.
+   */
   hostname: string;
+  /** "web" or "analytics" — see APP_ROLE. */
+  role: string;
+  /** Worker processes in this instance. Per-process limits multiply by it. */
+  workers: number;
   platform: string;
   nodeVersion: string;
   uptimeSeconds: number;

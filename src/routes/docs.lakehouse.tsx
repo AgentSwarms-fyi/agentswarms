@@ -298,6 +298,18 @@ function LakehouseDocsPage() {
         says so instead of half-working.
       </Callout>
 
+      <Callout kind="warn" title="ETL targets: the catalog must sit on the kernel network">
+        A pipeline whose target is a lakehouse table attaches the catalog from inside a{" "}
+        <strong>notebook kernel</strong>, and kernels run on an <C>internal</C> Docker network whose
+        only way out is the HTTP egress proxy. Parquet is HTTP and travels through it; the catalog
+        is a raw Postgres connection and cannot. Name the catalog by its service (
+        <C>lakehouse-catalog:5432</C>) rather than a host IP or published port — Compose already
+        puts it on that network. For a catalog outside Docker, move kernels somewhere with a route
+        using <C>NOTEBOOK_NETWORK</C>, accepting the weaker isolation. The symptom otherwise is{" "}
+        <C>Network is unreachable</C> in the run log, and it appears only once the app runs in a
+        container: under <C>npm run dev</C> kernels get a routable network instead.
+      </Callout>
+
       <NextPrev current="/docs/lakehouse" />
     </>
   );

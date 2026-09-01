@@ -212,14 +212,55 @@ export async function ensureLakeSecrets(c: DuckDBConnection): Promise<void> {
   }
 }
 
+/**
+ * Strip credentials out of an engine error before it can reach a browser.
+ *
+ * FOUND FROM THE UI. The ATTACH embeds the catalog's whole libpq string, so
+ * DuckDB's "connection refused" quotes it back verbatim — `password=...`
+ * included — and that message was already being shown to any signed-in user as
+ * a toast. The catalog password is deployment infrastructure; a workspace
+ * member should not be able to read it off a page, transiently or otherwise.
+ *
+ * Belt and braces: the shapes a connection string takes, AND the configured
+ * values themselves, in case a driver formats them some way not matched below.
+ */
+export function redactLakehouseSecrets(message: string): string {
+  let out = message
+    // libpq: password=secret / password='secret'
+    .replace(/(password\s*=\s*)('[^']*'|"[^"]*"|\S+)/gi, "$1[redacted]")
+    // URL: postgres://user:secret@host
+    .replace(/(\b[a-z+]+:\/\/[^:@\s/]+:)[^@\s]+(@)/gi, "$1[redacted]$2");
+
+  const cfg = lakehouseConfig();
+  for (const secret of [cfg?.s3.secret, catalogPassword(cfg?.catalog)]) {
+    // Short values would redact innocuous substrings and make the error
+    // unreadable, which is its own kind of failure.
+    if (secret && secret.length >= 6) out = out.split(secret).join("[redacted]");
+  }
+  return out;
+}
+
+/** The password inside a libpq URL/keyword string, if it has one. */
+function catalogPassword(catalog: string | undefined): string | null {
+  if (!catalog) return null;
+  const url = /\b[a-z+]+:\/\/[^:@\s/]+:([^@\s]+)@/i.exec(catalog);
+  if (url) return decodeURIComponent(url[1]);
+  const kw = /password\s*=\s*('([^']*)'|"([^"]*)"|(\S+))/i.exec(catalog);
+  return kw ? (kw[2] ?? kw[3] ?? kw[4] ?? null) : null;
+}
+
 /** The shared engine: attached once per process, connections per request. */
 export async function lakehouseEngine(): Promise<DuckDBInstance> {
   const cfg = lakehouseConfig();
   if (!cfg) throw new Error("The lakehouse is not configured (LAKEHOUSE_CATALOG_URL).");
   if (!enginePromise) {
-    enginePromise = createEngine(cfg).catch((e) => {
+    enginePromise = createEngine(cfg).catch((e: unknown) => {
       enginePromise = null; // a failed boot must not poison every later call
-      throw e;
+      // Re-thrown redacted: this is the error that carries the ATTACH string,
+      // and it travels all the way to the browser.
+      const err = e instanceof Error ? e : new Error(String(e));
+      err.message = redactLakehouseSecrets(err.message);
+      throw err;
     });
   }
   return enginePromise;
@@ -532,8 +573,12 @@ async function readerEmail(userId: string): Promise<string | null> {
 //
 // Keyed on (user, sql, catalog snapshot). The snapshot id is the whole trick:
 // DuckLake bumps it on every commit, so a write invalidates cached results by
-// making their key unreachable — no TTL guesswork, no stale answers. The cache
-// is per-replica and in-memory; a replica restart simply re-earns it.
+// making their key unreachable — no TTL guesswork, no stale answers.
+//
+// The cache is in-memory and per PROCESS, and the app forks one worker process
+// per CPU, so a repeated query only hits when it lands on the same worker.
+// That costs hit rate, never correctness: a miss re-runs the query. Restarting
+// simply re-earns it.
 
 type CacheEntry = { at: number; snapshot: string; result: LakehouseResult };
 
