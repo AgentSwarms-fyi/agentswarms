@@ -1494,11 +1494,13 @@ describe("etl wiring", () => {
     // A LAN MinIO in the admin allow-list silently did nothing before: squid's
     // dstdomain ACL never matches an IP-form URL. Pinned end to end.
     const conf = read("deploy/notebooks/egress/squid.conf");
-    expect(conf).toContain('acl allowed_ips dst "/etc/squid/allowed_ips"');
+    expect(conf).toContain('acl allowed_ips dst "/etc/squid/egress/allowed_ips"');
     expect(conf).toContain("http_access allow allowed_ips");
     expect(conf).toContain("acl Safe_ports port 9000");
+    // The ACL files are mounted as a DIRECTORY now: they are generated, so
+    // untracked, and Docker turns a missing bind-mount source into a directory.
     const compose = read("docker-compose.yml");
-    expect(compose).toContain("allowed_ips:/etc/squid/allowed_ips:ro");
+    expect(compose).toContain("./deploy/notebooks/egress:/etc/squid/egress:ro");
     const apply = read("src/utils/notebookRuntime/egressApply.server.ts");
     expect(apply).toContain("renderEgressIpAllowlist");
   });
@@ -1529,10 +1531,10 @@ describe("etl wiring", () => {
 describe("egress IP renderer", () => {
   it("splits IPs from domains and drops everything else", async () => {
     const { renderEgressIpAllowlist, isEgressIp } = await import("@/utils/notebookRuntime/egress");
-    expect(isEgressIp("192.168.1.85")).toBe(true);
+    expect(isEgressIp("192.168.1.10")).toBe(true);
     expect(isEgressIp("pypi.org")).toBe(false);
-    const body = renderEgressIpAllowlist(["192.168.1.85", "pypi.org", "10.0.0.7"]);
-    expect(body).toContain("192.168.1.85");
+    const body = renderEgressIpAllowlist(["192.168.1.10", "pypi.org", "10.0.0.7"]);
+    expect(body).toContain("192.168.1.10");
     expect(body).toContain("10.0.0.7");
     expect(body).not.toContain("pypi.org");
   });

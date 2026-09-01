@@ -58,3 +58,12 @@ supabase-docker/
 # a diff on almost every branch and merge conflicts that mean nothing - the
 # file is reproduced from the route files themselves.
 src/routeTree.gen.ts
+
+# Egress allow-list for notebook kernels. The app REWRITES these two whenever an
+# administrator saves Admin -> Developer runtime, so tracking them meant every
+# install carried a permanently dirty working tree — and staged whatever that
+# operator had allow-listed, which for raw IPs is a piece of their internal
+# network. The tracked templates are the .default files beside them; setup.sh
+# and setup.ps1 seed the live pair from those on first run.
+deploy/notebooks/egress/allowed_domains
+deploy/notebooks/egress/allowed_ips

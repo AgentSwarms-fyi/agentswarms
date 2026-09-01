@@ -1,6 +1,14 @@
+# TEMPLATE — copied to `allowed_domains` on first setup, then owned by the app.
+#
+# The live file is NOT tracked in git: the app rewrites it whenever an
+# administrator saves Admin → Developer runtime, so tracking it meant every
+# install produced a dirty working tree and, worse, offered up whatever
+# addresses that operator had allow-listed (an internal host, a LAN IP) as a
+# commit. Edit the allow-list in the admin UI; edit this file only to change
+# what a NEW install starts with.
+#
 # Allowlisted egress destinations for notebook kernels (squid dstdomain).
-# A leading dot matches all subdomains. Keep in sync with
-# notebook_runtime_settings.egress_allowlist.
+# A leading dot matches all subdomains.
 #
 # PyPI (runtime pip install)
 .pypi.org

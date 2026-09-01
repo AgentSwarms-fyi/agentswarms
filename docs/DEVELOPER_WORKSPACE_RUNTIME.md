@@ -573,3 +573,20 @@ appears to work until the next settings save rewrites both files from the
 stored list and silently drops your entry. Anything that must always be
 reachable belongs in the baseline in `src/utils/notebookRuntime/egress.ts`,
 not in the generated file.
+
+Because they are generated, they are **not tracked in git**. What is tracked is
+`allowed_domains.default` and `allowed_ips.default`; `scripts/setup.sh` and
+`scripts/setup.ps1` copy each to its live name when it is missing, and the app
+owns it from then on. Two reasons this matters:
+
+- The live files contain the operator's own addresses. `allowed_ips` in
+  particular holds raw IPs — a LAN object store, an internal warehouse — and
+  tracking it staged a small map of somebody's private network for commit.
+- Compose mounts the **directory** (`./deploy/notebooks/egress:/etc/squid/egress:ro`),
+  not the two files by name. Docker creates a *directory* at a bind-mount source
+  that does not exist, so naming untracked files in the mount would leave a
+  fresh clone with two directories where the ACL files should be and a squid
+  that refuses to start.
+
+Change what a **new** install starts with by editing the `.default` files.
+Change what **this** install allows in Admin → Developer runtime.

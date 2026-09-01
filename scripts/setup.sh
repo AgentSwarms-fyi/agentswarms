@@ -66,6 +66,19 @@ fi
 # ── 2. .env ──────────────────────────────────────────────────────────────────
 if [ ! -f .env ]; then say "Creating .env from .env.example"; cp .env.example .env; fi
 
+# ── 2a. egress allow-list ────────────────────────────────────────────────────
+# The live pair is generated (the app rewrites it on every admin save) and so is
+# not tracked; the .default files are. Seed BEFORE compose runs: docker-compose
+# bind-mounts these two paths as files, and Docker silently creates a DIRECTORY
+# at a bind-mount source that does not exist — after which squid fails to start
+# with "allowed_domains: Is a directory" and the fix is no longer obvious.
+for f in allowed_domains allowed_ips; do
+  if [ ! -f "deploy/notebooks/egress/$f" ]; then
+    say "Creating deploy/notebooks/egress/$f from $f.default"
+    cp "deploy/notebooks/egress/$f.default" "deploy/notebooks/egress/$f"
+  fi
+done
+
 getenv() { grep -E "^$1=" .env | head -1 | sed -E "s/^$1=\"?([^\"]*)\"?$/\1/"; }
 setenv() {
   local k="$1" v="$2" tmp

@@ -98,7 +98,7 @@ export function normalizeEgressIp(raw: string): string | null {
 
 /**
  * The squid `dst` file for raw-IP destinations. dstdomain never matches an
- * IP-form URL, so entries like a LAN MinIO (192.168.1.85) silently did
+ * IP-form URL, so entries like a LAN MinIO (192.168.1.10) silently did
  * nothing in the domains file — the exact "field that looks like it works"
  * failure this module exists to prevent.
  */

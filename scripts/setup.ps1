@@ -43,6 +43,20 @@ if (-not $Dev) {
 # ── 2. .env ───────────────────────────────────────────────────────────────────
 if (-not (Test-Path $envFile)) { Say "Creating .env from .env.example"; Copy-Item ".env.example" $envFile }
 
+# ── 2a. egress allow-list ─────────────────────────────────────────────────────
+# The live pair is generated (the app rewrites it on every admin save) and so is
+# not tracked; the .default files are. Seed BEFORE compose runs: docker-compose
+# bind-mounts these two paths as files, and Docker silently creates a DIRECTORY
+# at a bind-mount source that does not exist — after which squid fails to start
+# with "allowed_domains: Is a directory" and the fix is no longer obvious.
+foreach ($f in @("allowed_domains", "allowed_ips")) {
+  $live = "deploy/notebooks/egress/$f"
+  if (-not (Test-Path $live)) {
+    Say "Creating $live from $f.default"
+    Copy-Item "$live.default" $live
+  }
+}
+
 function Get-EnvVar($k) {
   $line = Select-String -Path $envFile -Pattern "^$k=" | Select-Object -First 1
   if (-not $line) { return "" }

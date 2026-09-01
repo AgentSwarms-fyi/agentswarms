@@ -129,8 +129,14 @@ services:
     container_name: agentswarms-notebook-egress
     volumes:
       - ./deploy/notebooks/egress/squid.conf:/etc/squid/squid.conf:ro
-      - ./deploy/notebooks/egress/allowed_domains:/etc/squid/allowed_domains:ro
-      - ./deploy/notebooks/egress/allowed_ips:/etc/squid/allowed_ips:ro
+      # The DIRECTORY, not the two ACL files individually. allowed_domains and
+      # allowed_ips are generated (the app rewrites them on every admin save) and
+      # therefore untracked — and Docker silently creates a *directory* at a
+      # bind-mount source that does not exist. Mounting them by name meant a
+      # fresh clone that skipped setup.sh got two directories in its working
+      # tree and a squid that would not start. The directory itself is always
+      # present: squid.conf and the .default templates live in it.
+      - ./deploy/notebooks/egress:/etc/squid/egress:ro
     networks: [default, nb-internal, nb-dev]
     restart: unless-stopped
 

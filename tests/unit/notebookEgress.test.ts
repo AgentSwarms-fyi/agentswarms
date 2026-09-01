@@ -204,8 +204,8 @@ describe("destinations the platform itself needs", () => {
   it("routes a host:port endpoint to the dst file, not dstdomain", () => {
     // dstdomain cannot match an address, so an IP endpoint belongs in the IP
     // file with its port stripped — and must NOT end up in allowed_domains.
-    expect(renderEgressIpAllowlist(["192.168.1.85:19000"])).toContain("192.168.1.85");
-    expect(renderEgressAllowlist(["192.168.1.85:19000"])).not.toContain("192.168.1.85");
+    expect(renderEgressIpAllowlist(["192.168.1.10:19000"])).toContain("192.168.1.10");
+    expect(renderEgressAllowlist(["192.168.1.10:19000"])).not.toContain("192.168.1.10");
     // A real hostname endpoint goes the other way.
     expect(renderEgressAllowlist(["minio.internal:9000"])).toContain(".minio.internal");
     expect(renderEgressIpAllowlist(["minio.internal:9000"])).not.toContain("minio.internal");
@@ -213,7 +213,7 @@ describe("destinations the platform itself needs", () => {
 });
 
 // FOUND FROM THE UI. The admin field showed "Ignored — not a hostname the proxy
-// can match: 192.168.1.85" while squid was, on the very next line of its access
+// can match: 192.168.1.10" while squid was, on the very next line of its access
 // log, ALLOWING that address out of the dst file. The warning asked only
 // normalizeEgressHost, which rejects addresses by design because they are inert
 // as dstdomain entries — true of one file, false of the pair. An operator
@@ -225,9 +225,9 @@ describe("the admin warning agrees with what the proxy actually honours", () => 
 
   it("does not call an entry ignored when a rendered ACL contains it", () => {
     for (const raw of [
-      "192.168.1.85",
-      "192.168.1.85:19000",
-      "http://192.168.1.85:19000",
+      "192.168.1.10",
+      "192.168.1.10:19000",
+      "http://192.168.1.10:19000",
       "10.0.0.1",
       "github.com",
       "minio.internal:9000",
@@ -253,5 +253,75 @@ describe("the admin warning agrees with what the proxy actually honours", () => 
     expect(tab).toContain("normalizeEgressIp(s) === null");
     // The old copy told operators an IP "cannot be used here". It can.
     expect(tab).not.toContain("An IP address cannot be");
+  });
+});
+
+// The live allow-list files are GENERATED, and used to be tracked in git.
+//
+// THE BUG THESE WERE WRITTEN FOR: the app rewrites allowed_domains and
+// allowed_ips whenever an administrator saves Admin -> Developer runtime. Both
+// were tracked, so every install had a permanently dirty working tree, and the
+// contents — which for allowed_ips are by definition raw addresses inside the
+// operator's own network — were staged for commit like source. A LAN address
+// reached three commits of this repo that way before anyone noticed.
+describe("the generated allow-list files stay out of git", () => {
+  const gitignore = readFileSync(".gitignore", "utf8");
+  const compose = readFileSync("docker-compose.yml", "utf8");
+  const squid = readFileSync("deploy/notebooks/egress/squid.conf", "utf8");
+  const LIVE = ["allowed_domains", "allowed_ips"];
+
+  it("ships a tracked template for each generated file", () => {
+    for (const f of LIVE) {
+      const body = readFileSync(`deploy/notebooks/egress/${f}.default`, "utf8");
+      expect(body).toContain("TEMPLATE");
+    }
+  });
+
+  it("ignores the live pair", () => {
+    for (const f of LIVE) {
+      expect(gitignore, `${f} must be gitignored`).toContain(`deploy/notebooks/egress/${f}`);
+    }
+  });
+
+  it("starts a fresh install with no raw IPs allowed", () => {
+    // An IP in the template would be allow-listed on every install that ever
+    // clones this repo — which is exactly how somebody's LAN address becomes
+    // everybody's default.
+    const entries = readFileSync("deploy/notebooks/egress/allowed_ips.default", "utf8")
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l && !l.startsWith("#"));
+    expect(entries).toEqual([]);
+  });
+
+  it("mounts the DIRECTORY into squid, never the two files by name", () => {
+    // Docker silently creates a directory at a bind-mount source that does not
+    // exist. Mounting the generated files by name meant a fresh clone that
+    // skipped setup.sh got two directories in its working tree and a squid that
+    // would not start — a failure introduced by untracking them.
+    expect(compose).toContain("./deploy/notebooks/egress:/etc/squid/egress:ro");
+    for (const f of LIVE) {
+      expect(compose).not.toContain(`./deploy/notebooks/egress/${f}:/etc/squid/${f}`);
+    }
+  });
+
+  it("points squid's ACLs at the mounted directory", () => {
+    // Verified live: squid restarted clean, TCP_TUNNEL/200 for an allowed
+    // domain and TCP_DENIED/403 for one that is not.
+    expect(squid).toContain('dstdomain "/etc/squid/egress/allowed_domains"');
+    expect(squid).toContain('dst "/etc/squid/egress/allowed_ips"');
+  });
+
+  it("seeds the live pair from the templates in both setup scripts", () => {
+    // Compose needs them to exist BEFORE it runs, so the app cannot be the one
+    // to create them first.
+    const sh = readFileSync("scripts/setup.sh", "utf8");
+    const ps = readFileSync("scripts/setup.ps1", "utf8");
+    for (const f of LIVE) {
+      expect(sh, `setup.sh must seed ${f}`).toContain(f);
+      expect(ps, `setup.ps1 must seed ${f}`).toContain(f);
+    }
+    expect(sh).toContain("deploy/notebooks/egress/$f.default");
+    expect(ps).toContain('Copy-Item "$live.default" $live');
   });
 });

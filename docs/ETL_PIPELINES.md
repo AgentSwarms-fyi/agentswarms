@@ -500,7 +500,7 @@ way):
 
 1. **The endpoint must be reachable from inside a container.** `127.0.0.1`
    points at the sandbox itself — bind MinIO to `0.0.0.0` and use the host's
-   LAN address (e.g. `http://192.168.1.85:19000`) in the catalog source, so the
+   LAN address (e.g. `http://192.168.1.10:19000`) in the catalog source, so the
    host-side crawler and the kernels resolve the same thing.
 2. **The kernel egress proxy must allow it.** Kernels reach the network only
    through the default-deny squid proxy. Add the MinIO address under

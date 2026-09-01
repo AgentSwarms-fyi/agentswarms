@@ -13,7 +13,7 @@
 // bucket the deployment can".
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
-const CATALOG = "postgres://lakehouse:sup3r-secret-pw@192.168.1.85:15433/lakehouse_catalog";
+const CATALOG = "postgres://lakehouse:sup3r-secret-pw@192.168.1.10:15433/lakehouse_catalog";
 const S3_SECRET = "minio-secret-value-1234";
 
 async function subject() {
@@ -36,16 +36,16 @@ describe("redactLakehouseSecrets", () => {
     // The real message, shortened. Note it carries BOTH forms at once.
     const real =
       `IO Error: Failed to attach DuckLake MetaData "__ducklake_metadata_lake" at path ` +
-      `"postgres:dbname=lakehouse_catalog host=192.168.1.85 port=15433 user=lakehouse ` +
+      `"postgres:dbname=lakehouse_catalog host=192.168.1.10 port=15433 user=lakehouse ` +
       `password=sup3r-secret-pw"Unable to connect to Postgres at dbname=lakehouse_catalog ` +
-      `host=192.168.1.85 port=15433 user=lakehouse password=sup3r-secret-pw: connection refused`;
+      `host=192.168.1.10 port=15433 user=lakehouse password=sup3r-secret-pw: connection refused`;
     const out = redact(real);
 
     expect(out).not.toContain("sup3r-secret-pw");
     expect(out).toContain("[redacted]");
     // Everything an operator needs to diagnose it must survive.
     expect(out).toContain("connection refused");
-    expect(out).toContain("192.168.1.85");
+    expect(out).toContain("192.168.1.10");
     expect(out).toContain("user=lakehouse");
   });
 
@@ -53,7 +53,7 @@ describe("redactLakehouseSecrets", () => {
     const redact = await subject();
     const out = redact(`could not connect to ${CATALOG}`);
     expect(out).not.toContain("sup3r-secret-pw");
-    expect(out).toContain("192.168.1.85:15433");
+    expect(out).toContain("192.168.1.10:15433");
   });
 
   it("removes the S3 secret wherever it appears", async () => {
