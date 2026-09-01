@@ -15,6 +15,8 @@
 // allowed it. Fails closed, so it was never a hole; it was a control that
 // silently did not do what its configuration said.
 import { readFileSync } from "node:fs";
+
+import { loadAll } from "js-yaml";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -323,5 +325,66 @@ describe("the generated allow-list files stay out of git", () => {
     }
     expect(sh).toContain("deploy/notebooks/egress/$f.default");
     expect(ps).toContain('Copy-Item "$live.default" $live');
+  });
+});
+
+// Kubernetes ships a SECOND copy of the egress proxy config, inline in a
+// ConfigMap, because there is no host directory to bind-mount there.
+//
+// THE BUG THESE WERE WRITTEN FOR: that copy had silently drifted. It was
+// missing .duckdb.org, the dst ACL for raw IPs, and the object-store
+// Safe_ports — so a notebook that worked under Compose failed on Kubernetes,
+// and failed misleadingly: DuckDB reports a squid 403 on an S3 read as
+// "Authentication Failure ... credentials did not work", which sends you after
+// a credentials bug that does not exist. Nothing caught it because a drifted
+// ConfigMap is still perfectly valid YAML.
+describe("the Kubernetes egress config stays level with the Compose one", () => {
+  const manifest = readFileSync("deploy/k8s/notebooks/notebook-runtime.yaml", "utf8");
+  const docs = (loadAll(manifest) as Record<string, any>[]).filter(Boolean);
+  const cm = docs.find((d) => d.kind === "ConfigMap" && d.metadata?.name === "notebook-egress");
+  const dep = docs.find((d) => d.kind === "Deployment" && d.metadata?.name === "notebook-egress");
+
+  it("defines all three config keys", () => {
+    expect(Object.keys(cm.data).sort()).toEqual(["allowed_domains", "allowed_ips", "squid.conf"]);
+  });
+
+  it("mounts nothing it does not define", () => {
+    // A subPath with no matching key mounts an EMPTY FILE rather than failing,
+    // so squid starts with an ACL that matches nothing and every kernel loses
+    // the network — with no error anywhere saying so.
+    for (const m of dep.spec.template.spec.containers[0].volumeMounts ?? []) {
+      expect(cm.data[m.subPath], `${m.mountPath} <- ${m.subPath}`).toBeDefined();
+    }
+  });
+
+  it("allows the same domains as the Compose template", () => {
+    const k8s = entries(cm.data.allowed_domains).map((l) => l.trim());
+    const compose = entries(
+      readFileSync("deploy/notebooks/egress/allowed_domains.default", "utf8"),
+    ).map((l) => l.trim());
+    expect(k8s).toEqual(compose);
+  });
+
+  it("carries the raw-IP ACL and the object-store ports", () => {
+    // Verified with the real binary: `squid -k parse` against the extracted
+    // ConfigMap exits 0 and loads the domain ACL.
+    const conf = cm.data["squid.conf"] as string;
+    expect(conf).toContain('acl allowed_ips dst "/etc/squid/allowed_ips"');
+    expect(conf).toContain("http_access allow allowed_ips");
+    for (const port of [9000, 19000]) {
+      expect(conf, `Safe_ports ${port}`).toContain(`acl Safe_ports port ${port}`);
+    }
+    // Default-deny must still be the last word.
+    expect(
+      conf
+        .trimEnd()
+        .split("\n")
+        .filter((l) => l.startsWith("http_access"))
+        .pop(),
+    ).toBe("http_access deny all");
+  });
+
+  it("starts with no raw IPs allowed", () => {
+    expect(entries(cm.data.allowed_ips)).toEqual([]);
   });
 });

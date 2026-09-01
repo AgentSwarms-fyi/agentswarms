@@ -105,25 +105,49 @@ metadata:
   name: notebook-egress
   namespace: agentswarms-notebooks
 data:
+  # Keep at parity with deploy/notebooks/egress/squid.conf and
+  # allowed_domains.default. This copy had drifted: no .duckdb.org, no dst ACL
+  # and no object-store ports, so the same notebook that worked under Compose
+  # failed here — and failed misleadingly, since DuckDB reports a squid 403 on
+  # an S3 read as "Authentication Failure ... credentials did not work".
   squid.conf: |
     http_port 3128
     acl allowed_domains dstdomain "/etc/squid/allowed_domains"
+    # dstdomain never matches a raw-IP URL, so IP entries need their own dst
+    # ACL — a self-hosted MinIO on a LAN address is the common case.
+    acl allowed_ips dst "/etc/squid/allowed_ips"
     acl SSL_ports port 443
     acl Safe_ports port 80
     acl Safe_ports port 443
+    # S3-compatible object stores: MinIO's conventional port and the
+    # local-dev port the docs use.
+    acl Safe_ports port 9000
+    acl Safe_ports port 19000
     acl CONNECT method CONNECT
     http_access deny CONNECT !SSL_ports
     http_access deny !Safe_ports
     http_access allow allowed_domains
+    http_access allow allowed_ips
     http_access deny all
     forwarded_for delete
     via off
+    httpd_suppress_version_string on
     cache deny all
   allowed_domains: |
     .pypi.org
     .pythonhosted.org
+    # DuckDB extension registry — lakehouse ETL nodes load the
+    # ducklake/postgres/httpfs extensions at run time. Without this the run
+    # fails with "Failed to download extension (HTTP 403)": squid refused it,
+    # not DuckDB.
+    .duckdb.org
     .openrouter.ai
     .openai.com
+  # Deliberately empty: a fresh install allows no raw IPs. Unlike the Compose
+  # deployment there is no admin-save path that rewrites this — edit the
+  # ConfigMap and restart the proxy.
+  allowed_ips: |
+    # Raw-IP destinations (squid dst); domains live in allowed_domains.
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -145,6 +169,7 @@ spec:
           volumeMounts:
             - { name: cfg, mountPath: /etc/squid/squid.conf, subPath: squid.conf }
             - { name: cfg, mountPath: /etc/squid/allowed_domains, subPath: allowed_domains }
+            - { name: cfg, mountPath: /etc/squid/allowed_ips, subPath: allowed_ips }
       volumes:
         - name: cfg
           configMap: { name: notebook-egress }
