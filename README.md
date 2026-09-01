@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="public/banner.jfif" alt="AgentSwarms — Unified Agentic AI and Business Intelligence" width="100%" />
+  <img src="public/banner.png" alt="AgentSwarms — Unified Agentic AI and Business Intelligence" width="100%" />
 
   <p><strong>Deploy your own agentic AI &amp; data platform.</strong><br />
   Build agents and multi-agent swarms, move data in with ETL, land it in a
