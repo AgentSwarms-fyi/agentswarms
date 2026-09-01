@@ -35,7 +35,7 @@ export function SiteFooter() {
               AgentSwarms
             </Link>
             <p className="mt-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Unified Agentic AI &amp; Business Intelligence
+              Unified Agentic AI and Data Platform
             </p>
             <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
               Agents, multi-agent swarms and an AI-native BI suite — deployed on your own
@@ -156,7 +156,7 @@ export function SiteFooter() {
         </div>
 
         <div className="mt-10 flex flex-col items-center justify-between gap-3 border-t border-border/40 pt-6 text-xs text-muted-foreground sm:flex-row">
-          <span>© {year} AgentSwarms — Unified Agentic AI &amp; Business Intelligence.</span>
+          <span>© {year} AgentSwarms — Unified Agentic AI and Data Platform.</span>
           <span>Self-hosted · Source-available (ELv2) · Your data, your models.</span>
         </div>
       </div>

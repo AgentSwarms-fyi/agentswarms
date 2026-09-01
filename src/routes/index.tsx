@@ -358,7 +358,7 @@ function LandingPage() {
                   AgentSwarms
                 </span>
                 <span className="mt-0.5 hidden truncate text-[10px] font-medium uppercase tracking-wider text-muted-foreground sm:inline">
-                  Unified Agentic AI &amp; Business Intelligence
+                  Unified Agentic AI and Data Platform
                 </span>
               </span>
             </Link>

@@ -51,10 +51,10 @@ export const WelcomeEmail = ({
           <Text style={text}>Hi {recipient},</Text>
 
           <Text style={text}>
-            Your account on <strong>{siteName}</strong> is ready — a unified{" "}
-            <strong>agentic AI &amp; business intelligence</strong> platform. Build agents and
-            multi-agent swarms, ground them in your own documents and databases, and put the answers
-            on a dashboard. Everything runs on this instance, against your own model provider keys.
+            Your account on <strong>{siteName}</strong> is ready — a{" "}
+            <strong>unified agentic AI and data platform</strong>. Build agents and multi-agent
+            swarms, ground them in your own documents and databases, and put the answers on a
+            dashboard. Everything runs on this instance, against your own model provider keys.
           </Text>
 
           <Heading as="h2" style={h2}>
@@ -142,7 +142,7 @@ export default WelcomeEmail;
 
 export const template = {
   component: WelcomeEmail,
-  subject: "Welcome to AgentSwarms — your agentic AI & BI workspace is ready 🚀",
+  subject: "Welcome to AgentSwarms — your agentic AI and data workspace is ready 🚀",
   displayName: "Welcome email",
   previewData: {
     siteName: "AgentSwarms",

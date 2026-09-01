@@ -29,7 +29,7 @@ const ContactConfirmationEmail = ({ name, message }: ContactConfirmationProps) =
           </>
         ) : null}
         <Hr style={hr} />
-        <Text style={footer}>{SITE_NAME} — Unified Agentic AI &amp; Business Intelligence.</Text>
+        <Text style={footer}>{SITE_NAME} — Unified Agentic AI and Data Platform.</Text>
       </Container>
     </Body>
   </Html>

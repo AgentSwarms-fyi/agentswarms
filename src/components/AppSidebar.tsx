@@ -75,7 +75,7 @@ export function AppSidebar() {
             <div className="flex flex-col leading-tight">
               <span className="text-lg font-bold tracking-tight">AgentSwarms</span>
               <span className="text-[9px] uppercase leading-snug tracking-wider text-muted-foreground">
-                Unified Agentic AI &amp; Business Intelligence
+                Unified Agentic AI and Data Platform
               </span>
             </div>
           )}
