@@ -78,3 +78,82 @@ describe("redactLakehouseSecrets", () => {
     expect(src).toContain("err.message = redactLakehouseSecrets(err.message)");
   });
 });
+
+// A data file the catalog lists that object storage no longer has.
+//
+// FOUND FROM THE UI, again. Browsing analytics.f1_standings rendered DuckDB's
+// raw failure: an HTTP 404 quoting the full S3 URL, including the deployment's
+// object-store endpoint. Two problems in one message — it named an internal
+// address, and it told a user nothing about what had happened or what to do.
+//
+// The underlying condition was real: a MinIO volume had been recreated while
+// the catalog Postgres survived, so eight live data files were referenced and
+// two of them had never existed in the new store. The catalog was the only
+// thing still claiming those rows were there.
+describe("describeMissingDataFile", () => {
+  // The exact text DuckDB produced, endpoint and all.
+  const REAL =
+    "HTTP Error: HTTP GET error reading " +
+    "'http://192.168.1.10:19000/lakehouse/main/analytics/f1_standings/" +
+    "ducklake-01a0529f-c607-7895-a5cf-b17d151a00d2.parquet' in region '' " +
+    "(HTTP 404 Not Found) NoSuchKey: The specified key does not exist.";
+
+  async function subject() {
+    const mod = await import("@/utils/lakehouse/core.server");
+    return mod.describeMissingDataFile;
+  }
+
+  it("recognises the failure and says what actually happened", async () => {
+    const describe_ = await subject();
+    const out = describe_(REAL);
+    expect(out).toBeTruthy();
+    expect(out).toMatch(/missing from object storage/i);
+    expect(out).toMatch(/diverged/i);
+    // Actionable, not just descriptive.
+    expect(out).toMatch(/re-import|drop it/i);
+  });
+
+  it("names the file but NOT the endpoint", async () => {
+    const describe_ = await subject();
+    const out = describe_(REAL)!;
+    expect(out).toContain("ducklake-01a0529f-c607-7895-a5cf-b17d151a00d2.parquet");
+    // The whole point: the operator's address must not travel to the browser.
+    expect(out).not.toContain("192.168.1.10");
+    expect(out).not.toContain("19000");
+    expect(out).not.toContain("http://");
+  });
+
+  it("reassures that the blast radius is one table", async () => {
+    const describe_ = await subject();
+    expect(describe_(REAL)).toMatch(/Other tables are unaffected/i);
+  });
+
+  it("leaves every other error alone", async () => {
+    const describe_ = await subject();
+    for (const other of [
+      "Catalog Error: Table with name orders does not exist!",
+      "Conversion Error: Could not convert string 'abc' to INT32",
+      "Failed to commit DuckLake transaction",
+      "IO Error: Connection refused",
+      // A 404 with no parquet in it is somebody else's problem.
+      "HTTP Error: HTTP GET error (HTTP 404 Not Found) for the extension registry",
+    ]) {
+      expect(describe_(other), other).toBeNull();
+    }
+  });
+
+  it("needs BOTH a 404-ish signal and a parquet, not either alone", async () => {
+    const describe_ = await subject();
+    // Parquet named, but the failure is a permission problem, not a miss.
+    expect(describe_("IO Error: reading 'x/y/a.parquet' failed: 403 Forbidden")).toBeNull();
+  });
+
+  it("is wired into the query path, not just exported", async () => {
+    // The redaction fix that preceded this one covered engine boot only, so
+    // query errors — the ones users actually hit — went out untouched.
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync("src/utils/lakehouse/core.server.ts", "utf8");
+    expect(src).toContain("describeMissingDataFile((e as Error).message)");
+    expect(src).toMatch(/redactLakehouseSecrets\(\s*describeMissingDataFile/);
+  });
+});

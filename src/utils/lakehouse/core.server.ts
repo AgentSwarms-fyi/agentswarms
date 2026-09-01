@@ -240,6 +240,36 @@ export function redactLakehouseSecrets(message: string): string {
   return out;
 }
 
+/**
+ * A data file the catalog still lists, that object storage no longer has.
+ *
+ * DuckDB reports this as a bare HTTP 404 quoting the full S3 URL — which names
+ * the operator's endpoint and says nothing about what went wrong or what to do.
+ * The condition is specific and worth naming: the DuckLake catalog and the
+ * object store have diverged, which happens when a bucket is recreated or
+ * emptied while the catalog database survives. The rows are gone; the catalog
+ * is the only thing still claiming otherwise.
+ *
+ * Returns null for anything else, so ordinary errors pass through untouched.
+ */
+export function describeMissingDataFile(message: string): string | null {
+  // Both signals required. A 404 alone could be any HTTP call; a .parquet
+  // mention alone is most of the lakehouse's error surface.
+  const missing = /NoSuchKey|specified key does not exist/i.test(message);
+  const notFound = /\b404\b/.test(message);
+  if (!(missing || notFound)) return null;
+  const file = /([A-Za-z0-9._-]+\.parquet)/.exec(message);
+  if (!file) return null;
+  // The BASENAME only — the surrounding URL carries the endpoint host.
+  return (
+    `A data file this table refers to is missing from object storage (${file[1]}). ` +
+    `The lakehouse catalog and the object store have diverged — usually because the ` +
+    `bucket was recreated or emptied while the catalog database survived. Those rows ` +
+    `cannot be read back from here: re-import the table, or drop it if it is no longer ` +
+    `needed. Other tables are unaffected.`
+  );
+}
+
 /** The password inside a libpq URL/keyword string, if it has one. */
 function catalogPassword(catalog: string | undefined): string | null {
   if (!catalog) return null;
@@ -895,7 +925,12 @@ export async function runLakehouseStatement(
       }
     }
   } catch (e) {
-    const message = (e as Error).message;
+    // Redact HERE, not only on engine boot. Every query error travels to the
+    // browser and into lakehouse_query_history, and object-store failures quote
+    // the full endpoint URL — which is the operator's internal address.
+    const message = redactLakehouseSecrets(
+      describeMissingDataFile((e as Error).message) ?? (e as Error).message,
+    );
     record("error", null, message);
     throw new Error(message);
   } finally {
