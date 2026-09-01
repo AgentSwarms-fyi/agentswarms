@@ -75,7 +75,7 @@ All options share the same two prerequisites.
    | `RESEND_API_KEY` **or** `SMTP_*` + `EMAIL_FROM` | Outbound app email (welcome, budget alerts, BI alerts, scheduled reports, approvals, contact form). `EMAIL_FROM` must be on a **verified** domain — see [Email delivery](#email-delivery). Without a transport, sends are skipped and logged. |
    | `BI_CRON_TOKEN`                                 | Lets an external scheduler drive background jobs — see [Scheduling](#scheduling--background-jobs).                                                                                                                                            |
    | `OPENROUTER_API_KEY`                            | Optional but recommended — makes the app usable with zero per-user key setup.                                                                                                                                                                 |
-   | `OPENAI_API_KEY`                                | Optional — real vector embeddings for Knowledge Base search (otherwise keyword search).                                                                                                                                                       |
+   | _(no embeddings key)_                           | Knowledge Base vector search uses whichever model provider is connected; `OPENROUTER_API_KEY` covers it with no per-user setup.                                                                                                               |
 
    ```bash
    cp .env.example .env

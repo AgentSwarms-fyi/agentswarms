@@ -151,21 +151,21 @@ const VECTOR_STORES: VectorStoreDef[] = [
   },
 ];
 
-// Embedding models available via the server's OPENAI_API_KEY. Both are
-// truncated to 1536 dims via Matryoshka so they land in the same kb_chunks
-// vector space and stay searchable side-by-side. Selecting a different
-// model on an existing KB requires a Re-index.
+// Embedding models, each reached through a provider the user has connected.
+// All are truncated to 1536 dims via Matryoshka so they land in the same
+// kb_chunks vector space and stay searchable side-by-side. Selecting a
+// different model on an existing KB requires a Re-index.
 type EmbeddingModelDef = { value: string; label: string; provider: string };
 const ALL_EMBEDDING_MODELS: EmbeddingModelDef[] = [
   {
     value: "text-embedding-3-small",
-    label: "OpenAI text-embedding-3-small (1536d) — Built-in",
-    provider: "openai_builtin",
+    label: "OpenAI text-embedding-3-small (1536d) — your OpenAI key",
+    provider: "openai",
   },
   {
     value: "text-embedding-3-large",
-    label: "OpenAI text-embedding-3-large (→1536d) — Built-in",
-    provider: "openai_builtin",
+    label: "OpenAI text-embedding-3-large (→1536d) — your OpenAI key",
+    provider: "openai",
   },
   {
     value: "openai/text-embedding-3-small",
@@ -190,7 +190,8 @@ const ALL_EMBEDDING_MODELS: EmbeddingModelDef[] = [
 ];
 
 // Providers whose integrations expose an OpenAI-compatible /embeddings
-// endpoint. "openai_builtin" = the operator's OPENAI_API_KEY (zero config).
+// endpoint. There is no operator-OpenAI-key option: embeddings come from a
+// connected provider, the same place the models do.
 // OpenRouter embedding models, every one probed against the live endpoint and
 // confirmed to return 1536 dimensions — the width of the pgvector column.
 //
@@ -212,11 +213,6 @@ const OPENROUTER_EMBED_MODELS = [
 ];
 
 const EMBED_PROVIDERS: { id: string; label: string; models: string[] }[] = [
-  {
-    id: "openai_builtin",
-    label: "Built-in (operator OpenAI key)",
-    models: ["text-embedding-3-small", "text-embedding-3-large"],
-  },
   {
     id: "openai",
     label: "OpenAI (your integration)",
@@ -296,10 +292,10 @@ function KnowledgePage() {
   // Vector store settings
   const [vectorStore, setVectorStore] = useState("local");
   const [embeddingModel, setEmbeddingModel] = useState("text-embedding-3-small");
-  const [embedProvider, setEmbedProvider] = useState("openai_builtin");
+  const [embedProvider, setEmbedProvider] = useState(DEFAULT_EMBED_PROVIDER);
   // Set once the user picks a provider, so the auto-default stops interfering.
   const [embedProviderTouched, setEmbedProviderTouched] = useState(false);
-  const [builtinConfigured, setBuiltinConfigured] = useState<boolean | null>(null);
+  const [anyProviderResolvable, setAnyProviderResolvable] = useState<boolean | null>(null);
   const [openrouterAvailable, setOpenrouterAvailable] = useState<boolean | null>(null);
   const [customEmbedModel, setCustomEmbedModel] = useState("");
   const [chunkStrategy, setChunkStrategy] = useState("recursive");
@@ -317,11 +313,10 @@ function KnowledgePage() {
   const [savingRetrieval, setSavingRetrieval] = useState(false);
   const [reindexing, setReindexing] = useState(false);
 
-  // Connected embedding providers. "openai_builtin" is always available —
-  // it's backed by the server's OPENAI_API_KEY, not a per-user integration.
-  const [connectedProviders, setConnectedProviders] = useState<Set<string>>(
-    new Set(["openai_builtin"]),
-  );
+  // Connected embedding providers. Starts empty: nothing is available until
+  // the user connects it, or the operator's OPENROUTER_API_KEY makes OpenRouter
+  // available (reported separately by kbEmbedStatus).
+  const [connectedProviders, setConnectedProviders] = useState<Set<string>>(new Set());
 
   // Multi-file upload state
   const [uploadFiles, setUploadFiles] = useState<{ name: string; content: string; size: number }[]>(
@@ -336,10 +331,8 @@ function KnowledgePage() {
   // OpenRouter while warning that OpenRouter was not connected.
   const providerUsable = useCallback(
     (id: string) =>
-      connectedProviders.has(id) ||
-      (id === "openrouter" && openrouterAvailable === true) ||
-      (id === "openai_builtin" && builtinConfigured !== false),
-    [connectedProviders, openrouterAvailable, builtinConfigured],
+      connectedProviders.has(id) || (id === "openrouter" && openrouterAvailable === true),
+    [connectedProviders, openrouterAvailable],
   );
 
   // How much of the selected base is actually searchable semantically.
@@ -365,21 +358,18 @@ function KnowledgePage() {
       ALL_EMBEDDING_MODELS.filter((m) => providerUsable(m.provider) || m.value === embeddingModel),
     [providerUsable, embeddingModel],
   );
-  const embedProviderOptions = EMBED_PROVIDERS.filter(
-    (p) => p.id === "openai_builtin" || providerUsable(p.id),
-  );
+  const embedProviderOptions = EMBED_PROVIDERS.filter((p) => providerUsable(p.id));
 
-  // Default to OpenRouter when it is connected: it is the provider most
-  // instances already have a key for, so embedding works without a second
-  // account, and it does not share the operator OpenAI key's quota. Falls back
-  // to the built-in key, then to any other connected embedding-capable
+  // Default to OpenRouter when it is available: it is the provider most
+  // instances already have a key for, so embedding works without connecting a
+  // second account. Falls back to any other connected embedding-capable
   // integration. Only ever moves off an untouched default — once the user picks
   // a provider themselves, `embedProviderTouched` stops this from overriding it.
   useEffect(() => {
-    if (embedProviderTouched || embedProvider !== "openai_builtin") return;
+    if (embedProviderTouched) return;
     // Mirrors resolveEmbedTarget on the server: a connected OpenRouter
-    // integration, then the operator's OpenRouter key, then the operator's
-    // OpenAI key. If this order disagreed with the server's, the dialog would
+    // integration, then the operator's OpenRouter key, then any other connected
+    // provider. If this order disagreed with the server's, the dialog would
     // name one provider while ingest quietly used another — and the stamp on
     // each document would be the only evidence.
     const preferred =
@@ -389,15 +379,13 @@ function KnowledgePage() {
       (openrouterAvailable === true
         ? EMBED_PROVIDERS.find((p) => p.id === DEFAULT_EMBED_PROVIDER)
         : undefined) ??
-      (builtinConfigured === false
-        ? EMBED_PROVIDERS.find((p) => p.id !== "openai_builtin" && connectedProviders.has(p.id))
-        : undefined);
+      EMBED_PROVIDERS.find((p) => connectedProviders.has(p.id));
     if (preferred) {
       setEmbedProvider(preferred.id);
       if (preferred.models[0]) setEmbeddingModel(preferred.models[0]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [builtinConfigured, openrouterAvailable, connectedProviders, embedProviderTouched]);
+  }, [anyProviderResolvable, openrouterAvailable, connectedProviders, embedProviderTouched]);
   const embedModelSuggestions = EMBED_PROVIDERS.find((p) => p.id === embedProvider)?.models ?? [];
   const effectiveEmbedModel = customEmbedModel.trim() || embeddingModel;
   const currentEmbeddingDef = ALL_EMBEDDING_MODELS.find((m) => m.value === embeddingModel);
@@ -410,10 +398,10 @@ function KnowledgePage() {
     loadConnectedProviders();
     embedStatusFn({})
       .then((r) => {
-        setBuiltinConfigured(r.builtinConfigured);
+        setAnyProviderResolvable(r.anyProviderResolvable);
         setOpenrouterAvailable(r.openrouterAvailable);
       })
-      .catch(() => setBuiltinConfigured(null));
+      .catch(() => setAnyProviderResolvable(null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
@@ -425,7 +413,7 @@ function KnowledgePage() {
 
   async function loadConnectedProviders() {
     if (!user) return;
-    const connected = new Set<string>(["openai_builtin"]);
+    const connected = new Set<string>();
     const { data: integ } = await supabase
       .from("integrations")
       .select("provider, type, is_active")
@@ -1032,20 +1020,16 @@ function KnowledgePage() {
                           {embedProviderOptions.map((p) => (
                             <SelectItem key={p.id} value={p.id}>
                               {p.label}
-                              {p.id === "openai_builtin" && builtinConfigured === false
-                                ? " — not configured"
-                                : ""}
                             </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
-                      {embedProvider === "openai_builtin" && builtinConfigured === false && (
+                      {anyProviderResolvable === false && (
                         <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-xs text-destructive">
                           <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
                           <span>
-                            The operator's OPENAI_API_KEY is not set on this instance, so the
-                            built-in provider can't embed. Connect an embedding-capable provider
-                            under Integrations instead.
+                            No connected provider can embed, so documents are saved with keyword
+                            search only. Connect one with an embeddings API under Integrations.
                           </span>
                         </div>
                       )}

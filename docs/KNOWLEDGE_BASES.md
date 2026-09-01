@@ -145,13 +145,36 @@ ordinary snippets — reusing the smaller cap would trim a parent down to about
 
 ### Which provider embeds
 
-`DEFAULT_EMBED_PROVIDER` is **OpenRouter**, resolved in this order:
+Embeddings come from a **connected model provider** — the same place the chat
+models come from. There is no separate embeddings key, and in particular no
+dependency on an OpenAI account: an install whose models come from Gemini,
+Ollama or vLLM embeds through that provider too.
+
+`DEFAULT_EMBED_PROVIDER` is **OpenRouter**, which is the suggested default
+rather than a requirement. Resolution order:
 
 1. the user's own OpenRouter integration,
 2. the operator's `OPENROUTER_API_KEY` (no per-user setup — the same key that
    makes chat work out of the box),
-3. the operator's `OPENAI_API_KEY`,
-4. any other connected provider with an OpenAI-compatible `/embeddings` endpoint.
+3. any other connected provider with an OpenAI-compatible `/embeddings`
+   endpoint.
+
+Documents embedded before this change carry an `openai_builtin` stamp, which
+named the operator's OpenAI key. That key is no longer read; the stamp now
+resolves to a connected provider serving the **same vector space**
+(`text-embedding-3-small`, via your OpenAI integration or OpenRouter), so
+existing collections stay searchable without a re-index. If neither is
+connected, those collections need a re-embed under a provider you do have —
+answering them from a different vector space would return confident nonsense
+rather than an error.
+
+### The real constraint is 1536 dimensions
+
+`kb_chunks.embedding` is `vector(1536)`, and ingest hard-validates the width, so
+a provider is usable here only if it returns 1536 dimensions — natively, or by
+honouring the OpenAI `dimensions` parameter. That is a stronger condition than
+"has an embeddings API", and it is measured rather than assumed: every model
+below was probed against the live endpoint.
 
 Step 2 is the one that was invisible: the settings dialog only ever offered a
 provider the _user_ had connected, so an instance with `OPENROUTER_API_KEY` set

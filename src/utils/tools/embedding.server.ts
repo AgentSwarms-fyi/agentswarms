@@ -52,7 +52,14 @@ export async function embedTexts(
 ): Promise<number[][]> {
   if (texts.length === 0) return [];
   const endpoint = opts?.endpoint ?? "https://api.openai.com/v1/embeddings";
-  if (!openaiKey && !opts?.endpoint) throw new Error("OPENAI_API_KEY is not configured");
+  // Every embedding comes from a connected provider now, so a missing key means
+  // nothing is connected -- not that an operator forgot an environment
+  // variable. Say the thing the reader can act on.
+  if (!openaiKey && !opts?.endpoint)
+    throw new Error(
+      "No embedding provider is connected. Connect one with an embeddings API " +
+        "(OpenRouter, OpenAI, Gemini, Ollama, vLLM, NVIDIA or Qwen) under Integrations.",
+    );
   const useModel = opts?.allowCustomModel
     ? model
     : SUPPORTED_EMBED_MODELS.has(model)

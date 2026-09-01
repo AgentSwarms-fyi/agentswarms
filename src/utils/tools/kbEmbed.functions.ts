@@ -205,11 +205,22 @@ export const backfillKbEmbeddings = createServerFn({ method: "POST" })
     return { ...result, skipped: false as const };
   });
 
-/** Whether the operator's built-in OpenAI embedding key is configured —
- * lets the RAG settings UI label "Built-in" honestly. */
+/**
+ * What the RAG settings UI needs to label its provider list honestly.
+ *
+ * `openrouterAvailable` covers the case the dialog could not otherwise see: the
+ * operator set OPENROUTER_API_KEY, so OpenRouter works for this user without
+ * them connecting anything, even though they own no integration row.
+ *
+ * `anyProviderResolvable` asks the real resolver rather than inspecting the
+ * environment, so the answer is whatever ingest would actually do. It is the
+ * difference between "vector search is on" and "your documents are being saved
+ * with keyword search only", which a user otherwise discovers by noticing bad
+ * retrieval.
+ */
 export const kbEmbedStatus = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .handler(async () => ({
-    builtinConfigured: Boolean(process.env.OPENAI_API_KEY),
+  .handler(async ({ context }) => ({
     openrouterAvailable: Boolean(process.env.OPENROUTER_API_KEY),
+    anyProviderResolvable: Boolean(await resolveEmbedTarget(context.userId)),
   }));

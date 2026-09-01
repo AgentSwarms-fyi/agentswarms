@@ -407,7 +407,17 @@ describe("embedding provider catalogue", () => {
     // resolving embeddings through OpenRouter — and then warned that the
     // provider it had just defaulted to was "not connected".
     expect(KNOWLEDGE).toMatch(/id === "openrouter" && openrouterAvailable === true/);
-    expect(KNOWLEDGE).toMatch(/id === "openai_builtin" && builtinConfigured !== false/);
+  });
+
+  it("offers no operator-OpenAI-key option at all", () => {
+    // Embeddings come from a connected model provider, the same place the chat
+    // models do. A self-hosted install should not need an OpenAI account to
+    // search its own documents, so the "Built-in (operator OpenAI key)" entry
+    // is gone rather than merely deprioritised — and nothing in the dialog
+    // still branches on whether that key is configured.
+    expect(KNOWLEDGE).not.toContain("openai_builtin");
+    expect(KNOWLEDGE).not.toContain("builtinConfigured");
+    expect(KNOWLEDGE).not.toContain("OPENAI_API_KEY");
   });
 
   it("asks 'is this provider usable' in exactly one place", () => {

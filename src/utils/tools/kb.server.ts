@@ -378,7 +378,7 @@ export async function retrieveCitationsServer(opts: {
   // 2) Vector search via pgvector — best-effort. The query must be embedded
   // with the same model/provider the documents were embedded with, so read
   // the embed config stamped on the KB's documents and resolve the caller's
-  // integration when it isn't the built-in OpenAI key.
+  // connected provider from it.
   type ChunkRow = {
     id: string;
     document_id: string;
@@ -395,7 +395,9 @@ export async function retrieveCitationsServer(opts: {
   let vectorRows: ChunkRow[] = [];
   let vectorScores: Candidate[] = [];
   let fusedCits: Citation[] = [];
-  let embedKey = process.env.OPENAI_API_KEY ?? "";
+  // No operator-key default: an unresolvable target leaves this empty and
+  // retrieval falls back to keyword search, which is the honest outcome.
+  let embedKey = "";
   let embedEndpoint: string | undefined;
   let embedModel: string | undefined;
   let allowCustomModel = false;

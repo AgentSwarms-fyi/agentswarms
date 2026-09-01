@@ -20,8 +20,7 @@ Optional, but needed for a fully working app:
 
 | Optional                                                                  | Why                                                                                                                                                       |
 | ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **OpenRouter API key** ([openrouter.ai/keys](https://openrouter.ai/keys)) | Without it, nobody can chat with an agent until they add their own provider key under `/integrations`. With it, the app works zero-config for every user. |
-| **OpenAI API key** ([platform.openai.com](https://platform.openai.com))   | Powers Knowledge Base embeddings (RAG / vector search). Without it, KB search silently falls back to keyword search.                                      |
+| **OpenRouter API key** ([openrouter.ai/keys](https://openrouter.ai/keys)) | Without it, nobody can chat with an agent or embed a document until they connect their own provider under `/integrations`. With it, chat **and** Knowledge Base embeddings work zero-config for every user. |
 
 #### macOS
 
@@ -307,8 +306,9 @@ is documented inline in the file. In short:
   [openrouter.ai/keys](https://openrouter.ai/keys).
 - `OPENROUTER_DEFAULT_MODEL`, `OPENROUTER_BASE_URL` — optional overrides,
   sensible defaults are pre-filled.
-- `OPENAI_API_KEY` — optional; only needed if you want Knowledge Base (RAG)
-  document search to use real vector embeddings instead of keyword search.
+- No separate embeddings key. Knowledge Base vector search runs on whichever
+  model provider is connected — see
+  [Which provider embeds](KNOWLEDGE_BASES.md#which-provider-embeds).
 - `FIRECRAWL_API_KEY` — optional; powers the agent `web_search` / `web_browse`
   tools workspace-wide. See [Web search & browsing](#web-search--browsing-optional)
   below for exactly what works with and without it.
@@ -445,9 +445,10 @@ browser.
    agents), then open it in **Build → Agent Chat** and send a message. If
    `OPENROUTER_API_KEY` is set, this should work immediately with no further
    configuration.
-3. Open **Knowledge Base**, create one, and upload a document. If
-   `OPENAI_API_KEY` is set, it gets embedded for vector search; otherwise it
-   still works via keyword search.
+3. Open **Knowledge Base**, create one, and upload a document. If any
+   embedding-capable provider is connected (or `OPENROUTER_API_KEY` is set), it
+   gets embedded for vector search; otherwise it still works via keyword
+   search.
 4. Open **Swarms** and load one of the built-in templates to confirm the
    visual canvas and multi-agent execution work end-to-end.
 

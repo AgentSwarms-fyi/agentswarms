@@ -54,16 +54,26 @@ describe("no ingestion path hardcodes the operator's OpenAI key", () => {
     });
   }
 
-  it("the back-fill path reads it only to report whether it is configured", () => {
-    // kbEmbedStatus tells the RAG settings UI whether to label the built-in
-    // option as available. That is a capability check, not an embedding key —
-    // so the assertion is about how it is used, not that it is absent.
+  it("the back-fill path does not read it either, not even to report status", () => {
+    // It used to, to label a "Built-in (operator OpenAI key)" option. That
+    // option is gone: an install should not need an OpenAI account to search
+    // its own documents, so the status check asks the RESOLVER what is
+    // actually available rather than inspecting the environment.
     const code = codeOnly(src["back-fill button"]);
-    const uses = code.match(/process\.env\.OPENAI_API_KEY/g) ?? [];
-    expect(uses).toHaveLength(1);
-    expect(code).toMatch(/builtinConfigured: Boolean\(process\.env\.OPENAI_API_KEY\)/);
-    // Never handed to the embedder.
-    expect(code).not.toMatch(/openaiKey:\s*process\.env\.OPENAI_API_KEY/);
+    expect(code, "file came back empty").toMatch(/\S/);
+    expect(code).not.toContain("process.env.OPENAI_API_KEY");
+    expect(code).toMatch(/anyProviderResolvable: Boolean\(await resolveEmbedTarget\(/);
+  });
+
+  it("no file on the embedding path reads the key at all", () => {
+    // The whole point of the change, asserted across every file at once so a
+    // new caller cannot quietly reintroduce the dependency.
+    for (const [name, text] of Object.entries(src)) {
+      expect(codeOnly(text), `${name} reads OPENAI_API_KEY`).not.toContain(
+        "process.env.OPENAI_API_KEY",
+      );
+    }
+    expect(codeOnly(target)).not.toContain("process.env.OPENAI_API_KEY");
   });
 
   for (const name of INGESTION) {
@@ -92,21 +102,44 @@ describe("no ingestion path hardcodes the operator's OpenAI key", () => {
 });
 
 describe("the resolver still prefers OpenRouter", () => {
-  it("names OpenRouter as the default, ahead of the built-in key", () => {
+  it("names OpenRouter as the default, and falls back only to connected providers", () => {
     expect(target).toMatch(/DEFAULT_EMBED_PROVIDER = "openrouter"/);
-    // Anchor on the FALLBACK chain, after the explicit-provider branch —
-    // that branch legitimately calls builtinTarget first, which made a naive
-    // whole-function index comparison fail on correct code.
     const inner = target.slice(target.indexOf("async function resolveEmbedTargetInner"));
     const fallback = inner.slice(inner.indexOf("const preferred ="));
     expect(fallback, "the fallback chain moved").toMatch(/\S/);
-    const preferredAt = fallback.indexOf("DEFAULT_EMBED_PROVIDER, model");
-    const builtinAt = fallback.indexOf("builtinTarget(model)");
-    expect(preferredAt).toBeGreaterThan(-1);
-    expect(builtinAt).toBeGreaterThan(preferredAt);
+    // OpenRouter first, then every other embedding-capable integration. No
+    // operator-key step in between any more.
+    expect(fallback).toMatch(/DEFAULT_EMBED_PROVIDER, model/);
+    expect(fallback).toMatch(/for \(const p of EMBED_CAPABLE\)/);
+    expect(fallback).not.toContain("builtinTarget(");
   });
 
-  it("keeps OpenRouter on the same vector space as the built-in key", () => {
+  it("OpenRouter is the default, not a requirement — every compat provider is listed", () => {
+    // The point of the list: connect Ollama, vLLM, Gemini or NVIDIA and
+    // embeddings come from there, with no OpenAI account anywhere.
+    for (const p of ["openrouter", "openai", "gemini", "nvidia", "qwen", "ollama", "vllm"]) {
+      expect(target, `${p} missing from EMBED_CAPABLE`).toMatch(new RegExp(`"${p}"`));
+    }
+  });
+
+  it("maps the legacy stamp onto the SAME vector space, never a different one", () => {
+    // Documents embedded before this change say "openai_builtin". The key is
+    // gone but the vectors are fine, so the stamp has to resolve — and only to
+    // a provider serving text-embedding-3-small. Answering from a different
+    // space returns confident nonsense rather than an error.
+    expect(target).toMatch(/LEGACY_BUILTIN_EQUIVALENTS = \["openai", "openrouter"\]/);
+    expect(target).toMatch(/function sameSpaceModel\(/);
+    // openai spells it bare; openrouter prefixes it. One space, two spellings.
+    // Plain containment, not a built regex: escaping a pattern that itself
+    // contains slashes and template syntax is how a guard ends up matching
+    // something else entirely.
+    expect(target).toContain('return model.includes("/") ? model : `openai/${model}`;');
+    expect(target).toContain('if (provider === "openai") return model.replace(/^openai\\//, "");');
+    const inner = target.slice(target.indexOf("async function resolveEmbedTargetInner"));
+    expect(inner).toMatch(/requested === BUILTIN_PROVIDER\s*\?\s*legacyBuiltinTarget\(/);
+  });
+
+  it("keeps OpenRouter on the same vector space as older collections", () => {
     // openai/text-embedding-3-small, so moving a collection off an exhausted
     // OpenAI quota does not invalidate chunks already embedded.
     expect(target).toMatch(/openrouter: "openai\/text-embedding-3-small"/);
