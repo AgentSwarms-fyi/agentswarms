@@ -224,3 +224,77 @@ export const kbEmbedStatus = createServerFn({ method: "POST" })
     openrouterAvailable: Boolean(process.env.OPENROUTER_API_KEY),
     anyProviderResolvable: Boolean(await resolveEmbedTarget(context.userId)),
   }));
+
+/**
+ * Ask a provider, for real, whether it can embed into this store.
+ *
+ * THE GAP THIS FILLS. `kb_chunks.embedding` is `vector(1536)` and embedTexts
+ * hard-rejects any other width, so "this provider has an embeddings API" is not
+ * the same as "this provider works here". Several models the picker offers are
+ * natively 768, 1024 or 4096 and only fit if they honour the OpenAI
+ * `dimensions` parameter — which some do and some silently ignore. Which is
+ * which cannot be known from a model id, and a hardcoded list rots: two
+ * nvidia/* entries in this repo turned out to 404 on the live endpoint.
+ *
+ * So the answer is measured instead of predicted. One short string, one call,
+ * and the reader learns before their documents are saved rather than after,
+ * when the alternative is noticing that retrieval has quietly been keyword-only.
+ */
+export const kbEmbedProbe = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        provider: z.string().max(64).optional().nullable(),
+        model: z.string().max(200).optional().nullable(),
+      })
+      .parse(input ?? {}),
+  )
+  .handler(
+    async ({
+      data,
+      context,
+    }): Promise<{
+      ok: boolean;
+      provider?: string;
+      model?: string;
+      dims?: number;
+      message?: string;
+    }> => {
+      const { userId } = context;
+      const target = await resolveEmbedTarget(userId, {
+        provider: data.provider,
+        model: data.model,
+      });
+      if (!target) {
+        return {
+          ok: false,
+          message:
+            "That provider is not connected, or has no credentials saved. Connect it under Integrations first.",
+        };
+      }
+      const { embedTexts } = await import("./embedding.server");
+      try {
+        const [vector] = await embedTexts(["probe"], target.apiKey, target.model, {
+          endpoint: target.endpoint,
+          allowCustomModel: target.allowCustomModel,
+          userId,
+          surface: "kb_embed_probe",
+        });
+        return {
+          ok: true,
+          provider: target.provider,
+          model: target.model,
+          dims: vector?.length,
+        };
+      } catch (e) {
+        // Provider errors quote the request back. Strip the key before this
+        // reaches a browser — the same class of leak the lakehouse had.
+        let message = (e as Error).message;
+        if (target.apiKey && target.apiKey.length >= 6) {
+          message = message.split(target.apiKey).join("[redacted]");
+        }
+        return { ok: false, provider: target.provider, model: target.model, message };
+      }
+    },
+  );

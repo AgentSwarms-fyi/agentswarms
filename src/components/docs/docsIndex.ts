@@ -1607,6 +1607,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "/models",
       "GITHUB_TOKEN",
       "OPENROUTER_API_KEY",
+      "dimensions",
       "error",
       "final_v3.pdf",
       "flat",

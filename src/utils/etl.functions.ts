@@ -26,6 +26,7 @@ import {
   type EtlPipelineRow,
   type EtlRunRow,
 } from "@/utils/etl/service.server";
+import { etlErrorMessage } from "@/utils/etl/explainError";
 import { nextEtlRunAt } from "@/utils/etl/schedule.server";
 import { validateCron } from "@/lib/cron";
 import { computeEtlOverview, type OverviewRun } from "@/lib/etlOverview";
@@ -759,11 +760,17 @@ export const getEtlPreview = createServerFn({ method: "POST" })
             ),
           }
         : null,
+      // Explain before showing. The runtime is pandas/boto/fsspec, so a failure
+      // arrives as forty frames of library internals ending in something like
+      // "PermissionError: Forbidden" — true, and nearly useless. The whole log
+      // is searched rather than just its last line: the line that names the
+      // cause (ListObjectsV2, NoSuchBucket, the missing module) sits mid-trace,
+      // while the last line is the generic re-raise.
       error:
         session.status === "error"
-          ? (session.error ??
-            (session.logs ?? "").split("\n").filter(Boolean).slice(-1)[0] ??
-            "Preview failed")
+          ? etlErrorMessage(
+              [session.error, session.logs].filter(Boolean).join("\n") || "Preview failed",
+            )
           : null,
     };
   });

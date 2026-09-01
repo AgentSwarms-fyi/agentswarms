@@ -176,6 +176,24 @@ honouring the OpenAI `dimensions` parameter. That is a stronger condition than
 "has an embeddings API", and it is measured rather than assumed: every model
 below was probed against the live endpoint.
 
+Native widths vary a lot, and the parameter is what makes them fit:
+
+| Model                           | Native | With `dimensions: 1536` |
+| ------------------------------- | ------ | ----------------------- |
+| `openai/text-embedding-3-small` | 1536   | 1536                    |
+| `openai/text-embedding-3-large` | 3072   | 1536                    |
+| `google/gemini-embedding-001`   | 3072   | 1536                    |
+| `qwen/qwen3-embedding-8b`       | 4096   | 1536                    |
+| `qwen/qwen3-embedding-4b`       | 2560   | 1536                    |
+
+A model that *ignores* the parameter returns its native width and fails at
+ingest — after the documents are saved, leaving the collection answering from
+keyword search alone. Since that cannot be predicted from a model id, don't:
+**RAG settings → Test embedding** calls the provider once and reports the width
+it actually returned. Use it before committing a collection to a model,
+especially for a self-hosted Ollama or vLLM where the served model is your
+choice rather than ours.
+
 Step 2 is the one that was invisible: the settings dialog only ever offered a
 provider the _user_ had connected, so an instance with `OPENROUTER_API_KEY` set
 and no personal integration displayed OpenAI as the default while the server

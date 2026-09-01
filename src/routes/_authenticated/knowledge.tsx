@@ -60,6 +60,7 @@ import { KnowledgeGraphTab } from "@/components/knowledge/KnowledgeGraphTab";
 import {
   embedKbDocuments,
   backfillKbEmbeddings,
+  kbEmbedProbe,
   kbEmbedStatus,
 } from "@/utils/tools/kbEmbed.functions";
 import { formatDistanceToNow } from "date-fns";
@@ -254,6 +255,7 @@ function KnowledgePage() {
   const { user } = useAuth();
   const embedFn = useServerFn(embedKbDocuments);
   const embedStatusFn = useServerFn(kbEmbedStatus);
+  const probeFn = useServerFn(kbEmbedProbe);
   const backfillFn = useServerFn(backfillKbEmbeddings);
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
@@ -296,6 +298,16 @@ function KnowledgePage() {
   // Set once the user picks a provider, so the auto-default stops interfering.
   const [embedProviderTouched, setEmbedProviderTouched] = useState(false);
   const [anyProviderResolvable, setAnyProviderResolvable] = useState<boolean | null>(null);
+  // Result of actually calling the provider. The store is vector(1536) and
+  // ingest hard-rejects any other width, so "has an embeddings API" is not the
+  // same as "works here" — and which models honour the `dimensions` parameter
+  // cannot be read off a model id. Measured, not predicted.
+  const [probe, setProbe] = useState<{
+    ok: boolean;
+    dims?: number;
+    message?: string;
+  } | null>(null);
+  const [probing, setProbing] = useState(false);
   const [openrouterAvailable, setOpenrouterAvailable] = useState<boolean | null>(null);
   const [customEmbedModel, setCustomEmbedModel] = useState("");
   const [chunkStrategy, setChunkStrategy] = useState("recursive");
@@ -384,7 +396,6 @@ function KnowledgePage() {
       setEmbedProvider(preferred.id);
       if (preferred.models[0]) setEmbeddingModel(preferred.models[0]);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [anyProviderResolvable, openrouterAvailable, connectedProviders, embedProviderTouched]);
   const embedModelSuggestions = EMBED_PROVIDERS.find((p) => p.id === embedProvider)?.models ?? [];
   const effectiveEmbedModel = customEmbedModel.trim() || embeddingModel;
@@ -1009,6 +1020,7 @@ function KnowledgePage() {
                           setEmbedProvider(v);
                           setEmbedProviderTouched(true);
                           setCustomEmbedModel("");
+                          setProbe(null);
                           const first = EMBED_PROVIDERS.find((p) => p.id === v)?.models[0];
                           if (first) setEmbeddingModel(first);
                         }}
@@ -1031,6 +1043,44 @@ function KnowledgePage() {
                             No connected provider can embed, so documents are saved with keyword
                             search only. Connect one with an embeddings API under Integrations.
                           </span>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={probing || !embedProvider}
+                          onClick={async () => {
+                            setProbing(true);
+                            setProbe(null);
+                            try {
+                              const r = await probeFn({
+                                data: {
+                                  provider: embedProvider,
+                                  model: effectiveEmbedModel || undefined,
+                                },
+                              });
+                              setProbe(r);
+                            } catch (e) {
+                              setProbe({ ok: false, message: (e as Error).message });
+                            } finally {
+                              setProbing(false);
+                            }
+                          }}
+                        >
+                          {probing ? "Testing…" : "Test embedding"}
+                        </Button>
+                        {probe?.ok && (
+                          <span className="text-xs text-emerald-600 dark:text-emerald-400">
+                            Works — {probe.dims} dimensions
+                          </span>
+                        )}
+                      </div>
+                      {probe && !probe.ok && (
+                        <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-xs text-destructive">
+                          <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
+                          <span>{probe.message}</span>
                         </div>
                       )}
                       <p className="text-xs text-muted-foreground">

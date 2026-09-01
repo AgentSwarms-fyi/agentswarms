@@ -96,8 +96,13 @@ describe("no ingestion path hardcodes the operator's OpenAI key", () => {
       src["back-fill button"].match(
         /resolveEmbedTarget\(userId, \{\s*provider: data\.provider,\s*model: data\.model,\s*\}\)/g,
       ) ?? [];
-    // Both entry points: fresh uploads and the back-fill button.
-    expect(calls).toHaveLength(2);
+    // Three entry points: fresh uploads, the back-fill button, and the probe.
+    //
+    // The probe belongs in this count rather than beside it. It exists to tell
+    // the user whether their chosen provider works, so if it resolved anything
+    // other than what ingest would resolve, a green result would be a claim
+    // about a provider that is not the one about to be used.
+    expect(calls).toHaveLength(3);
   });
 });
 

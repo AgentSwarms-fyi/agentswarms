@@ -22,6 +22,7 @@ import {
   normalizeGraph,
   type EtlNode,
 } from "@/utils/etl/codegen";
+import { etlErrorMessage } from "@/utils/etl/explainError";
 import { loadWarehouseConnectionForUser } from "@/utils/warehouse/connections.server";
 import type { WarehouseConfig } from "@/utils/warehouse/types";
 import { auditEvent } from "@/utils/audit.server";
@@ -951,7 +952,14 @@ export async function reconcileOrphanedEtlRuns(): Promise<number> {
         outcome = {
           status: "error",
           logs: session.logs ?? "",
-          error: session.error ?? "The sandbox ended without reporting a result.",
+          // Same treatment the preview gets. A scheduled run that fails at 3am
+          // is read from the run list hours later, with no chance to reproduce
+          // it interactively — so the recorded error is the whole story, and
+          // "PermissionError: Forbidden" is not a story.
+          error: etlErrorMessage(
+            [session.error, session.logs].filter(Boolean).join("\n") ||
+              "The sandbox ended without reporting a result.",
+          ),
         };
       } // starting/running/ready -> genuinely still going; leave it alone.
     } else if (run.status === "queued") {

@@ -218,14 +218,28 @@ question ──▶ embed ──▶ nearest chunks ──▶ pasted into the prom
 
       <H3 id="embedding-provider">Which model does the embedding</H3>
       <P>
-        Set this per collection under <strong>RAG settings → Embedding</strong>.{" "}
-        <strong>OpenRouter is the default</strong> — either through your own integration or, with no
-        integration at all, through the operator's <C>OPENROUTER_API_KEY</C>. That keeps embedding
-        off the OpenAI quota that chat, document generation and retrieval already share; when that
-        quota runs out, knowledge-base search would otherwise go down with it. The operator's OpenAI
-        key is the fallback, and any other connected provider exposing an OpenAI-compatible{" "}
+        Set this per collection under <strong>RAG settings → Embedding</strong>. Embeddings come
+        from a <strong>connected model provider</strong> — the same place your chat models come
+        from. There is no separate embeddings key and no dependency on an OpenAI account.{" "}
+        <strong>OpenRouter is the suggested default</strong>, not a requirement: it works either
+        through your own integration or, with no integration at all, through the operator's{" "}
+        <C>OPENROUTER_API_KEY</C>, so a fresh install gets retrieval for free from the same account
+        that already makes chat work. Any other connected provider exposing an OpenAI-compatible{" "}
         <C>/embeddings</C> endpoint can be selected instead.
       </P>
+      <Callout kind="warn" title="Not every embedding model fits this store">
+        The vector column is fixed at <strong>1536 dimensions</strong> and ingest rejects any other
+        width, so &ldquo;this provider has an embeddings API&rdquo; is not the same as &ldquo;this
+        provider works here&rdquo;. Plenty of good models are natively 768, 1024, 2560 or 4096 and
+        only fit because they honour the OpenAI <C>dimensions</C> parameter — and whether a given
+        one honours it cannot be told from its name.
+        <br />
+        <br />
+        So don&rsquo;t guess: press <strong>Test embedding</strong> beside the picker. It calls the
+        provider once and reports the width it actually returned. Without that check the failure
+        lands at ingest instead, after documents are already saved — and a collection whose
+        embeddings never ran still answers, quietly, using keyword search alone.
+      </Callout>
       <Callout kind="warn" title="Changing the model means re-embedding">
         Vectors from two different models are not comparable — searching model A's chunks with model
         B's query vector does not error, it quietly returns wrong matches. So the provider and model
