@@ -737,6 +737,37 @@ kubectl -n agentswarms port-forward svc/agentswarms 8080:80`}</Code>
         <C>SUPABASE_CHART_VERSION</C>; our own four Deployments stay as plain manifests.
       </Callout>
       <P>
+        <strong>Deploying to a cloud cluster? Push the images first.</strong> The command above
+        defaults to the three images this repo builds locally. A local cluster — Docker Desktop,
+        kind, minikube, k3d — shares the machine&rsquo;s image store and runs them as they are. No
+        other cluster can: its nodes pull from a registry, and an image that exists only on your
+        laptop ends in <C>ImagePullBackOff</C>. Push all three and name them:
+      </P>
+      <Code lang="bash">{`AGENTSWARMS_IMAGE=ghcr.io/you/agentswarms:1.2.3 \\
+DOCGEN_IMAGE=ghcr.io/you/docgen:1.2.3 \\
+JS_SANDBOX_IMAGE=ghcr.io/you/js-sandbox:1.2.3 \\
+ADMIN_EMAIL=you@corp.com ADMIN_PASSWORD='...' bash scripts/setup-k8s.sh`}</Code>
+      <P>
+        The installer substitutes all three as it applies the manifests, and warns before it starts
+        if the current context does not look local while the images still do. Beyond that, the
+        manifests use only core APIs and name no <C>StorageClass</C>, so every volume takes the
+        cluster&rsquo;s default. What still needs a decision per cloud: an Ingress or{" "}
+        <C>LoadBalancer</C> in front of <C>svc/agentswarms</C> and Kong; a CNI that actually
+        enforces <C>NetworkPolicy</C> (Calico, Cilium, GKE Dataplane V2, AKS or EKS with policy
+        enabled) or the sandbox&rsquo;s egress ban is inert; and roughly 3 CPU and 6 GiB of requests
+        for our pods before the Supabase chart&rsquo;s own.
+      </P>
+      <Callout title="The Office renderer is the one pod a `restricted` cluster refuses">
+        Every workload was applied to a namespace enforcing the <C>restricted</C> Pod Security
+        Standard. Web, analytics, the JS sandbox, the lakehouse catalog and the BI CronJob were all
+        admitted — the sandbox reached Ready, the catalog ran as uid 999, the cron pod as uid 100
+        with writes to <C>/</C> refused. <C>agentswarms-docgen</C> was rejected: its image runs as
+        root, so it cannot assert <C>runAsNonRoot</C>. The failure is quiet — <C>kubectl apply</C>{" "}
+        only warns, the Deployment is created, and then no pod ever appears. Until the image is
+        fixed, give that one Deployment a namespace at <C>baseline</C>, or drop it and lose Office
+        export while everything else keeps working.
+      </Callout>
+      <P>
         <strong>Bringing your own Supabase</strong> (Cloud, or one you already run)?{" "}
         <C>deploy/k8s/app/agentswarms.yaml</C> is the app on its own — namespace, web{" "}
         <C>Deployment</C>, optional analytics <C>Deployment</C>, <C>Service</C>, an HPA and the cron{" "}

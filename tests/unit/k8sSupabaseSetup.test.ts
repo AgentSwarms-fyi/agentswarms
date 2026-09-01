@@ -100,3 +100,77 @@ describe("ordering the schema depends on", () => {
     expect(script).toContain("Migration failed:");
   });
 });
+
+describe("images the cluster has to be able to pull", () => {
+  // Strip comment lines first. Two earlier tests in this repo passed against
+  // their own explanatory comments; the usage example directly above
+  // DOCGEN_IMAGE contains every string this block looks for.
+  const code = script
+    .split("\n")
+    .filter((line) => !/^\s*#/.test(line))
+    .join("\n");
+
+  const manifests = ["deploy/k8s/app/agentswarms.yaml", "deploy/k8s/app/services.yaml"];
+  const yaml = manifests.map((m) => readFileSync(resolve(process.cwd(), m), "utf8")).join("\n");
+
+  it("lets every image we build be overridden", () => {
+    // A cluster that is not this laptop cannot see `docker build` output. All
+    // three of ours have to be redirectable at a registry, not just the web one
+    // — AGENTSWARMS_IMAGE alone was the bug: it was honoured by the local build
+    // check and then ignored by the apply, so docgen and the sandbox reached
+    // ImagePullBackOff on any remote cluster.
+    expect(code).toMatch(/IMAGE="\$\{AGENTSWARMS_IMAGE:-/);
+    expect(code).toMatch(/DOCGEN_IMAGE="\$\{DOCGEN_IMAGE:-/);
+    expect(code).toMatch(/JS_SANDBOX_IMAGE="\$\{JS_SANDBOX_IMAGE:-/);
+  });
+
+  it("applies the manifests THROUGH the substitution, never raw", () => {
+    for (const manifest of manifests) {
+      // Plain containment, not a built RegExp: the first version of this test
+      // escaped `$` and `|` for a template literal, JS ate the backslashes, and
+      // the surviving pattern was an alternation that matched an unrelated
+      // `kubectl apply -f -` elsewhere in the script. It passed against the very
+      // mutation it existed to catch.
+      expect(code, `${manifest} must be piped through with_images`).toContain(
+        `with_images "$REPO_ROOT/${manifest}" | kubectl apply -f -`,
+      );
+      // The failure mode this guards: someone adds a manifest and reaches for
+      // the shorter `kubectl apply -f <file>`, which silently deploys
+      // agentswarms:latest to a cluster that has never seen it.
+      expect(code).not.toContain(`kubectl apply -f "$REPO_ROOT/${manifest}"`);
+    }
+  });
+
+  it("substitutes every image the manifests actually name", () => {
+    const substituted = yaml
+      .replaceAll("image: agentswarms:latest", "image: REG/app")
+      .replaceAll("image: agentswarms/docgen:latest", "image: REG/docgen")
+      .replaceAll("image: agentswarms/js-sandbox:latest", "image: REG/sandbox");
+    // Nothing of ours left pointing at a local-only name.
+    expect(substituted).not.toMatch(/image: agentswarms[:/]/);
+    // And all three were really present to begin with, so this cannot pass by
+    // matching nothing.
+    for (const tag of ["REG/app", "REG/docgen", "REG/sandbox"]) {
+      expect(substituted).toContain(`image: ${tag}`);
+    }
+  });
+
+  it("pins the third-party images it does not build", () => {
+    const foreign = [...yaml.matchAll(/image: (?!agentswarms)([^\s]+)/g)].map((m) => m[1]);
+    expect(foreign.length).toBeGreaterThan(0);
+    for (const image of foreign) {
+      // `:latest` on someone else's image means the deployment changes under
+      // you on any pod reschedule, and imagePullPolicy defaults to Always.
+      expect(image, `${image} should be pinned to a version`).not.toMatch(/:latest$/);
+      expect(image, `${image} should carry an explicit tag`).toMatch(/:/);
+    }
+  });
+
+  it("warns before installing a local-only image onto a remote cluster", () => {
+    // ImagePullBackOff names the image but not the reason, and only after the
+    // install has already run. Say it up front instead.
+    expect(code).toContain("kubectl config current-context");
+    expect(code).toMatch(/docker-desktop \| minikube \| kind-\*/);
+    expect(code).toContain("cannot pull an image that only exists on this machine");
+  });
+});

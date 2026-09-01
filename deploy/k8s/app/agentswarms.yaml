@@ -331,8 +331,24 @@ spec:
       template:
         spec:
           restartPolicy: OnFailure
+          automountServiceAccountToken: false
+          # The same `restricted` Pod Security Standard the Deployments meet. A
+          # CronJob is easy to forget here, and the way it fails is quiet: the
+          # object applies, the schedule ticks, and every Job it creates is
+          # refused at pod admission — so BI refreshes simply stop happening
+          # and nothing in the CronJob's own status says why. The curl image
+          # already runs as uid 100, so this only asserts what is true.
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            runAsGroup: 100
+            seccompProfile: { type: RuntimeDefault }
           containers:
             - name: curl
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: ["ALL"] }
               image: curlimages/curl:8.11.1
               env:
                 - name: BI_CRON_TOKEN

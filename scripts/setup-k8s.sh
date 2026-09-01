@@ -42,6 +42,13 @@ RELEASE="${RELEASE:-supabase}"
 CHART_VERSION="${SUPABASE_CHART_VERSION:-0.7.2}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE="${AGENTSWARMS_IMAGE:-agentswarms:latest}"
+# Push these to a registry your cluster can reach before deploying anywhere but
+# a local cluster, and set them here:
+#   AGENTSWARMS_IMAGE=ghcr.io/you/agentswarms:1.2.3 \
+#   DOCGEN_IMAGE=ghcr.io/you/docgen:1.2.3 \
+#   JS_SANDBOX_IMAGE=ghcr.io/you/js-sandbox:1.2.3 bash scripts/setup-k8s.sh
+DOCGEN_IMAGE="${DOCGEN_IMAGE:-agentswarms/docgen:latest}"
+JS_SANDBOX_IMAGE="${JS_SANDBOX_IMAGE:-agentswarms/js-sandbox:latest}"
 ADMIN_EMAIL="${ADMIN_EMAIL:-}"
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-}"
 
@@ -62,6 +69,24 @@ if [ -z "${SKIP_IMAGE_CHECK:-}" ] && command -v docker >/dev/null 2>&1; then
     ( cd "$REPO_ROOT" && docker build -t "$IMAGE" . )
   }
 fi
+
+# A cluster that is not on this machine cannot see images built on it. Say so
+# HERE rather than letting three Deployments reach ImagePullBackOff twenty
+# minutes in, which names the image but not the reason.
+case "$(kubectl config current-context)" in
+  docker-desktop | minikube | kind-* | k3d-* | rancher-desktop) ;;
+  *)
+    case "$IMAGE" in
+      */*.*/* | *.*/*) ;; # already registry-qualified
+      *)
+        printf '\n\033[1;33mWARNING:\033[0m this looks like a remote cluster, but the image is "%s".\n' "$IMAGE"
+        printf '         Its nodes cannot pull an image that only exists on this machine.\n'
+        printf '         Push to a registry and re-run with AGENTSWARMS_IMAGE, DOCGEN_IMAGE\n'
+        printf '         and JS_SANDBOX_IMAGE set to the pushed names.\n\n'
+        ;;
+    esac
+    ;;
+esac
 
 kubectl get namespace "$NS" >/dev/null 2>&1 || kubectl create namespace "$NS" >/dev/null
 
@@ -269,8 +294,21 @@ kubectl -n "$NS" create secret generic agentswarms-env \
   --from-literal=LAKEHOUSE_CATALOG_URL="postgres://lakehouse:${LAKEHOUSE_PW}@lakehouse-catalog:5432/lakehouse_catalog" \
   --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
-kubectl apply -f "$REPO_ROOT/deploy/k8s/app/agentswarms.yaml" >/dev/null
-kubectl apply -f "$REPO_ROOT/deploy/k8s/app/services.yaml" >/dev/null
+# SUBSTITUTE THE IMAGE REFERENCES ON THE WAY IN.
+#
+# The manifests name `agentswarms:latest` and friends, which is right for a
+# local cluster that already has them. On any REMOTE cluster the nodes have
+# never heard of those names and the pods sit in ImagePullBackOff -- so
+# AGENTSWARMS_IMAGE has to reach the manifest, not just the local build check
+# above. It did not, until this: a registry-qualified image was built, checked,
+# and then quietly not deployed.
+with_images() {
+  sed -e "s#image: agentswarms:latest#image: ${IMAGE}#g" \
+      -e "s#image: agentswarms/docgen:latest#image: ${DOCGEN_IMAGE}#g" \
+      -e "s#image: agentswarms/js-sandbox:latest#image: ${JS_SANDBOX_IMAGE}#g" "$1"
+}
+with_images "$REPO_ROOT/deploy/k8s/app/agentswarms.yaml" | kubectl apply -f - >/dev/null
+with_images "$REPO_ROOT/deploy/k8s/app/services.yaml" | kubectl apply -f - >/dev/null
 kubectl -n "$NS" rollout status deployment/agentswarms-web --timeout=600s
 
 cat <<EOF

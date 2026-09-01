@@ -60,6 +60,13 @@ spec:
         app.kubernetes.io/component: docgen
     spec:
       automountServiceAccountToken: false
+      securityContext:
+        # Meets the `baseline` Pod Security Standard. It cannot meet
+        # `restricted`, which also demands runAsNonRoot — see the note on the
+        # container below. On a cluster that enforces `restricted` namespace-
+        # wide, this is the one pod that needs the image fixed first, or its
+        # own namespace at `baseline`.
+        seccompProfile: { type: RuntimeDefault }
       containers:
         - name: docgen
           image: agentswarms/docgen:latest
@@ -267,6 +274,13 @@ spec:
         runAsUser: 999
         runAsGroup: 999
         fsGroup: 999
+        # runAsNonRoot and seccompProfile are what the `restricted` Pod
+        # Security Standard requires on top of the above. Clusters that enforce
+        # it — a common default on managed platforms — reject the pod at
+        # admission without them, and the message names the policy, not the
+        # field. uid 999 is already non-root, so this asserts what is true.
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
       containers:
         - name: postgres
           image: postgres:16

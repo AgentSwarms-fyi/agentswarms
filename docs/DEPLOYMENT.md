@@ -336,6 +336,54 @@ certain to fall behind. The chart tracks upstream; we track the chart version.
 Our own components stay as plain manifests below, because they are four
 Deployments we control.
 
+### D1a. Going to a cloud cluster: push the images first
+
+The command above defaults to the three images this repo builds locally —
+`agentswarms:latest`, `agentswarms/docgen:latest`, `agentswarms/js-sandbox:latest`.
+A **local** cluster (Docker Desktop, kind, minikube, k3d, Rancher Desktop) shares
+the machine's image store and runs them as they are. **No other cluster can**:
+its nodes pull from a registry, and an image that exists only on your laptop
+ends in `ImagePullBackOff`. Push all three, then name them:
+
+```bash
+AGENTSWARMS_IMAGE=ghcr.io/you/agentswarms:1.2.3 DOCGEN_IMAGE=ghcr.io/you/docgen:1.2.3 JS_SANDBOX_IMAGE=ghcr.io/you/js-sandbox:1.2.3 ADMIN_EMAIL=you@corp.com ADMIN_PASSWORD='...' bash scripts/setup-k8s.sh
+```
+
+The installer substitutes all three as it applies the manifests, and warns
+before it starts if the current context does not look local while the images
+still do. If your registry needs credentials, create the pull secret first and
+add it to the namespace's `default` ServiceAccount, or set `imagePullSecrets` on
+the Deployments.
+
+**What actually varies between clouds.** The manifests use only core APIs and
+name no StorageClass, so each `PersistentVolumeClaim` takes the cluster's
+default. Four things still need a decision:
+
+| Concern                    | What to know                                                                                                                                                                                                                            |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Ingress and TLS**        | `port-forward` is for checking the install. Put an Ingress or a `LoadBalancer` Service in front of `svc/agentswarms` and the chart's Kong service, and set `PUBLIC_APP_URL` to the resulting hostname.                                     |
+| **NetworkPolicy**          | The `NetworkPolicy` that denies the JS sandbox all egress needs a CNI that enforces policy — Calico, Cilium, GKE Dataplane V2, AKS with Azure or Calico policy, EKS with VPC CNI policy enabled. Without one it applies and does nothing.  |
+| **Pod Security Standards** | Everything meets `restricted` except the Office renderer, whose image runs as root. See below.                                                                                                                                            |
+| **Node capacity**          | Requests total roughly 3 CPU and 6 GiB for our pods (web ×2, analytics), plus the Supabase chart's own. A single 2-vCPU node will not schedule it.                                                                                        |
+
+**The Office renderer and `restricted`.** On a cluster that enforces the
+`restricted` Pod Security Standard namespace-wide, `agentswarms-docgen` is
+refused at admission: its image runs as root, so it cannot set
+`runAsNonRoot: true`. The way this presents is worth knowing, because it is
+quiet — `kubectl apply` prints a *warning*, the Deployment is created
+successfully, and then no pod ever appears:
+
+```
+Error creating: pods "agentswarms-docgen-…" is forbidden: violates PodSecurity "restricted:latest": runAsNonRoot != true
+```
+
+Until the image is fixed, either run that one Deployment in a namespace labelled
+`pod-security.kubernetes.io/enforce=baseline`, or drop it and lose Office export
+(everything else keeps working). The other five workloads — web, analytics, the
+JS sandbox, the lakehouse catalog and the BI CronJob — were each applied to a
+namespace enforcing `restricted` and admitted; the sandbox reached Ready, the
+catalog ran as uid 999 and the cron pod as uid 100 with writes to `/` refused.
+
 ### D2. Bring your own Supabase
 
 A reference manifest ships in **`deploy/k8s/app/agentswarms.yaml`** — namespace,

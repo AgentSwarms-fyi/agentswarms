@@ -251,3 +251,76 @@ describe("the secret instructions", () => {
     expect(RAW).toContain("CreateContainerConfigError");
   });
 });
+
+// Pod Security Standards, checked against a cluster that really enforces them.
+// `restricted` is an increasingly common default on managed platforms, and its
+// failure mode is quiet: `kubectl apply` only WARNS, the Deployment is created,
+// and then no pod ever appears. Probed on Kubernetes 1.36 in a namespace
+// labelled pod-security.kubernetes.io/enforce=restricted:
+//
+//   js-sandbox         admitted, reached Ready
+//   lakehouse-catalog  admitted, ran as uid 999
+//   cron               admitted, ran as uid 100, write to / refused
+//   docgen             REJECTED — "runAsNonRoot != true"
+//
+// The catalog and the CronJob only passed after this change; both were missing
+// the fields, and the CronJob had no securityContext at all.
+describe("Pod Security Standards", () => {
+  const svc = readFileSync(resolve(process.cwd(), "deploy/k8s/app/services.yaml"), "utf8");
+  const every = [...(loadAll(RAW) as Doc[]), ...(loadAll(svc) as Doc[])].filter(Boolean);
+
+  // Deployments, StatefulSets AND CronJobs. The CronJob nests its pod one level
+  // deeper, which is exactly why it was the one workload with no security
+  // context at all — it does not look like the others.
+  const workloads = every
+    .map((d) => ({
+      name: `${d.kind}/${d.metadata?.name}`,
+      pod: (d.spec as any)?.template?.spec ?? (d.spec as any)?.jobTemplate?.spec?.template?.spec,
+    }))
+    .filter((w) => w.pod);
+
+  it("covers every workload, the CronJob included", () => {
+    expect(workloads.map((w) => w.name)).toEqual([
+      "Deployment/agentswarms-web",
+      "Deployment/agentswarms-analytics",
+      "CronJob/agentswarms-cron",
+      "Deployment/agentswarms-docgen",
+      "Deployment/agentswarms-js-sandbox",
+      "StatefulSet/lakehouse-catalog",
+    ]);
+  });
+
+  it("sets seccompProfile on every pod", () => {
+    for (const { name, pod } of workloads) {
+      expect(pod.securityContext?.seccompProfile?.type, `${name} needs a seccompProfile`).toBe(
+        "RuntimeDefault",
+      );
+    }
+  });
+
+  it("drops capabilities and forbids escalation on every container", () => {
+    for (const { name, pod } of workloads) {
+      for (const c of pod.containers ?? []) {
+        const sc = c.securityContext ?? {};
+        expect(sc.allowPrivilegeEscalation, `${name} container ${c.name}`).toBe(false);
+        expect(sc.capabilities?.drop, `${name} container ${c.name}`).toContain("ALL");
+      }
+    }
+  });
+
+  it("meets `restricted` everywhere except the one pod whose image is root", () => {
+    const rootPods = workloads
+      .filter((w) => w.pod.securityContext?.runAsNonRoot !== true)
+      .map((w) => w.name);
+    // Exactly one, and we know which and why. If this list grows, someone added
+    // a workload that a restricted cluster will silently refuse to schedule —
+    // and finding that out costs a cluster and an afternoon.
+    expect(rootPods).toEqual(["Deployment/agentswarms-docgen"]);
+  });
+
+  it("never mounts an API token into a workload that does not call the API", () => {
+    for (const { name, pod } of workloads) {
+      expect(pod.automountServiceAccountToken, `${name}`).toBe(false);
+    }
+  });
+});
