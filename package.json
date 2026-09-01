@@ -17,6 +17,8 @@
     "dev": "vite dev",
     "build": "cross-env NODE_OPTIONS=--max-old-space-size=6144 vite build --sourcemap false",
     "build:dev": "cross-env NODE_OPTIONS=--max-old-space-size=6144 vite build --mode development --sourcemap false",
+    "generate:routes": "node scripts/generate-routes.mjs",
+    "typecheck": "npm run generate:routes && tsc --noEmit -p tsconfig.json",
     "preview": "vite preview",
     "start": "node server.mjs",
     "lint": "eslint .",
