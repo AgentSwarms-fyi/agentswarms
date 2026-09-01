@@ -124,6 +124,12 @@ walks through. **Option B** runs Supabase on your own machine with Docker —
 no account, nothing leaves your infrastructure, and a script does every step
 for you.
 
+> **Deploying to Kubernetes instead?** There is a third path that skips this
+> whole section: `bash scripts/setup-k8s.sh` installs Supabase into your
+> cluster from the community Helm chart, applies the schema, creates your admin
+> user and starts the app and every service alongside it. See
+> [DEPLOYMENT.md § D1](./DEPLOYMENT.md#d1-fully-self-hosted-one-command).
+
 ### Option B — self-hosted Supabase (Docker, no account needed)
 
 One command deploys the **entire solution**: it downloads and starts the

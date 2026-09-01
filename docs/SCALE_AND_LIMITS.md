@@ -34,7 +34,10 @@ every one is read by code you can grep for.
 ## Choosing per dataset, and bounding the total
 
 Each local dataset carries a **storage mode**, visible and changeable on
-**Monitoring → Materialised data**:
+**Monitoring → Materialised data**. That panel lists the datasets actually
+holding bytes; the rest — the ones reading directly, which is most of them on a
+typical workspace — are one click away behind _"Show N datasets holding
+nothing"_. The modes:
 
 | Mode     | What it does                                                  |
 | -------- | ------------------------------------------------------------- |

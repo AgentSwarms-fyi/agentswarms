@@ -22,6 +22,7 @@
     "lint": "eslint .",
     "check:docs": "node scripts/check-docs.mjs",
     "check:md-docs": "node scripts/check-md-docs.mjs",
+    "check:doc-commands": "node scripts/check-doc-commands.mjs",
     "docs:index": "node scripts/build-docs-index.mjs",
     "format": "prettier --write .",
     "test": "vitest run",

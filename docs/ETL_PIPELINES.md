@@ -214,6 +214,23 @@ process memory), destinations and drift baselines are skipped. A broken graph
 fails at the compile step with the compiler's message, before any container
 starts.
 
+## Lakehouse targets need the catalog on the kernel network
+
+A pipeline whose target is a lakehouse table attaches DuckLake **from inside the
+notebook kernel**, not from the app. Kernels run on an `internal` Docker network
+with no route off it except the HTTP egress proxy — Parquet is HTTP and goes
+through it, the catalog is a raw Postgres connection and cannot. So the catalog
+has to be on the kernel's network and named by service (`lakehouse-catalog:5432`),
+not by a host IP or published port.
+
+Compose users get this already. The symptom when it is wrong is
+`connection to server at "…" failed: Network is unreachable` in the run log, and
+it appears **only in production**: under `npm run dev` the orchestrator places
+kernels on a routable network, so the whole class of failure is invisible in
+development. Full detail, including the `NOTEBOOK_NETWORK` escape hatch for a
+catalog outside Docker, is in
+[Lakehouse § the catalog must be reachable](./LAKEHOUSE.md#the-catalog-must-be-reachable-from-the-notebook-network).
+
 ## Native warehouse targets
 
 Database targets route by provider. PostgreSQL, MySQL and SQL Server families

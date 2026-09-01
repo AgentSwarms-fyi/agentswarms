@@ -39,6 +39,7 @@ background scheduler — and it's a two-line setup covered below.
 | Run it for a team on one server                         | **Single cloud VM** — the recommended default | [B](#b-single-cloud-vm-recommended)                                   |
 | Handle spiky/high load with autoscaling                 | **Autoscaled VMs + load balancer**            | [C](#c-autoscaled-vms-behind-a-load-balancer)                         |
 | Run on an existing K8s cluster / scale Python notebooks | **Kubernetes**                                | [D](#d-kubernetes)                                                    |
+| Own everything, on a cluster, in one command            | **Kubernetes + Supabase in-cluster**          | [D1](#d1-fully-self-hosted-one-command)                               |
 | Keep **all** data on infrastructure you control         | **Self-hosted Supabase** (with any of A–D)    | [Self-hosted Supabase](#self-hosted-supabase-complete-data-residency) |
 
 All options share the same two prerequisites.

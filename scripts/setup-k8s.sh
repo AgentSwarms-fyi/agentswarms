@@ -90,6 +90,7 @@ if kubectl -n "$NS" get secret agentswarms-bootstrap >/dev/null 2>&1; then
   JWT_SECRET=$(get JWT_SECRET); ANON_KEY=$(get ANON_KEY); SERVICE_KEY=$(get SERVICE_ROLE_KEY)
   PG_PW=$(get POSTGRES_PASSWORD); DASHBOARD_PW=$(get DASHBOARD_PASSWORD)
   REALTIME_BASE=$(get REALTIME_SECRET_KEY_BASE); META_KEY=$(get META_CRYPTO_KEY)
+  REALTIME_ENC_KEY=$(get REALTIME_ENC_KEY)
   S3_KEY_ID=$(get S3_KEY_ID); S3_ACCESS_KEY=$(get S3_ACCESS_KEY)
   MINIO_PW=$(get MINIO_PASSWORD); LOGFLARE_PUB=$(get LOGFLARE_PUBLIC); LOGFLARE_PRIV=$(get LOGFLARE_PRIVATE)
   INTERNAL_RUN_SECRET=$(get INTERNAL_RUN_SECRET); PROVIDER_CREDS_SECRET=$(get PROVIDER_CREDS_SECRET)
@@ -100,8 +101,17 @@ else
   ANON_KEY=$(sign_key anon "$JWT_SECRET")
   SERVICE_KEY=$(sign_key service_role "$JWT_SECRET")
   PG_PW=$(gen); DASHBOARD_PW=$(gen 16)
-  # Realtime wants a 64-byte base; meta's key must be at least 32 chars.
-  REALTIME_BASE=$(openssl rand -hex 32); META_KEY=$(openssl rand -hex 16)
+  # Three length rules here, and they are NOT interchangeable:
+  #   secretKeyBase   Phoenix, long
+  #   dbEncKey        AES-128-ECB, so EXACTLY 16 bytes. Realtime crash-looped on
+  #                   a 32-char key, raising from its own seeds.exs at
+  #                   `:crypto.crypto_one_time(:aes_128_ecb, ...)`. The chart's
+  #                   default is the 16-character "supabaserealtime", which is
+  #                   the clue: it is a length, not a placeholder.
+  #   meta cryptoKey  at least 32 chars
+  REALTIME_BASE=$(openssl rand -hex 32)
+  REALTIME_ENC_KEY=$(openssl rand -hex 8)
+  META_KEY=$(openssl rand -hex 16)
   S3_KEY_ID=$(gen 16); S3_ACCESS_KEY=$(openssl rand -hex 32); MINIO_PW=$(gen)
   LOGFLARE_PUB=$(gen); LOGFLARE_PRIV=$(gen)
   INTERNAL_RUN_SECRET="${INTERNAL_RUN_SECRET:-$(openssl rand -hex 32)}"
@@ -116,6 +126,7 @@ else
     --from-literal=DASHBOARD_PASSWORD="$DASHBOARD_PW" \
     --from-literal=REALTIME_SECRET_KEY_BASE="$REALTIME_BASE" \
     --from-literal=META_CRYPTO_KEY="$META_KEY" \
+    --from-literal=REALTIME_ENC_KEY="$REALTIME_ENC_KEY" \
     --from-literal=S3_KEY_ID="$S3_KEY_ID" \
     --from-literal=S3_ACCESS_KEY="$S3_ACCESS_KEY" \
     --from-literal=MINIO_PASSWORD="$MINIO_PW" \
@@ -155,7 +166,7 @@ secret:
     accessKey: "$S3_ACCESS_KEY"
   realtime:
     secretKeyBase: "$REALTIME_BASE"
-    dbEncKey: "$META_KEY"
+    dbEncKey: "$REALTIME_ENC_KEY"
   meta:
     cryptoKey: "$META_KEY"
   minio:
@@ -195,13 +206,35 @@ for _ in $(seq 1 90); do
 done
 
 say "Applying the AgentSwarms schema"
+# RECORD WHAT HAS BEEN APPLIED, the way `supabase db push` does.
+#
+# The migrations are ordinary CREATE TABLE, not CREATE TABLE IF NOT EXISTS, so
+# replaying them fails on the second file with `relation "profiles" already
+# exists` -- which is what a re-run of this script did before this table
+# existed, despite the header promising re-runs were safe. Tracking them also
+# makes the script incremental: add a migration, run it again, only the new one
+# is applied.
+psql_db -q >/dev/null <<'EOSQL'
+CREATE TABLE IF NOT EXISTS public._agentswarms_migrations (
+  name        text PRIMARY KEY,
+  applied_at  timestamptz NOT NULL DEFAULT now()
+);
+EOSQL
+
 count=0
+skipped=0
 for f in "$REPO_ROOT"/supabase/migrations/*.sql; do
   [ -e "$f" ] || continue
-  psql_db -v ON_ERROR_STOP=1 -q >/dev/null <"$f" || die "Migration failed: $(basename "$f")"
+  name="$(basename "$f")"
+  if [ "$(psql_db -tAc "select 1 from public._agentswarms_migrations where name = '$name'" 2>/dev/null)" = "1" ]; then
+    skipped=$((skipped + 1))
+    continue
+  fi
+  psql_db -v ON_ERROR_STOP=1 -q >/dev/null <"$f" || die "Migration failed: $name"
+  psql_db -q -c "insert into public._agentswarms_migrations (name) values ('$name')" >/dev/null
   count=$((count + 1))
 done
-echo "    applied $count migrations"
+echo "    applied $count migrations ($skipped already applied)"
 
 # ── 5. admin user ───────────────────────────────────────────────────────────
 KONG_SVC=$(kubectl -n "$NS" get svc -o name | grep -- '-kong' | head -1 | cut -d/ -f2)

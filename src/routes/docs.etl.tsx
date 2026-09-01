@@ -228,6 +228,16 @@ function EtlDocsPage() {
         install), runs fail immediately with a message saying exactly that. See{" "}
         <DocLink to="/docs/self-hosting">Install &amp; deploy</DocLink>.
       </Callout>
+      <Callout kind="warn" title="Lakehouse targets need the catalog on the kernel's network">
+        Because the run happens in a kernel, a pipeline whose target is a lakehouse table attaches
+        the catalog from <em>there</em> — and kernels sit on an <C>internal</C> network whose only
+        way out is the HTTP egress proxy. Parquet is HTTP and travels through it; the catalog is a
+        raw Postgres connection and cannot. Name the catalog by service (
+        <C>lakehouse-catalog:5432</C>), not by a host IP or published port. The symptom otherwise is{" "}
+        <C>Network is unreachable</C> in the run log, and it shows up only once the app runs in a
+        container — under <C>npm run dev</C> kernels get a routable network instead. See{" "}
+        <DocLink to="/docs/lakehouse">Lakehouse</DocLink>.
+      </Callout>
 
       <H2 id="credentials">Credentials and secrets</H2>
       <P>
