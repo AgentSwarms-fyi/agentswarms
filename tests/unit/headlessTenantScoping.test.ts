@@ -129,8 +129,14 @@ describe("agent data access is governed and recorded", () => {
     // looping over rows could then consume the whole global budget while every
     // interactive user queued behind it.
     const block = c.slice(c.indexOf('handlers.set("warehouse_query"'));
-    expect(block.slice(0, 900)).toContain("executeWarehouseQuery(conn.config, sqlText, 200, {");
+    // The cap is now a named constant (the provenance digest is taken over
+    // exactly that many rows, so replay must re-run under the same cap). The
+    // point of this assertion is the tenant, not the number.
+    expect(block.slice(0, 900)).toContain(
+      "executeWarehouseQuery(conn.config, sqlText, WAREHOUSE_TOOL_ROW_CAP, {",
+    );
     expect(block.slice(0, 900)).toContain("userId: c.userId");
+    expect(c).toContain("const WAREHOUSE_TOOL_ROW_CAP = 200;");
   });
 
   it("records it, like the UI path already did", () => {

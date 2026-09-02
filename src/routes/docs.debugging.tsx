@@ -107,9 +107,40 @@ function DebuggingDoc() {
         would test.
       </Callout>
       <P>
+        <strong>Passport</strong> downloads the whole chain as a portable JSON document — the
+        decision and its snapshot, every model turn, every data read with the tables it touched, and
+        notes stating what it does and does not establish. Set <C>PROVENANCE_SIGNING_SECRET</C> and
+        it is signed with HMAC-SHA256 over canonical bytes (sorted keys, stable output) so a
+        recipient can verify it without this instance. Leave it unset and the signature is{" "}
+        <C>null</C> and the document says so — an unsigned document that looked signed would be
+        worse than none.
+      </P>
+      <P>
+        <strong>Replay reads</strong> re-runs the decision's recorded queries and answers two
+        separate questions. Against the snapshot that was in force at the time, the result{" "}
+        <em>must</em> match the fingerprint recorded when the answer was given — a mismatch means
+        the record and the data disagree. Against today's data, a mismatch simply means the world
+        moved on, which is what someone acting on an old answer needs to know. Reads that cannot be
+        checked — no query text recorded, or a store with no snapshot history — say so rather than
+        passing quietly, and a read with no recorded fingerprint is reported as unknown, not as
+        verified.
+      </P>
+      <P>
+        Replays run under your own grants and row policies from a read-only attachment: one can
+        never read more than you can, and never writes.
+      </P>
+      <P>
+        <strong>Retention.</strong> A trace or audit row carrying a decision id is evidence, not
+        telemetry, and expires on its own clock: it is kept for at least{" "}
+        <C>provenance_retention_days</C> (183 by default — the EU AI Act Article 26(6) six-month
+        deployer floor) even when the ordinary retention window is shorter. Shortening{" "}
+        <C>trace_retention_days</C> therefore trims noise without emptying the provenance behind an
+        answer. The floor never shortens retention: where the ordinary window is longer, it wins.
+      </P>
+      <P>
         This is evidence, not compliance — no tool grants that — and it exists only from the day
         recording began. See <DocLink to="/docs/analytics">Analytics</DocLink> for spend, and{" "}
-        <C>docs/PROVENANCE.md</C> in the repository for the schema.
+        <C>docs/PROVENANCE.md</C> in the repository for the schema and a verification command.
       </P>
 
       <H2 id="playground-inspector">The playground inspector</H2>

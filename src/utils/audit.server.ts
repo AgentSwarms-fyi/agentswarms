@@ -113,40 +113,83 @@ const ARCHIVE_BATCH = 500;
  * prefixed `audit-archive`) BEFORE deletion, so an operator running any log
  * shipper retains them after the DB copy is gone. Set AUDIT_ARCHIVE_ON_PURGE=0
  * to skip that if you already export via /api/audit/export.
+ *
+ * EVIDENCE IS HELD LONGER. A row carrying a decision_id records a data access
+ * made on behalf of an answer someone was given. Those are kept at least
+ * iam_settings.provenance_retention_days (default 183 — the EU AI Act Article
+ * 26(6) six-month deployer floor), so trimming ordinary audit noise cannot
+ * silently empty an answer's provenance. The floor never shortens retention:
+ * where the ordinary window is longer, the longer window wins.
  */
 export async function purgeAuditEvents(force = false): Promise<void> {
   const now = Date.now();
   if (!force && now - lastPurge < PURGE_INTERVAL_MS) return;
   lastPurge = now;
-  const { data: settings } = await supabaseAdmin
-    .from("iam_settings")
-    .select("audit_retention_days")
+  // provenance_retention_days arrives with migration 20260849000000; the
+  // generated Database types predate it, hence the cast.
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const { data: settings } = await (supabaseAdmin.from("iam_settings") as any)
+    .select("audit_retention_days, provenance_retention_days")
     .limit(1)
     .maybeSingle();
+  /* eslint-enable @typescript-eslint/no-explicit-any */
   const days = settings?.audit_retention_days ?? 365;
-  const cutoff = new Date(now - days * 86_400_000).toISOString();
+  const cutoffMs = now - days * 86_400_000;
+  const cutoff = new Date(cutoffMs).toISOString();
+  const floorDays = Number(settings?.provenance_retention_days ?? 183);
+  // Compared as timestamps: the earlier cutoff keeps rows longer, so a longer
+  // ordinary window always wins over the floor.
+  const evidenceCutoff = new Date(
+    Number.isFinite(floorDays) && floorDays > 0
+      ? Math.min(cutoffMs, now - floorDays * 86_400_000)
+      : cutoffMs,
+  ).toISOString();
 
-  if (!/^(0|false|no)$/i.test(process.env.AUDIT_ARCHIVE_ON_PURGE ?? "")) {
+  /**
+   * Stream one expiring set to stdout before it is deleted. Mirrors ONE of the
+   * two deletes below exactly -- same cutoff, same decision_id filter -- so the
+   * archive can never cover a different set of rows than the purge removes.
+   * Returns false if the read failed, which aborts the purge: never delete what
+   * we failed to archive.
+   */
+  const archive = async (until: string, withDecision: boolean): Promise<boolean> => {
     // Page through the doomed rows rather than loading them all: a long-dormant
     // instance can have a very large expiring set, and this runs in-process.
     for (let from = 0; ; from += ARCHIVE_BATCH) {
-      const { data: batch, error: readErr } = await supabaseAdmin
-        .from("audit_events")
-        .select("*")
-        .lt("created_at", cutoff)
+      const q = supabaseAdmin.from("audit_events").select("*").lt("created_at", until);
+      const { data: batch, error: readErr } = await (
+        withDecision ? q.not("decision_id", "is", null) : q.is("decision_id", null)
+      )
         .order("created_at", { ascending: true })
         .range(from, from + ARCHIVE_BATCH - 1);
       if (readErr) {
-        // Archiving is best-effort, but never delete what we failed to archive.
         console.warn("[audit] archive read failed, skipping purge:", readErr.message);
-        return;
+        return false;
       }
       if (!batch || batch.length === 0) break;
       for (const row of batch) console.log("audit-archive " + JSON.stringify(row));
       if (batch.length < ARCHIVE_BATCH) break;
     }
+    return true;
+  };
+
+  if (!/^(0|false|no)$/i.test(process.env.AUDIT_ARCHIVE_ON_PURGE ?? "")) {
+    if (!(await archive(cutoff, false))) return;
+    if (!(await archive(evidenceCutoff, true))) return;
   }
 
-  const { error } = await supabaseAdmin.from("audit_events").delete().lt("created_at", cutoff);
+  // Two deletes, two clocks. Ordinary rows expire on the audit window; rows
+  // that are part of some answer's provenance are held to the floor.
+  const { error } = await supabaseAdmin
+    .from("audit_events")
+    .delete()
+    .lt("created_at", cutoff)
+    .is("decision_id", null);
   if (error) console.warn("[audit] purge failed:", error.message);
+  const { error: evidenceErr } = await supabaseAdmin
+    .from("audit_events")
+    .delete()
+    .lt("created_at", evidenceCutoff)
+    .not("decision_id", "is", null);
+  if (evidenceErr) console.warn("[audit] evidence purge failed:", evidenceErr.message);
 }

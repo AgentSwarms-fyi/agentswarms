@@ -1762,7 +1762,11 @@ function SettingsTab({
           {Number(retentionDraft) > 0 && (
             <p className="mt-2 text-xs text-muted-foreground">
               Traces and swarm runs older than {retentionDraft} days will be deleted permanently.
-              Audit events are governed separately and are not affected.
+              Audit events are governed separately and are not affected. Traces that form part of a
+              decision&rsquo;s provenance are held longer — for at least{" "}
+              <code className="font-mono">provenance_retention_days</code> (183 by default, the EU
+              AI Act six-month deployer floor) — so shortening this window trims telemetry without
+              destroying the evidence behind an answer.
             </p>
           )}
         </CardContent>

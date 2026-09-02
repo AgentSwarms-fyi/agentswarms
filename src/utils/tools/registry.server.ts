@@ -23,6 +23,14 @@ import {
 } from "./sql.server";
 import { metricQueryTool, runMetricQuery, semanticCatalogForCtx } from "./metric.server";
 import { auditEvent } from "@/utils/audit.server";
+import { resultDigest } from "@/utils/provenance/canonical";
+
+/**
+ * Rows the warehouse tool retrieves per query. Named because the result digest
+ * recorded for provenance is taken over exactly this many rows, and replay
+ * must re-run under the same cap to compare like with like.
+ */
+const WAREHOUSE_TOOL_ROW_CAP = 200;
 import { assertPublicUrl, safeFetch } from "@/utils/ssrfGuard.server";
 import { resolveMcpAuthToken } from "@/lib/mcp/auth.server";
 import { resolveIntegrationConfig } from "@/utils/providers/integrationConfig.server";
@@ -1777,7 +1785,7 @@ export async function resolveAgentTools(
           // `userId ? gateFor(userId) : null`), so an agent — including a
           // scheduled swarm looping over rows — could consume the whole global
           // budget while every interactive user waited.
-          const result = await executeWarehouseQuery(conn.config, sqlText, 200, {
+          const result = await executeWarehouseQuery(conn.config, sqlText, WAREHOUSE_TOOL_ROW_CAP, {
             userId: c.userId,
           });
           // The UI path records every warehouse query. This one did not, which
@@ -1795,6 +1803,17 @@ export async function resolveAgentTools(
               agent_id: c.agentId ?? null,
               row_count: result.row_count,
               truncated: result.truncated,
+              // Recorded so the read can be REPLAYED: the query text, and a
+              // fingerprint of what it returned. Re-running a query later only
+              // proves the query runs; comparing today's result against the
+              // digest taken at the time is what shows whether the answer's
+              // data was what the record says it was.
+              sql: sqlText.slice(0, 4000),
+              result_digest: resultDigest(result.rows),
+              // The cap the digest was taken under. A replay that re-ran with a
+              // different cap would report a mismatch caused by truncation
+              // rather than by the data.
+              row_cap: WAREHOUSE_TOOL_ROW_CAP,
             },
           });
           const LLM_ROW_CAP = 50;

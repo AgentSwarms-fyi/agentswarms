@@ -3,6 +3,7 @@
 // semantic catalog; the compiler turns that into consistent SQL (so "revenue"
 // always means the same thing). Owner-scoped exactly like sql_query.
 import { auditEvent } from "@/utils/audit.server";
+import { resultDigest } from "@/utils/provenance/canonical";
 import type { ToolDef, AgentToolContext } from "./registry.server";
 import { listSemanticModels, runSemanticQuery } from "@/utils/semantic/query.server";
 import {
@@ -280,9 +281,6 @@ export async function runMetricQuery(
     // A metric query IS a data read -- of the semantic model, and through it
     // the warehouse or lakehouse behind it. Recorded so it appears in the
     // answer's provenance beside the raw sql_query and kb_search reads.
-    // Imported here, not at the top: audit.server constructs the
-    // service-role client at module load and throws without Supabase env
-    // vars, which would make every unit test of this module need credentials.
     auditEvent({
       userId: ctx.userId,
       action: "metric.query",
@@ -295,6 +293,13 @@ export async function runMetricQuery(
         metrics,
         dimensions,
         row_count: res.rows.length,
+        // Recorded so the read can be REPLAYED: the query text, and a
+        // fingerprint of what it returned. Re-running a query later only
+        // proves the query runs; comparing today's result against the
+        // digest taken at the time is what shows whether the answer's
+        // data was what the record says it was.
+        sql: res.sql.slice(0, 4000),
+        result_digest: resultDigest(res.rows),
       },
     });
     return renderMetricResult(res, RESULT_ROW_CAP);

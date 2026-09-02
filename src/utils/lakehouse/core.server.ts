@@ -649,6 +649,54 @@ export async function lakehouseSnapshotId(): Promise<string | null> {
   }
 }
 
+/**
+ * Aliases currently attached at a pinned snapshot, oldest first.
+ *
+ * ATTACH is instance-wide while USE is connection-wide, so a pinned alias
+ * outlives the query that made it and is safely shared by later ones. Left
+ * attached deliberately -- a read-only catalog handle is cheap and re-attaching
+ * per replay is not -- but capped, so a long-lived process replaying many
+ * decisions does not accumulate them without bound.
+ */
+const pinnedAliases: string[] = [];
+const PINNED_LIMIT = 8;
+
+/**
+ * Point this connection at the lake AS IT WAS at `snapshot`.
+ *
+ * Mechanism note, because the obvious one does not work: DuckLake documents a
+ * per-table `FROM t AT (VERSION => n)`, and on this catalog that returns
+ * "Catalog type does not support time travel". Pinning the whole attachment
+ * works, and is the better shape regardless -- the recorded SQL runs
+ * UNMODIFIED against the pinned alias, so a replay cannot differ from the
+ * original by a rewrite we performed on its behalf.
+ *
+ * READ_ONLY is not decoration: it is verified to refuse writes, so replaying a
+ * decision can never alter the data it is examining.
+ */
+async function attachAsOf(c: DuckDBConnection, snapshot: string): Promise<void> {
+  const cfg = lakehouseConfig();
+  if (!cfg) throw new Error("Lakehouse is not configured");
+  // The snapshot id is interpolated into SQL as an identifier and a literal.
+  // It comes from our own catalog, but a digits-only check is what makes that
+  // safe to rely on rather than merely likely.
+  if (!/^\d+$/.test(snapshot)) throw new Error(`Invalid snapshot id: ${snapshot}`);
+  const alias = `lake_at_${snapshot}`;
+  await c.run(
+    `ATTACH IF NOT EXISTS 'ducklake:postgres:${catalogUrlToLibpq(cfg.catalog).replace(/'/g, "''")}' AS ${alias} (DATA_PATH ${sq(cfg.dataUrl)}, SNAPSHOT_VERSION ${snapshot}, READ_ONLY);`,
+  );
+  await c.run(`USE ${alias};`);
+  const at = pinnedAliases.indexOf(alias);
+  if (at !== -1) pinnedAliases.splice(at, 1);
+  pinnedAliases.push(alias);
+  while (pinnedAliases.length > PINNED_LIMIT) {
+    const stale = pinnedAliases.shift();
+    // Best-effort: another connection may still be reading through it, and the
+    // engine may have been rebuilt since we recorded the name.
+    await c.run(`DETACH ${stale};`).catch(() => {});
+  }
+}
+
 async function currentSnapshotId(c: DuckDBConnection): Promise<string> {
   try {
     const rows = await (
@@ -758,11 +806,24 @@ function jsValue(v: unknown): LakehouseCell {
 export async function runLakehouseStatement(
   userId: string,
   sql: string,
-  opts?: { rowCap?: number; timeoutMs?: number; auditVia?: string; useCache?: boolean },
+  opts?: {
+    rowCap?: number;
+    timeoutMs?: number;
+    auditVia?: string;
+    useCache?: boolean;
+    /** Read the lake as it was at this snapshot instead of as it is now. */
+    asOfSnapshot?: string | null;
+  },
 ): Promise<LakehouseResult> {
   const started = Date.now();
   const rowCap = Math.min(opts?.rowCap ?? ROW_CAP, 100_000);
   const classified = classifyStatement(sql);
+  if (opts?.asOfSnapshot && classified.kind !== "select") {
+    // The past is not writable, and a "replay" that modified data would be a
+    // contradiction. READ_ONLY on the attachment enforces this too; refusing
+    // here makes the reason legible instead of surfacing a DuckDB error.
+    throw new Error("Only a SELECT can be run as of a snapshot");
+  }
   const allowed = await accessibleSchemas(userId);
   /** Tables whose security policy was applied to this statement. */
   let policyTables: string[] = [];
@@ -797,6 +858,7 @@ export async function runLakehouseStatement(
         rows: rowCount ?? undefined,
         duration_ms: Date.now() - started,
         via: opts?.auditVia,
+        as_of_snapshot: opts?.asOfSnapshot ?? undefined,
         cached: extra?.cached ? true : undefined,
         retries: extra?.retries || undefined,
         policies_applied: policyTables.length ? policyTables : undefined,
@@ -845,6 +907,7 @@ export async function runLakehouseStatement(
     // stale snapshot that just lost would simply lose again.
     for (let attempt = 0; ; attempt++) {
       c = await lakehouseConnection();
+      if (opts?.asOfSnapshot) await attachAsOf(c, opts.asOfSnapshot);
       let cacheSlot: { key: string; snapshot: string } | null = null;
       // Security policies rewrite the statement; everything downstream must
       // run the rewritten text, while history and the cache key keep the SQL
@@ -881,7 +944,10 @@ export async function runLakehouseStatement(
         }
         // Cache lookup happens AFTER the access check, never before: a cached
         // row must not be reachable by someone whose grant was revoked.
-        if (opts?.useCache !== false) {
+        // The result cache is keyed by the CURRENT snapshot, so a historical
+        // read must not consult it: the same SQL as of snapshot 100 and as of
+        // now are different questions with the same key.
+        if (opts?.useCache !== false && !opts?.asOfSnapshot) {
           const snapshot = await currentSnapshotId(c);
           // The key is per user already, so a policy rewrite cannot leak
           // across readers; including it keeps a policy edit from being

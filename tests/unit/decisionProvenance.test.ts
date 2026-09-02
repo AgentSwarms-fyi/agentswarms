@@ -10,7 +10,7 @@
 // swarm run, a dashboard refresh. Its id is stamped on every trace and audit
 // row written while it was underway, and the decision row records the one
 // fact that cannot be reconstructed later -- which lakehouse snapshot was
-// current -- because DuckLake can re-run a query AT that snapshot.
+// current -- because the catalog can be re-attached pinned to it.
 //
 // A passport with one silent hole is worse than none: an examiner who finds
 // the hole distrusts the whole document. So the last block here COUNTS rather

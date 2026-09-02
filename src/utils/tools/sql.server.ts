@@ -16,6 +16,7 @@
 // created — is gone.
 
 import { auditEvent } from "@/utils/audit.server";
+import { resultDigest } from "@/utils/provenance/canonical";
 import { restrictSharedDataset } from "@/utils/data/sharedDatasets.server";
 import type { ToolDef, AgentToolContext } from "./registry.server";
 
@@ -254,6 +255,13 @@ export async function runSqlQuery(
       row_count: limited.length,
       total_matched: total,
       capped,
+      // Recorded so the read can be REPLAYED: the query text, and a
+      // fingerprint of what it returned. Re-running a query later only
+      // proves the query runs; comparing today's result against the
+      // digest taken at the time is what shows whether the answer's
+      // data was what the record says it was.
+      sql: sql.slice(0, 4000),
+      result_digest: resultDigest(limited),
     },
   });
   return JSON.stringify({

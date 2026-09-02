@@ -8,13 +8,17 @@
 // from timestamps.
 //
 // The decision row itself records the one fact that cannot be reconstructed
-// afterwards: which lakehouse snapshot was current when it began. DuckLake can
-// re-run a query AT a snapshot, so that integer is the difference between an
-// answer that is merely recorded and one that is reproducible.
+// afterwards: which lakehouse snapshot was current when it began. The catalog
+// can be re-attached pinned to that snapshot, so that integer is the difference
+// between an answer that is merely recorded and one that is reproducible.
 import { randomUUID } from "node:crypto";
 
 import type { Json } from "@/integrations/supabase/types";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+
+import { isDataRead } from "./actions";
+
+export { isDataRead };
 import { lakehouseEnabled, lakehouseSnapshotId } from "@/utils/lakehouse/core.server";
 
 export type DecisionKind = "chat_turn" | "swarm_run" | "dashboard_refresh";
