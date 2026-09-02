@@ -14,7 +14,13 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
-import { listDataTablesTool, runListDataTables, runSqlQuery, sqlQueryTool } from "./sql.server";
+import {
+  listDataTablesTool,
+  runListDataTables,
+  runSqlQuery,
+  scopeToVisibleTables,
+  sqlQueryTool,
+} from "./sql.server";
 import { metricQueryTool, runMetricQuery, semanticCatalogForCtx } from "./metric.server";
 import { assertPublicUrl, safeFetch } from "@/utils/ssrfGuard.server";
 import { resolveMcpAuthToken } from "@/lib/mcp/auth.server";
@@ -61,6 +67,34 @@ export type AgentToolContext = {
   // guard in the absence of a user JWT. Never set on the normal RLS path.
   scopeUserId?: string;
 };
+
+/**
+ * Restrict a read of a user-owned table to the run's owner.
+ *
+ * THE HOLE THIS CLOSES. On the normal path `ctx.sb` is an anon-key client
+ * carrying the user's JWT, so RLS (`auth.uid() = user_id`) does the scoping and
+ * these queries need no filter of their own. On a HEADLESS run — deployed
+ * swarms, schedules, API-key calls — there is no JWT, so `ctx.sb` is the
+ * service-role client and RLS is OFF. Every such read then saw every tenant.
+ *
+ * That was not theoretical for MCP. `mcp_call_tool` is in HEADLESS_SAFE_TOOLS,
+ * and the server lookup matched on name alone — so a swarm owned by one tenant
+ * could resolve another tenant's MCP server, and the row carries that server's
+ * auth_token, meaning it could then call it as them. A server name is a weak
+ * secret: "github" or "jira" is a guess, not a search.
+ *
+ * kb_search and sql_query already threaded scopeUserId through for exactly this
+ * reason. This gives the rest one guard in one place.
+ *
+ * ONLY for tables whose sole visibility rule is ownership. Tables with sharing
+ * (user_data_tables: own + public samples + IAM-granted) must use their own
+ * loader instead — narrowing those to user_id would hide rows the agent is
+ * entitled to read, turning a security fix into a silent feature regression.
+ */
+function ownedBy<T>(ctx: AgentToolContext, q: T): T {
+  if (!ctx.scopeUserId) return q;
+  return (q as unknown as { eq: (c: string, v: string) => T }).eq("user_id", ctx.scopeUserId);
+}
 
 // ============================================================================
 // kb_search
@@ -419,12 +453,14 @@ async function serpapiSearch(query: string, limit: number, key: string): Promise
  */
 async function loadFirecrawlIntegrationKey(ctx: AgentToolContext): Promise<string | null> {
   try {
-    const { data } = await ctx.sb
-      .from("integrations")
-      .select("config, is_active")
-      .eq("type", "firecrawl")
-      .eq("is_active", true)
-      .maybeSingle();
+    const { data } = await ownedBy(
+      ctx,
+      ctx.sb
+        .from("integrations")
+        .select("config, is_active")
+        .eq("type", "firecrawl")
+        .eq("is_active", true),
+    ).maybeSingle();
     if (!data?.is_active) return null;
     const cfg = (await resolveIntegrationConfig(
       ctx.userId,
@@ -945,12 +981,10 @@ export async function runSendNotification(
 }
 
 async function loadN8nIntegration(ctx: AgentToolContext) {
-  const { data } = await ctx.sb
-    .from("integrations")
-    .select("config, is_active")
-    .eq("type", "n8n")
-    .eq("is_active", true)
-    .maybeSingle();
+  const { data } = await ownedBy(
+    ctx,
+    ctx.sb.from("integrations").select("config, is_active").eq("type", "n8n").eq("is_active", true),
+  ).maybeSingle();
   if (!data?.is_active) return null;
   // Decrypt webhook_token (webhook_token_enc) + resolve {{secret:}} refs.
   const cfg = (await resolveIntegrationConfig(
@@ -1096,11 +1130,13 @@ export const mcpListToolsTool: ToolDef = {
 };
 
 async function loadMcpServer(ctx: AgentToolContext, name: string) {
-  const { data } = await ctx.sb
-    .from("mcp_servers")
-    .select("name, endpoint, auth_type, auth_token, auth_token_enc, status")
-    .eq("name", name)
-    .maybeSingle();
+  const { data } = await ownedBy(
+    ctx,
+    ctx.sb
+      .from("mcp_servers")
+      .select("name, endpoint, auth_type, auth_token, auth_token_enc, status")
+      .eq("name", name),
+  ).maybeSingle();
   if (!data) return null;
   return data;
 }
@@ -1156,7 +1192,10 @@ export async function runListMcpServers(
   _args: Record<string, never>,
   allowList?: string[],
 ): Promise<string> {
-  const { data } = await ctx.sb.from("mcp_servers").select("name, endpoint, status, tools_count");
+  const { data } = await ownedBy(
+    ctx,
+    ctx.sb.from("mcp_servers").select("name, endpoint, status, tools_count"),
+  );
   let servers = data ?? [];
   if (allowList && allowList.length > 0) {
     const allow = new Set(allowList.map((s) => s.trim()).filter(Boolean));
@@ -1491,12 +1530,10 @@ export async function resolveAgentTools(
   // the model can call AND is reflected in the tool description so the model
   // picks from a known set.
   if (allows("n8n_run_workflow")) {
-    const { data: n8n } = await ctx.sb
-      .from("integrations")
-      .select("id")
-      .eq("type", "n8n")
-      .eq("is_active", true)
-      .maybeSingle();
+    const { data: n8n } = await ownedBy(
+      ctx,
+      ctx.sb.from("integrations").select("id").eq("type", "n8n").eq("is_active", true),
+    ).maybeSingle();
     if (n8n) {
       const allowList = cfg.n8n_workflow_ids?.filter((s) => s && s.trim()) ?? [];
       const runDesc =
@@ -1536,10 +1573,14 @@ export async function resolveAgentTools(
   // MCP — only if user has at least one MCP server with an http(s) endpoint.
   // Allow-list applies the same way.
   if (allows("mcp_call_tool")) {
-    const { data: mcps } = await ctx.sb
-      .from("mcp_servers")
-      .select("endpoint, name")
-      .eq("status", "connected");
+    // The enumeration half of the MCP problem: this names connected servers and
+    // their endpoints into the tool description, and mcp_call_tool then resolves
+    // them by name. Unscoped, a headless run learned another tenant's server
+    // names right here and could then call them.
+    const { data: mcps } = await ownedBy(
+      ctx,
+      ctx.sb.from("mcp_servers").select("endpoint, name").eq("status", "connected"),
+    );
     const httpMcps = (mcps ?? []).filter((m) => /^https?:\/\//i.test(m.endpoint));
     if (httpMcps.length > 0) {
       const allowList = cfg.mcp_server_names?.filter((s) => s && s.trim()) ?? [];
@@ -1564,9 +1605,16 @@ export async function resolveAgentTools(
   // schema summary to the tool description so the LLM can write correct SQL
   // without first calling list_data_tables.
   if (allows("sql_query")) {
-    // No explicit ownership filter: the client runs under the user's JWT, so
-    // RLS returns their own tables, public samples, and IAM-shared tables.
-    const { data: dt } = await ctx.sb.from("user_data_tables").select("name, columns");
+    // The SAME visibility rule the sql_query loader uses, not a fresh one. With
+    // no filter at all this listed every tenant's tables and columns into the
+    // tool description on a headless run — the data path refused to read them,
+    // but the schemas were already in the prompt.
+    const dtBase = ctx.sb
+      .from("user_data_tables")
+      .select("name, columns")
+      .not("name", "like", "__upload_%");
+    const dtQuery = await scopeToVisibleTables(ctx, dtBase);
+    const dt = dtQuery ? (await dtQuery).data : null;
     // Per-call allow-list — when set, restrict to those table names only.
     const allowedTableNames = (cfg.sql_table_names ?? []).map((s) => s.trim()).filter(Boolean);
     const visible =
@@ -1629,10 +1677,10 @@ export async function resolveAgentTools(
   // run server-side against the vendor API with decrypted credentials; the
   // model only ever sees result rows.
   if (allows("sql_query")) {
-    const { data: whConns } = await ctx.sb
-      .from("data_warehouse_connections")
-      .select("name, provider")
-      .eq("is_active", true);
+    const { data: whConns } = await ownedBy(
+      ctx,
+      ctx.sb.from("data_warehouse_connections").select("name, provider").eq("is_active", true),
+    );
     if (whConns && whConns.length > 0) {
       const connList = whConns.map((c) => `"${c.name}" (${c.provider})`).join(", ");
       tools.push(

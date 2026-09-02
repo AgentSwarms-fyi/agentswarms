@@ -53,6 +53,46 @@ with `ctx.scopeUserId` set, and every loader filters on that to mirror what RLS
 would have allowed. The invariant is that a scheduled run can never read more
 than the owner running it by hand.
 
+### Where that invariant had been lost
+
+An audit of the agent tool layer found six reads that honoured RLS and nothing
+else. On the interactive path they were correct — `ctx.sb` carries the user's
+JWT, so a filter would have been redundant. On the headless path the same code
+ran under the service-role client, and each returned rows belonging to any
+tenant:
+
+| Read                                  | Reachable headlessly via     | What leaked                          |
+| ------------------------------------- | ---------------------------- | ------------------------------------ |
+| `mcp_servers` by name                 | `mcp_call_tool`              | the row, **including `auth_token`**   |
+| `mcp_servers` connected list          | `mcp_call_tool` description  | other tenants' server names/endpoints |
+| `integrations` (firecrawl)            | `web_search`, `web_browse`   | another tenant's Firecrawl key        |
+| `integrations` (n8n) ×2               | tool offer + handler         | n8n endpoint and API token            |
+| `data_warehouse_connections`          | `warehouse_query` description | connection names and providers       |
+| `user_data_tables`                    | `sql_query` description      | table names and column schemas        |
+
+The MCP pair is the serious one, because it composes: the listing supplied
+another tenant's server names, and the by-name lookup then returned that
+server's stored credential — so a swarm owned by one tenant could call another
+tenant's MCP server as them. A server name is a weak secret; `github` or `jira`
+is a guess, not a search.
+
+Two things follow, and both are now enforced by tests:
+
+- **Ownership-only tables** (`mcp_servers`, `integrations`,
+  `data_warehouse_connections`) go through one guard, `ownedBy(ctx, query)`,
+  which adds `user_id = scopeUserId` on the headless path and is a no-op on the
+  RLS path.
+- **Shared tables keep their sharing.** `user_data_tables` is visible as own +
+  public samples + IAM-granted, so it uses `scopeToVisibleTables` — the same
+  predicate the `sql_query` loader uses, now defined once. Narrowing it to
+  `user_id` would have been "secure" and would also have hidden sample and
+  shared datasets the agent is entitled to query: a security fix that silently
+  removes a feature is still a regression.
+
+The lesson generalises: these queries were not wrong for the path they were
+written on. They were wrong for the *other* one, and nothing in the type system
+distinguishes the two clients.
+
 ---
 
 ## SSRF: the guard with two tiers

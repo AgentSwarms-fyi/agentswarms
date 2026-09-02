@@ -65,6 +65,40 @@ export const listDataTablesTool: ToolDef = {
 // scope id can never inject filter syntax.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/**
+ * Apply the visibility rule for user_data_tables to a query.
+ *
+ * On the RLS path the user's JWT already restricts the read, so nothing is
+ * added. On the HEADLESS path (`scopeUserId` set, service-role client, RLS off)
+ * this is the only tenant boundary, and it mirrors the RLS policy exactly: the
+ * owner's own tables, public samples, and tables shared to them by an IAM
+ * grant. Narrowing it to `user_id` alone would be "secure" and would also hide
+ * datasets the agent is entitled to use.
+ *
+ * Takes the query rather than the column list so each caller keeps its own
+ * literal `.select(...)` — and with it, the inferred row type.
+ *
+ * Exported because the tool DESCRIPTION lists the same tables. That listing had
+ * no filter at all, so on a headless run it named every tenant's tables and
+ * their columns in the prompt. The data path still refused to read them, but
+ * the schemas were already out.
+ *
+ * Returns null when the scope is unusable, which callers treat as "no tables".
+ */
+export async function scopeToVisibleTables<Q extends { or: (filter: string) => Q }>(
+  ctx: AgentToolContext,
+  query: Q,
+): Promise<Q | null> {
+  if (!ctx.scopeUserId) return query;
+  if (!UUID_RE.test(ctx.scopeUserId)) return null;
+  const { resolveGrantedResourceIds } = await import("@/utils/iam.server");
+  const granted = await resolveGrantedResourceIds(ctx.sb, ctx.scopeUserId, "data_table");
+  const orParts = [`user_id.eq.${ctx.scopeUserId}`, `is_sample.eq.true`];
+  const grantedIds = [...granted].filter((id) => UUID_RE.test(id));
+  if (grantedIds.length) orParts.push(`id.in.(${grantedIds.join(",")})`);
+  return query.or(orParts.join(","));
+}
+
 async function loadUserTables(
   ctx: AgentToolContext,
   allowSet?: Set<string> | null,
@@ -77,19 +111,13 @@ async function loadUserTables(
   // public samples, and tables shared to them via an IAM grant (mirroring the
   // RLS policy). This is the only tenant boundary here.
   // `__upload_*` rows are staging areas for an in-flight upload, not datasets.
-  let query = ctx.sb
+  const base = ctx.sb
     .from("user_data_tables")
     .select("id, name, columns, user_id, is_sample")
+    // `__upload_*` rows are staging areas for an in-flight upload, not datasets.
     .not("name", "like", "__upload_%");
-  if (ctx.scopeUserId) {
-    if (!UUID_RE.test(ctx.scopeUserId)) return [];
-    const { resolveGrantedResourceIds } = await import("@/utils/iam.server");
-    const granted = await resolveGrantedResourceIds(ctx.sb, ctx.scopeUserId, "data_table");
-    const orParts = [`user_id.eq.${ctx.scopeUserId}`, `is_sample.eq.true`];
-    const grantedIds = [...granted].filter((id) => UUID_RE.test(id));
-    if (grantedIds.length) orParts.push(`id.in.(${grantedIds.join(",")})`);
-    query = query.or(orParts.join(","));
-  }
+  const query = await scopeToVisibleTables(ctx, base);
+  if (!query) return [];
   const { data: tables } = await query;
   if (!tables) return [];
   const filtered =
