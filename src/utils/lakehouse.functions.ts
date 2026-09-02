@@ -1067,3 +1067,27 @@ export const deleteLakehouseMatview = createServerFn({ method: "POST" })
     });
     return { ok: true };
   });
+
+/**
+ * Does the catalog still describe data that exists?
+ *
+ * Separate from getLakehouseOverview on purpose. The overview runs on every
+ * page load and must stay fast; this lists the object store, so it is asked for
+ * rather than assumed. It also must never be the reason the Lakehouse page
+ * fails to render — hence the report's own `error` field instead of a throw.
+ *
+ * Scoped to the caller's accessible schemas, so it cannot be used to enumerate
+ * a lake someone else owns.
+ */
+export const getLakehouseIntegrity = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .handler(async ({ data }) => {
+    const userId = await resolveCaller(data.access_token);
+    if (!lakehouseEnabled()) {
+      return { ok: true, checked: 0, issues: [], truncated: false };
+    }
+    const allowed = new Set((await accessibleSchemas(userId)).map((s) => s.name));
+    const { lakehouseIntegrity } = await import("./lakehouse/integrity.server");
+    const report = await lakehouseIntegrity();
+    return { ...report, issues: report.issues.filter((i) => allowed.has(i.schema)) };
+  });

@@ -11,6 +11,7 @@ import {
   Clock3,
   Database as DatabaseIcon,
   Download,
+  AlertTriangle,
   HardDrive,
   Loader2,
   Play,
@@ -59,6 +60,7 @@ import {
   createLakehouseSchema,
   createLakehouseTable,
   dropLakehouseSchema,
+  getLakehouseIntegrity,
   getLakehouseOverview,
   getLakehouseTable,
   importDatasetToLakehouse,
@@ -98,8 +100,16 @@ function LakehousePage() {
   const { session } = useAuth();
   const token = session?.access_token ?? "";
   const overviewFn = useServerFn(getLakehouseOverview);
+  const integrityFn = useServerFn(getLakehouseIntegrity);
 
   const [data, setData] = useState<LakehouseOverview | null>(null);
+  // Tables the catalog describes but the object store no longer has.
+  //
+  // This cannot be inferred from the overview: DuckLake answers count(*) from
+  // ducklake_data_file.record_count without reading a single Parquet, so a
+  // table whose data is gone still reports its full row count and looks
+  // healthy. The only way to know is to list the store and compare.
+  const [broken, setBroken] = useState<Map<string, { missing: number; rows: number }>>(new Map());
   /** Why the overview could not be read, or null. Rendered — see reload(). */
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selected, setSelected] = useState<{ schema: string; table: string } | null>(null);
@@ -111,6 +121,17 @@ function LakehousePage() {
     try {
       setData(await overviewFn({ data: { access_token: token } }));
       setLoadError(null);
+      // Best-effort and non-blocking: an integrity check must never be the
+      // reason the page fails to render.
+      integrityFn({ data: { access_token: token } })
+        .then((r) => {
+          const m = new Map<string, { missing: number; rows: number }>();
+          for (const i of r.issues ?? []) {
+            m.set(`${i.schema}.${i.table}`, { missing: i.missing.length, rows: i.missing_rows });
+          }
+          setBroken(m);
+        })
+        .catch(() => setBroken(new Map()));
     } catch (e) {
       // FOUND FROM THE UI. A toast was the only signal, so a failed load left
       // the page as a permanent pair of skeletons: the toast expires, and after
@@ -186,7 +207,13 @@ function LakehousePage() {
         </Card>
       ) : (
         <div className="flex min-h-0 flex-1 gap-3">
-          <SchemaRail data={data} selected={selected} onOpenTable={openTable} onChanged={reload} />
+          <SchemaRail
+            data={data}
+            broken={broken}
+            selected={selected}
+            onOpenTable={openTable}
+            onChanged={reload}
+          />
           <Tabs
             value={tab}
             onValueChange={setTab}
@@ -247,11 +274,14 @@ function LakehousePage() {
 
 function SchemaRail({
   data,
+  broken,
   selected,
   onOpenTable,
   onChanged,
 }: {
   data: LakehouseOverview;
+  /** schema.table -> files the store is missing. Empty until the check returns. */
+  broken: Map<string, { missing: number; rows: number }>;
   selected: { schema: string; table: string } | null;
   onOpenTable: (schema: string, table: string) => void;
   onChanged: () => void;
@@ -366,19 +396,35 @@ function SchemaRail({
               {open &&
                 tables.map((t) => {
                   const active = selected?.schema === s.name && selected?.table === t.name;
+                  const hurt = broken.get(`${s.name}.${t.name}`);
                   return (
                     <button
                       key={t.name}
-                      className={`flex w-full items-center justify-between gap-2 rounded-md py-1 pl-7 pr-2 text-left text-[13px] hover:bg-muted ${active ? "bg-muted font-medium" : ""}`}
+                      title={
+                        hurt
+                          ? `${hurt.missing} data file(s) this table refers to are missing from object storage — ${hurt.rows.toLocaleString()} row(s) cannot be read. Re-import the table, or drop it.`
+                          : undefined
+                      }
+                      className={`flex w-full items-center justify-between gap-2 rounded-md py-1 pl-7 pr-2 text-left text-[13px] hover:bg-muted ${active ? "bg-muted font-medium" : ""} ${hurt ? "text-destructive" : ""}`}
                       onClick={() => onOpenTable(s.name, t.name)}
                     >
                       <span className="flex min-w-0 items-center gap-1.5">
                         <Table2 className="h-3.5 w-3.5 flex-none text-muted-foreground" />
                         <span className="truncate">{t.name}</span>
+                        {hurt && (
+                          <AlertTriangle
+                            className="h-3.5 w-3.5 flex-none text-destructive"
+                            aria-label="Missing data files"
+                          />
+                        )}
                       </span>
                       <span className="flex-none font-mono text-[10px] tabular-nums text-muted-foreground">
-                        {t.row_count === null ? "" : `${t.row_count.toLocaleString()} · `}
-                        {fmtBytes(t.size_bytes)}
+                        {/* The row count comes from catalog metadata, so it
+                            still reads full for a table whose Parquet is gone.
+                            Say so here rather than letting the number reassure. */}
+                        {hurt
+                          ? `${hurt.missing} file${hurt.missing === 1 ? "" : "s"} missing`
+                          : `${t.row_count === null ? "" : `${t.row_count.toLocaleString()} · `}${fmtBytes(t.size_bytes)}`}
                       </span>
                     </button>
                   );

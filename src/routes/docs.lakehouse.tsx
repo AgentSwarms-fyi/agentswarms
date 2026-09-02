@@ -233,6 +233,34 @@ function LakehouseDocsPage() {
         independent — one failing is logged and the rest still run.
       </P>
 
+      <H2 id="integrity">When the catalog and the object store disagree</H2>
+      <P>
+        A table here is two things: rows of metadata in the catalog Postgres, and Parquet objects in
+        your object storage. <strong>Nothing keeps them together.</strong> Replace the object store,
+        empty a bucket, or restore a catalog backup from a different day, and the catalog goes on
+        describing files that are gone.
+      </P>
+      <Callout kind="warn" title="A broken table looks healthy">
+        <C>count(*)</C> is answered from the catalog&rsquo;s own <C>record_count</C> —{" "}
+        <strong>without reading a single Parquet</strong> — so a table whose data has vanished still
+        reports its full row count. Measured on an instance whose object store had been replaced:{" "}
+        <C>f1_standings</C> reported 21 rows and <C>orders</C> 4, and both returned HTTP 404 the
+        moment anyone opened them. The row count was the thing saying everything was fine.
+      </Callout>
+      <P>
+        So the Lakehouse checks. After the table list loads it lists the object store once, compares
+        it against the data files the catalog claims, and marks any affected table — showing how
+        many <em>unreadable rows</em> are behind the missing files instead of the metadata count. It
+        runs after the page renders and never blocks it.
+      </P>
+      <P>
+        Two deliberate limits: superseded files are ignored, since they are supposed to disappear
+        after compaction and flagging them would mark every compacted table broken; and if the
+        listing hits its ceiling the check reports nothing rather than guessing. There is no
+        automatic repair, because there is no correct one — the rows are gone. Re-import the table
+        from its source, or drop it.
+      </P>
+
       <H2 id="governance">Governance and access</H2>
       <P>
         DuckDB has no per-user ACLs, so the server enforces everything before SQL reaches the

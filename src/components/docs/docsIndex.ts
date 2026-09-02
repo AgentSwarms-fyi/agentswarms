@@ -1775,9 +1775,13 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "SUMMARIZE",
       "UPDATE",
       "cached",
+      "count(*)",
       "docs/LAKEHOUSE.md",
+      "f1_standings",
       "internal",
-      "lakehouse-catalog:5432"
+      "lakehouse-catalog:5432",
+      "orders",
+      "record_count"
     ],
     "headings": [
       {
@@ -1818,6 +1822,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "maintenance",
         "text": "Maintenance and compaction",
+        "level": 2
+      },
+      {
+        "id": "integrity",
+        "text": "When the catalog and the object store disagree",
         "level": 2
       },
       {

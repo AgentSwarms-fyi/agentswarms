@@ -283,6 +283,44 @@ run the pass — the steps are idempotent and DuckLake serialises them through
 the catalog. Verified live: all four steps ran clean and inlined rows became
 real Parquet files, with row counts unchanged.
 
+## When the catalog and the object store disagree
+
+A DuckLake table is two things: rows of metadata in the catalog Postgres, and
+Parquet objects in your object storage. **Nothing keeps them together.** Replace
+the object store, empty a bucket, or restore a catalog backup taken on a
+different day, and the catalog goes on confidently describing files that are no
+longer there.
+
+The dangerous part is how quiet that is. `count(*)` on a DuckLake table is
+answered from `ducklake_data_file.record_count` — **without reading a single
+Parquet** — so a table whose data has vanished still reports its full row count
+and looks healthy in the table list. Measured on an instance whose MinIO had
+been replaced while the catalog survived on its own volume:
+
+| Table                     | `count(*)` | `SELECT *` |
+| ------------------------- | ---------- | ---------- |
+| `analytics.f1_standings`  | 21 rows    | HTTP 404   |
+| `analytics.orders`        | 4 rows     | HTTP 404   |
+| `analytics.revenue_facts` | 836 rows   | fine       |
+
+Two of those tables could not be read at all, and the only outward sign was a
+404 when somebody opened one.
+
+So the Lakehouse page checks. After the table list loads it lists the object
+store once, compares it against the live data files the catalog claims, and
+marks any table whose objects are missing — with the count of unreadable rows
+rather than the metadata row count, which is exactly the number that would
+otherwise reassure you. The check is best-effort and never blocks the page.
+
+Two deliberate limits. Superseded files are skipped (they are *supposed* to be
+absent after compaction, and reporting them would make every compacted table
+look broken), and a listing that hits its ceiling reports **nothing** rather
+than guessing — a check that cries wolf gets ignored, and then it is worth
+nothing.
+
+There is no automatic repair, because there is no correct one: the rows are
+gone. Re-import the table from its source, or drop it.
+
 ## Governance — how access control actually works
 
 DuckDB has no per-user ACLs, so the server enforces everything BEFORE SQL
