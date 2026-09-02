@@ -154,6 +154,26 @@ A small stateless service (Node or Python) that: authenticates the **session tok
 
 The kernel pods have **no direct internet route**. Their only egress is an **HTTP/HTTPS forward proxy** the platform runs, which enforces a domain **allowlist** (PyPI + configured LLM endpoints + the app's own API) and **audits** every outbound request. Portable across Docker and K8s. On K8s, additionally enforce a `NetworkPolicy` (default-deny egress, allow only the proxy + DNS) so the proxy can't be bypassed.
 
+> **On Kubernetes that NetworkPolicy is the boundary, not a second opinion.**
+> The kernel's `NO_PROXY` includes `.svc` and `.cluster.local`, because a kernel
+> has to reach the app's own API without looping through the proxy. That means
+> the proxy is bypassed for **every in-cluster address** — which is fine, and
+> only fine, because the shipped `NetworkPolicy` in `deploy/k8s/notebooks/`
+> permits egress to exactly three things: DNS, the egress proxy on 3128, and the
+> app namespace on 8080. Nothing else in the cluster is reachable.
+>
+> `NetworkPolicy` is enforced by the CNI, not by Kubernetes itself, and several
+> common setups do not enforce it — Docker Desktop's default and plain flannel
+> among them. On such a cluster the manifest applies cleanly, reports no error,
+> and does nothing, and kernels can then reach any in-cluster service directly:
+> the Supabase gateway, Postgres, the lakehouse catalog. Use a CNI that enforces
+> policy (Calico, Cilium, GKE Dataplane V2, AKS with Azure or Calico policy, EKS
+> with VPC CNI policy enabled) and confirm it does — an unenforced policy is the
+> failure mode that looks exactly like a working one.
+>
+> Docker Compose does not have this gap: kernels sit on an `internal` network
+> with no gateway, so there is no route to bypass in the first place.
+
 ---
 
 ## 5. Isolation & hardening (concrete spec)
@@ -178,7 +198,7 @@ The kernel pods have **no direct internet route**. Their only egress is an **HTT
 
 - `runAsNonRoot: true`, `readOnlyRootFilesystem: true`, `allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]`, `seccompProfile.type: RuntimeDefault`.
 - `resources.limits` (cpu/memory/ephemeral-storage) + `activeDeadlineSeconds` on the Job (hard wall-clock cap).
-- `NetworkPolicy`: default-deny ingress+egress; allow egress only to the egress-proxy Service and kube-dns; allow ingress only from the runtime gateway.
+- `NetworkPolicy`: default-deny ingress+egress; allow egress only to the egress-proxy Service and kube-dns; allow ingress only from the runtime gateway. **Requires a policy-enforcing CNI** — see the note in §Egress above; without one this manifest is inert and the kernels' `NO_PROXY` leaves the whole cluster reachable.
 - Dedicated namespace `agentswarms-notebooks` with a `ResourceQuota` and `LimitRange`.
 - Optional `RuntimeClass: gvisor` (runsc) for user-space-kernel isolation on Linux — **zero app changes**, just a scheduling attribute.
 

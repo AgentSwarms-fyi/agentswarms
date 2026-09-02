@@ -388,3 +388,51 @@ describe("the Kubernetes egress config stays level with the Compose one", () => 
     expect(entries(cm.data.allowed_ips)).toEqual([]);
   });
 });
+
+// On Kubernetes the NetworkPolicy IS the egress boundary, not a second opinion.
+//
+// The kernel's NO_PROXY contains `.svc` and `.cluster.local`, because a kernel
+// has to reach the app's own API without looping through the proxy. That means
+// the proxy is bypassed for every in-cluster address — fine, and only fine,
+// because the shipped NetworkPolicy permits egress to exactly three things.
+//
+// NetworkPolicy is enforced by the CNI, not by Kubernetes, and several common
+// setups do not enforce it. On such a cluster the manifest applies cleanly,
+// reports nothing, and does nothing — and the kernels can then reach the
+// Supabase gateway, Postgres and the lakehouse catalog directly. An unenforced
+// policy is the failure mode that looks exactly like a working one, which is
+// why the doc has to say so where the guarantee is made.
+describe("the Kubernetes kernel boundary", () => {
+  const manifest = readFileSync("deploy/k8s/notebooks/notebook-runtime.yaml", "utf8");
+  const service = readFileSync("src/utils/notebookRuntime/service.server.ts", "utf8");
+  const doc = readFileSync("docs/DEVELOPER_WORKSPACE_RUNTIME.md", "utf8");
+
+  it("bypasses the proxy for in-cluster addresses", () => {
+    // Stated as a fact the NetworkPolicy has to cover, not as a defect.
+    expect(service).toContain('".svc", ".cluster.local"');
+  });
+
+  it("denies everything except DNS, the proxy, and the app", () => {
+    const policy = manifest.slice(manifest.indexOf("kind: NetworkPolicy"));
+    expect(policy).toContain("policyTypes: [Ingress, Egress]");
+    expect(policy).toContain("{ protocol: TCP, port: 3128 }");
+    expect(policy).toContain("app: notebook-egress");
+    // Nothing else in the cluster: no blanket `- to: []` outside the DNS rule.
+    const blanket = policy.match(/- to: \[\]/g) ?? [];
+    expect(blanket.length, "only the DNS rule may target everything").toBe(1);
+  });
+
+  it("says the guarantee depends on the CNI, where the guarantee is made", () => {
+    // Someone reading "no direct internet route" must not have to already know
+    // that a NetworkPolicy is inert on flannel or Docker Desktop's default.
+    expect(doc).toMatch(/enforced by the CNI, not by Kubernetes/);
+    expect(doc).toMatch(/Calico, Cilium/);
+    expect(doc).toMatch(/applies cleanly.*does nothing|does nothing/);
+  });
+
+  it("notes that Compose does not share the gap", () => {
+    // Kernels there sit on an `internal` network with no gateway — nothing to
+    // bypass. Saying so stops the warning being read as universal.
+    expect(doc).toMatch(/Compose does not have this gap/);
+  });
+});
