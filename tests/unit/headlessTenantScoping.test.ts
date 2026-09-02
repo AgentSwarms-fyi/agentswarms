@@ -42,7 +42,9 @@ describe("the headless path really does disable RLS", () => {
   it("uses the service-role client with scopeUserId set", () => {
     // If this stopped being true the guards below would be belt-and-braces
     // rather than the boundary, and should be re-reasoned rather than kept.
-    expect(code(swarm)).toContain("sb: supabaseAdmin as never, scopeUserId: userId");
+    // Whitespace-tolerant: the context literal gained a decisionId field and
+    // is now multi-line. What matters is service-role client WITH scopeUserId.
+    expect(code(swarm)).toMatch(/sb:\s*supabaseAdmin as never,\s*scopeUserId:\s*userId,/);
   });
 
   it("still lets a swarm call MCP tools headlessly", () => {

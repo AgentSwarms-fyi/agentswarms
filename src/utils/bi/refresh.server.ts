@@ -13,6 +13,7 @@
 // Triggering: `ensureScheduler()` starts a 60s interval inside the running
 // node server (lazily, on first request that imports this module) and
 // `/api/bi/cron` lets external cron services drive it on serverless hosts.
+import { beginDecision } from "@/utils/provenance/decision.server";
 import { createRequire } from "node:module";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
@@ -360,6 +361,12 @@ export async function refreshDashboardServer(dashboardId: string): Promise<{
     .single();
   if (error || !dash) throw new Error(error?.message ?? "Dashboard not found");
   const readUpdatedAt = dash.updated_at;
+  // A refresh is a decision: the numbers it lands are what people will later
+  // ask "where did this come from?" about. Records which lakehouse snapshot was
+  // current, which is the one fact that cannot be reconstructed afterwards.
+  // Widget-level stamping follows once semantic queries write audit rows;
+  // until then the refresh's own decision row (and its snapshot) is the record.
+  beginDecision({ userId: dash.user_id, kind: "dashboard_refresh", rootRef: dash.id });
 
   // Columns aggregation must not collapse away: every dashboard filter narrows
   // widgets client-side by column name, and filterWidgetRows SKIPS a column it

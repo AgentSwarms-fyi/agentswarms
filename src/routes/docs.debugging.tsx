@@ -89,6 +89,29 @@ function DebuggingDoc() {
         ]}
       />
 
+      <H2 id="provenance">Where did this answer come from?</H2>
+      <P>
+        Every trace carries a <strong>decision id</strong>: its own id for a standalone chat turn,
+        the run id for a node inside a swarm run. The same id is stamped on every data read a tool
+        made on that answer&rsquo;s behalf, so the trace sheet&rsquo;s <strong>Provenance</strong>{" "}
+        section can list them: which warehouse, which tables, and whether an agent tool did the
+        reading.
+      </P>
+      <Callout kind="info" title="Reproducible, or only recorded">
+        The decision also records which <strong>lakehouse snapshot</strong> was current when it
+        began. The lakehouse can re-run a query as of that snapshot, so an answer marked{" "}
+        <em>reproducible</em> can be asked again against the data exactly as it was. An answer
+        marked <em>recorded, not reproducible</em> touched no lakehouse (or the snapshot could not
+        be read) — the chain is still complete, but the numbers cannot be regenerated as of that
+        moment. The distinction is shown rather than hidden, because it is exactly what an auditor
+        would test.
+      </Callout>
+      <P>
+        This is evidence, not compliance — no tool grants that — and it exists only from the day
+        recording began. See <DocLink to="/docs/analytics">Analytics</DocLink> for spend, and{" "}
+        <C>docs/PROVENANCE.md</C> in the repository for the schema.
+      </P>
+
       <H2 id="playground-inspector">The playground inspector</H2>
       <P>
         While chatting in the <DocLink to="/docs/playground">Playground</DocLink>, the inspector

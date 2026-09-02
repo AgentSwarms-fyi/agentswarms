@@ -20,6 +20,7 @@
 // and provider credentials. Without that service it is refused, with a message
 // saying how to enable it. Still owner-login-only: `a2a_remote` (needs the
 // owner's JWT for the /api/a2a proxy).
+import { beginDecision } from "@/utils/provenance/decision.server";
 import type { Node, Edge } from "@xyflow/react";
 import {
   interpolate,
@@ -65,8 +66,13 @@ import { envInt } from "@/utils/rateLimit.server";
 // Tool context for headless data tools: service-role client with scopeUserId
 // set, which forces the loaders to restrict data to what the owner may read
 // (own + public samples + IAM-shared).
-function dataToolCtx(userId: string): AgentToolContext {
-  return { userId, sb: supabaseAdmin as never, scopeUserId: userId };
+function dataToolCtx(userId: string, decisionId?: string | null): AgentToolContext {
+  return {
+    userId,
+    sb: supabaseAdmin as never,
+    scopeUserId: userId,
+    decisionId: decisionId ?? undefined,
+  };
 }
 
 export type ExecuteResult = {
@@ -110,6 +116,8 @@ const HEADLESS_SCOPED_TOOLS = new Set(["sql_query", "kb_search"]);
 async function serverChat(args: {
   origin: string;
   userId: string;
+  /** The run this turn belongs to; becomes the turn's decision id. */
+  runId?: string | null;
   node: Node<SwarmNodeData>;
   systemPrompt: string;
   userMessage: string;
@@ -138,6 +146,9 @@ async function serverChat(args: {
     headers: { "Content-Type": "application/json", "x-internal-run-secret": secret },
     body: JSON.stringify({
       internalUserId: args.userId,
+      // Every node turn joins the run's decision, so the run's provenance is
+      // one id rather than one per node.
+      decisionId: args.runId ?? undefined,
       provider: d.provider || "openrouter",
       model: d.model || "google/gemini-3-flash-preview",
       systemPrompt: args.systemPrompt,
@@ -353,6 +364,9 @@ export async function executeSwarmServer(opts: {
     withNodeRetry(a.node.data, () =>
       serverChat({
         ...a,
+        // The run is the decision; `runId` is assigned once the tracer exists,
+        // before any node executes, so the closure sees it.
+        runId,
         history: opts.history,
         signal: ac.signal,
         onUsage: (u) => {
@@ -382,6 +396,10 @@ export async function executeSwarmServer(opts: {
         })
       : null;
   const runId: string | null = tracer?.runId ?? null;
+  // The run is the decision. Every node turn (via serverChat) and every data
+  // tool call (via dataToolCtx) carries this id, so the whole run's provenance
+  // -- model calls, data read, cost -- keys off one value.
+  if (runId) beginDecision({ userId: opts.userId, kind: "swarm_run", id: runId, rootRef: runId });
 
   const finish = async (
     status: "success" | "error" | "suspended",
@@ -600,7 +618,7 @@ export async function executeSwarmServer(opts: {
               web_config: d.toolConfigs?.web_search || d.toolConfigs?.web_browse,
             };
             const res = await withNodeRetry(d, async () => {
-              const r = await runToolNodeCore(dataToolCtx(opts.userId), params);
+              const r = await runToolNodeCore(dataToolCtx(opts.userId, runId), params);
               if (!r.ok) throw new Error(`Tool node failed: ${r.error}`);
               return r;
             });
@@ -612,7 +630,7 @@ export async function executeSwarmServer(opts: {
             if (!kbId) throw new Error("Retrieve node has no knowledge base selected.");
             const query = interpolate(d.retrieveQuery || "{{input}}", ctx);
             const res = await withNodeRetry(d, async () => {
-              const r = await runToolNodeCore(dataToolCtx(opts.userId), {
+              const r = await runToolNodeCore(dataToolCtx(opts.userId, runId), {
                 tool_id: "kb_search",
                 args: { query, top_k: String(d.retrieveTopK ?? 5) },
                 knowledge_base_id: kbId,

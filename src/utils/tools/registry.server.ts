@@ -67,6 +67,12 @@ export type AgentToolContext = {
   // restrict results to this owner's rows + public samples — the sole tenant
   // guard in the absence of a user JWT. Never set on the normal RLS path.
   scopeUserId?: string;
+  /**
+   * The decision this tool call serves (see provenance/decision.server.ts).
+   * Stamped on every audit row a tool writes, so the data an answer read can be
+   * assembled from the answer's id rather than guessed at from timestamps.
+   */
+  decisionId?: string;
 };
 
 /**
@@ -137,6 +143,24 @@ export async function runKbSearch(
     userId: ctx.userId,
     reranker: ctx.reranker,
     scopeUserId: ctx.scopeUserId,
+  });
+  // A knowledge-base retrieval is a data read, and until now the only one of
+  // the agent's data tools that left no audit row at all. Without this an
+  // answer grounded in documents showed "no data reads recorded" -- exactly
+  // the silent hole a provenance record must not have.
+  auditEvent({
+    userId: ctx.userId,
+    action: "kb.search",
+    resourceType: "knowledge_base",
+    resourceName: [...new Set(cits.map((c) => c.knowledgeBaseName))].join(", ").slice(0, 200),
+    decisionId: ctx.decisionId,
+    detail: {
+      via: "agent_tool",
+      agent_id: ctx.agentId ?? null,
+      query: String(args.query ?? "").slice(0, 500),
+      results: cits.length,
+      documents: [...new Set(cits.map((c) => c.documentName))].slice(0, 20),
+    },
   });
   if (cits.length === 0) {
     return JSON.stringify({
@@ -1764,6 +1788,7 @@ export async function resolveAgentTools(
             action: "warehouse.query",
             resourceType: "warehouse",
             resourceName: conn.name,
+            decisionId: c.decisionId,
             detail: {
               provider: conn.provider,
               via: "agent_tool",

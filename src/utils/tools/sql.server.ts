@@ -15,6 +15,7 @@
 // longer a deploy target, so the interpreter — and the three-engine split it
 // created — is gone.
 
+import { auditEvent } from "@/utils/audit.server";
 import { restrictSharedDataset } from "@/utils/data/sharedDatasets.server";
 import type { ToolDef, AgentToolContext } from "./registry.server";
 
@@ -217,6 +218,44 @@ export async function runSqlQuery(
   const capped = total > ROW_CAP;
   const limited = capped ? result.slice(0, ROW_CAP) : result;
   const columns = limited.length > 0 ? Object.keys(limited[0]) : [];
+  // A dataset read is a data read. The UI path audits dataset.query; this tool
+  // -- the one an agent actually uses -- wrote nothing, so an answer built from
+  // a dataset showed "no data reads recorded". Names the tables the SQL
+  // referenced (not merely those visible), so the trail says what was read.
+  // Word-boundary match on a lowercased copy, no dynamic RegExp: table names
+  // can contain characters that are regex metacharacters, and building a
+  // pattern from them is how an injection or a crash sneaks in. A substring
+  // with boundary checks is enough to say "this table was referenced".
+  const haystack = sql.toLowerCase();
+  const isWordChar = (ch: string) => /[a-z0-9_]/.test(ch);
+  const referenced = tables
+    .map((t) => t.name)
+    .filter((name) => {
+      const needle = name.toLowerCase();
+      let from = haystack.indexOf(needle);
+      while (from !== -1) {
+        const before = from === 0 ? "" : haystack[from - 1];
+        const after = haystack[from + needle.length] ?? "";
+        if (!isWordChar(before) && !isWordChar(after)) return true;
+        from = haystack.indexOf(needle, from + 1);
+      }
+      return false;
+    });
+  auditEvent({
+    userId: ctx.userId,
+    action: "dataset.query",
+    resourceType: "dataset",
+    resourceName: referenced.join(", ").slice(0, 200) || undefined,
+    decisionId: ctx.decisionId,
+    detail: {
+      via: "agent_tool",
+      agent_id: ctx.agentId ?? null,
+      tables: referenced,
+      row_count: limited.length,
+      total_matched: total,
+      capped,
+    },
+  });
   return JSON.stringify({
     sql,
     columns,

@@ -18,6 +18,13 @@ export type AuditEmit = {
    * returns one). Saves the lookup below; otherwise it is resolved lazily.
    */
   actorEmail?: string | null;
+  /**
+   * The decision this event belongs to -- a chat turn, swarm run or dashboard
+   * refresh -- so "where did this come from?" is two indexed reads rather than
+   * a timestamp guess. Absent for events outside any decision (an IAM change,
+   * a secret rotation), which is correct rather than missing.
+   */
+  decisionId?: string | null;
 };
 
 /**
@@ -59,20 +66,33 @@ async function actorEmailFor(userId: string): Promise<string | null> {
  */
 export function auditEvent(args: AuditEmit): void {
   void (async () => {
-    const email =
-      args.actorEmail !== undefined ? args.actorEmail : await actorEmailFor(args.userId);
-    const { error } = await supabaseAdmin.from("audit_events").insert({
-      user_id: args.userId,
-      action: args.action,
-      resource_type: args.resourceType ?? null,
-      resource_name: args.resourceName?.slice(0, 200) ?? null,
-      resource_id: args.resourceId ?? null,
-      detail: (args.detail ?? {}) as Json,
-      // Cast: the generated types are rebuilt from a pushed schema, and this
-      // column ships in 20260781000000.
-      ...({ actor_email: email } as Record<string, unknown>),
-    });
-    if (error) console.warn("[audit] insert failed:", error.message);
+    try {
+      const email =
+        args.actorEmail !== undefined ? args.actorEmail : await actorEmailFor(args.userId);
+      const { error } = await supabaseAdmin.from("audit_events").insert({
+        user_id: args.userId,
+        action: args.action,
+        resource_type: args.resourceType ?? null,
+        resource_name: args.resourceName?.slice(0, 200) ?? null,
+        resource_id: args.resourceId ?? null,
+        detail: (args.detail ?? {}) as Json,
+        // Cast: the generated types are rebuilt from a pushed schema. actor_email
+        // ships in 20260781000000, decision_id in 20260848000000.
+        ...({ actor_email: email, decision_id: args.decisionId ?? null } as Record<
+          string,
+          unknown
+        >),
+      });
+      if (error) console.warn("[audit] insert failed:", error.message);
+    } catch (e) {
+      // "Never throws" was the documented contract and not quite the code:
+      // supabaseAdmin is a LAZY getter that throws when the service-role env
+      // vars are absent, and that throw escaped as an unhandled rejection
+      // rather than a warning. An audit write must not be able to take down
+      // the request it is describing -- nor a test that never touches a
+      // database.
+      console.warn("[audit] skipped:", (e as Error).message);
+    }
   })();
 }
 

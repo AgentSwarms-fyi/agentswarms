@@ -1,3 +1,5 @@
+import { auditEvent } from "@/utils/audit.server";
+import { beginDecision } from "@/utils/provenance/decision.server";
 import { createFileRoute } from "@tanstack/react-router";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
@@ -417,6 +419,8 @@ function withPostTurnMemory(
 // just demo seeded rows).
 type TraceContext = {
   traceId: string;
+  /** The decision this turn belongs to: its own trace id, or the swarm run's. */
+  decisionId: string;
   userId: string | null;
   authToken?: string;
   /**
@@ -456,6 +460,8 @@ import {
 import { approxTokens, estimateImageCost, isImageModel } from "@/utils/observability/pricing";
 import { priceCall } from "@/utils/observability/priceResolver";
 import { providerReportedCost } from "@/utils/observability/providerCost";
+
+const DECISION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function estimateCost(
   provider: string,
@@ -633,6 +639,7 @@ async function recordTrace(opts: {
   try {
     const insertRow = {
       id: trace.traceId,
+      decision_id: trace.decisionId,
       user_id: userId,
       agent_id: trace.agentId ?? null,
       agent_name: trace.agentName,
@@ -681,6 +688,7 @@ async function recordTrace(opts: {
           resourceType: "agent",
           resourceName: trace.agentName,
           resourceId: trace.agentId,
+          decisionId: trace.decisionId,
           detail: { model: `${trace.provider}/${trace.model}`, status },
         });
       }
@@ -1001,6 +1009,10 @@ export const Route = createFileRoute("/api/chat")({
             // service secret and name the owner here (see the internal-auth
             // block below). Ignored for normal browser requests.
             internalUserId?: string;
+            // A swarm run passes its run id so every node turn is correlated
+            // to the same decision. A standalone chat turn omits it and
+            // becomes a decision of its own (see provenance/decision.server).
+            decisionId?: string;
             // Per-call tool allow-list (used by the swarm runtime to pick
             // which tools each node exposes). When omitted, the registry
             // returns every capability the user is configured for.
@@ -1381,8 +1393,18 @@ export const Route = createFileRoute("/api/chat")({
 
           const lastUserForTrace = [...body.messages].reverse().find((m) => m.role === "user");
           const promptText = lastUserForTrace ? messageText(lastUserForTrace.content).trim() : "";
+          const traceId = crypto.randomUUID();
+          // A swarm node turn adopts the run's decision id; the run began the
+          // decision. A standalone turn IS a decision, keyed by its trace id.
+          const decisionId =
+            body.decisionId && DECISION_ID_RE.test(body.decisionId)
+              ? body.decisionId
+              : userId
+                ? beginDecision({ userId, kind: "chat_turn", id: traceId, rootRef: traceId })
+                : traceId;
           const trace: TraceContext = {
-            traceId: crypto.randomUUID(),
+            traceId,
+            decisionId,
             userId,
             authToken,
             internalRun: isInternalRun,
@@ -1625,6 +1647,31 @@ export const Route = createFileRoute("/api/chat")({
                     reranker: bodyReranker,
                     principal: { email: principalEmail },
                   });
+                  // Audited for the same reason it is called unconditionally:
+                  // the search happened, and a provenance record that omits it
+                  // would say the answer consulted nothing. This is the path a
+                  // grounded agent actually takes -- retrieval here is
+                  // automatic, so the kb_search TOOL (and its audit) never runs.
+                  // userId is nullable on this branch; an audit row with no
+                  // actor is not worth writing, and RLS would refuse it anyway.
+                  if (userId)
+                    auditEvent({
+                      userId,
+                      action: "kb.search",
+                      resourceType: "knowledge_base",
+                      resourceName:
+                        [...new Set(citations.map((c) => c.knowledgeBaseName))]
+                          .join(", ")
+                          .slice(0, 200) || undefined,
+                      decisionId: trace.decisionId,
+                      detail: {
+                        via: "auto_rag",
+                        agent_id: body.agentId ?? null,
+                        query: query.slice(0, 500),
+                        results: citations.length,
+                        documents: [...new Set(citations.map((c) => c.documentName))].slice(0, 20),
+                      },
+                    });
                   // Called even when nothing came back: an empty result is a
                   // fact about the knowledge base, and the model has to be told
                   // it searched rather than left to answer from memory.
@@ -2047,6 +2094,7 @@ export const Route = createFileRoute("/api/chat")({
                   authToken,
                   sb: sbForTools,
                   scopeUserId: toolScopeUserId,
+                  decisionId: trace.decisionId,
                 },
                 {
                   enabledTools: allowList ?? [],
@@ -2078,6 +2126,7 @@ export const Route = createFileRoute("/api/chat")({
                     conversationId: body.conversationId ?? null,
                     reranker: bodyReranker,
                     scopeUserId: toolScopeUserId,
+                    decisionId: trace.decisionId,
                   },
                   temperature: body.temperature,
                   maxTokens: body.maxTokens,

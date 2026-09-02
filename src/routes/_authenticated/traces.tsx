@@ -40,6 +40,7 @@ import {
   getExecutionTraces,
   type ExecutionTraceRow,
 } from "@/utils/traceLog.functions";
+import { getDecision, type DecisionChain } from "@/utils/provenance.functions";
 
 export const Route = createFileRoute("/_authenticated/traces")({
   component: TracesPage,
@@ -53,6 +54,7 @@ function TracesPage() {
   const { user, session } = useAuth();
   const fetchTraces = useServerFn(getExecutionTraces);
   const fetchTraceDetail = useServerFn(getExecutionTraceDetail);
+  const fetchDecision = useServerFn(getDecision);
   const [traces, setTraces] = useState<Trace[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -64,6 +66,26 @@ function TracesPage() {
   const [selected, setSelected] = useState<Trace | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+  // "Where did this come from?" — everything the decision touched, keyed by
+  // the id stamped on this trace. Loaded per selection, never blocks the sheet.
+  const [chain, setChain] = useState<DecisionChain | null>(null);
+  useEffect(() => {
+    const id = selected?.decision_id;
+    setChain(null);
+    if (!id) return;
+    let live = true;
+    fetchDecision({ data: { decisionId: id } })
+      .then((c) => {
+        if (live) setChain(c);
+      })
+      .catch(() => {
+        if (live) setChain(null);
+      });
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.decision_id]);
   const [loadError, setLoadError] = useState<string | null>(null);
   // The exact row count for the active range. The fetch is capped (PostgREST
   // max-rows), so without this the header presents the loaded window as the
@@ -562,6 +584,70 @@ function TracesPage() {
                     <Section title="Prompt">
                       <div className="bg-muted/40 rounded-md p-3 text-xs whitespace-pre-wrap break-words">
                         {selected.prompt}
+                      </div>
+                    </Section>
+                  )}
+
+                  {chain && (
+                    <Section title="Provenance">
+                      <div className="space-y-2 text-xs">
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                          <span className="font-mono text-muted-foreground">
+                            decision {chain.decision.id.slice(0, 8)}
+                          </span>
+                          <span className="rounded bg-muted px-1.5 py-0.5">
+                            {chain.decision.kind.replace("_", " ")}
+                          </span>
+                          {chain.reproducible ? (
+                            <span
+                              className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-emerald-700 dark:text-emerald-400"
+                              title="The lakehouse snapshot this answer saw is recorded; its queries can be re-run against it."
+                            >
+                              reproducible · snapshot {chain.decision.lakehouse_snapshot_id}
+                            </span>
+                          ) : (
+                            <span
+                              className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-700 dark:text-amber-400"
+                              title="No lakehouse snapshot was recorded, so this answer is recorded but cannot be re-run as of that moment."
+                            >
+                              recorded, not reproducible
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-muted-foreground">
+                          {chain.traces.length} model turn{chain.traces.length === 1 ? "" : "s"} ·{" "}
+                          {chain.events.length} data read{chain.events.length === 1 ? "" : "s"}
+                        </div>
+                        {chain.events.length > 0 && (
+                          <div className="space-y-1">
+                            {chain.events.map((e) => {
+                              const d = (e.detail ?? {}) as Record<string, unknown>;
+                              const tables = Array.isArray(d.tables) ? (d.tables as string[]) : [];
+                              return (
+                                <div key={e.id} className="rounded-md bg-muted/40 p-2">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="font-mono font-semibold">{e.action}</span>
+                                    <span className="text-muted-foreground">
+                                      {e.resource_name ?? e.resource_type ?? ""}
+                                    </span>
+                                  </div>
+                                  {(tables.length > 0 || typeof d.via === "string") && (
+                                    <div className="mt-0.5 text-[10px] text-muted-foreground">
+                                      {tables.length > 0 && <>tables: {tables.join(", ")}</>}
+                                      {tables.length > 0 && typeof d.via === "string" && " · "}
+                                      {typeof d.via === "string" && <>via {d.via}</>}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                        {chain.events.length === 0 && (
+                          <div className="text-muted-foreground">
+                            No data reads were recorded for this decision.
+                          </div>
+                        )}
                       </div>
                     </Section>
                   )}

@@ -627,6 +627,28 @@ export function clearLakehouseCache(): void {
   RESULT_CACHE.clear();
 }
 
+/**
+ * The lakehouse's current snapshot, for recording at the start of a decision.
+ *
+ * DuckLake can re-run a query AT a snapshot, so this one integer is what makes
+ * an answer reproducible rather than merely recorded. Null when the lakehouse
+ * is not configured or cannot be reached -- an honest "not reproducible", and
+ * never an exception, because provenance must not fail the thing it describes.
+ */
+export async function lakehouseSnapshotId(): Promise<string | null> {
+  if (!lakehouseConfig()) return null;
+  let c: DuckDBConnection | null = null;
+  try {
+    c = await lakehouseConnection();
+    const id = await currentSnapshotId(c);
+    return id.startsWith("nosnap") ? null : id;
+  } catch {
+    return null;
+  } finally {
+    c?.closeSync();
+  }
+}
+
 async function currentSnapshotId(c: DuckDBConnection): Promise<string> {
   try {
     const rows = await (
