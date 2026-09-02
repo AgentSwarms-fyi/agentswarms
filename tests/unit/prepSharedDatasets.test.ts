@@ -84,3 +84,37 @@ describe("warehouse work is billed to a tenant", () => {
     expect(semantic).toContain("userId: ownerId");
   });
 });
+
+// Alerts on a dashboard belong to that dashboard's owner.
+//
+// `evaluateAlerts` selected every alert on the dashboard, whoever wrote it, and
+// then notified `userId` — the owner — for all of them. The UI does not offer
+// the dialog to anyone else (the Schedule button sits behind `!readOnly`, and
+// `readOnly = !isOwner`), so this was not reachable by clicking. It IS
+// reachable by inserting directly: RLS on bi_alerts is
+// `WITH CHECK (auth.uid() = user_id)`, so anyone who can read a shared
+// dashboard may attach an alert to it under their own id, and the owner then
+// receives notifications for a rule they never wrote.
+//
+// The tempting fix — notify `a.user_id` — is the wrong one on its own. The
+// value comes from the widget's STORED rows, which are the owner's unmasked
+// results, so a viewer whose access is masked would receive an aggregate over
+// rows they cannot see. Per-viewer alerting needs per-viewer evaluation, not a
+// different address on the same number.
+describe("BI alerts belong to the dashboard owner", () => {
+  const refreshSrc = readFileSync("src/utils/bi/refresh.server.ts", "utf8");
+  const evaluate = refreshSrc.slice(refreshSrc.indexOf("export async function evaluateAlerts"));
+
+  it("only evaluates the owner's alerts", () => {
+    expect(evaluate.slice(0, 1600)).toContain('.eq("user_id", userId)');
+    expect(evaluate.slice(0, 1600)).toContain('.eq("dashboard_id", dashboardId)');
+  });
+
+  it("addresses the alert's own owner rather than a passed-in id", () => {
+    // Identical to `userId` once the filter above is there, but it states the
+    // intent instead of depending on a filter three lines away staying put.
+    expect(evaluate).toContain("await notify(a.user_id, title, body,");
+    expect(evaluate).toContain("await ownerEmail(a.user_id)");
+    expect(evaluate).not.toContain("await notify(userId, title, body,");
+  });
+});

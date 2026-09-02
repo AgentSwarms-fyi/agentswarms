@@ -775,10 +775,30 @@ export async function evaluateAlerts(
   userId: string,
   widgets: WidgetJson[],
 ): Promise<void> {
+  // Scoped to the dashboard's OWNER.
+  //
+  // This query returned every alert on the dashboard whoever wrote it, and then
+  // notified `userId` — the owner — for all of them. The UI only offers the
+  // dialog to the owner (the Schedule button sits behind `!readOnly`, and
+  // `readOnly = !isOwner`), so this was not reachable by clicking. It is
+  // reachable by inserting directly: RLS on bi_alerts is
+  // `WITH CHECK (auth.uid() = user_id)`, which lets anyone who can read a
+  // shared dashboard attach an alert to it under their own id. The owner would
+  // then get notifications for a rule they never wrote.
+  //
+  // Routing to `a.user_id` instead would be worse, not better. The value is
+  // computed from the widget's stored rows, which are the owner's UNMASKED
+  // results — a viewer whose access to that data is masked would receive an
+  // aggregate over rows they cannot see. Per-viewer alerting needs per-viewer
+  // evaluation, not a different recipient on the same number.
+  //
+  // So alerts belong to the dashboard owner, and the query says so rather than
+  // leaving it to the UI.
   const { data: alerts } = await supabaseAdmin
     .from("bi_alerts")
     .select("*")
     .eq("dashboard_id", dashboardId)
+    .eq("user_id", userId)
     .eq("is_active", true);
   const now = new Date().toISOString();
   for (const a of alerts ?? []) {
@@ -791,10 +811,10 @@ export async function evaluateAlerts(
       const metric = a.column_name ? `${a.aggregation}(${a.column_name})` : "row count";
       const title = a.label || `Alert on "${widget.title ?? "widget"}"`;
       const body = `${metric} is ${Math.round(value * 100) / 100} (${OP_LABEL[a.operator] ?? a.operator} ${a.threshold}) on "${dashboardName}".`;
-      await notify(userId, title, body, `/bi/${dashboardId}`);
+      await notify(a.user_id, title, body, `/bi/${dashboardId}`);
       // Optional email delivery — never blocks the alert pipeline.
       if (a.email_enabled) {
-        const to = await ownerEmail(userId);
+        const to = await ownerEmail(a.user_id);
         if (to) {
           void sendMail({
             to,
