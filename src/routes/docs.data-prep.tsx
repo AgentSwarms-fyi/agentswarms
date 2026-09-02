@@ -69,7 +69,11 @@ function DataPrepPage() {
       <UL>
         <li>
           <strong>Local tables</strong> — uploads and previously prepared tables, already in the
-          workspace.
+          workspace. This includes the built-in samples and any dataset{" "}
+          <strong>shared with you by an IAM grant</strong>: a shared dataset arrives with the
+          owner&rsquo;s row filters and column masks already applied, so every join, step and output
+          downstream of it only ever sees what the grant allows. Staging rows from an upload still
+          in progress are not offered as sources.
         </li>
         <li>
           <strong>External tables</strong> — connected warehouses and databases, expanded as{" "}

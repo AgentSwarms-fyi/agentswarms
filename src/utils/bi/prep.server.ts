@@ -15,6 +15,7 @@ import { createRequire } from "node:module";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { registerPrepFns } from "@/lib/alasqlPrepFns";
+import { STAGING_PREFIX } from "@/lib/datasetParse";
 import type { Json } from "@/integrations/supabase/types";
 import {
   buildPrepSql,
@@ -81,15 +82,37 @@ export type PrepExecution = {
  * in-memory database. Loading every dataset — what the old code did — is both
  * slower and a memory hazard on accounts with many datasets.
  */
+/** Guards the `id.in.(…)` interpolation below — a non-UUID there is a syntax error at best. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 async function loadFlowTables(
   userId: string,
   needed: Set<string>,
   cfg?: PrepFlowConfig,
 ): Promise<{ tables: FlowTable[]; truncated: string[] }> {
+  // Same visibility BI refresh gives a dashboard: own datasets, public samples,
+  // and datasets shared by an IAM grant. Data Prep saw only the first two, so a
+  // dataset someone shared with you worked in a dashboard and was invisible in
+  // a prep flow — the grant appeared to do nothing here.
+  //
+  // Visibility and MASKING are one decision, not two. A shared dataset must
+  // arrive with its owner's row filters and column masks applied
+  // (restrictSharedDataset below); widening the query without that would turn a
+  // missing feature into a data leak.
+  const { grantedDatasetIds, restrictSharedDataset } =
+    await import("@/utils/data/sharedDatasets.server");
+  const granted = await grantedDatasetIds(supabaseAdmin, userId);
+  const grantedIds = [...granted].filter((id) => UUID_RE.test(id));
+  const orParts = [`user_id.eq.${userId}`, "is_sample.eq.true"];
+  if (grantedIds.length) orParts.push(`id.in.(${grantedIds.join(",")})`);
+
   const { data: tables, error } = await supabaseAdmin
     .from("user_data_tables")
     .select("id, name, columns, user_id, is_sample")
-    .or(`user_id.eq.${userId},is_sample.eq.true`);
+    // `__upload_*` rows are staging areas for an in-flight upload, not datasets;
+    // they were selectable as prep sources.
+    .not("name", "like", `${STAGING_PREFIX}%`)
+    .or(orParts.join(","));
   if (error) throw new Error(error.message);
 
   const loaded: FlowTable[] = [];
@@ -115,10 +138,13 @@ async function loadFlowTables(
         );
         connCache.set(binding.connectionId, conn);
       }
+      // Bill the tenant: the governor reads `userId ? gateFor(userId) : null`,
+      // so omitting it removes the per-user gate rather than relaxing it.
       const res = await executeWarehouseQuery(
         conn.config,
         `SELECT * FROM ${binding.ref}`,
         sourceCap,
+        { userId },
       );
       if (res.rows.length >= sourceCap) truncated.push(name);
       // A buffered warehouse table has no locally declared schema; the column
@@ -155,11 +181,18 @@ async function loadFlowTables(
       }
     }
     if (hitCap) truncated.push(t.name);
-    loaded.push({
-      name: t.name,
-      columns: Array.isArray(t.columns) ? (t.columns as FlowTable["columns"]) : [],
-      rows,
-    });
+    let columns = Array.isArray(t.columns) ? (t.columns as FlowTable["columns"]) : [];
+    let visibleRows = rows;
+    // A dataset that is neither yours nor a sample reached you through a grant,
+    // and a grant can carry row filters and column masks. Apply them here, at
+    // the point of loading, so every downstream step of the flow only ever sees
+    // what the grant allows.
+    if (!t.is_sample && t.user_id !== userId) {
+      const restricted = await restrictSharedDataset(supabaseAdmin, t.id, userId, columns, rows);
+      columns = restricted.columns as FlowTable["columns"];
+      visibleRows = restricted.rows;
+    }
+    loaded.push({ name: t.name, columns, rows: visibleRows });
   }
   return { tables: loaded, truncated };
 }
@@ -225,13 +258,15 @@ async function tryFoldToWarehouse(
   // cannot be verified from here; the warehouse itself is the authority, and
   // a parse/semantic error must degrade to the local path, never to bad data.
   try {
-    await executeWarehouseQuery(conn.config, `SELECT * FROM (${sql}) AS _fold_check`, 1);
+    await executeWarehouseQuery(conn.config, `SELECT * FROM (${sql}) AS _fold_check`, 1, {
+      userId,
+    });
   } catch (e) {
     return { skip: `the warehouse rejected the pushed-down query (${(e as Error).message})` };
   }
 
   const outputCap = rowLimit ?? prepOutputRowsCap();
-  const res = await executeWarehouseQuery(conn.config, sql, outputCap);
+  const res = await executeWarehouseQuery(conn.config, sql, outputCap, { userId });
   const cast = castRows(res.rows, cfg);
   return {
     execution: {

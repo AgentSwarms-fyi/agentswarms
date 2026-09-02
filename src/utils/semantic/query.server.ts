@@ -215,7 +215,14 @@ export async function runSemanticQuery(opts: {
     const compiled = compileSemanticQuery(model, query, {
       dialect: conn.config.provider as SqlDialect,
     });
-    const res = await executeWarehouseQuery(conn.config, compiled.sql, opts.maxRows ?? 1000);
+    // Billed to the model's OWNER, not the requester — the convention
+    // executeWarehouseQuery documents. A semantic model queried by many viewers
+    // is exactly the shape that convention exists for, and without a tenant the
+    // governor applies no per-user gate at all
+    // (`userId ? gateFor(userId) : null`), only the global one.
+    const res = await executeWarehouseQuery(conn.config, compiled.sql, opts.maxRows ?? 1000, {
+      userId: ownerId,
+    });
     return {
       model: model.name,
       columns: compiled.columns,
