@@ -22,6 +22,7 @@ import {
   sqlQueryTool,
 } from "./sql.server";
 import { metricQueryTool, runMetricQuery, semanticCatalogForCtx } from "./metric.server";
+import { auditEvent } from "@/utils/audit.server";
 import { assertPublicUrl, safeFetch } from "@/utils/ssrfGuard.server";
 import { resolveMcpAuthToken } from "@/lib/mcp/auth.server";
 import { resolveIntegrationConfig } from "@/utils/providers/integrationConfig.server";
@@ -1746,7 +1747,31 @@ export async function resolveAgentTools(
             { name: String(a.connection ?? "") },
             c.userId,
           );
-          const result = await executeWarehouseQuery(conn.config, String(a.sql ?? ""), 200);
+          const sqlText = String(a.sql ?? "");
+          // `userId` is the tenant this query is billed to. Without it the
+          // per-user concurrency gate does not apply at all (see governor:
+          // `userId ? gateFor(userId) : null`), so an agent — including a
+          // scheduled swarm looping over rows — could consume the whole global
+          // budget while every interactive user waited.
+          const result = await executeWarehouseQuery(conn.config, sqlText, 200, {
+            userId: c.userId,
+          });
+          // The UI path records every warehouse query. This one did not, which
+          // left the automated queries — the ones nobody is watching as they
+          // happen — as the only reads with no trail.
+          auditEvent({
+            userId: c.userId,
+            action: "warehouse.query",
+            resourceType: "warehouse",
+            resourceName: conn.name,
+            detail: {
+              provider: conn.provider,
+              via: "agent_tool",
+              agent_id: c.agentId ?? null,
+              row_count: result.row_count,
+              truncated: result.truncated,
+            },
+          });
           const LLM_ROW_CAP = 50;
           return JSON.stringify({
             connection: conn.name,

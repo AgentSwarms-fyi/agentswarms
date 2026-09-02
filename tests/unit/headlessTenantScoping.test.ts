@@ -116,3 +116,34 @@ describe("shared tables keep their sharing", () => {
     expect(code(registry)).toContain('.not("name", "like", "__upload_%")');
   });
 });
+
+describe("agent data access is governed and recorded", () => {
+  const c = code(registry);
+  const uiPath = code(readFileSync("src/routes/api/warehouse/query.ts", "utf8"));
+
+  it("bills the agent's warehouse query to a tenant", () => {
+    // The governor reads `userId ? gateFor(userId) : null`, so omitting it does
+    // not merely skip a limit — it removes the per-user gate entirely. An agent
+    // looping over rows could then consume the whole global budget while every
+    // interactive user queued behind it.
+    const block = c.slice(c.indexOf('handlers.set("warehouse_query"'));
+    expect(block.slice(0, 900)).toContain("executeWarehouseQuery(conn.config, sqlText, 200, {");
+    expect(block.slice(0, 900)).toContain("userId: c.userId");
+  });
+
+  it("records it, like the UI path already did", () => {
+    // Automated queries are the ones nobody watches happen, so they are the
+    // ones that most need a trail. This path had none.
+    expect(uiPath, "the UI path is the precedent").toContain('action: "warehouse.query"');
+    const block = c.slice(c.indexOf('handlers.set("warehouse_query"'));
+    expect(block.slice(0, 900)).toContain('action: "warehouse.query"');
+    expect(block.slice(0, 900)).toContain('via: "agent_tool"');
+  });
+
+  it("says which agent ran it", () => {
+    // Otherwise the row says a user queried a warehouse and cannot say what
+    // was acting for them.
+    const block = c.slice(c.indexOf('handlers.set("warehouse_query"'));
+    expect(block.slice(0, 900)).toContain("agent_id: c.agentId ?? null");
+  });
+});
