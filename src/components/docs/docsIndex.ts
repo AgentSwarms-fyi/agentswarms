@@ -982,12 +982,15 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "title": "Logs & traces",
     "description": "Every run on the platform — playground chats, swarm nodes, notebook calls — is recorded as a trace. Reading traces is the core debugging skill in agentic systems, and the one course environments almost never let you practice.",
     "terms": [
+      "LIMIT",
       "PERSIST_PROMPT_BODIES",
       "PROVENANCE_SIGNING_SECRET",
       "docs/PROVENANCE.md",
       "false",
+      "now()",
       "null",
       "provenance_retention_days",
+      "random()",
       "sql_query",
       "trace_retention_days"
     ],

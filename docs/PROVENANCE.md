@@ -138,8 +138,8 @@ The fingerprint is taken over a **normalised** result — these column names, in
 this order, holding these values — not over whatever shape the calling code
 happened to hold. That is not a detail: `executeWarehouseQuery` returns rows as
 objects keyed by column name while the lakehouse runner returns arrays of
-cells, and fingerprinting them as-is made every lakehouse read replay as *"does
-not match the record"* — a false accusation of tampering, on data nothing had
+cells, and fingerprinting them as-is made every lakehouse read replay as _"does
+not match the record"_ — a false accusation of tampering, on data nothing had
 touched.
 
 Digests carry their format (`v1:…`). A fingerprint this build cannot reproduce
@@ -150,6 +150,27 @@ for a reason with nothing to do with the data.
 Every read runs under the caller's own grants and row policies, from a
 read-only attachment. A replay can never read more than the caller may read,
 and can never write.
+
+### A query that answers differently every time
+
+`SELECT random()` replayed as _"does NOT match the record"_ — the tampering
+verdict — against a snapshot that cannot change. The record was faithful; the
+query simply does not answer the same way twice.
+
+So a mismatch is now **measured, not assumed**. When the as-of run differs from
+the record, the same query is run **again against the same immutable snapshot**:
+
+- Two runs that disagree **with each other** → the query is non-deterministic.
+  Nothing can be concluded, and the read is reported as _"query is not
+  deterministic — cannot be checked"_ rather than as a disagreement. Today's
+  comparison is suppressed too: a difference there would otherwise read as _"the
+  world moved on"_ when it is only the query being itself.
+- Two runs that agree with each other but differ from the record → a genuine
+  disagreement, reported as such.
+
+The extra query is only ever paid on a mismatch, never on the happy path. To
+make such a read checkable, make the query deterministic: an explicit
+`ORDER BY`, and no `random()` or `now()`.
 
 ### What cannot be replayed says so
 

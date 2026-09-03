@@ -35,8 +35,19 @@ import { getDecisionChain, type DecisionEvent } from "./decision.server";
 export type ReplayRun = {
   /** Fingerprint of what the query returns now, at this point in time. */
   digest: string | null;
-  /** Whether that matches the fingerprint recorded when the answer was given. */
+  /**
+   * Whether that matches the fingerprint recorded when the answer was given.
+   * Null means the comparison could not be made — no recorded fingerprint, an
+   * unreadable one, an error, or a query that does not answer the same way
+   * twice. Never guess `false` for any of those.
+   */
   matchesRecord: boolean | null;
+  /**
+   * The same query, run twice against the SAME immutable snapshot, returned
+   * two different results — so the query is not deterministic and nothing can
+   * be concluded from comparing it to anything.
+   */
+  nondeterministic?: boolean;
   rowCount: number | null;
   durationMs: number | null;
   error: string | null;
@@ -70,6 +81,8 @@ export type ReplayResult = {
     unfaithful: number;
     /** Same query, different answer today. Not a fault; worth knowing. */
     movedSince: number;
+    /** The query does not answer the same way twice, so it proves nothing. */
+    nondeterministic: number;
     notReplayable: number;
   };
 };
@@ -133,12 +146,45 @@ async function runOnce(
       res.columns.map((c) => c.name),
       res.rows,
     );
+    // Unknown-format digests compare to nothing. Reporting one as a mismatch
+    // would accuse the record of being wrong on the strength of a fingerprint
+    // this build cannot even reproduce.
+    let matchesRecord = isComparableDigest(recordedDigest) ? digest === recordedDigest : null;
+    let nondeterministic: boolean | undefined;
+
+    // FOUND FROM THE UI. `SELECT random()` replayed as "does NOT match the
+    // record" — the tampering verdict — against a snapshot that cannot change.
+    // The record was perfectly faithful; the query simply does not answer the
+    // same way twice. Rather than guess which it is, MEASURE it: run the same
+    // query against the same immutable snapshot again. Two runs that disagree
+    // with each other prove the query is non-deterministic, and nothing can be
+    // concluded about the record. Two runs that agree with each other but
+    // differ from the record are a genuine disagreement.
+    //
+    // Only on a mismatch, and only against a pinned snapshot — the extra query
+    // is the price of not making a false accusation, and it is never paid on
+    // the happy path.
+    if (matchesRecord === false && asOfSnapshot) {
+      const again = await runLakehouseStatement(userId, sql, {
+        rowCap,
+        useCache: false,
+        auditVia: "replay-determinism-check",
+        asOfSnapshot,
+      });
+      const confirm = resultDigest(
+        again.columns.map((c) => c.name),
+        again.rows,
+      );
+      if (confirm !== digest) {
+        nondeterministic = true;
+        matchesRecord = null;
+      }
+    }
+
     return {
       digest,
-      // Unknown-format digests compare to nothing. Reporting one as a mismatch
-      // would accuse the record of being wrong on the strength of a fingerprint
-      // this build cannot even reproduce.
-      matchesRecord: isComparableDigest(recordedDigest) ? digest === recordedDigest : null,
+      matchesRecord,
+      nondeterministic,
       rowCount: res.row_count,
       durationMs: res.duration_ms,
       error: null,
@@ -196,21 +242,33 @@ export async function replayDecision(
       snapshot && !snapshot.startsWith("nosnap")
         ? await runOnce(userId, sql as string, rowCap, recordedDigest, snapshot)
         : null;
+    // A query that does not answer the same way twice cannot be compared to
+    // anything -- including today's data, where a difference would otherwise
+    // read as "the world moved on" when it is only the query being itself.
+    if (asOf?.nondeterministic && current) {
+      current.matchesRecord = null;
+      current.nondeterministic = true;
+    }
     reads.push({
       ...base,
       asOf,
       current,
-      reason: asOf
-        ? null
-        : "No lakehouse snapshot was recorded for this decision, so the read could only be run against today's data.",
+      reason: asOf?.nondeterministic
+        ? "This query does not return the same result twice against the same unchanged snapshot, so nothing can be concluded by comparing it — check it by hand, or make it deterministic (an explicit ORDER BY, no random() or now())."
+        : asOf
+          ? null
+          : "No lakehouse snapshot was recorded for this decision, so the read could only be run against today's data.",
     });
   }
 
   const summary = {
     replayed: reads.filter((r) => r.current !== null).length,
     faithful: reads.filter((r) => r.asOf?.matchesRecord === true).length,
+    // Only a measured disagreement counts. A non-deterministic query is
+    // excluded by construction: matchesRecord is null, not false.
     unfaithful: reads.filter((r) => r.asOf?.matchesRecord === false).length,
     movedSince: reads.filter((r) => r.current?.matchesRecord === false).length,
+    nondeterministic: reads.filter((r) => r.asOf?.nondeterministic === true).length,
     notReplayable: reads.filter((r) => r.current === null).length,
   };
 

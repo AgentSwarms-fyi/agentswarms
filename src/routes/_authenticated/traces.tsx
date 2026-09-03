@@ -708,6 +708,10 @@ function TracesPage() {
                                   toast.error(
                                     `${r.summary.unfaithful} read(s) do not match the record`,
                                   );
+                                else if (r.summary.nondeterministic > 0)
+                                  toast.warning(
+                                    `${r.summary.nondeterministic} read(s) use a query that does not answer the same way twice`,
+                                  );
                                 else if (r.summary.movedSince > 0)
                                   toast.warning(
                                     `${r.summary.movedSince} read(s) return different data today`,
@@ -746,28 +750,42 @@ function TracesPage() {
                                       does NOT match the record
                                     </span>
                                   )}
-                                  {r.asOf?.matchesRecord === null && !r.asOf.error && (
-                                    <span className="text-muted-foreground">
-                                      re-ran; nothing to compare against
+                                  {r.asOf?.nondeterministic && (
+                                    <span className="text-amber-600 dark:text-amber-500">
+                                      query is not deterministic — cannot be checked
                                     </span>
                                   )}
+                                  {r.asOf?.matchesRecord === null &&
+                                    !r.asOf.error &&
+                                    !r.asOf.nondeterministic && (
+                                      <span className="text-muted-foreground">
+                                        re-ran; nothing to compare against
+                                      </span>
+                                    )}
                                   {!r.asOf && (
                                     <span className="text-muted-foreground">not replayable</span>
                                   )}
                                 </div>
-                                {r.current?.matchesRecord === false && (
-                                  <div className="text-amber-600 dark:text-amber-500">
-                                    returns different data today than when the answer was given
-                                  </div>
-                                )}
+                                {r.current?.matchesRecord === false &&
+                                  !r.current.nondeterministic && (
+                                    <div className="text-amber-600 dark:text-amber-500">
+                                      returns different data today than when the answer was given
+                                    </div>
+                                  )}
                                 {r.current?.matchesRecord === true && (
                                   <div className="text-muted-foreground">
                                     unchanged since the answer was given
                                   </div>
                                 )}
+                                {/* Only when the fingerprint itself is the obstacle. A
+                                    non-deterministic query also leaves this null, and
+                                    saying "older format" about a current-format digest
+                                    would be simply untrue. */}
                                 {r.current?.matchesRecord === null &&
                                   !r.current.error &&
-                                  r.recordedDigest !== null && (
+                                  !r.current.nondeterministic &&
+                                  r.recordedDigest !== null &&
+                                  !r.recordedDigest.startsWith("v1:") && (
                                     <div className="text-muted-foreground">
                                       the fingerprint recorded for this read is in an older format,
                                       so today&rsquo;s result cannot be compared to it

@@ -127,6 +127,14 @@ function DebuggingDoc() {
         nobody can substantiate is worse than no alarm.
       </P>
       <P>
+        A mismatch is measured, not assumed. If the as-of run differs from the record, the same
+        query runs again against the same unchanged snapshot: two runs that disagree with{" "}
+        <em>each other</em> prove the query is non-deterministic — <C>random()</C>, <C>now()</C>, an
+        unordered <C>LIMIT</C> — and the read is reported as unable to be checked rather than as a
+        disagreement. Only a query that answers consistently and still differs from the record is
+        called a disagreement.
+      </P>
+      <P>
         Replays run under your own grants and row policies from a read-only attachment: one can
         never read more than you can, and never writes.
       </P>

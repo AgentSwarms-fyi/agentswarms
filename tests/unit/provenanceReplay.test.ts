@@ -217,6 +217,84 @@ describe("the two questions", () => {
     for (const call of runStatement.mock.calls) expect(call[2]?.useCache).toBe(false);
   });
 
+  it("measures non-determinism instead of blaming the record for it", async () => {
+    // FOUND FROM THE UI. `SELECT random()` replayed as "does NOT match the
+    // record" -- the tampering verdict -- against a snapshot that cannot
+    // change. The record was faithful; the query just does not answer the same
+    // way twice. So on a mismatch the as-of query is run AGAIN against the same
+    // immutable snapshot: two runs disagreeing with each other prove the query,
+    // not the record, is the problem.
+    let n = 0;
+    runStatement.mockImplementation(async () => ({
+      rows: [[++n]],
+      row_count: 1,
+      duration_ms: 3,
+      columns: [{ name: "r", type: "DOUBLE" }],
+      truncated: false,
+      kind: "select",
+    }));
+    chain.mockResolvedValue(
+      makeChain([
+        lakeRead({ provider: "lakehouse", sql: "SELECT random()", result_digest: DIGEST_THEN }),
+      ]),
+    );
+    const { replayDecision } = await subject();
+    const res = await replayDecision("u1", "dd3a53e5-1111-4222-8333-444444444444");
+    expect(res!.reads[0].asOf!.nondeterministic).toBe(true);
+    expect(res!.reads[0].asOf!.matchesRecord).toBeNull();
+    expect(res!.summary.unfaithful).toBe(0);
+    expect(res!.summary.nondeterministic).toBe(1);
+    // Today's comparison is meaningless too, and must not read as "moved on".
+    expect(res!.reads[0].current!.matchesRecord).toBeNull();
+    expect(res!.summary.movedSince).toBe(0);
+    expect(res!.reads[0].reason).toMatch(/does not return the same result twice/);
+  });
+
+  it("still calls a genuine disagreement what it is", async () => {
+    // The determinism check must not become a blanket excuse. When the query IS
+    // deterministic -- two runs agreeing with each other -- a difference from
+    // the record is exactly the serious case this feature exists to surface.
+    runStatement.mockResolvedValue({
+      rows: ROWS_NOW,
+      row_count: 2,
+      duration_ms: 4,
+      columns: COLS.map((name) => ({ name, type: "VARCHAR" })),
+      truncated: false,
+      kind: "select",
+    });
+    chain.mockResolvedValue(
+      makeChain([lakeRead({ provider: "lakehouse", sql: "SELECT 1", result_digest: DIGEST_THEN })]),
+    );
+    const { replayDecision } = await subject();
+    const res = await replayDecision("u1", "dd3a53e5-1111-4222-8333-444444444444");
+    expect(res!.reads[0].asOf!.nondeterministic).toBeUndefined();
+    expect(res!.summary.unfaithful).toBe(1);
+    expect(res!.summary.nondeterministic).toBe(0);
+  });
+
+  it("pays for the determinism check only when something mismatched", async () => {
+    // Two queries per read on the happy path would double the cost of every
+    // replay for nothing.
+    runStatement.mockResolvedValue({
+      rows: ROWS_THEN,
+      row_count: 2,
+      duration_ms: 4,
+      columns: COLS.map((name) => ({ name, type: "VARCHAR" })),
+      truncated: false,
+      kind: "select",
+    });
+    chain.mockResolvedValue(
+      makeChain([lakeRead({ provider: "lakehouse", sql: "SELECT 1", result_digest: DIGEST_THEN })]),
+    );
+    const { replayDecision } = await subject();
+    await replayDecision("u1", "dd3a53e5-1111-4222-8333-444444444444");
+    // Exactly two: one current, one as-of. No confirmation run.
+    expect(runStatement).toHaveBeenCalledTimes(2);
+    expect(runStatement.mock.calls.some((c) => c[2]?.auditVia === "replay-determinism-check")).toBe(
+      false,
+    );
+  });
+
   it("reports an unreadable fingerprint as unknown, not as tampering", async () => {
     // A digest format change would otherwise fire the loudest alarm this
     // system has on every historical read at once, for a reason that has
