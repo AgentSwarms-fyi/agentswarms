@@ -1809,7 +1809,10 @@ export async function resolveAgentTools(
               // digest taken at the time is what shows whether the answer's
               // data was what the record says it was.
               sql: sqlText.slice(0, 4000),
-              result_digest: resultDigest(result.rows),
+              result_digest: resultDigest(
+                result.columns.map((col) => col.name),
+                result.rows,
+              ),
               // The cap the digest was taken under. A replay that re-ran with a
               // different cap would report a mismatch caused by truncation
               // rather than by the data.

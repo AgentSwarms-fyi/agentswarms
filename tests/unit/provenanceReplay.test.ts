@@ -22,7 +22,8 @@ const ROWS_NOW = [
   ["north", 175],
   ["south", 90],
 ];
-const DIGEST_THEN = resultDigest(ROWS_THEN);
+const COLS = ["region", "amount"];
+const DIGEST_THEN = resultDigest(COLS, ROWS_THEN);
 
 const chain = vi.fn();
 const runStatement = vi.fn();
@@ -72,6 +73,57 @@ beforeEach(() => {
   audited.mockReset();
 });
 
+describe("the result fingerprint", () => {
+  // FOUND FROM THE UI, and the reason the digest takes columns + rows rather
+  // than "whatever the caller is holding". executeWarehouseQuery returns rows
+  // as OBJECTS keyed by column name (toObjects); runLakehouseStatement returns
+  // ARRAYS of cells. The tool recorded one shape and replay computed the other,
+  // so every lakehouse read replayed as "does NOT match the record" — a false
+  // accusation of tampering, on data nothing had touched.
+  //
+  // These mocks agree by construction, so only a test on the REAL function can
+  // catch a disagreement between the two shapes.
+  it("is the same whether rows arrive as objects or as arrays", async () => {
+    const { resultDigest } = await import("@/utils/provenance/canonical");
+    const cols = ["id", "region", "amount"];
+    const asArrays = [
+      [1, "north", 100],
+      [2, "south", 90],
+    ];
+    const asObjects = [
+      { id: 1, region: "north", amount: 100 },
+      { id: 2, region: "south", amount: 90 },
+    ];
+    expect(resultDigest(cols, asObjects)).toBe(resultDigest(cols, asArrays));
+  });
+
+  it("still notices the data actually changing", async () => {
+    // The guard above must not have been bought by making everything equal.
+    const { resultDigest } = await import("@/utils/provenance/canonical");
+    const cols = ["id", "amount"];
+    expect(resultDigest(cols, [[1, 100]])).not.toBe(resultDigest(cols, [[1, 101]]));
+    expect(resultDigest(cols, [[1, 100]])).not.toBe(
+      resultDigest(cols, [
+        [1, 100],
+        [2, 5],
+      ]),
+    );
+  });
+
+  it("treats a column rename as a different answer", async () => {
+    const { resultDigest } = await import("@/utils/provenance/canonical");
+    expect(resultDigest(["region"], [["north"]])).not.toBe(resultDigest(["area"], [["north"]]));
+  });
+
+  it("stamps its format, so an old digest is unknown rather than a mismatch", async () => {
+    const { resultDigest, isComparableDigest } = await import("@/utils/provenance/canonical");
+    expect(resultDigest(["a"], [[1]])).toMatch(/^v1:[0-9a-f]{16}$/);
+    expect(isComparableDigest("abc123")).toBe(false);
+    expect(isComparableDigest(null)).toBe(false);
+    expect(isComparableDigest(resultDigest(["a"], [[1]]))).toBe(true);
+  });
+});
+
 describe("what can be replayed", () => {
   it("refuses a read with no recorded query, and says why", async () => {
     // Reads from before query recording shipped are permanently in this state.
@@ -109,7 +161,7 @@ describe("the two questions", () => {
       rows: opts?.asOfSnapshot ? ROWS_THEN : ROWS_NOW,
       row_count: 2,
       duration_ms: 12,
-      columns: [],
+      columns: COLS.map((name) => ({ name, type: "VARCHAR" })),
       truncated: false,
       kind: "select",
     }));
@@ -133,7 +185,7 @@ describe("the two questions", () => {
       rows: ROWS_NOW,
       row_count: 2,
       duration_ms: 9,
-      columns: [],
+      columns: COLS.map((name) => ({ name, type: "VARCHAR" })),
       truncated: false,
       kind: "select",
     });
@@ -163,6 +215,29 @@ describe("the two questions", () => {
     expect(asOf).toContain(null);
     // A cached result would be checking our cache, not the data.
     for (const call of runStatement.mock.calls) expect(call[2]?.useCache).toBe(false);
+  });
+
+  it("reports an unreadable fingerprint as unknown, not as tampering", async () => {
+    // A digest format change would otherwise fire the loudest alarm this
+    // system has on every historical read at once, for a reason that has
+    // nothing to do with the data.
+    runStatement.mockResolvedValue({
+      rows: ROWS_THEN,
+      row_count: 2,
+      duration_ms: 5,
+      columns: COLS.map((name) => ({ name, type: "VARCHAR" })),
+      truncated: false,
+      kind: "select",
+    });
+    chain.mockResolvedValue(
+      makeChain([
+        lakeRead({ provider: "lakehouse", sql: "SELECT 1", result_digest: "deadbeefdeadbeef" }),
+      ]),
+    );
+    const { replayDecision } = await subject();
+    const res = await replayDecision("u1", "dd3a53e5-1111-4222-8333-444444444444");
+    expect(res!.reads[0].asOf!.matchesRecord).toBeNull();
+    expect(res!.summary.unfaithful).toBe(0);
   });
 
   it("does not report a match when nothing was recorded to match against", async () => {

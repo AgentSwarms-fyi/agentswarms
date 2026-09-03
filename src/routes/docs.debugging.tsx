@@ -122,8 +122,9 @@ function DebuggingDoc() {
         the record and the data disagree. Against today's data, a mismatch simply means the world
         moved on, which is what someone acting on an old answer needs to know. Reads that cannot be
         checked — no query text recorded, or a store with no snapshot history — say so rather than
-        passing quietly, and a read with no recorded fingerprint is reported as unknown, not as
-        verified.
+        passing quietly. A read whose fingerprint is missing, or recorded in a format this build
+        cannot reproduce, is reported as unknown rather than as verified or as tampering — an alarm
+        nobody can substantiate is worse than no alarm.
       </P>
       <P>
         Replays run under your own grants and row policies from a read-only attachment: one can

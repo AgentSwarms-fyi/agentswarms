@@ -134,6 +134,19 @@ what it returned. Re-running a query later only proves the query still runs;
 comparing against the digest taken at the time is what shows the answer's data
 was what the record says it was.
 
+The fingerprint is taken over a **normalised** result — these column names, in
+this order, holding these values — not over whatever shape the calling code
+happened to hold. That is not a detail: `executeWarehouseQuery` returns rows as
+objects keyed by column name while the lakehouse runner returns arrays of
+cells, and fingerprinting them as-is made every lakehouse read replay as *"does
+not match the record"* — a false accusation of tampering, on data nothing had
+touched.
+
+Digests carry their format (`v1:…`). A fingerprint this build cannot reproduce
+is reported as **unknown**, never as a mismatch — otherwise changing the format
+would fire the loudest alarm the system has on every historical read at once,
+for a reason with nothing to do with the data.
+
 Every read runs under the caller's own grants and row policies, from a
 read-only attachment. A replay can never read more than the caller may read,
 and can never write.

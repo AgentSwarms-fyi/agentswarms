@@ -261,7 +261,7 @@ export async function runSqlQuery(
       // digest taken at the time is what shows whether the answer's
       // data was what the record says it was.
       sql: sql.slice(0, 4000),
-      result_digest: resultDigest(limited),
+      result_digest: resultDigest(columns, limited),
     },
   });
   return JSON.stringify({

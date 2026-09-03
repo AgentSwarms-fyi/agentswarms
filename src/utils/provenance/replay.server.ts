@@ -28,7 +28,7 @@ import { auditEvent } from "@/utils/audit.server";
 import { runLakehouseStatement } from "@/utils/lakehouse/core.server";
 
 import { isDataRead } from "./actions";
-import { resultDigest } from "./canonical";
+import { isComparableDigest, resultDigest } from "./canonical";
 import { getDecisionChain, type DecisionEvent } from "./decision.server";
 
 /** One re-run, against one point in time. */
@@ -129,10 +129,16 @@ async function runOnce(
       auditVia: asOfSnapshot ? "replay-as-of" : "replay-current",
       asOfSnapshot,
     });
-    const digest = resultDigest(res.rows);
+    const digest = resultDigest(
+      res.columns.map((c) => c.name),
+      res.rows,
+    );
     return {
       digest,
-      matchesRecord: recordedDigest ? digest === recordedDigest : null,
+      // Unknown-format digests compare to nothing. Reporting one as a mismatch
+      // would accuse the record of being wrong on the strength of a fingerprint
+      // this build cannot even reproduce.
+      matchesRecord: isComparableDigest(recordedDigest) ? digest === recordedDigest : null,
       rowCount: res.row_count,
       durationMs: res.duration_ms,
       error: null,

@@ -746,6 +746,11 @@ function TracesPage() {
                                       does NOT match the record
                                     </span>
                                   )}
+                                  {r.asOf?.matchesRecord === null && !r.asOf.error && (
+                                    <span className="text-muted-foreground">
+                                      re-ran; nothing to compare against
+                                    </span>
+                                  )}
                                   {!r.asOf && (
                                     <span className="text-muted-foreground">not replayable</span>
                                   )}
@@ -760,6 +765,14 @@ function TracesPage() {
                                     unchanged since the answer was given
                                   </div>
                                 )}
+                                {r.current?.matchesRecord === null &&
+                                  !r.current.error &&
+                                  r.recordedDigest !== null && (
+                                    <div className="text-muted-foreground">
+                                      the fingerprint recorded for this read is in an older format,
+                                      so today&rsquo;s result cannot be compared to it
+                                    </div>
+                                  )}
                                 {(r.reason || r.current?.error) && (
                                   <div className="text-muted-foreground">
                                     {r.reason ?? r.current?.error}

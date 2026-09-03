@@ -299,7 +299,7 @@ export async function runMetricQuery(
         // digest taken at the time is what shows whether the answer's
         // data was what the record says it was.
         sql: res.sql.slice(0, 4000),
-        result_digest: resultDigest(res.rows),
+        result_digest: resultDigest(Object.keys(res.rows[0] ?? {}), res.rows),
       },
     });
     return renderMetricResult(res, RESULT_ROW_CAP);

@@ -33,17 +33,76 @@ export function canonicalJson(value: unknown): string {
 }
 
 /**
+ * The fingerprint format. Bumped whenever the bytes below change shape.
+ *
+ * A digest is compared for EQUALITY, and inequality raises the loudest alarm
+ * this system has: "the record and the data disagree". A format change would
+ * make every previously recorded digest mismatch — firing that alarm on every
+ * historical read at once, for a reason that has nothing to do with the data.
+ * So the format is stamped into the value, and a reader that does not
+ * recognise it reports UNKNOWN rather than a mismatch.
+ */
+const DIGEST_FORMAT = "v1";
+
+/**
+ * A query result reduced to the thing that is actually being fingerprinted:
+ * these columns, in this order, holding these values, in these rows.
+ *
+ * FOUND FROM THE UI, and the reason this function exists at all. The digest
+ * used to be taken over whatever shape the calling code happened to hold.
+ * `executeWarehouseQuery` returns rows as OBJECTS keyed by column name
+ * (`toObjects`), while `runLakehouseStatement` returns them as ARRAYS of
+ * cells. The tool recorded one shape and replay computed the other, so every
+ * lakehouse read replayed as "does NOT match the record" — a false accusation
+ * of tampering, fired 100% of the time, on data nothing had touched.
+ *
+ * Normalising here means neither caller has to know or care which shape it is
+ * holding, which is the only way two code paths stay agreed over time.
+ */
+export function normalizeResult(
+  columns: readonly string[],
+  rows: readonly unknown[],
+): { columns: string[]; rows: unknown[][] } {
+  const cols = [...columns];
+  return {
+    columns: cols,
+    rows: rows.map((r) =>
+      Array.isArray(r) ? [...r] : cols.map((c) => (r as Record<string, unknown>)?.[c]),
+    ),
+  };
+}
+
+/**
  * A short fingerprint of a query result, stored on the audit row at read time.
  *
  * This is what makes replay mean anything. Re-running a query later proves only
  * that the query runs; comparing the new result against the digest recorded at
  * the time proves whether the answer's data was what the record says it was.
  *
+ * Column NAMES are part of it: a query whose columns were renamed did not
+ * return the same answer, even if every value is identical. Column types are
+ * not — they are reported differently by different code paths and would make
+ * the digest depend on the route rather than the result.
+ *
  * Truncated to 16 hex characters (64 bits). That is a fingerprint for
  * change-detection, not a security boundary — it lives on an append-only audit
  * row the user already owns, and nothing authenticates on it. The passport's
  * signature is the tamper-evidence; this is only ever compared to itself.
  */
-export function resultDigest(rows: unknown): string {
-  return createHash("sha256").update(canonicalJson(rows)).digest("hex").slice(0, 16);
+export function resultDigest(columns: readonly string[], rows: readonly unknown[]): string {
+  const hash = createHash("sha256")
+    .update(canonicalJson(normalizeResult(columns, rows)))
+    .digest("hex")
+    .slice(0, 16);
+  return `${DIGEST_FORMAT}:${hash}`;
+}
+
+/**
+ * Can this recorded digest be compared to one we compute today?
+ *
+ * False for anything written in a format this build does not produce. The
+ * caller must then report the comparison as unknown — never as a mismatch.
+ */
+export function isComparableDigest(recorded: string | null): boolean {
+  return typeof recorded === "string" && recorded.startsWith(`${DIGEST_FORMAT}:`);
 }
