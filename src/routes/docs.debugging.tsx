@@ -122,9 +122,11 @@ function DebuggingDoc() {
         the record and the data disagree. Against today's data, a mismatch simply means the world
         moved on, which is what someone acting on an old answer needs to know. Reads that cannot be
         checked — no query text recorded, or a store with no snapshot history — say so rather than
-        passing quietly. A read whose fingerprint is missing, or recorded in a format this build
-        cannot reproduce, is reported as unknown rather than as verified or as tampering — an alarm
-        nobody can substantiate is worse than no alarm.
+        passing quietly. A read whose store keeps no snapshot history — an external Postgres, say —
+        is re-run against today only and labelled as such: that shows whether the answer still
+        holds, without claiming to have verified the record. A read whose fingerprint is missing, or
+        recorded in a format this build cannot reproduce, is reported as unknown rather than as
+        verified or as tampering — an alarm nobody can substantiate is worse than no alarm.
       </P>
       <P>
         A mismatch is measured, not assumed. If the as-of run differs from the record, the same

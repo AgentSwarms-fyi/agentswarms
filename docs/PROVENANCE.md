@@ -179,10 +179,16 @@ reason:
 
 - **No query text recorded.** Reads from before query recording shipped are
   permanently in this state; nothing can backfill them.
-- **A store with no snapshot history** (external Postgres, MySQL, an uploaded
-  dataset). The query could be re-run, but with nothing to compare it against a
-  difference would be uninterpretable — exactly the ambiguity replay exists to
-  remove.
+- **A store with no snapshot history** (external Postgres, MySQL, …). These are
+  re-run against **today only**, and labelled _"checked against today only"_.
+  That answers whether the answer still holds, which is what someone acting on
+  an old number needs; it cannot verify the record, and the reason says so
+  rather than letting a green tick imply it. A difference there may equally
+  mean the data moved or the query is not deterministic — with no unchanged
+  snapshot, nothing can tell those apart.
+- **A store with no wired executor here** (an uploaded dataset, a knowledge
+  base). Not re-run at all: guessing an executor risks running the recorded
+  query somewhere it did not come from.
 - **No snapshot on the decision**, so only today's data can be read.
 
 And when no digest was recorded, the verdict is _unknown_, never _faithful_.

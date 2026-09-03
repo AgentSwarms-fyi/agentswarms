@@ -140,15 +140,46 @@ describe("what can be replayed", () => {
     const r = replayability(lakeRead({ provider: "postgres", sql: "SELECT 1" }) as never);
     expect(r.reason).toContain("postgres");
     expect(r.reason).toMatch(/no snapshot history/);
-    // The sql is still surfaced -- it is evidence even when unreplayable.
+    // The sql is still surfaced -- it is evidence even when the record itself
+    // cannot be checked.
     expect(r.sql).toBe("SELECT 1");
+  });
+
+  it("re-runs an external warehouse against today, and says what that cannot show", async () => {
+    // Half the question, answered honestly, beats none: "does this answer still
+    // hold?" is what someone acting on an old number needs. What it cannot do
+    // is verify the record, and the reason must say so rather than letting a
+    // green tick imply it.
+    const { replayability } = await subject();
+    const r = replayability(lakeRead({ provider: "postgres", sql: "SELECT 1" }) as never);
+    expect(r.mode).toBe("current-only");
+    expect(r.reason).toContain("postgres");
+    expect(r.reason).toMatch(/record itself cannot be verified/);
+    // And it must not pretend a difference is decisive.
+    expect(r.reason).toMatch(/not deterministic/);
+  });
+
+  it("refuses to guess an executor for a store it does not know", async () => {
+    // Running a recorded query against the wrong system would be worse than
+    // not running it.
+    const { replayability } = await subject();
+    const r = replayability({
+      id: "e9",
+      action: "dataset.query",
+      resource_type: "dataset",
+      resource_name: "orders",
+      detail: { sql: "SELECT 1" },
+      created_at: "2026-09-03T02:05:12.000Z",
+    } as never);
+    expect(r.mode).toBeNull();
+    expect(r.reason).toMatch(/no wired executor/);
   });
 
   it("accepts a lakehouse read", async () => {
     const { replayability } = await subject();
-    expect(
-      replayability(lakeRead({ provider: "lakehouse", sql: "SELECT 1" }) as never).reason,
-    ).toBeNull();
+    const r = replayability(lakeRead({ provider: "lakehouse", sql: "SELECT 1" }) as never);
+    expect(r.reason).toBeNull();
+    expect(r.mode).toBe("time-travel");
   });
 });
 

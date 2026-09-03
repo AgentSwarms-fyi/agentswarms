@@ -762,7 +762,17 @@ function TracesPage() {
                                         re-ran; nothing to compare against
                                       </span>
                                     )}
-                                  {!r.asOf && (
+                                  {/* No as-of run can mean two different things: the
+                                      read could not run at all, or it ran against
+                                      today only because its store keeps no history.
+                                      Calling the second "not replayable" would hide a
+                                      check that did happen. */}
+                                  {!r.asOf && r.current && (
+                                    <span className="text-muted-foreground">
+                                      checked against today only
+                                    </span>
+                                  )}
+                                  {!r.asOf && !r.current && (
                                     <span className="text-muted-foreground">not replayable</span>
                                   )}
                                 </div>

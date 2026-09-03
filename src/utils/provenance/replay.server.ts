@@ -105,25 +105,99 @@ function str(d: Record<string, unknown>, k: string): string | null {
  * replay exists to remove. Those are reported as not replayable, with the
  * reason, rather than half-checked.
  */
-export function replayability(e: DecisionEvent): { sql: string | null; reason: string | null } {
+export function replayability(e: DecisionEvent): {
+  sql: string | null;
+  /**
+   * `time-travel` — the store can be read as it was, so the record itself can
+   * be checked. `current-only` — the query can be re-run against today's data,
+   * which answers whether the answer still holds but cannot verify the record.
+   * `null` — nothing can be run at all.
+   */
+  mode: "time-travel" | "current-only" | null;
+  reason: string | null;
+} {
   const d = detailOf(e);
   const sql = str(d, "sql");
   if (!sql) {
     return {
       sql: null,
+      mode: null,
       reason:
         "No query text was recorded for this read, so there is nothing to re-run. Reads made before query recording shipped are permanently in this state — nothing can backfill them.",
     };
   }
   const provider = str(d, "provider");
-  const isLake = e.action === "lakehouse.select" || provider === "lakehouse";
-  if (!isLake) {
+  if (e.action === "lakehouse.select" || provider === "lakehouse") {
+    return { sql, mode: "time-travel", reason: null };
+  }
+  // An external warehouse can be re-queried, just not as it was. That answers
+  // half the question honestly, and half is worth more than nothing: "does
+  // this answer still hold?" is what someone acting on an old number needs.
+  // What it cannot do is verify the record, and the reason says so rather than
+  // letting a green tick imply it.
+  if (e.action === "warehouse.query" && provider) {
     return {
       sql,
-      reason: `This read went to ${provider ?? e.action}, which keeps no snapshot history. The query could be re-run, but there is no record of what the data looked like at the time to compare against.`,
+      mode: "current-only",
+      reason: `${provider} keeps no snapshot history, so the record itself cannot be verified — only whether the data has changed since. A difference below may equally mean the data moved or the query is not deterministic; there is no unchanged snapshot to tell them apart.`,
     };
   }
-  return { sql, reason: null };
+  return {
+    sql,
+    mode: null,
+    reason: `This read went to ${provider ?? e.action}, which this instance cannot re-run: there is no wired executor for it here, and guessing one would risk running the query somewhere it did not come from.`,
+  };
+}
+
+/**
+ * Re-run a read that went to an external warehouse, against today's data.
+ *
+ * Deliberately the SAME entry point the agent tool used, so the fingerprint is
+ * computed over a result produced the same way. Ownership is enforced by the
+ * loader's `ownerUserId` filter — documented as the security decision even when
+ * the service-role client is passed — so a replay cannot reach a connection the
+ * caller may not use, and a grant revoked since surfaces as an error rather
+ * than a silent success.
+ */
+async function runCurrentOnWarehouse(
+  userId: string,
+  connectionName: string | null,
+  sql: string,
+  rowCap: number,
+  recordedDigest: string | null,
+): Promise<ReplayRun> {
+  const started = Date.now();
+  try {
+    if (!connectionName) throw new Error("The read did not record which connection it used");
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { loadWarehouseConnectionForUser } = await import("@/utils/warehouse/connections.server");
+    const { executeWarehouseQuery } = await import("@/utils/warehouse/drivers.server");
+    const conn = await loadWarehouseConnectionForUser(
+      supabaseAdmin,
+      { name: connectionName },
+      userId,
+    );
+    const res = await executeWarehouseQuery(conn.config, sql, rowCap, { userId });
+    const digest = resultDigest(
+      res.columns.map((c) => c.name),
+      res.rows,
+    );
+    return {
+      digest,
+      matchesRecord: isComparableDigest(recordedDigest) ? digest === recordedDigest : null,
+      rowCount: res.row_count,
+      durationMs: Date.now() - started,
+      error: null,
+    };
+  } catch (e) {
+    return {
+      digest: null,
+      matchesRecord: null,
+      rowCount: null,
+      durationMs: null,
+      error: (e as Error).message.slice(0, 400),
+    };
+  }
 }
 
 async function runOnce(
@@ -221,7 +295,7 @@ export async function replayDecision(
     const d = detailOf(e);
     const recordedDigest = str(d, "result_digest");
     const recordedRowCount = typeof d.row_count === "number" ? d.row_count : null;
-    const { sql, reason } = replayability(e);
+    const { sql, mode, reason } = replayability(e);
     const base = {
       eventId: e.id,
       action: e.action,
@@ -230,13 +304,31 @@ export async function replayDecision(
       recordedDigest,
       recordedRowCount,
     };
-    if (reason) {
+    if (mode === null) {
       reads.push({ ...base, asOf: null, current: null, reason });
       continue;
     }
     // Match the cap the read itself used, or the fingerprints would differ for
     // no reason but truncation.
     const rowCap = typeof d.row_cap === "number" ? d.row_cap : 200;
+    if (mode === "current-only") {
+      // No snapshot to read as-of, so there is no faithfulness verdict to give
+      // and none is invented. `reason` already says what this can and cannot
+      // establish.
+      reads.push({
+        ...base,
+        asOf: null,
+        current: await runCurrentOnWarehouse(
+          userId,
+          e.resource_name,
+          sql as string,
+          rowCap,
+          recordedDigest,
+        ),
+        reason,
+      });
+      continue;
+    }
     const current = await runOnce(userId, sql as string, rowCap, recordedDigest, null);
     const asOf =
       snapshot && !snapshot.startsWith("nosnap")
