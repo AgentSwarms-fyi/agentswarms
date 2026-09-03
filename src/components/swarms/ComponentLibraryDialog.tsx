@@ -5,6 +5,7 @@
 // The "Test" button runs the snippet in the SAME Worker sandbox the canvas
 // uses, with the same params coercion — so a component that passes here
 // behaves identically on a node. One execution path, no second definition.
+import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
@@ -137,9 +138,9 @@ export function ComponentLibraryDialog({ open, onOpenChange, onChanged }: Props)
 
   const remove = async (c: SwarmComponent) => {
     if (
-      !window.confirm(
-        `Delete "${c.name}"? Nodes already using it keep working — they carry their own snapshot of the code.`,
-      )
+      !(await confirmAsk({
+        title: `Delete "${c.name}"? Nodes already using it keep working — they carry their own snapshot of the code.`,
+      }))
     )
       return;
     const { error } = await supabase.from("swarm_components").delete().eq("id", c.id);

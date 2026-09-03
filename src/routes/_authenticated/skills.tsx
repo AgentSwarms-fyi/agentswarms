@@ -1,3 +1,4 @@
+import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -70,7 +71,12 @@ function SkillLibraryPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Delete this skill? Agents that reference it will silently drop it.")) return;
+    if (
+      !(await confirmAsk({
+        title: "Delete this skill? Agents that reference it will silently drop it.",
+      }))
+    )
+      return;
     const { error } = await supabase.from("agent_skills").delete().eq("id", id);
     if (error) {
       toast.error(error.message);

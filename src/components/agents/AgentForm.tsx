@@ -1,3 +1,4 @@
+import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { loadDraft, saveDraft, clearDraft } from "@/lib/formDraft";
 import { supabase } from "@/integrations/supabase/client";
@@ -803,7 +804,12 @@ export function AgentForm({
 
   async function clearAllMemoryItems() {
     if (!agent?.id) return;
-    if (!confirm("Delete all remembered items for this agent? This cannot be undone.")) return;
+    if (
+      !(await confirmAsk({
+        title: "Delete all remembered items for this agent? This cannot be undone.",
+      }))
+    )
+      return;
     const { error } = await supabase.from("agent_memory_items").delete().eq("agent_id", agent.id);
     if (error) {
       toast.error(error.message);

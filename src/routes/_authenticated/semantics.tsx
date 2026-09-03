@@ -1,5 +1,6 @@
 // Semantic Layer — define governed metrics + dimensions over a dataset, then
 // query them (the same definitions the metric_query agent tool consumes).
+import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
@@ -730,7 +731,7 @@ function SemanticsPage() {
       const message = summary
         ? `This model is still in use:\n\n${summary}\n\nDeleting it will break these. Delete anyway?`
         : "Delete this semantic model?";
-      if (!window.confirm(message)) return;
+      if (!(await confirmAsk({ title: message }))) return;
       await deleteFn({ data: { accessToken: token, id } });
       if (draft?.id === id) setDraft(null);
       await load();
@@ -785,7 +786,11 @@ function SemanticsPage() {
   }, [editorTab, draft?.id]);
 
   const restore = async (versionId: string) => {
-    if (!window.confirm("Restore this version? The current definition is snapshotted first."))
+    if (
+      !(await confirmAsk({
+        title: "Restore this version? The current definition is snapshotted first.",
+      }))
+    )
       return;
     try {
       const res = await restoreFn({ data: { accessToken: token, versionId } });

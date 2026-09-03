@@ -2,6 +2,7 @@
 // Owners compose widgets (manual SQL charts, AI-generated visuals, markdown
 // text), arrange them on the grid, refresh data snapshots and publish.
 // Users the project is shared with (IAM grants) get a read-only view.
+import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
@@ -244,9 +245,15 @@ function BiPageTabs({
                 type="button"
                 className="text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
                 title="Delete page"
-                onClick={(e) => {
+                onClick={async (e) => {
                   e.stopPropagation();
-                  if (window.confirm(`Delete "${p.name}" and its widgets? This can't be undone.`)) {
+                  if (
+                    await confirmAsk({
+                      title: `Delete "${p.name}" and its widgets?`,
+                      body: "This cannot be undone.",
+                      actionLabel: "Delete",
+                    })
+                  ) {
                     onDelete(p.id);
                   }
                 }}

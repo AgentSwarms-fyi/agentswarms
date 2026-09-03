@@ -2,6 +2,7 @@
 // run governed SQL (typed or NL-generated), inspect snapshots, import
 // platform datasets — all through the server chokepoint that enforces
 // schema access, audits every statement, and writes query history.
+import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
@@ -378,7 +379,14 @@ function SchemaRail({
                       className="h-6 w-6"
                       title="Drop schema and everything in it"
                       onClick={async () => {
-                        if (!confirm(`Drop schema "${s.name}" and all its tables?`)) return;
+                        if (
+                          !(await confirmAsk({
+                            title: `Drop schema "${s.name}"?`,
+                            body: "Every table in it is dropped too. This cannot be undone.",
+                            actionLabel: "Drop schema",
+                          }))
+                        )
+                          return;
                         try {
                           await dropFn({ data: { access_token: token, name: s.name } });
                           toast.success(`Dropped ${s.name}`);
@@ -884,7 +892,14 @@ function TableTab({
             variant="ghost"
             className="text-red-500"
             onClick={async () => {
-              if (!confirm(`Drop table ${schema}.${table}?`)) return;
+              if (
+                !(await confirmAsk({
+                  title: `Drop table ${schema}.${table}?`,
+                  body: "The table and its catalog entry are removed. This cannot be undone.",
+                  actionLabel: "Drop table",
+                }))
+              )
+                return;
               try {
                 await runFn({
                   data: { access_token: token, sql: `DROP TABLE "${schema}"."${table}"` },

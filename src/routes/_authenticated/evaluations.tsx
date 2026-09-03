@@ -5,6 +5,7 @@
 // comparable runs. The BATCH is driven from this page: a small concurrent loop
 // of runEvalCase server calls — cancel and resume are therefore natural (the
 // server refuses cases for cancelled runs and skips already-scored ones).
+import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatPassRate } from "@/lib/evalPassRate";
@@ -446,7 +447,9 @@ function DatasetPanel({
 
   const deleteDataset = async () => {
     if (
-      !window.confirm(`Delete dataset "${dataset.name}" and its cases? Past run results are kept.`)
+      !(await confirmAsk({
+        title: `Delete dataset "${dataset.name}" and its cases? Past run results are kept.`,
+      }))
     )
       return;
     await supabase.from("eval_datasets").delete().eq("id", dataset.id);

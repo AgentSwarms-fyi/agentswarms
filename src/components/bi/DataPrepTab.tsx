@@ -11,6 +11,7 @@
 //                  optionally refreshed on a schedule
 //
 // Every step compiles to one layered read-only SELECT (see lib/dataPrep.ts).
+import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
@@ -612,7 +613,10 @@ export function DataPrepTab() {
 
   async function handleDeleteFlow() {
     if (!flowId) return;
-    if (!window.confirm(`Delete flow "${flowName}"? The saved output dataset is kept.`)) return;
+    if (
+      !(await confirmAsk({ title: `Delete flow "${flowName}"? The saved output dataset is kept.` }))
+    )
+      return;
     try {
       await deletePrepFlow(flowId);
       setFlows((prev) => prev.filter((f) => f.id !== flowId));

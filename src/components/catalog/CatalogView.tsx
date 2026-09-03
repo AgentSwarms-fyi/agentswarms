@@ -1,4 +1,5 @@
 // Data Catalog browser: a sources rail, a searchable/filterable asset
+import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 // inventory, and a detail sheet with column-level metadata, PII flags
 // and user curation (description + tags, which survive re-crawls).
@@ -424,7 +425,7 @@ export function CatalogView({
   async function removeSource(source: CatalogSource) {
     if (!ownsSource(source))
       return toast.error("This source is shared read-only — only its owner can remove it");
-    if (!window.confirm(`Remove "${source.name}" and its cataloged assets?`)) return;
+    if (!(await confirmAsk({ title: `Remove "${source.name}" and its cataloged assets?` }))) return;
     const res = await deleteFn({ data: { access_token: token, source_id: source.id } });
     if (!res.ok) return toast.error(res.error);
     toast.success("Source removed");

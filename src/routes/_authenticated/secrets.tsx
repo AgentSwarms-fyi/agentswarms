@@ -2,6 +2,7 @@
 // connection form accepts a value: {{secret:NAME}}. Values are encrypted
 // server-side and write-only — they can be replaced but never viewed.
 // Sharing is superadmin-controlled from /admin/iam → Access.
+import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { listClaim } from "@/lib/listClaim";
@@ -165,7 +166,11 @@ function SecretsPage() {
 
   const remove = async (s: SecretSummary) => {
     if (!token) return;
-    if (!window.confirm(`Delete secret ${s.name}? Anything referencing it will stop working.`))
+    if (
+      !(await confirmAsk({
+        title: `Delete secret ${s.name}? Anything referencing it will stop working.`,
+      }))
+    )
       return;
     const res = await deleteFn({ data: { access_token: token, secret_id: s.id } });
     if (!res.ok) return toast.error(res.error);

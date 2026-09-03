@@ -3,6 +3,7 @@
 // could never import real LangChain/LlamaIndex), plus read-only framework
 // samples you can run and fork. Each new notebook starts from a template with
 // notes on calling models through the user's connected providers.
+import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -96,7 +97,7 @@ function usePyNotebooks(pathname: string) {
   };
 
   const deleteNotebook = async (id: string) => {
-    if (!window.confirm("Delete this notebook? This cannot be undone.")) return;
+    if (!(await confirmAsk({ title: "Delete this notebook? This cannot be undone." }))) return;
     const { error } = await supabase.from("user_python_notebooks").delete().eq("id", id);
     if (error) return toast.error(error.message);
     setPyNotebooks((prev) => prev.filter((n) => n.id !== id));

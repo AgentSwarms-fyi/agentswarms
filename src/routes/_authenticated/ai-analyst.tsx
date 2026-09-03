@@ -10,6 +10,7 @@
 // The reasoning loop lives in lib/aiAnalyst (tested); this page is the
 // shell: analyst CRUD (RLS owner-only), scope resolution (local DuckDB
 // datasets or one warehouse connection), thread persistence, rendering.
+import { confirmAsk, promptAsk } from "@/components/ui/confirm-dialog";
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -618,8 +619,22 @@ function AiAnalystPage() {
       // rather than letting the refusal look like a broken button.
       const note =
         state === "wrong"
-          ? (window.prompt("What is wrong with this answer? (required)") ?? "").trim()
-          : (window.prompt("Anything to note about this check? (optional)") ?? "").trim();
+          ? (
+              await promptAsk({
+                title: "What is wrong with this answer?",
+                body: "This is recorded with the check, so say what a reader would need to know.",
+                actionLabel: "Save",
+                input: { placeholder: "What went wrong", required: true },
+              })
+            )?.trim()
+          : (
+              await promptAsk({
+                title: "Anything to note about this check?",
+                body: "Optional.",
+                actionLabel: "Save",
+                input: { placeholder: "Note (optional)" },
+              })
+            )?.trim();
       if (state === "wrong" && !note) {
         toast.error("A flag needs a reason — otherwise the next reader learns nothing from it.");
         return;
@@ -831,7 +846,8 @@ function AiAnalystPage() {
 
   async function deleteAnalyst(id: string) {
     const a = analysts?.find((x) => x.id === id);
-    if (!window.confirm(`Delete ${a?.name ?? "this analyst"} and its analyses?`)) return;
+    if (!(await confirmAsk({ title: `Delete ${a?.name ?? "this analyst"} and its analyses?` })))
+      return;
     const { error } = await supabase.from("ai_analysts").delete().eq("id", id);
     if (error) return toast.error(error.message);
     setAnalysts((cur) => (cur ?? []).filter((x) => x.id !== id));

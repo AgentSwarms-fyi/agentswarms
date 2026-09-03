@@ -3,6 +3,7 @@
 // frameworks. The kernel starts lazily on the first run and shares one
 // interpreter across cells; model/KB calls go through the injected
 // `agentswarms` helper and stay governed by IAM rules and budgets.
+import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import CodeMirror from "@uiw/react-codemirror";
@@ -279,7 +280,7 @@ function PyNotebookPage() {
   };
 
   const deleteNotebook = async () => {
-    if (!window.confirm("Delete this notebook? This cannot be undone.")) return;
+    if (!(await confirmAsk({ title: "Delete this notebook? This cannot be undone." }))) return;
     const { error } = await supabase.from("user_python_notebooks").delete().eq("id", pyNotebookId);
     if (error) return toast.error(error.message);
     toast.success("Notebook deleted");

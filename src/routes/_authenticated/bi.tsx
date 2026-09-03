@@ -1,4 +1,5 @@
 // BI Workspace — the list of BI projects (editable dashboards/reports).
+import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { identityHue } from "@/lib/identityHue";
 // Own projects open in the editor; projects shared via IAM group grants open
 // read-only. Published projects expose a public read-only link.
@@ -154,7 +155,8 @@ function BiWorkspacePage() {
   };
 
   const remove = async (d: BiDashboardRow) => {
-    if (!window.confirm(`Delete BI project "${d.name}"? This cannot be undone.`)) return;
+    if (!(await confirmAsk({ title: `Delete BI project "${d.name}"? This cannot be undone.` })))
+      return;
     try {
       await deleteDashboard(d.id);
       toast.success("Project deleted");
@@ -190,7 +192,11 @@ function BiWorkspacePage() {
   }
 
   async function removeFolder(f: BiFolder) {
-    if (!window.confirm(`Delete folder "${f.name}"? Dashboards inside stay — just ungrouped.`))
+    if (
+      !(await confirmAsk({
+        title: `Delete folder "${f.name}"? Dashboards inside stay — just ungrouped.`,
+      }))
+    )
       return;
     try {
       await deleteFolder(f.id);
