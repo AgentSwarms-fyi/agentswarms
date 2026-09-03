@@ -362,7 +362,14 @@ export const auditChainVerify = createServerFn({ method: "POST" })
     async ({
       data,
     }): Promise<
-      { ok: true; checked: number; firstBrokenSeq: number | null } | { ok: false; error: string }
+      | {
+          ok: true;
+          checked: number;
+          firstBrokenSeq: number | null;
+          /** A benign explanation for the break, when the broken row shows one. */
+          likelyCause: string | null;
+        }
+      | { ok: false; error: string }
     > => {
       const guard = await requireSuperadmin(data.access_token);
       if (!guard.ok) return { ok: false, error: "Superadmin only" };
@@ -380,6 +387,29 @@ export const auditChainVerify = createServerFn({ method: "POST" })
       if (error) return { ok: false, error: error.message };
       const row = rows?.[0];
       if (!row) return { ok: false, error: "No result from verification" };
-      return { ok: true, checked: Number(row.checked), firstBrokenSeq: row.first_broken_seq };
+      const firstBrokenSeq = row.first_broken_seq;
+
+      // "An event was altered or removed" is a serious accusation, and there is
+      // one benign cause we know of: until migration 20260850000000, deleting a
+      // user set audit_events.user_id to NULL, and user_id is hashed into the
+      // chain. Deleting one account therefore rewrote a hashed field on every
+      // row it had produced. Naming that possibility where the evidence fits is
+      // the difference between a useful check and one an operator learns to
+      // ignore -- it is offered as a lead to check, never as a verdict.
+      let likelyCause: string | null = null;
+      if (firstBrokenSeq !== null) {
+        /* eslint-disable @typescript-eslint/no-explicit-any */
+        const { data: broken } = await (sb as any)
+          .from("audit_events")
+          .select("user_id, actor_email")
+          .eq("chain_seq", Number(firstBrokenSeq))
+          .maybeSingle();
+        /* eslint-enable @typescript-eslint/no-explicit-any */
+        if (broken && broken.user_id === null) {
+          likelyCause =
+            "This row has no user_id. Until the audit_events foreign key was dropped, deleting an account set that field to NULL on every row it had produced — and user_id is hashed into the chain, so the deletion rewrote it. That is the most likely explanation here, and it cannot be repaired: the value that would verify the row no longer exists. New deletions can no longer do this.";
+        }
+      }
+      return { ok: true, checked: Number(row.checked), firstBrokenSeq, likelyCause };
     },
   );

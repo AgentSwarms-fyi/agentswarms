@@ -288,8 +288,13 @@ export function AuditLog() {
                   else if (res.firstBrokenSeq === null)
                     toast.success(`Chain intact — ${res.checked} events verified`);
                   else
+                    // A known benign cause is named when the evidence fits, so
+                    // the reader chases the right thing. Without it, the only
+                    // reading available is "someone tampered with your log".
                     toast.error(
-                      `Chain BROKEN at sequence ${res.firstBrokenSeq} — an event was altered or removed`,
+                      res.likelyCause
+                        ? `Chain BROKEN at sequence ${res.firstBrokenSeq}. ${res.likelyCause}`
+                        : `Chain BROKEN at sequence ${res.firstBrokenSeq} — an event was altered or removed`,
                       { duration: Infinity },
                     );
                 } finally {

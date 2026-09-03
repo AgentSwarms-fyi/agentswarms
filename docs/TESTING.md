@@ -493,6 +493,22 @@ The unit tests cannot catch drift there, because they would agree with a wrong
 implementation; only the integration test, which recomputes hashes the trigger
 actually wrote, can. **Run it after touching `jsonbText`.**
 
+**A break is not always an attacker, and one cause was ours.** `user_id` is one
+of the hashed fields, and until migration `20260850000000` the column carried
+`ON DELETE SET NULL` so that "the trail outlives the account". Deleting one
+account therefore rewrote a hashed field on every row it had produced, and
+verification reported "an event was altered or removed" from the first such row
+onwards. Found on a live instance: 167 rows with a NULL `user_id`, earliest at
+`chain_seq` 324, and the check breaking at exactly 324. The foreign key is now
+gone — an append-only trail must not be edited by something else being deleted
+— and `auditChainVerify` names this cause when the broken row has no `user_id`.
+Rows already nulled cannot be repaired; the value that would verify them was
+destroyed with the account.
+
+When a break is reported, check the broken row's `user_id` before assuming
+tampering. A compliance check that cries wolf teaches an operator to ignore the
+one signal meant to tell them the trail cannot be trusted.
+
 These tests are strictly READ-ONLY against the trail. Inserting events would
 pollute it, and deleting them afterwards would leave a sequence gap that makes
 the chain look tampered with from then on — the suite must not break the
