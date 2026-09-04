@@ -12,6 +12,7 @@
 //
 // We keep the LLM calls small and JSON-only so they're fast and cheap.
 
+import type { ForecastSetting } from "./mlForecast";
 import { supabase } from "@/integrations/supabase/client";
 // TYPE-ONLY, deliberately. sqlEngine pulls in lib/browserDuckdb, which imports
 // `duckdb-mvp.wasm?url` — a Vite-only specifier. A value import here made this
@@ -90,8 +91,11 @@ export type BiChartAnalytics = {
   running?: boolean;
   /** Linear trend line (line, single series). */
   trend?: boolean;
-  /** Forecast this many buckets ahead with a ±1.96σ corridor (line, single series). */
-  forecast?: number;
+  /**
+   * Forecast ahead (line, single series): a number of buckets for the built-in
+   * forecaster, or an object attaching a registry forecast model's projection.
+   */
+  forecast?: ForecastSetting;
   refLine?: BiRefLine;
 };
 

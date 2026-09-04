@@ -9,6 +9,7 @@
 // every categorical mark (bars, slices, cells, countries, points, stages)
 // is clickable for dashboard cross-filtering, and bar/hbar/pie/treemap
 // support drill hierarchies.
+import { forecastPeriods } from "@/lib/mlForecast";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   Area,
@@ -847,8 +848,8 @@ function BiChartRenderInner({
         const fit = linearFit(data.map((d) => Number(d[chart.yField])));
         if (fit) data = data.map((d, i) => ({ ...d, __trend: fit.slope * i + fit.intercept }));
       }
-      if (chart.forecast && chart.forecast > 0) {
-        const fc = forecastRows(data, chart.xField, chart.yField, chart.forecast);
+      if (forecastPeriods(chart.forecast) > 0) {
+        const fc = forecastRows(data, chart.xField, chart.yField, chart.forecast ?? 0);
         if (fc) {
           data = [...data, ...fc.rows];
           hasForecast = true;
@@ -870,7 +871,7 @@ function BiChartRenderInner({
         style={onElementClick ? { cursor: "pointer" } : undefined}
       >
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart
+          <ComposedChart
             data={data}
             margin={{ top: 12, right: 12, left: 0, bottom: 4 }}
             onClick={lineClick}
@@ -936,6 +937,17 @@ function BiChartRenderInner({
             {/* Arrays, not fragments: recharts ignores fragment children. */}
             {!pivoted &&
               hasForecast && [
+                <Area
+                  key="__band"
+                  type="monotone"
+                  dataKey="__band"
+                  stroke="none"
+                  fill={primaryStroke}
+                  fillOpacity={0.12}
+                  legendType="none"
+                  tooltipType="none"
+                  isAnimationActive={false}
+                />,
                 <Line
                   key="__forecast"
                   type="monotone"
@@ -997,7 +1009,7 @@ function BiChartRenderInner({
                 activeDot={{ r: 4, strokeWidth: 0 }}
               />
             )}
-          </LineChart>
+          </ComposedChart>
         </ResponsiveContainer>
       </div>
     );

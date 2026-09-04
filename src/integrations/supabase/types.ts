@@ -536,10 +536,12 @@ export type Database = {
       bi_alerts: {
         Row: {
           aggregation: string;
+          basis: string;
           column_name: string;
           created_at: string;
           dashboard_id: string;
           email_enabled: boolean;
+          horizon: number | null;
           id: string;
           is_active: boolean;
           label: string;
@@ -553,10 +555,12 @@ export type Database = {
         };
         Insert: {
           aggregation?: string;
+          basis?: string;
           column_name?: string;
           created_at?: string;
           dashboard_id: string;
           email_enabled?: boolean;
+          horizon?: number | null;
           id?: string;
           is_active?: boolean;
           label?: string;
@@ -570,10 +574,12 @@ export type Database = {
         };
         Update: {
           aggregation?: string;
+          basis?: string;
           column_name?: string;
           created_at?: string;
           dashboard_id?: string;
           email_enabled?: boolean;
+          horizon?: number | null;
           id?: string;
           is_active?: boolean;
           label?: string;

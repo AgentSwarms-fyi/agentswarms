@@ -6,6 +6,10 @@
 //           insert any answer as a widget.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { useServerFn } from "@tanstack/react-start";
+import { useAuth } from "@/hooks/use-auth";
+import { mlListForecastVersions, type MlForecastVersionOption } from "@/utils/ml.functions";
+import { forecastPeriods, forecastVersionId } from "@/lib/mlForecast";
 import {
   AreaChart,
   BarChart2,
@@ -207,6 +211,19 @@ export function BiBuilderPane({
   const [runningB, setRunningB] = useState(false);
   const [trendB, setTrendB] = useState(false);
   const [forecastN, setForecastN] = useState("");
+  // "auto" = the built-in forecaster; else the id of a registry forecast
+  // version, whose projected points are embedded in the spec when it is saved.
+  const [forecastSource, setForecastSource] = useState("auto");
+  const [forecastVersions, setForecastVersions] = useState<MlForecastVersionOption[]>([]);
+  const { session: mlSession } = useAuth();
+  const listForecastFn = useServerFn(mlListForecastVersions);
+  useEffect(() => {
+    const t = mlSession?.access_token;
+    if (!t) return;
+    void listForecastFn({ data: { access_token: t } })
+      .then((r) => setForecastVersions(r.versions))
+      .catch(() => {});
+  }, [mlSession?.access_token, listForecastFn]);
   const [refMode, setRefMode] = useState("none");
   const [matFmtMode, setMatFmtMode] = useState("none");
   const [matScaleColor, setMatScaleColor] = useState("blue");
@@ -351,7 +368,8 @@ export function BiBuilderPane({
       setCompareSel(c.compare ?? "none");
       setRunningB(Boolean(c.running));
       setTrendB(Boolean(c.trend));
-      setForecastN(c.forecast ? String(c.forecast) : "");
+      setForecastN(forecastPeriods(c.forecast) ? String(forecastPeriods(c.forecast)) : "");
+      setForecastSource(forecastVersionId(c.forecast) ?? "auto");
       setRefMode(c.refLine?.mode ?? "none");
       const cf = c.type === "matrix" ? c.condFormat : undefined;
       setMatFmtMode(cf?.mode ?? "none");
@@ -403,6 +421,7 @@ export function BiBuilderPane({
       setRunningB(false);
       setTrendB(false);
       setForecastN("");
+      setForecastSource("auto");
       setRefMode("none");
       setRefValue("");
       setRefLabel("");
@@ -861,7 +880,20 @@ export function BiBuilderPane({
           if (trendB) analytics.trend = true;
           const f = Number(forecastN);
           if (forecastN.trim() && Number.isFinite(f) && f > 0) {
-            analytics.forecast = Math.min(24, Math.round(f));
+            const periods = Math.min(24, Math.round(f));
+            const v =
+              forecastSource !== "auto"
+                ? forecastVersions.find((x) => x.id === forecastSource)
+                : undefined;
+            analytics.forecast = v
+              ? {
+                  periods,
+                  versionId: v.id,
+                  model: v.label,
+                  trainedAt: v.trained_at ?? undefined,
+                  points: v.points,
+                }
+              : periods;
           }
         }
       }
@@ -917,6 +949,8 @@ export function BiBuilderPane({
     runningB,
     trendB,
     forecastN,
+    forecastSource,
+    forecastVersions,
     refMode,
     refValue,
     refLabel,
@@ -1701,6 +1735,12 @@ export function BiBuilderPane({
                               setTrendB={setTrendB}
                               forecastN={forecastN}
                               setForecastN={setForecastN}
+                              forecastSource={forecastSource}
+                              setForecastSource={setForecastSource}
+                              forecastVersions={forecastVersions.map((v) => ({
+                                id: v.id,
+                                label: v.label,
+                              }))}
                             />
                           )}
 

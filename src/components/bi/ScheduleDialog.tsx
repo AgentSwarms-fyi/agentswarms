@@ -51,6 +51,8 @@ type AlertRow = {
   email_enabled: boolean;
   last_state: string;
   last_value: number | null;
+  basis?: string | null;
+  horizon?: number | null;
 };
 
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -105,6 +107,9 @@ export function ScheduleDialog({
   const [aColumn, setAColumn] = useState("");
   const [aAgg, setAAgg] = useState("first");
   const [aOp, setAOp] = useState("gt");
+  // "actual" compares the refreshed rows; "forecast" the next N projected periods.
+  const [aBasis, setABasis] = useState("actual");
+  const [aHorizon, setAHorizon] = useState("3");
   const [aThreshold, setAThreshold] = useState("");
 
   const chartWidgets = widgets.filter((w) => w.kind === "chart" && w.sql);
@@ -172,6 +177,8 @@ export function ScheduleDialog({
         aggregation: aAgg,
         operator: aOp,
         threshold: Number(aThreshold),
+        basis: aBasis,
+        horizon: aBasis === "forecast" ? Math.max(1, Number(aHorizon) || 3) : null,
       })
       .select("*")
       .single();
@@ -327,6 +334,7 @@ export function ScheduleDialog({
                     <span className="min-w-0 flex-1 truncate">
                       <span className="font-medium">{widgetTitle(a.widget_id)}</span>
                       {" · "}
+                      {a.basis === "forecast" ? `forecast (next ${a.horizon ?? 3}) ` : ""}
                       {a.column_name ? `${a.aggregation}(${a.column_name})` : "row count"}{" "}
                       {OPERATORS.find((o) => o.v === a.operator)?.label.slice(0, 1)} {a.threshold}
                     </span>
@@ -398,6 +406,29 @@ export function ScheduleDialog({
                       ))}
                     </SelectContent>
                   </Select>
+                )}
+                <Select value={aBasis} onValueChange={setABasis}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="actual" className="text-xs">
+                      latest values
+                    </SelectItem>
+                    <SelectItem value="forecast" className="text-xs">
+                      forecast (next periods)
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                {aBasis === "forecast" && (
+                  <Input
+                    value={aHorizon}
+                    onChange={(e) => setAHorizon(e.target.value)}
+                    className="h-8 w-16 text-xs"
+                    inputMode="numeric"
+                    placeholder="3"
+                    title="Periods ahead"
+                  />
                 )}
                 <Select value={aOp} onValueChange={setAOp}>
                   <SelectTrigger className="h-8 text-xs">

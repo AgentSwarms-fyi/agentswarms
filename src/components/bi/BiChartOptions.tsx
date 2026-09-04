@@ -83,6 +83,9 @@ export function BiTimeSeriesOptions({
   setTrendB,
   forecastN,
   setForecastN,
+  forecastSource,
+  setForecastSource,
+  forecastVersions,
 }: {
   chartType: ChartType;
   /** When set, the single-series calculations are hidden rather than disabled. */
@@ -97,6 +100,10 @@ export function BiTimeSeriesOptions({
   setTrendB: (v: boolean) => void;
   forecastN: string;
   setForecastN: (v: string) => void;
+  /** "auto" = the built-in forecaster; else a registry forecast version id. */
+  forecastSource?: string;
+  setForecastSource?: (v: string) => void;
+  forecastVersions?: { id: string; label: string }[];
 }) {
   return (
     <>
@@ -172,6 +179,26 @@ export function BiTimeSeriesOptions({
                     inputMode="numeric"
                   />
                   periods
+                </span>
+              )}
+              {chartType === "line" && setForecastSource && (forecastVersions?.length ?? 0) > 0 && (
+                <span className="flex items-center gap-1.5 text-xs">
+                  Source
+                  <Select value={forecastSource ?? "auto"} onValueChange={setForecastSource}>
+                    <SelectTrigger className="h-7 w-56 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="auto" className="text-xs">
+                        Built-in (seasonal when detected)
+                      </SelectItem>
+                      {forecastVersions!.map((v) => (
+                        <SelectItem key={v.id} value={v.id} className="text-xs">
+                          {v.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </span>
               )}
             </div>

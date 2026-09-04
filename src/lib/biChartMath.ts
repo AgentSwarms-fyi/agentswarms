@@ -3,6 +3,12 @@
 // Everything operates on widget snapshot rows, so it works identically in
 // the editor, shared views and the public page.
 
+import {
+  forecastModelPoints,
+  forecastPeriods,
+  forecastValues,
+  type ForecastSetting,
+} from "./mlForecast";
 import type { BiCondFormat, BiCondRule } from "@/lib/biAgent";
 
 export type DrillEntry = { field: string; value: string };
@@ -215,30 +221,53 @@ export function linearFit(ys: number[]): LinearFit | null {
 }
 
 /**
- * Forecast rows appended after the series: dashed projection with a ±1.96σ
- * corridor. x labels extend the last bucket when possible, else "+n".
+ * Forecast rows appended after the series: a projection with a residual band
+ * that widens with distance. The numbers come from the shared forecaster
+ * (src/lib/mlForecast.ts) — the same one the Analyst and the alert engine
+ * use — or verbatim from a registry forecast model attached to the chart.
+ * x labels extend the last bucket when possible, else "+n".
  */
 export function forecastRows(
   data: Record<string, unknown>[],
   xKey: string,
   yKey: string,
-  periods: number,
-): { fit: LinearFit; rows: Record<string, unknown>[] } | null {
-  const fit = linearFit(data.map((d) => Number(d[yKey])));
-  if (!fit || periods <= 0) return null;
+  setting: ForecastSetting,
+): {
+  fit: { method: string; seasonLength: number | null; sigma: number };
+  rows: Record<string, unknown>[];
+} | null {
+  const periods = Math.min(forecastPeriods(setting), 24);
+  if (periods <= 0 || data.length === 0) return null;
   const n = data.length;
-  const rows = Array.from({ length: Math.min(periods, 24) }, (_, k) => {
-    const i = n + k;
-    const y = fit.slope * i + fit.intercept;
-    const band = 1.96 * fit.sigma;
-    return {
-      [xKey]: nextBucketLabel(String(data[n - 1]?.[xKey] ?? ""), k + 1) ?? `+${k + 1}`,
-      __forecast: y,
-      __lo: y - band,
-      __hi: y + band,
-    };
-  });
-  return { fit, rows };
+  const modelPoints = forecastModelPoints(setting);
+  if (modelPoints) {
+    const rows = modelPoints.slice(0, periods).map((p) => ({
+      [xKey]: p.period,
+      __forecast: p.yhat,
+      __lo: p.lo,
+      __hi: p.hi,
+      __band: [p.lo, p.hi],
+    }));
+    return { fit: { method: "registry model", seasonLength: null, sigma: 0 }, rows };
+  }
+  const lastLabel = String(data[n - 1]?.[xKey] ?? "");
+  const fc = forecastValues(
+    data.map((d) => Number(d[yKey])),
+    periods,
+    { labelHint: lastLabel },
+  );
+  if (!fc) return null;
+  const rows = fc.points.map((p) => ({
+    [xKey]: nextBucketLabel(lastLabel, p.step) ?? `+${p.step}`,
+    __forecast: p.value,
+    __lo: p.lo,
+    __hi: p.hi,
+    __band: [p.lo, p.hi],
+  }));
+  return {
+    fit: { method: fc.fit.method, seasonLength: fc.fit.seasonLength, sigma: fc.fit.sigma },
+    rows,
+  };
 }
 
 /** Extend "2026-07" → "2026-08", "2026-Q3" → "2026-Q4", "2026" → "2027"… */

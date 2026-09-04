@@ -883,3 +883,15 @@ export const mlCancelPrediction = createServerFn({ method: "POST" })
     const userId = await resolveCaller(data.access_token);
     return { ok: await cancelPrediction(data.prediction_id, userId) };
   });
+
+// ── Forecast versions for BI ─────────────────────────────────────────────────
+import { listForecastVersionsForUser, type MlForecastVersionOption } from "./ml/forecast.server";
+export type { MlForecastVersionOption };
+
+/** Ready forecast versions the caller may attach to a BI chart. */
+export const mlListForecastVersions = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .handler(async ({ data }): Promise<{ versions: MlForecastVersionOption[] }> => {
+    const userId = await resolveCaller(data.access_token);
+    return { versions: await listForecastVersionsForUser(userId) };
+  });

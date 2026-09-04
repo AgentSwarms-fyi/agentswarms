@@ -20,6 +20,13 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Json } from "@/integrations/supabase/types";
 import type { SemanticQuery, SqlDialect } from "@/lib/semanticLayer";
 import type { ChartSpec } from "@/lib/biAgent";
+import {
+  forecastModelPoints,
+  forecastPeriods,
+  forecastValues,
+  type ForecastSetting,
+} from "@/lib/mlForecast";
+import { syncForecastVersions } from "@/utils/ml/forecast.server";
 import { aggregationPlan } from "@/lib/biAggregate";
 import { buildDirectQuerySql } from "@/lib/biDirectQuery";
 import {
@@ -776,6 +783,71 @@ export function buildReportDigest(
   return { html, text };
 }
 
+/**
+ * The aggregate a FORECAST-basis alert compares: the next `horizon`
+ * projected periods of a single-series line/area widget — from the registry
+ * model attached to the chart when there is one, else the shared forecaster
+ * over the widget's stored rows. Null when the widget is not such a series,
+ * or the rule counts rows (a projection has no row count).
+ */
+/**
+ * One value per x bucket, summed, in first-seen order — the shape the line
+ * renderer aggregates to before it forecasts, so a forecast alert projects
+ * the same series the chart draws.
+ */
+function sumByBucket(
+  rows: Record<string, unknown>[],
+  xField: string,
+  yField: string,
+): Record<string, unknown>[] {
+  const order: string[] = [];
+  const sums = new Map<string, number>();
+  for (const r of rows) {
+    const x = String(r[xField] ?? "");
+    const y = Number(r[yField]);
+    if (!sums.has(x)) {
+      order.push(x);
+      sums.set(x, 0);
+    }
+    if (Number.isFinite(y)) sums.set(x, (sums.get(x) ?? 0) + y);
+  }
+  return order.map((x) => ({ [xField]: x, [yField]: sums.get(x) ?? 0 }));
+}
+
+export function forecastAlertValue(
+  widget: WidgetJson,
+  alert: { column_name: string; aggregation: string; horizon?: number | null },
+): number | null {
+  const chart = widget.chart as
+    | { type?: string; xField?: string; yField?: string; forecast?: ForecastSetting }
+    | undefined;
+  if (!chart || (chart.type !== "line" && chart.type !== "area")) return null;
+  if (!chart.xField || !chart.yField || alert.aggregation === "count") return null;
+  const horizon = Math.max(1, alert.horizon ?? forecastPeriods(chart.forecast) ?? 3);
+  const model = forecastModelPoints(chart.forecast);
+  let projected: number[];
+  if (model) {
+    projected = model.slice(0, horizon).map((p) => p.yhat);
+  } else {
+    const data = sumByBucket(widget.rows ?? [], chart.xField, chart.yField);
+    const yField = chart.yField;
+    const xField = chart.xField;
+    const fc = forecastValues(
+      data.map((d) => Number(d[yField])),
+      horizon,
+      { labelHint: String(data[data.length - 1]?.[xField] ?? "") },
+    );
+    if (!fc) return null;
+    projected = fc.points.map((p) => p.value);
+  }
+  const col = alert.column_name || "value";
+  return alertValue(
+    projected.map((v) => ({ [col]: v })),
+    col,
+    alert.aggregation,
+  );
+}
+
 export async function evaluateAlerts(
   dashboardId: string,
   dashboardName: string,
@@ -811,11 +883,22 @@ export async function evaluateAlerts(
   for (const a of alerts ?? []) {
     const widget = widgets.find((w) => w.id === a.widget_id);
     if (!widget) continue;
-    const value = alertValue(widget.rows ?? [], a.column_name, a.aggregation);
+    const basis = (a as { basis?: string }).basis ?? "actual";
+    const horizon = (a as { horizon?: number | null }).horizon ?? null;
+    const value =
+      basis === "forecast"
+        ? forecastAlertValue(widget, {
+            column_name: a.column_name,
+            aggregation: a.aggregation,
+            horizon,
+          })
+        : alertValue(widget.rows ?? [], a.column_name, a.aggregation);
     if (value === null) continue;
     const fires = alertFires(value, a.operator, Number(a.threshold));
     if (fires && a.last_state !== "triggered") {
-      const metric = a.column_name ? `${a.aggregation}(${a.column_name})` : "row count";
+      const metric =
+        (basis === "forecast" ? `forecast (next ${horizon ?? 3}) ` : "") +
+        (a.column_name ? `${a.aggregation}(${a.column_name})` : "row count");
       const title = a.label || `Alert on "${widget.title ?? "widget"}"`;
       const body = `${metric} is ${Math.round(value * 100) / 100} (${OP_LABEL[a.operator] ?? a.operator} ${a.threshold}) on "${dashboardName}".`;
       await notify(a.user_id, title, body, `/bi/${dashboardId}`);
@@ -890,6 +973,11 @@ export async function processDueSchedules(force = false): Promise<number> {
       let lastError: string | null = null;
       try {
         const res = await refreshDashboardServer(s.dashboard_id);
+        // Alerts on an attached registry forecast evaluate its CURRENT
+        // projection, as the owner, whatever the widget embedded when saved.
+        await syncForecastVersions(res.widgets as Array<{ chart?: unknown }>, res.userId).catch(
+          () => 0,
+        );
         await evaluateAlerts(s.dashboard_id, res.name, res.userId, res.widgets);
         // Insight digest: notify what moved since the previous snapshots.
         if (res.changes.length > 0) {

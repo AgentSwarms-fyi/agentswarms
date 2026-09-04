@@ -569,16 +569,21 @@ GROUP BY region`}</Code>
           [<C key="e">trend</C>, "boolean", "line (single series)", "Linear trend line."],
           [
             <C key="f">forecast</C>,
-            "number of buckets",
+            "number of buckets, or a registry model",
             "line (single series)",
-            "Projects ahead with a ±1.96σ confidence corridor.",
+            "Projects ahead — seasonal exponential smoothing when the history shows a season that beats a straight line, else a linear trend — with a residual band that widens with distance. Or draws a registry forecast model's projection.",
           ],
         ]}
       />
-      <Callout kind="warn" title="A forecast is a straight-line projection">
-        The ±1.96σ corridor is a 95% band around a linear extrapolation, not a model of your
-        business. It is honest about uncertainty and blind to seasonality, launches and price
-        changes. Use it to frame a conversation, never to commit to a number.
+      <Callout kind="warn" title="A projection is not a plan">
+        The built-in forecaster fits the history it is given: exponential smoothing of level, trend
+        and season when at least two full cycles are visible and that fit beats a straight line on
+        the past, a straight line otherwise. Its band is the spread of its own one-step errors,
+        widened with distance. It knows nothing about launches, pricing or anything that has not
+        already happened. The same module projects for the AI Analyst and for forecast alerts, so a
+        chart, its write-up and its alert cannot disagree; a model trained on the ML page can be
+        attached instead, in which case the chart draws that model&apos;s projection from the
+        registry. Use any of them to frame a conversation, never to commit to a number.
       </Callout>
 
       <H3 id="condformat">Conditional formatting (matrix)</H3>
@@ -712,6 +717,13 @@ GROUP BY region`}</Code>
       <P>
         On a self-hosted deployment these need the scheduler running — see{" "}
         <DocLink to="/docs/self-hosting">Install &amp; deploy</DocLink>.
+      </P>
+      <P>
+        A rule&apos;s <strong>basis</strong> is either the latest refreshed values (the default) or
+        the <strong>forecast</strong>: the aggregate over the next N projected periods of a
+        single-series line or area widget, from the built-in forecaster or from the registry model
+        attached to the chart. &ldquo;Notify me when projected revenue for the next three months
+        falls below target&rdquo; is a rule, not a glance.
       </P>
 
       <H2 id="sharing">Sharing, export and embedding</H2>
