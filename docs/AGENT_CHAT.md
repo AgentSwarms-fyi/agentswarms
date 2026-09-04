@@ -207,3 +207,38 @@ Two ways to integrate, same key, same server-side enforcement:
   stream event, wire citations and Visual-BI widgets into custom surfaces).
   The domain allow-list, expiry, budget cap, guardrails and rate limits apply
   identically — disabling the key stops SDK apps as instantly as iframes.
+
+## Use cases
+
+### A chart with a paper trail
+
+A sales lead asks an agent for revenue by region this quarter.
+
+1. The agent picks the dataset among its sources, writes the SQL, and answers
+   with a chart rather than a table when the shape of the result calls for
+   one — see [Visual BI answers](#visual-bi-answers).
+2. The turn is a decision: its trace under **Traces** lists the read, the
+   tables and the lakehouse snapshot, and **Passport** exports the whole
+   chain signed. When the number is questioned later, it is replayed rather
+   than argued about — see [Decision provenance](./PROVENANCE.md).
+
+### A board deck straight from the data
+
+1. Ask for _a five-slide summary of the quarter as PowerPoint_. The document
+   is generated from the answer's data, with native editable charts and tables
+   when the optional server-side renderer is running (`--profile docgen`) and
+   in-browser generation otherwise.
+2. Choose **full data** when the deck must carry every row, and **sample**
+   when the point is the shape. Excel exports can carry live formulas that
+   recalculate in the spreadsheet — see
+   [Generating documents](#generating-documents-powerpoint--word--excel).
+
+### Publish an agent, keep the limits
+
+An agent that answers product questions should be embeddable on the public
+website.
+
+1. Embed it from the agent's page — see [Embedding an agent](#embedding-an-agent).
+2. Anonymous visitors run the owner's stored model, and every request is
+   checked against the owner's model-access rules, so an embed can never
+   spend on a model its owner is not allowed to call.

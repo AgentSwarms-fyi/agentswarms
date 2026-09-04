@@ -251,6 +251,45 @@ If your network has no direct egress, set `HTTPS_PROXY` / `NO_PROXY` and every
 connector follows them — without it, reaching a cloud warehouse fails as a
 connection timeout rather than anything that names the cause.
 
+## Use cases
+
+### Connect the production warehouse and hand it to the team
+
+1. **Integrations → Data Sources.** Name the connection, choose the provider,
+   enter host, database and a read-only login, and test it. The credential is
+   encrypted at rest under `PROVIDER_CREDS_SECRET`; what you typed is never
+   shown again.
+2. Share it with a group from **Admin → IAM → Access**. Grantees' agents and
+   workbench sessions query it, but the connection runs as its owner — see
+   [Sharing a connection with your team](#sharing-a-connection-with-your-team).
+   Rows returned to an agent are capped, so a runaway `SELECT *` cannot flood a
+   context window.
+
+### Catalog an Azure container
+
+Finance drops monthly Parquet extracts into an ADLS Gen2 container.
+
+1. **Data catalog → add a source.** Choose _Azure Blob Storage / ADLS Gen2_.
+   The wizard asks for the **Container**, the **Storage account name** and an
+   **Account key or SAS token**.
+2. Files are read in place with DuckDB over `az://`; mount the container into
+   the lakehouse as a read-only source when agents should query it with SQL.
+
+### Ask an agent about Jira, or about Zendesk
+
+1. **Integrations → Apps → Jira.** Enter the site URL, the account email and
+   an API token, and optionally the project keys to include. Each project
+   becomes a stream (`issues:<KEY>`); each stream syncs into a local table
+   under a schedule. **Zendesk** works the same way with a subdomain, email
+   and token, and exposes tickets, users and organizations.
+2. Give an agent the synced tables as a source and ask _which open bugs in
+   PROJ are older than thirty days?_ — the answer comes from your copy of the
+   data, on your schedule, with the same provenance as any other read.
+
+Each connector checks the credential when you connect it — by listing the
+projects, or calling the account endpoint — so a wrong token is reported at
+the form rather than at the first sync.
+
 ## Security notes
 
 - Credentials are encrypted at rest and never leave the server; shared

@@ -67,3 +67,6 @@ src/routeTree.gen.ts
 # and setup.ps1 seed the live pair from those on first run.
 deploy/notebooks/egress/allowed_domains
 deploy/notebooks/egress/allowed_ips
+
+# local backups from `npm run backup`
+backups/

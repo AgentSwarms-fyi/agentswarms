@@ -412,6 +412,91 @@ function IamPage() {
         </li>
       </UL>
 
+      <H2 id="use-cases">Use cases</H2>
+      <P>
+        Four things teams set up on day one, each done entirely with the tabs above: Users, Groups,
+        Access, Attributes, Budgets, SSO and Settings.
+      </P>
+      <H3 id="use-case-contractors">Contractors may only use one inexpensive model</H3>
+      <Steps
+        items={[
+          {
+            title: "Settings → Default model access → Deny by default",
+            body: "A user with no rules can now call no models. Nobody who already has rules changes, and superadmins bypass deny mode, so the people who administer the allow-lists cannot lock themselves out.",
+          },
+          {
+            title: "Groups → create Contractors and add the accounts",
+          },
+          {
+            title: "Access → add one model rule on the group",
+            body: (
+              <>
+                A rule is a pattern: <C>*</C>, a provider prefix such as <C>openai/*</C>, or one
+                exact model id. Grant the single model you are willing to pay for. It is enforced on
+                the server for every call — playground, saved agents, swarm nodes, the API, and a
+                public embed of the agent, which runs the stored model of its owner and is
+                re-checked against the rules of that owner on every anonymous request.
+              </>
+            ),
+          },
+        ]}
+      />
+      <H3 id="use-case-shared-connection">A warehouse for the team, no password shared</H3>
+      <Steps
+        items={[
+          {
+            title: "The owner creates and tests the connection under Integrations → Data Sources",
+          },
+          {
+            title: "Access → share the connection with the Analytics group, read-only",
+            body: "A shared connection runs as its owner: the stored secret is decrypted server-side and the queries of the grantee run against the warehouse of the owner. Revoking the share ends the access; nothing has to be rotated because nothing was handed out.",
+          },
+        ]}
+      />
+      <H3 id="use-case-row-security">Regional analysts see only their own rows</H3>
+      <Steps
+        items={[
+          {
+            title: "Share the dataset with a row filter and a column mask",
+            body: (
+              <>
+                Filter on <C>region</C>; mask <C>margin</C>. Both are enforced inside the database
+                by a security-definer function, so the result is identical through the SQL
+                workbench, an agent tool or the REST API — a grantee cannot read the raw table at
+                all.
+              </>
+            ),
+          },
+          {
+            title: "Attributes → set each viewer's region and reference it in the filter",
+            body: "One grant, per-viewer rows. When someone holds two grants, rows combine and masks intersect: a second grant never reduces access.",
+          },
+        ]}
+      />
+      <H3 id="use-case-sso">Work accounts only</H3>
+      <Steps
+        items={[
+          {
+            title: "Enable SAML on the Supabase project",
+            body: "Hosted: Authentication → Sign In / Up → SSO (SAML 2.0). Self-hosted GoTrue: GOTRUE_SAML_ENABLED with a private key. The SSO tab says so if this is still missing.",
+          },
+          {
+            title: "SSO → exchange metadata with the IdP and list the email domains",
+            body: "Copy the ACS URL and Entity ID into the SAML app of the IdP; paste its metadata URL or XML. The login page gains Continue with single sign-on.",
+          },
+          {
+            title: "After one successful superadmin login, turn on Require SSO",
+            body: (
+              <>
+                Email/password and social login disappear; <C>/login?native=1</C> stays as the
+                superadmin escape hatch. SSO-provisioned users still get in when the instance is
+                invite-only, so public signup can be closed at the same time.
+              </>
+            ),
+          },
+        ]}
+      />
+
       <NextPrev current="/docs/iam" />
     </>
   );

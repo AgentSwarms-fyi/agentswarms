@@ -264,3 +264,54 @@ text. The rules err toward deny:
 - Embedding failures, sync failures and scheduled-sync errors surface as
   source status + owner notifications — the failure mode is loud, not an
   empty collection.
+
+## Use cases
+
+### Index your own documentation site
+
+Support agents should answer from the public docs, and the docs change weekly.
+
+1. Open **Knowledge**, create a knowledge base, and click **Add Source →
+   Website**. Give one or more start URLs; optionally a sitemap URL, path
+   prefixes to stay inside (for example `/docs`), and a page cap (100 by
+   default, 500 at most). No credential is needed.
+2. Run the sync. The crawler reads `robots.txt` and skips what it forbids,
+   stays on the same site, prefers the sitemap when there is one and otherwise
+   follows links breadth-first. Each page's version is the sitemap `lastmod`,
+   else the ETag, else a content hash.
+3. Put the source on a schedule. A later sync re-fetches only pages whose
+   version changed and removes pages that disappeared — the dedup contract
+   above applies to crawled pages exactly as to files.
+
+A sync result such as _5 documents indexed, 12 skipped by robots.txt_ is
+normal for a marketing site whose robots rules exclude most of it; narrow the
+path prefixes to the documentation tree.
+
+### A Confluence space, with the code blocks intact
+
+Engineering keeps runbooks in Confluence; the on-call agent needs them.
+
+1. **Add Source → Confluence.** Enter the site URL, the space keys to sync,
+   and an API token — plus the account email for Confluence Cloud. Cloud and
+   Data Center are told apart from the URL and authenticated accordingly.
+2. Pages arrive as text converted from Confluence's storage format; code
+   macros keep their bodies, which is what makes a runbook useful to an
+   agent.
+3. Restrict who can retrieve from it by sharing the knowledge base read-only
+   with the on-call group — see [Access control](#access-control).
+
+### Share it, and delete it safely
+
+1. Share a knowledge base with a user or group from **Admin → IAM → Access**.
+   Recipients' agents can search it; nobody but the owner can change it.
+2. Deleting a knowledge base asks first — the dialog names what goes with it:
+   every document, chunk and connected source, and the agents wired to it lose
+   their knowledge. There is no undo, which is why there is a dialog.
+
+### Embed on your own hardware
+
+Air-gapped deployments can embed with Ollama or vLLM instead of a hosted
+model. The only hard constraint is width: the store is 1536-dimensional, so a
+model that emits narrower vectors is zero-padded (exact for cosine similarity)
+and a wider one is refused with a clear error — see
+[The real constraint is 1536 dimensions](#the-real-constraint-is-1536-dimensions).

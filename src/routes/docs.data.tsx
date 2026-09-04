@@ -937,6 +937,63 @@ ORDER  BY 1;`}</Code>
         ]}
       />
 
+      <H2 id="use-cases">Use cases</H2>
+      <H3 id="use-case-warehouse">The production warehouse, handed to the team</H3>
+      <Steps
+        items={[
+          {
+            title: "Integrations → Data Sources → new connection",
+            body: (
+              <>
+                Name it, pick the provider, enter a read-only login, test. The credential is
+                encrypted at rest under <C>PROVIDER_CREDS_SECRET</C> and never shown again.
+              </>
+            ),
+          },
+          {
+            title: "Admin → IAM → Access → share it with a group",
+            body: "The connection runs as its owner; grantees query without ever holding the credential. Rows returned to an agent are capped, so a runaway SELECT * cannot flood a context window.",
+          },
+        ]}
+      />
+      <H3 id="use-case-azure">Catalog an Azure container</H3>
+      <Steps
+        items={[
+          {
+            title: "Data catalog → add a source → Azure Blob Storage / ADLS Gen2",
+            body: "Container, storage account name, and an account key or SAS token.",
+          },
+          {
+            title: "Read in place, or mount",
+            body: (
+              <>
+                Files are read with DuckDB over <C>az://</C>; mount the container into the lakehouse
+                as a read-only source when agents should query it with SQL.
+              </>
+            ),
+          },
+        ]}
+      />
+      <H3 id="use-case-jira">Ask an agent about Jira, or Zendesk</H3>
+      <Steps
+        items={[
+          {
+            title: "Integrations → Apps → Jira",
+            body: (
+              <>
+                Site URL, account email, API token, optional project keys. Each project becomes a
+                stream (<C>issues:KEY</C>) that syncs into a local table on a schedule. Zendesk
+                works the same way and exposes tickets, users and organizations.
+              </>
+            ),
+          },
+          {
+            title: "Give an agent the synced tables as a source",
+            body: "Which open bugs in PROJ are older than thirty days? The answer comes from your copy of the data, on your schedule, with the same provenance as any other read.",
+          },
+        ]}
+      />
+
       <NextPrev current="/docs/data" />
     </>
   );

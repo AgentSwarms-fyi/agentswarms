@@ -359,10 +359,10 @@ the Deployments.
 name no StorageClass, so each `PersistentVolumeClaim` takes the cluster's
 default. Four things still need a decision:
 
-| Concern                    | What to know                                                                                                                                                                                                                            |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Ingress and TLS**        | `port-forward` is for checking the install. Put an Ingress or a `LoadBalancer` Service in front of `svc/agentswarms` and the chart's Kong service, and set `PUBLIC_APP_URL` to the resulting hostname.                                     |
-| **NetworkPolicy**          | The `NetworkPolicy` that denies the JS sandbox all egress needs a CNI that enforces policy — Calico, Cilium, GKE Dataplane V2, AKS with Azure or Calico policy, EKS with VPC CNI policy enabled. Without one it applies and does nothing.  |
+| Concern                    | What to know                                                                                                                                                                                                                              |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Ingress and TLS**        | `port-forward` is for checking the install. Put an Ingress or a `LoadBalancer` Service in front of `svc/agentswarms` and the chart's Kong service, and set `PUBLIC_APP_URL` to the resulting hostname.                                    |
+| **NetworkPolicy**          | The `NetworkPolicy` that denies the JS sandbox all egress needs a CNI that enforces policy — Calico, Cilium, GKE Dataplane V2, AKS with Azure or Calico policy, EKS with VPC CNI policy enabled. Without one it applies and does nothing. |
 | **Pod Security Standards** | Everything meets `restricted` except the Office renderer, whose image runs as root. See below.                                                                                                                                            |
 | **Node capacity**          | Requests total roughly 3 CPU and 6 GiB for our pods (web ×2, analytics), plus the Supabase chart's own. A single 2-vCPU node will not schedule it.                                                                                        |
 
@@ -370,7 +370,7 @@ default. Four things still need a decision:
 `restricted` Pod Security Standard namespace-wide, `agentswarms-docgen` is
 refused at admission: its image runs as root, so it cannot set
 `runAsNonRoot: true`. The way this presents is worth knowing, because it is
-quiet — `kubectl apply` prints a *warning*, the Deployment is created
+quiet — `kubectl apply` prints a _warning_, the Deployment is created
 successfully, and then no pod ever appears:
 
 ```
@@ -638,9 +638,10 @@ docker compose up -d --build
   front Supabase on a second hostname.
 - **Do not publish Studio or Postgres.** Bind them to the internal network;
   reach Studio over your VPN or an SSH tunnel.
-- **Back up Postgres yourself.** There is no managed backup now — this is the
-  single stateful component, and `PROVIDER_CREDS_SECRET` must be backed up
-  _separately_ or credentials in a restored database cannot be decrypted.
+- **Back up Postgres yourself.** There is no managed backup now. It is _not_
+  the only stateful component: the lakehouse catalog, the lake's Parquet
+  files and the secrets in `.env` are separate, and `npm run backup` captures
+  them together — see [Backups and restore](#backups-and-restore).
 - **Keep `JWT_SECRET` stable.** Rotating it invalidates every issued token and
   both keys.
 - **Watch disk.** Traces, audit events and KB vectors grow — see
@@ -1083,10 +1084,113 @@ If anyone connects a warehouse, saves a Secret, or adds a Data Catalog source,
 `PROVIDER_CREDS_SECRET` **must** be set (no default) — it encrypts those
 credentials at rest.
 
-### Database backups
+### Backups and restore
 
-Supabase provides automated backups / point-in-time recovery on paid plans —
-enable and verify them; this is your system of record.
+A self-hosted install has **four** things that cannot be regenerated. Back up
+all four; a backup that captures the application database and forgets the
+lakehouse catalog restores a lakehouse whose tables all exist and none can be
+read.
+
+| What                     | Where it lives                                                                                                           | Lost without it                                                                                             |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| **Application database** | Supabase Postgres (hosted project or your self-hosted stack)                                                             | users, agents, swarms, knowledge bases, connections, pipelines, decisions, the audit trail                  |
+| **Lakehouse catalog**    | the `lakehouse-catalog` container (`lakehouse-catalog-data` volume), or the external Postgres in `LAKEHOUSE_CATALOG_URL` | which Parquet files make up each table and every snapshot — time travel, replay and `DROP` all depend on it |
+| **Lakehouse data**       | zstd Parquet under `LAKEHOUSE_DATA_URL` in your S3-compatible bucket                                                     | the rows themselves                                                                                         |
+| **Secrets in `.env`**    | `PROVIDER_CREDS_SECRET`, `PROVENANCE_SIGNING_SECRET`, `SUPABASE_SERVICE_ROLE_KEY`, the lake and catalog credentials …    | stored provider keys and warehouse passwords become undecryptable; no Answer Passport can be verified       |
+
+#### Take a backup
+
+```bash
+npm run backup
+```
+
+This writes `backups/<timestamp>/` containing:
+
+- `lakehouse-catalog.dump` — `pg_dump` of the catalog in custom format. The
+  script reaches the Postgres named by the **host** in `LAKEHOUSE_CATALOG_URL`:
+  a Docker container of that name (`docker exec`), else the compose
+  `lakehouse-catalog` service when the host is its alias, else a local
+  `pg_dump` against the URL. It then refuses any dump that lacks the
+  `ducklake_snapshot` table — a wrong or empty Postgres cannot pass as a
+  backup — and records which one answered in the manifest;
+- `lake/…` — every object under `LAKEHOUSE_DATA_URL`, mirrored byte-for-byte,
+  and `lake-objects.json` listing them with sizes;
+- `supabase.dump` (self-hosted) or `supabase-schema.sql` + `supabase-data.sql`
+  (hosted) — the application database;
+- `SECRETS-REQUIRED.txt` — the **names** of the env keys you must store in your
+  secret manager. Values are never written to a backup;
+- `manifest.json` — what was captured, what was skipped and why, sizes, app
+  version.
+
+The application database needs a credential the script will not guess and
+never prompts for (a scheduled backup must not hang):
+
+- **self-hosted Supabase:** `npm run backup -- --db-url "postgresql://postgres:<POSTGRES_PASSWORD>@<db-host>:5432/postgres"`
+  or set `SUPABASE_DB_URL`;
+- **hosted Supabase, linked project:** set `SUPABASE_DB_PASSWORD` (Project
+  Settings → Database) and the script runs `supabase db dump`.
+
+Without either, the database step is **skipped and recorded** in
+`manifest.json` — the backup still exits 0 for the other components, so read
+the manifest, or run with a credential. `--dry-run` lists what would be
+captured; `--skip-lake`, `--skip-catalog`, `--skip-supabase` narrow a run;
+`--out <dir>` sends it to mounted storage.
+
+Schedule it. A nightly cron on the host, output on a volume that is itself
+backed up off-machine:
+
+```bash
+0 2 * * * cd /opt/agentswarms && npm run backup -- --out /mnt/backups/agentswarms/$(date +\%F) >> /var/log/agentswarms-backup.log 2>&1
+```
+
+#### Rehearse the restore
+
+A backup nobody has restored is a hope. The drill restores the catalog dump
+into a scratch database and a sample of the Parquet into a scratch prefix,
+compares what came back with what was backed up, then removes both. Nothing
+live is touched:
+
+```bash
+npm run restore -- backups/<timestamp> --drill
+```
+
+It prints the table, data-file and snapshot counts recovered from the dump,
+notes whether the live catalog has moved since, re-lists the uploaded objects
+to confirm sizes, and ends with `DRILL PASSED`. Run it after the first backup
+and after any change to where the catalog or the lake lives.
+
+#### Restore for real
+
+Restoring is destructive, so each component is opted into and `--yes` is
+required. Order matters:
+
+1. **Secrets first.** Put the values named in `SECRETS-REQUIRED.txt` back into
+   `.env` on the new host — the same values, not fresh ones.
+2. **Application database.**
+   `npm run restore -- backups/<timestamp> --supabase --db-url "postgresql://…" --yes`
+   (hosted projects: `psql` the two `.sql` files into the new project, then
+   `npx supabase db push` to confirm it is at the current migration).
+3. **Lakehouse catalog.** `npm run restore -- backups/<timestamp> --catalog --yes`
+   (or `--catalog-db <name>` to restore beside the live catalog and swap
+   `LAKEHOUSE_CATALOG_URL`).
+4. **Lakehouse data.** `npm run restore -- backups/<timestamp> --lake --yes`
+   uploads every mirrored object to `LAKEHOUSE_DATA_URL`; `--lake-prefix`
+   targets a different prefix if the new bucket is laid out differently — then
+   point `LAKEHOUSE_DATA_URL` at it.
+5. Start the app, open **Lakehouse**, pick a table you know and run
+   `SELECT count(*)` on the **Query** tab. Then open **Audit** and click
+   **Verify integrity** on the chain:
+   a restored trail that verifies proves nothing was lost between the backup
+   and the failure.
+
+#### Example: moving to a new host
+
+Take a backup on the old host with a database credential so nothing is
+skipped, copy the backup directory and your secret-manager values across,
+bring up the stack on the new host (`docker compose up -d --build`, then
+`--profile lakehouse` if you use it), restore in the order above, and run
+the drill against the same backup on the new host to prove the catalog and
+lake it now serves match what you moved. Only then repoint DNS.
 
 ### Pin image digests
 

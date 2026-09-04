@@ -845,6 +845,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "NO_PROXY",
       "ORC_MAX_DOWNLOAD_BYTES",
       "ORDS.ENABLE_SCHEMA",
+      "PROVIDER_CREDS_SECRET",
       "SELECT",
       "SQLEXPRESS",
       "STRUCT",
@@ -852,6 +853,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "access_key_id",
       "access_token",
       "account",
+      "az://",
       "calculator",
       "catalog",
       "cluster_identifier",
@@ -863,6 +865,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "host",
       "https://abc.clickhouse.cloud:8443",
       "instance_name",
+      "issues:KEY",
       "location",
       "monthly_revenue",
       "myorg-myaccount",
@@ -974,6 +977,26 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "troubleshooting",
         "text": "Troubleshooting",
         "level": 2
+      },
+      {
+        "id": "use-cases",
+        "text": "Use cases",
+        "level": 2
+      },
+      {
+        "id": "use-case-warehouse",
+        "text": "The production warehouse, handed to the team",
+        "level": 3
+      },
+      {
+        "id": "use-case-azure",
+        "text": "Catalog an Azure container",
+        "level": 3
+      },
+      {
+        "id": "use-case-jira",
+        "text": "Ask an agent about Jira, or Zendesk",
+        "level": 3
       }
     ]
   },
@@ -1044,6 +1067,26 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "prompt-bodies",
         "text": "Retention, and what a regulated tenant can turn off",
         "level": 2
+      },
+      {
+        "id": "use-cases",
+        "text": "Use cases",
+        "level": 2
+      },
+      {
+        "id": "use-case-auditor",
+        "text": "An auditor asks where a number came from",
+        "level": 3
+      },
+      {
+        "id": "use-case-old-answer",
+        "text": "Someone is about to act on an old answer",
+        "level": 3
+      },
+      {
+        "id": "use-case-ai-act",
+        "text": "Evidence for the EU AI Act",
+        "level": 3
       }
     ]
   },
@@ -1406,10 +1449,12 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "title": "Access control",
     "description": "Provision people, put them in groups, control which models they may run, and share data read-only — enforced in the database, not just hidden in the interface.",
     "terms": [
+      "/login?native=1",
       "ADMIN_EMAIL",
       "analytics",
       "gpt-4o",
       "gpt-4o-mini",
+      "margin",
       "openai",
       "openai/*",
       "openrouter",
@@ -1476,6 +1521,31 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "rollout",
         "text": "A sensible rollout",
+        "level": 3
+      },
+      {
+        "id": "use-cases",
+        "text": "Use cases",
+        "level": 2
+      },
+      {
+        "id": "use-case-contractors",
+        "text": "Contractors may only use one inexpensive model",
+        "level": 3
+      },
+      {
+        "id": "use-case-shared-connection",
+        "text": "A warehouse for the team, no password shared",
+        "level": 3
+      },
+      {
+        "id": "use-case-row-security",
+        "text": "Regional analysts see only their own rows",
+        "level": 3
+      },
+      {
+        "id": "use-case-sso",
+        "text": "Work accounts only",
         "level": 3
       }
     ]
@@ -1615,6 +1685,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "title": "Knowledge Base",
     "description": "Collections of documents an agent can search by meaning and quote with citations. This is how you stop an agent inventing your policies.",
     "terms": [
+      "/docs",
       "/embeddings",
       "/models",
       "GITHUB_TOKEN",
@@ -1763,6 +1834,26 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "quality",
         "text": "Getting better results",
         "level": 3
+      },
+      {
+        "id": "use-cases",
+        "text": "Use cases",
+        "level": 2
+      },
+      {
+        "id": "use-case-docs-site",
+        "text": "Index your own documentation site",
+        "level": 3
+      },
+      {
+        "id": "use-case-confluence",
+        "text": "A Confluence space, code blocks intact",
+        "level": 3
+      },
+      {
+        "id": "use-case-delete",
+        "text": "Share it, and delete it safely",
+        "level": 3
       }
     ]
   },
@@ -1855,6 +1946,31 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "scaling",
         "text": "Scaling and limits",
         "level": 2
+      },
+      {
+        "id": "use-cases",
+        "text": "Use cases",
+        "level": 2
+      },
+      {
+        "id": "use-case-plain-language",
+        "text": "A plain-language question, with the SQL kept",
+        "level": 3
+      },
+      {
+        "id": "use-case-missing-files",
+        "text": "A table whose files are gone",
+        "level": 3
+      },
+      {
+        "id": "use-case-as-of",
+        "text": "Answer as of last week",
+        "level": 3
+      },
+      {
+        "id": "use-case-backup",
+        "text": "Back it up and prove the backup",
+        "level": 3
       }
     ]
   },

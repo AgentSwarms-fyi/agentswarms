@@ -367,6 +367,58 @@ function DebuggingDoc() {
         existing rows sit there indefinitely.
       </Callout>
 
+      <H2 id="use-cases">Use cases</H2>
+      <H3 id="use-case-auditor">An auditor asks where a number came from</H3>
+      <Steps
+        items={[
+          {
+            title: "Open the trace under Traces",
+            body: "Its Provenance section lists the decision id, every data read made for the answer — warehouse, tables, whether an agent tool did the reading — and the lakehouse snapshot that was current.",
+          },
+          {
+            title: "Click Passport",
+            body: (
+              <>
+                One JSON document: the decision, its snapshot, every model turn, every read with its
+                result fingerprint, and notes stating what it does and does not establish. The
+                auditor verifies the HMAC-SHA256 signature without this instance, using{" "}
+                <C>PROVENANCE_SIGNING_SECRET</C>. An instance with no secret produces a passport
+                whose signature is <C>null</C> and says so.
+              </>
+            ),
+          },
+        ]}
+      />
+      <H3 id="use-case-old-answer">Someone is about to act on an old answer</H3>
+      <Steps
+        items={[
+          {
+            title: "Use the Replay control on the trace",
+            body: "Each recorded read runs as of the recorded snapshot, where it must reproduce the recorded fingerprint, and against today, where a difference means the data moved on.",
+          },
+          {
+            title: "A mismatch is measured, not assumed",
+            body: (
+              <>
+                The query runs once more against the same snapshot; two runs that disagree with each
+                other prove the query is non-deterministic (<C>random()</C>, <C>now()</C>, an
+                unordered <C>LIMIT</C>) and the read is reported as unable to be checked. Reads with
+                no query text, no snapshot history, or an unrecognised fingerprint format say so
+                rather than passing quietly.
+              </>
+            ),
+          },
+        ]}
+      />
+      <H3 id="use-case-ai-act">Evidence for the EU AI Act</H3>
+      <P>
+        Set <C>trace_retention_days</C> as low as the noise budget wants and leave{" "}
+        <C>provenance_retention_days</C> at 183 or higher: every trace and audit row carrying a
+        decision id is kept for at least that long, whatever the ordinary window says, and the floor
+        never shortens a longer window. Article 26(6) asks deployers of high-risk systems for six
+        months; the default meets it.
+      </P>
+
       <NextPrev current="/docs/debugging" />
     </>
   );

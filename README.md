@@ -130,6 +130,50 @@ published as callable APIs.
 
 ![The Developer workspace showing the read-only "LangChain fundamentals" sample notebook with runnable Python cells](docs/screenshots/developer-workspace-notebook.png)
 
+## Where it stands
+
+A short, checkable scorecard — every line links to the document or command
+that backs it, and the counts are pinned by tests so they cannot drift.
+
+**Strong, and verified here**
+
+- **Everything runs on your infrastructure.** App, notebooks, sandboxes,
+  lakehouse catalog and Parquet, all in Docker or Kubernetes; the only
+  outbound calls are the ones you configure — see
+  [DEPLOYMENT.md](./docs/DEPLOYMENT.md).
+- **Coverage.** 29 connectors across 22 databases and warehouses and 7 apps
+  ([DATA_SOURCES.md](./docs/DATA_SOURCES.md)); six knowledge-base sources
+  including website crawl and Confluence
+  ([KNOWLEDGE_BASES.md](./docs/KNOWLEDGE_BASES.md)); local embeddings via
+  Ollama or vLLM.
+- **Decision provenance.** Every answer carries a decision id and lakehouse
+  snapshot, exports as a signed Answer Passport, and can be replayed as of
+  the moment it was given, with non-determinism measured rather than assumed
+  ([PROVENANCE.md](./docs/PROVENANCE.md)).
+- **Governance that holds in the database.** Row filters and column masks
+  enforced by security-definer functions, deny-by-default model access,
+  SAML SSO, and a hash-chained audit log that survives user deletion
+  ([IAM.md](./docs/IAM.md)).
+- **Operations.** `npm run backup` captures the four stateful things and
+  `npm run restore -- <dir> --drill` proves the backup restores
+  ([DEPLOYMENT.md → Backups and restore](./docs/DEPLOYMENT.md#backups-and-restore)).
+
+**Not there yet — stated so nobody has to discover it**
+
+- **No SCIM.** Users arrive through SSO or invitation and are provisioned on
+  first login; groups are managed in IAM, not pushed from the IdP.
+- **One vector store.** Knowledge bases embed into pgvector inside the
+  application database; external stores (Qdrant, Weaviate, Pinecone) are not
+  supported.
+- **High availability of the lakehouse catalog is yours to provide.** The
+  compose file runs a single Postgres container; point `LAKEHOUSE_CATALOG_URL`
+  at a managed or replicated Postgres for anything you cannot afford to lose
+  between backups.
+- **Credentialed connectors are verified to validation, not in CI against
+  live tenants.** Confluence, Azure Blob, Jira and Zendesk each check the
+  credential when connected; their request signing, pagination and parsing
+  are unit-tested against fixture responses, not against a live account.
+
 ## This repo vs. agentswarms.fyi
 
 Same UI, two different missions:
@@ -267,6 +311,7 @@ The docs live in [`docs/`](./docs), one focused guide per topic:
 | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **[Installation](./docs/INSTALL.md)**                                    | Complete local setup on macOS / Linux / Windows: prerequisites, Supabase project, environment variables, first run, and troubleshooting.                                                                                                                                                                                                                                                                                                                                                                   |
 | **[System requirements & sizing](./docs/SYSTEM_REQUIREMENTS.md)**        | Minimum hardware (a 2 vCPU / 4 GB VM — no GPU), sizing scenarios from a solo pilot to 1,000 users, token budgets by model tier, GPU sizing for self-hosted models, and monthly cost tables for AWS / GCP / Azure / OCI across US, Europe, Middle East, India and APJC regions.                                                                                                                                                                                                                             |
+| **[Backups & restore](./docs/DEPLOYMENT.md#backups-and-restore)**        | The four things a self-hosted install cannot regenerate, `npm run backup` to capture them, and the restore drill that proves a backup works before you need it.                                                                                                                                                                                                                                                                                                                                            |
 | **[Scale and limits](./docs/SCALE_AND_LIMITS.md)**                       | What is bounded and by what: aggregation pushes down into your warehouse, local datasets cap at 500k rows, dashboards default to a 500-row snapshot. Every row/timeout/concurrency cap with the env var that changes it.                                                                                                                                                                                                                                                                                   |
 | **[Model pricing](./docs/MODEL_PRICING.md)**                             | Where a `cost_usd` figure comes from: the provider's own reported charge first, then operator overrides, a git-vendored catalog synced from LiteLLM **and OpenRouter**, and self-hosted zeroes. How `npm run prices:refresh` works, why an unknown price is flagged rather than recorded as free, and how history is re-priced.                                                                                                                                                                            |
 | **[Decision provenance](./docs/PROVENANCE.md)**                          | "Where did this answer come from?" — one key across every model call and data read a chat turn, swarm run or dashboard refresh made, plus the lakehouse snapshot it saw, so an answer is reproducible rather than merely recorded. Covers the signed **Answer Passport** export, **Replay** (re-run the recorded queries against the original snapshot and against today), and the retention floor that stops a shorter trace window destroying the evidence. What it is, and what it is not (compliance). |

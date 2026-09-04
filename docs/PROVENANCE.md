@@ -225,6 +225,63 @@ Purged audit rows are still streamed to stdout as NDJSON before deletion, and
 the archive now mirrors each delete exactly — same cutoff, same filter — so the
 two can never cover different sets of rows.
 
+## Use cases
+
+### An auditor asks where a number came from
+
+A figure in a report was produced by an agent three months ago. The auditor
+wants the source, not a re-run.
+
+1. Open the answer's trace under **Traces**. Its Provenance section lists the
+   decision id, every data read made on the answer's behalf — warehouse,
+   tables, whether an agent tool did the reading — and the lakehouse snapshot
+   that was current.
+2. Click **Passport**. The download is one JSON document: the decision, its
+   snapshot, every model turn, every read with its result fingerprint, and
+   notes stating what the document does and does not establish.
+3. The auditor verifies the signature **without this instance**: canonical
+   JSON (sorted keys) signed with HMAC-SHA256 under `PROVENANCE_SIGNING_SECRET`,
+   as described under [The Answer Passport](#the-answer-passport). An
+   instance with no signing secret produces a passport whose signature is
+   `null` and says so — it never looks signed.
+
+### Someone is about to act on an old answer
+
+A week-old recommendation is on the table. Is it still true, and was it true
+then?
+
+1. On the trace, use the Replay control. Each recorded read is run twice.
+2. **As of the recorded snapshot** the result must reproduce the recorded
+   fingerprint. A mismatch is confirmed before it is reported: the query runs
+   once more against the same snapshot, and two runs that disagree with each
+   other mean the query itself is non-deterministic (`random()`, `now()`, an
+   unordered `LIMIT`), which is reported as _cannot be checked_, not as a
+   disagreement.
+3. **Against today's data** a difference means the data moved on since the
+   answer — exactly what the person deciding needs to know.
+4. Reads that cannot be checked say so: no query text recorded, a store with
+   no snapshot history (an external Postgres is re-run against today only and
+   labelled as such), or a fingerprint in a format this build cannot reproduce
+   (reported as _unknown_, never as verified or as tampering).
+
+Replays run under the caller's own grants and row policies from a read-only
+attachment. Nobody can see more through a replay than they could directly.
+
+### Keeping evidence for the EU AI Act
+
+Article 26(6) asks deployers of high-risk systems to keep automatically
+generated logs for at least six months. Ordinary trace retention is often
+shorter.
+
+1. Set `trace_retention_days` as low as your noise budget wants.
+2. Leave `provenance_retention_days` at its default of 183, or raise it. Every
+   trace and audit row that carries a decision id is kept for at least that
+   long, whatever the ordinary window says; the floor never shortens a longer
+   window. The setting is explained under **Admin → IAM → Settings**.
+
+The retention job proves this rather than assuming it — see
+[Retention](#retention-evidence-is-held-longer-than-telemetry).
+
 ## What this is not
 
 It is not compliance. No tool grants that. It is the **evidence** the EU AI

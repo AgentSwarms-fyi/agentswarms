@@ -16,6 +16,8 @@ manage everything else.
 > defence does nothing. See
 > [DEPLOYMENT.md → Bootstrap the operator](./DEPLOYMENT.md#bootstrap-the-operator).
 
+## What it manages
+
 It manages:
 
 - **Users** — invite by email (Supabase sends the invitation) or create
@@ -89,3 +91,79 @@ It manages:
   > feature; self-hosted GoTrue → set `GOTRUE_SAML_ENABLED=true` with a
   > `GOTRUE_SAML_PRIVATE_KEY`. The SSO tab detects and explains this if it's
   > not enabled yet.
+
+## Use cases
+
+Every walkthrough below uses the tabs on **Admin → IAM**: _Users_, _Groups_,
+_Access_, _Attributes_, _Budgets_, _SSO_ and _Settings_.
+
+### Contractors may only use one inexpensive model
+
+You have a group of external contractors who should build and test agents but
+never run the frontier models the rest of the company pays for.
+
+1. **Settings → Default model access → Deny by default.** From now on a user
+   with no rules can call no models at all. Nobody who already has rules is
+   affected, and superadmins bypass deny mode, so you cannot lock yourself out.
+2. **Groups →** create _Contractors_ and add the accounts.
+3. **Access →** add a model rule on the _Contractors_ group. A rule is a
+   pattern: `*`, a provider prefix such as `openai/*`, or one exact model id.
+   Grant the single model you are willing to pay for.
+
+The rule is enforced on the server for every call the contractor's work
+makes — the playground, saved agents, swarm nodes, the API, and a public embed
+of their agent, which runs its owner's stored model and is re-checked against
+the owner's rules on every anonymous request. The model pickers only show what
+the rules allow, so the restriction is visible before it is enforced.
+
+### Give the team a warehouse without giving anyone its password
+
+A data engineer owns the production Postgres connection and the whole
+analytics group needs to query it from agents and the SQL workbench.
+
+1. The owner creates the connection once under **Integrations → Data
+   Sources** and tests it.
+2. On **Admin → IAM → Access** the owner (or a superadmin) shares the
+   connection with the _Analytics_ group, read-only.
+3. Each analyst's agents can now query it. The credential never leaves the
+   server: a shared connection runs **as its owner** — the owner's stored
+   secret is decrypted server-side and the grantee's queries run against the
+   owner's warehouse. Revoking the share stops the access; nothing needs to
+   be rotated, because nothing was handed out.
+
+### Regional analysts see only their own rows
+
+One `sales` table, three regions, and each regional lead may see only their
+region — and never the `margin` column.
+
+1. Share the dataset with each lead (or with a per-region group) on
+   **Access**, adding a **row filter** on `region` and a **column mask** that
+   removes `margin`.
+2. For a single grant that adapts to whoever is looking, set each viewer's
+   region on the **Attributes** tab and reference the attribute in the filter:
+   one grant, per-viewer rows.
+
+Both restrictions are enforced **inside the database**: a grantee cannot read
+the raw table at all, every read goes through a security-definer function that
+applies the filter and mask first, so the result is the same through the SQL
+workbench, an agent tool or the REST API. When someone holds two grants, rows
+combine (any allowing grant admits the row) and masks intersect (a column is
+hidden only when every grant hides it) — a second grant never reduces access.
+
+### Work accounts only
+
+Security wants every login to go through the corporate identity provider.
+
+1. Enable SAML on your Supabase project first (hosted: **Authentication →
+   Sign In / Up → SSO (SAML 2.0)**; self-hosted GoTrue: `GOTRUE_SAML_ENABLED`
+   and a private key). The **SSO** tab tells you if this is still missing.
+2. On **SSO**, copy the ACS URL and Entity ID into the IdP's SAML app, then
+   paste the IdP's metadata URL or XML and list the email domains it covers.
+   The login page gains _Continue with single sign-on_.
+3. Once a superadmin has signed in through the IdP successfully, turn on
+   **Require SSO**. Email/password and social login disappear from the login
+   page; `/login?native=1` stays as the superadmin escape hatch, so a broken
+   IdP cannot lock the instance.
+
+SSO-provisioned users get in even when the instance is **invite-only**
+(Settings), so you can close public signup at the same time.

@@ -871,6 +871,45 @@ Never fill a gap with general knowledge.`}</Code>
         </li>
       </UL>
 
+      <H2 id="use-cases">Use cases</H2>
+      <H3 id="use-case-docs-site">Index your own documentation site</H3>
+      <Steps
+        items={[
+          {
+            title: "Add Source → Website",
+            body: (
+              <>
+                Give start URLs; optionally a sitemap URL, path prefixes to stay inside such as{" "}
+                <C>/docs</C>, and a page cap (100 by default, 500 at most). No credential is needed.
+              </>
+            ),
+          },
+          {
+            title: "Sync",
+            body: "The crawler honours robots.txt, stays on the same site, prefers the sitemap and otherwise follows links breadth-first. A page version is the sitemap lastmod, else the ETag, else a content hash, so a scheduled sync re-fetches only what changed. A result like 5 documents indexed, 12 skipped by robots.txt is normal for a marketing site — narrow the prefixes to the documentation tree.",
+          },
+        ]}
+      />
+      <H3 id="use-case-confluence">A Confluence space, code blocks intact</H3>
+      <Steps
+        items={[
+          {
+            title: "Add Source → Confluence",
+            body: "Site URL, the space keys to sync, an API token — plus the account email on Confluence Cloud. Cloud and Data Center are told apart from the URL and authenticated accordingly.",
+          },
+          {
+            title: "Pages arrive as text with their code macros preserved",
+            body: "That is what makes a runbook useful to an on-call agent. Restrict retrieval by sharing the knowledge base read-only with the on-call group.",
+          },
+        ]}
+      />
+      <H3 id="use-case-delete">Share it, and delete it safely</H3>
+      <P>
+        Sharing is read-only and done from Admin → IAM → Access. Deleting a knowledge base asks
+        first and names what goes with it — every document, chunk and connected source, and the
+        agents wired to it lose their knowledge. There is no undo, which is why there is a dialog.
+      </P>
+
       <NextPrev current="/docs/knowledge" />
     </>
   );

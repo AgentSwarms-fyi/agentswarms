@@ -4,6 +4,7 @@ import {
   Callout,
   DocsHeader,
   H2,
+  H3,
   NextPrev,
   P,
   Steps,
@@ -337,6 +338,55 @@ function LakehouseDocsPage() {
         <C>Network is unreachable</C> in the run log, and it appears only once the app runs in a
         container: under <C>npm run dev</C> kernels get a routable network instead.
       </Callout>
+
+      <H2 id="use-cases">Use cases</H2>
+      <H3 id="use-case-plain-language">A plain-language question, with the SQL kept</H3>
+      <Steps
+        items={[
+          {
+            title: "Pick the table, open Query",
+            body: "The search box filters schemas and tables. Type the question in the ask-in-plain-language box — total amount by customer, largest first — and the generated SQL is shown and run. Edit it like any statement.",
+          },
+          {
+            title: "Read the plan when something is slow",
+            body: "Show the plan the engine chose and what it actually cost. Results served from the result cache are marked, and the cache is invalidated by any write, so a cached answer is never stale.",
+          },
+        ]}
+      />
+      <H3 id="use-case-missing-files">A table whose files are gone</H3>
+      <Steps
+        items={[
+          {
+            title: "The schema list marks it: Missing data files",
+            body: "Integrity, above, explains what the marker means and what can still be recovered.",
+          },
+          {
+            title: "Open the table tab and choose Drop",
+            body: "A dialog asks to confirm the drop of that exact table. It proceeds through the catalog even though the files cannot be read — the catalog is what says a table exists. Rows that are still needed come back from a backup, not from the catalog.",
+          },
+        ]}
+      />
+      <H3 id="use-case-as-of">Answer as of last week</H3>
+      <Steps
+        items={[
+          {
+            title: "Open the trace of the original answer under Traces",
+            body: "Its Provenance section names the lakehouse snapshot that was current when the answer was given.",
+          },
+          {
+            title: "Use the Replay control",
+            body: "The recorded reads run again as of that snapshot — the result must match the recorded fingerprint — and against today, where a difference means the data moved on. The History tab lists the snapshots a table has been through.",
+          },
+        ]}
+      />
+      <H3 id="use-case-backup">Back it up and prove the backup</H3>
+      <P>
+        The catalog and the Parquet are two things; a backup of one without the other is a lakehouse
+        that cannot be read. <C>npm run backup</C> captures both plus the application database, and{" "}
+        <C>npm run restore -- backups/&lt;timestamp&gt; --drill</C> restores them into scratch
+        targets, compares, cleans up and prints DRILL PASSED. The full runbook is in the
+        self-hosting guide.
+      </P>
 
       <NextPrev current="/docs/lakehouse" />
     </>

@@ -963,11 +963,11 @@ kubectl apply -f deploy/k8s/app/agentswarms.yaml`}</Code>
           },
           {
             name: "Backups",
-            body: "Supabase holds all durable state. Use its backups, and store PROVIDER_CREDS_SECRET separately — a database backup without it is unreadable for credentials.",
+            body: "A self-hosted install has four things that cannot be regenerated: the application database, the lakehouse catalog (a separate Postgres that knows which Parquet files make up each table and every snapshot), the lakehouse data (Parquet in your bucket) and the secrets in .env. `npm run backup` captures the first three into backups/<timestamp>/ and lists the fourth by name — PROVIDER_CREDS_SECRET decrypts every stored credential and PROVENANCE_SIGNING_SECRET verifies every Answer Passport, so store both in your secret manager; values are never written to a backup. Give it a database credential (--db-url for self-hosted Supabase, SUPABASE_DB_PASSWORD for a linked hosted project) or that step is skipped and recorded in manifest.json — it never prompts, so it is safe to schedule. Rehearse before you need it: `npm run restore -- backups/<timestamp> --drill` restores into scratch targets, compares, cleans up and prints DRILL PASSED. Real restores opt into --catalog, --lake and --supabase and require --yes. Full runbook, including the order for a host migration, in docs/DEPLOYMENT.md.",
           },
           {
             name: "Upgrades",
-            body: "Pull, rebuild, then push migrations. Migrations are additive; check the release notes before skipping several versions.",
+            body: "Take a backup first (npm run backup), then pull, rebuild (docker compose up -d --build) and run npx supabase db push --include-all. Migrations only add and are never reverted, so the rollback is the backup plus a git checkout of the previous tag. Check the release notes before skipping several versions.",
           },
           {
             name: "Logs",

@@ -21,6 +21,8 @@
     "typecheck": "npm run generate:routes && tsc --noEmit -p tsconfig.json",
     "preview": "vite preview",
     "start": "node server.mjs",
+    "backup": "node scripts/backup.mjs",
+    "restore": "node scripts/restore.mjs",
     "lint": "eslint .",
     "check:docs": "node scripts/check-docs.mjs",
     "check:md-docs": "node scripts/check-md-docs.mjs",

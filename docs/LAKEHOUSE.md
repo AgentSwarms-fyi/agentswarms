@@ -312,7 +312,7 @@ marks any table whose objects are missing — with the count of unreadable rows
 rather than the metadata row count, which is exactly the number that would
 otherwise reassure you. The check is best-effort and never blocks the page.
 
-Two deliberate limits. Superseded files are skipped (they are *supposed* to be
+Two deliberate limits. Superseded files are skipped (they are _supposed_ to be
 absent after compaction, and reporting them would make every compacted table
 look broken), and a listing that hits its ceiling reports **nothing** rather
 than guessing — a check that cries wolf gets ignored, and then it is worth
@@ -404,6 +404,69 @@ and a miss on the next — true across replicas behind a load balancer and equal
 true across workers inside one replica. Correctness is unaffected (the snapshot
 id is in the key), only the timing varies. And spill files are local disk: give
 each replica real scratch space, not a tmpfs sized for a container's RAM.
+
+## Use cases
+
+### Ask a question in plain language and keep the SQL
+
+An analyst wants totals by customer from a table they have never queried.
+
+1. Open **Lakehouse**, pick the table from the schema list (the search box
+   filters schemas and tables), and switch to **Query**.
+2. Type the question in the _Ask in plain language_ box — for example
+   _total amount by customer, largest first_. The generated SQL is shown and
+   run; edit it like any other statement.
+3. Open the plan (_Show the plan the engine chose and what it actually cost_)
+   when a query is slow. Results that came from the result cache are marked;
+   the cache is invalidated automatically by any write, so a cached answer is
+   never stale.
+
+Every read the analyst's agents make later on carries a decision id and the
+snapshot that was current, so the same answer can be replayed as of that
+moment — see [Decision provenance](./PROVENANCE.md).
+
+### A table whose files are gone
+
+Someone emptied a bucket prefix by hand. The catalog still lists the table;
+queries fail.
+
+1. The table shows a **Missing data files** marker in the schema list, and
+   [When the catalog and the object store disagree](#when-the-catalog-and-the-object-store-disagree)
+   explains what the marker means and what can still be recovered.
+2. If the data is gone for good, open the table's tab and choose **Drop**. A
+   dialog asks _Drop table schema.table?_ and the drop proceeds through the
+   catalog even though the files cannot be read — the catalog is the source of
+   truth for what exists.
+3. Anything that still needs the rows is restored from a backup (below) rather
+   than from the catalog.
+
+### Answer as of last week
+
+A dashboard number changed and the owner wants to know whether the data moved
+or the query did.
+
+1. Open the trace of the original answer under **Traces**; its Provenance
+   section names the lakehouse snapshot that was current.
+2. Use the trace's Replay control. The recorded reads run again **as of that
+   snapshot** (the result must match the recorded fingerprint) and against
+   **today's** data (a difference here means the world moved on). The
+   **History** tab on the lakehouse page lists the snapshots a table has been
+   through.
+
+### Back it up and prove the backup works
+
+The catalog and the Parquet are two separate things; a backup of one without
+the other is a lakehouse that cannot be read.
+
+```bash
+npm run backup
+npm run restore -- backups/<timestamp> --drill
+```
+
+The drill restores the catalog dump into a scratch database and the Parquet
+into a scratch prefix, checks what came back, removes both and prints
+`DRILL PASSED`. Full runbook in
+[DEPLOYMENT.md → Backups and restore](./DEPLOYMENT.md#backups-and-restore).
 
 ## Verified live
 
