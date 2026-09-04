@@ -32,6 +32,7 @@ import {
   LifeBuoy,
   Wrench,
   type LucideIcon,
+  Brain,
 } from "lucide-react";
 
 export type NavItem = { title: string; url: string; icon: LucideIcon };
@@ -73,6 +74,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { title: "BI Workspace", url: "/bi", icon: PieChart },
       { title: "ETL Pipelines", url: "/etl", icon: Waypoints },
       { title: "Lakehouse", url: "/lakehouse", icon: Warehouse },
+      { title: "ML Models", url: "/ml", icon: Brain },
       { title: "Developer workspace", url: "/notebooks", icon: NotebookPen },
     ],
   },

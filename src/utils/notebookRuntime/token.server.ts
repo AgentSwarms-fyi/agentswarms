@@ -85,7 +85,12 @@ export async function signSessionToken(opts: {
     sid: opts.sessionId,
     scope: SCOPE,
     iat: now,
-    exp: now + Math.max(60, Math.min(opts.ttlSeconds ?? 900, 3600)),
+    // A session token is scoped to one sandbox session; its life is the
+    // session's. The old 3600s ceiling silently expired the token of any
+    // batch job past an hour — the final result callback then 401'd and the
+    // result was lost. A day is the ceiling now; startSession passes the
+    // session's own wall-clock limit.
+    exp: now + Math.max(60, Math.min(opts.ttlSeconds ?? 900, 86_400)),
   };
   const header = b64url(JSON.stringify({ alg: "HS256", typ: "nbr" }));
   const payload = b64url(JSON.stringify(claims));

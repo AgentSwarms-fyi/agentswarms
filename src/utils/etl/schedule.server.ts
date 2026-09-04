@@ -106,6 +106,10 @@ export async function processDueEtlPipelines(force = false): Promise<number> {
   await reconcileOrphanedEtlRuns().catch((e) =>
     console.warn("[etl-reaper] failed:", (e as Error).message),
   );
+  // Training jobs share the sandbox and the failure modes; sweep them too.
+  await import("@/utils/ml/train.server")
+    .then((m) => m.reconcileOrphanedMlJobs())
+    .catch((e) => console.warn("[ml] orphan sweep failed:", (e as Error).message));
 
   return started;
 }

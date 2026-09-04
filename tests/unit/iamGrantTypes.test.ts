@@ -88,6 +88,7 @@ describe("every grantable type is enforced somewhere", () => {
     "src/routes/api/bi.direct-query.ts",
     "src/utils/integrations.functions.ts",
     "src/utils/bi.functions.ts",
+    "src/utils/ml/access.server.ts",
   ]
     .map((f) => readFileSync(f, "utf8"))
     .join("\n");

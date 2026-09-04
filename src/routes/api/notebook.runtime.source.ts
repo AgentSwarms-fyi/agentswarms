@@ -146,6 +146,29 @@ async function handle(request: Request): Promise<Response> {
     }
   }
 
+  // ML training jobs: no run row either — the job id rides in the session's
+  // inputs; the program is pinned server-side and the env resolved as the
+  // model's owner. Same two parts as ETL so the prelude is shared verbatim.
+  {
+    const ml = await import("@/utils/ml/types");
+    const stash = ml.mlJobStashOf(session?.inputs);
+    if (stash) {
+      let part = "";
+      try {
+        const body = (await request.json()) as { part?: string };
+        part = body?.part ?? "";
+      } catch {
+        /* empty body = default part */
+      }
+      const train = await import("@/utils/ml/train.server");
+      const out =
+        part === "etl_env"
+          ? await train.mlEnvFor(stash, claims.sub)
+          : await train.mlBundleFor(stash, claims.sub);
+      return "error" in out ? json(404, out) : json(200, out);
+    }
+  }
+
   if (session?.mcp_app_id) return mcpAppBundle(session.mcp_app_id, claims.sub);
 
   if (!session?.notebook_id) return json(404, { error: "No notebook bound to this session" });

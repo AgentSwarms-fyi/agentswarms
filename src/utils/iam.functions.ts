@@ -62,7 +62,8 @@ export type IamGrantRow = {
     | "provider_credential"
     | "warehouse_connection"
     | "saas_connection"
-    | "lakehouse_schema";
+    | "lakehouse_schema"
+    | "ml_model";
   resource_id: string;
   resource_name: string | null; // null = resource was deleted
   resource_owner_id: string | null;
@@ -87,7 +88,8 @@ export type IamResourceOption = {
     | "warehouse_connection"
     | "saas_connection"
     | "ai_analyst"
-    | "lakehouse_schema";
+    | "lakehouse_schema"
+    | "ml_model";
   id: string;
   name: string;
   owner_user_id: string | null;
@@ -717,6 +719,7 @@ export const iamListGrantableResources = createServerFn({ method: "POST" })
       { data: saasSources },
       { data: analysts },
       { data: lakehouseSchemas },
+      { data: mlModels },
     ] = await Promise.all([
       supabaseAdmin.from("knowledge_bases").select("id, name, user_id").order("name"),
       supabaseAdmin
@@ -745,6 +748,7 @@ export const iamListGrantableResources = createServerFn({ method: "POST" })
       supabaseAdmin.from("saas_connections").select("id, name, provider, user_id").order("name"),
       supabaseAdmin.from("ai_analysts").select("id, name, user_id").order("name"),
       supabaseAdmin.from("lakehouse_schemas").select("id, name, user_id").order("name"),
+      supabaseAdmin.from("ml_models").select("id, name, user_id").order("name"),
     ]);
     const resources: IamResourceOption[] = [
       ...(kbs ?? []).map((k) => ({
@@ -827,6 +831,14 @@ export const iamListGrantableResources = createServerFn({ method: "POST" })
         id: l.id,
         name: `${l.name} (lakehouse)`,
         owner_user_id: l.user_id,
+      })),
+      // Sharing a model conveys the right to predict with it and read its
+      // metrics; retraining, promotion and deletion stay with the owner.
+      ...(mlModels ?? []).map((m) => ({
+        resource_type: "ml_model" as const,
+        id: m.id,
+        name: m.name,
+        owner_user_id: m.user_id,
       })),
     ];
     return { ok: true, resources };
@@ -936,6 +948,15 @@ export const iamListGrants = createServerFn({ method: "POST" })
         { name: `${i.provider || i.name} key`, user_id: i.user_id },
       ]),
     );
+    const mlModelIds = (grants ?? [])
+      .filter((g) => g.resource_type === "ml_model")
+      .map((g) => g.resource_id);
+    const { data: mlRows } = mlModelIds.length
+      ? await supabaseAdmin.from("ml_models").select("id, name, user_id").in("id", mlModelIds)
+      : { data: [] as { id: string; name: string; user_id: string }[] };
+    const mlModelById = new Map(
+      (mlRows ?? []).map((m) => [m.id, { name: m.name, user_id: m.user_id }]),
+    );
     const credById = new Map(
       (credRows ?? []).map((c) => [
         c.id,
@@ -961,7 +982,9 @@ export const iamListGrants = createServerFn({ method: "POST" })
                       ? integrationById.get(g.resource_id)
                       : g.resource_type === "provider_credential"
                         ? credById.get(g.resource_id)
-                        : tableById.get(g.resource_id);
+                        : g.resource_type === "ml_model"
+                          ? mlModelById.get(g.resource_id)
+                          : tableById.get(g.resource_id);
         const rf = g.row_filter as { column?: unknown; values?: unknown } | null;
         return {
           id: g.id,
@@ -999,6 +1022,7 @@ export const iamCreateGrant = createServerFn({ method: "POST" })
           "saas_connection",
           "ai_analyst",
           "lakehouse_schema",
+          "ml_model",
         ]),
         resource_id: z.string().uuid(),
         principal_type: z.enum(["user", "group"]),

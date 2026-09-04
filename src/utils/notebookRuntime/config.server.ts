@@ -42,6 +42,12 @@ export type PlatformResourceSettings = {
   lakehouseThreads: number;
   etlMaxConcurrentRunsPerUser: number;
   etlPipelinesPerSweep: number;
+  /** Rows one training run reads; larger tables are reservoir-sampled. */
+  mlTrainMaxRows: number;
+  mlTrainTimeBudgetMinutes: number;
+  mlTrainMemLimitMb: number;
+  mlMaxConcurrentTrainingsPerUser: number;
+  mlPredictMaxRows: number;
 };
 
 /** A stored override only counts when it is a usable positive number. */
@@ -65,7 +71,7 @@ export async function getPlatformResources(): Promise<PlatformResourceSettings> 
   const { data } = await supabaseAdmin
     .from("notebook_runtime_settings")
     .select(
-      "lakehouse_memory_limit, lakehouse_threads, etl_max_concurrent_runs_per_user, etl_pipelines_per_sweep",
+      "lakehouse_memory_limit, lakehouse_threads, etl_max_concurrent_runs_per_user, etl_pipelines_per_sweep, ml_train_max_rows, ml_train_time_budget_minutes, ml_train_mem_limit_mb, ml_max_concurrent_trainings_per_user, ml_predict_max_rows",
     )
     .eq("id", true)
     .maybeSingle();
@@ -80,6 +86,19 @@ export async function getPlatformResources(): Promise<PlatformResourceSettings> 
       3,
     etlPipelinesPerSweep:
       positive(data?.etl_pipelines_per_sweep) ?? envInt("ETL_PIPELINES_PER_SWEEP") ?? 3,
+    // Machine learning. Generous by default and, like everything above,
+    // uncapped: a large VM is allowed to train on all of its rows.
+    mlTrainMaxRows: positive(data?.ml_train_max_rows) ?? envInt("ML_TRAIN_MAX_ROWS") ?? 2_000_000,
+    mlTrainTimeBudgetMinutes:
+      positive(data?.ml_train_time_budget_minutes) ?? envInt("ML_TRAIN_TIME_BUDGET_MINUTES") ?? 30,
+    mlTrainMemLimitMb:
+      positive(data?.ml_train_mem_limit_mb) ?? envInt("ML_TRAIN_MEM_LIMIT_MB") ?? 8192,
+    mlMaxConcurrentTrainingsPerUser:
+      positive(data?.ml_max_concurrent_trainings_per_user) ??
+      envInt("ML_MAX_CONCURRENT_TRAININGS_PER_USER") ??
+      2,
+    mlPredictMaxRows:
+      positive(data?.ml_predict_max_rows) ?? envInt("ML_PREDICT_MAX_ROWS") ?? 5_000_000,
   };
 }
 

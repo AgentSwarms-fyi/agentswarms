@@ -31,6 +31,7 @@ import {
   Users as UsersIcon,
   Wallet,
   X,
+  Brain,
 } from "lucide-react";
 import { GroupBudgetsTab } from "@/components/admin/GroupBudgetsTab";
 
@@ -1162,7 +1163,8 @@ function AccessTab({
     | "warehouse_connection"
     | "saas_connection"
     | "ai_analyst"
-    | "lakehouse_schema";
+    | "lakehouse_schema"
+    | "ml_model";
   const [shareResourceType, setShareResourceType] = useState<ShareResourceType>("knowledge_base");
   const [shareResourceId, setShareResourceId] = useState("");
   const [sharePrincipalType, setSharePrincipalType] = useState<"group" | "user">("group");
@@ -1198,6 +1200,9 @@ function AccessTab({
     // grantee's questions run as them. Their saved analyses stay their own.
     { value: "ai_analyst", label: "🧠 AI analyst" },
     { value: "lakehouse_schema", label: "🗄️ Lakehouse schema" },
+    // Sharing a model shares predictions with it and its metrics; training,
+    // promotion and deletion stay with the owner.
+    { value: "ml_model", label: "🧪 ML model" },
   ];
   const shareableOfType = resources.filter((r) => r.resource_type === shareResourceType);
 
@@ -1554,6 +1559,8 @@ function AccessTab({
                           <Layers className="h-4 w-4 text-muted-foreground" />
                         ) : g.resource_type === "catalog_source" ? (
                           <FolderTree className="h-4 w-4 text-muted-foreground" />
+                        ) : g.resource_type === "ml_model" ? (
+                          <Brain className="h-4 w-4 text-muted-foreground" />
                         ) : (
                           <DatabaseIcon className="h-4 w-4 text-muted-foreground" />
                         )}

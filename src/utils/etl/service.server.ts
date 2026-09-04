@@ -749,6 +749,14 @@ export async function startEtlRun(
     },
   });
 
+  // Lakehouse nodes read Parquet through the egress proxy; make sure it
+  // admits the lake endpoint before the sandbox finds out it does not.
+  await import("@/utils/notebookRuntime/egressApply.server")
+    .then((m) => m.ensurePlatformEgress())
+    .then((r) => {
+      if (!r.applied) console.warn("[etl] egress allow-list:", r.reason);
+    })
+    .catch(() => {});
   const launched = await launchAttempt(run.id, pipeline, mergedParams, 1);
   return launched.ok ? { ok: true, runId: run.id } : launched;
 }

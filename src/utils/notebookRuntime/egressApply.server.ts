@@ -12,6 +12,7 @@
 // implying success.
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { renderEgressAllowlist, renderEgressIpAllowlist } from "./egress";
 
 /**
@@ -85,9 +86,12 @@ async function restartProxy(): Promise<{ ok: boolean; reason?: string }> {
     const id = rows?.[0]?.Id;
     if (!id) return { ok: false, reason: `No running container matching "${name}".` };
 
+    // Seen live: the restart took longer than 20s while the daemon was busy
+    // and the caller reported "could not be reloaded" for a proxy that came
+    // back seconds later. A minute is generous and the call is rare.
     const res = await fetch(`${dockerBase()}/containers/${id}/restart?t=5`, {
       method: "POST",
-      signal: AbortSignal.timeout(20000),
+      signal: AbortSignal.timeout(60000),
     });
     if (!res.ok && res.status !== 204) {
       return { ok: false, reason: `Restarting the proxy returned ${res.status}.` };
@@ -141,4 +145,45 @@ export async function applyEgressAllowlist(hosts: string[]): Promise<EgressApply
     };
   }
   return { applied: true, hosts: count };
+}
+
+/**
+ * Make sure the proxy admits the hosts this deployment configured for
+ * itself (the lake's S3 endpoint above all) BEFORE a sandbox needs them.
+ *
+ * The allow-list used to reach the proxy only when an administrator saved
+ * the runtime settings. Configure the lakehouse afterwards and every sandbox
+ * that read Parquet got a 403 from squid, which DuckDB reports as
+ * "Authentication Failure ... credentials did not work" — a credential hunt
+ * for a bug that is not there. Called at job start; a no-op (no write, no
+ * proxy restart) when the rendered files already match, so a running job is
+ * never disturbed by another one starting.
+ */
+export async function ensurePlatformEgress(): Promise<EgressApplyResult> {
+  if (!platformEgressHosts().length) return { applied: true, hosts: 0 };
+  let stored: string[] = [];
+  try {
+    const { data } = await supabaseAdmin
+      .from("notebook_runtime_settings")
+      .select("egress_allowlist")
+      .eq("id", true)
+      .maybeSingle();
+    stored = (data?.egress_allowlist ?? []) as string[];
+  } catch {
+    /* no settings row yet: the platform hosts alone */
+  }
+  const all = [...stored, ...platformEgressHosts()];
+  const file = allowlistPath();
+  try {
+    const [domains, ips] = await Promise.all([
+      fs.readFile(file, "utf8").catch(() => ""),
+      fs.readFile(path.join(path.dirname(file), "allowed_ips"), "utf8").catch(() => ""),
+    ]);
+    if (domains === renderEgressAllowlist(all) && ips === renderEgressIpAllowlist(all)) {
+      return { applied: true, hosts: all.length };
+    }
+  } catch {
+    /* unreadable: fall through and (re)write */
+  }
+  return applyEgressAllowlist(stored);
 }

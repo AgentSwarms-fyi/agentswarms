@@ -300,3 +300,25 @@ Postgres (traces, audit, KB vectors); see
 **Scaling out:** the container is stateless with no sticky sessions. Background
 work takes a cross-instance database lease, and `DISABLE_INPROCESS_SCHEDULER`
 pins scheduling to one node. Remember that pool and rate limits are per process.
+
+### Machine learning — `src/utils/notebookRuntime/config.server.ts`
+
+Training and batch prediction run inside batch sandboxes of the notebook
+runtime, so the sandbox limits (`batch_cpu_limit`, `sandbox_tmpfs_mb`) apply
+as well. Each value below is resolved per call as **settings row → environment
+variable → default**; the settings row is edited under **Admin → Developer
+runtime** and takes effect on the next job, no redeploy.
+
+| Setting                                | Default   | What it bounds                                                                                            |
+| -------------------------------------- | --------- | --------------------------------------------------------------------------------------------------------- |
+| `ML_TRAIN_MAX_ROWS`                    | 2,000,000 | Rows one training run reads. A larger table is reservoir-sampled to this many, and the version says so.   |
+| `ML_TRAIN_TIME_BUDGET_MINUTES`         | 30        | Default wall-clock budget per run; candidates are skipped, not aborted, once 85% is spent.                |
+| `ML_TRAIN_MEM_LIMIT_MB`                | 8192      | Memory ceiling of a training sandbox. A model that needs more fails with the sandbox's OOM, not silently. |
+| `ML_MAX_CONCURRENT_TRAININGS_PER_USER` | 2         | Training jobs one user may have live at once.                                                             |
+| `ML_PREDICT_MAX_ROWS`                  | 5,000,000 | Rows one batch prediction may score.                                                                      |
+
+Nothing here is a ceiling in the code. On a 64-core, 512 GB machine set
+`ML_TRAIN_MAX_ROWS` to the size of your largest table and
+`ML_TRAIN_MEM_LIMIT_MB` to what a sandbox may take, and the trainer will use
+it; the admin page shows what the host actually has so the numbers are chosen
+against reality.

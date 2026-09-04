@@ -671,7 +671,7 @@ function gateFn(node: EtlNode): string {
  * engine here is the SAME DuckLake catalog the app uses, so a pipeline's
  * writes are ordinary ACID commits other readers see immediately.
  */
-function lakehouseAttachFn(): string {
+export function lakehouseAttachFn(): string {
   return [
     `def _lakehouse_con():`,
     `    import duckdb`,

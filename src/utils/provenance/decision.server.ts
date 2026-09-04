@@ -21,7 +21,12 @@ import { isDataRead } from "./actions";
 export { isDataRead };
 import { lakehouseEnabled, lakehouseSnapshotId } from "@/utils/lakehouse/core.server";
 
-export type DecisionKind = "chat_turn" | "swarm_run" | "dashboard_refresh";
+export type DecisionKind =
+  | "chat_turn"
+  | "swarm_run"
+  | "dashboard_refresh"
+  | "ml_training"
+  | "ml_prediction";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

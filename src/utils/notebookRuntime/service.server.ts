@@ -112,13 +112,19 @@ export async function startSession(opts: {
   inputs?: unknown;
   /** Services only: restart the sandbox if the user's process dies. */
   restartOnFailure?: boolean;
+  /** Batch only: override the runtime's default memory ceiling (MB). */
+  memLimitMb?: number;
+  /** Batch only: override the runtime's default wall-clock limit (minutes). */
+  maxMinutes?: number;
 }): Promise<{ session: SessionRow; token: string; gatewayUrl: string }> {
   const settings = await getRuntimeSettings();
   const batch = opts.kind === "batch";
   const service = opts.kind === "service";
   const cpu = batch ? settings.batchCpuLimit : settings.cpuLimit;
-  const mem = batch ? settings.batchMemLimitMb : settings.memLimitMb;
-  const maxMin = batch ? settings.batchMaxMinutes : settings.sessionMaxMinutes;
+  const mem =
+    (batch && opts.memLimitMb) || (batch ? settings.batchMemLimitMb : settings.memLimitMb);
+  const maxMin =
+    (batch && opts.maxMinutes) || (batch ? settings.batchMaxMinutes : settings.sessionMaxMinutes);
   const nowIso = new Date().toISOString();
   // A published MCP server is supposed to stay up: a hard expiry would take it
   // offline on a timer for no reason. Idleness (or an explicit stop) ends it
@@ -160,7 +166,7 @@ export async function startSession(opts: {
   const token = await signSessionToken({
     userId: opts.userId,
     sessionId: row.id,
-    ttlSeconds: Math.min(maxMin * 60, 3600),
+    ttlSeconds: maxMin * 60,
   });
   if (!token) {
     await supabaseAdmin

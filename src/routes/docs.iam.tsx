@@ -177,7 +177,7 @@ function IamPage() {
       <H2 id="sharing">Resource sharing</H2>
       <P>
         Grant a user or group <strong>read-only</strong> access to a resource owned by someone else,
-        under <strong>Admin → IAM → Access</strong>. Twelve resource types are grantable, enforced
+        under <strong>Admin → IAM → Access</strong>. Thirteen resource types are grantable, enforced
         by a database constraint:
       </P>
       <Table
@@ -193,6 +193,11 @@ function IamPage() {
           ["🏢 Database / warehouse connection", "Queryable — see below"],
           ["🔌 App source", "Syncable — see below"],
           ["🧠 AI analyst", "Usable — but as the grantee, not the owner; see below"],
+          ["🗄️ Lakehouse schema", "Its tables are queryable from the workbench and agents"],
+          [
+            "🧪 ML model",
+            "Their agents and dashboards can predict with it; training, promotion and deletion stay with the owner",
+          ],
         ]}
       />
       <P>

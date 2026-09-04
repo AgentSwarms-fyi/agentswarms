@@ -451,6 +451,36 @@ export function RuntimeTab({ token }: { token: string }) {
             </p>
           </div>
         </div>
+        <p className="text-xs font-medium text-muted-foreground">Machine learning</p>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <NumberField
+            label="Training rows"
+            value={form.ml_train_max_rows}
+            onChange={(n) => set("ml_train_max_rows", n)}
+            hint="larger tables are reservoir-sampled to this"
+          />
+          <NumberField
+            label="Training time budget (min)"
+            value={form.ml_train_time_budget_minutes}
+            onChange={(n) => set("ml_train_time_budget_minutes", n)}
+            hint="default per run; the wizard can lower it"
+          />
+          <NumberField
+            label="Training sandbox memory (MB)"
+            value={form.ml_train_mem_limit_mb}
+            onChange={(n) => set("ml_train_mem_limit_mb", n)}
+          />
+          <NumberField
+            label="Concurrent trainings / user"
+            value={form.ml_max_concurrent_trainings_per_user}
+            onChange={(n) => set("ml_max_concurrent_trainings_per_user", n)}
+          />
+          <NumberField
+            label="Batch prediction rows"
+            value={form.ml_predict_max_rows}
+            onChange={(n) => set("ml_predict_max_rows", n)}
+          />
+        </div>
       </div>
 
       {/* Limits */}

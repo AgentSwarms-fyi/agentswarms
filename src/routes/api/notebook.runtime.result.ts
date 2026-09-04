@@ -44,13 +44,19 @@ export const Route = createFileRoute("/api/notebook/runtime/result")({
         if (body.partial) {
           const { data: session } = await supabaseAdmin
             .from("notebook_runtime_sessions")
-            .select("etl_run_id")
+            .select("etl_run_id, inputs")
             .eq("id", claims.sid)
             .eq("user_id", claims.sub)
             .maybeSingle();
           if (session?.etl_run_id && typeof body.logs === "string") {
             await import("@/utils/etl/service.server")
               .then((m) => m.appendPartialLogs(session.etl_run_id as string, body.logs as string))
+              .catch(() => {});
+          }
+          const mlStash = (await import("@/utils/ml/types")).mlJobStashOf(session?.inputs);
+          if (mlStash && typeof body.logs === "string") {
+            await import("@/utils/ml/train.server")
+              .then((m) => m.appendMlPartialLogs(mlStash.job_id, body.logs as string))
               .catch(() => {});
           }
           return json(200, { ok: true });
@@ -70,7 +76,7 @@ export const Route = createFileRoute("/api/notebook/runtime/result")({
           .eq("id", claims.sid)
           .eq("user_id", claims.sub)
           .eq("kind", "batch")
-          .select("etl_run_id")
+          .select("etl_run_id, inputs")
           .maybeSingle();
         if (error) return json(500, { error: error.message });
 
@@ -90,6 +96,21 @@ export const Route = createFileRoute("/api/notebook/runtime/result")({
               }),
             )
             .catch((e) => console.warn("[etl] finalize failed:", (e as Error).message));
+        }
+        // Likewise a training job: the version, the audit row and the
+        // structured log line all come from this one callback.
+        const mlStash = (await import("@/utils/ml/types")).mlJobStashOf(updated?.inputs);
+        if (mlStash) {
+          await import("@/utils/ml/train.server")
+            .then((m) =>
+              m.finalizeMlJob(mlStash.job_id, {
+                status: body.status ?? "succeeded",
+                result: body.result,
+                logs: typeof body.logs === "string" ? body.logs : "",
+                error: typeof body.error === "string" ? body.error : null,
+              }),
+            )
+            .catch((e) => console.warn("[ml] finalize failed:", (e as Error).message));
         }
         return json(200, { ok: true });
       },

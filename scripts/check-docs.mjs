@@ -106,6 +106,7 @@ const APP_NAV = {
     "Semantic Layer",
     "Metrics",
     "BI Workspace",
+    "ML Models",
     "Developer workspace",
   ],
   Library: ["Prompt Library", "Skill Library"],
