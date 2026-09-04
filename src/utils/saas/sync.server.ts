@@ -17,7 +17,9 @@ import { fetchSheetRows, listSheetStreams } from "./googleSheets.server";
 import { fetchHubspotRows, listHubspotStreams } from "./hubspot.server";
 import { fetchSalesforceRows, listSalesforceStreams } from "./salesforce.server";
 import { fetchShopifyRows, listShopifyStreams } from "./shopify.server";
+import { fetchJiraRows, listJiraStreams } from "./jira.server";
 import { fetchStripeRows, listStripeStreams } from "./stripe.server";
+import { fetchZendeskRows, listZendeskStreams } from "./zendesk.server";
 import type { SaasConfig, SaasProvider, SaasStream, SaasSyncResult } from "./types";
 import { SAAS_LABELS } from "./types";
 
@@ -39,6 +41,8 @@ const CONNECTORS: Record<SaasProvider, SaasConnector> = {
   shopify: { listStreams: listShopifyStreams, fetchRows: fetchShopifyRows },
   hubspot: { listStreams: listHubspotStreams, fetchRows: fetchHubspotRows },
   salesforce: { listStreams: listSalesforceStreams, fetchRows: fetchSalesforceRows },
+  jira: { listStreams: listJiraStreams, fetchRows: fetchJiraRows },
+  zendesk: { listStreams: listZendeskStreams, fetchRows: fetchZendeskRows },
 };
 
 export function connectorFor(provider: SaasProvider): SaasConnector {

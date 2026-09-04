@@ -968,7 +968,7 @@ function LandingPage() {
                 {
                   icon: Database,
                   title: "27 data connectors",
-                  body: "22 databases and warehouses — Postgres, MySQL, SQL Server, Oracle, Snowflake, BigQuery, Databricks, Redshift, Synapse, Trino, Athena, ClickHouse, CockroachDB and more — plus 5 apps: Google Sheets, Stripe, Shopify, HubSpot, Salesforce. Encrypted credentials, strictly read-only.",
+                  body: "22 databases and warehouses — Postgres, MySQL, SQL Server, Oracle, Snowflake, BigQuery, Databricks, Redshift, Synapse, Trino, Athena, ClickHouse, CockroachDB and more — plus 7 apps: Google Sheets, Stripe, Shopify, HubSpot, Salesforce, Jira, Zendesk. Encrypted credentials, strictly read-only.",
                 },
                 {
                   icon: Share2,

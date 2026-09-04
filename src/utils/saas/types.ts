@@ -7,7 +7,14 @@
 // an HTTP API and materialised into a dataset. Sharing one abstraction would
 // mean a union type where half the fields are meaningless for either half.
 
-export type SaasProvider = "google_sheets" | "stripe" | "shopify" | "hubspot" | "salesforce";
+export type SaasProvider =
+  | "google_sheets"
+  | "stripe"
+  | "shopify"
+  | "hubspot"
+  | "salesforce"
+  | "jira"
+  | "zendesk";
 
 export const SAAS_PROVIDERS: SaasProvider[] = [
   "google_sheets",
@@ -15,6 +22,8 @@ export const SAAS_PROVIDERS: SaasProvider[] = [
   "shopify",
   "hubspot",
   "salesforce",
+  "jira",
+  "zendesk",
 ];
 
 export const SAAS_LABELS: Record<SaasProvider, string> = {
@@ -23,6 +32,8 @@ export const SAAS_LABELS: Record<SaasProvider, string> = {
   shopify: "Shopify",
   hubspot: "HubSpot",
   salesforce: "Salesforce",
+  jira: "Jira",
+  zendesk: "Zendesk",
 };
 
 /**
@@ -80,6 +91,26 @@ export type SaasConfig =
       /** Connected app consumer key + secret, used for client credentials. */
       client_id: string;
       client_secret: string;
+    }
+  | {
+      provider: "jira";
+      /** Jira Cloud site, e.g. https://acme.atlassian.net. */
+      site_url: string;
+      /** The Atlassian account the token belongs to. */
+      email: string;
+      /** API token from id.atlassian.com → Security → API tokens. */
+      api_token: string;
+      /** Optional comma-separated project keys; empty = every visible project. */
+      project_keys?: string;
+    }
+  | {
+      provider: "zendesk";
+      /** The <subdomain> in https://<subdomain>.zendesk.com; a full URL is accepted. */
+      subdomain: string;
+      /** The agent account the token belongs to. */
+      email: string;
+      /** API token from Admin Center → Apps and integrations → APIs. */
+      api_token: string;
     };
 
 /** Cadences a connection can be synced on. Client-safe: the picker needs these. */

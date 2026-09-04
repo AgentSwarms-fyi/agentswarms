@@ -832,7 +832,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
   {
     "route": "/docs/data",
     "title": "Data Catalog & SQL",
-    "description": "Everything tabular: uploaded files, 22 databases and warehouses, 5 app sources, the catalog that describes them, and the workbench that queries them.",
+    "description": "Everything tabular: uploaded files, 22 databases and warehouses, 7 app sources, the catalog that describes them, and the workbench that queries them.",
     "terms": [
       ".avro",
       ".csv",

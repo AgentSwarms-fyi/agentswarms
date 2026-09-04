@@ -269,7 +269,8 @@ describe("connector counts in prose match the code", () => {
 
   it("the numbers the docs do state are the real ones", () => {
     expect(EXTERNAL_WAREHOUSE_PROVIDERS.length).toBe(22);
-    expect(SAAS_PROVIDERS.length).toBe(5);
+    // Jira and Zendesk joined the five that covered finance, commerce and CRM.
+    expect(SAAS_PROVIDERS.length).toBe(7);
     const readme = readFileSync("README.md", "utf8");
     expect(readme).toContain(`${EXTERNAL_WAREHOUSE_PROVIDERS.length} databases and warehouses`);
     expect(readme).toContain(

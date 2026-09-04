@@ -120,6 +120,8 @@ version history, same use in BI, prep flows and the semantic layer.
 | **Stripe**        | Secret or restricted key                       | Charges, customers, invoices, subscriptions, payment intents, products, prices, refunds, payouts, balance transactions |
 | **Shopify**       | Admin API access token                         | Orders, customers, products, draft orders, price rules                                                                 |
 | **HubSpot**       | Private app token                              | Contacts, companies, deals, tickets, line items, products                                                              |
+| **Jira**          | Email + API token (Jira Cloud)                 | Issues, one dataset per project — summary, status, type, priority, assignee, reporter, dates, labels                   |
+| **Zendesk**       | Email + API token (sent as `email/token`)      | Tickets, users, organizations                                                                                          |
 | **Salesforce**    | Connected app (client credentials)             | Accounts, contacts, leads, opportunities, cases, campaigns, users                                                      |
 
 **Auth is a pasted credential, never OAuth.** A redirect flow needs a public

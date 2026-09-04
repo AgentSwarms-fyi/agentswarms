@@ -67,7 +67,7 @@ function DataPage() {
       <DocsHeader
         eyebrow="Data & analytics"
         title="Data Catalog & SQL"
-        description="Everything tabular: uploaded files, 22 databases and warehouses, 5 app sources, the catalog that describes them, and the workbench that queries them."
+        description="Everything tabular: uploaded files, 22 databases and warehouses, 7 app sources, the catalog that describes them, and the workbench that queries them."
       />
 
       <P>
@@ -100,7 +100,7 @@ function DataPage() {
             <strong key="c">Connect an app</strong>,
             "Pulled into local datasets on a schedule",
             "As fresh as the sync interval",
-            "Stripe, Shopify, HubSpot, Salesforce, Google Sheets — SaaS tools with no query language of their own.",
+            "Stripe, Shopify, HubSpot, Salesforce, Jira, Zendesk, Google Sheets — SaaS tools with no query language of their own.",
           ],
           [
             <strong key="d">Crawl a bucket</strong>,

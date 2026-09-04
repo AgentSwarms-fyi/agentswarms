@@ -121,6 +121,37 @@ const PROVIDER_HELP: Record<
   SaasProvider,
   { description: string; setup: string; unit: string; fields: Field[] }
 > = {
+  jira: {
+    description: "Sync every issue in your Jira projects into datasets — one per project.",
+    setup:
+      "Create an API token at id.atlassian.com → Security → API tokens, and enter the email " +
+      "of the Atlassian account it belongs to. The datasets contain exactly what that account " +
+      "can browse; a read-only account gives read-only datasets.",
+    unit: "project",
+    fields: [
+      { key: "site_url", label: "Site URL", placeholder: "https://acme.atlassian.net" },
+      { key: "email", label: "Account email", placeholder: "you@company.com" },
+      { key: "api_token", label: "API token", placeholder: "ATATT3x…" },
+      {
+        key: "project_keys",
+        label: "Project keys (optional, comma-separated)",
+        placeholder: "ENG, OPS — empty for every visible project",
+      },
+    ],
+  },
+  zendesk: {
+    description: "Sync tickets, users and organizations into datasets.",
+    setup:
+      "Create an API token in Admin Center → Apps and integrations → APIs → Zendesk API, and " +
+      "enter the email of the agent account it belongs to. The token is sent as " +
+      "email/token — the platform adds the suffix, so paste the token as issued.",
+    unit: "object",
+    fields: [
+      { key: "subdomain", label: "Subdomain", placeholder: "acme (from https://acme.zendesk.com)" },
+      { key: "email", label: "Agent email", placeholder: "you@company.com" },
+      { key: "api_token", label: "API token", placeholder: "paste the token as issued" },
+    ],
+  },
   google_sheets: {
     description: "Sync worksheets from a Google spreadsheet into datasets.",
     setup:
