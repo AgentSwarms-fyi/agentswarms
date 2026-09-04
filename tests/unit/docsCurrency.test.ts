@@ -52,6 +52,27 @@ type Currency = {
 
 const CASES: Currency[] = [
   {
+    capability: "Models train in a sandbox and explain themselves by permutation importance",
+    code: "src/utils/ml/pyTrain.ts",
+    codeContains: "permutation_importance(",
+    doc: "src/routes/docs.ml.tsx",
+    docMentions: [/permutation importance/i],
+  },
+  {
+    capability: "A prediction is audited as a data read with a digest",
+    code: "src/utils/ml/predict.server.ts",
+    codeContains: "ml.predict_query",
+    doc: "src/routes/docs.ml.tsx",
+    docMentions: [/ml\.predict_query/],
+  },
+  {
+    capability: "One forecaster for charts, the Analyst and alerts",
+    code: "src/lib/mlForecast.ts",
+    codeContains: "export function forecastValues",
+    doc: "src/routes/docs.ml.tsx",
+    docMentions: [/cannot\s+disagree/],
+  },
+  {
     capability: "Export a BI dashboard as a PowerPoint deck",
     code: "src/lib/biDeck.ts",
     codeContains: "export function buildDeckPlan",

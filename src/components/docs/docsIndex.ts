@@ -2102,6 +2102,128 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     ]
   },
   {
+    "route": "/docs/ml",
+    "title": "ML Models",
+    "description": "Train a model on a lakehouse table without writing code, keep every version with its metrics and the snapshot it learned from, score rows back into the lakehouse, let agents predict with it, and draw its forecasts on a dashboard — all on your own infrastructure.",
+    "terms": [
+      "ML_MAX_CONCURRENT_TRAININGS_PER_USER",
+      "ML_PREDICT_MAX_ROWS",
+      "ML_TRAIN_MAX_ROWS",
+      "ML_TRAIN_MEM_LIMIT_MB",
+      "ML_TRAIN_TIME_BUDGET_MINUTES",
+      "SELECT",
+      "SUMMARIZE",
+      "WHERE",
+      "_model_version",
+      "_predicted_at",
+      "ml-artifacts/",
+      "ml.predict_query",
+      "ml.train.start",
+      "ml.train.succeeded",
+      "ml.version.promote",
+      "ml_list_models",
+      "ml_model.create",
+      "ml_model.delete",
+      "ml_model.update",
+      "ml_predict",
+      "prediction",
+      "proba_&lt;class&gt;",
+      "probability"
+    ],
+    "headings": [
+      {
+        "id": "what",
+        "text": "What it is",
+        "level": 2
+      },
+      {
+        "id": "tasks",
+        "text": "Tasks",
+        "level": 2
+      },
+      {
+        "id": "train",
+        "text": "Train a model",
+        "level": 2
+      },
+      {
+        "id": "results",
+        "text": "Read the results",
+        "level": 2
+      },
+      {
+        "id": "versions",
+        "text": "Versions",
+        "level": 2
+      },
+      {
+        "id": "predictions",
+        "text": "Predictions",
+        "level": 2
+      },
+      {
+        "id": "try-it",
+        "text": "Try it",
+        "level": 3
+      },
+      {
+        "id": "batch",
+        "text": "Batch prediction",
+        "level": 3
+      },
+      {
+        "id": "agents",
+        "text": "Agents",
+        "level": 3
+      },
+      {
+        "id": "forecasting",
+        "text": "Forecasting in BI",
+        "level": 2
+      },
+      {
+        "id": "sharing",
+        "text": "Sharing and governance",
+        "level": 2
+      },
+      {
+        "id": "limits",
+        "text": "Limits",
+        "level": 2
+      },
+      {
+        "id": "operations",
+        "text": "Operations",
+        "level": 2
+      },
+      {
+        "id": "use-cases",
+        "text": "Use cases",
+        "level": 2
+      },
+      {
+        "id": "use-case-plan",
+        "text": "Which plan will a customer end up on?",
+        "level": 3
+      },
+      {
+        "id": "use-case-order",
+        "text": "How much is this order worth?",
+        "level": 3
+      },
+      {
+        "id": "use-case-forecast",
+        "text": "Next quarter&apos;s revenue, on the dashboard",
+        "level": 3
+      },
+      {
+        "id": "troubleshooting",
+        "text": "Troubleshooting",
+        "level": 2
+      }
+    ]
+  },
+  {
     "route": "/docs/models",
     "title": "Models & providers",
     "description": "Which models your workspace can reach, whose account pays for them, and how to pick sensibly between them.",

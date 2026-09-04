@@ -37,6 +37,7 @@ import {
   AlertTriangle,
   Lightbulb,
   List,
+  Brain,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DocsSearch } from "./DocsSearch";
@@ -80,6 +81,7 @@ export const DOCS_GROUPS: DocGroup[] = [
       { to: "/docs/data-prep", label: "Data preparation", icon: Workflow },
       { to: "/docs/etl", label: "ETL Pipelines", icon: Waypoints },
       { to: "/docs/lakehouse", label: "Lakehouse", icon: Warehouse },
+      { to: "/docs/ml", label: "ML Models", icon: Brain },
       { to: "/docs/knowledge", label: "Knowledge Base", icon: BookOpen },
       { to: "/docs/semantics", label: "Semantic Layer", icon: Layers },
       { to: "/docs/bi", label: "BI Workspace", icon: PieChart },
