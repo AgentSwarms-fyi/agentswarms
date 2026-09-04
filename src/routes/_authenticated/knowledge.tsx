@@ -1,3 +1,4 @@
+import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useDropzone } from "react-dropzone";
@@ -694,6 +695,19 @@ function KnowledgePage() {
       toast.error("Sample knowledge bases can't be deleted");
       return;
     }
+    // FOUND FROM THE UI. This deleted a knowledge base -- every document,
+    // chunk and connected source in it -- on one click, with no question
+    // asked. The native-dialog sweep could not see it: it hunts confirm()
+    // calls that exist, not confirmations that never did.
+    const name = target?.name ?? "this knowledge base";
+    if (
+      !(await confirmAsk({
+        title: `Delete "${name}"?`,
+        body: "Every document, chunk and connected source in it is removed. Agents wired to it lose their knowledge. This cannot be undone.",
+        actionLabel: "Delete knowledge base",
+      }))
+    )
+      return;
     await supabase.from("knowledge_bases").delete().eq("id", id);
     if (selectedBase?.id === id) {
       setSelectedBase(null);
