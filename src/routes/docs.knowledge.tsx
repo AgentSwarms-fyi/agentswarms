@@ -23,7 +23,7 @@ export const Route = createFileRoute("/docs/knowledge")({
       {
         name: "description",
         content:
-          "Ingest documents, pages, repositories and connected services (Google Drive, Notion, SharePoint, Dropbox, a public website); scheduled sync without re-indexing; chunking, embedding, retrieval and reranking; source-based access control; and how to debug a bad answer.",
+          "Ingest documents, pages, repositories and connected services (Google Drive, Notion, SharePoint, Dropbox, Confluence, a public website); scheduled sync without re-indexing; chunking, embedding, retrieval and reranking; source-based access control; and how to debug a bad answer.",
       },
       { property: "og:title", content: "Knowledge Base — AgentSwarms Documentation" },
       {
@@ -99,9 +99,11 @@ function KnowledgePage() {
         file, so it is searchable on the same terms as everything else in the collection.
       </P>
 
-      <H3 id="s-connectors">Connected services — Drive, Notion, SharePoint, Dropbox, Website</H3>
+      <H3 id="s-connectors">
+        Connected services — Drive, Notion, SharePoint, Dropbox, Confluence, Website
+      </H3>
       <P>
-        <strong>Connect</strong> opens a wizard for five providers. Credentials are pasted tokens
+        <strong>Connect</strong> opens a wizard for six providers. Credentials are pasted tokens
         (the platform's BYOK pattern — no OAuth consent screens to register), validated against the
         provider at save time, <strong>encrypted at rest</strong>, and never sent back to the
         browser: editing a source shows empty credential fields, and leaving them empty keeps what
@@ -139,6 +141,12 @@ function KnowledgePage() {
             "None — a public site",
             "Pages from the sitemap (lastmod is the change marker), else same-site links followed from the start URL; robots.txt honoured; up to 500 pages",
             "No — public content",
+          ],
+          [
+            "Confluence",
+            "Cloud: email + API token. Data Center: personal access token — the host decides which",
+            "Every page in the listed spaces; version.number is the change marker; storage-format macros flattened to text",
+            "No — not read",
           ],
         ]}
       />

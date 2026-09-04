@@ -28,7 +28,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, Cloud, FileText, Layers, Box, Globe } from "lucide-react";
+import { Loader2, Cloud, FileText, Layers, Box, Globe, BookOpen } from "lucide-react";
 
 export type ConnectorSourceRow = {
   id: string;
@@ -51,7 +51,7 @@ type Field = {
 };
 
 type ProviderDef = {
-  kind: "gdrive" | "notion" | "sharepoint" | "dropbox" | "web";
+  kind: "gdrive" | "notion" | "sharepoint" | "dropbox" | "web" | "confluence";
   name: string;
   icon: typeof Cloud;
   blurb: string;
@@ -98,6 +98,41 @@ const PROVIDERS: ProviderDef[] = [
         optional: true,
         placeholder: "100",
         help: "Up to 500. robots.txt is honoured; a JavaScript-only site yields little text.",
+      },
+    ],
+    acl: false,
+  },
+  {
+    kind: "confluence",
+    name: "Confluence",
+    icon: BookOpen,
+    blurb: "Sync every page in chosen spaces — Cloud or Data Center.",
+    credFields: [
+      {
+        key: "token",
+        label: "API token / personal access token",
+        secret: true,
+        help: "Cloud: id.atlassian.com → Security → API tokens. Data Center: Profile → Personal Access Tokens.",
+      },
+      {
+        key: "email",
+        label: "Account email (Cloud only)",
+        optional: true,
+        help: "Confluence Cloud authenticates with email + API token. Leave empty for Data Center.",
+      },
+    ],
+    configFields: [
+      {
+        key: "site_url",
+        label: "Site URL",
+        placeholder: "https://acme.atlassian.net or https://confluence.example.com",
+      },
+      {
+        key: "space_keys",
+        label: "Space keys",
+        list: true,
+        placeholder: "ENG",
+        help: "The short code in each space's URL. One per line.",
       },
     ],
     acl: false,

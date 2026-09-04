@@ -1666,7 +1666,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       },
       {
         "id": "s-connectors",
-        "text": "Connected services — Drive, Notion, SharePoint, Dropbox, Website",
+        "text": "Connected services — Drive, Notion, SharePoint, Dropbox, Confluence, Website",
         "level": 3
       },
       {

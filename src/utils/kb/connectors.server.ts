@@ -22,6 +22,13 @@
 // zero documents", which deletes every synced document as remotely-removed.
 
 import {
+  fetchConfluencePage,
+  listConfluencePages,
+  validateConfluence,
+  type ConfluenceConfig,
+  type ConfluenceCreds,
+} from "./confluence.server";
+import {
   extractLinks,
   looksLikePage,
   normalizeUrl,
@@ -42,7 +49,7 @@ export const MAX_ITEM_CHARS = 400_000;
 const MAX_FOLDER_DEPTH = 5;
 const MAX_ITEMS_PER_SOURCE = 500;
 
-export type ConnectorKind = "gdrive" | "notion" | "sharepoint" | "dropbox" | "web";
+export type ConnectorKind = "gdrive" | "notion" | "sharepoint" | "dropbox" | "web" | "confluence";
 
 export type RemoteItem = {
   /** Provider's stable id — the dedup key alongside source_id. */
@@ -953,12 +960,62 @@ const web: KbConnector = {
   },
 };
 
+// ── Confluence (Cloud and Data Center) ───────────────────────────────────────
+//
+// The enterprise wiki. Cloud (atlassian.net) authenticates with email + API
+// token, Data Center with a personal access token; the host decides which,
+// and validate() says which to paste. Pages are listed per space with
+// `version.number` as the change marker. Details live in confluence.server.ts,
+// which routes every request through the proxy-aware connectorFetch -- an
+// enterprise Confluence is the source most likely to sit behind egress.
+const confluence: KbConnector = {
+  kind: "confluence",
+  label: "Confluence",
+  supportsAcl: false,
+  validate(config, creds) {
+    return validateConfluence(config, creds);
+  },
+  async listItems(config, creds) {
+    const cfg = config as unknown as ConfluenceConfig;
+    const { items, truncated } = await listConfluencePages(
+      cfg,
+      creds as ConfluenceCreds,
+      MAX_ITEMS_PER_SOURCE,
+    );
+    const skipped: SkippedItem[] = truncated
+      ? [
+          {
+            name: "(remaining pages)",
+            reason: `capped at ${MAX_ITEMS_PER_SOURCE} items per source`,
+          },
+        ]
+      : [];
+    if (items.length === 0) {
+      // Loud, per the failure policy above: an empty listing would delete
+      // every previously synced page as remotely-removed.
+      throw new Error(
+        "Confluence: no pages found in those spaces. Check the space keys and that the token's account can view them.",
+      );
+    }
+    return { items, skipped };
+  },
+  async fetchItem(config, creds, item) {
+    const text = await fetchConfluencePage(
+      config as unknown as ConfluenceConfig,
+      creds as ConfluenceCreds,
+      item.externalId,
+    );
+    return { text: capText(text), aclPrincipals: null };
+  },
+};
+
 export const KB_CONNECTORS: Record<ConnectorKind, KbConnector> = {
   gdrive,
   notion,
   sharepoint,
   dropbox,
   web,
+  confluence,
 };
 
 export function isConnectorKind(kind: string): kind is ConnectorKind {

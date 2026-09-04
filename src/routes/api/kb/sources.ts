@@ -20,7 +20,7 @@ const UpsertBody = z.object({
   action: z.literal("upsert"),
   source_id: z.string().uuid().optional(),
   knowledge_base_id: z.string().uuid(),
-  kind: z.enum(["gdrive", "notion", "sharepoint", "dropbox", "web"]),
+  kind: z.enum(["gdrive", "notion", "sharepoint", "dropbox", "web", "confluence"]),
   label: z.string().min(1).max(200),
   config: z.record(z.string(), z.unknown()).default({}),
   /** Omitted on edit = keep the stored credentials. */

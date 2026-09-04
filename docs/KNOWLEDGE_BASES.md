@@ -5,7 +5,7 @@
 A knowledge base is a named collection of documents that agents search by
 meaning and quote with citations. Documents arrive four ways: file upload,
 web-page ingestion, GitHub repository ingestion, and **connected services** —
-Google Drive, Notion, SharePoint, Dropbox and a public **website** — which are synced on a schedule
+Google Drive, Notion, SharePoint, Dropbox, Confluence and a public **website** — which are synced on a schedule
 and kept deduplicated. All four land in the same tables and the same
 retrieval pipeline: pgvector embeddings, optional Postgres full-text search
 fused alongside them, and a keyword scan that still covers any document not yet
@@ -24,6 +24,7 @@ guarantees, and where the security boundaries sit.
 | SharePoint   | Entra app registration: tenant id + client id + client secret (`Files.Read.All`, admin-consented) | A document library (or folder path); text-format files                                                                                          | Yes — per-item permissions      |
 | Dropbox      | Access token, or refresh token + app key/secret                                                   | A folder path or the whole Dropbox; native content hashes                                                                                       | Yes — file members, best-effort |
 | Website      | None — a public site                                                                              | Pages from the sitemap (`lastmod` is the change marker), else same-site links followed from the start URL; robots.txt honoured; up to 500 pages | No — public content             |
+| Confluence   | Cloud: email + API token. Data Center: personal access token. The host decides which.             | Every page in the listed spaces; `version.number` is the change marker; storage-format macros flattened to text                                 | No — not read                   |
 
 Credentials are **token-based by design** (the platform's BYOK pattern). No
 OAuth consent flow ships, because that requires operator-registered apps per
