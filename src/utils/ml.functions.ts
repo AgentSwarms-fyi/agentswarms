@@ -38,6 +38,7 @@ import {
 } from "./ml/predict.server";
 import {
   ML_JOB_LIVE,
+  ML_TARGET_TASKS,
   ML_TASKS,
   ML_TUNINGS,
   ML_VERSION_STAGES,
@@ -318,7 +319,7 @@ const prepSchema = z.object({
 async function validatePrep(
   userId: string,
   source: MlSource,
-  target: string,
+  target: string | null | undefined,
   prep: MlPrepConfig,
 ): Promise<{ ok: true; rows: number } | { ok: false; error: string }> {
   const rel = `${q(source.schema)}.${q(source.table)}`;
@@ -332,7 +333,7 @@ async function validatePrep(
       auditVia: "ml-prep-check",
       rowCap: 1,
     });
-    if (!head.columns.some((c) => c.name === target)) {
+    if (target && !head.columns.some((c) => c.name === target)) {
       return { ok: false, error: `The prepared rows have no "${target}" column` };
     }
     const count = await runLakehouseStatement(userId, `SELECT count(*) AS n FROM ${body}`, {
@@ -351,7 +352,7 @@ export const mlValidatePrep = createServerFn({ method: "POST" })
       .object({
         access_token: z.string().min(1),
         source: z.object({ kind: z.literal("lakehouse"), schema: IDENT, table: IDENT }),
-        target_column: IDENT,
+        target_column: IDENT.optional(),
         prep: prepSchema,
       })
       .parse(input),
@@ -367,8 +368,13 @@ const createSchema = z.object({
   description: z.string().max(2000).optional(),
   task: z.enum(ML_TASKS),
   source: z.object({ kind: z.literal("lakehouse"), schema: IDENT, table: IDENT }),
-  target_column: IDENT,
+  target_column: IDENT.optional(),
   time_column: IDENT.optional(),
+  user_column: IDENT.optional(),
+  item_column: IDENT.optional(),
+  rating_column: IDENT.optional(),
+  n_clusters: z.number().int().min(2).max(50).optional(),
+  contamination: z.number().min(0.001).max(0.5).optional(),
   horizon: z.number().int().min(1).max(1000).optional(),
   aggregation: z.enum(["sum", "mean"]).optional(),
   feature_columns: z.array(IDENT).max(500).optional(),
@@ -409,6 +415,12 @@ export const mlCreateModel = createServerFn({ method: "POST" })
       if (data.task === "forecast" && !data.time_column) {
         return { ok: false, error: "A forecast needs a time column" };
       }
+      if (ML_TARGET_TASKS.includes(data.task) && !data.target_column) {
+        return { ok: false, error: "Choose the column to predict" };
+      }
+      if (data.task === "recommendation" && (!data.user_column || !data.item_column)) {
+        return { ok: false, error: "A recommendation needs a user column and an item column" };
+      }
       const allowed = new Set((await accessibleSchemas(userId)).map((s) => s.name));
       if (!allowed.has(data.source.schema)) {
         return { ok: false, error: `No access to lakehouse schema "${data.source.schema}"` };
@@ -428,7 +440,12 @@ export const mlCreateModel = createServerFn({ method: "POST" })
           description: data.description ?? null,
           task: data.task,
           source: data.source as Json,
-          target_column: data.target_column,
+          target_column: ML_TARGET_TASKS.includes(data.task) ? (data.target_column ?? null) : null,
+          user_column: data.task === "recommendation" ? (data.user_column ?? null) : null,
+          item_column: data.task === "recommendation" ? (data.item_column ?? null) : null,
+          rating_column: data.task === "recommendation" ? (data.rating_column ?? null) : null,
+          n_clusters: data.task === "clustering" ? (data.n_clusters ?? null) : null,
+          contamination: data.task === "anomaly" ? (data.contamination ?? null) : null,
           time_column: data.task === "forecast" ? (data.time_column ?? null) : null,
           horizon: data.task === "forecast" ? (data.horizon ?? 12) : null,
           aggregation: data.task === "forecast" ? (data.aggregation ?? "sum") : null,

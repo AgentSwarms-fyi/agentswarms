@@ -163,18 +163,22 @@ def _dtype_of(s):
 
 def _plan_columns(df, cfg):
     import pandas as pd
-    target = cfg['target_column']
+    target = cfg.get('target_column')
     tcol = cfg.get('time_column')
+    reserved = set([c for c in (cfg.get('user_column'), cfg.get('item_column'), cfg.get('rating_column')) if c])
     wanted = cfg.get('feature_columns') or None
     schema, features = [], []
     n = max(1, len(df))
     for c in df.columns:
         s = df[c]
-        if c == target:
+        if target is not None and c == target:
             schema.append({'name': c, 'dtype': _dtype_of(s), 'role': 'target'})
             continue
         if tcol and c == tcol:
             schema.append({'name': c, 'dtype': 'datetime', 'role': 'time'})
+            continue
+        if c in reserved:
+            schema.append({'name': c, 'dtype': _dtype_of(s), 'role': 'dropped', 'reason': 'recommendation key column'})
             continue
         if wanted is not None and c not in wanted:
             schema.append({'name': c, 'dtype': _dtype_of(s), 'role': 'dropped', 'reason': 'not selected'})
@@ -186,7 +190,12 @@ def _plan_columns(df, cfg):
         entry = {'name': c, 'dtype': d, 'role': 'feature'}
         if d in ('categorical', 'text'):
             nun = int(s.nunique(dropna=True))
-            if d == 'text' or (nun > 20 and (nun >= 0.9 * n or _ID_NAME.search(str(c)))):
+            avg_len = float(s.dropna().astype(str).str.len().mean() or 0.0)
+            if d == 'text' and avg_len >= 20 and not _ID_NAME.search(str(c)):
+                # Free text becomes TF-IDF features instead of a dropped column.
+                entry['dtype'] = 'text'
+                entry['avg_length'] = round(avg_len, 1)
+            elif d == 'text' or (nun > 20 and (nun >= 0.9 * n or _ID_NAME.search(str(c)))):
                 entry['role'] = 'dropped'
                 entry['reason'] = 'identifier-like: %d distinct values in %d rows' % (nun, n)
             else:
@@ -226,7 +235,7 @@ def _expand_datetimes(X, dt_cols):
     return X
 
 
-def _prepare_x(df, features, dt_cols, num_all, cat):
+def _prepare_x(df, features, dt_cols, num_all, cat, text=None):
     import numpy as np
     import pandas as pd
     X = df.copy()
@@ -240,10 +249,13 @@ def _prepare_x(df, features, dt_cols, num_all, cat):
         X[c] = pd.to_numeric(X[c], errors='coerce').astype('float64')
     for c in cat:
         X[c] = X[c].astype('string').fillna('missing').astype(str)
-    return X[num_all + cat]
+    text = text or []
+    for c in text:
+        X[c] = X[c].astype('string').fillna('').astype(str)
+    return X[num_all + cat + text]
 
 
-def _build_preprocessor(schema, features, prep):
+def _build_preprocessor(schema, features, prep, df=None, compact=False):
     from sklearn.compose import ColumnTransformer
     from sklearn.pipeline import Pipeline
     from sklearn.impute import SimpleImputer
@@ -252,6 +264,7 @@ def _build_preprocessor(schema, features, prep):
     dt_cols = [f for f in features if by[f]['dtype'] == 'datetime']
     num = [f for f in features if by[f]['dtype'] in ('numeric', 'boolean')]
     cat = [f for f in features if by[f]['dtype'] == 'categorical']
+    text = [f for f in features if by[f]['dtype'] == 'text']
     num_all = num + [c + suf for c in dt_cols for suf in _DT_PARTS]
     impute = (prep or {}).get('impute') or {}
     num_strategy = impute.get('numeric', 'median')
@@ -274,8 +287,23 @@ def _build_preprocessor(schema, features, prep):
         imp = (SimpleImputer(strategy='constant', fill_value='missing') if cat_strategy == 'constant'
                else SimpleImputer(strategy='most_frequent'))
         transformers.append(('cat', Pipeline([('impute', imp), ('encode', encoder)]), cat))
+    for i, c in enumerate(text):
+        from sklearn.feature_extraction.text import TfidfVectorizer
+        # Word and bigram TF-IDF, capped so a text column cannot swamp the rest.
+        tfidf = TfidfVectorizer(max_features=1000, ngram_range=(1, 2), min_df=2, sublinear_tf=True)
+        if compact and df is not None:
+            # Distance-based tasks: a thousand sparse term columns would swamp every
+            # other feature, so the text is compressed to a few dense components.
+            from sklearn.decomposition import TruncatedSVD
+            probe = TfidfVectorizer(max_features=1000, ngram_range=(1, 2), min_df=2)
+            vocab = len(probe.fit(df[c].astype('string').fillna('').astype(str)).vocabulary_)
+            if vocab < 3:
+                continue
+            transformers.append(('text%d' % i, Pipeline([('tfidf', tfidf), ('svd', TruncatedSVD(n_components=min(20, vocab - 1), random_state=42))]), c))
+        else:
+            transformers.append(('text%d' % i, tfidf, c))
     prepro = ColumnTransformer(transformers, remainder='drop', sparse_threshold=0)
-    return prepro, dt_cols, num_all, cat
+    return prepro, dt_cols, num_all, cat, text
 
 
 # ── Candidates and tuning ────────────────────────────────────────────────────
@@ -455,8 +483,8 @@ def _train_tabular(df, cfg, warnings_):
     schema, features = _plan_columns(df, cfg)
     for e in [e for e in schema if e['role'] == 'dropped' and e.get('reason') != 'not selected']:
         warnings_.append('Dropped column %s: %s' % (e['name'], e['reason']))
-    prepro, dt_cols, num_all, cat = _build_preprocessor(schema, features, prep)
-    X = _prepare_x(df, features, dt_cols, num_all, cat)
+    prepro, dt_cols, num_all, cat, text = _build_preprocessor(schema, features, prep)
+    X = _prepare_x(df, features, dt_cols, num_all, cat, text)
 
     classes = None
     if task == 'classification':
@@ -536,8 +564,8 @@ def _train_tabular(df, cfg, warnings_):
 
     payload = {
         'task': task, 'algorithm': best_name, 'pipeline': best, 'target': target,
-        'features': features, 'dt_cols': dt_cols, 'num_all': num_all, 'cat': cat,
-        'classes': classes, 'schema': schema, 'prep': prep, 'trainer_version': 2,
+        'features': features, 'dt_cols': dt_cols, 'num_all': num_all, 'cat': cat, 'text': text,
+        'classes': classes, 'schema': schema, 'prep': prep, 'trainer_version': 3,
     }
     buf = io.BytesIO()
     joblib.dump(payload, buf, compress=3)
@@ -550,6 +578,275 @@ def _train_tabular(df, cfg, warnings_):
 
 
 # ── Forecasting ──────────────────────────────────────────────────────────────
+# ── Clustering, anomaly detection, recommendation ───────────────────────────
+def _plan_and_prepare(df, cfg, warnings_):
+    prep = cfg.get('prep') or {}
+    schema, features = _plan_columns(df, cfg)
+    for e in [e for e in schema if e['role'] == 'dropped' and e.get('reason') not in ('not selected', 'recommendation key column')]:
+        warnings_.append('Dropped column %s: %s' % (e['name'], e['reason']))
+    prepro, dt_cols, num_all, cat, text = _build_preprocessor(schema, features, prep, df=df, compact=True)
+    X = _prepare_x(df, features, dt_cols, num_all, cat, text)
+    return prep, schema, features, prepro, dt_cols, num_all, cat, text, X
+
+
+def _cluster_profiles(df, labels, schema, features):
+    import pandas as pd
+    by = {e['name']: e for e in schema}
+    lab = pd.Series(labels, index=df.index)
+    n = max(1, len(df))
+    out = []
+    for k in sorted(set(int(v) for v in labels)):
+        sub = df[lab == k]
+        profile = {}
+        for f in features:
+            d = by[f]['dtype']
+            if d in ('numeric', 'boolean'):
+                profile[f] = _safe_float(pd.to_numeric(sub[f], errors='coerce').mean())
+            elif d == 'categorical':
+                vc = sub[f].dropna().astype(str).value_counts()
+                profile[f] = str(vc.index[0]) if len(vc) else None
+        out.append({'cluster': k, 'size': int(len(sub)), 'share': round(len(sub) / n, 4), 'profile': profile})
+    return out
+
+
+def _train_clustering(df, cfg, warnings_):
+    import numpy as np
+    from sklearn.cluster import KMeans
+    from sklearn.metrics import silhouette_score
+    from sklearn.pipeline import Pipeline
+    import joblib
+    budget = float(cfg.get('time_budget_minutes') or 30) * 60.0
+    prep, schema, features, prepro, dt_cols, num_all, cat, text, X = _plan_and_prepare(df, cfg, warnings_)
+    Xt = prepro.fit_transform(X)
+    n = int(Xt.shape[0])
+    if n < 20:
+        raise RuntimeError('Clustering needs at least 20 rows; found %d.' % n)
+    fixed = cfg.get('n_clusters')
+    ks = [int(fixed)] if fixed else list(range(2, min(10, max(2, n // 10)) + 1))
+    rng = np.random.RandomState(42)
+    sample = rng.choice(n, size=5000, replace=False) if n > 5000 else None
+    leaderboard, best = [], None
+    for k in ks:
+        name = 'kmeans_k%d' % k
+        if leaderboard and _elapsed() > budget * 0.85:
+            leaderboard.append({'algorithm': name, 'metric': 'silhouette', 'value': None, 'higher_is_better': True, 'fit_seconds': 0.0, 'status': 'skipped', 'note': 'time budget spent'})
+            continue
+        t0 = time.time()
+        try:
+            km = KMeans(n_clusters=k, n_init=5, random_state=42).fit(Xt)
+            labels = km.labels_
+            if len(set(labels.tolist())) < 2:
+                raise RuntimeError('all rows fell into one cluster')
+            sil = float(silhouette_score(Xt[sample], labels[sample]) if sample is not None else silhouette_score(Xt, labels))
+            leaderboard.append({'algorithm': name, 'metric': 'silhouette', 'value': _safe_float(sil), 'higher_is_better': True, 'fit_seconds': round(time.time() - t0, 2), 'status': 'ok'})
+            _log('%s: silhouette=%.4f' % (name, sil))
+            if best is None or sil > best[1]:
+                best = (k, sil, km)
+        except Exception as e:
+            leaderboard.append({'algorithm': name, 'metric': 'silhouette', 'value': None, 'higher_is_better': True, 'fit_seconds': round(time.time() - t0, 2), 'status': 'failed', 'note': str(e)[:200]})
+            _log('%s failed: %s' % (name, str(e)[:200]))
+    if best is None:
+        raise RuntimeError('No clustering succeeded. First error: ' + str(leaderboard[0].get('note', 'unknown')))
+    leaderboard.sort(key=lambda r: (r['status'] != 'ok', -(r['value'] or -1e18)))
+    k, sil, km = best
+    pipe = Pipeline([('prep', prepro), ('model', km)])
+    profiles = _cluster_profiles(df, km.labels_, schema, features)
+    metrics = {'silhouette': _safe_float(sil), 'n_clusters': float(k), 'inertia': _safe_float(km.inertia_), 'clusters': profiles}
+    if not fixed:
+        warnings_.append('k=%d chosen by silhouette over %s.' % (k, ', '.join(str(x) for x in ks)))
+    payload = {'task': 'clustering', 'algorithm': 'kmeans_k%d' % k, 'pipeline': pipe, 'target': None,
+               'features': features, 'dt_cols': dt_cols, 'num_all': num_all, 'cat': cat, 'text': text,
+               'classes': None, 'schema': schema, 'prep': prep, 'trainer_version': 3}
+    buf = io.BytesIO()
+    joblib.dump(payload, buf, compress=3)
+    return {'task': 'clustering', 'algorithm': 'kmeans_k%d' % k, 'metrics': metrics, 'primary_metric': 'silhouette',
+            'leaderboard': leaderboard, 'feature_importance': [], 'feature_schema': schema, 'classes': None,
+            'training_rows': n, 'holdout_rows': 0, 'tuning': {'mode': 'none', 'trials': 0}, '_artifact': buf.getvalue()}
+
+
+def _train_anomaly(df, cfg, warnings_):
+    import numpy as np
+    from sklearn.ensemble import IsolationForest
+    from sklearn.pipeline import Pipeline
+    import joblib
+    prep, schema, features, prepro, dt_cols, num_all, cat, text, X = _plan_and_prepare(df, cfg, warnings_)
+    if len(X) < 20:
+        raise RuntimeError('Anomaly detection needs at least 20 rows; found %d.' % len(X))
+    # scikit-learn's own threshold flags nothing on a well-behaved table, which
+    # reads as a broken detector; two percent is the usual working default.
+    cont = float(cfg.get('contamination') or 0.02)
+    t0 = time.time()
+    model = IsolationForest(n_estimators=200, contamination=cont, random_state=42, n_jobs=-1)
+    pipe = Pipeline([('prep', prepro), ('model', model)])
+    pipe.fit(X)
+    flags = pipe.predict(X)
+    scores = -pipe.decision_function(X)
+    rate = float((np.asarray(flags) == -1).mean())
+    metrics = {'anomaly_rate': rate, 'score_threshold': _safe_float(-model.offset_), 'score_mean': _safe_float(np.mean(scores)),
+               'score_max': _safe_float(np.max(scores)), 'flagged_rows': float(int((np.asarray(flags) == -1).sum()))}
+    leaderboard = [{'algorithm': 'isolation_forest', 'metric': 'anomaly_rate', 'value': rate, 'higher_is_better': False,
+                    'fit_seconds': round(time.time() - t0, 2), 'status': 'ok', 'note': 'contamination=%.3f%s' % (cont, '' if cfg.get('contamination') else ' (default)')}]
+    _log('isolation forest: %.1f%% of rows flagged' % (rate * 100))
+    payload = {'task': 'anomaly', 'algorithm': 'isolation_forest', 'pipeline': pipe, 'target': None,
+               'features': features, 'dt_cols': dt_cols, 'num_all': num_all, 'cat': cat, 'text': text,
+               'classes': None, 'schema': schema, 'prep': prep, 'trainer_version': 3}
+    buf = io.BytesIO()
+    joblib.dump(payload, buf, compress=3)
+    return {'task': 'anomaly', 'algorithm': 'isolation_forest', 'metrics': metrics, 'primary_metric': 'anomaly_rate',
+            'leaderboard': leaderboard, 'feature_importance': [], 'feature_schema': schema, 'classes': None,
+            'training_rows': int(len(X)), 'holdout_rows': 0, 'tuning': {'mode': 'none', 'trials': 0}, '_artifact': buf.getvalue()}
+
+
+def _recommend_for(art, user, n=10):
+    seen = set(art['user_items'].get(user, []))
+    if not seen:
+        return [(it, 0.0) for it in art['popular'][:n]], True
+    scores = {}
+    for it in seen:
+        for other, sim in art['neighbors'].get(it, []):
+            if other in seen:
+                continue
+            scores[other] = scores.get(other, 0.0) + float(sim)
+    ranked = sorted(scores.items(), key=lambda kv: -kv[1])[:n]
+    if not ranked:
+        return [(it, 0.0) for it in art['popular'] if it not in seen][:n], True
+    return ranked, False
+
+
+def _train_recommendation(df, cfg, warnings_):
+    import numpy as np
+    import pandas as pd
+    import joblib
+    from scipy import sparse
+    ucol, icol, rcol = cfg['user_column'], cfg['item_column'], cfg.get('rating_column')
+    d = df[[c for c in [ucol, icol, rcol] if c]].dropna(subset=[ucol, icol]).copy()
+    d[ucol] = d[ucol].astype(str)
+    d[icol] = d[icol].astype(str)
+    d['_w'] = pd.to_numeric(d[rcol], errors='coerce').fillna(1.0).clip(lower=0.0) if rcol else 1.0
+    d = d.groupby([ucol, icol], as_index=False)['_w'].sum()
+    users = sorted(d[ucol].unique().tolist())
+    items = sorted(d[icol].unique().tolist())
+    if len(users) < 5 or len(items) < 3:
+        raise RuntimeError('Recommendation needs at least 5 users and 3 items with interactions; found %d users and %d items.' % (len(users), len(items)))
+    if len(items) > 20000:
+        raise RuntimeError('%d distinct items is more than this recommender handles (20,000). Aggregate items into categories or filter the table.' % len(items))
+    uidx = {u: i for i, u in enumerate(users)}
+    iidx = {it: j for j, it in enumerate(items)}
+
+    def fit(frame):
+        rows = frame[ucol].map(uidx).to_numpy()
+        cols = frame[icol].map(iidx).to_numpy()
+        vals = frame['_w'].to_numpy(dtype='float64')
+        M = sparse.csr_matrix((vals, (rows, cols)), shape=(len(users), len(items)))
+        norms = np.sqrt(np.asarray(M.multiply(M).sum(axis=0)).ravel()) + 1e-9
+        Mn = sparse.csr_matrix(M.multiply(1.0 / norms))
+        S = (Mn.T @ Mn).tocsr()
+        S.setdiag(0.0)
+        return M, S
+
+    def neighbors_of(S, k=50):
+        out = {}
+        for j, it in enumerate(items):
+            row = S.getrow(j)
+            if row.nnz == 0:
+                out[it] = []
+                continue
+            order = np.argsort(-row.data)[:k]
+            out[it] = [(items[int(row.indices[t])], float(row.data[t])) for t in order if row.data[t] > 0]
+        return out
+
+    # Holdout: one interaction per user with at least two, scored by hit rate at 10.
+    rng = np.random.RandomState(42)
+    counts = d.groupby(ucol).size()
+    eligible = set(counts[counts >= 2].index)
+    test_idx = [int(rng.choice(grp.index)) for u, grp in d.groupby(ucol) if u in eligible]
+    test = d.loc[test_idx]
+    train = d.drop(index=test_idx)
+    t0 = time.time()
+    _, Str = fit(train)
+    art_tr = {'neighbors': neighbors_of(Str), 'user_items': train.groupby(ucol)[icol].apply(list).to_dict(),
+              'popular': train.groupby(icol)['_w'].sum().sort_values(ascending=False).index[:50].tolist()}
+    hits, evaluated, covered = 0, 0, set()
+    for _, r in test.iterrows():
+        recs, _cold = _recommend_for(art_tr, r[ucol], 10)
+        rec_items = [x for x, _s in recs]
+        covered.update(rec_items)
+        evaluated += 1
+        if r[icol] in rec_items:
+            hits += 1
+    hit_rate = (hits / evaluated) if evaluated else None
+    if not evaluated:
+        warnings_.append('No user has two or more interactions, so the hold-out hit rate could not be measured; each row must be one interaction for the metric to mean anything.')
+    _log('item similarity: hit@10=%s over %d held-out users' % ('%.3f' % hit_rate if hit_rate is not None else 'n/a', evaluated))
+    # Refit on every interaction for serving.
+    _, Sall = fit(d)
+    neighbors = neighbors_of(Sall)
+    popular = d.groupby(icol)['_w'].sum().sort_values(ascending=False).index[:50].tolist()
+    user_items = d.groupby(ucol)[icol].apply(list).to_dict()
+    metrics = {'hit_rate_10': _safe_float(hit_rate), 'coverage': _safe_float(len(covered) / len(items)) if evaluated else None,
+               'n_users': float(len(users)), 'n_items': float(len(items)), 'n_interactions': float(len(d)),
+               'evaluated_users': float(evaluated)}
+    leaderboard = [{'algorithm': 'item_similarity', 'metric': 'hit_rate_10', 'value': _safe_float(hit_rate), 'higher_is_better': True,
+                    'fit_seconds': round(time.time() - t0, 2), 'status': 'ok'}]
+    schema = [{'name': ucol, 'dtype': 'categorical', 'role': 'feature', 'categories': users[:200]},
+              {'name': icol, 'dtype': 'categorical', 'role': 'target', 'categories': items[:200]}]
+    if rcol:
+        schema.append({'name': rcol, 'dtype': 'numeric', 'role': 'dropped', 'reason': 'interaction strength'})
+    payload = {'task': 'recommendation', 'algorithm': 'item_similarity', 'user_col': ucol, 'item_col': icol,
+               'neighbors': neighbors, 'user_items': user_items, 'popular': popular, 'items': items,
+               'features': [ucol], 'schema': schema, 'trainer_version': 3}
+    buf = io.BytesIO()
+    joblib.dump(payload, buf, compress=3)
+    return {'task': 'recommendation', 'algorithm': 'item_similarity', 'metrics': metrics, 'primary_metric': 'hit_rate_10',
+            'leaderboard': leaderboard, 'feature_importance': [], 'feature_schema': schema, 'classes': None,
+            'training_rows': int(len(train)), 'holdout_rows': int(len(test)), 'tuning': {'mode': 'none', 'trials': 0}, '_artifact': buf.getvalue()}
+
+
+def _predict_recommendation(art, cfg, warnings_):
+    import numpy as np
+    import pandas as pd
+    inp = cfg['input']
+    con = None
+    ucol = art['user_col']
+    if inp['kind'] == 'rows':
+        df = pd.DataFrame(inp['rows'])
+    else:
+        con = _lakehouse_con()
+        rel = _q(inp['schema']) + '.' + _q(inp['table'])
+        body = rel + (' WHERE (' + inp['where'].strip() + ')' if inp.get('where') else '')
+        df = con.execute('SELECT DISTINCT ' + _q(ucol) + ' FROM ' + body).df()
+    if ucol not in df.columns:
+        raise RuntimeError('Recommendation input needs the column %s.' % ucol)
+    n = int(cfg.get('top_n') or 10)
+    preds, scores, cold = [], [], []
+    for u in df[ucol].astype(str).tolist():
+        recs, is_cold = _recommend_for(art, u, n)
+        preds.append(json.dumps([it for it, _s in recs]))
+        scores.append(json.dumps([round(sc, 4) for _it, sc in recs]))
+        cold.append(bool(is_cold))
+    out = pd.DataFrame({ucol: df[ucol].astype(str).tolist(), 'prediction': preds, 'scores': scores, 'cold_start': cold})
+    out['_model_version'] = int(cfg['version'])
+    out['_predicted_at'] = pd.Timestamp.utcnow().isoformat()
+    if any(cold):
+        warnings_.append('%d user(s) had no history; they received the most popular items.' % sum(1 for c in cold if c))
+    output = cfg.get('output')
+    written = None
+    if output:
+        con = con or _lakehouse_con()
+        fq = _q(output['schema']) + '.' + _q(output['table'])
+        con.register('_pred', out)
+        con.execute('CREATE OR REPLACE TABLE ' + fq + ' AS SELECT * FROM _pred')
+        written = {'schema': output['schema'], 'table': output['table']}
+        _log('wrote %s (%d rows)' % (fq, len(out)))
+    sample_n = len(out) if inp['kind'] == 'rows' else min(len(out), 50)
+    cols = [c for c in out.columns]
+    sample = [[_jsonable_cell(v) for v in row] for row in out.head(sample_n).itertuples(index=False, name=None)]
+    digest_rows = [[_jsonable_cell(v) for v in row] for row in out[['prediction']].head(1000).itertuples(index=False, name=None)]
+    return {'mode': 'predict', 'row_count': int(len(out)), 'total_input_rows': int(len(df)), 'output': written,
+            'columns': cols, 'sample': sample, 'digest_columns': ['prediction'], 'digest_rows': digest_rows,
+            'algorithm': art.get('algorithm')}
+
+
 _SEASON = {'h': 24, 'D': 7, 'W': 52, 'MS': 12, 'QS': 4, 'YS': 1}
 
 
@@ -784,6 +1081,8 @@ def _predict(cfg, warnings_):
     art = _download_artifact(cfg)
     if art.get('task') == 'forecast':
         raise RuntimeError('Forecast models are served from their training forecast; retrain with a different horizon to change it.')
+    if art.get('task') == 'recommendation':
+        return _predict_recommendation(art, cfg, warnings_)
     inp = cfg['input']
     con = None
     if inp['kind'] == 'rows':
@@ -804,12 +1103,20 @@ def _predict(cfg, warnings_):
     missing = [f for f in art['features'] if f not in df.columns]
     if missing:
         warnings_.append('Input is missing %d feature column(s), treated as empty: %s' % (len(missing), ', '.join(missing[:8])))
-    X = _prepare_x(df, art['features'], art['dt_cols'], art['num_all'], art['cat'])
+    X = _prepare_x(df, art['features'], art['dt_cols'], art['num_all'], art['cat'], art.get('text') or [])
     pipe = art['pipeline']
     pred = pipe.predict(X)
     out = df.copy()
     classes = art.get('classes')
-    if classes:
+    task = art.get('task')
+    if task == 'clustering':
+        out['prediction'] = np.asarray(pred, dtype='int64')
+        Xt = pipe.named_steps['prep'].transform(X)
+        out['distance'] = np.min(pipe.named_steps['model'].transform(Xt), axis=1)
+    elif task == 'anomaly':
+        out['prediction'] = (np.asarray(pred) == -1).astype('int64')
+        out['anomaly_score'] = -pipe.decision_function(X)
+    elif classes:
         out['prediction'] = [classes[int(i)] if 0 <= int(i) < len(classes) else str(i) for i in pred]
         if hasattr(pipe, 'predict_proba'):
             proba = pipe.predict_proba(X)
@@ -835,7 +1142,7 @@ def _predict(cfg, warnings_):
     sample_n = len(out) if inp['kind'] == 'rows' else min(len(out), 50)
     cols = [c for c in out.columns]
     sample = [[_jsonable_cell(v) for v in row] for row in out.head(sample_n).itertuples(index=False, name=None)]
-    digest_cols = ['prediction'] + (['probability'] if 'probability' in out.columns else [])
+    digest_cols = ['prediction'] + [c for c in ('probability', 'anomaly_score', 'distance') if c in out.columns]
     digest_rows = [[_jsonable_cell(v) for v in row] for row in out[digest_cols].head(1000).itertuples(index=False, name=None)]
     return {'mode': 'predict', 'row_count': int(len(out)), 'total_input_rows': int(total), 'output': written,
             'columns': cols, 'sample': sample, 'digest_columns': digest_cols, 'digest_rows': digest_rows,
@@ -853,13 +1160,19 @@ def entrypoint(inputs):
         result.update({'ok': True, 'elapsed_seconds': round(_elapsed(), 1), 'warnings': warnings_})
         _log('done in %.1fs' % _elapsed())
         return result
-    _log('job %s: %s on %s.%s -> %s' % (cfg['job_id'][:8], cfg['task'], cfg['source']['schema'], cfg['source']['table'], cfg['target_column']))
+    _log('job %s: %s on %s.%s -> %s' % (cfg['job_id'][:8], cfg['task'], cfg['source']['schema'], cfg['source']['table'], cfg.get('target_column') or cfg.get('item_column') or '(no target)'))
     con = _lakehouse_con()
     df, total, sampled = _read_frame(con, cfg)
     if sampled:
         warnings_.append('Trained on a %d-row sample of %d rows.' % (len(df), total))
     if cfg['task'] == 'forecast':
         result = _train_forecast(df, cfg, warnings_)
+    elif cfg['task'] == 'clustering':
+        result = _train_clustering(df, cfg, warnings_)
+    elif cfg['task'] == 'anomaly':
+        result = _train_anomaly(df, cfg, warnings_)
+    elif cfg['task'] == 'recommendation':
+        result = _train_recommendation(df, cfg, warnings_)
     else:
         result = _train_tabular(df, cfg, warnings_)
     blob = result.pop('_artifact')

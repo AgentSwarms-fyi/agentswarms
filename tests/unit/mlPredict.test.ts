@@ -77,7 +77,7 @@ describe("the program: preparation, tuning, prediction", () => {
 
   it("prediction re-uses the training feature preparation and writes back through the catalog", () => {
     expect(TRAIN_PY).toContain(
-      "X = _prepare_x(df, art['features'], art['dt_cols'], art['num_all'], art['cat'])",
+      "X = _prepare_x(df, art['features'], art['dt_cols'], art['num_all'], art['cat'], art.get('text') or [])",
     );
     expect(TRAIN_PY).toContain(
       "con.execute('CREATE OR REPLACE TABLE ' + fq + ' AS SELECT * FROM _pred')",

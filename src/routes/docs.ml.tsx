@@ -78,7 +78,7 @@ function MlDocsPage() {
 
       <H2 id="tasks">Tasks</H2>
       <Table
-        headers={["Task", "Target column", "Candidates tried", "Primary metric"]}
+        headers={["Task", "What it needs", "Candidates tried", "Primary metric"]}
         rows={[
           [
             "Classification",
@@ -98,8 +98,36 @@ function MlDocsPage() {
             "last value, seasonal naive, Holt-Winters, gradient boosting on lag features",
             "RMSE",
           ],
+          [
+            "Clustering",
+            "feature columns only",
+            "k-means for two to ten groups (or a fixed k), kept by silhouette",
+            "Silhouette",
+          ],
+          [
+            "Anomaly detection",
+            "feature columns only",
+            "isolation forest (200 trees); 2% flagged unless a share is given",
+            "Anomaly rate",
+          ],
+          [
+            "Recommendation",
+            "a user column, an item column, optional strength",
+            "item-item cosine similarity on the interaction matrix; popularity for cold starts",
+            "Hit rate @10",
+          ],
         ]}
       />
+      <P>
+        The first three predict a chosen column. Clustering and anomaly detection have no target:
+        they describe the rows from the selected features and report a{" "}
+        <strong>profile of every group</strong> or a <strong>score per row</strong>. Recommendation
+        learns from interactions — one row per user and item, optionally weighted by a rating, a
+        quantity or an amount — and is scored on a held-out interaction per user. Free-text columns
+        (average length twenty characters or more) become <strong>TF-IDF features</strong> for every
+        task instead of being dropped; clustering and anomaly detection compress them to twenty
+        dense components so a text column cannot swamp the numbers.
+      </P>
       <P>
         The wizard suggests a task from a real profile of the table (<C>SUMMARIZE</C> plus a
         sample). A float column is never mistaken for an identifier because its values are unique;
@@ -114,8 +142,8 @@ function MlDocsPage() {
             body: "Pick a lakehouse table you own or that was shared with you. The profile shows each column's kind, distinct count, nulls and samples.",
           },
           {
-            title: "Target",
-            body: "Choose the column to predict; the task follows from the column. A forecast also takes a time column, the periods ahead and how rows in one period combine (totals or averages).",
+            title: "Goal",
+            body: "Predict a column (the task follows from the column; a forecast also takes a time column, the periods ahead and how rows in one period combine), find groups (a fixed number or the best by silhouette), find anomalies (the share you expect, 2% unless told otherwise), or recommend items (a user column, an item column and an optional strength).",
           },
           {
             title: "Options",
@@ -157,6 +185,10 @@ function MlDocsPage() {
           <strong>What the model relies on</strong> — permutation importance on the holdout set: how
           much the score drops when a column is shuffled. It names the columns a person recognises,
           not one-hot fragments.
+        </li>
+        <li>
+          <strong>Groups</strong> for clustering: every group's size and share with its typical row
+          — the mean of each number, the most common category.
         </li>
         <li>
           <strong>Confusion matrix</strong> for classification; a <strong>forecast chart</strong>{" "}

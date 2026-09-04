@@ -1,13 +1,23 @@
 // Shared shapes for the ML platform. Pure types and constants only — this file
 // is imported by the browser (registry pages, wizard) and the server alike.
 
-export const ML_TASKS = ["classification", "regression", "forecast"] as const;
+export const ML_TASKS = [
+  "classification",
+  "regression",
+  "forecast",
+  "clustering",
+  "anomaly",
+  "recommendation",
+] as const;
 export type MlTask = (typeof ML_TASKS)[number];
 
 export const ML_TASK_LABEL: Record<MlTask, string> = {
   classification: "Classification",
   regression: "Regression",
   forecast: "Forecast",
+  clustering: "Clustering",
+  anomaly: "Anomaly detection",
+  recommendation: "Recommendation",
 };
 
 /** Where the training rows come from. Lakehouse tables first; other kinds later. */
@@ -156,6 +166,17 @@ export const ML_METRIC_LABEL: Record<string, string> = {
   r2: "R²",
   mape: "MAPE",
   smape: "sMAPE",
+  silhouette: "Silhouette",
+  n_clusters: "Clusters",
+  inertia: "Inertia",
+  anomaly_rate: "Anomaly rate",
+  score_threshold: "Score threshold",
+  flagged_rows: "Flagged rows",
+  hit_rate_10: "Hit rate @10",
+  coverage: "Catalogue coverage",
+  n_users: "Users",
+  n_items: "Items",
+  n_interactions: "Interactions",
 };
 
 /** Lower-is-better metrics, so the UI colours direction correctly. */
@@ -166,13 +187,20 @@ export const ML_LOWER_IS_BETTER = new Set([
   "median_ae",
   "mape",
   "smape",
+  "inertia",
 ]);
+
+/** Tasks that predict a chosen column; the others describe or rank rows. */
+export const ML_TARGET_TASKS: readonly MlTask[] = ["classification", "regression", "forecast"];
 
 /** The primary metric per task, mirrored from the trainer. */
 export const ML_PRIMARY_METRIC: Record<MlTask, string> = {
   classification: "f1_macro",
   regression: "rmse",
   forecast: "rmse",
+  clustering: "silhouette",
+  anomaly: "anomaly_rate",
+  recommendation: "hit_rate_10",
 };
 
 // ── Predictions ──────────────────────────────────────────────────────────────
@@ -188,3 +216,11 @@ export type MlPredictInput =
 export type MlPredictOutput = { schema: string; table: string } | null;
 /** 'batch' scores a table into a table; 'rows' scores a payload and returns it. */
 export type MlPredictionKind = "batch" | "rows";
+
+/** One group found by a clustering version: its size and a typical row. */
+export type MlClusterProfile = {
+  cluster: number;
+  size: number;
+  share: number;
+  profile: Record<string, number | string | null>;
+};

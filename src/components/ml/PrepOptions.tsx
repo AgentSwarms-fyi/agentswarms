@@ -130,61 +130,71 @@ export function PrepOptions({
         Use a custom SELECT instead of a filter
       </label>
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="space-y-1">
-          <Label className="text-xs">Missing numbers</Label>
-          <select
-            className="h-9 w-full rounded-md border bg-background px-2 text-sm"
-            value={impute.numeric ?? "median"}
-            onChange={(e) =>
-              set({
-                impute: { ...impute, numeric: e.target.value as "median" | "mean" | "constant" },
-              })
-            }
-          >
-            <option value="median">fill with the median</option>
-            <option value="mean">fill with the mean</option>
-            <option value="constant">fill with 0</option>
-          </select>
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs">Missing categories</Label>
-          <select
-            className="h-9 w-full rounded-md border bg-background px-2 text-sm"
-            value={impute.categorical ?? "most_frequent"}
-            onChange={(e) =>
-              set({
-                impute: { ...impute, categorical: e.target.value as "most_frequent" | "constant" },
-              })
-            }
-          >
-            <option value="most_frequent">fill with the most frequent</option>
-            <option value="constant">treat as its own category</option>
-          </select>
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs">Categories</Label>
-          <select
-            className="h-9 w-full rounded-md border bg-background px-2 text-sm"
-            value={value.encoding ?? "onehot"}
-            onChange={(e) => set({ encoding: e.target.value as "onehot" | "ordinal" })}
-          >
-            <option value="onehot">one-hot (one column per value)</option>
-            <option value="ordinal">ordinal (one integer column)</option>
-          </select>
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs">Numbers</Label>
-          <label className="flex h-9 cursor-pointer items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={value.scale !== false}
-              onChange={(e) => set({ scale: e.target.checked })}
-            />
-            standardise (zero mean, unit variance)
-          </label>
-        </div>
-      </div>
+      {task !== "recommendation" ? (
+        <>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1">
+              <Label className="text-xs">Missing numbers</Label>
+              <select
+                className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                value={impute.numeric ?? "median"}
+                onChange={(e) =>
+                  set({
+                    impute: {
+                      ...impute,
+                      numeric: e.target.value as "median" | "mean" | "constant",
+                    },
+                  })
+                }
+              >
+                <option value="median">fill with the median</option>
+                <option value="mean">fill with the mean</option>
+                <option value="constant">fill with 0</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Missing categories</Label>
+              <select
+                className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                value={impute.categorical ?? "most_frequent"}
+                onChange={(e) =>
+                  set({
+                    impute: {
+                      ...impute,
+                      categorical: e.target.value as "most_frequent" | "constant",
+                    },
+                  })
+                }
+              >
+                <option value="most_frequent">fill with the most frequent</option>
+                <option value="constant">treat as its own category</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Categories</Label>
+              <select
+                className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                value={value.encoding ?? "onehot"}
+                onChange={(e) => set({ encoding: e.target.value as "onehot" | "ordinal" })}
+              >
+                <option value="onehot">one-hot (one column per value)</option>
+                <option value="ordinal">ordinal (one integer column)</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Numbers</Label>
+              <label className="flex h-9 cursor-pointer items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={value.scale !== false}
+                  onChange={(e) => set({ scale: e.target.checked })}
+                />
+                standardise (zero mean, unit variance)
+              </label>
+            </div>
+          </div>
+        </>
+      ) : null}
 
       {task === "classification" ? (
         <label className="flex cursor-pointer items-center gap-2 text-sm">
@@ -241,7 +251,7 @@ export function PrepOptions({
         </div>
       ) : null}
 
-      {task !== "forecast" ? (
+      {task === "classification" || task === "regression" ? (
         <div className="space-y-2">
           <Label className="text-xs">Hyperparameter tuning</Label>
           <div className="grid gap-2 sm:grid-cols-3">

@@ -31,11 +31,24 @@ IAM, audited by trigger, with a decision id and a passport.
 
 ## Tasks
 
-| Task           | Target column                   | Candidates tried                                                                          | Primary metric |
-| -------------- | ------------------------------- | ----------------------------------------------------------------------------------------- | -------------- |
-| Classification | category, boolean, small-domain | logistic regression, random forest, histogram gradient boosting, LightGBM                 | F1 (macro)     |
-| Regression     | number                          | ridge, random forest, histogram gradient boosting, LightGBM                               | RMSE           |
-| Forecast       | number over a date column       | last value, seasonal naive, Holt-Winters (statsmodels), gradient boosting on lag features | RMSE           |
+| Task              | What it needs                                    | Candidates tried                                                                          | Primary metric |
+| ----------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------------- | -------------- |
+| Classification    | category, boolean, small-domain target           | logistic regression, random forest, histogram gradient boosting, LightGBM                 | F1 (macro)     |
+| Regression        | number target                                    | ridge, random forest, histogram gradient boosting, LightGBM                               | RMSE           |
+| Forecast          | number target over a date column                 | last value, seasonal naive, Holt-Winters (statsmodels), gradient boosting on lag features | RMSE           |
+| Clustering        | feature columns only                             | k-means for two to ten groups (or a fixed k), kept by silhouette                          | Silhouette     |
+| Anomaly detection | feature columns only                             | isolation forest (200 trees); 2% flagged unless a share is given                          | Anomaly rate   |
+| Recommendation    | a user column, an item column, optional strength | item-item cosine similarity on the interaction matrix; popularity for cold starts         | Hit rate @10   |
+
+The first three predict a chosen column. Clustering and anomaly detection
+have no target: they describe the rows from the selected features and report
+a profile of every group or a score per row. Recommendation learns from
+interactions — one row per user and item, optionally weighted by a rating, a
+quantity or an amount — and is scored by hit rate on one held-out interaction
+per user. Free-text columns (average length twenty characters or more) become
+TF-IDF features (words and bigrams, a thousand terms at most) for every task
+instead of being dropped; clustering and anomaly detection compress them to
+twenty dense components so a text column cannot swamp the numbers.
 
 The wizard suggests a task from a real profile of the table (`SUMMARIZE` plus
 a sample): a float column is never mistaken for an identifier because its
@@ -46,9 +59,12 @@ column cannot be a target at all.
 
 1. **Data** — pick a lakehouse table you own or that was shared with you. The
    profile shows each column's kind, distinct count, nulls and samples.
-2. **Target** — choose the column to predict; the task follows from the
-   column. A forecast additionally takes a time column, the periods ahead and
-   how rows in one period combine (totals or averages).
+2. **Goal** — _predict a column_ (the task follows from the column; a
+   forecast additionally takes a time column, the periods ahead and how rows
+   in one period combine), _find groups_ (a fixed number, or the best of two
+   to ten by silhouette), _find anomalies_ (the share you expect, 2%
+   unless told otherwise), or _recommend items_ (a user column, an item
+   column and an optional strength such as a rating or an amount).
 3. **Options** — name, description, features (identifier-like and constant
    columns are off by default), and **Prepare the data**:
    - a **row filter** (SQL `WHERE`) or, for joins and derived columns, a
@@ -83,6 +99,8 @@ hash to it.
 - **What the model relies on** — permutation importance on the holdout set:
   how much the score drops when a column is shuffled. It names the columns a
   person recognises, not one-hot fragments.
+- **Groups** (clustering) — every group's size and share with its typical
+  row: the mean of each number, the most common category.
 - **Confusion matrix** (classification), **forecast chart** with history,
   projection and a residual-based band (forecast).
 - **Leaderboard** — every candidate tried, scored on the same holdout, with
@@ -110,7 +128,11 @@ probabilities, or the predicted number.
 **Batch prediction** — pick an input lakehouse table with the same columns,
 an optional filter, and an output schema you own plus a table name. Every
 row is written back with `prediction`, `probability`, one `proba_<class>`
-column per class, `_model_version` and `_predicted_at`. The table is an
+column per class, `_model_version` and `_predicted_at`. A clustering writes
+the group as `prediction` and the `distance` to its centre; an anomaly
+detector writes `prediction` (1 = anomaly) and `anomaly_score`; a
+recommendation reads the user column and writes each user's top items as
+`prediction` with their `scores` and a `cold_start` flag. The table is an
 ordinary lakehouse table: agents, the SQL workbench and dashboards query it
 like any other. The operator's `ML_PREDICT_MAX_ROWS` is checked before a
 sandbox starts.
@@ -230,3 +252,5 @@ See [SCALE_AND_LIMITS.md](./SCALE_AND_LIMITS.md#machine-learning--srcutilsnotebo
 | "You already have a model called …"                 | Names are unique per user; the wizard defaults to `<table> · <target>`.                                                                                             |
 | A target is greyed out                              | Identifiers, free text and constant columns cannot be predicted; pick another column or prepare the data.                                                           |
 | "Every candidate failed"                            | Open the job's logs on the Jobs tab; the first candidate's error is quoted.                                                                                         |
+| "Recommendation needs at least 5 users and 3 items" | The user and item columns are swapped or too coarse; each row must be one interaction. Aggregate first with a custom `SELECT` if the table is wider than that.      |
+| "Clustering needs at least 20 rows"                 | Loosen the row filter; a group profile over a handful of rows says nothing.                                                                                         |

@@ -25,6 +25,9 @@ const TASK_STYLE: Record<MlTask, string> = {
   classification: "border-violet-500/40 text-violet-600 dark:text-violet-400",
   regression: "border-sky-500/40 text-sky-600 dark:text-sky-400",
   forecast: "border-amber-500/40 text-amber-600 dark:text-amber-400",
+  clustering: "border-emerald-500/40 text-emerald-600 dark:text-emerald-400",
+  anomaly: "border-rose-500/40 text-rose-600 dark:text-rose-400",
+  recommendation: "border-fuchsia-500/40 text-fuchsia-600 dark:text-fuchsia-400",
 };
 
 export function TaskBadge({ task, className }: { task: string; className?: string }) {
@@ -80,7 +83,17 @@ export function JobStatusChip({ status }: { status: string }) {
   );
 }
 
-const PERCENTS = new Set(["accuracy", "f1_macro", "precision_macro", "recall_macro", "roc_auc"]);
+const PERCENTS = new Set([
+  "accuracy",
+  "f1_macro",
+  "precision_macro",
+  "recall_macro",
+  "roc_auc",
+  "hit_rate_10",
+  "precision_10",
+  "coverage",
+  "anomaly_rate",
+]);
 const compact = new Intl.NumberFormat(undefined, { maximumFractionDigits: 3 });
 const big = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 2 });
 
@@ -160,6 +173,9 @@ export function metricTone(
   value: number | null | undefined,
 ): "good" | "warn" | "bad" | undefined {
   if (value === null || value === undefined) return undefined;
+  if (name === "anomaly_rate" || name === "coverage") return undefined;
+  if (name === "silhouette") return value >= 0.5 ? "good" : value >= 0.25 ? "warn" : "bad";
+  if (name === "hit_rate_10") return value >= 0.3 ? "good" : value >= 0.1 ? "warn" : "bad";
   if (PERCENTS.has(name)) return value >= 0.8 ? "good" : value >= 0.6 ? "warn" : "bad";
   if (name === "r2") return value >= 0.7 ? "good" : value >= 0.4 ? "warn" : "bad";
   if (name === "mape") return value <= 10 ? "good" : value <= 25 ? "warn" : "bad";

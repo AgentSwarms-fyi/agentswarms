@@ -66,6 +66,13 @@ const CASES: Currency[] = [
     docMentions: [/ml\.predict_query/],
   },
   {
+    capability: "Clustering, anomaly detection and recommendation are trained by the same program",
+    code: "src/utils/ml/pyTrain.ts",
+    codeContains: "def _train_recommendation(",
+    doc: "src/routes/docs.ml.tsx",
+    docMentions: [/item-item cosine similarity/i, /isolation forest/i, /silhouette/i],
+  },
+  {
     capability: "One forecaster for charts, the Analyst and alerts",
     code: "src/lib/mlForecast.ts",
     codeContains: "export function forecastValues",

@@ -88,7 +88,7 @@ function MlPage() {
       return (
         m.name.toLowerCase().includes(needle) ||
         `${src.schema}.${src.table}`.toLowerCase().includes(needle) ||
-        m.target_column.toLowerCase().includes(needle)
+        (m.target_column ?? m.item_column ?? "").toLowerCase().includes(needle)
       );
     });
   }, [models, q, task]);
@@ -253,7 +253,16 @@ function ModelCard({ model, onOpen }: { model: MlModelSummary; onOpen: () => voi
         <div className="min-w-0">
           <p className="truncate font-medium group-hover:text-primary">{model.name}</p>
           <p className="mt-0.5 truncate text-xs text-muted-foreground">
-            {src.schema}.{src.table} → <span className="font-medium">{model.target_column}</span>
+            {src.schema}.{src.table} →{" "}
+            <span className="font-medium">
+              {model.task === "recommendation"
+                ? `${model.item_column} for ${model.user_column}`
+                : model.task === "clustering"
+                  ? "groups of rows"
+                  : model.task === "anomaly"
+                    ? "unusual rows"
+                    : model.target_column}
+            </span>
           </p>
         </div>
         <TaskBadge task={model.task} />

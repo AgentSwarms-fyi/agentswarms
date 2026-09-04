@@ -1727,8 +1727,10 @@ export async function resolveAgentTools(
           function: {
             name: "ml_list_models",
             description:
-              `List the trained ML models available to predict with, with their task, target, ` +
-              `feature columns (and the categories each accepts) and headline metric. ` +
+              `List the trained ML models available to predict with, with their task ` +
+              `(classification, regression, forecast, clustering, anomaly, recommendation), ` +
+              `target or user/item columns, feature columns (and the categories each accepts), ` +
+              `headline metric and, for clusterings, the profile of every group. ` +
               `Call this before ml_predict. Models: ${mlList}.`,
             parameters: { type: "object", properties: {} },
           },
@@ -1741,7 +1743,9 @@ export async function resolveAgentTools(
               `Score rows with a trained ML model from the registry (its production version). ` +
               `Pass real feature values from ml_list_models — never guessed ones. Returns a ` +
               `prediction per row (and class probabilities for classifiers); forecast models ` +
-              `return their projected periods. Models: ${mlList}.`,
+              `return their projected periods; clusterings return the group and its distance; ` +
+              `anomaly detectors return 1/0 with an anomaly_score; recommenders take rows with ` +
+              `the user column and return each user's top items. Models: ${mlList}.`,
             parameters: {
               type: "object",
               properties: {
@@ -1782,6 +1786,18 @@ export async function resolveAgentTools(
                 name: m.name,
                 task: m.task,
                 target: m.target_column,
+                user_column: m.user_column,
+                item_column: m.item_column,
+                returns:
+                  m.task === "clustering"
+                    ? "prediction (group number) and distance to its centre"
+                    : m.task === "anomaly"
+                      ? "prediction (1 = anomaly, 0 = normal) and anomaly_score"
+                      : m.task === "recommendation"
+                        ? `prediction (top ${m.item_column} for the ${m.user_column} in each row) with scores`
+                        : m.task === "forecast"
+                          ? "the projected periods"
+                          : "prediction per row",
                 version: v?.version ?? null,
                 algorithm: v?.algorithm ?? null,
                 metrics: v?.metrics ?? null,

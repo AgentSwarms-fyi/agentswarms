@@ -5,7 +5,19 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { ArrowLeft, ArrowRight, Check, Database, Loader2, Search, Sparkles } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Boxes,
+  Check,
+  Database,
+  Loader2,
+  Radar,
+  Search,
+  Sparkles,
+  Target,
+  ThumbsUp,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -25,6 +37,7 @@ import {
   type MlSourceTable,
 } from "@/utils/ml.functions";
 import {
+  ML_TARGET_TASKS,
   ML_TASK_LABEL,
   ML_TUNING_LABEL,
   type MlPrepConfig,
@@ -34,12 +47,48 @@ import {
 import { TaskBadge, fmtInt } from "@/components/ml/mlUi";
 import { PrepOptions } from "@/components/ml/PrepOptions";
 
+type Goal = "predict" | "cluster" | "anomaly" | "recommend";
+const GOALS: { id: Goal; label: string; blurb: string; icon: typeof Target }[] = [
+  {
+    id: "predict",
+    label: "Predict a column",
+    blurb: "A category, a number, or the next periods of a series.",
+    icon: Target,
+  },
+  {
+    id: "cluster",
+    label: "Find groups",
+    blurb: "Rows that resemble each other, with a profile of every group.",
+    icon: Boxes,
+  },
+  {
+    id: "anomaly",
+    label: "Find anomalies",
+    blurb: "Rows unlike the rest, each with a score.",
+    icon: Radar,
+  },
+  {
+    id: "recommend",
+    label: "Recommend items",
+    blurb: "What each user is likely to want next, from past interactions.",
+    icon: ThumbsUp,
+  },
+];
+const goalOf = (t: MlTask): Goal =>
+  t === "clustering"
+    ? "cluster"
+    : t === "anomaly"
+      ? "anomaly"
+      : t === "recommendation"
+        ? "recommend"
+        : "predict";
+
 export const Route = createFileRoute("/_authenticated/ml_/new")({
   component: TrainWizard,
   head: () => ({ meta: [{ title: "Train a model — AgentSwarms" }] }),
 });
 
-const STEPS = ["Data", "Target", "Options", "Review"] as const;
+const STEPS = ["Data", "Goal", "Options", "Review"] as const;
 
 const KIND_STYLE: Record<MlColumnProfile["kind"], string> = {
   numeric: "bg-sky-500/15 text-sky-600 dark:text-sky-400",
@@ -86,6 +135,14 @@ function TrainWizard() {
   const [submitting, setSubmitting] = useState(false);
   const [prep, setPrep] = useState<MlPrepConfig>({});
   const [tuning, setTuning] = useState<MlTuning>("none");
+  const [nClusters, setNClusters] = useState<number | "">("");
+  const [contamination, setContamination] = useState<number | "">("");
+  const [userColumn, setUserColumn] = useState("");
+  const [itemColumn, setItemColumn] = useState("");
+  const [ratingColumn, setRatingColumn] = useState("");
+  const goal = goalOf(task);
+  const needsTarget = ML_TARGET_TASKS.includes(task);
+  const tunable = task === "classification" || task === "regression";
 
   useEffect(() => {
     if (!token) return;
@@ -105,6 +162,9 @@ function TrainWizard() {
       setTable(t);
       setProfile(null);
       setTarget("");
+      setUserColumn("");
+      setItemColumn("");
+      setRatingColumn("");
       setProfiling(true);
       try {
         const p = await profileFn({
@@ -143,8 +203,43 @@ function TrainWizard() {
     });
   };
 
+  const pickGoal = (g: Goal) => {
+    const next: MlTask =
+      g === "cluster"
+        ? "clustering"
+        : g === "anomaly"
+          ? "anomaly"
+          : g === "recommend"
+            ? "recommendation"
+            : ML_TARGET_TASKS.includes(task)
+              ? task
+              : "classification";
+    setTask(next);
+    if (!nameTouched && table) {
+      setName(
+        g === "cluster"
+          ? `${table.table} · groups`
+          : g === "anomaly"
+            ? `${table.table} · anomalies`
+            : g === "recommend"
+              ? `${table.table} · recommendations`
+              : target
+                ? `${table.table} · ${target}`
+                : `${table.table} model`,
+      );
+    }
+  };
+
   const datetimeColumns = useMemo(
     () => profile?.columns.filter((c) => c.kind === "datetime") ?? [],
+    [profile],
+  );
+  const keyColumns = useMemo(
+    () => profile?.columns.filter((c) => c.kind !== "constant" && c.kind !== "datetime") ?? [],
+    [profile],
+  );
+  const numericColumns = useMemo(
+    () => profile?.columns.filter((c) => c.kind === "numeric") ?? [],
     [profile],
   );
   const filteredSources = useMemo(() => {
@@ -164,13 +259,17 @@ function TrainWizard() {
     step === 0
       ? Boolean(table && profile)
       : step === 1
-        ? Boolean(target) && (task !== "forecast" || Boolean(timeColumn))
+        ? goal === "predict"
+          ? Boolean(target) && (task !== "forecast" || Boolean(timeColumn))
+          : goal === "recommend"
+            ? Boolean(userColumn && itemColumn && userColumn !== itemColumn)
+            : true
         : step === 2
           ? name.trim().length > 0
           : true;
 
   const submit = async () => {
-    if (!table || !target) return;
+    if (!table || (needsTarget && !target)) return;
     setSubmitting(true);
     try {
       const r = await createFn({
@@ -180,14 +279,20 @@ function TrainWizard() {
           description: description.trim() || undefined,
           task,
           source: { kind: "lakehouse", schema: table.schema, table: table.table },
-          target_column: target,
+          target_column: needsTarget ? target : undefined,
           time_column: task === "forecast" ? timeColumn : undefined,
           horizon: task === "forecast" ? horizon : undefined,
           aggregation: task === "forecast" ? aggregation : undefined,
+          user_column: task === "recommendation" ? userColumn : undefined,
+          item_column: task === "recommendation" ? itemColumn : undefined,
+          rating_column: task === "recommendation" && ratingColumn ? ratingColumn : undefined,
+          n_clusters: task === "clustering" && nClusters !== "" ? Number(nClusters) : undefined,
+          contamination:
+            task === "anomaly" && contamination !== "" ? Number(contamination) / 100 : undefined,
           feature_columns:
-            task === "forecast"
+            task === "forecast" || task === "recommendation"
               ? undefined
-              : profile && features.size < profile.columns.length - 1
+              : profile && features.size < profile.columns.length - (needsTarget ? 1 : 0)
                 ? [...features]
                 : undefined,
           time_budget_minutes: budget === "" ? undefined : Number(budget),
@@ -223,7 +328,7 @@ function TrainWizard() {
         </Link>
         <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight">Train a model</h1>
         <p className="mt-1 max-w-2xl text-muted-foreground">
-          Choose a table and the column to predict. The trainer profiles the data, tries several
+          Choose a table and what the model should do. The trainer profiles the data, tries several
           algorithms under a time budget, and keeps the best one with its metrics.
         </p>
       </div>
@@ -334,131 +439,278 @@ function TrainWizard() {
             ) : step === 1 ? (
               <div className="space-y-5">
                 <div>
-                  <p className="font-medium">What should the model predict?</p>
+                  <p className="font-medium">What should the model do?</p>
                   <p className="text-sm text-muted-foreground">
-                    Pick the target column. Identifiers and free text cannot be predicted; dates can
-                    be forecast.
+                    Predict a column, find natural groups, flag unusual rows, or recommend items.
                   </p>
                 </div>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {profile?.columns.map((c) => {
-                    const disabled =
-                      c.kind === "identifier" || c.kind === "text" || c.kind === "constant";
-                    const selected = target === c.name;
-                    return (
-                      <button
-                        key={c.name}
-                        type="button"
-                        disabled={disabled}
-                        onClick={() => pickTarget(c)}
-                        className={cn(
-                          "flex items-center justify-between rounded-lg border px-3 py-2 text-left text-sm transition-colors",
-                          selected
-                            ? "border-primary bg-primary/10"
-                            : disabled
-                              ? "cursor-not-allowed opacity-50"
-                              : "hover:border-primary/40 hover:bg-muted/50",
-                        )}
-                      >
-                        <span className="min-w-0">
-                          <span className="block truncate font-medium">{c.name}</span>
-                          <span className="block text-[11px] text-muted-foreground">
-                            {c.kind === "identifier"
-                              ? "identifier"
-                              : c.kind === "constant"
-                                ? "constant — nothing to predict"
-                                : c.kind === "text"
-                                  ? "free text"
-                                  : c.suggested_task
-                                    ? `${ML_TASK_LABEL[c.suggested_task]} · ${fmtInt(c.approx_distinct)} distinct`
-                                    : c.kind}
-                          </span>
-                        </span>
-                        <span
-                          className={cn("rounded px-1.5 py-0.5 text-[10px]", KIND_STYLE[c.kind])}
-                        >
-                          {c.type.toLowerCase()}
-                        </span>
-                      </button>
-                    );
-                  })}
+                <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                  {GOALS.map((g) => (
+                    <button
+                      key={g.id}
+                      type="button"
+                      data-goal={g.id}
+                      onClick={() => pickGoal(g.id)}
+                      className={cn(
+                        "rounded-lg border p-3 text-left text-sm transition-colors",
+                        goal === g.id
+                          ? "border-primary bg-primary/10"
+                          : "hover:border-primary/40 hover:bg-muted/50",
+                      )}
+                    >
+                      <span className="inline-flex items-center gap-2 font-medium">
+                        <g.icon className="h-4 w-4 text-primary" /> {g.label}
+                      </span>
+                      <p className="mt-1 text-xs text-muted-foreground">{g.blurb}</p>
+                    </button>
+                  ))}
                 </div>
-                {target ? (
-                  <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
-                    <p className="text-sm font-medium">How should it predict {target}?</p>
-                    <div className="grid gap-2 sm:grid-cols-3">
-                      {(["classification", "regression", "forecast"] as MlTask[]).map((t) => {
-                        const off = t === "forecast" && datetimeColumns.length === 0;
+                {goal === "predict" ? (
+                  <>
+                    <p className="text-sm text-muted-foreground">
+                      Pick the target column. Identifiers and constant columns cannot be predicted;
+                      free text becomes features; dates can be forecast.
+                    </p>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {profile?.columns.map((c) => {
+                        const disabled =
+                          c.kind === "identifier" || c.kind === "text" || c.kind === "constant";
+                        const selected = target === c.name;
                         return (
                           <button
-                            key={t}
+                            key={c.name}
                             type="button"
-                            disabled={off}
-                            onClick={() => setTask(t)}
+                            disabled={disabled}
+                            onClick={() => pickTarget(c)}
                             className={cn(
-                              "rounded-lg border p-3 text-left text-sm transition-colors",
-                              task === t
-                                ? "border-primary bg-background"
-                                : off
+                              "flex items-center justify-between rounded-lg border px-3 py-2 text-left text-sm transition-colors",
+                              selected
+                                ? "border-primary bg-primary/10"
+                                : disabled
                                   ? "cursor-not-allowed opacity-50"
-                                  : "hover:border-primary/40",
+                                  : "hover:border-primary/40 hover:bg-muted/50",
                             )}
                           >
-                            <TaskBadge task={t} />
-                            <p className="mt-2 text-xs text-muted-foreground">
-                              {t === "classification"
-                                ? "Which category a row belongs to."
-                                : t === "regression"
-                                  ? "A number for each row."
-                                  : off
-                                    ? "Needs a date or timestamp column."
-                                    : "The next periods of a series over time."}
-                            </p>
+                            <span className="min-w-0">
+                              <span className="block truncate font-medium">{c.name}</span>
+                              <span className="block text-[11px] text-muted-foreground">
+                                {c.kind === "identifier"
+                                  ? "identifier"
+                                  : c.kind === "constant"
+                                    ? "constant — nothing to predict"
+                                    : c.kind === "text"
+                                      ? "free text"
+                                      : c.suggested_task
+                                        ? `${ML_TASK_LABEL[c.suggested_task]} · ${fmtInt(c.approx_distinct)} distinct`
+                                        : c.kind}
+                              </span>
+                            </span>
+                            <span
+                              className={cn(
+                                "rounded px-1.5 py-0.5 text-[10px]",
+                                KIND_STYLE[c.kind],
+                              )}
+                            >
+                              {c.type.toLowerCase()}
+                            </span>
                           </button>
                         );
                       })}
                     </div>
-                    {task === "forecast" ? (
-                      <div className="grid gap-3 sm:grid-cols-3">
-                        <div className="space-y-1">
-                          <Label className="text-xs">Time column</Label>
-                          <select
-                            className="h-9 w-full rounded-md border bg-background px-2 text-sm"
-                            value={timeColumn}
-                            onChange={(e) => setTimeColumn(e.target.value)}
-                          >
-                            {datetimeColumns.map((c) => (
+                    {target ? (
+                      <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
+                        <p className="text-sm font-medium">How should it predict {target}?</p>
+                        <div className="grid gap-2 sm:grid-cols-3">
+                          {(["classification", "regression", "forecast"] as MlTask[]).map((t) => {
+                            const off = t === "forecast" && datetimeColumns.length === 0;
+                            return (
+                              <button
+                                key={t}
+                                type="button"
+                                disabled={off}
+                                onClick={() => setTask(t)}
+                                className={cn(
+                                  "rounded-lg border p-3 text-left text-sm transition-colors",
+                                  task === t
+                                    ? "border-primary bg-background"
+                                    : off
+                                      ? "cursor-not-allowed opacity-50"
+                                      : "hover:border-primary/40",
+                                )}
+                              >
+                                <TaskBadge task={t} />
+                                <p className="mt-2 text-xs text-muted-foreground">
+                                  {t === "classification"
+                                    ? "Which category a row belongs to."
+                                    : t === "regression"
+                                      ? "A number for each row."
+                                      : off
+                                        ? "Needs a date or timestamp column."
+                                        : "The next periods of a series over time."}
+                                </p>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {task === "forecast" ? (
+                          <div className="grid gap-3 sm:grid-cols-3">
+                            <div className="space-y-1">
+                              <Label className="text-xs">Time column</Label>
+                              <select
+                                className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                                value={timeColumn}
+                                onChange={(e) => setTimeColumn(e.target.value)}
+                              >
+                                {datetimeColumns.map((c) => (
+                                  <option key={c.name} value={c.name}>
+                                    {c.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Periods ahead</Label>
+                              <Input
+                                type="number"
+                                min={1}
+                                max={1000}
+                                value={horizon}
+                                onChange={(e) =>
+                                  setHorizon(Math.max(1, Number(e.target.value) || 1))
+                                }
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Rows in one period</Label>
+                              <select
+                                className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                                value={aggregation}
+                                onChange={(e) => setAggregation(e.target.value as "sum" | "mean")}
+                              >
+                                <option value="sum">add up (totals)</option>
+                                <option value="mean">average</option>
+                              </select>
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </>
+                ) : goal === "cluster" ? (
+                  <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
+                    <p className="text-sm font-medium">How many groups?</p>
+                    <p className="text-xs text-muted-foreground">
+                      Leave it blank and the trainer tries two to ten groups and keeps the number
+                      with the best silhouette. Every feature column describes a row; the profile of
+                      each group is shown when training finishes.
+                    </p>
+                    <div className="max-w-xs space-y-1">
+                      <Label className="text-xs">Number of groups</Label>
+                      <Input
+                        type="number"
+                        min={2}
+                        max={50}
+                        placeholder="automatic"
+                        value={nClusters}
+                        onChange={(e) =>
+                          setNClusters(
+                            e.target.value === "" ? "" : Math.max(2, Number(e.target.value)),
+                          )
+                        }
+                      />
+                    </div>
+                  </div>
+                ) : goal === "anomaly" ? (
+                  <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
+                    <p className="text-sm font-medium">
+                      How many rows do you expect to be unusual?
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      An isolation forest scores every row; rows that are easy to isolate from the
+                      rest are anomalies. Two percent are flagged unless you give the share you
+                      expect; every row gets a score either way.
+                    </p>
+                    <div className="max-w-xs space-y-1">
+                      <Label className="text-xs">Expected share of anomalies (%)</Label>
+                      <Input
+                        type="number"
+                        min={0.1}
+                        max={50}
+                        step={0.1}
+                        placeholder="2"
+                        value={contamination}
+                        onChange={(e) =>
+                          setContamination(
+                            e.target.value === ""
+                              ? ""
+                              : Math.min(50, Math.max(0.1, Number(e.target.value))),
+                          )
+                        }
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
+                    <p className="text-sm font-medium">Who interacted with what?</p>
+                    <p className="text-xs text-muted-foreground">
+                      Each row is one interaction: a user and an item, optionally with a strength
+                      such as a rating, a quantity or an amount. Items that the same users chose are
+                      recommended to each other's users; a user without history gets the most
+                      popular items.
+                    </p>
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs">User column</Label>
+                        <select
+                          className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                          value={userColumn}
+                          onChange={(e) => setUserColumn(e.target.value)}
+                        >
+                          <option value="">choose…</option>
+                          {keyColumns.map((c) => (
+                            <option key={c.name} value={c.name}>
+                              {c.name} · {fmtInt(c.approx_distinct)} distinct
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Item column</Label>
+                        <select
+                          className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                          value={itemColumn}
+                          onChange={(e) => setItemColumn(e.target.value)}
+                        >
+                          <option value="">choose…</option>
+                          {keyColumns
+                            .filter((c) => c.name !== userColumn)
+                            .map((c) => (
+                              <option key={c.name} value={c.name}>
+                                {c.name} · {fmtInt(c.approx_distinct)} distinct
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Strength (optional)</Label>
+                        <select
+                          className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                          value={ratingColumn}
+                          onChange={(e) => setRatingColumn(e.target.value)}
+                        >
+                          <option value="">every row counts once</option>
+                          {numericColumns
+                            .filter((c) => c.name !== userColumn && c.name !== itemColumn)
+                            .map((c) => (
                               <option key={c.name} value={c.name}>
                                 {c.name}
                               </option>
                             ))}
-                          </select>
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs">Periods ahead</Label>
-                          <Input
-                            type="number"
-                            min={1}
-                            max={1000}
-                            value={horizon}
-                            onChange={(e) => setHorizon(Math.max(1, Number(e.target.value) || 1))}
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs">Rows in one period</Label>
-                          <select
-                            className="h-9 w-full rounded-md border bg-background px-2 text-sm"
-                            value={aggregation}
-                            onChange={(e) => setAggregation(e.target.value as "sum" | "mean")}
-                          >
-                            <option value="sum">add up (totals)</option>
-                            <option value="mean">average</option>
-                          </select>
-                        </div>
+                        </select>
                       </div>
-                    ) : null}
+                    </div>
                   </div>
-                ) : null}
+                )}
               </div>
             ) : step === 2 ? (
               <div className="space-y-5">
@@ -483,12 +735,12 @@ function TrainWizard() {
                     />
                   </div>
                 </div>
-                {task !== "forecast" && profile ? (
+                {task !== "forecast" && task !== "recommendation" && profile ? (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <Label className="text-xs">Features</Label>
                       <span className="text-[11px] text-muted-foreground">
-                        {features.size} of {profile.columns.length - 1} columns
+                        {features.size} of {profile.columns.length - (needsTarget ? 1 : 0)} columns
                       </span>
                     </div>
                     <p className="text-xs text-muted-foreground">
@@ -536,7 +788,7 @@ function TrainWizard() {
                   tuning={tuning}
                   onTuningChange={setTuning}
                   onCheck={
-                    table && target
+                    table && (target || !needsTarget)
                       ? (p) =>
                           validatePrepFn({
                             data: {
@@ -546,7 +798,7 @@ function TrainWizard() {
                                 schema: table.schema,
                                 table: table.table,
                               },
-                              target_column: target,
+                              target_column: needsTarget ? target : undefined,
                               prep: p,
                             },
                           })
@@ -594,7 +846,26 @@ function TrainWizard() {
                   <Row k="Name" v={name} />
                   <Row k="Task" v={ML_TASK_LABEL[task]} />
                   <Row k="Table" v={table ? `${table.schema}.${table.table}` : ""} />
-                  <Row k="Target" v={target} />
+                  {needsTarget ? <Row k="Target" v={target} /> : null}
+                  {task === "recommendation" ? (
+                    <>
+                      <Row k="Users" v={userColumn} />
+                      <Row k="Items" v={itemColumn} />
+                      <Row k="Strength" v={ratingColumn || "every row counts once"} />
+                    </>
+                  ) : null}
+                  {task === "clustering" ? (
+                    <Row
+                      k="Groups"
+                      v={nClusters === "" ? "chosen by silhouette" : String(nClusters)}
+                    />
+                  ) : null}
+                  {task === "anomaly" ? (
+                    <Row
+                      k="Expected anomalies"
+                      v={contamination === "" ? "2% (default)" : `${contamination}%`}
+                    />
+                  ) : null}
                   {task === "forecast" ? (
                     <>
                       <Row k="Time column" v={timeColumn} />
@@ -603,7 +874,7 @@ function TrainWizard() {
                         v={`${horizon} periods, ${aggregation === "sum" ? "totals" : "averages"} per period`}
                       />
                     </>
-                  ) : (
+                  ) : task === "recommendation" ? null : (
                     <Row k="Features" v={`${features.size} columns`} />
                   )}
                   <Row k="Rows" v={profile ? fmtInt(profile.row_count) : ""} />
@@ -617,7 +888,7 @@ function TrainWizard() {
                           : "whole table"
                     }
                   />
-                  {task !== "forecast" ? <Row k="Tuning" v={ML_TUNING_LABEL[tuning]} /> : null}
+                  {tunable ? <Row k="Tuning" v={ML_TUNING_LABEL[tuning]} /> : null}
                   <Row
                     k="Time budget"
                     v={`${budget === "" ? (limits?.train_time_budget_minutes ?? "default") : budget} min`}
@@ -646,8 +917,13 @@ function TrainWizard() {
               </p>
               <Summary label="Table" value={table ? `${table.schema}.${table.table}` : "—"} />
               <Summary label="Rows" value={profile ? fmtInt(profile.row_count) : "—"} />
-              <Summary label="Target" value={target || "—"} />
-              <Summary label="Task" value={target ? ML_TASK_LABEL[task] : "—"} />
+              <Summary
+                label={task === "recommendation" ? "Items" : "Target"}
+                value={
+                  (task === "recommendation" ? itemColumn : target) || (needsTarget ? "—" : "none")
+                }
+              />
+              <Summary label="Task" value={target || !needsTarget ? ML_TASK_LABEL[task] : "—"} />
               {task === "forecast" && target ? (
                 <Summary label="Horizon" value={`${horizon} × ${timeColumn || "?"}`} />
               ) : null}

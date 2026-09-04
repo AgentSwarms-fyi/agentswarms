@@ -104,9 +104,9 @@ export function PredictionsPanel({
                 <Table2 className="h-4 w-4 text-primary" /> Score a whole table
               </p>
               <p className="text-xs text-muted-foreground">
-                Read a lakehouse table with the same columns, write every row back with a{" "}
-                <code>prediction</code> column (and class probabilities), as a new lakehouse table
-                you own. Agents and dashboards can query it like any other.
+                Read a lakehouse table with the same columns, write every row back with{" "}
+                {outputBlurb(model.task)}, as a new lakehouse table you own. Agents and dashboards
+                can query it like any other.
               </p>
               <Button size="sm" onClick={() => setBatchOpen(true)}>
                 <Play className="mr-1.5 h-3.5 w-3.5" /> Batch prediction
@@ -429,16 +429,44 @@ function TryIt({
         {result?.ok && pred ? (
           <div className="rounded-lg border bg-muted/30 p-3">
             <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
-              Predicted {model.target_column}
+              {model.task === "clustering"
+                ? "Group"
+                : model.task === "anomaly"
+                  ? "Verdict"
+                  : model.task === "recommendation"
+                    ? `Recommended ${model.item_column}`
+                    : `Predicted ${model.target_column}`}
             </p>
-            <p className="text-2xl font-bold tracking-tight tabular-nums">
-              {String(pred[idx.prediction] ?? "—")}
-              {idx.probability !== undefined ? (
-                <span className="ml-2 text-sm font-normal text-muted-foreground">
-                  {(Number(pred[idx.probability]) * 100).toFixed(1)}% confidence
-                </span>
-              ) : null}
-            </p>
+            {model.task === "recommendation" ? (
+              <RecList
+                value={pred[idx.prediction]}
+                scores={idx.scores !== undefined ? pred[idx.scores] : null}
+                cold={idx.cold_start !== undefined ? Boolean(pred[idx.cold_start]) : false}
+              />
+            ) : (
+              <p className="text-2xl font-bold tracking-tight tabular-nums">
+                {model.task === "anomaly"
+                  ? Number(pred[idx.prediction]) === 1
+                    ? "Anomaly"
+                    : "Normal"
+                  : model.task === "clustering"
+                    ? `Group ${String(pred[idx.prediction])}`
+                    : String(pred[idx.prediction] ?? "—")}
+                {idx.probability !== undefined ? (
+                  <span className="ml-2 text-sm font-normal text-muted-foreground">
+                    {(Number(pred[idx.probability]) * 100).toFixed(1)}% confidence
+                  </span>
+                ) : idx.anomaly_score !== undefined ? (
+                  <span className="ml-2 text-sm font-normal text-muted-foreground">
+                    score {Number(pred[idx.anomaly_score]).toFixed(3)}
+                  </span>
+                ) : idx.distance !== undefined ? (
+                  <span className="ml-2 text-sm font-normal text-muted-foreground">
+                    distance {Number(pred[idx.distance]).toFixed(3)}
+                  </span>
+                ) : null}
+              </p>
+            )}
             {probas.length ? (
               <div className="mt-2 space-y-1">
                 {probas
@@ -637,4 +665,66 @@ function BatchDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+function outputBlurb(task: string) {
+  return task === "clustering" ? (
+    <>
+      a <code>prediction</code> column (the group) and a <code>distance</code> to its centre
+    </>
+  ) : task === "anomaly" ? (
+    <>
+      a <code>prediction</code> column (1 = anomaly) and an <code>anomaly_score</code>
+    </>
+  ) : task === "recommendation" ? (
+    <>
+      a <code>prediction</code> column holding each user's top items and their <code>scores</code>
+    </>
+  ) : (
+    <>
+      a <code>prediction</code> column (and class probabilities)
+    </>
+  );
+}
+
+function RecList({ value, scores, cold }: { value: unknown; scores: unknown; cold: boolean }) {
+  const items = parseList(value).map(String);
+  const weights = parseList(scores).map(Number);
+  if (!items.length) return <p className="text-sm text-muted-foreground">Nothing to recommend.</p>;
+  return (
+    <div>
+      <ol className="flex flex-wrap gap-1.5">
+        {items.map((it, i) => (
+          <li
+            key={`${it}-${i}`}
+            className="inline-flex items-center gap-1.5 rounded-md border bg-background px-2 py-1 text-sm"
+          >
+            <span className="text-[10px] tabular-nums text-muted-foreground">{i + 1}</span>
+            <span className="font-medium">{it}</span>
+            {Number.isFinite(weights[i]) && weights[i] > 0 ? (
+              <span className="text-[10px] tabular-nums text-muted-foreground">
+                {weights[i].toFixed(2)}
+              </span>
+            ) : null}
+          </li>
+        ))}
+      </ol>
+      {cold ? (
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          No history for this user, so these are the most popular items.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function parseList(v: unknown): unknown[] {
+  if (Array.isArray(v)) return v;
+  if (typeof v !== "string") return [];
+  try {
+    const parsed = JSON.parse(v) as unknown;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }

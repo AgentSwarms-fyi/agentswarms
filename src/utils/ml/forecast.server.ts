@@ -66,7 +66,7 @@ export async function listForecastVersionsForUser(
         label: `${m.name} · v${v.version}${v.stage === "production" ? " (production)" : ""}`,
         horizon: m.horizon,
         trained_at: v.trained_at,
-        target_column: m.target_column,
+        target_column: m.target_column ?? "",
         time_column: m.time_column,
         points: f.points,
         history: f.history ?? [],

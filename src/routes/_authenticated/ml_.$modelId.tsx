@@ -59,6 +59,7 @@ import {
   type MlLeaderboardRow,
   type MlSource,
   type MlTask,
+  type MlClusterProfile,
 } from "@/utils/ml/types";
 import {
   JobStatusChip,
@@ -292,7 +293,22 @@ function ModelPage() {
             ) : null}
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            Predicts <span className="font-medium text-foreground">{model.target_column}</span> from{" "}
+            {model.task === "recommendation" ? (
+              <>
+                Recommends <span className="font-medium text-foreground">{model.item_column}</span>{" "}
+                to <span className="font-medium text-foreground">{model.user_column}</span>{" "}
+                from{" "}
+              </>
+            ) : model.task === "clustering" ? (
+              <>Groups the rows of </>
+            ) : model.task === "anomaly" ? (
+              <>Flags unusual rows in </>
+            ) : (
+              <>
+                Predicts <span className="font-medium text-foreground">{model.target_column}</span>{" "}
+                from{" "}
+              </>
+            )}
             <span className="font-medium text-foreground">
               {src.schema}.{src.table}
             </span>
@@ -650,6 +666,7 @@ function VersionOverview({
     ...scalar.filter(([k]) => k !== primary && k !== "holdout_periods"),
   ].slice(0, 6);
   const cm = metrics.confusion_matrix as { labels: string[]; matrix: number[][] } | undefined;
+  const clusters = (Array.isArray(metrics.clusters) ? metrics.clusters : []) as MlClusterProfile[];
   const importance = (version.feature_importance ?? []) as MlFeatureImportance[];
   const schema = (version.feature_schema ?? []) as MlFeatureSchemaEntry[];
   const leaderboard = (version.leaderboard ?? []) as MlLeaderboardRow[];
@@ -668,7 +685,13 @@ function VersionOverview({
             key={k}
             label={metricLabel(k)}
             value={fmtMetric(k, v)}
-            hint={k === primary ? `primary · ${metricDirection(k)} is better` : undefined}
+            hint={
+              k === primary
+                ? k === "anomaly_rate"
+                  ? "primary · share of rows flagged"
+                  : `primary · ${metricDirection(k)} is better`
+                : undefined
+            }
             tone={k === primary ? metricTone(k, v) : undefined}
           />
         ))}
@@ -683,6 +706,19 @@ function VersionOverview({
                 History, the projected periods and a residual-based band that widens with distance.
               </p>
               <ForecastChart history={forecast.history} points={forecast.points} />
+            </CardContent>
+          </Card>
+        ) : null}
+
+        {clusters.length ? (
+          <Card className="lg:col-span-2">
+            <CardContent className="p-4">
+              <p className="text-sm font-medium">Groups</p>
+              <p className="mb-3 text-xs text-muted-foreground">
+                Every group's size and its typical row: the mean of each number, the most common
+                category.
+              </p>
+              <ClusterProfiles rows={clusters} />
             </CardContent>
           </Card>
         ) : null}
@@ -767,7 +803,9 @@ function VersionOverview({
               v={
                 task === "forecast"
                   ? `${model.time_column} → ${model.target_column}`
-                  : `${usedFeatures.length} columns`
+                  : task === "recommendation"
+                    ? `${model.user_column} × ${model.item_column}`
+                    : `${usedFeatures.length} columns`
               }
             />
             <Detail
@@ -961,6 +999,51 @@ function ConfusionMatrix({ labels, matrix }: { labels: string[]; matrix: number[
               </tr>
             );
           })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ClusterProfiles({ rows }: { rows: MlClusterProfile[] }) {
+  const keys = Array.from(new Set(rows.flatMap((r) => Object.keys(r.profile)))).slice(0, 10);
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b text-left text-muted-foreground">
+            <th className="py-1.5 pr-3 font-medium">Group</th>
+            <th className="py-1.5 pr-3 font-medium">Rows</th>
+            <th className="py-1.5 pr-3 font-medium">Share</th>
+            {keys.map((k) => (
+              <th key={k} className="py-1.5 pr-3 font-medium">
+                {k}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.cluster} className="border-b last:border-0">
+              <td className="py-1.5 pr-3 font-medium">Group {r.cluster}</td>
+              <td className="py-1.5 pr-3 tabular-nums">{fmtInt(r.size)}</td>
+              <td className="py-1.5 pr-3 tabular-nums">{(r.share * 100).toFixed(1)}%</td>
+              {keys.map((k) => {
+                const v = r.profile[k];
+                return (
+                  <td key={k} className="max-w-[10rem] truncate py-1.5 pr-3 tabular-nums">
+                    {v === null || v === undefined
+                      ? "—"
+                      : typeof v === "number"
+                        ? Number.isInteger(v)
+                          ? fmtInt(v)
+                          : v.toFixed(2)
+                        : String(v)}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>
