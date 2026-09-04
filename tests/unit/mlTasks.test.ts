@@ -217,8 +217,11 @@ describe("the server functions and the pinned program", () => {
   });
 
   it("checks a prepared SELECT for the target only when there is one", () => {
-    expect(fns).toContain("target: string | null | undefined,");
-    expect(fns).toContain("if (target && !head.columns.some((c) => c.name === target)) {");
+    // The check lives in the service both the app and the public API call.
+    const api = rd("src/utils/ml/api.server.ts");
+    expect(api).toContain("target: string | null | undefined,");
+    expect(api).toContain("if (target && !head.columns.some((c) => c.name === target)) {");
+    expect(fns).toContain("validateMlPrep as validatePrep");
   });
 
   it("hands every new field to the sandbox program", () => {

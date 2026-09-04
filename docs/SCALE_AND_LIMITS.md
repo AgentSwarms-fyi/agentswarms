@@ -316,6 +316,7 @@ runtime** and takes effect on the next job, no redeploy.
 | `ML_TRAIN_MEM_LIMIT_MB`                | 8192      | Memory ceiling of a training sandbox. A model that needs more fails with the sandbox's OOM, not silently. |
 | `ML_MAX_CONCURRENT_TRAININGS_PER_USER` | 2         | Training jobs one user may have live at once.                                                             |
 | `ML_PREDICT_MAX_ROWS`                  | 5,000,000 | Rows one batch prediction may score.                                                                      |
+| `ML_API_RATE_LIMIT_PER_MIN`            | 60        | Calls a minute one ML API key may make, across every `/api/ml/*` endpoint (global limiter).               |
 
 Nothing here is a ceiling in the code. On a 64-core, 512 GB machine set
 `ML_TRAIN_MAX_ROWS` to the size of your largest table and

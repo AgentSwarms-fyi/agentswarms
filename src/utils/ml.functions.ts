@@ -26,16 +26,23 @@ import {
   type MlModelRow,
   type MlVersionRow,
 } from "./ml/access.server";
-import { cancelMlJob, refreshMlJob, startTrainingJob } from "./ml/train.server";
+import { cancelMlJob, refreshMlJob } from "./ml/train.server";
 import {
   ML_ROWS_PREDICT_CAP,
   cancelPrediction,
   predictRowsSync,
   refreshPrediction,
-  startPrediction,
   type MlPredictionRow,
   type MlRowsPredictResult,
 } from "./ml/predict.server";
+import {
+  createAndTrainVersion,
+  mlTrainConfig as trainConfig,
+  pickVersion,
+  startBatchPrediction,
+  trainNewVersion,
+  validateMlPrep as validatePrep,
+} from "./ml/api.server";
 import {
   ML_JOB_LIVE,
   ML_TARGET_TASKS,
@@ -311,41 +318,6 @@ const prepSchema = z.object({
   drop_columns: z.array(IDENT).max(500).optional(),
 });
 
-/**
- * Prove a preparation runs before a sandbox spends a cold start on it: the
- * filter or SELECT goes through the lakehouse statement guard as the caller
- * (select-only, schema access), and must still yield the target column.
- */
-async function validatePrep(
-  userId: string,
-  source: MlSource,
-  target: string | null | undefined,
-  prep: MlPrepConfig,
-): Promise<{ ok: true; rows: number } | { ok: false; error: string }> {
-  const rel = `${q(source.schema)}.${q(source.table)}`;
-  const body = prep.sql?.trim()
-    ? `(${prep.sql.trim().replace(/;\s*$/, "")}) AS _prep`
-    : prep.where?.trim()
-      ? `${rel} WHERE (${prep.where.trim()})`
-      : rel;
-  try {
-    const head = await runLakehouseStatement(userId, `SELECT * FROM ${body} LIMIT 0`, {
-      auditVia: "ml-prep-check",
-      rowCap: 1,
-    });
-    if (target && !head.columns.some((c) => c.name === target)) {
-      return { ok: false, error: `The prepared rows have no "${target}" column` };
-    }
-    const count = await runLakehouseStatement(userId, `SELECT count(*) AS n FROM ${body}`, {
-      auditVia: "ml-prep-check",
-      rowCap: 1,
-    });
-    return { ok: true, rows: Number(count.rows[0]?.[0] ?? 0) };
-  } catch (e) {
-    return { ok: false, error: (e as Error).message };
-  }
-}
-
 export const mlValidatePrep = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) =>
     z
@@ -383,23 +355,6 @@ const createSchema = z.object({
   prep: prepSchema.optional(),
   tuning: z.enum(ML_TUNINGS).optional(),
 });
-
-async function trainConfig(input: {
-  time_budget_minutes?: number;
-  max_rows?: number;
-  tuning?: MlTrainConfig["tuning"];
-  prep?: MlPrepConfig;
-}): Promise<MlTrainConfig> {
-  const lim = await limits();
-  return {
-    tuning: input.tuning ?? "none",
-    prep: input.prep ?? {},
-    // The operator's row limit is the ceiling; the caller may only go lower.
-    max_rows: Math.min(input.max_rows ?? lim.train_max_rows, lim.train_max_rows),
-    time_budget_minutes: input.time_budget_minutes ?? lim.train_time_budget_minutes,
-    validation_fraction: 0.2,
-  };
-}
 
 /** Create a model and train its first version. */
 export const mlCreateModel = createServerFn({ method: "POST" })
@@ -469,34 +424,6 @@ export const mlCreateModel = createServerFn({ method: "POST" })
     },
   );
 
-async function createAndTrainVersion(
-  model: MlModelRow,
-  config: MlTrainConfig,
-  version: number,
-): Promise<{ ok: true; jobId: string; versionId: string } | { ok: false; error: string }> {
-  const { data: v, error } = await supabaseAdmin
-    .from("ml_model_versions")
-    .insert({
-      model_id: model.id,
-      user_id: model.user_id,
-      version,
-      status: "training",
-      config: config as unknown as Json,
-    })
-    .select("*")
-    .single();
-  if (error || !v) return { ok: false, error: error?.message ?? "Failed to create version" };
-  const started = await startTrainingJob({ model, version: v });
-  if (!started.ok) {
-    await supabaseAdmin
-      .from("ml_model_versions")
-      .update({ status: "failed", warnings: [started.error] as Json })
-      .eq("id", v.id);
-    return started;
-  }
-  return { ok: true, jobId: started.jobId, versionId: v.id };
-}
-
 /** Train a new version of an existing model (owner only). */
 export const mlTrainVersion = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) =>
@@ -520,42 +447,7 @@ export const mlTrainVersion = createServerFn({ method: "POST" })
     > => {
       const userId = await resolveCaller(data.access_token);
       const { model } = await loadModelForUser(data.model_id, userId, { write: true });
-      if (data.prep) {
-        const checked = await validatePrep(
-          userId,
-          model.source as MlSource,
-          model.target_column,
-          data.prep as MlPrepConfig,
-        );
-        if (!checked.ok) return { ok: false, error: checked.error };
-        await supabaseAdmin
-          .from("ml_models")
-          .update({ prep: data.prep as Json, updated_at: new Date().toISOString() })
-          .eq("id", model.id);
-        (model as { prep?: unknown }).prep = data.prep;
-      }
-      if (data.feature_columns) {
-        await supabaseAdmin
-          .from("ml_models")
-          .update({
-            feature_columns: data.feature_columns.length ? data.feature_columns : null,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", model.id);
-        model.feature_columns = data.feature_columns.length ? data.feature_columns : null;
-      }
-      const { data: last } = await supabaseAdmin
-        .from("ml_model_versions")
-        .select("version")
-        .eq("model_id", model.id)
-        .order("version", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      const config = await trainConfig({
-        ...data,
-        prep: ((model as { prep?: unknown }).prep ?? {}) as MlPrepConfig,
-      });
-      const started = await createAndTrainVersion(model, config, (last?.version ?? 0) + 1);
+      const started = await trainNewVersion(model, data, { userId });
       return started.ok
         ? { ok: true, job_id: started.jobId, version_id: started.versionId }
         : started;
@@ -751,39 +643,6 @@ export const mlDeleteModel = createServerFn({ method: "POST" })
 
 const TABLE_NAME = /^[a-z_][a-z0-9_]{0,62}$/;
 
-async function pickVersion(
-  modelId: string,
-  versionId: string | undefined,
-  productionId: string | null,
-) {
-  if (versionId) {
-    const { data } = await supabaseAdmin
-      .from("ml_model_versions")
-      .select("*")
-      .eq("id", versionId)
-      .eq("model_id", modelId)
-      .maybeSingle();
-    return data ?? null;
-  }
-  if (productionId) {
-    const { data } = await supabaseAdmin
-      .from("ml_model_versions")
-      .select("*")
-      .eq("id", productionId)
-      .maybeSingle();
-    if (data) return data;
-  }
-  const { data } = await supabaseAdmin
-    .from("ml_model_versions")
-    .select("*")
-    .eq("model_id", modelId)
-    .eq("status", "ready")
-    .order("version", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  return data ?? null;
-}
-
 /** Score a lakehouse table into a new lakehouse table the caller owns. */
 export const mlPredictBatch = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) =>
@@ -808,46 +667,12 @@ export const mlPredictBatch = createServerFn({ method: "POST" })
       const { model } = await loadModelForUser(data.model_id, userId);
       const version = await pickVersion(model.id, data.version_id, model.production_version_id);
       if (!version) return { ok: false, error: "No trained version to predict with" };
-      const schemas = await accessibleSchemas(userId);
-      if (!schemas.some((s) => s.name === data.input.schema)) {
-        return { ok: false, error: `No access to lakehouse schema "${data.input.schema}"` };
-      }
-      // The output must be a schema the caller OWNS: a shared schema is
-      // read-only for them, and a mounted lake source is read-only for everyone.
-      const out = schemas.find((s) => s.name === data.output.schema);
-      if (!out || out.user_id !== userId || out.lake_source_id) {
-        return {
-          ok: false,
-          error: `Predictions can only be written to a lakehouse schema you own (not "${data.output.schema}")`,
-        };
-      }
-      const lim = await limits();
-      const rel = `${q(data.input.schema)}.${q(data.input.table)}`;
-      let rows = 0;
-      try {
-        const count = await runLakehouseStatement(
-          userId,
-          `SELECT count(*) AS n FROM ${rel}${data.input.where?.trim() ? ` WHERE (${data.input.where.trim()})` : ""}`,
-          { auditVia: "ml-predict-check", rowCap: 1 },
-        );
-        rows = Number(count.rows[0]?.[0] ?? 0);
-      } catch (e) {
-        return { ok: false, error: (e as Error).message };
-      }
-      if (rows === 0) return { ok: false, error: "No rows match" };
-      if (rows > lim.predict_max_rows) {
-        return {
-          ok: false,
-          error: `${rows.toLocaleString()} rows to score, above the ${lim.predict_max_rows.toLocaleString()}-row limit. Add a filter, or raise ML_PREDICT_MAX_ROWS under Admin -> Developer runtime.`,
-        };
-      }
-      const started = await startPrediction({
+      const started = await startBatchPrediction({
+        userId,
         model,
         version,
-        userId,
-        input: { kind: "lakehouse", ...data.input },
+        input: data.input,
         output: data.output,
-        kind: "batch",
         via: "ui",
       });
       return started.ok ? { ok: true, prediction_id: started.predictionId } : started;

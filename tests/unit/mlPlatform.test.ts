@@ -282,8 +282,9 @@ describe("limits are settings, not constants", () => {
   });
 
   it("the wizard cannot exceed the operator's row limit", () => {
-    expect(rd("src/utils/ml.functions.ts")).toContain(
-      "Math.min(input.max_rows ?? lim.train_max_rows, lim.train_max_rows)",
+    // The ceiling is applied in the service the app and the public API share.
+    expect(rd("src/utils/ml/api.server.ts")).toContain(
+      "Math.min(input.max_rows ?? r.mlTrainMaxRows, r.mlTrainMaxRows)",
     );
   });
 });

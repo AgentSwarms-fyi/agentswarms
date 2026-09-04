@@ -73,6 +73,13 @@ const CASES: Currency[] = [
     docMentions: [/item-item cosine similarity/i, /isolation forest/i, /silhouette/i],
   },
   {
+    capability: "A model can be published as an API with per-key scopes",
+    code: "src/utils/ml/api.server.ts",
+    codeContains: "export async function authenticateMlApiKey(",
+    doc: "src/routes/docs.ml.tsx",
+    docMentions: [/\/api\/ml\/predict/, /ml\.api_key\.denied/],
+  },
+  {
     capability: "One forecaster for charts, the Analyst and alerts",
     code: "src/lib/mlForecast.ts",
     codeContains: "export function forecastValues",

@@ -1103,7 +1103,11 @@ def _predict(cfg, warnings_):
     missing = [f for f in art['features'] if f not in df.columns]
     if missing:
         warnings_.append('Input is missing %d feature column(s), treated as empty: %s' % (len(missing), ', '.join(missing[:8])))
-    X = _prepare_x(df, art['features'], art['dt_cols'], art['num_all'], art['cat'], art.get('text') or [])
+    if art.get('external'):
+        # Registered from outside: the pipeline owns its own preprocessing.
+        X = df[list(art['features'])]
+    else:
+        X = _prepare_x(df, art['features'], art['dt_cols'], art['num_all'], art['cat'], art.get('text') or [])
     pipe = art['pipeline']
     pred = pipe.predict(X)
     out = df.copy()
@@ -1111,8 +1115,9 @@ def _predict(cfg, warnings_):
     task = art.get('task')
     if task == 'clustering':
         out['prediction'] = np.asarray(pred, dtype='int64')
-        Xt = pipe.named_steps['prep'].transform(X)
-        out['distance'] = np.min(pipe.named_steps['model'].transform(Xt), axis=1)
+        if not art.get('external'):
+            Xt = pipe.named_steps['prep'].transform(X)
+            out['distance'] = np.min(pipe.named_steps['model'].transform(Xt), axis=1)
     elif task == 'anomaly':
         out['prediction'] = (np.asarray(pred) == -1).astype('int64')
         out['anomaly_score'] = -pipe.decision_function(X)

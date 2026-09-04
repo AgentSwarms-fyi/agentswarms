@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
   C,
   Callout,
+  Code,
   DocsHeader,
   H2,
   H3,
@@ -245,6 +246,87 @@ function MlDocsPage() {
         the run&apos;s owner. Forecast models return their projected periods.
       </P>
 
+      <H2 id="api">Public API</H2>
+      <P>
+        A model can be published as an API. <strong>Publish as API</strong> on the model page mints
+        a key that looks like <C>mlk_…</C>, shown once and stored hashed, scoped to that one model
+        with any of <C>predict</C> (score rows, start batch runs), <C>train</C> (train a version,
+        register an external one) and <C>read</C> (list the model, poll jobs and runs). Every call
+        runs on the same service the app uses — the same limits, the same lakehouse guard, the same
+        audit trail — and is attributed to its key; a denied call (unknown, revoked, expired, wrong
+        scope, rate-limited) is audited as <C>ml.api_key.denied</C> with the caller&apos;s address.
+      </P>
+      <Table
+        headers={["Endpoint", "Scope", "Body", "Answer"]}
+        rows={[
+          [<C key="a">POST /api/ml/models</C>, "read", "—", "the model, its features and versions"],
+          [
+            <C key="b">POST /api/ml/train</C>,
+            "train",
+            "time_budget_minutes, max_rows, tuning, prep, feature_columns (all optional)",
+            "202 with job_id and version_id",
+          ],
+          [
+            <C key="c">POST /api/ml/train/status</C>,
+            "read",
+            "job_id",
+            "status, the version's metrics when ready, the log tail",
+          ],
+          [
+            <C key="d">POST /api/ml/predict</C>,
+            "predict",
+            "rows (up to 200), version_id, wait_seconds",
+            "200 with columns and rows, or 202 with a prediction_id to poll",
+          ],
+          [
+            <C key="e">POST /api/ml/predict/batch</C>,
+            "predict",
+            "input {schema, table, where}, output {schema, table}, version_id",
+            "202 with a prediction_id; the output is a lakehouse table you own",
+          ],
+          [
+            <C key="f">POST /api/ml/predict/status</C>,
+            "read",
+            "prediction_id",
+            "status, row count, columns, a sample, the result digest",
+          ],
+          [
+            <C key="g">POST /api/ml/models/register</C>,
+            "train",
+            "artifact_uri, artifact_sha256, algorithm, metrics, feature_schema, classes, promote",
+            "201 with the new version",
+          ],
+        ]}
+      />
+      <Code lang="bash">{`curl -X POST https://your-instance/api/ml/predict \\
+  -H "Authorization: Bearer mlk_…" -H "Content-Type: application/json" \\
+  -d '{"rows":[{"region":"EMEA","net_usd":480,"payment_rows":1}]}'
+# → {"prediction_id":"…","columns":["region","net_usd","payment_rows","prediction","probability",…],"rows":[[…]]}
+
+curl -X POST https://your-instance/api/ml/predict/batch \\
+  -H "Authorization: Bearer mlk_…" -H "Content-Type: application/json" \\
+  -d '{"input":{"schema":"analytics","table":"revenue_facts"},"output":{"schema":"analytics","table":"revenue_scored"}}'
+# → 202 {"accepted":true,"prediction_id":"…","output":"analytics.revenue_scored"}`}</Code>
+      <P>
+        Answers use ordinary status codes: <C>401</C> for a missing, unknown, revoked or expired
+        key, <C>403</C> for a missing scope, <C>404</C> for a job or run of another model (never
+        403, so a key learns nothing about what it cannot see), <C>409</C> when the service refuses
+        (no trained version, a limit reached, a schema you do not own) and <C>429</C> above the
+        per-key rate limit, <C>ML_API_RATE_LIMIT_PER_MIN</C> calls a minute (sixty by default,
+        edited like every other limit).
+      </P>
+      <H3 id="external-models">Bring your own model</H3>
+      <P>
+        A model trained elsewhere — a notebook, a laptop, another platform — can serve through the
+        same registry. Write the artifact into the lake bucket as a joblib dictionary with{" "}
+        <C>task</C>, <C>pipeline</C> (any object with <C>predict</C>, plus <C>predict_proba</C> for
+        a classifier), <C>features</C> (the input columns, in order) and, for a classifier,{" "}
+        <C>classes</C>, then register it with its SHA-256; inference verifies the digest before
+        loading it, hands the pipeline the raw feature columns, and returns the same columns a
+        trained version would. Classification, regression, clustering and anomaly models accept
+        external versions; the first one is promoted when the model has no production version.
+      </P>
+
       <H2 id="forecasting">Forecasting in BI</H2>
       <P>
         Line charts on a dashboard project ahead with the platform&apos;s shared forecaster:
@@ -295,6 +377,11 @@ function MlDocsPage() {
             "Training jobs one user may have live at once",
           ],
           [<C key="e">ML_PREDICT_MAX_ROWS</C>, "5,000,000", "Rows one batch prediction may score"],
+          [
+            <C key="f">ML_API_RATE_LIMIT_PER_MIN</C>,
+            "60",
+            "Calls a minute one ML API key may make",
+          ],
         ]}
       />
 

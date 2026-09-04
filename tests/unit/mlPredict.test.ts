@@ -112,6 +112,8 @@ describe("predictions are governed", () => {
   const migration = rd(MIGRATION);
   const predict = rd("src/utils/ml/predict.server.ts");
   const fns = rd("src/utils/ml.functions.ts");
+  // The validation moved into the service both the app and the public API call.
+  const api = rd("src/utils/ml/api.server.ts");
 
   it("has a table with owner RLS and an owner-of-the-model read policy", () => {
     expect(migration).toContain("CREATE TABLE public.ml_predictions");
@@ -136,19 +138,21 @@ describe("predictions are governed", () => {
   });
 
   it("writes only into a schema the caller owns, never a shared or mounted one", () => {
-    expect(fns).toContain("out.user_id !== userId || out.lake_source_id");
-    expect(fns).toContain("Predictions can only be written to a lakehouse schema you own");
+    expect(api).toContain("out.user_id !== userId || out.lake_source_id");
+    expect(api).toContain("Predictions can only be written to a lakehouse schema you own");
+    expect(fns).toContain("startBatchPrediction({");
   });
 
   it("enforces the operator's prediction row limit before starting a sandbox", () => {
-    expect(fns).toContain("if (rows > lim.predict_max_rows)");
-    expect(fns).toContain("ML_PREDICT_MAX_ROWS");
+    expect(api).toContain("if (rows > r.mlPredictMaxRows) {");
+    expect(api).toContain("ML_PREDICT_MAX_ROWS");
     expect(predict).toContain("export const ML_ROWS_PREDICT_CAP = 200;");
   });
 
   it("validates a preparation through the statement guard before training", () => {
-    expect(fns).toContain("async function validatePrep(");
-    expect(fns).toContain('auditVia: "ml-prep-check"');
+    expect(api).toContain("export async function validateMlPrep(");
+    expect(api).toContain('auditVia: "ml-prep-check"');
+    expect(fns).toContain("validateMlPrep as validatePrep");
     expect(fns).toContain("if (prep.sql || prep.where) {");
     expect(fns).toContain("export const mlValidatePrep");
   });

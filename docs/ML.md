@@ -153,6 +153,64 @@ a production version; on headless runs (deployed swarms, schedules) grants
 are re-derived from the run's owner. Forecast models return their projected
 periods.
 
+## Public API
+
+A model can be published as an API. **Publish as API** on the model page
+mints a key that looks like `mlk_…`, shown once and stored hashed, scoped to
+that one model with any of `predict` (score rows, start batch runs), `train`
+(train a version, register an external one) and `read` (list the model,
+poll jobs and runs). Every call runs on the same service the app uses — the
+same limits, the same lakehouse guard, the same audit trail — and is
+attributed to its key; a denied call (unknown, revoked, expired, wrong
+scope, rate-limited) is audited as `ml.api_key.denied` with the caller's
+address.
+
+| Endpoint                       | Scope   | Body                                                                                              | Answer                                                              |
+| ------------------------------ | ------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `POST /api/ml/models`          | read    | —                                                                                                 | the model, its features and versions                                |
+| `POST /api/ml/train`           | train   | `time_budget_minutes`, `max_rows`, `tuning`, `prep`, `feature_columns`                            | 202 with `job_id` and `version_id`                                  |
+| `POST /api/ml/train/status`    | read    | `job_id`                                                                                          | status, the version's metrics when ready, the log tail              |
+| `POST /api/ml/predict`         | predict | `rows` (up to 200), `version_id`, `wait_seconds`                                                  | 200 with columns and rows, or 202 with a `prediction_id` to poll    |
+| `POST /api/ml/predict/batch`   | predict | `input {schema, table, where}`, `output {schema, table}`, `version_id`                            | 202 with a `prediction_id`; the output is a lakehouse table you own |
+| `POST /api/ml/predict/status`  | read    | `prediction_id`                                                                                   | status, row count, columns, a sample, the result digest             |
+| `POST /api/ml/models/register` | train   | `artifact_uri`, `artifact_sha256`, `algorithm`, `metrics`, `feature_schema`, `classes`, `promote` | 201 with the new version                                            |
+
+```bash
+curl -X POST https://your-instance/api/ml/predict \
+  -H "Authorization: Bearer mlk_…" -H "Content-Type: application/json" \
+  -d '{"rows":[{"region":"EMEA","net_usd":480,"payment_rows":1}]}'
+```
+
+Answers use ordinary status codes: `401` for a missing, unknown, revoked or
+expired key, `403` for a missing scope, `404` for a job or run of another
+model (never 403, so a key learns nothing about what it cannot see), `409`
+when the service refuses (no trained version, a limit reached, a schema you
+do not own) and `429` above the per-key rate limit, `ML_API_RATE_LIMIT_PER_MIN`
+calls a minute (sixty by default, edited like every other limit).
+
+### Bring your own model
+
+A model trained elsewhere — a notebook, a laptop, another platform — can
+serve through the same registry. Write the artifact into the lake bucket as
+a joblib dictionary with `task`, `pipeline` (any object with `predict`, plus
+`predict_proba` for a classifier), `features` (the input columns, in order)
+and, for a classifier, `classes`, then register it with its SHA-256;
+inference verifies the digest before loading it, hands the pipeline the raw
+feature columns, and returns the same columns a trained version would.
+Classification, regression, clustering and anomaly models accept external
+versions; the first one is promoted when the model has no production
+version.
+
+```python
+import hashlib, io, joblib, s3fs
+payload = {"task": "classification", "pipeline": fitted_sklearn_pipeline,
+           "features": ["region", "net_usd", "payment_rows"], "classes": ["free", "pro", "enterprise"]}
+buf = io.BytesIO(); joblib.dump(payload, buf, compress=3); blob = buf.getvalue()
+uri = "s3://lakehouse/ml-artifacts/external/plan-v7.joblib"
+with s3fs.S3FileSystem().open(uri, "wb") as f: f.write(blob)
+# POST /api/ml/models/register with artifact_uri=uri, artifact_sha256=hashlib.sha256(blob).hexdigest()
+```
+
 ## Forecasting in BI
 
 Line charts on a BI dashboard project ahead with the platform's shared
@@ -194,6 +252,7 @@ them. A large VM or a Kubernetes node pool is allowed to use itself.
 | `ML_TRAIN_MEM_LIMIT_MB`                | 8192      | Memory ceiling of a training sandbox                   |
 | `ML_MAX_CONCURRENT_TRAININGS_PER_USER` | 2         | Training jobs one user may have live at once           |
 | `ML_PREDICT_MAX_ROWS`                  | 5,000,000 | Rows one batch prediction may score                    |
+| `ML_API_RATE_LIMIT_PER_MIN`            | 60        | Calls a minute one ML API key may make                 |
 
 See [SCALE_AND_LIMITS.md](./SCALE_AND_LIMITS.md#machine-learning--srcutilsnotebookruntimeconfigserverts).
 

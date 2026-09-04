@@ -18,6 +18,7 @@ import {
   Share2,
   Trash2,
   XCircle,
+  KeyRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -75,6 +76,7 @@ import {
   relTime,
 } from "@/components/ml/mlUi";
 import { PredictionsPanel } from "@/components/ml/PredictionsPanel";
+import { MlApiKeysDialog } from "@/components/ml/MlApiKeysDialog";
 
 // React 19's stricter JSX typing rejects recharts' class components — cast via any.
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -97,6 +99,31 @@ export const Route = createFileRoute("/_authenticated/ml_/$modelId")({
 
 const LIVE = new Set<string>(ML_JOB_LIVE);
 
+/** One row shaped like the production version's features, for the curl example. */
+function exampleRowFor(
+  model: { production_version_id: string | null; user_column: string | null; task: string },
+  versions: MlVersionRow[],
+): Record<string, unknown> {
+  const prod = versions.find((v) => v.id === model.production_version_id);
+  const schema = (prod?.feature_schema ?? []) as MlFeatureSchemaEntry[];
+  const row: Record<string, unknown> = {};
+  for (const e of schema) {
+    if (e.role !== "feature") continue;
+    row[e.name] =
+      e.dtype === "numeric"
+        ? (e.median ?? 0)
+        : e.dtype === "boolean"
+          ? true
+          : e.dtype === "datetime"
+            ? new Date().toISOString().slice(0, 10)
+            : (e.categories?.[0] ?? "");
+  }
+  if (model.task === "recommendation" && model.user_column && !(model.user_column in row)) {
+    row[model.user_column] = "";
+  }
+  return row;
+}
+
 function ModelPage() {
   const { modelId } = Route.useParams();
   const { session } = useAuth();
@@ -113,6 +140,7 @@ function ModelPage() {
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState("overview");
   const [trainOpen, setTrainOpen] = useState(false);
+  const [apiOpen, setApiOpen] = useState(false);
   const [budget, setBudget] = useState<number | "">("");
   const [maxRows, setMaxRows] = useState<number | "">("");
   const [tuning, setTuning] = useState<MlTuning>("none");
@@ -324,6 +352,9 @@ function ModelPage() {
               <Button variant="outline" size="sm" onClick={() => void rename()}>
                 Rename
               </Button>
+              <Button variant="outline" size="sm" onClick={() => setApiOpen(true)}>
+                <KeyRound className="mr-1.5 h-3.5 w-3.5" /> Publish as API
+              </Button>
               <Button size="sm" disabled={Boolean(liveJob)} onClick={() => setTrainOpen(true)}>
                 <Play className="mr-1.5 h-3.5 w-3.5" /> Train new version
               </Button>
@@ -339,6 +370,16 @@ function ModelPage() {
           ) : null}
         </div>
       </div>
+
+      {!shared ? (
+        <MlApiKeysDialog
+          open={apiOpen}
+          onOpenChange={setApiOpen}
+          modelId={model.id}
+          token={token}
+          exampleRow={exampleRowFor(model, versions)}
+        />
+      ) : null}
 
       {liveJob ? (
         <LiveJobBanner job={liveJob} onCancel={shared ? undefined : () => void cancel(liveJob)} />

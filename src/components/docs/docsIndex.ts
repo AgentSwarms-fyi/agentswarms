@@ -199,7 +199,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
   {
     "route": "/docs/api",
     "title": "API & webhooks",
-    "description": "One endpoint runs a swarm from your own code: POST /api/swarm/run. Scoped keys, idempotent retries, and signed callbacks for anything slower than a request.",
+    "description": "Run a swarm, a notebook or an ML model from your own code. POST /api/swarm/run in full: scoped keys, idempotent retries, and signed callbacks for anything slower than a request; the notebook and ML endpoints are summarised at the end.",
     "terms": [
       "/api/notebook/run/status",
       "Idempotency-Key",
@@ -218,6 +218,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "input",
       "inputs",
       "last_used_ip",
+      "mlk_…",
       "nbk_…",
       "order-48213-summary",
       "read_runs",
@@ -318,6 +319,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "notebooks",
         "text": "Calling a notebook instead of a swarm",
+        "level": 2
+      },
+      {
+        "id": "ml",
+        "text": "Calling an ML model",
         "level": 2
       }
     ]
@@ -2106,6 +2112,12 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "title": "ML Models",
     "description": "Train a model on a lakehouse table without writing code, keep every version with its metrics and the snapshot it learned from, score rows back into the lakehouse, let agents predict with it, and draw its forecasts on a dashboard — all on your own infrastructure.",
     "terms": [
+      "401",
+      "403",
+      "404",
+      "409",
+      "429",
+      "ML_API_RATE_LIMIT_PER_MIN",
       "ML_MAX_CONCURRENT_TRAININGS_PER_USER",
       "ML_PREDICT_MAX_ROWS",
       "ML_TRAIN_MAX_ROWS",
@@ -2116,7 +2128,10 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "WHERE",
       "_model_version",
       "_predicted_at",
+      "classes",
+      "features",
       "ml-artifacts/",
+      "ml.api_key.denied",
       "ml.predict_query",
       "ml.train.start",
       "ml.train.succeeded",
@@ -2126,9 +2141,16 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "ml_model.delete",
       "ml_model.update",
       "ml_predict",
+      "mlk_…",
+      "pipeline",
+      "predict",
+      "predict_proba",
       "prediction",
       "proba_&lt;class&gt;",
-      "probability"
+      "probability",
+      "read",
+      "task",
+      "train"
     ],
     "headings": [
       {
@@ -2174,6 +2196,16 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "agents",
         "text": "Agents",
+        "level": 3
+      },
+      {
+        "id": "api",
+        "text": "Public API",
+        "level": 2
+      },
+      {
+        "id": "external-models",
+        "text": "Bring your own model",
         "level": 3
       },
       {

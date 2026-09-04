@@ -3605,6 +3605,68 @@ export type Database = {
           },
         ];
       };
+      ml_api_keys: {
+        Row: {
+          created_at: string;
+          expires_at: string | null;
+          id: string;
+          is_active: boolean;
+          key_hash: string;
+          key_prefix: string;
+          last_used_at: string | null;
+          last_used_ip: string | null;
+          model_id: string;
+          name: string;
+          revoked_at: string | null;
+          scopes: string[];
+          updated_at: string;
+          use_count: number;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          expires_at?: string | null;
+          id?: string;
+          is_active?: boolean;
+          key_hash: string;
+          key_prefix: string;
+          last_used_at?: string | null;
+          last_used_ip?: string | null;
+          model_id: string;
+          name: string;
+          revoked_at?: string | null;
+          scopes?: string[];
+          updated_at?: string;
+          use_count?: number;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          expires_at?: string | null;
+          id?: string;
+          is_active?: boolean;
+          key_hash?: string;
+          key_prefix?: string;
+          last_used_at?: string | null;
+          last_used_ip?: string | null;
+          model_id?: string;
+          name?: string;
+          revoked_at?: string | null;
+          scopes?: string[];
+          updated_at?: string;
+          use_count?: number;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "ml_api_keys_model_id_fkey";
+            columns: ["model_id"];
+            isOneToOne: false;
+            referencedRelation: "ml_models";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       ml_model_versions: {
         Row: {
           algorithm: string | null;
@@ -3614,6 +3676,7 @@ export type Database = {
           config: Json;
           created_at: string;
           decision_id: string | null;
+          external: boolean;
           feature_importance: Json;
           feature_schema: Json;
           forecast: Json | null;
@@ -3640,6 +3703,7 @@ export type Database = {
           config?: Json;
           created_at?: string;
           decision_id?: string | null;
+          external?: boolean;
           feature_importance?: Json;
           feature_schema?: Json;
           forecast?: Json | null;
@@ -3666,6 +3730,7 @@ export type Database = {
           config?: Json;
           created_at?: string;
           decision_id?: string | null;
+          external?: boolean;
           feature_importance?: Json;
           feature_schema?: Json;
           forecast?: Json | null;
@@ -3773,6 +3838,7 @@ export type Database = {
       };
       ml_predictions: {
         Row: {
+          api_key_id: string | null;
           created_at: string;
           decision_id: string | null;
           error: string | null;
@@ -3793,6 +3859,7 @@ export type Database = {
           via: string;
         };
         Insert: {
+          api_key_id?: string | null;
           created_at?: string;
           decision_id?: string | null;
           error?: string | null;
@@ -3813,6 +3880,7 @@ export type Database = {
           via?: string;
         };
         Update: {
+          api_key_id?: string | null;
           created_at?: string;
           decision_id?: string | null;
           error?: string | null;
@@ -3834,6 +3902,13 @@ export type Database = {
         };
         Relationships: [
           {
+            foreignKeyName: "ml_predictions_api_key_id_fkey";
+            columns: ["api_key_id"];
+            isOneToOne: false;
+            referencedRelation: "ml_api_keys";
+            referencedColumns: ["id"];
+          },
+          {
             foreignKeyName: "ml_predictions_model_id_fkey";
             columns: ["model_id"];
             isOneToOne: false;
@@ -3851,6 +3926,7 @@ export type Database = {
       };
       ml_training_jobs: {
         Row: {
+          api_key_id: string | null;
           created_at: string;
           error: string | null;
           finished_at: string | null;
@@ -3866,6 +3942,7 @@ export type Database = {
           version_id: string;
         };
         Insert: {
+          api_key_id?: string | null;
           created_at?: string;
           error?: string | null;
           finished_at?: string | null;
@@ -3881,6 +3958,7 @@ export type Database = {
           version_id: string;
         };
         Update: {
+          api_key_id?: string | null;
           created_at?: string;
           error?: string | null;
           finished_at?: string | null;
@@ -3896,6 +3974,13 @@ export type Database = {
           version_id?: string;
         };
         Relationships: [
+          {
+            foreignKeyName: "ml_training_jobs_api_key_id_fkey";
+            columns: ["api_key_id"];
+            isOneToOne: false;
+            referencedRelation: "ml_api_keys";
+            referencedColumns: ["id"];
+          },
           {
             foreignKeyName: "ml_training_jobs_model_id_fkey";
             columns: ["model_id"];
