@@ -33,7 +33,8 @@ describe("the store's width is a hard constraint, not a preference", () => {
     // If this guard ever softened, the probe would be measuring something the
     // ingest path no longer enforces.
     expect(embed).toContain("const EMBED_DIMS = 1536");
-    expect(embed).toContain("d.embedding.length !== EMBED_DIMS");
+    // Narrower vectors are padded (exact for cosine); only wider ones are refused.
+    expect(embed).toContain("d.embedding.length > EMBED_DIMS");
   });
 
   it("asks for 1536 explicitly, which is what makes wider models fit", () => {

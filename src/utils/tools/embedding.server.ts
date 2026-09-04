@@ -37,6 +37,35 @@ const EMBED_DIMS = 1536; // must match kb_chunks.embedding vector(1536)
 const EMBED_BATCH = 96;
 const INSERT_BATCH = 64;
 
+/**
+ * Bring a vector to the store width.
+ *
+ * FOUND WHILE SIZING A SELF-HOSTED GAP. The embed target resolver already knew
+ * Ollama and vLLM, yet an air-gapped install could not embed at all: local
+ * models ignore the `dimensions` hint and return their native width (768 for
+ * nomic-embed-text, 1024 for bge-m3 / mxbai-embed-large), and every one of
+ * them was refused with an instruction to migrate the column.
+ *
+ * Zero-padding a SHORTER vector is exact for cosine similarity -- appended
+ * zeros change neither any dot product nor any norm -- and retrieval already
+ * pins a knowledge base to the provider and model its chunks were written
+ * with, so padded vectors only ever meet vectors padded the same way. A
+ * LONGER vector is still refused: truncation is only exact for Matryoshka
+ * models, and those honour `dimensions` and never arrive too long.
+ */
+export function padToStoreWidth(v: number[]): number[] {
+  if (v.length === EMBED_DIMS) return v;
+  if (v.length > EMBED_DIMS) {
+    throw new Error(
+      `embedding is ${v.length}-dimensional, wider than the store (${EMBED_DIMS}); ` +
+        `pick a model that outputs at most ${EMBED_DIMS} dimensions or honours the "dimensions" parameter.`,
+    );
+  }
+  const out = new Array<number>(EMBED_DIMS).fill(0);
+  for (let i = 0; i < v.length; i++) out[i] = v[i];
+  return out;
+}
+
 export async function embedTexts(
   texts: string[],
   openaiKey: string,
@@ -127,16 +156,20 @@ export async function embedTexts(
       // gateway paths ignore the `dimensions` hint and return the model's
       // native size (e.g. 768 for Gemini, 3072 for text-embedding-3-large),
       // which would crash the vector(1536) insert or corrupt the index.
-      if (!Array.isArray(d.embedding) || d.embedding.length !== EMBED_DIMS) {
+      // A narrower vector (a local model that ignores `dimensions`) is padded --
+      // exactly, see padToStoreWidth. A wider one is refused: it cannot be
+      // truncated without changing what it means.
+      if (!Array.isArray(d.embedding) || d.embedding.length === 0) {
+        throw new Error(`"${useModel}" returned no embedding vector`);
+      }
+      if (d.embedding.length > EMBED_DIMS) {
         throw new Error(
-          `"${useModel}" returned ${d.embedding?.length ?? "no"}-dimensional vectors, but the ` +
-            `store is fixed at ${EMBED_DIMS}. Either the model ignores the "dimensions" ` +
-            `parameter or it has no ${EMBED_DIMS}-d output — pick a model that does ` +
-            `(the OpenAI text-embedding-3-* models truncate to any size), or the ` +
-            `kb_chunks.embedding column has to be migrated to this model's width.`,
+          `"${useModel}" returned ${d.embedding.length}-dimensional vectors, wider than the ` +
+            `store (${EMBED_DIMS}). Pick a model that outputs at most ${EMBED_DIMS} dimensions ` +
+            `or honours the "dimensions" parameter (the OpenAI text-embedding-3-* models do).`,
         );
       }
-      out.push(d.embedding);
+      out.push(padToStoreWidth(d.embedding));
     }
   }
   return out;
