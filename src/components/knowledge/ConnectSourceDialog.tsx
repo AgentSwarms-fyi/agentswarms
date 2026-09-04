@@ -28,7 +28,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, Cloud, FileText, Layers, Box } from "lucide-react";
+import { Loader2, Cloud, FileText, Layers, Box, Globe } from "lucide-react";
 
 export type ConnectorSourceRow = {
   id: string;
@@ -51,7 +51,7 @@ type Field = {
 };
 
 type ProviderDef = {
-  kind: "gdrive" | "notion" | "sharepoint" | "dropbox";
+  kind: "gdrive" | "notion" | "sharepoint" | "dropbox" | "web";
   name: string;
   icon: typeof Cloud;
   blurb: string;
@@ -62,6 +62,46 @@ type ProviderDef = {
 };
 
 const PROVIDERS: ProviderDef[] = [
+  {
+    kind: "web",
+    name: "Website",
+    icon: Globe,
+    blurb:
+      "Index a public site from its sitemap or by following its own links, and keep it in sync.",
+    credFields: [],
+    configFields: [
+      {
+        key: "start_urls",
+        label: "Start URL(s)",
+        list: true,
+        placeholder: "https://docs.example.com",
+        help: "Only pages on this site are followed. One per line.",
+      },
+      {
+        key: "sitemap_url",
+        label: "Sitemap URL",
+        optional: true,
+        placeholder: "https://docs.example.com/sitemap.xml",
+        help: "Left empty, /sitemap.xml is tried, then links are followed from the start URL.",
+      },
+      {
+        key: "path_prefixes",
+        label: "Only paths starting with",
+        list: true,
+        optional: true,
+        placeholder: "/docs",
+        help: "Optional. Keeps a crawl to one section of a large site.",
+      },
+      {
+        key: "max_pages",
+        label: "Max pages",
+        optional: true,
+        placeholder: "100",
+        help: "Up to 500. robots.txt is honoured; a JavaScript-only site yields little text.",
+      },
+    ],
+    acl: false,
+  },
   {
     kind: "gdrive",
     name: "Google Drive",
@@ -294,7 +334,14 @@ export function ConnectSourceDialog({
           label: label.trim() || provider.name,
           config: configOut,
           // Empty on edit = keep stored credentials.
-          credentials: Object.keys(credsOut).length > 0 ? credsOut : undefined,
+          // Empty on edit = keep stored credentials -- unless the provider has
+          // none to store, where undefined would read as "credentials required".
+          credentials:
+            provider.credFields.length === 0
+              ? {}
+              : Object.keys(credsOut).length > 0
+                ? credsOut
+                : undefined,
           sync_schedule: schedule,
           access_scope: scope,
         }),

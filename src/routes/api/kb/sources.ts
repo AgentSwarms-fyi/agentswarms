@@ -20,7 +20,7 @@ const UpsertBody = z.object({
   action: z.literal("upsert"),
   source_id: z.string().uuid().optional(),
   knowledge_base_id: z.string().uuid(),
-  kind: z.enum(["gdrive", "notion", "sharepoint", "dropbox"]),
+  kind: z.enum(["gdrive", "notion", "sharepoint", "dropbox", "web"]),
   label: z.string().min(1).max(200),
   config: z.record(z.string(), z.unknown()).default({}),
   /** Omitted on edit = keep the stored credentials. */
@@ -158,7 +158,9 @@ export const Route = createFileRoute("/api/kb/sources")({
           }
         }
         if (!creds) {
-          return Response.json({ error: "Credentials are required" }, { status: 400 });
+          // A website has nothing to paste; everything else does.
+          if (connector.credentialless) creds = {};
+          else return Response.json({ error: "Credentials are required" }, { status: 400 });
         }
 
         // Fail at save time, not at 3am on the first scheduled sync.

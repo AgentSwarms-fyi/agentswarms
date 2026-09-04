@@ -23,7 +23,7 @@ export const Route = createFileRoute("/docs/knowledge")({
       {
         name: "description",
         content:
-          "Ingest documents, pages, repositories and connected services (Google Drive, Notion, SharePoint, Dropbox); scheduled sync without re-indexing; chunking, embedding, retrieval and reranking; source-based access control; and how to debug a bad answer.",
+          "Ingest documents, pages, repositories and connected services (Google Drive, Notion, SharePoint, Dropbox, a public website); scheduled sync without re-indexing; chunking, embedding, retrieval and reranking; source-based access control; and how to debug a bad answer.",
       },
       { property: "og:title", content: "Knowledge Base — AgentSwarms Documentation" },
       {
@@ -99,9 +99,9 @@ function KnowledgePage() {
         file, so it is searchable on the same terms as everything else in the collection.
       </P>
 
-      <H3 id="s-connectors">Connected services — Drive, Notion, SharePoint, Dropbox</H3>
+      <H3 id="s-connectors">Connected services — Drive, Notion, SharePoint, Dropbox, Website</H3>
       <P>
-        <strong>Connect</strong> opens a wizard for four providers. Credentials are pasted tokens
+        <strong>Connect</strong> opens a wizard for five providers. Credentials are pasted tokens
         (the platform's BYOK pattern — no OAuth consent screens to register), validated against the
         provider at save time, <strong>encrypted at rest</strong>, and never sent back to the
         browser: editing a source shows empty credential fields, and leaving them empty keeps what
@@ -133,6 +133,12 @@ function KnowledgePage() {
             "Access token, or refresh token + app key/secret for unattended syncs",
             "A folder path (or everything); native content hashes make change detection exact",
             "Yes — file members, best-effort",
+          ],
+          [
+            "Website",
+            "None — a public site",
+            "Pages from the sitemap (lastmod is the change marker), else same-site links followed from the start URL; robots.txt honoured; up to 500 pages",
+            "No — public content",
           ],
         ]}
       />

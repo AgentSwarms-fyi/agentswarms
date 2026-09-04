@@ -117,13 +117,14 @@ type KbSource = {
   } | null;
 };
 
-type ConnectorKind = "gdrive" | "notion" | "sharepoint" | "dropbox";
-const CONNECTOR_KINDS = new Set<string>(["gdrive", "notion", "sharepoint", "dropbox"]);
+type ConnectorKind = "gdrive" | "notion" | "sharepoint" | "dropbox" | "web";
+const CONNECTOR_KINDS = new Set<string>(["gdrive", "notion", "sharepoint", "dropbox", "web"]);
 const CONNECTOR_LABELS: Record<ConnectorKind, string> = {
   gdrive: "Google Drive",
   notion: "Notion",
   sharepoint: "SharePoint",
   dropbox: "Dropbox",
+  web: "Website",
 };
 
 // Vector store providers. The built-in store uses pgvector (1536-dim
@@ -1855,11 +1856,14 @@ function KnowledgePage() {
                                     ? `${(cfg.page_ids?.length ?? 0) + (cfg.database_ids?.length ?? 0)} page/database id(s)`
                                     : src.kind === "sharepoint"
                                       ? cfg.folder_path || cfg.site_id || "Document library"
-                                      : src.kind === "dropbox"
-                                        ? cfg.path || "Entire Dropbox"
-                                        : src.kind === "pdf" || src.kind === "csv"
-                                          ? "Uploaded file"
-                                          : "Manual paste";
+                                      : src.kind === "web"
+                                        ? ((cfg as { start_urls?: string[] }).start_urls?.[0] ??
+                                          "Website")
+                                        : src.kind === "dropbox"
+                                          ? cfg.path || "Entire Dropbox"
+                                          : src.kind === "pdf" || src.kind === "csv"
+                                            ? "Uploaded file"
+                                            : "Manual paste";
                           const docCount = docs.filter((d) => d.source_id === src.id).length;
                           return (
                             <Card key={src.id} className="border-border/50">

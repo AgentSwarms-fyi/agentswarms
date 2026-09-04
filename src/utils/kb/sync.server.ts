@@ -95,14 +95,20 @@ export async function syncKbSource(
   const connector = KB_CONNECTORS[source.kind];
 
   const enc = source.credentials as { ciphertext?: string; iv?: string } | null;
+  let creds: Record<string, string> = {};
   if (!enc?.ciphertext || !enc?.iv) {
-    return fail("No stored credentials — edit this source and save them again.");
-  }
-  let creds: Record<string, string>;
-  try {
-    creds = await decryptJson<Record<string, string>>(enc.ciphertext, enc.iv);
-  } catch {
-    return fail("Stored credentials no longer decrypt — re-save this source.");
+    // A website needs nothing pasted. For every other connector an absent
+    // credential must stay a loud failure: treating it as {} would turn
+    // "credentials revoked" into "zero documents" and delete the lot.
+    if (!connector.credentialless) {
+      return fail("No stored credentials — edit this source and save them again.");
+    }
+  } else {
+    try {
+      creds = await decryptJson<Record<string, string>>(enc.ciphertext, enc.iv);
+    } catch {
+      return fail("Stored credentials no longer decrypt — re-save this source.");
+    }
   }
   const config = (source.config ?? {}) as Record<string, unknown>;
   const invalid = connector.validate(config, creds);

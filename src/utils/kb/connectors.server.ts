@@ -21,13 +21,28 @@
 // that quietly returns [] turns "credentials revoked" into "source is fine,
 // zero documents", which deletes every synced document as remotely-removed.
 
+import {
+  extractLinks,
+  looksLikePage,
+  normalizeUrl,
+  parseRobots,
+  parseSitemap,
+  robotsAllows,
+  sameSite,
+  validateWebConfig,
+  WEB_DEFAULT_MAX_PAGES,
+  WEB_MAX_PAGES,
+  withinPrefixes,
+  type WebConfig,
+} from "./webCrawl";
+
 const FETCH_TIMEOUT_MS = 30_000;
 /** Per-item text cap — protects the embedding pipeline from a 300MB log file. */
 export const MAX_ITEM_CHARS = 400_000;
 const MAX_FOLDER_DEPTH = 5;
 const MAX_ITEMS_PER_SOURCE = 500;
 
-export type ConnectorKind = "gdrive" | "notion" | "sharepoint" | "dropbox";
+export type ConnectorKind = "gdrive" | "notion" | "sharepoint" | "dropbox" | "web";
 
 export type RemoteItem = {
   /** Provider's stable id — the dedup key alongside source_id. */
@@ -58,6 +73,12 @@ export interface KbConnector {
   label: string;
   /** Whether fetchItem can ever return principals for this provider. */
   supportsAcl: boolean;
+  /**
+   * True for a source that needs nothing pasted (a public website). The save
+   * route and the sync engine relax their credential requirement for these
+   * ONLY; every other connector keeps failing loudly on missing credentials.
+   */
+  credentialless?: boolean;
   /** Human-readable problem with config/credentials, or null when usable. */
   validate(config: Record<string, unknown>, creds: Record<string, string>): string | null;
   listItems(config: Record<string, unknown>, creds: Record<string, string>): Promise<ListResult>;
@@ -773,11 +794,171 @@ const dropbox: KbConnector = {
 
 // ── registry ─────────────────────────────────────────────────────────────────
 
+// ── Web (crawl) ──────────────────────────────────────────────────────────────
+//
+// The platform could ingest ONE page (kind=url). It could not index a docs
+// site: a hundred pages discovered from a sitemap or by following same-site
+// links, re-checked on a schedule so a changed page is re-embedded and a
+// removed one dropped. That is the most common "connect my knowledge" request
+// there is, and it needs no credential -- which no connector allowed for.
+//
+// Two rules are load-bearing and live in webCrawl.ts where they are testable
+// without a network: never leave the site the user named, and obey robots.txt.
+// A crawler that ignores either is one a site eventually blocks at the
+// firewall, taking the whole platform's egress reputation with it.
+//
+// Every fetch goes through safeFetch, the same SSRF guard as url ingestion. A
+// public page that redirects to a link-local address is exactly the case that
+// guard exists for, and a crawl follows more links than any other feature.
+const WEB_FETCH_TIMEOUT_MS = 20_000;
+
+const WEB_USER_AGENT =
+  "Mozilla/5.0 (compatible; AgentSwarms/1.0; +https://github.com/AgentSwarms-fyi/agentswarms)";
+
+async function webGet(url: string): Promise<{ status: number; text: string; etag: string }> {
+  const { safeFetch } = await import("@/utils/ssrfGuard.server");
+  const res = await safeFetch(url, {
+    signal: AbortSignal.timeout(WEB_FETCH_TIMEOUT_MS),
+    headers: { "User-Agent": WEB_USER_AGENT, Accept: "text/html,application/xml;q=0.9,*/*;q=0.5" },
+  });
+  const type = (res.headers.get("content-type") || "").toLowerCase();
+  const etag = res.headers.get("etag") || res.headers.get("last-modified") || "";
+  if (!res.ok) return { status: res.status, text: "", etag };
+  if (!/text\/html|application\/xhtml|xml|text\/plain/.test(type)) {
+    return { status: 415, text: "", etag };
+  }
+  return { status: res.status, text: await res.text(), etag };
+}
+
+const web: KbConnector = {
+  kind: "web",
+  label: "Website",
+  supportsAcl: false,
+  credentialless: true,
+  validate(config) {
+    return validateWebConfig(config);
+  },
+  async listItems(config) {
+    const cfg = config as unknown as WebConfig;
+    const cap = Math.min(Number(cfg.max_pages) || WEB_DEFAULT_MAX_PAGES, WEB_MAX_PAGES);
+    const origin = normalizeUrl(cfg.start_urls[0])!;
+    const items: RemoteItem[] = [];
+    const skipped: SkippedItem[] = [];
+    const seen = new Set<string>();
+
+    // robots.txt first. A missing one allows everything; an unreadable one is
+    // treated the same way -- but a present one is obeyed.
+    let disallow: string[] = [];
+    try {
+      const r = await webGet(new URL("/robots.txt", origin).toString());
+      if (r.status === 200) disallow = parseRobots(r.text);
+    } catch {
+      /* no robots.txt is the common case */
+    }
+
+    const admit = (url: string, why: string): boolean => {
+      if (seen.has(url)) return false;
+      seen.add(url);
+      if (!sameSite(url, origin)) return false; // off-site links are normal, not skips
+      if (!looksLikePage(url)) return false;
+      if (!withinPrefixes(url, cfg.path_prefixes)) return false;
+      if (!robotsAllows(url, disallow)) {
+        skipped.push({ name: url, reason: `disallowed by robots.txt (${why})` });
+        return false;
+      }
+      return true;
+    };
+
+    // Sitemap: the cheap path. lastmod is the change marker, so an unchanged
+    // page costs one line of XML per sync rather than a download.
+    const sitemapUrl = cfg.sitemap_url
+      ? normalizeUrl(cfg.sitemap_url)
+      : new URL("/sitemap.xml", origin).toString();
+    const sitemapQueue = sitemapUrl ? [sitemapUrl] : [];
+    const fromSitemap = new Map<string, string | undefined>();
+    for (let i = 0; i < sitemapQueue.length && i < 20; i++) {
+      try {
+        const r = await webGet(sitemapQueue[i]);
+        if (r.status !== 200) continue;
+        const { pages, sitemaps } = parseSitemap(r.text);
+        for (const s of sitemaps) {
+          if (!sitemapQueue.includes(s) && sameSite(s, origin)) sitemapQueue.push(s);
+        }
+        for (const p of pages) if (!fromSitemap.has(p.url)) fromSitemap.set(p.url, p.lastmod);
+      } catch {
+        /* an explicit sitemap that fails is reported below; a guessed one is not */
+      }
+    }
+    if (cfg.sitemap_url && fromSitemap.size === 0) {
+      throw new Error(`Website: the sitemap at ${cfg.sitemap_url} returned no pages`);
+    }
+
+    for (const [url, lastmod] of fromSitemap) {
+      if (items.length >= cap) break;
+      if (!admit(url, "sitemap")) continue;
+      items.push({ externalId: url, name: url, version: lastmod || "sitemap:no-lastmod" });
+    }
+
+    // Crawl: breadth-first from the start URLs, same site only -- and only
+    // when the sitemap gave nothing. A site with a sitemap has told us its
+    // pages; crawling on top of it mostly finds navigation chrome.
+    if (fromSitemap.size === 0) {
+      const { createHash } = await import("node:crypto");
+      const queue = cfg.start_urls.map((u) => normalizeUrl(u)).filter((u): u is string => !!u);
+      for (let i = 0; i < queue.length && items.length < cap; i++) {
+        const url = queue[i];
+        if (!admit(url, "crawl")) continue;
+        let page: { status: number; text: string; etag: string };
+        try {
+          page = await webGet(url);
+        } catch (e) {
+          skipped.push({ name: url, reason: (e as Error).message.slice(0, 120) });
+          continue;
+        }
+        if (page.status !== 200) {
+          skipped.push({ name: url, reason: `HTTP ${page.status}` });
+          continue;
+        }
+        // The change marker is the server's own (ETag / Last-Modified) when it
+        // offers one, else a hash of the HTML. A marker that never changes
+        // hides every edit for ever; one that always changes re-embeds the
+        // whole site every sync.
+        const version =
+          page.etag || createHash("sha256").update(page.text).digest("hex").slice(0, 16);
+        items.push({ externalId: url, name: url, version, sizeBytes: page.text.length });
+        for (const link of extractLinks(page.text, url)) if (!seen.has(link)) queue.push(link);
+      }
+    }
+
+    if (items.length >= cap) {
+      skipped.push({ name: "(remaining pages)", reason: `capped at ${cap} pages per source` });
+    }
+    if (items.length === 0) {
+      // Loud, per the failure policy at the top of this file: an empty listing
+      // would delete every previously synced page as "removed from the site".
+      throw new Error(
+        "Website: no pages could be listed. Check the start URL is reachable, is not blocked by robots.txt, and is server-rendered (a JavaScript-only site has no links in its HTML).",
+      );
+    }
+    return { items, skipped };
+  },
+  async fetchItem(_config, _creds, item) {
+    const { nativeScrape } = await import("@/utils/nativeScrape.server");
+    const r = await nativeScrape(item.externalId, { maxChars: MAX_ITEM_CHARS });
+    const title = r.title ? `# ${r.title}\n\n` : "";
+    const note = r.thin
+      ? "\n\n_(This page returned very little text -- it may render its content with JavaScript.)_"
+      : "";
+    return { text: capText(`${title}${r.markdown}${note}`), aclPrincipals: null };
+  },
+};
+
 export const KB_CONNECTORS: Record<ConnectorKind, KbConnector> = {
   gdrive,
   notion,
   sharepoint,
   dropbox,
+  web,
 };
 
 export function isConnectorKind(kind: string): kind is ConnectorKind {

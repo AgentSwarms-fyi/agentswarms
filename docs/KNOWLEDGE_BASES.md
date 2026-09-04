@@ -5,7 +5,7 @@
 A knowledge base is a named collection of documents that agents search by
 meaning and quote with citations. Documents arrive four ways: file upload,
 web-page ingestion, GitHub repository ingestion, and **connected services** —
-Google Drive, Notion, SharePoint and Dropbox — which are synced on a schedule
+Google Drive, Notion, SharePoint, Dropbox and a public **website** — which are synced on a schedule
 and kept deduplicated. All four land in the same tables and the same
 retrieval pipeline: pgvector embeddings, optional Postgres full-text search
 fused alongside them, and a keyword scan that still covers any document not yet
@@ -17,12 +17,13 @@ guarantees, and where the security boundaries sit.
 
 ## Connected services
 
-| Provider     | Credentials                                                                                       | What syncs                                                                            | ACL mirroring                   |
-| ------------ | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- | ------------------------------- |
-| Google Drive | Access token, or refresh token + OAuth client id/secret for unattended syncs                      | A folder (subfolders to depth 5); Docs/Sheets/Slides exported as text/CSV; text files | Yes — per-file permissions      |
-| Notion       | Internal-integration secret (share the pages with the integration)                                | Listed page ids and every page of listed databases                                    | No — API exposes none           |
-| SharePoint   | Entra app registration: tenant id + client id + client secret (`Files.Read.All`, admin-consented) | A document library (or folder path); text-format files                                | Yes — per-item permissions      |
-| Dropbox      | Access token, or refresh token + app key/secret                                                   | A folder path or the whole Dropbox; native content hashes                             | Yes — file members, best-effort |
+| Provider     | Credentials                                                                                       | What syncs                                                                                                                                      | ACL mirroring                   |
+| ------------ | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| Google Drive | Access token, or refresh token + OAuth client id/secret for unattended syncs                      | A folder (subfolders to depth 5); Docs/Sheets/Slides exported as text/CSV; text files                                                           | Yes — per-file permissions      |
+| Notion       | Internal-integration secret (share the pages with the integration)                                | Listed page ids and every page of listed databases                                                                                              | No — API exposes none           |
+| SharePoint   | Entra app registration: tenant id + client id + client secret (`Files.Read.All`, admin-consented) | A document library (or folder path); text-format files                                                                                          | Yes — per-item permissions      |
+| Dropbox      | Access token, or refresh token + app key/secret                                                   | A folder path or the whole Dropbox; native content hashes                                                                                       | Yes — file members, best-effort |
+| Website      | None — a public site                                                                              | Pages from the sitemap (`lastmod` is the change marker), else same-site links followed from the start URL; robots.txt honoured; up to 500 pages | No — public content             |
 
 Credentials are **token-based by design** (the platform's BYOK pattern). No
 OAuth consent flow ships, because that requires operator-registered apps per
@@ -186,7 +187,7 @@ Native widths vary a lot, and the parameter is what makes them fit:
 | `qwen/qwen3-embedding-8b`       | 4096   | 1536                    |
 | `qwen/qwen3-embedding-4b`       | 2560   | 1536                    |
 
-A model that *ignores* the parameter returns its native width and fails at
+A model that _ignores_ the parameter returns its native width and fails at
 ingest — after the documents are saved, leaving the collection answering from
 keyword search alone. Since that cannot be predicted from a model id, don't:
 **RAG settings → Test embedding** calls the provider once and reports the width
