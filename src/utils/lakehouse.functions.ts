@@ -621,7 +621,8 @@ export const mountLakeSource = createServerFn({ method: "POST" })
           skipped++;
           continue;
         }
-        const glob = `s3://${cfg.bucket}/${[prefix, dir].filter(Boolean).join("/")}/*`;
+        const scheme = cfg.provider === "azure" ? "az" : "s3";
+        const glob = `${scheme}://${cfg.bucket}/${[prefix, dir].filter(Boolean).join("/")}/*`;
         try {
           await c.run(
             `CREATE OR REPLACE VIEW ${qi(data.name)}.${qi(view)} AS ` +

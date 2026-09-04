@@ -102,8 +102,8 @@ async function createEngine(cfg: LakehouseConfig): Promise<DuckDBInstance> {
   });
   const c = await instance.connect();
   try {
-    await c.run("INSTALL ducklake; INSTALL postgres; INSTALL httpfs;");
-    await c.run("LOAD ducklake; LOAD postgres; LOAD httpfs;");
+    await c.run("INSTALL ducklake; INSTALL postgres; INSTALL httpfs; INSTALL azure;");
+    await c.run("LOAD ducklake; LOAD postgres; LOAD httpfs; LOAD azure;");
     const s3parts = [
       "TYPE s3",
       `KEY_ID ${sq(cfg.s3.keyId)}`,
@@ -189,17 +189,30 @@ export async function ensureLakeSecrets(c: DuckDBConnection): Promise<void> {
         .maybeSingle();
       if (!src) continue;
       const cfg = await loadStorageConfig(mount.user_id, src);
-      const scope = `s3://${cfg.bucket}${cfg.prefix ? `/${cfg.prefix.replace(/^\/+|\/+$/g, "")}` : ""}`;
-      const parts = [
-        "TYPE s3",
-        `KEY_ID ${sq(cfg.access_key_id)}`,
-        `SECRET ${sq(cfg.secret_access_key)}`,
-        ...(cfg.endpoint ? [`ENDPOINT ${sq(cfg.endpoint.replace(/^https?:\/\//, ""))}`] : []),
-        ...(cfg.region ? [`REGION ${sq(cfg.region)}`] : []),
-        `URL_STYLE ${sq(cfg.path_style === false ? "vhost" : "path")}`,
-        `USE_SSL ${cfg.endpoint?.startsWith("http://") ? "false" : "true"}`,
-        `SCOPE ${sq(scope)}`,
-      ];
+      const cleanPrefix = cfg.prefix ? `/${cfg.prefix.replace(/^\/+|\/+$/g, "")}` : "";
+      // SCOPE confines the credential to its own container/bucket and prefix,
+      // whichever cloud it lives in. Azure mounts are read through the azure
+      // extension (az://); everything else through httpfs (s3://).
+      let parts: string[];
+      if (cfg.provider === "azure") {
+        const { azureConnectionString } = await import("@/utils/catalog/azureBlob.server");
+        parts = [
+          "TYPE azure",
+          `CONNECTION_STRING ${sq(azureConnectionString(cfg))}`,
+          `SCOPE ${sq(`az://${cfg.bucket}${cleanPrefix}`)}`,
+        ];
+      } else {
+        parts = [
+          "TYPE s3",
+          `KEY_ID ${sq(cfg.access_key_id)}`,
+          `SECRET ${sq(cfg.secret_access_key)}`,
+          ...(cfg.endpoint ? [`ENDPOINT ${sq(cfg.endpoint.replace(/^https?:\/\//, ""))}`] : []),
+          ...(cfg.region ? [`REGION ${sq(cfg.region)}`] : []),
+          `URL_STYLE ${sq(cfg.path_style === false ? "vhost" : "path")}`,
+          `USE_SSL ${cfg.endpoint?.startsWith("http://") ? "false" : "true"}`,
+          `SCOPE ${sq(`s3://${cfg.bucket}${cleanPrefix}`)}`,
+        ];
+      }
       await c.run(
         `CREATE OR REPLACE SECRET lake_mount_${mount.id.replace(/-/g, "")} (${parts.join(", ")});`,
       );

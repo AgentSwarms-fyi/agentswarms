@@ -209,7 +209,8 @@ the exact code the app runs, just with credentials only you hold.
 ## Cataloging a source
 
 The **Data Catalog** (`/data-sql`) can crawl a connected warehouse — or an
-S3-compatible bucket (AWS S3, GCS, Cloudflare R2, MinIO, Spaces, B2) or an
+S3-compatible bucket (AWS S3, GCS, Cloudflare R2, MinIO, Spaces, B2), an
+**Azure Blob Storage / ADLS Gen2** container (account key or SAS token), or an
 **Iceberg REST catalog** — to list every table/object, infer schemas by
 sampling, profile columns (null %, distinct counts, ranges), estimate row
 counts, flag likely-PII columns, and trace which dashboards/prep flows/metrics

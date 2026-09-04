@@ -145,8 +145,16 @@ describe("data-lake mounts", () => {
   it("each mount's credential is SCOPED to its own bucket and prefix", () => {
     const core = read("src/utils/lakehouse/core.server.ts");
     const fn = core.slice(core.indexOf("export async function ensureLakeSecrets"));
-    expect(fn).toContain("SCOPE ${sq(scope)}");
+    // Two credential types now (S3-family and Azure), and BOTH must carry a
+    // SCOPE built from the container/bucket and the prefix -- a secret without
+    // one would let a mount read a sibling mount's files under the same cloud.
+    expect(fn).toContain("SCOPE ${sq(`az://${cfg.bucket}${cleanPrefix}`)}");
+    expect(fn).toContain("SCOPE ${sq(`s3://${cfg.bucket}${cleanPrefix}`)}");
     expect(fn).toContain("cfg.prefix");
+    // Every CREATE SECRET path scopes: no branch may build `parts` without it.
+    const branches = fn.split("parts = [").slice(1);
+    expect(branches.length).toBeGreaterThanOrEqual(2);
+    for (const b of branches) expect(b.slice(0, 600)).toContain("SCOPE ${sq(");
     // One secret per mount, named by its id — never one shared credential.
     expect(fn).toContain('lake_mount_${mount.id.replace(/-/g, "")}');
   });

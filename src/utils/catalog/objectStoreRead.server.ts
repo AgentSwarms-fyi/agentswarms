@@ -20,6 +20,7 @@
 // and runs the user's query against them in the SANDBOXED engine. The cost is
 // no predicate push-down into Parquet; the same bounded-materialisation shape
 // the warehouse and prep paths already use.
+import { azureConnectionString } from "./azureBlob.server";
 import type { ObjectStoreConfig } from "./objectStore.server";
 import { toJsValue } from "@/lib/duckdbValues";
 import { isBlockedAlways, isPrivateNetwork } from "@/utils/ssrfGuard.server";
@@ -149,6 +150,17 @@ async function configure(
   cfg: ObjectStoreConfig,
 ): Promise<void> {
   assertEndpointAllowed(cfg.endpoint);
+  if (cfg.provider === "azure") {
+    // Azure is read through DuckDB's azure extension, not httpfs. The secret
+    // is per connection for the same reason the s3_* settings below are: two
+    // sources with different credentials are read concurrently in one process.
+    await conn.run("INSTALL azure");
+    await conn.run("LOAD azure");
+    await conn.run(
+      `CREATE OR REPLACE SECRET azure_read (TYPE azure, CONNECTION_STRING ${lit(azureConnectionString(cfg))})`,
+    );
+    return;
+  }
   await conn.run("INSTALL httpfs");
   await conn.run("LOAD httpfs");
   await conn.run(`SET s3_region=${lit(cfg.region || "us-east-1")}`);
@@ -168,7 +180,9 @@ async function configure(
 
 /** `s3://bucket/key` — the only shape composed from a key. */
 function objectUrl(cfg: ObjectStoreConfig, key: string): string {
-  return `s3://${cfg.bucket}/${key}`;
+  // The one place a URL is composed from a key. `az://` is what the azure
+  // extension resolves; for Azure `bucket` holds the container name.
+  return `${cfg.provider === "azure" ? "az" : "s3"}://${cfg.bucket}/${key}`;
 }
 
 async function withConnection<T>(

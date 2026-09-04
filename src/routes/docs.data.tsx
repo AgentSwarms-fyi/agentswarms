@@ -502,11 +502,12 @@ function DataPage() {
 
       <H3 id="c-other">Object stores and lakehouse catalogs</H3>
       <P>
-        S3, Cloudflare R2, MinIO, DigitalOcean Spaces, Backblaze B2, GCS over its S3 API and any
-        other S3-compatible endpoint are added as <strong>catalog sources</strong> through{" "}
-        <strong>Data Catalog → Add source</strong>. A crawl lists the bucket, groups a folder of
-        same-format files into one dataset, and records each file&rsquo;s columns. Iceberg REST and
-        Unity Catalog are connected for metadata only.
+        S3, Cloudflare R2, MinIO, DigitalOcean Spaces, Backblaze B2, GCS over its S3 API, any other
+        S3-compatible endpoint, and Azure Blob Storage / ADLS Gen2 (account key or SAS token) are
+        added as <strong>catalog sources</strong> through <strong>Data Catalog → Add source</strong>
+        . A crawl lists the bucket, groups a folder of same-format files into one dataset, and
+        records each file&rsquo;s columns. Iceberg REST and Unity Catalog are connected for metadata
+        only.
       </P>
       <P>
         <strong>Parquet, CSV, JSON, NDJSON and ORC files are queryable.</strong> Press{" "}
