@@ -3697,6 +3697,7 @@ export type Database = {
           horizon: number | null;
           id: string;
           name: string;
+          prep: Json;
           production_version_id: string | null;
           source: Json;
           target_column: string;
@@ -3713,6 +3714,7 @@ export type Database = {
           horizon?: number | null;
           id?: string;
           name: string;
+          prep?: Json;
           production_version_id?: string | null;
           source: Json;
           target_column: string;
@@ -3729,6 +3731,7 @@ export type Database = {
           horizon?: number | null;
           id?: string;
           name?: string;
+          prep?: Json;
           production_version_id?: string | null;
           source?: Json;
           target_column?: string;
@@ -3741,6 +3744,84 @@ export type Database = {
           {
             foreignKeyName: "ml_models_production_version_fk";
             columns: ["production_version_id"];
+            isOneToOne: false;
+            referencedRelation: "ml_model_versions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      ml_predictions: {
+        Row: {
+          created_at: string;
+          decision_id: string | null;
+          error: string | null;
+          finished_at: string | null;
+          id: string;
+          input: Json;
+          kind: string;
+          logs: string | null;
+          model_id: string;
+          output: Json | null;
+          result: Json | null;
+          row_count: number | null;
+          session_id: string | null;
+          started_at: string | null;
+          status: string;
+          user_id: string;
+          version_id: string;
+          via: string;
+        };
+        Insert: {
+          created_at?: string;
+          decision_id?: string | null;
+          error?: string | null;
+          finished_at?: string | null;
+          id?: string;
+          input: Json;
+          kind?: string;
+          logs?: string | null;
+          model_id: string;
+          output?: Json | null;
+          result?: Json | null;
+          row_count?: number | null;
+          session_id?: string | null;
+          started_at?: string | null;
+          status?: string;
+          user_id: string;
+          version_id: string;
+          via?: string;
+        };
+        Update: {
+          created_at?: string;
+          decision_id?: string | null;
+          error?: string | null;
+          finished_at?: string | null;
+          id?: string;
+          input?: Json;
+          kind?: string;
+          logs?: string | null;
+          model_id?: string;
+          output?: Json | null;
+          result?: Json | null;
+          row_count?: number | null;
+          session_id?: string | null;
+          started_at?: string | null;
+          status?: string;
+          user_id?: string;
+          version_id?: string;
+          via?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "ml_predictions_model_id_fkey";
+            columns: ["model_id"];
+            isOneToOne: false;
+            referencedRelation: "ml_models";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "ml_predictions_version_id_fkey";
+            columns: ["version_id"];
             isOneToOne: false;
             referencedRelation: "ml_model_versions";
             referencedColumns: ["id"];

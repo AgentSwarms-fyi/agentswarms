@@ -55,9 +55,15 @@ export const Route = createFileRoute("/api/notebook/runtime/result")({
           }
           const mlStash = (await import("@/utils/ml/types")).mlJobStashOf(session?.inputs);
           if (mlStash && typeof body.logs === "string") {
-            await import("@/utils/ml/train.server")
-              .then((m) => m.appendMlPartialLogs(mlStash.job_id, body.logs as string))
-              .catch(() => {});
+            await (
+              mlStash.kind === "predict"
+                ? import("@/utils/ml/predict.server").then((m) =>
+                    m.appendPredictionLogs(mlStash.job_id, body.logs as string),
+                  )
+                : import("@/utils/ml/train.server").then((m) =>
+                    m.appendMlPartialLogs(mlStash.job_id, body.logs as string),
+                  )
+            ).catch(() => {});
           }
           return json(200, { ok: true });
         }
@@ -101,16 +107,21 @@ export const Route = createFileRoute("/api/notebook/runtime/result")({
         // structured log line all come from this one callback.
         const mlStash = (await import("@/utils/ml/types")).mlJobStashOf(updated?.inputs);
         if (mlStash) {
-          await import("@/utils/ml/train.server")
-            .then((m) =>
-              m.finalizeMlJob(mlStash.job_id, {
-                status: body.status ?? "succeeded",
-                result: body.result,
-                logs: typeof body.logs === "string" ? body.logs : "",
-                error: typeof body.error === "string" ? body.error : null,
-              }),
-            )
-            .catch((e) => console.warn("[ml] finalize failed:", (e as Error).message));
+          const outcome = {
+            status: body.status ?? "succeeded",
+            result: body.result,
+            logs: typeof body.logs === "string" ? body.logs : "",
+            error: typeof body.error === "string" ? body.error : null,
+          };
+          await (
+            mlStash.kind === "predict"
+              ? import("@/utils/ml/predict.server").then((m) =>
+                  m.finalizePrediction(mlStash.job_id, outcome),
+                )
+              : import("@/utils/ml/train.server").then((m) =>
+                  m.finalizeMlJob(mlStash.job_id, outcome),
+                )
+          ).catch((e) => console.warn("[ml] finalize failed:", (e as Error).message));
         }
         return json(200, { ok: true });
       },

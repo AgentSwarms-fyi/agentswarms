@@ -140,6 +140,9 @@ export async function mlBundleFor(
     max_rows: cfg.max_rows ?? 0,
     time_budget_minutes: cfg.time_budget_minutes ?? 30,
     validation_fraction: cfg.validation_fraction ?? 0.2,
+    tuning: cfg.tuning ?? "none",
+    prep: cfg.prep ?? (b.model as { prep?: unknown }).prep ?? {},
+    mode: "train",
   };
   // The configuration is a base64 literal, not interpolated code: a column
   // named `'); import os` is a column name and nothing else.
@@ -162,7 +165,9 @@ export async function mlEnvFor(
   if (!b) return { error: "Training job not found for this session" };
   try {
     const { env } = await mlTrainingEnv(b.model, b.version.version);
-    return { env, requirements: ML_REQUIREMENTS };
+    // The program checks its imports and installs the stack only if the image
+    // lacks it; sending the list here would cost a pip round-trip every job.
+    return { env, requirements: [] };
   } catch (e) {
     return { error: (e as Error).message };
   }

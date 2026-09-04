@@ -111,7 +111,8 @@ export type SwarmToolId =
   | "datetime"
   | "weather"
   | "sql_query"
-  | "metric_query";
+  | "metric_query"
+  | "ml_predict";
 
 // Per-node tool configuration. Mirrors the server's ToolConfigs shape.
 export type SwarmToolConfigs = {

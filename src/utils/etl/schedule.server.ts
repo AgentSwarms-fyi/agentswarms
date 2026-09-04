@@ -109,6 +109,8 @@ export async function processDueEtlPipelines(force = false): Promise<number> {
   // Training jobs share the sandbox and the failure modes; sweep them too.
   await import("@/utils/ml/train.server")
     .then((m) => m.reconcileOrphanedMlJobs())
+    .then(() => import("@/utils/ml/predict.server"))
+    .then((m) => m.reconcileOrphanedPredictions())
     .catch((e) => console.warn("[ml] orphan sweep failed:", (e as Error).message));
 
   return started;

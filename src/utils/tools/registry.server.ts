@@ -1320,6 +1320,7 @@ export type ResolvedTools = {
     weather: boolean;
     sql: boolean;
     notify: boolean;
+    ml: boolean;
   };
   /**
    * Source-routing guidance built from what is ACTUALLY enabled, appended to
@@ -1347,6 +1348,7 @@ export const TOOLABLE_IDS = [
   "weather",
   "sql_query",
   "metric_query",
+  "ml_predict",
   "memory_remember",
   "memory_recall",
   "memory_forget",
@@ -1442,6 +1444,7 @@ export async function resolveAgentTools(
     weather: false,
     sql: false,
     notify: false,
+    ml: false,
   };
 
   const allow = overrides?.enabledTools;
@@ -1705,6 +1708,190 @@ export async function resolveAgentTools(
     }
   }
 
+  // ML models — score rows with a trained version from the registry. Offered
+  // only when the caller can use at least one model with a production
+  // version, so the LLM never sees a tool that has nothing to predict with.
+  // On headless runs the caller is scopeUserId; grants are re-derived there.
+  if (allows("ml_predict")) {
+    const mlOwner = ctx.scopeUserId ?? ctx.userId;
+    const { listModelsForUser } = await import("@/utils/ml/access.server");
+    const mlModels = (await listModelsForUser(mlOwner).catch(() => [])).filter(
+      (m) => m.production_version_id,
+    );
+    if (mlModels.length > 0) {
+      enabled.ml = true;
+      const mlList = mlModels.map((m) => `"${m.name}" (${m.task} → ${m.target_column})`).join(", ");
+      tools.push(
+        {
+          type: "function",
+          function: {
+            name: "ml_list_models",
+            description:
+              `List the trained ML models available to predict with, with their task, target, ` +
+              `feature columns (and the categories each accepts) and headline metric. ` +
+              `Call this before ml_predict. Models: ${mlList}.`,
+            parameters: { type: "object", properties: {} },
+          },
+        },
+        {
+          type: "function",
+          function: {
+            name: "ml_predict",
+            description:
+              `Score rows with a trained ML model from the registry (its production version). ` +
+              `Pass real feature values from ml_list_models — never guessed ones. Returns a ` +
+              `prediction per row (and class probabilities for classifiers); forecast models ` +
+              `return their projected periods. Models: ${mlList}.`,
+            parameters: {
+              type: "object",
+              properties: {
+                model: { type: "string", description: "Model name (exact) from ml_list_models" },
+                rows: {
+                  type: "array",
+                  description: "Rows to score: objects keyed by feature column name (max 50)",
+                  items: { type: "object" },
+                },
+              },
+              required: ["model"],
+            },
+          },
+        },
+      );
+      handlers.set("ml_list_models", async (c) => {
+        try {
+          const { listModelsForUser } = await import("@/utils/ml/access.server");
+          const models = (await listModelsForUser(c.scopeUserId ?? c.userId)).filter(
+            (m) => m.production_version_id,
+          );
+          const ids = models.map((m) => m.production_version_id as string);
+          const { data: versions } = await c.sb
+            .from("ml_model_versions")
+            .select("id, version, algorithm, metrics, feature_schema")
+            .in("id", ids);
+          const byId = new Map((versions ?? []).map((v) => [v.id, v]));
+          return JSON.stringify({
+            models: models.map((m) => {
+              const v = byId.get(m.production_version_id as string);
+              const schema = (v?.feature_schema ?? []) as {
+                name: string;
+                dtype: string;
+                role: string;
+                categories?: string[];
+              }[];
+              return {
+                name: m.name,
+                task: m.task,
+                target: m.target_column,
+                version: v?.version ?? null,
+                algorithm: v?.algorithm ?? null,
+                metrics: v?.metrics ?? null,
+                features: schema
+                  .filter((e) => e.role === "feature")
+                  .map((e) => ({
+                    name: e.name,
+                    type: e.dtype,
+                    categories: e.categories?.slice(0, 20),
+                  })),
+              };
+            }),
+          });
+        } catch (e) {
+          return JSON.stringify({ error: e instanceof Error ? e.message : "Failed" });
+        }
+      });
+      handlers.set("ml_predict", async (c, a) => {
+        try {
+          const owner = c.scopeUserId ?? c.userId;
+          const { listModelsForUser } = await import("@/utils/ml/access.server");
+          const models = await listModelsForUser(owner);
+          const name = String(a.model ?? "").trim();
+          const model =
+            models.find((m) => m.name === name) ??
+            models.find((m) => m.name.toLowerCase() === name.toLowerCase());
+          if (!model)
+            return JSON.stringify({ error: `No model named "${name}". Call ml_list_models.` });
+          if (!model.production_version_id)
+            return JSON.stringify({ error: `"${model.name}" has no production version yet.` });
+          const { data: version } = await c.sb
+            .from("ml_model_versions")
+            .select("*")
+            .eq("id", model.production_version_id)
+            .maybeSingle();
+          if (!version) return JSON.stringify({ error: "Production version not found" });
+          if (model.task === "forecast") {
+            const f = version.forecast as { points?: unknown[] } | null;
+            auditEvent({
+              userId: c.userId,
+              action: "ml.predict_query",
+              resourceType: "ml_model",
+              resourceId: model.id,
+              resourceName: model.name,
+              decisionId: c.decisionId,
+              detail: {
+                via: "agent_tool",
+                agent_id: c.agentId ?? null,
+                kind: "forecast",
+                version: version.version,
+                row_count: f?.points?.length ?? 0,
+                result_digest: resultDigest(
+                  ["period", "yhat", "lo", "hi"],
+                  (
+                    (f?.points ?? []) as { period: string; yhat: number; lo: number; hi: number }[]
+                  ).map((p) => [p.period, p.yhat, p.lo, p.hi]) as never[],
+                ),
+              },
+            });
+            return JSON.stringify({
+              model: model.name,
+              version: version.version,
+              task: "forecast",
+              forecast: f?.points ?? [],
+            });
+          }
+          const rows = Array.isArray(a.rows)
+            ? (a.rows as Record<string, unknown>[]).slice(0, 50)
+            : [];
+          if (!rows.length)
+            return JSON.stringify({
+              error: "Pass rows to score (objects keyed by feature column).",
+            });
+          const { predictRowsSync } = await import("@/utils/ml/predict.server");
+          const r = await predictRowsSync({
+            model,
+            version,
+            userId: c.userId,
+            rows,
+            via: "agent_tool",
+            decisionId: c.decisionId ?? null,
+            waitMs: 120_000,
+          });
+          if (!r.ok)
+            return JSON.stringify({ error: r.error, prediction_id: r.predictionId ?? null });
+          const keep = [
+            "prediction",
+            "probability",
+            ...r.columns.filter((col) => col.startsWith("proba_")),
+          ];
+          const idx = r.columns
+            .map((col, i) => [col, i] as const)
+            .filter(([col]) => keep.includes(col));
+          return JSON.stringify({
+            model: model.name,
+            version: version.version,
+            algorithm: r.algorithm,
+            predictions: r.rows.map((row) =>
+              Object.fromEntries(idx.map(([col, i]) => [col, row[i]])),
+            ),
+            row_count: r.rows.length,
+            warnings: r.warnings,
+          });
+        } catch (e) {
+          return JSON.stringify({ error: e instanceof Error ? e.message : "Prediction failed" });
+        }
+      });
+    }
+  }
+
   // External warehouse tools — same toggle as sql_query, available when the
   // user has connected at least one warehouse under /integrations. Queries
   // run server-side against the vendor API with decrypted credentials; the
@@ -1872,6 +2059,12 @@ function buildRoutingGuidance(enabled: ResolvedTools["enabled"], tools: ToolDef[
     lines.push(
       "- metric_query answers governed business-metric questions from the semantic catalog — prefer " +
         "it over raw SQL when a listed metric matches.",
+    );
+  }
+  if (has("ml_predict")) {
+    lines.push(
+      "- ml_predict scores rows with a trained model from the registry; call ml_list_models first " +
+        "for each model's feature columns and accepted categories, and pass real values, never guessed ones.",
     );
   }
   if (has("list_warehouse_tables")) {

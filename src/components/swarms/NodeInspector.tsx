@@ -264,6 +264,12 @@ const TOOL_CATALOG: { id: SwarmToolId; label: string; desc: string; icon: typeof
     icon: Database,
   },
   {
+    id: "ml_predict",
+    label: "ML Predictions",
+    desc: "Score rows with trained models from the ML registry (own and shared); forecasts return their projected periods.",
+    icon: Brain,
+  },
+  {
     id: "calculator",
     label: "Calculator",
     desc: "Safe math expression evaluator. No key needed.",

@@ -113,6 +113,11 @@ function ConceptsPage() {
             "The number has an agreed definition you must not re-derive",
           ],
           [
+            <C key="c">ml_predict</C>,
+            "Predictions from trained models in the ML registry (own and shared)",
+            "A trained model should answer, not a guess; call ml_list_models first for its feature columns",
+          ],
+          [
             <C key="d">web_search</C>,
             "Live search via Firecrawl, Brave, Tavily or SerpAPI",
             "The answer is outside your data and changes over time",

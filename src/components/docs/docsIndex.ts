@@ -629,6 +629,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "kb_search",
       "mcp_call_tool",
       "metric_query",
+      "ml_predict",
       "n8n_run_workflow",
       "sql_query",
       "weather",

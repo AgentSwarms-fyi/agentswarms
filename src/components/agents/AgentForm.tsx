@@ -128,6 +128,15 @@ const BUILT_IN_TOOLS: BuiltInTool[] = [
     category: "data",
     requiresConfig: true,
   },
+  {
+    id: "ml_predict",
+    name: "ML Predictions",
+    description:
+      "Score rows with trained models from ML Models — yours and those shared with you. The agent lists models, their feature columns and categories, then predicts; every prediction is audited with a digest.",
+    icon: Brain,
+    category: "data",
+    requiresConfig: true,
+  },
 
   // Utilities — keyless, real implementations.
   {

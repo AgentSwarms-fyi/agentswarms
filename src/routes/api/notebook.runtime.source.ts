@@ -160,11 +160,23 @@ async function handle(request: Request): Promise<Response> {
       } catch {
         /* empty body = default part */
       }
-      const train = await import("@/utils/ml/train.server");
-      const out =
-        part === "etl_env"
-          ? await train.mlEnvFor(stash, claims.sub)
-          : await train.mlBundleFor(stash, claims.sub);
+      let out:
+        | { code: string }
+        | { env: Record<string, string>; requirements: string[] }
+        | { error: string };
+      if (stash.kind === "predict") {
+        const m = await import("@/utils/ml/predict.server");
+        out =
+          part === "etl_env"
+            ? await m.mlPredictEnvFor(stash, claims.sub)
+            : await m.mlPredictBundleFor(stash, claims.sub, session?.inputs);
+      } else {
+        const m = await import("@/utils/ml/train.server");
+        out =
+          part === "etl_env"
+            ? await m.mlEnvFor(stash, claims.sub)
+            : await m.mlBundleFor(stash, claims.sub);
+      }
       return "error" in out ? json(404, out) : json(200, out);
     }
   }

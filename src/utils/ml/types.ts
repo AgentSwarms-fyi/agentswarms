@@ -23,12 +23,41 @@ export const ML_JOB_STATUSES = ["queued", "running", "succeeded", "failed", "can
 export type MlJobStatus = (typeof ML_JOB_STATUSES)[number];
 export const ML_JOB_LIVE: readonly MlJobStatus[] = ["queued", "running"];
 
+export const ML_TUNINGS = ["none", "quick", "thorough"] as const;
+export type MlTuning = (typeof ML_TUNINGS)[number];
+export const ML_TUNING_LABEL: Record<MlTuning, string> = {
+  none: "No tuning",
+  quick: "Quick search",
+  thorough: "Thorough search",
+};
+
+/**
+ * Data preparation, declared rather than scripted, so the version can state
+ * what its training set was. `sql` replaces the table (any single SELECT the
+ * owner may run); `where` filters it. Everything else shapes the pipeline.
+ */
+export type MlPrepConfig = {
+  where?: string;
+  sql?: string;
+  impute?: {
+    numeric?: "median" | "mean" | "constant";
+    categorical?: "most_frequent" | "constant";
+  };
+  scale?: boolean;
+  encoding?: "onehot" | "ordinal";
+  class_weight?: "none" | "balanced";
+  target_clip?: [number, number] | null;
+  drop_columns?: string[];
+};
+
 /** Per-run knobs, pinned on the version so a retrain can reproduce them. */
 export type MlTrainConfig = {
   time_budget_minutes: number;
   max_rows: number;
   /** Classification/regression holdout share; forecasting holds out `horizon`. */
   validation_fraction: number;
+  tuning: MlTuning;
+  prep: MlPrepConfig;
 };
 
 /** One row of the leaderboard the trainer returns. */
@@ -95,18 +124,22 @@ export type MlTrainResult = {
     aggregation: string;
     last_period: string;
   };
+  tuning?: { mode: string; trials: number; best_params?: Record<string, unknown> };
 };
 
 /** The key a training session carries in its runtime session inputs. */
 export const ML_JOB_KEY = "__ml_job";
-export type MlJobStash = { job_id: string };
+export type MlJobStash = { job_id: string; kind: "train" | "predict" };
 
 /** Pull the job id out of a session's inputs, or null for any other session. */
 export function mlJobStashOf(inputs: unknown): MlJobStash | null {
   const raw = (inputs as { [ML_JOB_KEY]?: unknown } | null)?.[ML_JOB_KEY];
   if (!raw || typeof raw !== "object") return null;
-  const j = (raw as { job_id?: unknown }).job_id;
-  return typeof j === "string" && j.length > 0 ? { job_id: j } : null;
+  const j = (raw as { job_id?: unknown; kind?: unknown }).job_id;
+  const k = (raw as { kind?: unknown }).kind;
+  return typeof j === "string" && j.length > 0
+    ? { job_id: j, kind: k === "predict" ? "predict" : "train" }
+    : null;
 }
 
 /** Human label for a metric key, shared by the UI and documentation. */
@@ -141,3 +174,17 @@ export const ML_PRIMARY_METRIC: Record<MlTask, string> = {
   regression: "rmse",
   forecast: "rmse",
 };
+
+// ── Predictions ──────────────────────────────────────────────────────────────
+// Declared here, away from the files that start sandbox sessions, so the
+// session-kind constraint test never mistakes these kinds for session kinds.
+
+/** A scored cell as it travels back through JSON — what a server function may return. */
+export type MlCell = string | number | boolean | null;
+
+export type MlPredictInput =
+  | { kind: "lakehouse"; schema: string; table: string; where?: string }
+  | { kind: "rows"; rows: Record<string, unknown>[] };
+export type MlPredictOutput = { schema: string; table: string } | null;
+/** 'batch' scores a table into a table; 'rows' scores a payload and returns it. */
+export type MlPredictionKind = "batch" | "rows";

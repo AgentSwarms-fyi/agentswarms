@@ -49,6 +49,9 @@ import type { MlJobRow, MlVersionRow } from "@/utils/ml/access.server";
 import {
   ML_JOB_LIVE,
   ML_PRIMARY_METRIC,
+  ML_TUNINGS,
+  ML_TUNING_LABEL,
+  type MlTuning,
   type MlFeatureImportance,
   type MlFeatureSchemaEntry,
   type MlForecastPoint,
@@ -70,6 +73,7 @@ import {
   metricTone,
   relTime,
 } from "@/components/ml/mlUi";
+import { PredictionsPanel } from "@/components/ml/PredictionsPanel";
 
 // React 19's stricter JSX typing rejects recharts' class components — cast via any.
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -110,6 +114,7 @@ function ModelPage() {
   const [trainOpen, setTrainOpen] = useState(false);
   const [budget, setBudget] = useState<number | "">("");
   const [maxRows, setMaxRows] = useState<number | "">("");
+  const [tuning, setTuning] = useState<MlTuning>("none");
   const [busy, setBusy] = useState(false);
   const [logsFor, setLogsFor] = useState<MlJobRow | null>(null);
 
@@ -147,6 +152,7 @@ function ModelPage() {
           model_id: modelId,
           time_budget_minutes: budget === "" ? undefined : Number(budget),
           max_rows: maxRows === "" ? undefined : Number(maxRows),
+          tuning,
         },
       });
       if (!r.ok) toast.error(r.error);
@@ -326,6 +332,7 @@ function ModelPage() {
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="versions">Versions ({versions.length})</TabsTrigger>
+          <TabsTrigger value="predictions">Predictions</TabsTrigger>
           <TabsTrigger value="jobs">Jobs ({jobs.length})</TabsTrigger>
         </TabsList>
 
@@ -422,6 +429,10 @@ function ModelPage() {
               </tbody>
             </table>
           </div>
+        </TabsContent>
+
+        <TabsContent value="predictions" className="mt-4">
+          <PredictionsPanel token={token} model={model} versions={versions} shared={shared} />
         </TabsContent>
 
         <TabsContent value="jobs" className="mt-4">
@@ -521,6 +532,24 @@ function ModelPage() {
                 value={maxRows}
                 onChange={(e) => setMaxRows(e.target.value === "" ? "" : Number(e.target.value))}
               />
+            </div>
+            <div className="space-y-1 sm:col-span-2">
+              <Label className="text-xs">Hyperparameter tuning</Label>
+              <select
+                className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                value={tuning}
+                onChange={(e) => setTuning(e.target.value as MlTuning)}
+              >
+                {ML_TUNINGS.map((t) => (
+                  <option key={t} value={t}>
+                    {ML_TUNING_LABEL[t]}
+                  </option>
+                ))}
+              </select>
+              <p className="text-[11px] text-muted-foreground">
+                Uses the model&apos;s saved data preparation. Tuning searches the two best
+                candidates while at least 40% of the budget remains.
+              </p>
             </div>
           </div>
           <DialogFooter>

@@ -19,12 +19,20 @@ import {
   mlListModels,
   mlListSources,
   mlProfileSource,
+  mlValidatePrep,
   type MlColumnProfile,
   type MlLimits,
   type MlSourceTable,
 } from "@/utils/ml.functions";
-import { ML_TASK_LABEL, type MlTask } from "@/utils/ml/types";
+import {
+  ML_TASK_LABEL,
+  ML_TUNING_LABEL,
+  type MlPrepConfig,
+  type MlTask,
+  type MlTuning,
+} from "@/utils/ml/types";
 import { TaskBadge, fmtInt } from "@/components/ml/mlUi";
+import { PrepOptions } from "@/components/ml/PrepOptions";
 
 export const Route = createFileRoute("/_authenticated/ml_/new")({
   component: TrainWizard,
@@ -53,6 +61,7 @@ function TrainWizard() {
   const profileFn = useServerFn(mlProfileSource);
   const createFn = useServerFn(mlCreateModel);
   const listFn = useServerFn(mlListModels);
+  const validatePrepFn = useServerFn(mlValidatePrep);
 
   const [step, setStep] = useState(0);
   const [sources, setSources] = useState<MlSourceTable[] | null>(null);
@@ -75,6 +84,8 @@ function TrainWizard() {
   const [budget, setBudget] = useState<number | "">("");
   const [maxRows, setMaxRows] = useState<number | "">("");
   const [submitting, setSubmitting] = useState(false);
+  const [prep, setPrep] = useState<MlPrepConfig>({});
+  const [tuning, setTuning] = useState<MlTuning>("none");
 
   useEffect(() => {
     if (!token) return;
@@ -181,6 +192,8 @@ function TrainWizard() {
                 : undefined,
           time_budget_minutes: budget === "" ? undefined : Number(budget),
           max_rows: maxRows === "" ? undefined : Number(maxRows),
+          prep: Object.keys(prep).length ? prep : undefined,
+          tuning,
         },
       });
       if (!r.ok) {
@@ -516,6 +529,30 @@ function TrainWizard() {
                     </div>
                   </div>
                 ) : null}
+                <PrepOptions
+                  task={task}
+                  value={prep}
+                  onChange={setPrep}
+                  tuning={tuning}
+                  onTuningChange={setTuning}
+                  onCheck={
+                    table && target
+                      ? (p) =>
+                          validatePrepFn({
+                            data: {
+                              access_token: token,
+                              source: {
+                                kind: "lakehouse",
+                                schema: table.schema,
+                                table: table.table,
+                              },
+                              target_column: target,
+                              prep: p,
+                            },
+                          })
+                      : undefined
+                  }
+                />
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="space-y-1">
                     <Label className="text-xs">Time budget (minutes)</Label>
@@ -570,6 +607,17 @@ function TrainWizard() {
                     <Row k="Features" v={`${features.size} columns`} />
                   )}
                   <Row k="Rows" v={profile ? fmtInt(profile.row_count) : ""} />
+                  <Row
+                    k="Preparation"
+                    v={
+                      prep.sql
+                        ? "custom SELECT"
+                        : prep.where
+                          ? `where ${prep.where}`
+                          : "whole table"
+                    }
+                  />
+                  {task !== "forecast" ? <Row k="Tuning" v={ML_TUNING_LABEL[tuning]} /> : null}
                   <Row
                     k="Time budget"
                     v={`${budget === "" ? (limits?.train_time_budget_minutes ?? "default") : budget} min`}

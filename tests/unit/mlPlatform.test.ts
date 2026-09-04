@@ -19,7 +19,10 @@ const MIGRATION = "supabase/migrations/20260854000000_ml_platform.sql";
 
 describe("job stash", () => {
   it("recognises a training session and nothing else", () => {
-    expect(mlJobStashOf({ [ML_JOB_KEY]: { job_id: "abc" } })).toEqual({ job_id: "abc" });
+    expect(mlJobStashOf({ [ML_JOB_KEY]: { job_id: "abc" } })).toEqual({
+      job_id: "abc",
+      kind: "train",
+    });
     expect(mlJobStashOf({ __etl_preview: { pipeline_id: "p", node_id: "n" } })).toBeNull();
     expect(mlJobStashOf({ [ML_JOB_KEY]: { job_id: "" } })).toBeNull();
     expect(mlJobStashOf(null)).toBeNull();
@@ -108,8 +111,8 @@ describe("the runtime carries a training job end to end", () => {
 
   it("source route serves the program and the env by the job stash", () => {
     expect(source).toContain("mlJobStashOf(session?.inputs)");
-    expect(source).toContain("train.mlEnvFor(stash, claims.sub)");
-    expect(source).toContain("train.mlBundleFor(stash, claims.sub)");
+    expect(source).toContain("m.mlEnvFor(stash, claims.sub)");
+    expect(source).toContain("m.mlBundleFor(stash, claims.sub)");
     // ML dispatch happens before the MCP/notebook fallbacks.
     expect(source.indexOf("mlJobStashOf")).toBeLessThan(source.indexOf("session?.mcp_app_id"));
   });

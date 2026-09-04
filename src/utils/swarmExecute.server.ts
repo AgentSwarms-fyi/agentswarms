@@ -98,6 +98,9 @@ type Ctx = Record<string, string>;
 const LEVEL_CONCURRENCY = Math.max(1, envInt("SWARM_LEVEL_CONCURRENCY", 4));
 
 const HEADLESS_SAFE_TOOLS = new Set([
+  // Grants are re-derived from scopeUserId inside the tool.
+  "ml_predict",
+  "ml_list_models",
   "web_search",
   "web_browse",
   "calculator",
