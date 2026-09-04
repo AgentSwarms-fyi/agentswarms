@@ -1068,11 +1068,29 @@ export async function refreshPrepFlowServer(
     .eq("id", flowId)
     .single();
   if (error || !flow) throw new Error(error?.message ?? "Prep flow not found");
+  const cfg = parsePrepConfig(flow.config);
+  if (cfg.output?.kind === "lakehouse") {
+    // A lakehouse output is a materialized view: one CREATE OR REPLACE TABLE
+    // AS, committed atomically, rebuilt as the flow's owner on this schedule.
+    const { refreshMaterializedView } = await import("@/utils/lakehouse/matviews.server");
+    const { data: view } = await supabaseAdmin
+      .from("lakehouse_materialized_views")
+      .select("*")
+      .eq("user_id", flow.user_id)
+      .eq("schema_name", cfg.output.schema)
+      .eq("table_name", cfg.output.table)
+      .maybeSingle();
+    if (!view) {
+      throw new Error("The flow's lakehouse table definition no longer exists — run the flow again");
+    }
+    const res = await refreshMaterializedView(view as never, "prep_refresh");
+    if (!res.ok) throw new Error(res.error ?? "Lakehouse refresh failed");
+    return { userId: flow.user_id, name: flow.name, rowCount: res.rows ?? 0 };
+  }
   if (!flow.output_table_id) throw new Error("Flow has never been run — nothing to refresh");
 
   const { executePrepFlow, materialisePrepOutput, refreshPrepIncremental } =
     await import("@/utils/bi/prep.server");
-  const cfg = parsePrepConfig(flow.config);
 
   // Incremental first: reprocess only the newest slice when the flow is
   // eligible and already has data. Returns null when a full rebuild is

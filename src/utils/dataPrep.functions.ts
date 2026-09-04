@@ -41,7 +41,7 @@ export type PrepRunOutcome = {
   producedRows: number;
   failures: Record<string, number>;
   /** Where the pipeline actually ran. */
-  engine: "local" | "warehouse";
+  engine: "local" | "warehouse" | "lakehouse";
   /** Why it didn't fold into the warehouse (only when it could have). */
   foldSkipReason?: string;
 };
@@ -139,7 +139,7 @@ export const prepPreview = createServerFn({ method: "POST" })
           ok: true;
           columns: string[];
           rows: Record<string, PreviewCell>[];
-          engine: "local" | "warehouse";
+          engine: "local" | "warehouse" | "lakehouse";
           foldSkipReason?: string;
           sql: string;
         }
@@ -272,4 +272,78 @@ export const datasetDependents = createServerFn({ method: "POST" })
       dashboards: dashboardsUsing,
       savedMetrics: metricCount ?? 0,
     };
+  });
+
+// ── Lakehouse sources and outputs ────────────────────────────────────────────
+
+/** The lakehouse tables the caller may link, and the schemas they may write into. */
+export const prepLakehouseTables = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) => z.object({ accessToken: z.string().min(1) }).parse(input))
+  .handler(async ({ data }) => {
+    const { userId } = await requireUser(data.accessToken);
+    const { listLakehouseTablesForUser } = await import("@/utils/lakehouse/tables.server");
+    return listLakehouseTablesForUser(userId);
+  });
+
+const LakeRunSchema = z.object({
+  accessToken: z.string().min(1),
+  flowName: z.string().min(1).max(120),
+  /** PrepFlowConfig — validated by the prep compiler, not by zod. */
+  config: z.record(z.string(), z.unknown()),
+  schema: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,62}$/),
+  table: z.string().regex(/^[a-z_][a-z0-9_]{0,127}$/),
+});
+
+export type PrepLakehouseRunOutcome = {
+  ok: true;
+  matviewId: string;
+  tableName: string;
+  rowCount: number | null;
+  sql: string;
+};
+
+/**
+ * Materialise a flow whose every source is a lakehouse table AS a lakehouse
+ * table: the compiled recipe becomes a materialized view (one atomic
+ * CREATE OR REPLACE TABLE AS, refreshable on the flow's schedule) in a schema
+ * the caller owns. No row travels through the app, so the dataset row caps do
+ * not apply; the ML wizard, agents and dashboards see the table at once.
+ */
+export const prepRunToLakehouse = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) => LakeRunSchema.parse(input))
+  .handler(async ({ data }): Promise<PrepLakehouseRunOutcome | { ok: false; error: string }> => {
+    try {
+      const { userId } = await requireUser(data.accessToken);
+      const { parsePrepConfig, prepLakehouseBinding, validatePrepConfig } =
+        await import("@/lib/dataPrepCore");
+      const { lakehousePrepSql } = await import("@/utils/bi/prep.server");
+      const { saveMatviewForUser } = await import("@/utils/lakehouse/matviews.server");
+      const cfg = parsePrepConfig(data.config as never);
+      const valid = validatePrepConfig(cfg);
+      if (!valid.ok) return { ok: false, error: valid.error };
+      const lake = prepLakehouseBinding(cfg);
+      if (!lake) {
+        return {
+          ok: false,
+          error:
+            "Saving to the lakehouse needs every source table to be a linked lakehouse table; local datasets and warehouse tables are saved as datasets.",
+        };
+      }
+      const sql = lakehousePrepSql(cfg, lake);
+      const saved = await saveMatviewForUser(
+        userId,
+        { schema: data.schema, table: data.table, sql, schedule: "manual" },
+        "prep",
+      );
+      if (saved.error) return { ok: false, error: saved.error };
+      return {
+        ok: true,
+        matviewId: saved.id,
+        tableName: `${data.schema}.${data.table}`,
+        rowCount: saved.rows,
+        sql,
+      };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : "Lakehouse run failed" };
+    }
   });

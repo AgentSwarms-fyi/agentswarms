@@ -26,6 +26,8 @@ import {
   prepTables,
   withIncrementalWindow,
   prepWarehouseBinding,
+  prepBindingRef,
+  prepLakehouseBinding,
   PREP_TYPE_META,
   validatePrepConfig,
   type PrepDialect,
@@ -71,8 +73,8 @@ export type PrepExecution = {
   /** Total rows the flow produced before the output cap was applied. */
   producedRows: number;
   sql: string;
-  /** "warehouse" when the pipeline was folded into the source system. */
-  engine: "local" | "warehouse";
+  /** "warehouse" when folded into the source system; "lakehouse" when every source is a lakehouse table. */
+  engine: "local" | "warehouse" | "lakehouse";
   /** Why folding didn't happen (shown to the user); absent when it did. */
   foldSkipReason?: string;
 };
@@ -123,7 +125,39 @@ async function loadFlowTables(
   // Warehouse-linked tables have no local rows. When folding was refused we
   // still owe the user a correct answer, so their data is BUFFERED locally
   // (bounded, and reported when the bound bites) and the pipeline runs here.
-  const wareTables = Object.entries(cfg?.sources ?? {}).filter(([name]) => needed.has(name));
+  // A lakehouse table in a MIXED flow (beside local or warehouse tables) is
+  // buffered here through the statement guard, bounded like any other source.
+  const lakeTables = Object.entries(cfg?.sources ?? {}).flatMap(([name, b]) =>
+    needed.has(name) && b.kind === "lakehouse" ? [[name, b] as const] : [],
+  );
+  if (lakeTables.length > 0) {
+    const { runLakehouseStatement } = await import("@/utils/lakehouse/core.server");
+    const cap = Math.min(sourceCap, LAKEHOUSE_PREP_ROW_CAP);
+    for (const [name, b] of lakeTables) {
+      const res = await runLakehouseStatement(
+        userId,
+        `SELECT * FROM ${qi(b.schema)}.${qi(b.table)}`,
+        { rowCap: cap + 1, auditVia: "prep" },
+      );
+      if (res.rows.length > cap) truncated.push(name);
+      loaded.push({
+        name,
+        columns: res.columns.map((c) => ({
+          name: c.name,
+          type: /INT|NUM|DEC|FLOAT|DOUBLE|REAL/i.test(c.type)
+            ? "number"
+            : /DATE|TIME/i.test(c.type)
+              ? "date"
+              : "string",
+        })),
+        rows: lakehouseRows(res).slice(0, cap),
+      });
+    }
+  }
+
+  const wareTables = Object.entries(cfg?.sources ?? {}).flatMap(([name, b]) =>
+    needed.has(name) && b.kind === "warehouse" ? [[name, b] as const] : [],
+  );
   if (wareTables.length > 0) {
     const { loadWarehouseConnectionForUser } = await import("@/utils/warehouse/connections.server");
     const { executeWarehouseQuery } = await import("@/utils/warehouse/drivers.server");
@@ -251,7 +285,10 @@ async function tryFoldToWarehouse(
 
   const sql = buildPrepSql(cfg, {
     dialect,
-    physicalTable: (name) => cfg.sources?.[name]?.ref ?? name,
+    physicalTable: (name) => {
+      const b = cfg.sources?.[name];
+      return b ? prepBindingRef(b) : name;
+    },
   });
 
   // PROVE the fold on the real warehouse before trusting it. Ten dialects
@@ -299,6 +336,11 @@ export async function executePrepFlow(
   const valid = validatePrepConfig(cfg);
   if (!valid.ok) throw new Error(valid.error);
 
+  // Every source on the lakehouse: one governed query through the statement
+  // guard (schema grants, policy rewrite, audit), nothing copied through here.
+  const lake = prepLakehouseBinding(cfg);
+  if (lake) return runOnLakehouse(userId, cfg, lake, opts.rowLimit);
+
   const folded = await tryFoldToWarehouse(userId, cfg, opts.rowLimit);
   if (folded && "execution" in folded) return folded.execution;
   const foldSkipReason = folded && "skip" in folded ? folded.skip : undefined;
@@ -345,6 +387,54 @@ export async function executePrepFlow(
     sql,
     engine: "local",
     foldSkipReason,
+  };
+}
+
+const qi = (v: string) => `"${v.replace(/"/g, '""')}"`;
+/** The statement guard's own ceiling; a lakehouse flow that must come back as rows stops here. */
+export const LAKEHOUSE_PREP_ROW_CAP = 100_000;
+
+/** Rows as objects, the shape the cast layer and every caller expect. */
+function lakehouseRows(res: { columns: { name: string }[]; rows: unknown[][] }) {
+  return res.rows.map((r) => Object.fromEntries(res.columns.map((c, i) => [c.name, r[i]])));
+}
+
+/** Compile the flow over its lakehouse tables and read the result back as the caller. */
+export function lakehousePrepSql(
+  cfg: PrepFlowConfig,
+  lake: NonNullable<ReturnType<typeof prepLakehouseBinding>>,
+): string {
+  return buildPrepSql(cfg, {
+    dialect: "duckdb",
+    physicalTable: (name) => {
+      const t = lake.tables[name];
+      return t ? `${qi(t.schema)}.${qi(t.table)}` : qi(name);
+    },
+  });
+}
+
+async function runOnLakehouse(
+  userId: string,
+  cfg: PrepFlowConfig,
+  lake: NonNullable<ReturnType<typeof prepLakehouseBinding>>,
+  rowLimit?: number,
+): Promise<PrepExecution> {
+  const { runLakehouseStatement } = await import("@/utils/lakehouse/core.server");
+  const sql = lakehousePrepSql(cfg, lake);
+  const cap = Math.min(rowLimit ?? prepOutputRowsCap(), LAKEHOUSE_PREP_ROW_CAP);
+  // One row over the cap, so "capped" can be reported honestly.
+  const res = await runLakehouseStatement(userId, sql, { rowCap: cap + 1, auditVia: "prep" });
+  const produced = lakehouseRows(res);
+  const cast = castRows(produced.slice(0, cap), cfg);
+  return {
+    columns: cast.columns,
+    rows: cast.rows,
+    failures: cast.failures,
+    truncatedSources: [],
+    outputCapped: produced.length > cap,
+    producedRows: Math.min(produced.length, cap),
+    sql,
+    engine: "lakehouse",
   };
 }
 
@@ -464,7 +554,11 @@ export async function refreshPrepIncremental(args: {
   userId: string;
   cfg: PrepFlowConfig;
   tableId: string;
-}): Promise<{ rowsReplaced: number; since: string; engine: "local" | "warehouse" } | null> {
+}): Promise<{
+  rowsReplaced: number;
+  since: string;
+  engine: "local" | "warehouse" | "lakehouse";
+} | null> {
   const verdict = incrementalEligibility(args.cfg);
   if (!verdict.ok) return null;
   const column = verdict.column;

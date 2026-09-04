@@ -13,6 +13,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Json } from "@/integrations/supabase/types";
 import { auditEvent } from "@/utils/audit.server";
 import { getPlatformResources } from "@/utils/notebookRuntime/config.server";
+import { listLakehouseTablesForUser } from "@/utils/lakehouse/tables.server";
 import {
   accessibleSchemas,
   lakehouseConnection,
@@ -165,31 +166,8 @@ export const mlListSources = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
   .handler(async ({ data }): Promise<{ enabled: boolean; tables: MlSourceTable[] }> => {
     const userId = await resolveCaller(data.access_token);
-    if (!lakehouseEnabled()) return { enabled: false, tables: [] };
-    const schemas = (await accessibleSchemas(userId)).map((s) => s.name);
-    if (!schemas.length) return { enabled: true, tables: [] };
-    // Same path as the Lakehouse overview: the engine connection, after the
-    // access check above, because information_schema is not a user schema and
-    // the per-user statement guard rightly refuses it.
-    const inList = schemas.map((sch) => `'${sch.replace(/'/g, "''")}'`).join(", ");
-    const c = await lakehouseConnection();
-    const rows = await (
-      await c.run(
-        `SELECT table_schema, table_name, column_name, data_type FROM information_schema.columns ` +
-          `WHERE table_catalog = 'lake' AND table_schema IN (${inList}) ` +
-          `ORDER BY table_schema, table_name, ordinal_position`,
-      )
-    ).getRows();
-    const map = new Map<string, MlSourceTable>();
-    for (const row of rows) {
-      const schema = String(row[0]);
-      const table = String(row[1]);
-      const key = `${schema}.${table}`;
-      const t = map.get(key) ?? { schema, table, columns: [] };
-      t.columns.push({ name: String(row[2]), type: String(row[3]) });
-      map.set(key, t);
-    }
-    return { enabled: true, tables: [...map.values()] };
+    const r = await listLakehouseTablesForUser(userId);
+    return { enabled: r.enabled, tables: r.tables };
   });
 
 export type MlColumnProfile = {

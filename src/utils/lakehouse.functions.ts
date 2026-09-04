@@ -973,51 +973,8 @@ export const saveLakehouseMatview = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }): Promise<{ id: string; rows: number | null; error?: string }> => {
     const userId = await resolveCaller(data.access_token);
-    const allowed = await accessibleSchemas(userId);
-    const schemaRow = allowed.find((sch) => sch.name === data.schema);
-    if (!schemaRow) throw new Error("No access to this schema");
-    if (schemaRow.user_id !== userId) {
-      throw new Error("A materialized view can only be written into a schema you own");
-    }
-    if (schemaRow.lake_source_id) {
-      throw new Error("Data-lake mounts are read-only");
-    }
-
-    const { nextMatviewRunAt, refreshMaterializedView } =
-      await import("@/utils/lakehouse/matviews.server");
-
-    const { data: saved, error } = await supabaseAdmin
-      .from("lakehouse_materialized_views")
-      .upsert(
-        {
-          user_id: userId,
-          schema_name: data.schema,
-          table_name: data.table,
-          sql: data.sql,
-          schedule: data.schedule,
-          is_active: true,
-          next_run_at: nextMatviewRunAt(data.schedule),
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "schema_name,table_name" },
-      )
-      .select("*")
-      .single();
-    if (error) throw new Error(error.message);
-
-    auditEvent({
-      userId,
-      action: "lakehouse.matview.save",
-      resourceType: "lakehouse_matview",
-      resourceId: saved.id,
-      resourceName: `${data.schema}.${data.table}`,
-      detail: { schedule: data.schedule },
-    });
-
-    // Build it now. A failure here is reported but does not undo the save —
-    // the definition is still worth keeping so the user can fix it.
-    const res = await refreshMaterializedView({ ...saved, last_row_count: null } as never, "save");
-    return { id: saved.id as string, rows: res.rows ?? null, error: res.error };
+    const { saveMatviewForUser } = await import("@/utils/lakehouse/matviews.server");
+    return saveMatviewForUser(userId, data, "save");
   });
 
 /** Rebuild one view now. */

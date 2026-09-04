@@ -3,6 +3,7 @@ import {
   C,
   Callout,
   Code,
+  DocLink,
   DocsHeader,
   H2,
   H3,
@@ -133,6 +134,18 @@ function MlDocsPage() {
         The wizard suggests a task from a real profile of the table (<C>SUMMARIZE</C> plus a
         sample). A float column is never mistaken for an identifier because its values are unique;
         an integer column named like an id is; a constant column cannot be a target at all.
+      </P>
+
+      <H2 id="prepare">Prepare a training set</H2>
+      <P>
+        The wizard&apos;s <strong>Prepare the data</strong> panel filters rows and fills, scales and
+        encodes columns for one model. For the wrangling that comes before that — joins across
+        tables, dedupe, split and replace, pivots, derived columns, aggregation — use{" "}
+        <DocLink to="/docs/data-prep#lakehouse">Data preparation</DocLink> with lakehouse tables:
+        link the tables, build the steps with a per-step preview, and{" "}
+        <strong>Save as → lakehouse table</strong>. The result is an ordinary lakehouse table in a
+        schema you own, rebuilt on the flow&apos;s schedule, and it appears in the wizard&apos;s
+        table picker at once.
       </P>
 
       <H2 id="train">Train a model</H2>

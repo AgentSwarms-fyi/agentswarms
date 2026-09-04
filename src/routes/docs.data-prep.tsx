@@ -357,6 +357,26 @@ date_trunc('month', ordered_at)`}</Code>
         check what depends on it there.
       </P>
 
+      <H2 id="lakehouse">Lakehouse tables in and out</H2>
+      <P>
+        The palette lists every lakehouse table you may read. <strong>Link</strong> puts one on
+        the canvas without copying a row: the flow remembers the table, and while every source is
+        a lakehouse table the whole recipe — joins, every step — compiles to one DuckDB query that
+        runs through the lakehouse statement guard as you (schema grants, row filters and column
+        masks, audit), so a preview is what the run will produce. A lakehouse table beside a local
+        dataset or a warehouse table is buffered like a warehouse table and the flow runs locally.
+      </P>
+      <P>
+        <strong>Save as → lakehouse table</strong> writes the result into a schema you own as a
+        materialized view: one atomic <C>CREATE OR REPLACE TABLE … AS</C>, so readers see the old
+        table or the new one and never a half-built one, and nothing travels through the app — the
+        dataset row caps do not apply. The flow&apos;s refresh schedule rebuilds it as you. The
+        table is then an ordinary lakehouse table: the SQL workbench, agents, dashboards and the{" "}
+        <DocLink to="/docs/ml">ML wizard</DocLink> see it at once, which makes a flow the way to
+        wrangle a training set — dedupe, fill, derive, filter, aggregate — before a model learns
+        from it.
+      </P>
+
       <H2 id="when-not">When not to use prep</H2>
       <UL>
         <li>

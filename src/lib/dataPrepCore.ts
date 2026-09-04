@@ -325,13 +325,28 @@ function freshName(baseName: string, taken: string[]): string {
  * A `warehouse` binding makes the table LIVE — the flow reads it in place
  * instead of a copied snapshot, which is what makes pushdown possible.
  */
-export type PrepSourceBinding = {
-  kind: "warehouse";
-  connectionId: string;
-  connectionName: string;
-  /** Physical reference in the warehouse, e.g. "public.orders". */
-  ref: string;
-};
+export type PrepSourceBinding =
+  | {
+      kind: "warehouse";
+      connectionId: string;
+      connectionName: string;
+      /** Physical reference in the warehouse, e.g. "public.orders". */
+      ref: string;
+    }
+  | {
+      /** A lakehouse table, read in place through the statement guard. */
+      kind: "lakehouse";
+      schema: string;
+      table: string;
+    };
+
+/** Where a flow's result is written when it is not a local dataset. */
+export type PrepOutputTarget = { kind: "lakehouse"; schema: string; table: string };
+
+/** The physical name a binding resolves to in its own engine. */
+export function prepBindingRef(b: PrepSourceBinding): string {
+  return b.kind === "lakehouse" ? `"${b.schema}"."${b.table}"` : b.ref;
+}
 
 /**
  * Incremental refresh: reprocess only the newest slice instead of rebuilding
@@ -345,10 +360,12 @@ export type PrepFlowConfig = {
   joins: PrepJoin[];
   columns: PrepColumn[];
   steps: PrepStep[];
-  /** Flow table name → its origin. Only warehouse-linked tables appear. */
+  /** Flow table name → its origin. Only linked (warehouse or lakehouse) tables appear. */
   sources?: Record<string, PrepSourceBinding>;
   /** When set (and eligible), refreshes reprocess from the watermark. */
   incremental?: PrepIncremental;
+  /** Absent = a local dataset named by the run; set = a lakehouse table. */
+  output?: PrepOutputTarget;
 };
 
 /**
@@ -363,10 +380,38 @@ export function prepWarehouseBinding(
   for (const s of cfg.steps) if (s.kind === "append" && s.table) tables.add(s.table);
   if (tables.size === 0) return null;
   const bindings = [...tables].map((t) => cfg.sources?.[t]);
-  if (bindings.some((b) => !b)) return null; // at least one local table
-  const ids = new Set(bindings.map((b) => b!.connectionId));
+  const ware = bindings.flatMap((b) => (b && b.kind === "warehouse" ? [b] : []));
+  if (ware.length !== bindings.length) return null; // a local or lakehouse table is in the mix
+  const ids = new Set(ware.map((b) => b.connectionId));
   if (ids.size !== 1) return null; // spans connections
-  return { connectionId: bindings[0]!.connectionId, connectionName: bindings[0]!.connectionName };
+  return { connectionId: ware[0].connectionId, connectionName: ware[0].connectionName };
+}
+
+/**
+ * Every table the flow reads is a lakehouse table: the whole recipe is then
+ * one governed query, previewed and materialised without copying anything
+ * through the app. Null when any table is local or on a warehouse.
+ */
+export function prepLakehouseBinding(
+  cfg: PrepFlowConfig,
+): { tables: Record<string, { schema: string; table: string }> } | null {
+  const names = new Set(prepTables(cfg));
+  for (const s of cfg.steps) if (s.kind === "append" && s.table) names.add(s.table);
+  if (names.size === 0) return null;
+  const tables: Record<string, { schema: string; table: string }> = {};
+  for (const name of names) {
+    const b = cfg.sources?.[name];
+    if (!b || b.kind !== "lakehouse") return null;
+    tables[name] = { schema: b.schema, table: b.table };
+  }
+  return { tables };
+}
+
+/** Any linked table means the browser engine cannot preview this flow. */
+export function prepHasRemoteSources(cfg: PrepFlowConfig): boolean {
+  const names = new Set(prepTables(cfg));
+  for (const s of cfg.steps) if (s.kind === "append" && s.table) names.add(s.table);
+  return [...names].some((n) => Boolean(cfg.sources?.[n]));
 }
 
 export type PrepTableInfo = { name: string; columns: ColumnDef[] };
@@ -1267,6 +1312,11 @@ export function parsePrepConfig(v: Json): PrepFlowConfig {
     cfg.sources && typeof cfg.sources === "object" && !Array.isArray(cfg.sources)
       ? (cfg.sources as Record<string, PrepSourceBinding>)
       : undefined;
+  const out = cfg.output as { kind?: unknown; schema?: unknown; table?: unknown } | undefined;
+  const output: PrepOutputTarget | undefined =
+    out && out.kind === "lakehouse" && typeof out.schema === "string" && typeof out.table === "string"
+      ? { kind: "lakehouse", schema: out.schema, table: out.table }
+      : undefined;
 
   const incremental =
     cfg.incremental &&
@@ -1276,7 +1326,7 @@ export function parsePrepConfig(v: Json): PrepFlowConfig {
       : undefined;
 
   if (Array.isArray(cfg.steps)) {
-    return { base, joins, columns, steps: cfg.steps as PrepStep[], sources, incremental };
+    return { base, joins, columns, steps: cfg.steps as PrepStep[], sources, incremental, output };
   }
 
   // Legacy shape: { calcs, filters, aggregate } → ordered steps.
@@ -1317,5 +1367,5 @@ export function parsePrepConfig(v: Json): PrepFlowConfig {
     });
   }
 
-  return { base, joins, columns, steps, sources, incremental };
+  return { base, joins, columns, steps, sources, incremental, output };
 }

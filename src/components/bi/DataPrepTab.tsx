@@ -110,7 +110,8 @@ import {
   PREP_TYPE_META,
   incrementalEligibility,
   prepTables,
-  prepWarehouseBinding,
+  prepHasRemoteSources,
+  prepLakehouseBinding,
   removeTableFromFlow,
   savePrepFlow,
   syncColumns,
@@ -142,7 +143,9 @@ import { fetchWarehouseSchema, runWarehouseQuery } from "@/lib/warehouseClient";
 import { listWarehouseConnections } from "@/utils/warehouse.functions";
 import {
   datasetDependents,
+  prepLakehouseTables,
   prepPreview,
+  prepRunToLakehouse,
   prepRunAndSave,
   type DatasetDependents,
   type PrepRunOutcome,
@@ -271,7 +274,7 @@ export function DataPrepTab() {
   const [previewStep, setPreviewStep] = useState<number | null>(null);
   /** Where the last preview ran, and why it didn't fold (when it didn't). */
   const [foldState, setFoldState] = useState<{
-    engine: "local" | "warehouse";
+    engine: "local" | "warehouse" | "lakehouse";
     reason?: string;
   } | null>(null);
   const [preview, setPreview] = useState<PreviewState>({ kind: "empty" });
@@ -286,6 +289,12 @@ export function DataPrepTab() {
   // on screen together and you open the one you want.
   const [localOpen, setLocalOpen] = useState(false);
   const [extOpen, setExtOpen] = useState(true);
+  const [lakeOpen, setLakeOpen] = useState(true);
+  // Lakehouse tables the user may read, and the schemas they may write into.
+  const [lake, setLake] = useState<Awaited<ReturnType<typeof lakeTablesFn>> | null | "error">(null);
+  // Where "Run & save" writes: a local dataset, or a lakehouse table you own.
+  const [outputKind, setOutputKind] = useState<"dataset" | "lakehouse">("dataset");
+  const [outputSchema, setOutputSchema] = useState("");
   const [paletteQuery, setPaletteQuery] = useState("");
   const paletteQ = paletteQuery.trim().toLowerCase();
   const localDatasets = useMemo(
@@ -298,6 +307,27 @@ export function DataPrepTab() {
   // table imports a snapshot as a local dataset and drops it on the canvas.
   const listWarehousesFn = useServerFn(listWarehouseConnections);
   const runPrepFn = useServerFn(prepRunAndSave);
+  const lakeTablesFn = useServerFn(prepLakehouseTables);
+  const runLakeFn = useServerFn(prepRunToLakehouse);
+  useEffect(() => {
+    if (!token) return;
+    lakeTablesFn({ data: { accessToken: token } })
+      .then((r) => {
+        setLake(r);
+        const first = r.schemas.find((sch) => sch.writable);
+        if (first) setOutputSchema((prev) => prev || first.name);
+      })
+      .catch(() => setLake("error"));
+  }, [token, lakeTablesFn]);
+  const lakeFilteredTables = useMemo(
+    () =>
+      lake && lake !== "error"
+        ? lake.tables.filter(
+            (t) => !paletteQ || `${t.schema}.${t.table}`.toLowerCase().includes(paletteQ),
+          )
+        : [],
+    [lake, paletteQ],
+  );
   const previewFn = useServerFn(prepPreview);
   const dependentsFn = useServerFn(datasetDependents);
   const [whConns, setWhConns] = useState<WarehouseConnectionSummary[] | null>(null);
@@ -322,6 +352,24 @@ export function DataPrepTab() {
     const known = new Set(infos.map((i) => i.name));
     for (const [name, binding] of Object.entries(cfg.sources ?? {})) {
       if (known.has(name)) continue;
+      if (binding.kind === "lakehouse") {
+        const t =
+          lake && lake !== "error"
+            ? lake.tables.find((x) => x.schema === binding.schema && x.table === binding.table)
+            : undefined;
+        infos.push({
+          name,
+          columns: (t?.columns ?? []).map((c) => ({
+            name: c.name,
+            type: /int|num|dec|float|double|real|hugeint/i.test(c.type)
+              ? ("number" as const)
+              : /date|time/i.test(c.type)
+                ? ("date" as const)
+                : ("string" as const),
+          })),
+        });
+        continue;
+      }
       const tables = whSchemas[binding.connectionId];
       const t = Array.isArray(tables)
         ? tables.find((x) => `${x.schema}.${x.name}` === binding.ref)
@@ -339,7 +387,7 @@ export function DataPrepTab() {
       });
     }
     return infos;
-  }, [datasets, cfg.sources, whSchemas]);
+  }, [datasets, cfg.sources, whSchemas, lake]);
   const onCanvas = useMemo(() => new Set(prepTables(cfg)), [cfg]);
   const preparedNames = useMemo(
     () => new Set(flows.map((f) => f.output_table_name).filter((n): n is string => Boolean(n))),
@@ -424,6 +472,39 @@ export function DataPrepTab() {
   }
 
   /**
+   * Link a lakehouse table into the flow. Nothing is copied: the flow records
+   * the table, every preview and run is one governed query through the
+   * lakehouse statement guard, and the result can be saved back as a
+   * lakehouse table — the ML wizard and agents then see it at once.
+   */
+  function linkLakehouse(t: { schema: string; table: string; columns: { name: string; type: string }[] }) {
+    let name = safeTableName(t.table);
+    if (onCanvas.has(name) || tableInfos.some((i) => i.name === name)) {
+      name = safeTableName(`${t.schema}_${t.table}`);
+    }
+    if (onCanvas.has(name)) return toast.error(`"${name}" is already on the canvas`);
+    const columns = t.columns.map((c) => ({
+      name: c.name,
+      type: /int|num|dec|float|double|real|hugeint/i.test(c.type)
+        ? ("number" as const)
+        : /date|time/i.test(c.type)
+          ? ("date" as const)
+          : ("string" as const),
+    }));
+    setCfg((prev) => {
+      const withSource: PrepFlowConfig = {
+        ...prev,
+        sources: {
+          ...(prev.sources ?? {}),
+          [name]: { kind: "lakehouse", schema: t.schema, table: t.table },
+        },
+      };
+      return addTableToFlow(withSource, { name, columns }, [...tableInfos, { name, columns }]);
+    });
+    toast.success(`Linked ${t.schema}.${t.table} — reads live from the lakehouse`);
+  }
+
+  /**
    * Link a warehouse table LIVE into the flow: no rows are copied, the flow
    * records where the table lives, and the pipeline can then be pushed down
    * into the warehouse instead of dragging the table across the network.
@@ -476,7 +557,7 @@ export function DataPrepTab() {
       // Linked warehouse tables have no local rows, so the preview runs on the
       // server through the SAME folded query the real run uses — what you see
       // is what gets materialised.
-      if (prepWarehouseBinding(effective) && token) {
+      if (prepHasRemoteSources(effective) && token) {
         void (async () => {
           try {
             const res = (await previewFn({
@@ -490,7 +571,7 @@ export function DataPrepTab() {
                   ok: true;
                   columns: string[];
                   rows: Record<string, unknown>[];
-                  engine: "local" | "warehouse";
+                  engine: "local" | "warehouse" | "lakehouse";
                   foldSkipReason?: string;
                 }
               | { ok: false; error: string };
@@ -634,6 +715,52 @@ export function DataPrepTab() {
     if (!flowName.trim()) return toast.error("Name the flow first");
     const out = safeTableName(outputName.trim() || flowName.trim());
     setRunBusy(true);
+    if (outputKind === "lakehouse") {
+      try {
+        if (!outputSchema) throw new Error("Choose a lakehouse schema you own");
+        if (!prepLakehouseBinding(cfg)) {
+          throw new Error(
+            "Saving to the lakehouse needs every source to be a linked lakehouse table",
+          );
+        }
+        const cfgOut: PrepFlowConfig = {
+          ...cfg,
+          output: { kind: "lakehouse", schema: outputSchema, table: out },
+        };
+        const id = await savePrepFlow({ id: flowId, userId: user.id, name: flowName.trim(), cfg: cfgOut });
+        const result = await runLakeFn({
+          data: {
+            accessToken: token,
+            flowName: flowName.trim(),
+            config: cfgOut as unknown as Record<string, unknown>,
+            schema: outputSchema,
+            table: out,
+          },
+        });
+        if (!result.ok) throw new Error(result.error);
+        await savePrepFlow({
+          id,
+          userId: user.id,
+          name: flowName.trim(),
+          cfg: cfgOut,
+          outputTableId: null,
+          outputTableName: result.tableName,
+          markRun: true,
+        });
+        setFlowId(id);
+        setCfg(cfgOut);
+        setOutputName(out);
+        setFlows(await listPrepFlows());
+        toast.success(
+          `Wrote ${result.tableName}${result.rowCount !== null ? ` (${result.rowCount.toLocaleString()} rows)` : ""} to the lakehouse`,
+        );
+      } catch (e) {
+        toast.error((e as Error).message);
+      } finally {
+        setRunBusy(false);
+      }
+      return;
+    }
     try {
       const id = await savePrepFlow({ id: flowId, userId: user.id, name: flowName.trim(), cfg });
       // Executes on the SERVER against the full stored data (the browser
@@ -942,6 +1069,73 @@ export function DataPrepTab() {
               })
             )}
 
+            {/* ── Lakehouse tables (linked in place, never copied) ── */}
+            <button
+              type="button"
+              onClick={() => setLakeOpen((v) => !v)}
+              aria-expanded={lakeOpen}
+              className="mt-2 flex w-full items-center gap-1.5 rounded-md py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {lakeOpen ? (
+                <ChevronDown className="h-3 w-3 shrink-0" />
+              ) : (
+                <ChevronRight className="h-3 w-3 shrink-0" />
+              )}
+              Lakehouse tables
+              {lake && lake !== "error" && lake.tables.length > 0 && (
+                <span className="ml-auto rounded-full bg-muted px-1.5 font-medium normal-case tracking-normal tabular-nums">
+                  {lake.tables.length}
+                </span>
+              )}
+            </button>
+            {!lakeOpen ? null : lake === null ? (
+              <Skeleton className="h-9 w-full" />
+            ) : lake === "error" ? (
+              <p className="py-2 text-center text-[11px] text-destructive">
+                Could not list lakehouse tables.
+              </p>
+            ) : !lake.enabled ? (
+              <p className="py-2 text-center text-[11px] text-muted-foreground">
+                The lakehouse isn&apos;t configured on this deployment.
+              </p>
+            ) : lakeFilteredTables.length === 0 ? (
+              <p className="py-2 text-center text-[11px] text-muted-foreground">
+                No lakehouse tables you can read.
+              </p>
+            ) : (
+              <div className="rounded-md border border-border/60 px-1.5 py-1">
+                {lakeFilteredTables.slice(0, 300).map((t) => {
+                  const linked = Object.values(cfg.sources ?? {}).some(
+                    (b) => b.kind === "lakehouse" && b.schema === t.schema && b.table === t.table,
+                  );
+                  return (
+                    <div
+                      key={`${t.schema}.${t.table}`}
+                      className="flex w-full items-center gap-1.5 rounded px-1 py-1 hover:bg-muted/50"
+                    >
+                      <Database className="h-2.5 w-2.5 shrink-0 text-muted-foreground" />
+                      <span
+                        className="min-w-0 flex-1 truncate font-mono text-[10px]"
+                        title={`${t.schema}.${t.table} · ${t.columns.length} columns`}
+                      >
+                        {t.schema}.{t.table}
+                      </span>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-5 shrink-0 px-1.5 text-[9px]"
+                        disabled={linked}
+                        onClick={() => linkLakehouse(t)}
+                        title="Link — the flow reads this table in place through the lakehouse guard"
+                      >
+                        {linked ? "linked" : "Link"}
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
             {/* ── External tables (connected databases & warehouses) ── */}
             <button
               type="button"
@@ -1089,6 +1283,41 @@ export function DataPrepTab() {
               />
             </div>
             <div className="space-y-1">
+              <Label className="text-xs">Save as</Label>
+              <select
+                className="h-8 rounded-md border bg-background px-2 text-xs"
+                value={outputKind}
+                onChange={(e) => setOutputKind(e.target.value as "dataset" | "lakehouse")}
+                disabled={!lake || lake === "error" || !lake.enabled}
+                title={
+                  !lake || lake === "error" || !lake.enabled
+                    ? "The lakehouse is not configured on this deployment"
+                    : "A dataset lives in the workspace; a lakehouse table is queryable by SQL, agents and the ML wizard"
+                }
+              >
+                <option value="dataset">local dataset</option>
+                <option value="lakehouse">lakehouse table</option>
+              </select>
+            </div>
+            {outputKind === "lakehouse" && lake && lake !== "error" ? (
+              <div className="space-y-1">
+                <Label className="text-xs">Schema</Label>
+                <select
+                  className="h-8 rounded-md border bg-background px-2 text-xs"
+                  value={outputSchema}
+                  onChange={(e) => setOutputSchema(e.target.value)}
+                >
+                  {lake.schemas
+                    .filter((sch) => sch.writable)
+                    .map((sch) => (
+                      <option key={sch.name} value={sch.name}>
+                        {sch.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            ) : null}
+            <div className="space-y-1">
               <Label className="text-xs">Output table</Label>
               <Input
                 value={outputName}
@@ -1108,7 +1337,7 @@ export function DataPrepTab() {
               ) : (
                 <Play className="h-3.5 w-3.5" />
               )}
-              Run &amp; save dataset
+              {outputKind === "lakehouse" ? "Run & save to lakehouse" : "Run & save dataset"}
             </Button>
             {flowId && currentFlow?.output_table_id && (
               <Button
@@ -1437,24 +1666,29 @@ export function DataPrepTab() {
               {foldState && (
                 <div
                   className={`flex items-start gap-2 rounded border px-2 py-1.5 ${
-                    foldState.engine === "warehouse"
+                    foldState.engine !== "local"
                       ? "border-emerald-500/40 bg-emerald-500/5"
                       : "border-amber-400/40 bg-amber-400/10"
                   }`}
                 >
                   <Server
                     className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${
-                      foldState.engine === "warehouse" ? "text-emerald-600" : "text-amber-600"
+                      foldState.engine !== "local" ? "text-emerald-600" : "text-amber-600"
                     }`}
                   />
                   <p
                     className={`text-[11px] leading-snug ${
-                      foldState.engine === "warehouse"
+                      foldState.engine !== "local"
                         ? "text-emerald-700 dark:text-emerald-400"
                         : "text-amber-700 dark:text-amber-400"
                     }`}
                   >
-                    {foldState.engine === "warehouse" ? (
+                    {foldState.engine === "lakehouse" ? (
+                      <>
+                        <strong>Runs on the lakehouse</strong> — the whole recipe is one governed
+                        query; only the preview travels, and a lakehouse output copies nothing.
+                      </>
+                    ) : foldState.engine === "warehouse" ? (
                       <>
                         <strong>Pushed down</strong> — the whole pipeline runs inside the warehouse;
                         only the result travels.

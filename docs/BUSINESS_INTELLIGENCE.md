@@ -226,6 +226,17 @@ month`, since the rows underneath have no `month` column to filter on.
   sampled. Re-running writes to the same dataset, so every model, widget and
   flow pointing at it keeps working. External warehouse tables can be pulled in
   as capped snapshots to join against local data.
+- **Lakehouse tables in and out** — the prep palette lists every lakehouse
+  table you may read; **Link** puts one on the canvas without copying a row.
+  While every source is a lakehouse table the whole recipe compiles to one
+  DuckDB query that runs through the lakehouse statement guard as you
+  (schema grants, row filters and column masks, audit), so a preview is what
+  the run will produce. **Save as → lakehouse table** writes the result into
+  a schema you own as a materialized view — one atomic
+  `CREATE OR REPLACE TABLE … AS`, refreshed on the flow's schedule — and the
+  table is then an ordinary lakehouse table for the SQL workbench, agents,
+  dashboards and the ML wizard: the way to wrangle a training set before a
+  model learns from it (see [ML.md](./ML.md)).
 - **Pushdown (query folding)** — an external table can be **linked live**
   instead of snapshotted. When every source in a flow is linked to the _same_
   connection and every step is provably translatable, the whole pipeline is

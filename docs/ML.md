@@ -55,6 +55,17 @@ a sample): a float column is never mistaken for an identifier because its
 values are unique, an integer column named `customer_id` is, and a constant
 column cannot be a target at all.
 
+## Prepare a training set
+
+The wizard's **Prepare the data** panel filters rows and fills, scales and
+encodes columns for one model. For the wrangling that comes before that —
+joins across tables, dedupe, split and replace, pivots, derived columns,
+aggregation — use **BI → Data preparation** with lakehouse tables: link the
+tables, build the steps with a per-step preview, and **Save as → lakehouse
+table**. The result is an ordinary lakehouse table in a schema you own,
+rebuilt on the flow's schedule, and it appears in the wizard's table picker
+at once. See [BUSINESS_INTELLIGENCE.md](./BUSINESS_INTELLIGENCE.md).
+
 ## Train a model
 
 1. **Data** — pick a lakehouse table you own or that was shared with you. The

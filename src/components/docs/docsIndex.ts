@@ -830,6 +830,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 3
       },
       {
+        "id": "lakehouse",
+        "text": "Lakehouse tables in and out",
+        "level": 2
+      },
+      {
         "id": "when-not",
         "text": "When not to use prep",
         "level": 2
@@ -2161,6 +2166,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "tasks",
         "text": "Tasks",
+        "level": 2
+      },
+      {
+        "id": "prepare",
+        "text": "Prepare a training set",
         "level": 2
       },
       {

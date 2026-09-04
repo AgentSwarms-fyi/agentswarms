@@ -80,6 +80,13 @@ const CASES: Currency[] = [
     docMentions: [/\/api\/ml\/predict/, /ml\.api_key\.denied/],
   },
   {
+    capability: "A prep flow can read lakehouse tables in place and write a lakehouse table",
+    code: "src/utils/dataPrep.functions.ts",
+    codeContains: "export const prepRunToLakehouse",
+    doc: "src/routes/docs.data-prep.tsx",
+    docMentions: [/materialized view/i, /statement guard/i],
+  },
+  {
     capability: "One forecaster for charts, the Analyst and alerts",
     code: "src/lib/mlForecast.ts",
     codeContains: "export function forecastValues",
