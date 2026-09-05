@@ -31,14 +31,14 @@ IAM, audited by trigger, with a decision id and a passport.
 
 ## Tasks
 
-| Task              | What it needs                                    | Candidates tried                                                                          | Primary metric |
-| ----------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------------- | -------------- |
-| Classification    | category, boolean, small-domain target           | logistic regression, random forest, histogram gradient boosting, LightGBM                 | F1 (macro)     |
-| Regression        | number target                                    | ridge, random forest, histogram gradient boosting, LightGBM                               | RMSE           |
-| Forecast          | number target over a date column                 | last value, seasonal naive, Holt-Winters (statsmodels), gradient boosting on lag features | RMSE           |
-| Clustering        | feature columns only                             | k-means for two to ten groups (or a fixed k), kept by silhouette                          | Silhouette     |
-| Anomaly detection | feature columns only                             | isolation forest (200 trees); 2% flagged unless a share is given                          | Anomaly rate   |
-| Recommendation    | a user column, an item column, optional strength | item-item cosine similarity on the interaction matrix; popularity for cold starts         | Hit rate @10   |
+| Task              | What it needs                                    | Candidates tried                                                                                          | Primary metric |
+| ----------------- | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------- | -------------- |
+| Classification    | category, boolean, small-domain target           | logistic regression, random forest, histogram gradient boosting, LightGBM                                 | F1 (macro)     |
+| Regression        | number target                                    | ridge, random forest, histogram gradient boosting, LightGBM                                               | RMSE           |
+| Forecast          | number target over a date column, a period       | last value, moving average, seasonal naive, Holt-Winters (statsmodels), gradient boosting on lag features | RMSE           |
+| Clustering        | feature columns only                             | k-means for two to ten groups (or a fixed k), kept by silhouette                                          | Silhouette     |
+| Anomaly detection | feature columns only                             | isolation forest (200 trees); 2% flagged unless a share is given                                          | Anomaly rate   |
+| Recommendation    | a user column, an item column, optional strength | item-item cosine similarity on the interaction matrix; popularity for cold starts                         | Hit rate @10   |
 
 The first three predict a chosen column. Clustering and anomaly detection
 have no target: they describe the rows from the selected features and report
@@ -71,8 +71,9 @@ at once. See [BUSINESS_INTELLIGENCE.md](./BUSINESS_INTELLIGENCE.md).
 1. **Data** — pick a lakehouse table you own or that was shared with you. The
    profile shows each column's kind, distinct count, nulls and samples.
 2. **Goal** — _predict a column_ (the task follows from the column; a
-   forecast additionally takes a time column, the periods ahead and how rows
-   in one period combine), _find groups_ (a fixed number, or the best of two
+   forecast additionally takes a time column, the **period** - hourly,
+   daily, weekly, monthly, quarterly, or automatic from the dates - the
+   periods ahead and how rows in one period combine), _find groups_ (a fixed number, or the best of two
    to ten by silhouette), _find anomalies_ (the share you expect, 2%
    unless told otherwise), or _recommend items_ (a user column, an item
    column and an optional strength such as a rating or an amount).
@@ -123,6 +124,48 @@ hash to it.
   dropped columns, metrics and leaderboard, importance, groups, warnings,
   governance, how to call it), copied or downloaded from the model page; it
   cannot drift from what shipped because nobody types it.
+
+### What the trainer warns about
+
+A score can be right and still mislead. The trainer checks for the usual
+ways and writes what it found on the version: the Versions tab counts them
+as **notes** on every version and opens them in place, the compare view
+lists them side by side, and the model card, the agent's prediction tool
+and the public API's model listing repeat them:
+
+- **Possible leakage** — a single feature that predicts the target almost
+  perfectly on its own (98% balanced accuracy, or 98% of a numeric target's
+  variation) is usually the target in disguise: a code for it, a column
+  filled in after the fact, a key the model memorises. The warning names the
+  column; if it is derived from the target or unknown at prediction time,
+  leave it out of the features and train again.
+- **The do-nothing baseline** — when nine rows in ten share one class, that
+  share is the accuracy of predicting it every time. The warning says so and
+  points at F1 (macro), the primary metric, and the confusion matrix.
+- **No signal** — a regression whose R² is at or below 0.05 explains about
+  as much as the mean would; the features carry little for that target.
+- **Columns that decide a distance on their own** — clustering and anomaly
+  detection compare rows by distance, so a column with more than 20
+  categories groups rows by its value rather than describing them, and a
+  time column groups them by when they happened: the "segments" become
+  customers, the "anomalies" the earliest and latest dates. Both are left
+  out when the features were chosen automatically, and kept with a warning
+  when you picked them yourself.
+- **The anomaly rate is a setting** — the detector ranks rows by how easily
+  they are isolated and flags the top 2% (or the contamination you set), on
+  clean data as much as dirty. Read the score, and set the share you expect.
+- **Strength is not sentiment** — a recommendation's strength column adds
+  up, so a 1-star rating still counts as a weak like. If low values mean
+  dislike, filter those rows out first.
+- **Forecast history** — a first or last period the data only partly covers
+  is left out; an empty period of a total counts as 0 (an empty period of an
+  average is interpolated); the holdout is at least three periods once there
+  are twelve, because one point cannot tell a flat line from a trend; and a
+  projection of a series that never goes below zero is floored at zero.
+- **A random holdout is not a time split** — classification and regression
+  hold out rows at random. If your rows are events over time, the score is
+  an estimate for rows like the ones you have, not for next quarter's; train
+  on a prep flow that stops at a date to see how the model ages.
 
 ## Versions
 
@@ -272,6 +315,26 @@ that beats a straight line, a linear trend otherwise, with a residual band
 that widens with distance. The AI Analyst and the alert engine use the same
 module, so a chart, its write-up and its alert cannot disagree.
 
+### What a forecast period is
+
+A forecast is a series of one value per period: the total (or average) of
+the target over every hour, day, week, month or quarter, as you chose in the
+wizard. **Automatic** infers the period from the gaps between timestamps,
+which turns a table of dated orders into a _daily_ series - fine for a
+month of data, surprising when you expected months. Pick the period you
+will read the answer in. The last period the data only partly covers (the
+week the extract stopped in) is left out and the version says so, because a
+partial total misleads every candidate.
+
+Five candidates compete on a holdout of the most recent periods: last value
+(every future period repeats the last one), moving average (the mean of the
+recent periods), seasonal naive, Holt-Winters and gradient boosting on lags.
+The one with the lowest RMSE serves, so a flat line means the flat
+baselines beat the rest on your series - a noisy daily series often says
+exactly that. The model page, the agent tool and the API all state the
+period, the aggregation, the last observed period and the method, so a
+number is never read at the wrong granularity.
+
 A forecast model from the registry can be attached instead: in the widget's
 time-series options choose it as the **Source** beside the period count, and
 the chart draws the model's projected periods. An alert's **basis** can be
@@ -405,3 +468,6 @@ everything in the left column is shipped and tested.
 | "Every candidate failed"                            | Open the job's logs on the Jobs tab; the first candidate's error is quoted.                                                                                         |
 | "Recommendation needs at least 5 users and 3 items" | The user and item columns are swapped or too coarse; each row must be one interaction. Aggregate first with a custom `SELECT` if the table is wider than that.      |
 | "Clustering needs at least 20 rows"                 | Loosen the row filter; a group profile over a handful of rows says nothing.                                                                                         |
+| "Possible leakage: … on its own predicts …"         | A feature is the target in disguise or a key the model memorised. Drop it from the features and train a new version; the score will fall to something real.         |
+| Every group is one customer / every anomaly a date  | A many-valued category or a time column was selected explicitly and decided the distance. Let the trainer choose the features, or leave that column out.            |
+| "Projected values below 0 were floored at 0"        | The winning method extrapolated a decline past zero; the floor is the honest answer for a total. A longer history or a coarser period usually steadies the trend.   |

@@ -17,6 +17,7 @@ import {
   pickVersion,
 } from "@/utils/ml/api.server";
 import { predictRowsSync } from "@/utils/ml/predict.server";
+import { forecastNotes } from "@/utils/tools/registry.server";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** A request must answer before the proxies in front of it give up. */
@@ -61,6 +62,24 @@ export const Route = createFileRoute("/api/ml/predict")({
           auth.model.production_version_id,
         );
         if (!version) return mlJson({ error: "No trained version to predict with" }, 409);
+        if (auth.model.task === "forecast") {
+          // Served from the training forecast, like the agent tool: no sandbox.
+          const stored = (version.forecast ?? null) as {
+            points?: unknown[];
+            meta?: Record<string, unknown> | null;
+          } | null;
+          return mlJson({
+            version_id: version.id,
+            version: version.version,
+            task: "forecast",
+            algorithm: version.algorithm,
+            period: stored?.meta?.period ?? null,
+            aggregation: stored?.meta?.aggregation ?? null,
+            last_observed_period: stored?.meta?.last_period ?? null,
+            forecast: stored?.points ?? [],
+            notes: forecastNotes(version.algorithm, stored?.meta ?? null),
+          });
+        }
         const waitMs = Math.min(
           MAX_WAIT_MS,
           Math.max(1000, (typeof body.wait_seconds === "number" ? body.wait_seconds : 90) * 1000),

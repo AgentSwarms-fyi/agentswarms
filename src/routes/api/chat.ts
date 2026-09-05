@@ -1298,6 +1298,11 @@ export const Route = createFileRoute("/api/chat")({
             // layer definition". Every toggle the builder can save must map
             // here, or saving it is theater.
             if (t.metric_query) out.push("metric_query");
+            // Same omission, found the same way: ML Predictions toggled on in
+            // the builder never reached agent chat, so the model announced a
+            // prediction it could not make. tests/unit/agentToolToggles pins
+            // every builder toggle to a line here.
+            if (t.ml_predict) out.push("ml_predict");
             if (t.n8n || t.n8n_run_workflow) out.push("n8n_run_workflow");
             if (t.mcp || t.mcp_call_tool) out.push("mcp_call_tool");
             if (t.send_notification || t.notifications) out.push("send_notification");
@@ -1796,6 +1801,12 @@ export const Route = createFileRoute("/api/chat")({
               // the swarm owner's own + shared models. Its per-agent allow-list
               // narrows it further and is deny-by-default.
               "metric_query",
+              // Safe for the same reason again: the ML tools re-derive grants
+              // from scopeUserId (the run's owner) and every prediction is
+              // audited with the run's decision id. Without this entry a
+              // deployed swarm or a schedule silently lost the tool the agent
+              // was given in the builder.
+              "ml_predict",
             ]);
             const sbForTools = authToken
               ? getServerSupabase(authToken)

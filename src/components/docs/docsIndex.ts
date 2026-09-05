@@ -2194,6 +2194,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 2
       },
       {
+        "id": "warnings",
+        "text": "What the trainer warns about",
+        "level": 3
+      },
+      {
         "id": "versions",
         "text": "Versions",
         "level": 2
@@ -2236,6 +2241,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "external-models",
         "text": "Bring your own model",
+        "level": 3
+      },
+      {
+        "id": "forecast-period",
+        "text": "What a forecast period is",
         "level": 3
       },
       {

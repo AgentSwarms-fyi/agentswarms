@@ -219,3 +219,54 @@ describe("the UI carries the new controls", () => {
     expect(panel).not.toMatch(/\bwindow\.confirm\(/);
   });
 });
+
+describe("the agent tool explains what it returns", () => {
+  it("keeps every column a person would ask about, not only the label", () => {
+    const registry = rd("src/utils/tools/registry.server.ts");
+    const start = registry.indexOf('handlers.set("ml_predict"');
+    const block = registry.slice(start, registry.indexOf("// External warehouse tools", start));
+    for (const col of [
+      '"anomaly_score"',
+      '"distance"',
+      '"scores"',
+      '"cold_start"',
+      '"probability"',
+    ]) {
+      expect(block, col).toContain(col);
+    }
+    expect(block).toContain("...mlPredictionNotes(model.task, version.metrics, predictions),");
+    expect(block).toContain("...versionCaveats(version.warnings),");
+  });
+
+  it("tells the model the category list is a sample, so it passes real values through", () => {
+    const registry = rd("src/utils/tools/registry.server.ts");
+    const start = registry.indexOf('handlers.set("ml_list_models"');
+    const block = registry.slice(start, registry.indexOf('handlers.set("ml_predict"', start));
+    expect(block).toContain("category_count: e.categories?.length,");
+    expect(block).toContain(
+      "pass the real value for any categorical feature, including one not listed",
+    );
+  });
+
+  it("describes the predicted groups from the version's profiles", async () => {
+    const { mlPredictionNotes } = await import("@/utils/tools/registry.server");
+    const notes = mlPredictionNotes(
+      "clustering",
+      {
+        clusters: [
+          { cluster: 0, size: 752, share: 0.8995, profile: { plan: "free", net_usd: 492.29 } },
+          { cluster: 1, size: 84, share: 0.1005, profile: { plan: "enterprise", net_usd: 453.93 } },
+        ],
+      },
+      [{ prediction: 1, distance: 4.9 }],
+    );
+    expect(notes[0]).toContain("distance is how far the row sits");
+    // Only the group that was predicted is described; the other stays out of the model's way.
+    expect(notes.some((n) => n.startsWith("Group 1: 84 training rows (10.1%)"))).toBe(true);
+    expect(notes.some((n) => n.startsWith("Group 0:"))).toBe(false);
+    expect(notes.find((n) => n.startsWith("Group 1"))).toContain("plan enterprise, net_usd 453.93");
+    expect(mlPredictionNotes("anomaly", {}, [])[0]).toContain("above 0 is flagged");
+    expect(mlPredictionNotes("classification", {}, [])[0]).toContain("proba_<class>");
+    expect(mlPredictionNotes("recommendation", {}, [])[0]).toContain("cold_start true");
+  });
+});

@@ -131,6 +131,8 @@ export type MlTrainResult = {
   forecast?: MlForecastPoint[];
   history?: MlHistoryPoint[];
   series_meta?: {
+    period?: string;
+    periods?: number;
     freq: string;
     season_length: number | null;
     aggregation: string;
@@ -193,6 +195,27 @@ export const ML_LOWER_IS_BETTER = new Set([
 ]);
 
 /** Tasks that predict a chosen column; the others describe or rank rows. */
+/** A forecast's granularity; auto infers it from the gaps between timestamps. */
+export const ML_PERIODS = ["auto", "hour", "day", "week", "month", "quarter"] as const;
+export type MlPeriod = (typeof ML_PERIODS)[number];
+export const ML_PERIOD_LABEL: Record<MlPeriod, string> = {
+  auto: "automatic (from the dates)",
+  hour: "hourly",
+  day: "daily",
+  week: "weekly",
+  month: "monthly",
+  quarter: "quarterly",
+};
+/** The trainer's period name for a forecast, as a plural noun. */
+export const ML_PERIOD_PLURAL: Record<string, string> = {
+  hour: "hours",
+  day: "days",
+  week: "weeks",
+  month: "months",
+  quarter: "quarters",
+  year: "years",
+};
+
 export const ML_TARGET_TASKS: readonly MlTask[] = ["classification", "regression", "forecast"];
 
 /** The primary metric per task, mirrored from the trainer. */

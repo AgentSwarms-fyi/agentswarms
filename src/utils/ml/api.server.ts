@@ -520,6 +520,7 @@ export function modelSummary(model: MlModelRow, versions: MlVersionRow[]) {
           metrics: production.metrics,
           trained_at: production.trained_at,
           external: Boolean((production as { external?: boolean }).external),
+          warnings: (production.warnings ?? []) as string[],
           features: schema
             .filter((e) => e.role === "feature")
             .map((e) => ({ name: e.name, type: e.dtype, categories: e.categories?.slice(0, 50) })),
@@ -534,6 +535,7 @@ export function modelSummary(model: MlModelRow, versions: MlVersionRow[]) {
       metrics: v.metrics,
       trained_at: v.trained_at,
       external: Boolean((v as { external?: boolean }).external),
+      warnings: (v.warnings ?? []) as string[],
     })),
   };
 }

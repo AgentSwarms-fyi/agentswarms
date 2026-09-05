@@ -46,6 +46,7 @@ import {
 } from "./ml/api.server";
 import {
   ML_JOB_LIVE,
+  ML_PERIODS,
   ML_TARGET_TASKS,
   ML_TASKS,
   ML_TUNINGS,
@@ -327,6 +328,7 @@ const createSchema = z.object({
   contamination: z.number().min(0.001).max(0.5).optional(),
   horizon: z.number().int().min(1).max(1000).optional(),
   aggregation: z.enum(["sum", "mean"]).optional(),
+  period: z.enum(ML_PERIODS).optional(),
   feature_columns: z.array(IDENT).max(500).optional(),
   time_budget_minutes: z.number().int().min(1).optional(),
   max_rows: z.number().int().min(100).optional(),
@@ -382,6 +384,7 @@ export const mlCreateModel = createServerFn({ method: "POST" })
           time_column: data.task === "forecast" ? (data.time_column ?? null) : null,
           horizon: data.task === "forecast" ? (data.horizon ?? 12) : null,
           aggregation: data.task === "forecast" ? (data.aggregation ?? "sum") : null,
+          period: data.task === "forecast" ? (data.period ?? "auto") : "auto",
           feature_columns: data.feature_columns?.length ? data.feature_columns : null,
         })
         .select("*")

@@ -96,8 +96,8 @@ function MlDocsPage() {
           ],
           [
             "Forecast",
-            "number over a date column",
-            "last value, seasonal naive, Holt-Winters, gradient boosting on lag features",
+            "number over a date column, a period",
+            "last value, moving average, seasonal naive, Holt-Winters, gradient boosting on lag features",
             "RMSE",
           ],
           [
@@ -157,7 +157,7 @@ function MlDocsPage() {
           },
           {
             title: "Goal",
-            body: "Predict a column (the task follows from the column; a forecast also takes a time column, the periods ahead and how rows in one period combine), find groups (a fixed number or the best by silhouette), find anomalies (the share you expect, 2% unless told otherwise), or recommend items (a user column, an item column and an optional strength).",
+            body: "Predict a column (the task follows from the column; a forecast also takes a time column, the period - hourly to quarterly, or automatic from the dates - the periods ahead and how rows in one period combine), find groups (a fixed number or the best by silhouette), find anomalies (the share you expect, 2% unless told otherwise), or recommend items (a user column, an item column and an optional strength).",
           },
           {
             title: "Options",
@@ -215,6 +215,63 @@ function MlDocsPage() {
         <li>
           <strong>Lineage</strong> — rows (and whether sampled), snapshot, decision id, artifact
           digest, warnings.
+        </li>
+      </UL>
+
+      <H3 id="warnings">What the trainer warns about</H3>
+      <P>
+        A score can be right and still mislead. The trainer checks for the usual ways and writes
+        what it found on the version: the Versions tab counts them as <strong>notes</strong> on
+        every version and opens them in place, the compare view lists them side by side, and the
+        model card, the agent&apos;s prediction tool and the public API&apos;s model listing repeat
+        them.
+      </P>
+      <UL>
+        <li>
+          <strong>Possible leakage</strong> — a single feature that predicts the target almost
+          perfectly on its own (98% balanced accuracy, or 98% of a numeric target&apos;s variation)
+          is usually the target in disguise: a code for it, a column filled in after the fact, a key
+          the model memorises. The warning names the column; if it is derived from the target or
+          unknown at prediction time, leave it out and train again.
+        </li>
+        <li>
+          <strong>The do-nothing baseline</strong> — when nine rows in ten share one class, that
+          share is the accuracy of predicting it every time. The warning says so and points at F1
+          (macro), the primary metric, and the confusion matrix.
+        </li>
+        <li>
+          <strong>No signal</strong> — a regression whose R² is at or below 0.05 explains about as
+          much as the mean would.
+        </li>
+        <li>
+          <strong>Columns that decide a distance on their own</strong> — clustering and anomaly
+          detection compare rows by distance, so a column with more than 20 categories groups rows
+          by its value rather than describing them, and a time column groups them by when they
+          happened: the &quot;segments&quot; become customers, the &quot;anomalies&quot; the
+          earliest and latest dates. Both are left out when the features were chosen automatically,
+          and kept with a warning when you picked them yourself.
+        </li>
+        <li>
+          <strong>The anomaly rate is a setting</strong> — the detector flags the top 2% (or the
+          contamination you set) on clean data as much as dirty. Read the score, and set the share
+          you expect.
+        </li>
+        <li>
+          <strong>Strength is not sentiment</strong> — a recommendation&apos;s strength column adds
+          up, so a 1-star rating still counts as a weak like. If low values mean dislike, filter
+          those rows out first.
+        </li>
+        <li>
+          <strong>Forecast history</strong> — a first or last period the data only partly covers is
+          left out; an empty period of a total counts as 0 (an empty period of an average is
+          interpolated); the holdout is at least three periods once there are twelve; a projection
+          of a series that never goes below zero is floored at zero.
+        </li>
+        <li>
+          <strong>A random holdout is not a time split</strong> — classification and regression hold
+          out rows at random. If your rows are events over time, the score describes rows like the
+          ones you have, not next quarter&apos;s; train on a prep flow that stops at a date to see
+          how the model ages.
         </li>
       </UL>
 
@@ -384,6 +441,20 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
         loading it, hands the pipeline the raw feature columns, and returns the same columns a
         trained version would. Classification, regression, clustering and anomaly models accept
         external versions; the first one is promoted when the model has no production version.
+      </P>
+
+      <H3 id="forecast-period">What a forecast period is</H3>
+      <P>
+        A forecast is one value per period: the total (or average) of the target over every hour,
+        day, week, month or quarter, as chosen in the wizard. <strong>Automatic</strong> infers the
+        period from the gaps between timestamps, which turns a table of dated orders into a{" "}
+        <em>daily</em> series — fine for a month of data, surprising when you expected months. Pick
+        the period you will read the answer in. A last period the data only partly covers is left
+        out and the version says so. Five candidates compete on a holdout of the most recent periods
+        — last value, moving average, seasonal naive, Holt-Winters, gradient boosting on lags — and
+        the lowest RMSE serves, so a flat line means the flat baselines beat the rest on your
+        series. The model page, the agent tool and the API all state the period, the aggregation,
+        the last observed period and the method.
       </P>
 
       <H2 id="forecasting">Forecasting in BI</H2>
@@ -632,6 +703,18 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
           [
             "Every candidate failed",
             "Open the job's logs on the Jobs tab; the first candidate's error is quoted.",
+          ],
+          [
+            "Possible leakage: … on its own predicts …",
+            "A feature is the target in disguise or a key the model memorised. Drop it from the features and train a new version; the score will fall to something real.",
+          ],
+          [
+            "Every group is one customer / every anomaly a date",
+            "A many-valued category or a time column was selected explicitly and decided the distance. Let the trainer choose the features, or leave that column out.",
+          ],
+          [
+            "Projected values below 0 were floored at 0",
+            "The winning method extrapolated a decline past zero; the floor is the honest answer for a total. A longer history or a coarser period usually steadies the trend.",
           ],
         ]}
       />

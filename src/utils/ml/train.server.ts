@@ -136,6 +136,7 @@ export async function mlBundleFor(
     time_column: b.model.time_column,
     horizon: b.model.horizon,
     aggregation: b.model.aggregation,
+    period: b.model.period,
     feature_columns: b.model.feature_columns,
     user_column: b.model.user_column,
     item_column: b.model.item_column,

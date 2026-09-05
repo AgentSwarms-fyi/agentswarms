@@ -4,7 +4,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import * as Recharts from "recharts";
 import {
@@ -62,6 +62,7 @@ import {
   type MlSource,
   type MlTask,
   type MlClusterProfile,
+  ML_PERIOD_PLURAL,
 } from "@/utils/ml/types";
 import {
   JobStatusChip,
@@ -146,6 +147,7 @@ function ModelPage() {
   const [apiOpen, setApiOpen] = useState(false);
   const [cardOpen, setCardOpen] = useState(false);
   const [compare, setCompare] = useState<Set<string>>(new Set());
+  const [notesOpen, setNotesOpen] = useState<Set<string>>(new Set());
   const [budget, setBudget] = useState<number | "">("");
   const [maxRows, setMaxRows] = useState<number | "">("");
   const [tuning, setTuning] = useState<MlTuning>("none");
@@ -456,82 +458,118 @@ function ModelPage() {
                   <th className="px-3 py-2 text-right font-medium">Rows</th>
                   <th className="px-3 py-2 font-medium">Trained</th>
                   <th className="px-3 py-2 font-medium">Snapshot</th>
+                  <th className="px-3 py-2 font-medium">Notes</th>
                   {!shared ? <th className="px-3 py-2 text-right font-medium">Actions</th> : null}
                 </tr>
               </thead>
               <tbody>
                 {versions.map((v) => {
                   const value = (v.metrics as Record<string, number | null>)?.[primary] ?? null;
+                  const notes = (v.warnings ?? []) as string[];
                   return (
-                    <tr key={v.id} className={cn("border-t", v.id === focus?.id && "bg-primary/5")}>
-                      <td className="px-3 py-2">
-                        <input
-                          type="checkbox"
-                          aria-label={`Compare v${v.version}`}
-                          disabled={v.status !== "ready"}
-                          checked={compare.has(v.id)}
-                          onChange={(e) =>
-                            setCompare((prev) => {
-                              const next = new Set(prev);
-                              if (e.target.checked) next.add(v.id);
-                              else next.delete(v.id);
-                              return next;
-                            })
-                          }
-                        />
-                      </td>
-                      <td className="px-3 py-2 font-medium">v{v.version}</td>
-                      <td className="px-3 py-2">
-                        <StageChip stage={v.stage} status={v.status} />
-                      </td>
-                      <td className="px-3 py-2">{v.algorithm ?? "—"}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">
-                        {fmtMetric(primary, value)}
-                      </td>
-                      <td className="px-3 py-2 text-right tabular-nums">
-                        {fmtInt(v.training_rows)}
-                      </td>
-                      <td className="px-3 py-2 text-muted-foreground">
-                        {v.trained_at ? relTime(v.trained_at) : "—"}
-                      </td>
-                      <td className="px-3 py-2 tabular-nums text-muted-foreground">
-                        {v.training_snapshot_id ?? "—"}
-                      </td>
-                      {!shared ? (
-                        <td className="px-3 py-2 text-right">
-                          {v.status === "ready" && v.stage !== "production" ? (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => void promote(v, "production")}
-                            >
-                              Promote
-                            </Button>
-                          ) : null}
-                          {v.status === "ready" &&
-                          v.stage !== "archived" &&
-                          v.stage !== "production" ? (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="ml-1"
-                              onClick={() => void promote(v, "archived")}
-                            >
-                              Archive
-                            </Button>
-                          ) : null}
-                          {v.status === "ready" && v.stage === "archived" ? (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => void promote(v, "candidate")}
-                            >
-                              Restore
-                            </Button>
-                          ) : null}
+                    <Fragment key={v.id}>
+                      <tr className={cn("border-t", v.id === focus?.id && "bg-primary/5")}>
+                        <td className="px-3 py-2">
+                          <input
+                            type="checkbox"
+                            aria-label={`Compare v${v.version}`}
+                            disabled={v.status !== "ready"}
+                            checked={compare.has(v.id)}
+                            onChange={(e) =>
+                              setCompare((prev) => {
+                                const next = new Set(prev);
+                                if (e.target.checked) next.add(v.id);
+                                else next.delete(v.id);
+                                return next;
+                              })
+                            }
+                          />
                         </td>
+                        <td className="px-3 py-2 font-medium">v{v.version}</td>
+                        <td className="px-3 py-2">
+                          <StageChip stage={v.stage} status={v.status} />
+                        </td>
+                        <td className="px-3 py-2">{v.algorithm ?? "—"}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {fmtMetric(primary, value)}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {fmtInt(v.training_rows)}
+                        </td>
+                        <td className="px-3 py-2 text-muted-foreground">
+                          {v.trained_at ? relTime(v.trained_at) : "—"}
+                        </td>
+                        <td className="px-3 py-2 tabular-nums text-muted-foreground">
+                          {v.training_snapshot_id ?? "—"}
+                        </td>
+                        <td className="px-3 py-2">
+                          {notes.length ? (
+                            <button
+                              type="button"
+                              className="rounded-full bg-amber-500/10 px-2 py-0.5 text-xs text-amber-700 hover:bg-amber-500/20 dark:text-amber-300"
+                              aria-expanded={notesOpen.has(v.id)}
+                              onClick={() =>
+                                setNotesOpen((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(v.id)) next.delete(v.id);
+                                  else next.add(v.id);
+                                  return next;
+                                })
+                              }
+                            >
+                              {notes.length} {notes.length === 1 ? "note" : "notes"}
+                            </button>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </td>
+                        {!shared ? (
+                          <td className="px-3 py-2 text-right">
+                            {v.status === "ready" && v.stage !== "production" ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => void promote(v, "production")}
+                              >
+                                Promote
+                              </Button>
+                            ) : null}
+                            {v.status === "ready" &&
+                            v.stage !== "archived" &&
+                            v.stage !== "production" ? (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="ml-1"
+                                onClick={() => void promote(v, "archived")}
+                              >
+                                Archive
+                              </Button>
+                            ) : null}
+                            {v.status === "ready" && v.stage === "archived" ? (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => void promote(v, "candidate")}
+                              >
+                                Restore
+                              </Button>
+                            ) : null}
+                          </td>
+                        ) : null}
+                      </tr>
+                      {notesOpen.has(v.id) ? (
+                        <tr className="border-t bg-amber-500/5">
+                          <td colSpan={shared ? 9 : 10} className="px-3 py-2">
+                            <ul className="space-y-1 text-xs text-amber-700 dark:text-amber-300">
+                              {notes.map((w, i) => (
+                                <li key={i}>{w}</li>
+                              ))}
+                            </ul>
+                          </td>
+                        </tr>
                       ) : null}
-                    </tr>
+                    </Fragment>
                   );
                 })}
               </tbody>
@@ -770,6 +808,7 @@ function VersionOverview({
   const forecast = version.forecast as {
     points: MlForecastPoint[];
     history: MlHistoryPoint[];
+    meta?: { period?: string; aggregation?: string; periods?: number; last_period?: string } | null;
   } | null;
   const usedFeatures = schema.filter((e) => e.role === "feature");
 
@@ -799,6 +838,9 @@ function VersionOverview({
             <CardContent className="p-4">
               <p className="text-sm font-medium">Forecast</p>
               <p className="mb-3 text-xs text-muted-foreground">
+                {forecast.meta?.period
+                  ? `${forecast.meta.aggregation === "mean" ? "Average" : "Total"} per ${forecast.meta.period} over ${forecast.meta.periods ?? forecast.history.length} ${ML_PERIOD_PLURAL[forecast.meta.period] ?? "periods"} of history, projected ${forecast.points.length} ${ML_PERIOD_PLURAL[forecast.meta.period] ?? "periods"} ahead from ${forecast.meta.last_period ?? "the last period"}. `
+                  : ""}
                 History, the projected periods and a residual-based band that widens with distance.
               </p>
               <ForecastChart history={forecast.history} points={forecast.points} />
@@ -1254,6 +1296,25 @@ function CompareVersions({
                     {v.trained_at ? relTime(v.trained_at) : "—"}
                   </td>
                 ))}
+              </tr>
+              <tr className="border-t align-top">
+                <td className="py-1.5 pr-3 text-muted-foreground">Warnings</td>
+                {ordered.map((v) => {
+                  const notes = (v.warnings ?? []) as string[];
+                  return (
+                    <td key={v.id} className="py-1.5 pr-3 text-xs">
+                      {notes.length ? (
+                        <ul className="list-disc space-y-0.5 pl-4 text-amber-700 dark:text-amber-300">
+                          {notes.map((w, i) => (
+                            <li key={i}>{w}</li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <span className="text-muted-foreground">none</span>
+                      )}
+                    </td>
+                  );
+                })}
               </tr>
             </tbody>
           </table>

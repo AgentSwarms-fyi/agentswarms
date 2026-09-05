@@ -3774,6 +3774,7 @@ export type Database = {
           item_column: string | null;
           n_clusters: number | null;
           name: string;
+          period: string;
           prep: Json;
           production_version_id: string | null;
           rating_column: string | null;
@@ -3796,6 +3797,7 @@ export type Database = {
           item_column?: string | null;
           n_clusters?: number | null;
           name: string;
+          period?: string;
           prep?: Json;
           production_version_id?: string | null;
           rating_column?: string | null;
@@ -3818,6 +3820,7 @@ export type Database = {
           item_column?: string | null;
           n_clusters?: number | null;
           name?: string;
+          period?: string;
           prep?: Json;
           production_version_id?: string | null;
           rating_column?: string | null;

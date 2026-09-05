@@ -40,6 +40,8 @@ import re as _re
 warnings.filterwarnings('ignore')
 _T0 = time.time()
 _MAX_CATEGORIES = 200
+# Distance-based tasks: above this many categories a column names groups instead of describing rows.
+_MAX_DISTANCE_CATEGORIES = 20
 _ID_NAME = _re.compile(r'(^|_)(id|uuid|guid|key|code)$|^id$', _re.I)
 _DT_PARTS = ('__year', '__month', '__day', '__dow', '__hour')
 _ML_PACKAGES = ['scikit-learn>=1.4', 'lightgbm>=4.0', 'statsmodels>=0.14', 'duckdb>=1.4',
@@ -464,6 +466,72 @@ def _importance(model, Xva, yva, task, dt_cols):
 
 
 # ── Tabular training ─────────────────────────────────────────────────────────
+def _leakage_warnings(df, schema, features, target, task, warnings_):
+    # A feature that predicts the target on its own is usually the target in
+    # disguise - a code for it, a column filled in after the fact - or a key
+    # the model memorises. The score would look superb and mean nothing, so
+    # the version says so and lets the person decide.
+    import numpy as np
+    import pandas as pd
+    from sklearn.metrics import balanced_accuracy_score
+    from sklearn.tree import DecisionTreeClassifier
+    by = {e['name']: e for e in schema}
+    n = max(1, len(df))
+    cls = df[target].astype(str) if task == 'classification' else None
+    num = pd.to_numeric(df[target], errors='coerce') if task != 'classification' else None
+    tail = ' If it is derived from the target, or not known when you predict, leave it out of the features.'
+    for f in features:
+        d = by[f]['dtype']
+        s = df[f]
+        if d in ('text', 'datetime'):
+            continue
+        few = d in ('categorical', 'boolean') or (d == 'numeric' and s.nunique(dropna=True) <= 50)
+        if few:
+            key = s.astype(str)
+            sizes = key.value_counts()
+            big = sizes[sizes >= 3]
+            if len(big) < 2 or big.sum() < 0.5 * n:
+                continue
+            keep = key.isin(big.index)
+            if cls is not None:
+                ct = pd.crosstab(key[keep], cls[keep])
+                pred = key[keep].map(ct.idxmax(axis=1))
+                score = float(balanced_accuracy_score(cls[keep], pred))
+                if score >= 0.98:
+                    warnings_.append('Possible leakage: %s on its own predicts %s for %.0f%% of rows (balanced accuracy).%s' % (f, target, score * 100, tail))
+            else:
+                yv = num[keep]
+                ok = yv.notna()
+                if ok.sum() < 10:
+                    continue
+                yv = yv[ok]
+                total = float(((yv - yv.mean()) ** 2).sum())
+                if total <= 0:
+                    continue
+                within = float(sum(((v - v.mean()) ** 2).sum() for _k, v in yv.groupby(key[keep][ok])))
+                explained = 1.0 - within / total
+                if explained >= 0.98:
+                    warnings_.append('Possible leakage: %s on its own explains %.0f%% of the variation in %s.%s' % (f, explained * 100, target, tail))
+        elif d == 'numeric':
+            v = pd.to_numeric(s, errors='coerce')
+            if cls is not None:
+                ok = v.notna()
+                if ok.sum() < 20:
+                    continue
+                frame = v[ok].to_frame()
+                tree = DecisionTreeClassifier(max_depth=2, random_state=42).fit(frame, cls[ok])
+                score = float(balanced_accuracy_score(cls[ok], tree.predict(frame)))
+                if score >= 0.98:
+                    warnings_.append('Possible leakage: %s on its own predicts %s for %.0f%% of rows (balanced accuracy).%s' % (f, target, score * 100, tail))
+            else:
+                ok = v.notna() & num.notna()
+                if ok.sum() < 10 or float(v[ok].std()) == 0.0 or float(num[ok].std()) == 0.0:
+                    continue
+                r = float(np.corrcoef(v[ok].to_numpy(dtype='float64'), num[ok].to_numpy(dtype='float64'))[0, 1])
+                if abs(r) >= 0.98:
+                    warnings_.append('Possible leakage: %s moves with %s almost exactly (correlation %.3f).%s' % (f, target, r, tail))
+
+
 def _train_tabular(df, cfg, warnings_):
     import numpy as np
     import pandas as pd
@@ -483,6 +551,10 @@ def _train_tabular(df, cfg, warnings_):
     schema, features = _plan_columns(df, cfg)
     for e in [e for e in schema if e['role'] == 'dropped' and e.get('reason') != 'not selected']:
         warnings_.append('Dropped column %s: %s' % (e['name'], e['reason']))
+    try:
+        _leakage_warnings(df, schema, features, target, task, warnings_)
+    except Exception as e:
+        _log('leakage check skipped: %s' % str(e)[:160])
     prepro, dt_cols, num_all, cat, text = _build_preprocessor(schema, features, prep)
     X = _prepare_x(df, features, dt_cols, num_all, cat, text)
 
@@ -497,6 +569,9 @@ def _train_tabular(df, cfg, warnings_):
         index = {c: i for i, c in enumerate(classes)}
         y = y_raw.map(index).to_numpy()
         counts = pd.Series(y).value_counts()
+        share = float(counts.max()) / float(len(y))
+        if share >= 0.9:
+            warnings_.append('%.0f%% of rows are %s, so %.0f%% accuracy is the do-nothing baseline; judge the model by F1 (macro), the primary metric, and the confusion matrix.' % (share * 100, classes[int(counts.idxmax())], share * 100))
         stratify = y if counts.min() >= 2 else None
         if stratify is None:
             warnings_.append('Some classes have a single example; the holdout could not be stratified.')
@@ -556,6 +631,8 @@ def _train_tabular(df, cfg, warnings_):
 
     metrics = _full_metrics(task, best, Xva, yva, classes or [])
     metrics['tuning_trials'] = float(tuning_info['trials'])
+    if task != 'classification' and metrics.get('r2') is not None and metrics['r2'] <= 0.05:
+        warnings_.append('The model explains only %.0f%% of the variation in %s (R2 %.3f): predicting the mean would do about as well. The features carry little signal for this target.' % (max(0.0, metrics['r2']) * 100, target, metrics['r2']))
     try:
         importance = _importance(best, Xva, yva, task, dt_cols)
     except Exception as e:
@@ -648,6 +725,31 @@ def _drift(stats, df):
 def _plan_and_prepare(df, cfg, warnings_):
     prep = cfg.get('prep') or {}
     schema, features = _plan_columns(df, cfg)
+    by = {e['name']: e for e in schema}
+    auto = not (cfg.get('feature_columns') or None)
+    # Rows are compared by distance here, so a column that names each row's
+    # group, or the calendar it fell in, decides the answer on its own: the
+    # "segments" become customers, the "anomalies" the first and last dates.
+    # Left out unless the column was picked on purpose, and said either way.
+    for f in list(features):
+        e = by[f]
+        if e['dtype'] == 'categorical':
+            nun = int(df[f].nunique(dropna=True))
+            if nun > _MAX_DISTANCE_CATEGORIES:
+                if auto:
+                    e['role'] = 'dropped'
+                    e['reason'] = '%d categories: rows would be grouped by it rather than compared; select it explicitly to keep it' % nun
+                else:
+                    warnings_.append('%s has %d categories; rows sharing a value will tend to fall into the same group.' % (f, nun))
+        elif e['dtype'] == 'datetime':
+            if auto:
+                e['role'] = 'dropped'
+                e['reason'] = 'a time column groups rows by when they happened, not what they are; select it explicitly to keep it'
+            else:
+                warnings_.append('%s is a time column: its year, month, day, weekday and hour are compared like any other number, so rows near each other in the calendar will tend to group together.' % f)
+    features = [f for f in features if by[f]['role'] == 'feature']
+    if not features:
+        raise RuntimeError('No usable feature columns were left: pick the columns to compare rows by explicitly.')
     for e in [e for e in schema if e['role'] == 'dropped' and e.get('reason') not in ('not selected', 'recommendation key column')]:
         warnings_.append('Dropped column %s: %s' % (e['name'], e['reason']))
     prepro, dt_cols, num_all, cat, text = _build_preprocessor(schema, features, prep, df=df, compact=True)
@@ -742,6 +844,8 @@ def _train_anomaly(df, cfg, warnings_):
     # scikit-learn's own threshold flags nothing on a well-behaved table, which
     # reads as a broken detector; two percent is the usual working default.
     cont = float(cfg.get('contamination') or 0.02)
+    if not cfg.get('contamination'):
+        warnings_.append('The anomaly rate is the setting, not a finding: rows are ranked by how easily they are isolated and the top 2% are flagged. Read the score, and set the share you expect to see.')
     t0 = time.time()
     model = IsolationForest(n_estimators=200, contamination=cont, random_state=42, n_jobs=-1)
     pipe = Pipeline([('prep', prepro), ('model', model)])
@@ -791,6 +895,10 @@ def _train_recommendation(df, cfg, warnings_):
     d[ucol] = d[ucol].astype(str)
     d[icol] = d[icol].astype(str)
     d['_w'] = pd.to_numeric(d[rcol], errors='coerce').fillna(1.0).clip(lower=0.0) if rcol else 1.0
+    if rcol:
+        vals = pd.to_numeric(df[rcol], errors='coerce').dropna()
+        if 3 <= vals.nunique() <= 11 and vals.min() >= 0 and vals.max() <= 10 and bool((vals == vals.round()).all()):
+            warnings_.append('%s is used as interaction strength: a bigger value is a stronger like, and a low value still counts as a weak one. If low values mean dislike, as on a star scale, filter those rows out before training.' % rcol)
     d = d.groupby([ucol, icol], as_index=False)['_w'].sum()
     users = sorted(d[ucol].unique().tolist())
     items = sorted(d[icol].unique().tolist())
@@ -916,6 +1024,8 @@ def _predict_recommendation(art, cfg, warnings_):
 
 
 _SEASON = {'h': 24, 'D': 7, 'W': 52, 'MS': 12, 'QS': 4, 'YS': 1}
+_FREQ_BY_PERIOD = {'hour': 'h', 'day': 'D', 'week': 'W', 'month': 'MS', 'quarter': 'QS'}
+_PERIOD_NAME = {'h': 'hour', 'D': 'day', 'W': 'week', 'MS': 'month', 'QS': 'quarter', 'YS': 'year'}
 
 
 def _infer_freq(ts):
@@ -976,11 +1086,29 @@ def _train_forecast(df, cfg, warnings_):
     s = s.dropna()
     if len(s) < 8:
         raise RuntimeError('Forecasting needs at least 8 dated rows with a numeric target; found %d.' % len(s))
-    freq = _infer_freq(s[tcol])
+    # The period is the user's choice; 'auto' keeps the inference from the
+    # gaps between timestamps, which turns dated orders into a daily series.
+    freq = _FREQ_BY_PERIOD.get(cfg.get('period') or 'auto') or _infer_freq(s[tcol])
     g = s.groupby(pd.Grouper(key=tcol, freq=freq))[target]
     y = (g.sum() if agg == 'sum' else g.mean()).astype('float64').asfreq(freq)
+    # A period the data only partly covers - the month the extract stopped
+    # in - understates a total and misleads every candidate; leave it out.
+    counts = g.size().reindex(y.index).fillna(0)
+    mid = counts.iloc[1:-1]
+    typical = float(mid[mid > 0].median() or 0) if len(y) > 3 and (mid > 0).any() else 0.0
+    if typical > 0 and counts.iloc[-1] > 0 and counts.iloc[-1] < 0.5 * typical:
+        warnings_.append('The last period (%s) had %d rows against a typical %d and was left out as incomplete.' % (_period_label(y.index[-1], freq), int(counts.iloc[-1]), int(typical)))
+        y = y.iloc[:-1]
+    if typical > 0 and counts.iloc[0] > 0 and counts.iloc[0] < 0.5 * typical:
+        warnings_.append('The first period (%s) had %d rows against a typical %d and was left out as incomplete.' % (_period_label(y.index[0], freq), int(counts.iloc[0]), int(typical)))
+        y = y.iloc[1:]
+    empty = int((counts.reindex(y.index).fillna(0) == 0).sum())
     gaps = int(y.isna().sum())
-    if gaps:
+    if agg == 'sum' and empty:
+        # No rows in a period is a total of zero, not a value to guess at.
+        warnings_.append('%d empty period(s) had no rows and count as 0. If they are missing data rather than quiet periods, fill them in a prep flow first.' % empty)
+        y = y.fillna(0.0)
+    elif gaps:
         warnings_.append('%d empty period(s) were filled by interpolation.' % gaps)
         y = y.interpolate(limit_direction='both')
     if len(y) < 8:
@@ -992,6 +1120,10 @@ def _train_forecast(df, cfg, warnings_):
     if season == 1:
         season = None
     holdout = max(1, min(horizon, len(y) // 5))
+    if len(y) >= 12:
+        # One or two points cannot tell a flat line from a trend; three is
+        # the least worth choosing a method on.
+        holdout = max(holdout, 3)
     train, test = y.iloc[:-holdout], y.iloc[-holdout:]
     _log('series: %d periods at %s, season=%s, holdout=%d, horizon=%d' % (len(y), freq, season, holdout, horizon))
 
@@ -1021,6 +1153,10 @@ def _train_forecast(df, cfg, warnings_):
     def naive(tr, steps):
         return np.repeat(float(tr.iloc[-1]), steps)
 
+    def moving_average(tr, steps):
+        k = int(max(2, min(season or 7, len(tr))))
+        return np.repeat(float(tr.iloc[-k:].mean()), steps)
+
     def seasonal_naive(tr, steps):
         base = tr.to_numpy()[-season:]
         return np.array([base[i % season] for i in range(steps)])
@@ -1042,6 +1178,7 @@ def _train_forecast(df, cfg, warnings_):
         return _lag_forecast(m, tr.to_numpy(), lags, steps, len(tr))
 
     consider('naive_last_value', naive)
+    consider('moving_average', moving_average)
     if season:
         consider('seasonal_naive', seasonal_naive)
     consider('holt_winters', holt_winters)
@@ -1060,11 +1197,19 @@ def _train_forecast(df, cfg, warnings_):
     sigma = float(np.std(resid)) if len(resid) > 1 else float(abs(resid[0])) if len(resid) else 0.0
     yhat = np.asarray(fit(y, horizon), dtype='float64')
     idx = pd.date_range(y.index[-1], periods=horizon + 1, freq=freq)[1:]
+    nonneg = bool((y >= 0).all())
+    floored = False
     forecast = []
     for k in range(horizon):
         w = 1.96 * sigma * math.sqrt(k + 1)
-        forecast.append({'period': _period_label(idx[k], freq), 'yhat': _safe_float(yhat[k]) or 0.0,
-                         'lo': _safe_float(yhat[k] - w) or 0.0, 'hi': _safe_float(yhat[k] + w) or 0.0})
+        point, lo, hi = float(yhat[k]), float(yhat[k] - w), float(yhat[k] + w)
+        if nonneg:
+            floored = floored or point < 0
+            point, lo, hi = max(point, 0.0), max(lo, 0.0), max(hi, 0.0)
+        forecast.append({'period': _period_label(idx[k], freq), 'yhat': _safe_float(point) or 0.0,
+                         'lo': _safe_float(lo) or 0.0, 'hi': _safe_float(hi) or 0.0})
+    if floored:
+        warnings_.append('Projected values below 0 were floored at 0: the history never goes below it.')
     history = [{'period': _period_label(t, freq), 'y': _safe_float(v) or 0.0} for t, v in y.tail(240).items()]
     mask = test.to_numpy() != 0
     metrics = {
@@ -1096,7 +1241,7 @@ def _train_forecast(df, cfg, warnings_):
         'leaderboard': leaderboard, 'feature_importance': [], 'feature_schema': schema,
         'training_rows': int(len(train)), 'holdout_rows': int(len(test)), 'forecast': forecast,
         'history': history,
-        'series_meta': {'freq': freq, 'season_length': season, 'aggregation': agg, 'last_period': _period_label(y.index[-1], freq)},
+        'series_meta': {'freq': freq, 'period': _PERIOD_NAME.get(freq, freq), 'season_length': season, 'aggregation': agg, 'last_period': _period_label(y.index[-1], freq), 'periods': int(len(y))},
         'tuning': {'mode': 'none', 'trials': 0}, '_artifact': buf.getvalue(),
     }
 

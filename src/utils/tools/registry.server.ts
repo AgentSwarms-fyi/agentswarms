@@ -1357,6 +1357,116 @@ export const TOOLABLE_IDS = [
 ] as const;
 export type ToolableId = (typeof TOOLABLE_IDS)[number];
 
+/**
+ * How to read a prediction, in words a model will repeat: what the columns
+ * mean for this task and, for a clustering, what the predicted groups look
+ * like. A bare label ("Group 0", "0") is a number without a meaning.
+ */
+/** What a forecast's numbers are, in words: the period, the totals, the method. */
+export function forecastNotes(
+  algorithm: string | null,
+  meta: Record<string, unknown> | null,
+): string[] {
+  const period = typeof meta?.period === "string" ? meta.period : "period";
+  const agg = meta?.aggregation === "mean" ? "average" : "total";
+  const notes = [
+    `Each period is one ${period}; yhat is the projected ${agg} of the target for that ${period}, lo and hi the band it is expected to stay within. The history ended with ${typeof meta?.last_period === "string" ? meta.last_period : "the last observed period"}${typeof meta?.periods === "number" ? ` after ${meta.periods} ${period}s` : ""}.`,
+  ];
+  const how: Record<string, string> = {
+    naive_last_value:
+      "naive last value: every projected period repeats the last observed one, so the line is flat at that value - it won the holdout, which means nothing else beat 'tomorrow looks like today' on this series.",
+    moving_average:
+      "moving average: every projected period is the mean of the most recent periods, so the line is flat at a typical recent level.",
+    seasonal_naive: "seasonal naive: each projected period repeats the value one season earlier.",
+    holt_winters:
+      "Holt-Winters exponential smoothing with a damped trend (and a season when one was detected).",
+    gradient_boosting_lags:
+      "gradient boosting on lagged values, stepping forward one period at a time.",
+  };
+  if (algorithm && how[algorithm]) notes.push(`Method - ${how[algorithm]}`);
+  return notes;
+}
+
+// The trainer's warnings that change how a prediction should be read - a
+// leaked feature, a lopsided target, a rate that is a setting - as opposed
+// to the mechanical ones (dropped columns, time budget), so an agent
+// caveats its answer the way the model page does.
+const ML_CAVEAT_MARKERS = [
+  "Possible leakage",
+  "do-nothing baseline",
+  "predicting the mean would do about as well",
+  "The anomaly rate is the setting",
+  "is used as interaction strength",
+  "will tend to fall into the same group",
+  "will tend to group together",
+  "left out as incomplete",
+  "count as 0",
+  "floored at 0",
+];
+
+export function versionCaveats(warnings: unknown): string[] {
+  if (!Array.isArray(warnings)) return [];
+  return warnings
+    .filter(
+      (w): w is string => typeof w === "string" && ML_CAVEAT_MARKERS.some((m) => w.includes(m)),
+    )
+    .map((w) => `The trainer warned: ${w}`);
+}
+
+export function mlPredictionNotes(
+  task: string,
+  metrics: unknown,
+  predictions: Record<string, unknown>[],
+): string[] {
+  const notes: string[] = [];
+  if (task === "classification") {
+    notes.push(
+      "prediction is the predicted class; probability is the model's confidence in it; proba_<class> are the probabilities of every class.",
+    );
+  } else if (task === "regression") {
+    notes.push("prediction is the predicted value of the target column.");
+  } else if (task === "anomaly") {
+    notes.push(
+      "prediction 1 means the row is an anomaly, 0 means normal. anomaly_score is the isolation score: above 0 is flagged, and the larger it is the more unusual the row; a negative score is an ordinary row.",
+    );
+  } else if (task === "clustering") {
+    notes.push(
+      "prediction is the group number; distance is how far the row sits from that group's centre (smaller = more typical).",
+    );
+    const clusters = (
+      metrics as {
+        clusters?: {
+          cluster: number;
+          size: number;
+          share: number;
+          profile: Record<string, unknown>;
+        }[];
+      } | null
+    )?.clusters;
+    if (Array.isArray(clusters)) {
+      const used = new Set(predictions.map((p) => Number(p.prediction)));
+      for (const c of clusters) {
+        if (!used.has(Number(c.cluster))) continue;
+        const profile = Object.entries(c.profile ?? {})
+          .slice(0, 6)
+          .map(
+            ([k, v]) =>
+              `${k} ${typeof v === "number" ? (Number.isInteger(v) ? v : v.toFixed(2)) : String(v)}`,
+          )
+          .join(", ");
+        notes.push(
+          `Group ${c.cluster}: ${c.size} training rows (${(c.share * 100).toFixed(1)}%); typical row: ${profile}.`,
+        );
+      }
+    }
+  } else if (task === "recommendation") {
+    notes.push(
+      "prediction is the ranked list of recommended items, scores their similarity weights; cold_start true means the user had no history and received the most popular items.",
+    );
+  }
+  return notes;
+}
+
 // `overrides.enabledTools` — when provided, only the listed tool ids are
 // considered for inclusion (subject to the underlying capability being
 // available — e.g. an n8n integration must still exist).
@@ -1806,8 +1916,16 @@ export async function resolveAgentTools(
                   .map((e) => ({
                     name: e.name,
                     type: e.dtype,
+                    // A sample, not the vocabulary: a model that saw twenty of
+                    // sixty customers must not replace the sixty-first with
+                    // "unknown". Rare and unseen values are handled by the
+                    // trained encoder.
                     categories: e.categories?.slice(0, 20),
+                    category_count: e.categories?.length,
                   })),
+                notes: [
+                  "categories lists a sample of the values seen in training (category_count is the total); pass the real value for any categorical feature, including one not listed - unseen values are handled.",
+                ],
               };
             }),
           });
@@ -1857,11 +1975,21 @@ export async function resolveAgentTools(
                 ),
               },
             });
+            const meta =
+              (version.forecast as { meta?: Record<string, unknown> | null } | null)?.meta ?? null;
             return JSON.stringify({
               model: model.name,
               version: version.version,
               task: "forecast",
+              algorithm: version.algorithm,
+              period: meta?.period ?? null,
+              aggregation: meta?.aggregation ?? null,
+              last_observed_period: meta?.last_period ?? null,
               forecast: f?.points ?? [],
+              notes: [
+                ...forecastNotes(version.algorithm, meta),
+                ...versionCaveats(version.warnings),
+              ],
             });
           }
           const rows = Array.isArray(a.rows)
@@ -1883,23 +2011,36 @@ export async function resolveAgentTools(
           });
           if (!r.ok)
             return JSON.stringify({ error: r.error, prediction_id: r.predictionId ?? null });
+          // Everything the trainer wrote that a person would ask about — not
+          // just the label. Dropping anomaly_score once left an agent saying
+          // "not an anomaly" with nothing to back it.
           const keep = [
             "prediction",
             "probability",
+            "anomaly_score",
+            "distance",
+            "scores",
+            "cold_start",
             ...r.columns.filter((col) => col.startsWith("proba_")),
           ];
           const idx = r.columns
             .map((col, i) => [col, i] as const)
             .filter(([col]) => keep.includes(col));
+          const predictions = r.rows.map((row) =>
+            Object.fromEntries(idx.map(([col, i]) => [col, row[i]])),
+          );
           return JSON.stringify({
             model: model.name,
             version: version.version,
+            task: model.task,
             algorithm: r.algorithm,
-            predictions: r.rows.map((row) =>
-              Object.fromEntries(idx.map(([col, i]) => [col, row[i]])),
-            ),
+            predictions,
             row_count: r.rows.length,
             warnings: r.warnings,
+            notes: [
+              ...mlPredictionNotes(model.task, version.metrics, predictions),
+              ...versionCaveats(version.warnings),
+            ],
           });
         } catch (e) {
           return JSON.stringify({ error: e instanceof Error ? e.message : "Prediction failed" });

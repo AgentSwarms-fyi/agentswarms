@@ -37,9 +37,12 @@ import {
   type MlSourceTable,
 } from "@/utils/ml.functions";
 import {
+  ML_PERIODS,
+  ML_PERIOD_LABEL,
   ML_TARGET_TASKS,
   ML_TASK_LABEL,
   ML_TUNING_LABEL,
+  type MlPeriod,
   type MlPrepConfig,
   type MlTask,
   type MlTuning,
@@ -125,6 +128,7 @@ function TrainWizard() {
   const [timeColumn, setTimeColumn] = useState("");
   const [horizon, setHorizon] = useState(12);
   const [aggregation, setAggregation] = useState<"sum" | "mean">("sum");
+  const [period, setPeriod] = useState<MlPeriod>("auto");
   const [name, setName] = useState("");
   const [nameTouched, setNameTouched] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -283,6 +287,7 @@ function TrainWizard() {
           time_column: task === "forecast" ? timeColumn : undefined,
           horizon: task === "forecast" ? horizon : undefined,
           aggregation: task === "forecast" ? aggregation : undefined,
+          period: task === "forecast" ? period : undefined,
           user_column: task === "recommendation" ? userColumn : undefined,
           item_column: task === "recommendation" ? itemColumn : undefined,
           rating_column: task === "recommendation" && ratingColumn ? ratingColumn : undefined,
@@ -553,7 +558,7 @@ function TrainWizard() {
                           })}
                         </div>
                         {task === "forecast" ? (
-                          <div className="grid gap-3 sm:grid-cols-3">
+                          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                             <div className="space-y-1">
                               <Label className="text-xs">Time column</Label>
                               <select
@@ -564,6 +569,20 @@ function TrainWizard() {
                                 {datetimeColumns.map((c) => (
                                   <option key={c.name} value={c.name}>
                                     {c.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Period</Label>
+                              <select
+                                className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                                value={period}
+                                onChange={(e) => setPeriod(e.target.value as MlPeriod)}
+                              >
+                                {ML_PERIODS.map((p) => (
+                                  <option key={p} value={p}>
+                                    {ML_PERIOD_LABEL[p]}
                                   </option>
                                 ))}
                               </select>
@@ -869,6 +888,7 @@ function TrainWizard() {
                   {task === "forecast" ? (
                     <>
                       <Row k="Time column" v={timeColumn} />
+                      <Row k="Period" v={ML_PERIOD_LABEL[period]} />
                       <Row
                         k="Horizon"
                         v={`${horizon} periods, ${aggregation === "sum" ? "totals" : "averages"} per period`}
@@ -925,7 +945,10 @@ function TrainWizard() {
               />
               <Summary label="Task" value={target || !needsTarget ? ML_TASK_LABEL[task] : "—"} />
               {task === "forecast" && target ? (
-                <Summary label="Horizon" value={`${horizon} × ${timeColumn || "?"}`} />
+                <Summary
+                  label="Horizon"
+                  value={`${horizon} ${period === "auto" ? "periods" : ML_PERIOD_LABEL[period].replace(/ly$/, "s").replace("dais", "days")} × ${timeColumn || "?"}`}
+                />
               ) : null}
             </CardContent>
           </Card>

@@ -56,6 +56,10 @@ describe("the headless allow-list stays honest", () => {
       "sql_query",
       "kb_search",
       "metric_query",
+      // The ML tools list and score with the run owner's models: the registry
+      // resolves them from scopeUserId (asserted below), and every prediction
+      // is audited under the run's decision id.
+      "ml_predict",
     ]);
     for (const id of headlessAllowList()) {
       expect(
@@ -64,6 +68,15 @@ describe("the headless allow-list stays honest", () => {
           `scopeUserId — under the service role, RLS is OFF — then add it here.`,
       ).toBe(true);
     }
+  });
+
+  it("ml_predict resolves the owner's models from the run scope, not the caller", () => {
+    const registry = readFileSync("src/utils/tools/registry.server.ts", "utf8");
+    const start = registry.indexOf('if (allows("ml_predict")) {');
+    expect(start).toBeGreaterThan(0);
+    const block = registry.slice(start, start + 600);
+    expect(block).toContain("const mlOwner = ctx.scopeUserId ?? ctx.userId;");
+    expect(block).toContain("listModelsForUser(mlOwner)");
   });
 
   it("metric_query actually forwards the tenant scope it claims to", () => {
