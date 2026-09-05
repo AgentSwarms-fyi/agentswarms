@@ -220,12 +220,19 @@ function MlDocsPage() {
 
       <H2 id="versions">Versions</H2>
       <P>
-        The Versions tab lists every version with its stage, algorithm, primary metric, rows and
-        snapshot. <strong>Promote</strong> makes a ready version the production one and archives the
-        previous; <strong>Archive</strong> withdraws a version without deleting its metrics or
-        passport; <strong>Restore</strong> returns it to the candidates.{" "}
-        <strong>Train new version</strong> re-reads the table as of the current snapshot with the
-        model&apos;s saved data preparation, and takes its own budget, row limit and tuning mode.
+        Tick two or more trained versions on the <strong>Versions</strong> tab to{" "}
+        <strong>compare</strong> them side by side: every metric they share, rows, tuning and
+        training time, with the best value in each row marked. The <strong>Model card</strong>{" "}
+        button assembles one Markdown document from the registry rows — intended use, training data
+        and snapshot, preparation, features and dropped columns, metrics and leaderboard,
+        importance, groups, warnings, governance, how to call it — copied or downloaded; nobody
+        types it, so it cannot drift from what shipped. The Versions tab lists every version with
+        its stage, algorithm, primary metric, rows and snapshot. <strong>Promote</strong> makes a
+        ready version the production one and archives the previous; <strong>Archive</strong>{" "}
+        withdraws a version without deleting its metrics or passport; <strong>Restore</strong>{" "}
+        returns it to the candidates. <strong>Train new version</strong> re-reads the table as of
+        the current snapshot with the model&apos;s saved data preparation, and takes its own budget,
+        row limit and tuning mode.
       </P>
 
       <H2 id="predictions">Predictions</H2>
@@ -257,6 +264,45 @@ function MlDocsPage() {
         <C>ml_predict</C> (rows in, predictions out). Both are offered only when the caller can use
         at least one model with a production version; on headless runs grants are re-derived from
         the run&apos;s owner. Forecast models return their projected periods.
+      </P>
+
+      <H2 id="automation">Automation</H2>
+      <P>
+        The model page&apos;s <strong>Automation</strong> tab schedules two kinds of work, each
+        running as you, in the same sweep, under the same cron lease and with the same reaper as ETL
+        pipelines and materialized views.
+      </P>
+      <UL>
+        <li>
+          <strong>Retrain</strong> — a new version from the current table every hour, day, week or
+          on a cron expression, with its own budget and tuning mode. With{" "}
+          <strong>promote when better</strong> on, the new version becomes production the moment it
+          is ready if its primary metric beats the incumbent; you are told either way.
+        </li>
+        <li>
+          <strong>Batch prediction</strong> — score a lakehouse table (optionally filtered) into a
+          table you own with the production version, so a scored table stays fresh for dashboards
+          and agents without anyone clicking.
+        </li>
+      </UL>
+      <P>
+        <strong>Run now</strong> starts a schedule immediately; <strong>pause</strong> keeps it
+        without running it; resuming schedules from now, never from the missed past. Every start is
+        audited (<C>ml.schedule.run</C> / <C>ml.schedule.failed</C>) and the schedule rows are
+        audited by trigger.
+      </P>
+
+      <H2 id="drift">Drift</H2>
+      <P>
+        Training records the distribution of every feature — decile bins for numbers, the top
+        categories for categoricals. Every batch prediction (and any direct prediction of ten rows
+        or more) bins the new rows the same way and reports a{" "}
+        <strong>population stability index</strong> per feature; the run&apos;s{" "}
+        <strong>Drift</strong> badge shows the highest one: below 0.1 stable, 0.1–0.25 moderate,
+        above 0.25 the population has moved. A run above <C>ML_DRIFT_ALERT_PSI</C> (0.25 by default)
+        is audited as <C>ml.drift.alert</C> and notifies the model&apos;s owner with the three most
+        drifted features — the cue to retrain, or to schedule retraining. The public API returns the
+        same numbers in <C>/api/ml/predict/status</C>.
       </P>
 
       <H2 id="api">Public API</H2>
@@ -395,6 +441,12 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
             "60",
             "Calls a minute one ML API key may make",
           ],
+          [<C key="g">ML_TRAIN_GPUS</C>, "0", "GPUs requested per training sandbox"],
+          [
+            <C key="h">ML_DRIFT_ALERT_PSI</C>,
+            "0.25",
+            "PSI above which a prediction run raises a drift alert",
+          ],
         ]}
       />
 
@@ -411,10 +463,96 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
           with the lake endpoint automatically before a job starts.
         </li>
         <li>
+          <strong>GPUs:</strong> <C>ML_TRAIN_GPUS</C> (or the Admin setting) requests that many GPUs
+          for every training sandbox — a Docker device request on a single host, an{" "}
+          <C>nvidia.com/gpu</C> limit on Kubernetes. The baked runtime image is CPU-only; point{" "}
+          <C>NOTEBOOK_RUNTIME_IMAGE</C> at a CUDA-capable build when you need one.
+        </li>
+        <li>
           Artifacts live under <C>ml-artifacts/</C> in the lake bucket. <C>npm run backup</C>{" "}
           mirrors the lake data path; add the artifacts prefix to your object-store backup as well.
         </li>
       </UL>
+
+      <H2 id="how-this-compares">How this compares</H2>
+      <P>Where AgentSwarms stands against Databricks ML and SageMaker, honestly:</P>
+      <Table
+        headers={["Capability", "AgentSwarms", "Databricks / SageMaker"]}
+        rows={[
+          [
+            "No-code AutoML",
+            "Six tasks incl. clustering, anomaly, recommendation; tuning; data prep in the wizard",
+            "AutoML / Canvas: similar tasks, larger search spaces",
+          ],
+          [
+            "Registry, stages, lineage",
+            "Versions, stages, snapshot + decision id per version, artifact digests",
+            "MLflow registry / Model Registry",
+          ],
+          [
+            "Batch scoring",
+            "Into lakehouse tables, scheduled, with drift per run",
+            "Jobs / Batch Transform",
+          ],
+          [
+            "Real-time inference",
+            "A sandbox per call: seconds, not milliseconds; no warm autoscaled endpoint yet",
+            "Serving endpoints with autoscaling",
+          ],
+          [
+            "Drift monitoring",
+            "PSI per feature on every batch, threshold alerts",
+            "Lakehouse Monitoring / Model Monitor (more statistics)",
+          ],
+          [
+            "Scheduled retraining",
+            "Cron/cadence, promote-when-better, one platform clock",
+            "Workflows / Pipelines",
+          ],
+          [
+            "Public API",
+            "Per-model scoped keys, rate limits, audited denials, BYO registration",
+            "Yes, IAM-based",
+          ],
+          [
+            "Bring your own model",
+            "Any joblib pipeline under a small contract",
+            "Any framework, containers",
+          ],
+          ["Feature store", "Not yet — prep flows and lakehouse tables play that role", "Yes"],
+          [
+            "Distributed / GPU training",
+            "One sandbox per job; GPUs requestable, CPU image by default",
+            "Clusters, distributed frameworks, GPU instances",
+          ],
+          [
+            "Experiment tracking",
+            "Leaderboard and tuning trials per version; no MLflow-style run logging from notebooks yet",
+            "MLflow / Experiments",
+          ],
+          ["Model cards", "Generated from the registry", "SageMaker Model Cards"],
+          [
+            "Governance",
+            "IAM shares, trigger audit, decision ids, result digests, one statement guard for all data",
+            "Unity Catalog / IAM",
+          ],
+          [
+            "Agents and BI",
+            "Models are agent tools; forecasts and drift live in the BI layer",
+            "Separate products",
+          ],
+          [
+            "Cost and residency",
+            "Self-hosted, your infrastructure, no per-call charges",
+            "Managed, metered",
+          ],
+        ]}
+      />
+      <P>
+        The gaps that matter most — a warm real-time endpoint, a feature store, distributed
+        training, notebook experiment logging — are on the road map; everything in the left column
+        is shipped and tested.
+      </P>
 
       <H2 id="use-cases">Use cases</H2>
       <H3 id="use-case-plan">Which plan will a customer end up on?</H3>

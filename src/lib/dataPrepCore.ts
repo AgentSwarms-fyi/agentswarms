@@ -1314,7 +1314,10 @@ export function parsePrepConfig(v: Json): PrepFlowConfig {
       : undefined;
   const out = cfg.output as { kind?: unknown; schema?: unknown; table?: unknown } | undefined;
   const output: PrepOutputTarget | undefined =
-    out && out.kind === "lakehouse" && typeof out.schema === "string" && typeof out.table === "string"
+    out &&
+    out.kind === "lakehouse" &&
+    typeof out.schema === "string" &&
+    typeof out.table === "string"
       ? { kind: "lakehouse", schema: out.schema, table: out.table }
       : undefined;
 

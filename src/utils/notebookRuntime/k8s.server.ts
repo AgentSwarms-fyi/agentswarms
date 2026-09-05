@@ -67,7 +67,11 @@ function containerSpec(spec: KernelSpec) {
     env: Object.entries(spec.env).map(([name, value]) => ({ name, value })),
     resources: {
       requests: { cpu: "250m", memory: `${Math.min(512, spec.memLimitMb)}Mi` },
-      limits: { cpu: spec.cpuLimit, memory: `${spec.memLimitMb}Mi` },
+      limits: {
+        cpu: spec.cpuLimit,
+        memory: `${spec.memLimitMb}Mi`,
+        ...(spec.gpus ? { "nvidia.com/gpu": String(spec.gpus) } : {}),
+      },
     },
     securityContext: {
       allowPrivilegeEscalation: false,

@@ -111,6 +111,9 @@ export async function processDueEtlPipelines(force = false): Promise<number> {
     .then((m) => m.reconcileOrphanedMlJobs())
     .then(() => import("@/utils/ml/predict.server"))
     .then((m) => m.reconcileOrphanedPredictions())
+    // Due ML schedules (retrain, batch predict) share the sweep, lease and clock.
+    .then(() => import("@/utils/ml/schedule.server"))
+    .then((m) => m.processDueMlSchedules(force))
     .catch((e) => console.warn("[ml] orphan sweep failed:", (e as Error).message));
 
   return started;

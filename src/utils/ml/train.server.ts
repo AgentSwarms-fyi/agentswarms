@@ -253,6 +253,7 @@ export async function startTrainingJob(args: {
       entrypoint: "entrypoint",
       inputs: { [ML_JOB_KEY]: { job_id: job.id } },
       memLimitMb: limits.mlTrainMemLimitMb,
+      gpus: limits.mlTrainGpus || undefined,
       // The sandbox outlives the budget by a margin: the trainer stops picking
       // new candidates at 85% of the budget, then evaluates and uploads.
       maxMinutes: Math.max(budget + 15, 20),
@@ -468,6 +469,7 @@ export async function finalizeMlJob(
       leaderboard: r.leaderboard as Json,
       feature_importance: r.feature_importance as Json,
       feature_schema: r.feature_schema as Json,
+      feature_stats: (r.feature_stats ?? null) as Json,
       artifact_uri: r.artifact_uri,
       artifact_sha256: r.artifact_sha256,
       artifact_bytes: r.artifact_bytes,

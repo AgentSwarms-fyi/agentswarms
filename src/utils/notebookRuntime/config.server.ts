@@ -48,6 +48,10 @@ export type PlatformResourceSettings = {
   mlTrainMemLimitMb: number;
   mlMaxConcurrentTrainingsPerUser: number;
   mlPredictMaxRows: number;
+  /** GPUs requested per training sandbox; 0 = none. */
+  mlTrainGpus: number;
+  /** PSI above which a batch prediction raises a drift notification. */
+  mlDriftAlertPsi: number;
 };
 
 /** A stored override only counts when it is a usable positive number. */
@@ -67,11 +71,22 @@ function envInt(name: string): number | undefined {
  * shows what the host actually has and warns when a value exceeds it, which
  * informs the decision instead of overriding it.
  */
+const nonNegative = (v: unknown) =>
+  typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : undefined;
+const positiveNum = (v: unknown) =>
+  typeof v === "number" && Number.isFinite(v) && v > 0 ? v : undefined;
+/** A decimal knob (a PSI threshold), read like envInt but not truncated. */
+function envNum(name: string): number | undefined {
+  const raw = process.env[name];
+  const n = raw ? Number.parseFloat(raw) : Number.NaN;
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
 export async function getPlatformResources(): Promise<PlatformResourceSettings> {
   const { data } = await supabaseAdmin
     .from("notebook_runtime_settings")
     .select(
-      "lakehouse_memory_limit, lakehouse_threads, etl_max_concurrent_runs_per_user, etl_pipelines_per_sweep, ml_train_max_rows, ml_train_time_budget_minutes, ml_train_mem_limit_mb, ml_max_concurrent_trainings_per_user, ml_predict_max_rows",
+      "lakehouse_memory_limit, lakehouse_threads, etl_max_concurrent_runs_per_user, etl_pipelines_per_sweep, ml_train_max_rows, ml_train_time_budget_minutes, ml_train_mem_limit_mb, ml_max_concurrent_trainings_per_user, ml_predict_max_rows, ml_train_gpus, ml_drift_alert_psi",
     )
     .eq("id", true)
     .maybeSingle();
@@ -99,6 +114,8 @@ export async function getPlatformResources(): Promise<PlatformResourceSettings> 
       2,
     mlPredictMaxRows:
       positive(data?.ml_predict_max_rows) ?? envInt("ML_PREDICT_MAX_ROWS") ?? 5_000_000,
+    mlTrainGpus: nonNegative(data?.ml_train_gpus) ?? envInt("ML_TRAIN_GPUS") ?? 0,
+    mlDriftAlertPsi: positiveNum(data?.ml_drift_alert_psi) ?? envNum("ML_DRIFT_ALERT_PSI") ?? 0.25,
   };
 }
 

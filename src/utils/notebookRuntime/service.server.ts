@@ -116,6 +116,8 @@ export async function startSession(opts: {
   memLimitMb?: number;
   /** Batch only: override the runtime's default wall-clock limit (minutes). */
   maxMinutes?: number;
+  /** Batch only: GPUs to request for the sandbox. */
+  gpus?: number;
 }): Promise<{ session: SessionRow; token: string; gatewayUrl: string }> {
   const settings = await getRuntimeSettings();
   const batch = opts.kind === "batch";
@@ -193,6 +195,7 @@ export async function startSession(opts: {
       cpuLimit: cpu,
       memLimitMb: mem,
       tmpfsMb: settings.sandboxTmpfsMb,
+      gpus: batch ? opts.gpus || 0 : 0,
       // 0 = no wall-clock ceiling, which is what a long-lived service needs.
       timeoutSeconds: service ? 0 : maxMin * 60,
       env,

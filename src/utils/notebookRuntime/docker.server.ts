@@ -121,6 +121,10 @@ export class DockerOrchestrator implements NotebookOrchestrator {
         MemorySwap: memBytes, // no swap
         NanoCpus: nanoCpus,
         PidsLimit: 256,
+        // A GPU sandbox: the same request `docker run --gpus N` makes.
+        ...(spec.gpus
+          ? { DeviceRequests: [{ Driver: "nvidia", Count: spec.gpus, Capabilities: [["gpu"]] }] }
+          : {}),
         ReadonlyRootfs: true,
         CapDrop: ["ALL"],
         SecurityOpt: ["no-new-privileges"],

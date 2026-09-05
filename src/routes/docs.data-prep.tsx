@@ -359,9 +359,9 @@ date_trunc('month', ordered_at)`}</Code>
 
       <H2 id="lakehouse">Lakehouse tables in and out</H2>
       <P>
-        The palette lists every lakehouse table you may read. <strong>Link</strong> puts one on
-        the canvas without copying a row: the flow remembers the table, and while every source is
-        a lakehouse table the whole recipe — joins, every step — compiles to one DuckDB query that
+        The palette lists every lakehouse table you may read. <strong>Link</strong> puts one on the
+        canvas without copying a row: the flow remembers the table, and while every source is a
+        lakehouse table the whole recipe — joins, every step — compiles to one DuckDB query that
         runs through the lakehouse statement guard as you (schema grants, row filters and column
         masks, audit), so a preview is what the run will produce. A lakehouse table beside a local
         dataset or a warehouse table is buffered like a warehouse table and the flow runs locally.

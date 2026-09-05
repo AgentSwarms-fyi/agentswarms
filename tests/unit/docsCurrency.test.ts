@@ -87,6 +87,20 @@ const CASES: Currency[] = [
     docMentions: [/materialized view/i, /statement guard/i],
   },
   {
+    capability: "Models retrain and score on a schedule, on the platform's one clock",
+    code: "src/utils/ml/schedule.server.ts",
+    codeContains: "export async function processDueMlSchedules(",
+    doc: "src/routes/docs.ml.tsx",
+    docMentions: [/promote when better/i, /ml\.schedule\.run/],
+  },
+  {
+    capability: "Every batch prediction measures drift against the training distribution",
+    code: "src/utils/ml/predict.server.ts",
+    codeContains: 'action: "ml.drift.alert"',
+    doc: "src/routes/docs.ml.tsx",
+    docMentions: [/population stability index/i, /ML_DRIFT_ALERT_PSI/],
+  },
+  {
     capability: "One forecaster for charts, the Analyst and alerts",
     code: "src/lib/mlForecast.ts",
     codeContains: "export function forecastValues",

@@ -562,22 +562,88 @@ def _train_tabular(df, cfg, warnings_):
         importance = []
         warnings_.append('Feature importance unavailable: ' + str(e)[:160])
 
+    stats = _feature_stats(df, schema, features)
     payload = {
         'task': task, 'algorithm': best_name, 'pipeline': best, 'target': target,
         'features': features, 'dt_cols': dt_cols, 'num_all': num_all, 'cat': cat, 'text': text,
-        'classes': classes, 'schema': schema, 'prep': prep, 'trainer_version': 3,
+        'classes': classes, 'schema': schema, 'prep': prep, 'feature_stats': stats, 'trainer_version': 3,
     }
     buf = io.BytesIO()
     joblib.dump(payload, buf, compress=3)
     return {
         'task': task, 'algorithm': best_name, 'metrics': metrics, 'primary_metric': metric,
-        'leaderboard': leaderboard, 'feature_importance': importance, 'feature_schema': schema,
+        'leaderboard': leaderboard, 'feature_importance': importance, 'feature_schema': schema, 'feature_stats': stats,
         'classes': classes, 'training_rows': int(len(Xtr)), 'holdout_rows': int(len(Xva)),
         'tuning': tuning_info, '_artifact': buf.getvalue(),
     }
 
 
 # ── Forecasting ──────────────────────────────────────────────────────────────
+# ── Drift: the training distribution of every feature ───────────────────────
+def _feature_stats(df, schema, features):
+    import numpy as np
+    import pandas as pd
+    by = {e['name']: e for e in schema}
+    stats = {}
+    for f in features:
+        d = by[f]['dtype']
+        s = df[f]
+        if d in ('numeric', 'boolean'):
+            v = pd.to_numeric(s, errors='coerce').dropna().astype(float)
+            if len(v) < 10 or v.nunique() < 2:
+                continue
+            edges = np.unique(np.quantile(v, np.linspace(0, 1, 11)))
+            if len(edges) < 3:
+                continue
+            counts, _ = np.histogram(v, bins=edges)
+            stats[f] = {'kind': 'numeric', 'edges': [float(x) for x in edges],
+                        'props': (counts / max(1, counts.sum())).tolist(), 'n': int(len(v))}
+        elif d == 'categorical':
+            vc = s.dropna().astype(str).value_counts(normalize=True)
+            if len(vc) == 0:
+                continue
+            top = vc.iloc[:20]
+            stats[f] = {'kind': 'categorical', 'props': {str(k): float(x) for k, x in top.items()},
+                        'other': float(max(0.0, 1.0 - float(top.sum()))), 'n': int(s.notna().sum())}
+    return stats
+
+
+def _drift(stats, df):
+    # Population stability index per feature: sum((a - e) * ln(a / e)) over the
+    # training bins, with the new rows binned the same way. Below 0.1 is stable,
+    # 0.1-0.25 moderate, above 0.25 the population has moved.
+    import numpy as np
+    import pandas as pd
+    out = {}
+    for f, st in (stats or {}).items():
+        if f not in df.columns:
+            continue
+        s = df[f]
+        if st['kind'] == 'numeric':
+            v = pd.to_numeric(s, errors='coerce').dropna().astype(float)
+            if len(v) < 10:
+                continue
+            edges = np.array(st['edges'], dtype=float)
+            counts, _ = np.histogram(v.clip(edges[0], edges[-1]), bins=edges)
+            actual = counts / max(1, counts.sum())
+            expected = np.array(st['props'], dtype=float)
+        else:
+            vc = s.dropna().astype(str).value_counts(normalize=True)
+            cats = list(st['props'].keys())
+            seen = sum(float(vc.get(c, 0.0)) for c in cats)
+            expected = np.array([st['props'][c] for c in cats] + [st.get('other', 0.0)], dtype=float)
+            actual = np.array([float(vc.get(c, 0.0)) for c in cats] + [float(max(0.0, 1.0 - seen))], dtype=float)
+        if len(actual) != len(expected):
+            continue
+        e = np.clip(expected, 1e-4, None)
+        a = np.clip(actual, 1e-4, None)
+        out[f] = float(np.sum((a - e) * np.log(a / e)))
+    if not out:
+        return None
+    ranked = sorted(out.items(), key=lambda kv: -kv[1])
+    return {'score': round(float(ranked[0][1]), 4), 'features': {k: round(v, 4) for k, v in ranked}, 'rows': int(len(df))}
+
+
 # ── Clustering, anomaly detection, recommendation ───────────────────────────
 def _plan_and_prepare(df, cfg, warnings_):
     prep = cfg.get('prep') or {}
@@ -654,13 +720,14 @@ def _train_clustering(df, cfg, warnings_):
     metrics = {'silhouette': _safe_float(sil), 'n_clusters': float(k), 'inertia': _safe_float(km.inertia_), 'clusters': profiles}
     if not fixed:
         warnings_.append('k=%d chosen by silhouette over %s.' % (k, ', '.join(str(x) for x in ks)))
+    stats = _feature_stats(df, schema, features)
     payload = {'task': 'clustering', 'algorithm': 'kmeans_k%d' % k, 'pipeline': pipe, 'target': None,
                'features': features, 'dt_cols': dt_cols, 'num_all': num_all, 'cat': cat, 'text': text,
-               'classes': None, 'schema': schema, 'prep': prep, 'trainer_version': 3}
+               'classes': None, 'schema': schema, 'prep': prep, 'feature_stats': stats, 'trainer_version': 3}
     buf = io.BytesIO()
     joblib.dump(payload, buf, compress=3)
     return {'task': 'clustering', 'algorithm': 'kmeans_k%d' % k, 'metrics': metrics, 'primary_metric': 'silhouette',
-            'leaderboard': leaderboard, 'feature_importance': [], 'feature_schema': schema, 'classes': None,
+            'leaderboard': leaderboard, 'feature_importance': [], 'feature_schema': schema, 'feature_stats': stats, 'classes': None,
             'training_rows': n, 'holdout_rows': 0, 'tuning': {'mode': 'none', 'trials': 0}, '_artifact': buf.getvalue()}
 
 
@@ -687,13 +754,14 @@ def _train_anomaly(df, cfg, warnings_):
     leaderboard = [{'algorithm': 'isolation_forest', 'metric': 'anomaly_rate', 'value': rate, 'higher_is_better': False,
                     'fit_seconds': round(time.time() - t0, 2), 'status': 'ok', 'note': 'contamination=%.3f%s' % (cont, '' if cfg.get('contamination') else ' (default)')}]
     _log('isolation forest: %.1f%% of rows flagged' % (rate * 100))
+    stats = _feature_stats(df, schema, features)
     payload = {'task': 'anomaly', 'algorithm': 'isolation_forest', 'pipeline': pipe, 'target': None,
                'features': features, 'dt_cols': dt_cols, 'num_all': num_all, 'cat': cat, 'text': text,
-               'classes': None, 'schema': schema, 'prep': prep, 'trainer_version': 3}
+               'classes': None, 'schema': schema, 'prep': prep, 'feature_stats': stats, 'trainer_version': 3}
     buf = io.BytesIO()
     joblib.dump(payload, buf, compress=3)
     return {'task': 'anomaly', 'algorithm': 'isolation_forest', 'metrics': metrics, 'primary_metric': 'anomaly_rate',
-            'leaderboard': leaderboard, 'feature_importance': [], 'feature_schema': schema, 'classes': None,
+            'leaderboard': leaderboard, 'feature_importance': [], 'feature_schema': schema, 'feature_stats': stats, 'classes': None,
             'training_rows': int(len(X)), 'holdout_rows': 0, 'tuning': {'mode': 'none', 'trials': 0}, '_artifact': buf.getvalue()}
 
 
@@ -1100,6 +1168,8 @@ def _predict(cfg, warnings_):
         df = con.execute('SELECT * FROM ' + body).df()
     if len(df) == 0:
         raise RuntimeError('No rows to score.')
+    # Ten rows is the least a distribution can be compared on.
+    drift = _drift(art.get('feature_stats'), df) if len(df) >= 10 else None
     missing = [f for f in art['features'] if f not in df.columns]
     if missing:
         warnings_.append('Input is missing %d feature column(s), treated as empty: %s' % (len(missing), ', '.join(missing[:8])))
@@ -1149,7 +1219,7 @@ def _predict(cfg, warnings_):
     sample = [[_jsonable_cell(v) for v in row] for row in out.head(sample_n).itertuples(index=False, name=None)]
     digest_cols = ['prediction'] + [c for c in ('probability', 'anomaly_score', 'distance') if c in out.columns]
     digest_rows = [[_jsonable_cell(v) for v in row] for row in out[digest_cols].head(1000).itertuples(index=False, name=None)]
-    return {'mode': 'predict', 'row_count': int(len(out)), 'total_input_rows': int(total), 'output': written,
+    return {'mode': 'predict', 'row_count': int(len(out)), 'total_input_rows': int(total), 'output': written, 'drift': drift,
             'columns': cols, 'sample': sample, 'digest_columns': digest_cols, 'digest_rows': digest_rows,
             'algorithm': art.get('algorithm')}
 

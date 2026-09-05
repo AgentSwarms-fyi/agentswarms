@@ -317,6 +317,8 @@ runtime** and takes effect on the next job, no redeploy.
 | `ML_MAX_CONCURRENT_TRAININGS_PER_USER` | 2         | Training jobs one user may have live at once.                                                             |
 | `ML_PREDICT_MAX_ROWS`                  | 5,000,000 | Rows one batch prediction may score.                                                                      |
 | `ML_API_RATE_LIMIT_PER_MIN`            | 60        | Calls a minute one ML API key may make, across every `/api/ml/*` endpoint (global limiter).               |
+| `ML_TRAIN_GPUS`                        | 0         | GPUs requested per training sandbox: a Docker device request, or `nvidia.com/gpu` on Kubernetes.          |
+| `ML_DRIFT_ALERT_PSI`                   | 0.25      | Population stability index above which a batch prediction audits `ml.drift.alert` and notifies the owner. |
 
 Nothing here is a ceiling in the code. On a 64-core, 512 GB machine set
 `ML_TRAIN_MAX_ROWS` to the size of your largest table and

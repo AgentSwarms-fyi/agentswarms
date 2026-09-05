@@ -86,7 +86,7 @@ export async function createAndTrainVersion(
   model: MlModelRow,
   config: MlTrainConfig,
   version: number,
-  opts: { apiKeyId?: string | null } = {},
+  opts: { apiKeyId?: string | null; trigger?: string } = {},
 ): Promise<{ ok: true; jobId: string; versionId: string } | { ok: false; error: string }> {
   const { data: v, error } = await supabaseAdmin
     .from("ml_model_versions")
@@ -100,7 +100,7 @@ export async function createAndTrainVersion(
     .select("*")
     .single();
   if (error || !v) return { ok: false, error: error?.message ?? "Failed to create version" };
-  const started = await startTrainingJob({ model, version: v });
+  const started = await startTrainingJob({ model, version: v, trigger: opts.trigger });
   if (!started.ok) {
     await supabaseAdmin
       .from("ml_model_versions")
@@ -124,7 +124,7 @@ export async function createAndTrainVersion(
 export async function trainNewVersion(
   model: MlModelRow,
   input: MlTrainInput,
-  opts: { userId: string; apiKeyId?: string | null },
+  opts: { userId: string; apiKeyId?: string | null; trigger?: string },
 ): Promise<{ ok: true; jobId: string; versionId: string } | { ok: false; error: string }> {
   if (input.prep) {
     const checked = await validateMlPrep(
@@ -574,6 +574,7 @@ export function predictionSummary(row: {
     result_digest?: string;
     warnings?: string[];
     algorithm?: string | null;
+    drift?: { score: number; features: Record<string, number>; rows: number } | null;
   };
   return {
     prediction_id: row.id,
@@ -587,6 +588,7 @@ export function predictionSummary(row: {
     result_digest: result.result_digest ?? null,
     warnings: result.warnings ?? [],
     algorithm: result.algorithm ?? null,
+    drift: result.drift ?? null,
     started_at: row.started_at,
     finished_at: row.finished_at,
   };

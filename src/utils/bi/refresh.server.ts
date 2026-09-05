@@ -1081,7 +1081,9 @@ export async function refreshPrepFlowServer(
       .eq("table_name", cfg.output.table)
       .maybeSingle();
     if (!view) {
-      throw new Error("The flow's lakehouse table definition no longer exists — run the flow again");
+      throw new Error(
+        "The flow's lakehouse table definition no longer exists — run the flow again",
+      );
     }
     const res = await refreshMaterializedView(view as never, "prep_refresh");
     if (!res.ok) throw new Error(res.error ?? "Lakehouse refresh failed");

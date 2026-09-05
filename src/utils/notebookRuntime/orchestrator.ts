@@ -28,6 +28,8 @@ export type KernelSpec = {
   memLimitMb: number;
   /** Writable tmpfs per sandbox for ~/.local and ~/work, in MB. */
   tmpfsMb?: number;
+  /** GPUs to request (Docker device request / nvidia.com/gpu); 0 or absent = none. */
+  gpus?: number;
   /** hard wall-clock ceiling for the sandbox; 0 = none (long-lived services) */
   timeoutSeconds: number;
   /** injected into the container environment (session token, callback URL, proxy…) */

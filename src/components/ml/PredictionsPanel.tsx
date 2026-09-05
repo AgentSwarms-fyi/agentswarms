@@ -31,6 +31,7 @@ import type { MlModelRow, MlVersionRow } from "@/utils/ml/access.server";
 import type { MlPredictionRow, MlRowsPredictResult } from "@/utils/ml/predict.server";
 import { ML_JOB_LIVE, type MlFeatureSchemaEntry, type MlForecastPoint } from "@/utils/ml/types";
 import { JobStatusChip, fmtDuration, fmtInt, relTime } from "@/components/ml/mlUi";
+import { ML_DRIFT_MODERATE, type MlDrift } from "@/utils/ml/types";
 
 const LIVE = new Set<string>(ML_JOB_LIVE);
 
@@ -126,6 +127,7 @@ export function PredictionsPanel({
               <th className="px-3 py-2 font-medium">Input → output</th>
               <th className="px-3 py-2 text-right font-medium">Rows</th>
               <th className="px-3 py-2 font-medium">Duration</th>
+              <th className="px-3 py-2 font-medium">Drift</th>
               <th className="px-3 py-2 text-right font-medium"></th>
             </tr>
           </thead>
@@ -197,6 +199,9 @@ export function PredictionsPanel({
                     <td className="px-3 py-2 text-right tabular-nums">{fmtInt(r.row_count)}</td>
                     <td className="px-3 py-2 tabular-nums">
                       {fmtDuration(r.started_at ?? r.created_at, r.finished_at)}
+                    </td>
+                    <td className="px-3 py-2">
+                      <DriftBadge row={r} />
                     </td>
                     <td className="px-3 py-2 text-right">
                       {LIVE.has(r.status) && !shared ? (
@@ -727,4 +732,34 @@ function parseList(v: unknown): unknown[] {
   } catch {
     return [];
   }
+}
+
+/** The population stability of a run's rows against the training data. */
+function DriftBadge({ row }: { row: { drift_score: number | null; result: unknown } }) {
+  const score = row.drift_score;
+  if (score === null || score === undefined) {
+    return <span className="text-[11px] text-muted-foreground">—</span>;
+  }
+  const drift = (row.result as { drift?: MlDrift | null } | null)?.drift ?? null;
+  const top = drift
+    ? Object.entries(drift.features)
+        .slice(0, 5)
+        .map(([k, v]) => `${k}: ${v.toFixed(2)}`)
+        .join("\n")
+    : "";
+  const tone =
+    score >= 0.25
+      ? "border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-400"
+      : score >= ML_DRIFT_MODERATE
+        ? "border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400"
+        : "border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400";
+  return (
+    <span
+      className={`inline-flex rounded border px-1.5 py-0.5 text-[10px] tabular-nums ${tone}`}
+      title={`Highest per-feature PSI. Below 0.1 stable, 0.1–0.25 moderate, above 0.25 the population moved.\n${top}`}
+    >
+      {score >= 0.25 ? "high" : score >= ML_DRIFT_MODERATE ? "moderate" : "stable"} ·{" "}
+      {score.toFixed(2)}
+    </span>
+  );
 }

@@ -19,6 +19,7 @@ import {
   Trash2,
   XCircle,
   KeyRound,
+  FileText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -77,6 +78,8 @@ import {
 } from "@/components/ml/mlUi";
 import { PredictionsPanel } from "@/components/ml/PredictionsPanel";
 import { MlApiKeysDialog } from "@/components/ml/MlApiKeysDialog";
+import { ModelCardDialog } from "@/components/ml/ModelCardDialog";
+import { SchedulesPanel } from "@/components/ml/SchedulesPanel";
 
 // React 19's stricter JSX typing rejects recharts' class components — cast via any.
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -141,6 +144,8 @@ function ModelPage() {
   const [tab, setTab] = useState("overview");
   const [trainOpen, setTrainOpen] = useState(false);
   const [apiOpen, setApiOpen] = useState(false);
+  const [cardOpen, setCardOpen] = useState(false);
+  const [compare, setCompare] = useState<Set<string>>(new Set());
   const [budget, setBudget] = useState<number | "">("");
   const [maxRows, setMaxRows] = useState<number | "">("");
   const [tuning, setTuning] = useState<MlTuning>("none");
@@ -347,6 +352,14 @@ function ModelPage() {
           <Button variant="outline" size="sm" onClick={() => void reload()}>
             <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Refresh
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!versions.some((v) => v.status === "ready")}
+            onClick={() => setCardOpen(true)}
+          >
+            <FileText className="mr-1.5 h-3.5 w-3.5" /> Model card
+          </Button>
           {!shared ? (
             <>
               <Button variant="outline" size="sm" onClick={() => void rename()}>
@@ -381,6 +394,15 @@ function ModelPage() {
         />
       ) : null}
 
+      <ModelCardDialog
+        open={cardOpen}
+        onOpenChange={setCardOpen}
+        token={token}
+        modelId={model.id}
+        modelName={model.name}
+        versionId={focus?.status === "ready" ? focus.id : undefined}
+      />
+
       {liveJob ? (
         <LiveJobBanner job={liveJob} onCancel={shared ? undefined : () => void cancel(liveJob)} />
       ) : null}
@@ -391,6 +413,7 @@ function ModelPage() {
           <TabsTrigger value="versions">Versions ({versions.length})</TabsTrigger>
           <TabsTrigger value="predictions">Predictions</TabsTrigger>
           <TabsTrigger value="jobs">Jobs ({jobs.length})</TabsTrigger>
+          <TabsTrigger value="automation">Automation</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="mt-4 space-y-4">
@@ -409,11 +432,23 @@ function ModelPage() {
           )}
         </TabsContent>
 
-        <TabsContent value="versions" className="mt-4">
+        <TabsContent value="versions" className="mt-4 space-y-4">
+          {compare.size >= 2 ? (
+            <CompareVersions
+              versions={versions.filter((v) => compare.has(v.id))}
+              primary={primary}
+              onClear={() => setCompare(new Set())}
+            />
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Tick two or more trained versions to compare them side by side.
+            </p>
+          )}
           <div className="overflow-hidden rounded-lg border bg-card">
             <table className="w-full text-sm">
               <thead className="bg-muted text-left text-xs">
                 <tr>
+                  <th className="w-8 px-3 py-2"></th>
                   <th className="px-3 py-2 font-medium">Version</th>
                   <th className="px-3 py-2 font-medium">State</th>
                   <th className="px-3 py-2 font-medium">Algorithm</th>
@@ -429,6 +464,22 @@ function ModelPage() {
                   const value = (v.metrics as Record<string, number | null>)?.[primary] ?? null;
                   return (
                     <tr key={v.id} className={cn("border-t", v.id === focus?.id && "bg-primary/5")}>
+                      <td className="px-3 py-2">
+                        <input
+                          type="checkbox"
+                          aria-label={`Compare v${v.version}`}
+                          disabled={v.status !== "ready"}
+                          checked={compare.has(v.id)}
+                          onChange={(e) =>
+                            setCompare((prev) => {
+                              const next = new Set(prev);
+                              if (e.target.checked) next.add(v.id);
+                              else next.delete(v.id);
+                              return next;
+                            })
+                          }
+                        />
+                      </td>
                       <td className="px-3 py-2 font-medium">v{v.version}</td>
                       <td className="px-3 py-2">
                         <StageChip stage={v.stage} status={v.status} />
@@ -490,6 +541,10 @@ function ModelPage() {
 
         <TabsContent value="predictions" className="mt-4">
           <PredictionsPanel token={token} model={model} versions={versions} shared={shared} />
+        </TabsContent>
+
+        <TabsContent value="automation" className="mt-4">
+          <SchedulesPanel token={token} modelId={model.id} task={model.task} shared={shared} />
         </TabsContent>
 
         <TabsContent value="jobs" className="mt-4">
@@ -1088,5 +1143,122 @@ function ClusterProfiles({ rows }: { rows: MlClusterProfile[] }) {
         </tbody>
       </table>
     </div>
+  );
+}
+
+/** Metrics of several versions side by side; the best value per row is marked. */
+function CompareVersions({
+  versions,
+  primary,
+  onClear,
+}: {
+  versions: MlVersionRow[];
+  primary: string;
+  onClear: () => void;
+}) {
+  const ordered = [...versions].sort((a, b) => a.version - b.version);
+  const keys = Array.from(
+    new Set(
+      ordered.flatMap((v) =>
+        Object.entries((v.metrics ?? {}) as Record<string, unknown>)
+          .filter(([, val]) => typeof val === "number")
+          .map(([k]) => k),
+      ),
+    ),
+  ).filter((k) => k !== "holdout_periods");
+  const rows = [...keys.filter((k) => k === primary), ...keys.filter((k) => k !== primary)];
+  const best = (k: string) => {
+    const vals = ordered.map((v) => (v.metrics as Record<string, number | null>)?.[k] ?? null);
+    const nums = vals.filter((x): x is number => typeof x === "number");
+    if (!nums.length) return null;
+    return metricDirection(k) === "lower" ? Math.min(...nums) : Math.max(...nums);
+  };
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <div className="mb-3 flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium">Compare versions</p>
+            <p className="text-xs text-muted-foreground">
+              Every metric the versions share; the best value in each row is marked.
+            </p>
+          </div>
+          <Button size="sm" variant="ghost" onClick={onClear}>
+            Clear
+          </Button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="text-left text-xs text-muted-foreground">
+              <tr>
+                <th className="py-1.5 pr-3 font-medium"></th>
+                {ordered.map((v) => (
+                  <th key={v.id} className="py-1.5 pr-3 font-medium">
+                    v{v.version}{" "}
+                    <span className="font-normal">
+                      · {v.algorithm ?? "—"} · {v.stage}
+                    </span>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((k) => {
+                const b = best(k);
+                return (
+                  <tr key={k} className="border-t">
+                    <td className="py-1.5 pr-3 text-muted-foreground">
+                      {metricLabel(k)}
+                      {k === primary ? " · primary" : ""}
+                    </td>
+                    {ordered.map((v) => {
+                      const val = (v.metrics as Record<string, number | null>)?.[k] ?? null;
+                      const isBest =
+                        typeof val === "number" && b !== null && val === b && ordered.length > 1;
+                      return (
+                        <td
+                          key={v.id}
+                          className={cn(
+                            "py-1.5 pr-3 tabular-nums",
+                            isBest && "font-semibold text-emerald-600 dark:text-emerald-400",
+                          )}
+                        >
+                          {fmtMetric(k, val)}
+                          {isBest ? " ★" : ""}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+              <tr className="border-t">
+                <td className="py-1.5 pr-3 text-muted-foreground">Rows</td>
+                {ordered.map((v) => (
+                  <td key={v.id} className="py-1.5 pr-3 tabular-nums">
+                    {fmtInt(v.training_rows)}
+                  </td>
+                ))}
+              </tr>
+              <tr className="border-t">
+                <td className="py-1.5 pr-3 text-muted-foreground">Tuning</td>
+                {ordered.map((v) => (
+                  <td key={v.id} className="py-1.5 pr-3">
+                    {((v.config as { tuning?: string })?.tuning ?? "none") as string}
+                  </td>
+                ))}
+              </tr>
+              <tr className="border-t">
+                <td className="py-1.5 pr-3 text-muted-foreground">Trained</td>
+                {ordered.map((v) => (
+                  <td key={v.id} className="py-1.5 pr-3 text-muted-foreground">
+                    {v.trained_at ? relTime(v.trained_at) : "—"}
+                  </td>
+                ))}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

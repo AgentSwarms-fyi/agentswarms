@@ -477,7 +477,11 @@ export function DataPrepTab() {
    * lakehouse statement guard, and the result can be saved back as a
    * lakehouse table — the ML wizard and agents then see it at once.
    */
-  function linkLakehouse(t: { schema: string; table: string; columns: { name: string; type: string }[] }) {
+  function linkLakehouse(t: {
+    schema: string;
+    table: string;
+    columns: { name: string; type: string }[];
+  }) {
     let name = safeTableName(t.table);
     if (onCanvas.has(name) || tableInfos.some((i) => i.name === name)) {
       name = safeTableName(`${t.schema}_${t.table}`);
@@ -727,7 +731,12 @@ export function DataPrepTab() {
           ...cfg,
           output: { kind: "lakehouse", schema: outputSchema, table: out },
         };
-        const id = await savePrepFlow({ id: flowId, userId: user.id, name: flowName.trim(), cfg: cfgOut });
+        const id = await savePrepFlow({
+          id: flowId,
+          userId: user.id,
+          name: flowName.trim(),
+          cfg: cfgOut,
+        });
         const result = await runLakeFn({
           data: {
             accessToken: token,

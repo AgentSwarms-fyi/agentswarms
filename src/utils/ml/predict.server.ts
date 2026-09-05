@@ -10,6 +10,7 @@
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Database, Json } from "@/integrations/supabase/types";
 import { auditEvent } from "@/utils/audit.server";
+import { notifyUser } from "@/utils/notify.server";
 import { beginDecision, type DecisionKind } from "@/utils/provenance/decision.server";
 import { resultDigest } from "@/utils/provenance/canonical";
 import { getPlatformResources } from "@/utils/notebookRuntime/config.server";
@@ -17,7 +18,6 @@ import { refreshSession, startSession, stopSession } from "@/utils/notebookRunti
 import { ensurePlatformEgress } from "@/utils/notebookRuntime/egressApply.server";
 import { etlPrelude, scrubSecrets } from "@/utils/etl/service.server";
 import { lakehouseAttachFn } from "@/utils/etl/codegen";
-import { notifyUser } from "@/utils/notify.server";
 import { TRAIN_PY } from "./pyTrain";
 import { mlErrorMessage, mlTrainingEnv } from "./train.server";
 import type { MlModelRow, MlVersionRow } from "./access.server";
@@ -29,6 +29,7 @@ import {
   type MlPredictInput,
   type MlPredictOutput,
   type MlPredictionKind,
+  type MlDrift,
 } from "./types";
 export type { MlCell, MlPredictInput, MlPredictOutput, MlPredictionKind } from "./types";
 
@@ -48,6 +49,7 @@ export type MlPredictResult = {
   algorithm?: string;
   warnings?: string[];
   elapsed_seconds?: number;
+  drift?: MlDrift | null;
 };
 
 const LOG_CAP = 200_000;
@@ -383,6 +385,7 @@ export async function finalizePrediction(
       error: null,
       finished_at: now,
       row_count: r.row_count,
+      drift_score: r.drift?.score ?? null,
       output: (r.output ?? row.output) as Json,
       result: {
         columns: r.columns,
@@ -391,6 +394,7 @@ export async function finalizePrediction(
         warnings: r.warnings ?? [],
         result_digest: digest,
         elapsed_seconds: r.elapsed_seconds ?? null,
+        drift: (r.drift ?? null) as Json,
       } as Json,
     })
     .eq("id", id)
@@ -431,6 +435,34 @@ export async function finalizePrediction(
       result_digest: digest,
     },
   });
+  // Drift: the scored rows differ from what the model learned from. Audited
+  // always; the owner is told when it crosses the operator's threshold.
+  if (r.drift && r.drift.score >= limits.mlDriftAlertPsi) {
+    const top = Object.entries(r.drift.features)
+      .slice(0, 3)
+      .map(([k, v]) => `${k} ${v.toFixed(2)}`)
+      .join(", ");
+    auditEvent({
+      userId: row.user_id,
+      action: "ml.drift.alert",
+      resourceType: "ml_model",
+      resourceId: row.model_id,
+      resourceName: model?.name ?? undefined,
+      detail: {
+        prediction_id: id,
+        score: r.drift.score,
+        threshold: limits.mlDriftAlertPsi,
+        features: r.drift.features,
+      },
+    });
+    if (model) {
+      void notifyUser(model.user_id, {
+        title: `Drift on "${model.name}": PSI ${r.drift.score.toFixed(2)}`,
+        body: `The rows scored by run ${id.slice(0, 8)} differ from the training data (${top}). Consider retraining.`,
+        link: `/ml/${model.id}`,
+      });
+    }
+  }
   console.log(
     `[ml-predict] ${JSON.stringify({
       prediction_id: id,

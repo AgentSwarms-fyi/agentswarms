@@ -3679,6 +3679,7 @@ export type Database = {
           external: boolean;
           feature_importance: Json;
           feature_schema: Json;
+          feature_stats: Json | null;
           forecast: Json | null;
           id: string;
           leaderboard: Json;
@@ -3706,6 +3707,7 @@ export type Database = {
           external?: boolean;
           feature_importance?: Json;
           feature_schema?: Json;
+          feature_stats?: Json | null;
           forecast?: Json | null;
           id?: string;
           leaderboard?: Json;
@@ -3733,6 +3735,7 @@ export type Database = {
           external?: boolean;
           feature_importance?: Json;
           feature_schema?: Json;
+          feature_stats?: Json | null;
           forecast?: Json | null;
           id?: string;
           leaderboard?: Json;
@@ -3841,6 +3844,7 @@ export type Database = {
           api_key_id: string | null;
           created_at: string;
           decision_id: string | null;
+          drift_score: number | null;
           error: string | null;
           finished_at: string | null;
           id: string;
@@ -3862,6 +3866,7 @@ export type Database = {
           api_key_id?: string | null;
           created_at?: string;
           decision_id?: string | null;
+          drift_score?: number | null;
           error?: string | null;
           finished_at?: string | null;
           id?: string;
@@ -3883,6 +3888,7 @@ export type Database = {
           api_key_id?: string | null;
           created_at?: string;
           decision_id?: string | null;
+          drift_score?: number | null;
           error?: string | null;
           finished_at?: string | null;
           id?: string;
@@ -3920,6 +3926,97 @@ export type Database = {
             columns: ["version_id"];
             isOneToOne: false;
             referencedRelation: "ml_model_versions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      ml_schedules: {
+        Row: {
+          config: Json;
+          created_at: string;
+          cron_expr: string | null;
+          evaluated_version_id: string | null;
+          id: string;
+          is_active: boolean;
+          kind: string;
+          last_error: string | null;
+          last_ref_id: string | null;
+          last_run_at: string | null;
+          last_status: string | null;
+          last_version_id: string | null;
+          model_id: string;
+          name: string;
+          next_run_at: string | null;
+          promote_if_better: boolean;
+          schedule: string;
+          timezone: string | null;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          config?: Json;
+          created_at?: string;
+          cron_expr?: string | null;
+          evaluated_version_id?: string | null;
+          id?: string;
+          is_active?: boolean;
+          kind: string;
+          last_error?: string | null;
+          last_ref_id?: string | null;
+          last_run_at?: string | null;
+          last_status?: string | null;
+          last_version_id?: string | null;
+          model_id: string;
+          name: string;
+          next_run_at?: string | null;
+          promote_if_better?: boolean;
+          schedule?: string;
+          timezone?: string | null;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          config?: Json;
+          created_at?: string;
+          cron_expr?: string | null;
+          evaluated_version_id?: string | null;
+          id?: string;
+          is_active?: boolean;
+          kind?: string;
+          last_error?: string | null;
+          last_ref_id?: string | null;
+          last_run_at?: string | null;
+          last_status?: string | null;
+          last_version_id?: string | null;
+          model_id?: string;
+          name?: string;
+          next_run_at?: string | null;
+          promote_if_better?: boolean;
+          schedule?: string;
+          timezone?: string | null;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "ml_schedules_evaluated_version_id_fkey";
+            columns: ["evaluated_version_id"];
+            isOneToOne: false;
+            referencedRelation: "ml_model_versions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "ml_schedules_last_version_id_fkey";
+            columns: ["last_version_id"];
+            isOneToOne: false;
+            referencedRelation: "ml_model_versions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "ml_schedules_model_id_fkey";
+            columns: ["model_id"];
+            isOneToOne: false;
+            referencedRelation: "ml_models";
             referencedColumns: ["id"];
           },
         ];
@@ -4377,8 +4474,10 @@ export type Database = {
           max_sessions_per_user: number;
           max_sessions_total: number;
           mem_limit_mb: number;
+          ml_drift_alert_psi: number | null;
           ml_max_concurrent_trainings_per_user: number | null;
           ml_predict_max_rows: number | null;
+          ml_train_gpus: number | null;
           ml_train_max_rows: number | null;
           ml_train_mem_limit_mb: number | null;
           ml_train_time_budget_minutes: number | null;
@@ -4407,8 +4506,10 @@ export type Database = {
           max_sessions_per_user?: number;
           max_sessions_total?: number;
           mem_limit_mb?: number;
+          ml_drift_alert_psi?: number | null;
           ml_max_concurrent_trainings_per_user?: number | null;
           ml_predict_max_rows?: number | null;
+          ml_train_gpus?: number | null;
           ml_train_max_rows?: number | null;
           ml_train_mem_limit_mb?: number | null;
           ml_train_time_budget_minutes?: number | null;
@@ -4437,8 +4538,10 @@ export type Database = {
           max_sessions_per_user?: number;
           max_sessions_total?: number;
           mem_limit_mb?: number;
+          ml_drift_alert_psi?: number | null;
           ml_max_concurrent_trainings_per_user?: number | null;
           ml_predict_max_rows?: number | null;
+          ml_train_gpus?: number | null;
           ml_train_max_rows?: number | null;
           ml_train_mem_limit_mb?: number | null;
           ml_train_time_budget_minutes?: number | null;

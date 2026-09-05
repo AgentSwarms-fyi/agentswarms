@@ -480,6 +480,18 @@ export function RuntimeTab({ token }: { token: string }) {
             value={form.ml_predict_max_rows}
             onChange={(n) => set("ml_predict_max_rows", n)}
           />
+          <NumberField
+            label="Training GPUs"
+            value={form.ml_train_gpus}
+            onChange={(n) => set("ml_train_gpus", n)}
+            hint="Requested per training sandbox: a Docker device request, or nvidia.com/gpu on Kubernetes. Needs a CUDA-capable runtime image."
+          />
+          <NumberField
+            label="Drift alert threshold (PSI)"
+            value={form.ml_drift_alert_psi}
+            onChange={(n) => set("ml_drift_alert_psi", n)}
+            hint="A batch prediction whose rows drift past this population stability index notifies the model's owner. 0.25 is the usual line."
+          />
         </div>
       </div>
 

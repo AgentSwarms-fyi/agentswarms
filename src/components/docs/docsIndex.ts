@@ -2117,17 +2117,21 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "title": "ML Models",
     "description": "Train a model on a lakehouse table without writing code, keep every version with its metrics and the snapshot it learned from, score rows back into the lakehouse, let agents predict with it, and draw its forecasts on a dashboard — all on your own infrastructure.",
     "terms": [
+      "/api/ml/predict/status",
       "401",
       "403",
       "404",
       "409",
       "429",
       "ML_API_RATE_LIMIT_PER_MIN",
+      "ML_DRIFT_ALERT_PSI",
       "ML_MAX_CONCURRENT_TRAININGS_PER_USER",
       "ML_PREDICT_MAX_ROWS",
+      "ML_TRAIN_GPUS",
       "ML_TRAIN_MAX_ROWS",
       "ML_TRAIN_MEM_LIMIT_MB",
       "ML_TRAIN_TIME_BUDGET_MINUTES",
+      "NOTEBOOK_RUNTIME_IMAGE",
       "SELECT",
       "SUMMARIZE",
       "WHERE",
@@ -2137,7 +2141,10 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "features",
       "ml-artifacts/",
       "ml.api_key.denied",
+      "ml.drift.alert",
       "ml.predict_query",
+      "ml.schedule.failed",
+      "ml.schedule.run",
       "ml.train.start",
       "ml.train.succeeded",
       "ml.version.promote",
@@ -2147,6 +2154,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "ml_model.update",
       "ml_predict",
       "mlk_…",
+      "nvidia.com/gpu",
       "pipeline",
       "predict",
       "predict_proba",
@@ -2209,6 +2217,16 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 3
       },
       {
+        "id": "automation",
+        "text": "Automation",
+        "level": 2
+      },
+      {
+        "id": "drift",
+        "text": "Drift",
+        "level": 2
+      },
+      {
         "id": "api",
         "text": "Public API",
         "level": 2
@@ -2236,6 +2254,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "operations",
         "text": "Operations",
+        "level": 2
+      },
+      {
+        "id": "how-this-compares",
+        "text": "How this compares",
         "level": 2
       },
       {

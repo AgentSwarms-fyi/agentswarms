@@ -116,6 +116,8 @@ export type MlTrainResult = {
   leaderboard: MlLeaderboardRow[];
   feature_importance: MlFeatureImportance[];
   feature_schema: MlFeatureSchemaEntry[];
+  /** Per-feature training distribution, for drift monitoring. */
+  feature_stats?: Record<string, unknown> | null;
   classes?: string[];
   artifact_uri: string;
   artifact_sha256: string;
@@ -224,3 +226,13 @@ export type MlClusterProfile = {
   share: number;
   profile: Record<string, number | string | null>;
 };
+
+/** Population stability of a scored batch against the training distribution. */
+export type MlDrift = {
+  /** The highest per-feature PSI. */
+  score: number;
+  /** PSI per feature, highest first. */
+  features: Record<string, number>;
+  rows: number;
+};
+export const ML_DRIFT_MODERATE = 0.1;

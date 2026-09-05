@@ -118,11 +118,18 @@ hash to it.
   fit time and status; tuned candidates appear with their trial counts.
 - **Lineage** — algorithm, rows (and whether sampled), lakehouse snapshot,
   decision id, artifact digest, warnings such as dropped columns.
+- **Model card** — one Markdown document assembled from the registry rows
+  (intended use, training data and snapshot, preparation, features and
+  dropped columns, metrics and leaderboard, importance, groups, warnings,
+  governance, how to call it), copied or downloaded from the model page; it
+  cannot drift from what shipped because nobody types it.
 
 ## Versions
 
 **Versions** lists every version with its stage, algorithm, primary metric,
-rows and snapshot. **Promote** makes a ready version the production one (the
+rows and snapshot. Tick two or more trained versions to **compare** them
+side by side: every metric they share, rows, tuning and training time, with
+the best value in each row marked. **Promote** makes a ready version the production one (the
 previous production version is archived); **Archive** withdraws a version
 without deleting its metrics or passport; **Restore** returns it to the
 candidates. **Train new version** re-reads the table as of the current
@@ -163,6 +170,41 @@ model). Both are offered only when the caller can use at least one model with
 a production version; on headless runs (deployed swarms, schedules) grants
 are re-derived from the run's owner. Forecast models return their projected
 periods.
+
+## Automation
+
+The model page's **Automation** tab schedules two kinds of work, each
+running as you, in the same sweep, under the same cron lease and with the
+same reaper as ETL pipelines and materialized views:
+
+- **Retrain** — a new version from the current table every hour, day, week
+  or on a cron expression, with its own budget and tuning mode. When
+  **promote when better** is on, the new version becomes production the
+  moment it is ready if its primary metric beats the incumbent; you are told
+  either way. A schedule that cannot start (a limit reached, a missing
+  table) records the reason and notifies you.
+- **Batch prediction** — score a lakehouse table (optionally filtered) into
+  a table you own with the production version, so a scored table stays
+  fresh for dashboards and agents without anyone clicking.
+
+**Run now** starts a schedule immediately; **pause** keeps it without
+running it; resuming schedules from now, never from the missed past. Every
+start is audited (`ml.schedule.run` / `ml.schedule.failed`), and the
+schedule rows themselves are audited by trigger (`ml_schedule.*`).
+
+## Drift
+
+Training records the distribution of every feature — decile bins for
+numbers, the top categories for categoricals. Every batch prediction (and
+any direct prediction of ten rows or more) bins the new rows the same way
+and reports a **population stability index** per feature; the run's
+**Drift** badge shows the highest one: below 0.1 stable, 0.1–0.25
+moderate, above 0.25 the population has moved. A run above
+`ML_DRIFT_ALERT_PSI` (0.25 by default, edited under Admin → Developer
+runtime) is audited as `ml.drift.alert` and notifies the model's owner
+with the three most drifted features — the cue to retrain, or to schedule
+retraining. The public API returns the same numbers in
+`/api/ml/predict/status`.
 
 ## Public API
 
@@ -264,6 +306,8 @@ them. A large VM or a Kubernetes node pool is allowed to use itself.
 | `ML_MAX_CONCURRENT_TRAININGS_PER_USER` | 2         | Training jobs one user may have live at once           |
 | `ML_PREDICT_MAX_ROWS`                  | 5,000,000 | Rows one batch prediction may score                    |
 | `ML_API_RATE_LIMIT_PER_MIN`            | 60        | Calls a minute one ML API key may make                 |
+| `ML_TRAIN_GPUS`                        | 0         | GPUs requested per training sandbox                    |
+| `ML_DRIFT_ALERT_PSI`                   | 0.25      | PSI above which a prediction run raises a drift alert  |
 
 See [SCALE_AND_LIMITS.md](./SCALE_AND_LIMITS.md#machine-learning--srcutilsnotebookruntimeconfigserverts).
 
@@ -280,6 +324,37 @@ See [SCALE_AND_LIMITS.md](./SCALE_AND_LIMITS.md#machine-learning--srcutilsnotebo
 - Artifacts live under `ml-artifacts/` in the lake bucket. `npm run backup`
   mirrors the lake data path; add the artifacts prefix to your object-store
   backup as well.
+- **GPUs.** `ML_TRAIN_GPUS` (or the Admin setting) requests that many GPUs
+  for every training sandbox: a Docker device request on a single host, an
+  `nvidia.com/gpu` limit on Kubernetes. The baked runtime image is CPU-only
+  (scikit-learn, LightGBM); point `NOTEBOOK_RUNTIME_IMAGE` at a CUDA-capable
+  build of it when the trainer's candidates or your own notebooks need one.
+
+## How this compares
+
+Where AgentSwarms stands against Databricks ML and SageMaker, honestly:
+
+| Capability                     | AgentSwarms                                                                                 | Databricks / SageMaker                                             |
+| ------------------------------ | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| No-code AutoML                 | Six tasks incl. clustering, anomaly, recommendation; tuning; data prep in the wizard        | AutoML / Canvas: similar tasks, larger search spaces               |
+| Registry, stages, lineage      | Versions, stages, snapshot + decision id per version, artifact digests                      | MLflow registry / Model Registry                                   |
+| Batch scoring                  | Into lakehouse tables, scheduled, with drift per run                                        | Jobs / Batch Transform                                             |
+| Real-time inference            | A sandbox per call: seconds, not milliseconds; no warm autoscaled endpoint yet              | Serving endpoints with autoscaling                                 |
+| Drift monitoring               | PSI per feature on every batch, threshold alerts                                            | Lakehouse Monitoring / Model Monitor (more statistics)             |
+| Scheduled retraining           | Cron/cadence, promote-when-better, one platform clock                                       | Workflows / Pipelines                                              |
+| Public API                     | Per-model scoped keys, rate limits, audited denials, BYO registration                       | Yes, IAM-based                                                     |
+| Bring your own model           | Any joblib pipeline under a small contract                                                  | Any framework, containers                                          |
+| Feature store                  | Not yet — prep flows and lakehouse tables play that role                                    | Yes                                                                |
+| Distributed / GPU training     | One sandbox per job; GPUs requestable, CPU image by default                                 | Clusters, distributed frameworks, GPU instances                    |
+| Experiment tracking            | Leaderboard and tuning trials per version; no MLflow-style run logging from notebooks yet   | MLflow / Experiments                                               |
+| Model cards                    | Generated from the registry                                                                 | SageMaker Model Cards                                              |
+| Governance                     | IAM shares, trigger audit, decision ids, result digests, one statement guard for all data   | Unity Catalog / IAM                                                |
+| Agents and BI                  | Models are agent tools; forecasts and drift live in the BI layer                            | Separate products                                                  |
+| Cost and residency             | Self-hosted, your infrastructure, no per-call charges                                       | Managed, metered                                                   |
+
+The gaps that matter most — a warm real-time endpoint, a feature store,
+distributed training, notebook experiment logging — are on the road map;
+everything in the left column is shipped and tested.
 
 ## Use cases
 
