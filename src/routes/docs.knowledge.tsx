@@ -65,12 +65,19 @@ function KnowledgePage() {
       <P>Accepted extensions, exactly:</P>
       <Code lang="Accepted file types">{`.txt   .md   .markdown   .csv   .tsv   .log
 .html  .htm  .xml        .yaml  .yml  .json
-.rtf   .pdf  .docx`}</Code>
-      <Callout kind="warn" title="A scanned PDF yields nothing">
-        Text is extracted, not OCR'd. A PDF that is images of pages produces zero chunks and the
-        agent will answer from general knowledge with no sign anything is wrong. After uploading,
-        check the document shows a non-zero chunk count — that is the one-second test that catches
-        this.
+.rtf   .pdf  .docx
+.png   .jpg  .jpeg       .webp  .gif`}</Code>
+      <Callout kind="info" title="Scanned PDFs and images are read with a vision model">
+        A PDF with a text layer is extracted in the browser. A PDF whose pages are pictures (fewer
+        than forty characters a page), or an image file, is drawn page by page and read by the
+        instance's vision model — one governed model call per page, as you, so the model rules in
+        IAM, the budget and the audit log (<C>kb.document.ocr</C>, with the pages, the model and the
+        cost) apply. The upload shows the page being read; the document keeps a <C>[page N]</C>{" "}
+        marker per page and records the model and cost in its metadata. The model and the{" "}
+        <strong>Pages per document</strong> limit live under Admin → Developer runtime → Document
+        intelligence (<C>DOCUMENT_VISION_MODEL</C>, <C>DOCUMENT_VISION_MAX_PAGES</C>). A page the
+        model reads as empty is dropped; if every page is, the upload says so instead of adding a
+        document with nothing in it.
       </Callout>
 
       <H3 id="s-url">Web page / crawl</H3>

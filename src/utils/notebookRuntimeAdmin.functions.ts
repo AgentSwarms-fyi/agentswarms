@@ -45,6 +45,8 @@ export type NbRuntimeSettings = {
   ai_sql_max_calls_per_statement: number;
   ai_sql_default_model: string;
   ai_sql_cache_ttl_days: number;
+  document_vision_model: string;
+  document_vision_max_pages: number;
   sandbox_tmpfs_mb: number;
   batch_max_minutes: number;
   egress_allowlist: string[];
@@ -129,6 +131,8 @@ const DEFAULTS: NbRuntimeSettings = {
   ai_sql_max_calls_per_statement: 200,
   ai_sql_default_model: "openrouter/google/gemini-3-flash-preview",
   ai_sql_cache_ttl_days: 30,
+  document_vision_model: "openrouter/google/gemini-3-flash-preview",
+  document_vision_max_pages: 200,
   sandbox_tmpfs_mb: 512,
   batch_max_minutes: 120,
   egress_allowlist: ["pypi.org", "files.pythonhosted.org", "openrouter.ai", "api.openai.com"],
@@ -187,6 +191,9 @@ export const nbRuntimeGetState = createServerFn({ method: "POST" })
           ai_sql_default_model:
             row.ai_sql_default_model ?? "openrouter/google/gemini-3-flash-preview",
           ai_sql_cache_ttl_days: row.ai_sql_cache_ttl_days ?? 30,
+          document_vision_model:
+            row.document_vision_model ?? "openrouter/google/gemini-3-flash-preview",
+          document_vision_max_pages: row.document_vision_max_pages ?? 200,
           sandbox_tmpfs_mb: row.sandbox_tmpfs_mb ?? 512,
           batch_max_minutes: row.batch_max_minutes,
           egress_allowlist: row.egress_allowlist,
@@ -270,6 +277,8 @@ export const nbRuntimeUpdateSettings = createServerFn({ method: "POST" })
         ai_sql_max_calls_per_statement: z.number().int().min(1).max(1000000).optional(),
         ai_sql_default_model: z.string().trim().min(3).max(160).optional(),
         ai_sql_cache_ttl_days: z.number().int().min(1).max(3650).optional(),
+        document_vision_model: z.string().trim().min(3).max(160).optional(),
+        document_vision_max_pages: z.number().int().min(1).max(100000).optional(),
         sandbox_tmpfs_mb: z.number().int().min(64).optional(),
         egress_allowlist: z.array(z.string().min(1).max(255)).max(200).optional(),
         pip_allowed: z.boolean().optional(),

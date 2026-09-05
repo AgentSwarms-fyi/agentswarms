@@ -47,6 +47,22 @@ const corsHeaders = {
   "Access-Control-Expose-Headers": "X-Trace-Id",
 };
 
+/**
+ * Providers whose adapter sends the OpenAI-shaped request through unchanged,
+ * so a multi-part user message (text + image_url) reaches a vision-capable
+ * model. Anthropic, Bedrock, Vertex, OCI and Azure rebuild the request from
+ * plain text and are deliberately absent.
+ */
+const VISION_PASSTHROUGH_PROVIDERS = new Set<ProviderId>([
+  "openrouter",
+  "openai",
+  "gemini",
+  "grok",
+  "ollama",
+  "groq",
+  "nvidia",
+]);
+
 type ChatMessage = {
   role: "system" | "user" | "assistant";
   // Allow string OR multi-part content so vision-capable models can receive
@@ -1076,6 +1092,9 @@ export const Route = createFileRoute("/api/chat")({
             // internal channel does not load the agent itself.
             costScope?: { type: "gateway_key"; id: string };
             agentName?: string;
+            // Internal channel only: keep image_url parts for a vision-capable
+            // model (document OCR). Everything else flattens them to text.
+            vision?: boolean;
           };
 
           if (!Array.isArray(body.messages) || body.messages.length === 0) {
@@ -1773,6 +1792,18 @@ export const Route = createFileRoute("/api/chat")({
               role: m.role,
               content: messageText(m.content),
             }));
+            // A vision run on the internal channel (document OCR) keeps its
+            // image parts for the providers whose adapter forwards the
+            // request as it is; every other adapter rebuilds the request from
+            // text and never sees a part. Never on the tool loop, which
+            // speaks text only.
+            const keepImageParts =
+              isInternalRun &&
+              body.vision === true &&
+              VISION_PASSTHROUGH_PROVIDERS.has(provider as ProviderId);
+            const providerMessages = keepImageParts
+              ? (body.messages as unknown as typeof flatMessages)
+              : flatMessages;
 
             // If the agent asked for tools (web_search/web_browse/kb_search/
             // n8n/mcp) AND the provider speaks OpenAI Chat Completions, run
@@ -2220,7 +2251,7 @@ export const Route = createFileRoute("/api/chat")({
               provider,
               modelId: model,
               systemPrompt: effectiveSystemPrompt,
-              messages: flatMessages,
+              messages: providerMessages,
               temperature: body.temperature,
               maxTokens: body.maxTokens,
               gateway: gatewayOverride,

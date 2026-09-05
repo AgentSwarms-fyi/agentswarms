@@ -543,6 +543,28 @@ export function RuntimeTab({ token }: { token: string }) {
             hint="How long an ai_* answer is reused for the same input and model before the model is asked again."
           />
         </div>
+        <p className="text-xs font-medium text-muted-foreground">Document intelligence</p>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="space-y-1 sm:col-span-2">
+            <Label className="text-xs">Vision model</Label>
+            <Input
+              value={form.document_vision_model}
+              onChange={(e) => set("document_vision_model", e.target.value)}
+              placeholder="openrouter/google/gemini-3-flash-preview"
+              className="h-8 font-mono text-xs"
+            />
+            <p className="text-[10px] text-muted-foreground">
+              provider/model that reads scanned PDF pages and images uploaded to a knowledge base;
+              it must accept images.
+            </p>
+          </div>
+          <NumberField
+            label="Pages per document"
+            value={form.document_vision_max_pages}
+            onChange={(n) => set("document_vision_max_pages", n)}
+            hint="Pages one uploaded document may have read by the vision model (one model call per page)."
+          />
+        </div>
         <p className="text-xs font-medium text-muted-foreground">AI gateway</p>
         <div className="grid gap-3 sm:grid-cols-3">
           <NumberField

@@ -66,6 +66,10 @@ export type PlatformResourceSettings = {
   aiSqlDefaultModel: string;
   /** Days an ai_* answer is reused before the model is asked again. */
   aiSqlCacheTtlDays: number;
+  /** provider/model that reads scanned pages and images on knowledge-base upload. */
+  documentVisionModel: string;
+  /** Pages one uploaded document may have read by the vision model. */
+  documentVisionMaxPages: number;
 };
 
 /** A stored override only counts when it is a usable positive number. */
@@ -100,7 +104,7 @@ export async function getPlatformResources(): Promise<PlatformResourceSettings> 
   const { data } = await supabaseAdmin
     .from("notebook_runtime_settings")
     .select(
-      "lakehouse_memory_limit, lakehouse_threads, etl_max_concurrent_runs_per_user, etl_pipelines_per_sweep, ml_train_max_rows, ml_train_time_budget_minutes, ml_train_mem_limit_mb, ml_max_concurrent_trainings_per_user, ml_predict_max_rows, ml_train_gpus, ml_drift_alert_psi, gateway_rate_limit_per_min, gateway_fallback_models, data_monitors_per_sweep, data_monitor_anomaly_sigma, ai_sql_max_calls_per_statement, ai_sql_default_model, ai_sql_cache_ttl_days",
+      "lakehouse_memory_limit, lakehouse_threads, etl_max_concurrent_runs_per_user, etl_pipelines_per_sweep, ml_train_max_rows, ml_train_time_budget_minutes, ml_train_mem_limit_mb, ml_max_concurrent_trainings_per_user, ml_predict_max_rows, ml_train_gpus, ml_drift_alert_psi, gateway_rate_limit_per_min, gateway_fallback_models, data_monitors_per_sweep, data_monitor_anomaly_sigma, ai_sql_max_calls_per_statement, ai_sql_default_model, ai_sql_cache_ttl_days, document_vision_model, document_vision_max_pages",
     )
     .eq("id", true)
     .maybeSingle();
@@ -154,6 +158,12 @@ export async function getPlatformResources(): Promise<PlatformResourceSettings> 
       "openrouter/google/gemini-3-flash-preview",
     aiSqlCacheTtlDays:
       positive(data?.ai_sql_cache_ttl_days) ?? envInt("AI_SQL_CACHE_TTL_DAYS") ?? 30,
+    documentVisionModel:
+      (typeof data?.document_vision_model === "string" && data.document_vision_model.trim()) ||
+      (process.env.DOCUMENT_VISION_MODEL ?? "").trim() ||
+      "openrouter/google/gemini-3-flash-preview",
+    documentVisionMaxPages:
+      positive(data?.document_vision_max_pages) ?? envInt("DOCUMENT_VISION_MAX_PAGES") ?? 200,
   };
 }
 

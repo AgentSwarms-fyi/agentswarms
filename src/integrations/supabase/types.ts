@@ -4763,6 +4763,8 @@ export type Database = {
           data_monitor_anomaly_sigma: number | null;
           data_monitors_per_sweep: number | null;
           default_image: string;
+          document_vision_max_pages: number | null;
+          document_vision_model: string | null;
           egress_allowlist: string[];
           etl_max_concurrent_runs_per_user: number | null;
           etl_pipelines_per_sweep: number | null;
@@ -4802,6 +4804,8 @@ export type Database = {
           data_monitor_anomaly_sigma?: number | null;
           data_monitors_per_sweep?: number | null;
           default_image?: string;
+          document_vision_max_pages?: number | null;
+          document_vision_model?: string | null;
           egress_allowlist?: string[];
           etl_max_concurrent_runs_per_user?: number | null;
           etl_pipelines_per_sweep?: number | null;
@@ -4841,6 +4845,8 @@ export type Database = {
           data_monitor_anomaly_sigma?: number | null;
           data_monitors_per_sweep?: number | null;
           default_image?: string;
+          document_vision_max_pages?: number | null;
+          document_vision_model?: string | null;
           egress_allowlist?: string[];
           etl_max_concurrent_runs_per_user?: number | null;
           etl_pipelines_per_sweep?: number | null;

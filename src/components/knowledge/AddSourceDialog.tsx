@@ -11,7 +11,9 @@ import { useCallback, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
-import { parseFileToText } from "@/lib/fileParsers";
+import { parseFileForKb } from "@/lib/fileParsers";
+import { joinPageTexts, PAGES_PER_REQUEST } from "@/lib/documentVision";
+import { documentVisionExtract } from "@/utils/documentVision.functions";
 import { embedKbDocuments } from "@/utils/tools/kbEmbed.functions";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -46,6 +48,7 @@ export function AddSourceDialog({
   const [tab, setTab] = useState<"file" | "url" | "github" | "manual">("file");
   const [busy, setBusy] = useState(false);
   const embedFn = useServerFn(embedKbDocuments);
+  const visionFn = useServerFn(documentVisionExtract);
 
   // ── URL state ──────────────────────────────────────────────────────────
   const [url, setUrl] = useState("");
@@ -61,7 +64,14 @@ export function AddSourceDialog({
   const [manualBody, setManualBody] = useState("");
 
   // ── File upload state ──────────────────────────────────────────────────
-  const [files, setFiles] = useState<{ name: string; content: string; size: number }[]>([]);
+  type Ocr = { pages: number; model: string; cost_usd: number | null };
+  const [files, setFiles] = useState<
+    { name: string; content: string; size: number; ocr: Ocr | null }[]
+  >([]);
+  /** A scanned document being read page by page, for the progress line. */
+  const [reading, setReading] = useState<{ name: string; done: number; total: number } | null>(
+    null,
+  );
   const onDropFiles = useCallback(
     (accepted: File[], rejected: { file?: File; errors?: { message?: string }[] }[]) => {
       rejected?.forEach((r) => {
@@ -74,18 +84,65 @@ export function AddSourceDialog({
           return;
         }
         try {
-          const text = await parseFileToText(file);
+          const parsed = await parseFileForKb(file);
+          let text = parsed.text;
+          let ocr: Ocr | null = null;
+          if (parsed.pages) {
+            // A scanned PDF or an image: the server reads the pages with the
+            // vision model, a few at a time so each request stays small.
+            const { data: sessionData } = await supabase.auth.getSession();
+            const token = sessionData.session?.access_token;
+            if (!token) {
+              toast.error("Sign in again to read scanned pages");
+              return;
+            }
+            const total = parsed.pages.length;
+            const texts: string[] = [];
+            let cost: number | null = null;
+            let model = "";
+            setReading({ name: file.name, done: 0, total });
+            try {
+              for (let off = 0; off < total; off += PAGES_PER_REQUEST) {
+                const batch = parsed.pages.slice(off, off + PAGES_PER_REQUEST);
+                const r = await visionFn({
+                  data: {
+                    access_token: token,
+                    name: file.name,
+                    pages: batch,
+                    page_offset: off,
+                    total_pages: total,
+                  },
+                });
+                if (!r.ok) throw new Error(r.error);
+                texts.push(...r.texts);
+                model = r.model;
+                if (r.cost_usd !== null) cost = (cost ?? 0) + r.cost_usd;
+                setReading({ name: file.name, done: Math.min(total, off + batch.length), total });
+              }
+            } finally {
+              setReading(null);
+            }
+            text = joinPageTexts(texts);
+            ocr = { pages: total, model, cost_usd: cost };
+            toast.success(
+              `${file.name}: read ${total} page${total === 1 ? "" : "s"} with ${model}${cost !== null ? ` · $${cost.toFixed(4)}` : ""}`,
+            );
+          }
           if (!text || !text.trim()) {
-            toast.error(`${file.name}: no extractable text`);
+            toast.error(
+              parsed.pages
+                ? `${file.name}: the vision model found no text on its pages`
+                : `${file.name}: no extractable text`,
+            );
             return;
           }
-          setFiles((prev) => [...prev, { name: file.name, content: text, size: file.size }]);
+          setFiles((prev) => [...prev, { name: file.name, content: text, size: file.size, ocr }]);
         } catch (err) {
           toast.error(`${file.name}: ${err instanceof Error ? err.message : "could not parse"}`);
         }
       });
     },
-    [],
+    [visionFn],
   );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -107,8 +164,16 @@ export function AddSourceDialog({
         ".rtf",
         ".pdf",
         ".docx",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".webp",
+        ".gif",
       ];
-      const lower = file.name.toLowerCase();
+      // While a drag hovers, the browser offers items without names; only a
+      // dropped file has one. Judge what has a name and let the rest pass.
+      const lower = (file?.name ?? "").toLowerCase();
+      if (!lower) return null;
       return allowed.some((ext) => lower.endsWith(ext))
         ? null
         : { code: "file-invalid-type", message: `Unsupported. Allowed: ${allowed.join(", ")}` };
@@ -278,7 +343,7 @@ export function AddSourceDialog({
               source_id: src.id,
               name: f.name,
               content: f.content,
-              metadata: { source: "upload", size_bytes: f.size },
+              metadata: { source: "upload", size_bytes: f.size, ...(f.ocr ? { ocr: f.ocr } : {}) },
             })
             .select("id")
             .single();
@@ -346,9 +411,19 @@ export function AddSourceDialog({
                 {isDragActive ? "Drop to add" : "Drop files here or click to browse"}
               </p>
               <p className="text-xs text-muted-foreground mt-1">
-                PDF, DOCX, TXT, MD, CSV, JSON, HTML — up to 50MB each
+                PDF, DOCX, TXT, MD, CSV, JSON, HTML, PNG, JPG — up to 50MB each. A scanned PDF or an
+                image is read with the vision model.
               </p>
             </div>
+            {reading && (
+              <div className="flex items-center gap-2 rounded-md border border-border/60 bg-muted/30 px-2 py-1.5 text-xs">
+                <Loader2 className="h-3 w-3 shrink-0 animate-spin text-primary" />
+                <span className="truncate">
+                  Reading {reading.name} with the vision model — page {reading.done} of{" "}
+                  {reading.total}
+                </span>
+              </div>
+            )}
             {files.length > 0 && (
               <div className="space-y-1 max-h-40 overflow-y-auto">
                 {files.map((f, i) => (

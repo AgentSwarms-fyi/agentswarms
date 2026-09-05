@@ -68,6 +68,13 @@ const CASES: Currency[] = [
     docMentions: [/ai_classify/, /cache/i, /per statement/i],
   },
   {
+    capability: "Scanned PDFs and images are read with a vision model on knowledge-base upload",
+    code: "src/utils/documents/vision.server.ts",
+    codeContains: 'agentName: "Document OCR"',
+    doc: "src/routes/docs.knowledge.tsx",
+    docMentions: [/vision model/i, /scanned/i, /Pages per document/],
+  },
+  {
     capability: "Agents can report table health from the monitors",
     code: "src/utils/tools/registry.server.ts",
     codeContains: 'name: "data_health"',

@@ -15,6 +15,32 @@ The in-app page (`/docs/knowledge`) covers day-to-day usage; this document is
 the operator's view — what the connectors need, what the sync engine
 guarantees, and where the security boundaries sit.
 
+## Scanned documents and images
+
+A PDF with a text layer is extracted in the browser and stored as text. A
+PDF whose pages are pictures — fewer than forty characters of text layer per
+page — and any image file (`.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`) is
+**read with a vision model**: the browser draws each page to a JPEG at
+reading size, sends a few pages at a time to the server, and the server asks
+the instance's vision model to transcribe each page as the uploading user,
+through the same internal channel every other model call uses. So the model
+rules in IAM apply (a model the role may not use refuses the upload with the
+model named), the budget applies, each page leaves an execution trace under
+the agent name **Document OCR**, and each batch leaves a `kb.document.ocr`
+audit event with the page range, the model, the characters read and the
+cost. The stored document carries a `[page N]` marker per page and records
+`{ ocr: { pages, model, cost_usd } }` in its metadata.
+
+Two instance settings govern it, under **Admin → Developer runtime →
+Document intelligence** with env fallbacks: the **vision model**
+(`DOCUMENT_VISION_MODEL`, default `openrouter/google/gemini-3-flash-preview`;
+it must accept images) and **pages per document**
+(`DOCUMENT_VISION_MAX_PAGES`, default 200). A document over the limit is
+refused before its first page is read. A page the model reads as empty is
+dropped; if every page is, the upload reports it rather than adding an empty
+document. The transcription prompt forbids description, commentary and
+translation, and asks for tables as rows with `|` between cells.
+
 ## Connected services
 
 | Provider     | Credentials                                                                                       | What syncs                                                                                                                                      | ACL mirroring                   |
