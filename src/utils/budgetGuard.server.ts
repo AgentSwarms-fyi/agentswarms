@@ -92,7 +92,7 @@ export async function getBudgetStatus(userId: string): Promise<BudgetStatus> {
 //     without it a public key that leaks can drain the owner's whole allowance.
 // Any exceeded scope blocks the call — the most restrictive limit wins.
 
-export type CostScope = { type: "embed_key" | "swarm_api_key"; id: string };
+export type CostScope = { type: "embed_key" | "swarm_api_key" | "gateway_key"; id: string };
 
 export type BudgetDecision = {
   over: boolean;

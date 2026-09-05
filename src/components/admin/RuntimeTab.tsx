@@ -88,6 +88,7 @@ export function RuntimeTab({ token }: { token: string }) {
   const [state, setState] = useState<NbRuntimeState | null>(null);
   const [form, setForm] = useState<NbRuntimeSettings | null>(null);
   const [egressText, setEgressText] = useState("");
+  const [fallbackText, setFallbackText] = useState("");
   // Lines the squid ACL renderer will drop. Uses the SAME functions that do the
   // dropping, so the warning cannot disagree with the behaviour.
   //
@@ -139,6 +140,7 @@ export function RuntimeTab({ token }: { token: string }) {
         setState(res);
         setForm(res.settings);
         setEgressText(res.settings.egress_allowlist.join("\n"));
+        setFallbackText((res.settings.gateway_fallback_models ?? []).join("\n"));
       })
       .catch((e: unknown) => {
         const msg = e instanceof Error ? e.message : "Could not reach the server";
@@ -190,8 +192,14 @@ export function RuntimeTab({ token }: { token: string }) {
       .split("\n")
       .map((s) => s.trim())
       .filter(Boolean);
+    const gateway_fallback_models = fallbackText
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
     try {
-      const res = await updateFn({ data: { access_token: token, ...form, egress_allowlist } });
+      const res = await updateFn({
+        data: { access_token: token, ...form, egress_allowlist, gateway_fallback_models },
+      });
       if (!res.ok) return toast.error(res.error);
 
       // Saving the list and APPLYING it to the proxy are different things, and
@@ -492,6 +500,29 @@ export function RuntimeTab({ token }: { token: string }) {
             onChange={(n) => set("ml_drift_alert_psi", n)}
             hint="A batch prediction whose rows drift past this population stability index notifies the model's owner. 0.25 is the usual line."
           />
+        </div>
+        <p className="text-xs font-medium text-muted-foreground">AI gateway</p>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <NumberField
+            label="Gateway calls per minute"
+            value={form.gateway_rate_limit_per_min}
+            onChange={(n) => set("gateway_rate_limit_per_min", n)}
+            hint="Calls a minute one AI-gateway key may make unless the key sets its own limit (Integrations → LLM Gateway → API access)."
+          />
+          <div className="space-y-1 sm:col-span-2">
+            <Label className="text-xs">Gateway fallback chain</Label>
+            <Textarea
+              value={fallbackText}
+              onChange={(e) => setFallbackText(e.target.value)}
+              rows={2}
+              className="font-mono text-xs"
+              placeholder={"openrouter/openai/gpt-4o-mini\nopenrouter/google/gemini-2.5-flash"}
+            />
+            <p className="text-xs text-muted-foreground">
+              provider/model entries, one per line, tried in order when a gateway call&apos;s model
+              fails with a provider error, after the key&apos;s own chain. Empty = none.
+            </p>
+          </div>
         </div>
       </div>
 

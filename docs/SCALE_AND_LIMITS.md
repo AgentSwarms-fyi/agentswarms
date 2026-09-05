@@ -319,6 +319,8 @@ runtime** and takes effect on the next job, no redeploy.
 | `ML_API_RATE_LIMIT_PER_MIN`            | 60        | Calls a minute one ML API key may make, across every `/api/ml/*` endpoint (global limiter).               |
 | `ML_TRAIN_GPUS`                        | 0         | GPUs requested per training sandbox: a Docker device request, or `nvidia.com/gpu` on Kubernetes.          |
 | `ML_DRIFT_ALERT_PSI`                   | 0.25      | Population stability index above which a batch prediction audits `ml.drift.alert` and notifies the owner. |
+| `AI_GATEWAY_RATE_LIMIT_PER_MIN`        | 60        | Calls a minute one AI-gateway key may make unless the key sets its own (global limiter across replicas).  |
+| `AI_GATEWAY_FALLBACK_MODELS`           | —         | Comma-separated `provider/model` entries every gateway call may fall back to, after the key's own chain.  |
 | `NOTEBOOK_K8S_GPU_NODE_SELECTOR`       | —         | Kubernetes only: JSON node selector for GPU training pods (`ML_TRAIN_GPUS` > 0).                          |
 | `NOTEBOOK_K8S_GPU_TOLERATIONS`         | —         | Kubernetes only: JSON tolerations for GPU training pods, for a tainted GPU pool.                          |
 

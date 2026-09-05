@@ -95,6 +95,7 @@ export const DOCS_GROUPS: DocGroup[] = [
       { to: "/docs/mcp", label: "MCP servers", icon: Share2 },
       { to: "/docs/embedding", label: "Web embedding", icon: Code2 },
       { to: "/docs/api", label: "API & webhooks", icon: Webhook },
+      { to: "/docs/gateway", label: "AI Gateway", icon: KeyRound },
       { to: "/docs/secrets", label: "Secrets", icon: KeyRound },
     ],
   },

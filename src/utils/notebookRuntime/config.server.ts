@@ -52,6 +52,10 @@ export type PlatformResourceSettings = {
   mlTrainGpus: number;
   /** PSI above which a batch prediction raises a drift notification. */
   mlDriftAlertPsi: number;
+  /** Calls a minute one AI-gateway key may make unless it sets its own. */
+  gatewayRateLimitPerMin: number;
+  /** provider/model entries every gateway call may fall back to, after the key's chain. */
+  gatewayFallbackModels: string[];
 };
 
 /** A stored override only counts when it is a usable positive number. */
@@ -86,7 +90,7 @@ export async function getPlatformResources(): Promise<PlatformResourceSettings> 
   const { data } = await supabaseAdmin
     .from("notebook_runtime_settings")
     .select(
-      "lakehouse_memory_limit, lakehouse_threads, etl_max_concurrent_runs_per_user, etl_pipelines_per_sweep, ml_train_max_rows, ml_train_time_budget_minutes, ml_train_mem_limit_mb, ml_max_concurrent_trainings_per_user, ml_predict_max_rows, ml_train_gpus, ml_drift_alert_psi",
+      "lakehouse_memory_limit, lakehouse_threads, etl_max_concurrent_runs_per_user, etl_pipelines_per_sweep, ml_train_max_rows, ml_train_time_budget_minutes, ml_train_mem_limit_mb, ml_max_concurrent_trainings_per_user, ml_predict_max_rows, ml_train_gpus, ml_drift_alert_psi, gateway_rate_limit_per_min, gateway_fallback_models",
     )
     .eq("id", true)
     .maybeSingle();
@@ -116,6 +120,16 @@ export async function getPlatformResources(): Promise<PlatformResourceSettings> 
       positive(data?.ml_predict_max_rows) ?? envInt("ML_PREDICT_MAX_ROWS") ?? 5_000_000,
     mlTrainGpus: nonNegative(data?.ml_train_gpus) ?? envInt("ML_TRAIN_GPUS") ?? 0,
     mlDriftAlertPsi: positiveNum(data?.ml_drift_alert_psi) ?? envNum("ML_DRIFT_ALERT_PSI") ?? 0.25,
+    gatewayRateLimitPerMin:
+      positive(data?.gateway_rate_limit_per_min) ?? envInt("AI_GATEWAY_RATE_LIMIT_PER_MIN") ?? 60,
+    gatewayFallbackModels: Array.isArray(data?.gateway_fallback_models)
+      ? data.gateway_fallback_models.filter(
+          (s): s is string => typeof s === "string" && s.trim() !== "",
+        )
+      : (process.env.AI_GATEWAY_FALLBACK_MODELS ?? "")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean),
   };
 }
 

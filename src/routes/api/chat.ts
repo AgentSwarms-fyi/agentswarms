@@ -11,6 +11,7 @@ import {
 import type { ProviderId } from "@/utils/providers/types";
 import { notifyN8nWebhook } from "@/utils/integrations.functions";
 import { resolveAgentTools, TOOLABLE_IDS, type ToolableId } from "@/utils/tools/registry.server";
+import { enabledToolsFromToggles } from "@/utils/tools/agentToggles";
 import { streamChatWithTools, type ToolEvent } from "@/utils/tools/loop.server";
 import { buildSources, type RawSource, type Source } from "@/utils/tools/sources";
 import { mergeExtraTools } from "@/lib/adhocTools";
@@ -430,6 +431,8 @@ type TraceContext = {
    * trace has to be written with the service role or RLS refuses it.
    */
   internalRun?: boolean;
+  /** The gateway key this turn is billed to (internal runs only). */
+  costScope?: { type: "gateway_key"; id: string };
   agentId?: string;
   agentName: string;
   provider: string;
@@ -643,6 +646,8 @@ async function recordTrace(opts: {
       user_id: userId,
       agent_id: trace.agentId ?? null,
       agent_name: trace.agentName,
+      cost_scope_type: trace.costScope?.type ?? null,
+      cost_scope_id: trace.costScope?.id ?? null,
       llm_provider: trace.provider,
       llm_model: trace.model,
       prompt: bodyText(trace.promptText.slice(0, 4000)),
@@ -1065,6 +1070,12 @@ export const Route = createFileRoute("/api/chat")({
             // agent's saved skill list. When omitted, the agent's saved
             // tools.skillIds are used.
             skillIds?: string[];
+            // AI gateway (inbound API) only, honoured on internal runs: the
+            // key that pays for this turn, so its budget is measured from the
+            // trace, and the agent's name for the trace and audit row - the
+            // internal channel does not load the agent itself.
+            costScope?: { type: "gateway_key"; id: string };
+            agentName?: string;
           };
 
           if (!Array.isArray(body.messages) || body.messages.length === 0) {
@@ -1163,6 +1174,9 @@ export const Route = createFileRoute("/api/chat")({
           // saved built-in tool toggles, AND saved tool-configs (per-tool
           // alt-provider keys, n8n workflow allow-list, MCP server allow-list).
           let agentName = "Playground";
+          if (isInternalRun && typeof body.agentName === "string" && body.agentName.trim()) {
+            agentName = body.agentName.trim().slice(0, 120);
+          }
           let agentRouteThroughGateway = false;
           let agentN8nWebhookUrl: string | null = null;
           const agentBuiltInToggles: Record<string, boolean> = {};
@@ -1279,34 +1293,12 @@ export const Route = createFileRoute("/api/chat")({
           // Map the agent's saved web_search/web_browse switches into the
           // curated TOOLABLE_IDS. Used when the request didn't pass an
           // explicit `enabledTools` allow-list (the swarm runtime always does).
+          // The toggle-to-tool mapping is shared with the AI gateway (and any
+          // other surface that runs a saved agent headlessly) in
+          // utils/tools/agentToggles: it twice omitted a toggle while it lived
+          // here, and a second copy would drift the same way.
           function deriveEnabledToolsFromAgent(): ToolableId[] | undefined {
-            const t = agentBuiltInToggles;
-            if (!t || Object.keys(t).length === 0) return undefined;
-            const out: ToolableId[] = [];
-            if (t.web_search) out.push("web_search");
-            if (t.web_browse || t.web_browser) out.push("web_browse");
-            if (t.kb_search || t.knowledge_base) out.push("kb_search");
-            if (t.kb_graph_search || t.knowledge_graph) out.push("kb_graph_search");
-            if (t.calculator) out.push("calculator");
-            if (t.datetime) out.push("datetime");
-            if (t.weather) out.push("weather");
-            if (t.sql_query) out.push("sql_query");
-            // FOUND FROM THE UI: this mapping omitted metric_query entirely,
-            // so an agent with Semantic Metrics toggled on (and models
-            // selected) still never received the tool in agent chat — it fell
-            // back to raw sql_query and told the user "there's no semantic
-            // layer definition". Every toggle the builder can save must map
-            // here, or saving it is theater.
-            if (t.metric_query) out.push("metric_query");
-            // Same omission, found the same way: ML Predictions toggled on in
-            // the builder never reached agent chat, so the model announced a
-            // prediction it could not make. tests/unit/agentToolToggles pins
-            // every builder toggle to a line here.
-            if (t.ml_predict) out.push("ml_predict");
-            if (t.n8n || t.n8n_run_workflow) out.push("n8n_run_workflow");
-            if (t.mcp || t.mcp_call_tool) out.push("mcp_call_tool");
-            if (t.send_notification || t.notifications) out.push("send_notification");
-            return out.length > 0 ? out : undefined;
+            return enabledToolsFromToggles(agentBuiltInToggles);
           }
 
           // Merge per-call toolConfigs (from swarm) over the agent's saved
@@ -1413,6 +1405,12 @@ export const Route = createFileRoute("/api/chat")({
             userId,
             authToken,
             internalRun: isInternalRun,
+            costScope:
+              isInternalRun &&
+              body.costScope?.type === "gateway_key" &&
+              typeof body.costScope.id === "string"
+                ? { type: "gateway_key", id: body.costScope.id }
+                : undefined,
             agentId: body.agentId,
             agentName,
             provider,

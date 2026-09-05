@@ -1,0 +1,157 @@
+# AI gateway
+
+An OpenAI-compatible endpoint in front of your agents and connected models.
+Point any OpenAI SDK, IDE plugin, evaluation harness or other agent at
+`https://<your host>/api/v1` with a **gateway key**, and it talks to a saved
+agent, with its prompt, tools, knowledge and guardrails, or to a connected
+model directly. Every call runs as the key's owner, under that owner's IAM
+model rules, budgets, traces and audit trail. Nothing new to govern, one new
+door to reach it through.
+
+This is the inbound half of the gateway. The outbound half, routing the
+platform's own model traffic through LiteLLM, Portkey or Helicone, is the
+existing setting on the same tab (Integrations → LLM Gateway) and is
+unchanged.
+
+## Keys
+
+Mint a key under **Integrations → LLM Gateway → API access**. A key is
+minted by one user and reaches only what that user could reach by hand:
+
+| Setting            | What it does                                                                                                                                                    |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Scopes**         | `agents` lets the key call your saved agents (`model: "agent:<name or id>"`); `models` lets it call a connected model directly (`model: "<provider>/<model>"`). |
+| **Agents**         | With the `agents` scope, an optional allow-list; none ticked means every agent you own.                                                                         |
+| **Model patterns** | With the `models` scope, `provider/model` patterns the key may call (`openrouter/*`, `anthropic/claude-*`); empty means anything your IAM model rules allow.    |
+| **Fallback chain** | Ordered `provider/model` entries tried when the requested model fails with a provider error, before the instance-wide chain.                                    |
+| **Calls a minute** | A per-key rate limit; blank uses the instance default.                                                                                                          |
+| **Monthly budget** | A ceiling in USD on what this key may spend; the spend is attributed to the key on every trace.                                                                 |
+| **Expires**        | Optional; an expired key answers 401 the moment it lapses.                                                                                                      |
+
+The plaintext key (`gw_…`) is shown once. The row holds a SHA-256 hash and
+the first characters, enough to tell keys apart. Revoking is immediate and
+permanent; mint a new key to restore access. Creating, editing and revoking
+a key are audited by trigger under `gateway_key`.
+
+## Calling it
+
+Base URL: `https://<your host>/api/v1`. Two endpoints:
+
+- `GET /models` lists what the key may name: one row per agent as
+  `agent:<id>`, with the name alias and the model behind it under
+  `agentswarms`; a `models` key sees its allow-list patterns as hints.
+- `POST /chat/completions` runs one turn. `stream: true` answers as
+  server-sent events in the `chat.completion.chunk` shape; otherwise one
+  `chat.completion` object.
+
+```bash
+curl https://<your host>/api/v1/chat/completions \
+  -H "Authorization: Bearer gw_..." \
+  -H "Content-Type: application/json" \
+  -d '{"model": "agent:Support triage", "stream": true,
+       "messages": [{"role": "user", "content": "A customer reports a failed payment"}]}'
+```
+
+```python
+from openai import OpenAI
+client = OpenAI(base_url="https://<your host>/api/v1", api_key="gw_...")
+reply = client.chat.completions.create(
+    model="openrouter/openai/gpt-4o-mini",
+    messages=[{"role": "system", "content": "Answer in one line."},
+              {"role": "user", "content": "What is a lakehouse?"}],
+)
+print(reply.choices[0].message.content)
+```
+
+What the endpoint takes from the request: `model`, `messages` (`system` and
+`developer` messages become the instruction; `tool` messages are dropped,
+because an agent runs its own tools), `stream`, `temperature`,
+`max_tokens` / `max_completion_tokens`, and `stream_options.include_usage`.
+Image parts in a message are not passed to the model. `tools` and
+`functions` from the client are ignored: an agent's tools are the ones its
+owner configured, and a bare model has none.
+
+What comes back, beyond the OpenAI fields: an `agentswarms` object on the
+completion (or on the final streamed chunk) with the `trace_id`, the
+`fallback_from` model if one was used, the citations and tool calls the
+turn produced, and any guardrail note; and headers `X-Trace-Id`,
+`X-Gateway-Model` (the model that actually answered) and
+`X-Gateway-Fallback: true` when it was not the one requested. Usage arrives
+in `usage` on non-streamed replies and, when `include_usage` is set, on the
+final chunk.
+
+An agent called through the gateway keeps no memory between calls: the
+caller holds the conversation and replays it, the way the OpenAI API works,
+and a key is not a person.
+
+## Fallback
+
+When the requested model fails with a provider error, the gateway tries the
+next entry of the key's chain, then the instance-wide chain
+(`AI_GATEWAY_FALLBACK_MODELS`, or Admin → Developer runtime), each once, and
+answers with the first that works. For an agent, only the model changes;
+the prompt, tools and knowledge stay the agent's.
+
+Retryable means the provider was the problem: throttling (429), exhausted
+credits (402), timeouts and 5xx. A caller's own mistake is never retried,
+and neither is a policy refusal of the model the caller asked for: a
+request your IAM rules forbid answers 403 `model_not_allowed`. A forbidden
+model that only appears in a fallback chain is skipped. A fallback happens
+only before any token has reached the caller; once a stream has started,
+its model answers it. Every switch is audited as `gateway.fallback` with
+the models, the status and the reason.
+
+## Governance
+
+- **Identity.** The turn runs on the chat route's internal channel as the
+  key's owner. Data tools read what the owner may read, and no more.
+- **Model rules.** IAM allow-lists apply to the model that answers, whether
+  requested or fallen back to.
+- **Budgets.** The owner's personal and group budgets apply, and the key's
+  own monthly ceiling on top; every trace made through the key carries
+  `cost_scope_type = gateway_key`, so the ceiling is measured, not
+  estimated. Over budget answers 429 `insufficient_quota`.
+- **Rate limits.** Per key, per minute, across every replica.
+- **Audit.** `gateway.chat` for every completed turn (target, model,
+  fallback, tokens, trace id), `gateway.fallback` for every switch,
+  `gateway.access.denied` for a revoked, expired, out-of-scope or throttled
+  key with the caller's address, and the table's own trigger for key
+  changes. Agent turns also audit `agent.chat`, as in the app.
+- **Traces.** Each turn is an execution trace under the owner, with the
+  agent's name, so Observability shows gateway traffic beside everything
+  else.
+
+Errors use the OpenAI shape, `{ "error": { "message", "type", "code" } }`:
+`invalid_api_key` (401), `insufficient_scope` and `model_not_allowed` (403),
+`model_not_found` (404), `rate_limit_exceeded` and `insufficient_quota`
+(429), `invalid_request_error` (400), `upstream_error` (502).
+
+## Limits
+
+| Setting                         | Default | Where                                                                                        |
+| ------------------------------- | ------- | -------------------------------------------------------------------------------------------- |
+| `AI_GATEWAY_RATE_LIMIT_PER_MIN` | 60      | Calls a minute one key may make unless it sets its own; Admin → Developer runtime.           |
+| `AI_GATEWAY_FALLBACK_MODELS`    | none    | Comma-separated `provider/model` entries every call may fall back to, after the key's chain. |
+| Fallback entries per key        | 10      | Entries that do not parse as `provider/model` are dropped when saved, and said so.           |
+
+## How this compares
+
+LiteLLM and Portkey are gateways in front of model providers: keys, routing,
+fallbacks, spend, all for raw models. This endpoint is a gateway in front of
+your **agents** as well as your models, and it inherits the platform's
+governance instead of carrying its own copy: the same IAM rules, budgets,
+guardrails, traces and audit that apply in the app apply here. If you
+already run one of those gateways, keep it as the outbound route and put
+this endpoint in front of the agents.
+
+## Troubleshooting
+
+| Symptom                                   | Cause and fix                                                                                                                             |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| 401 `invalid_api_key`                     | Missing, malformed, revoked or expired key. Mint a new one under Integrations → LLM Gateway.                                              |
+| 404 `model_not_found`                     | `model` is neither `agent:<name or id>` nor `<provider>/<model>`, the agent is inactive, or two agents share the name — use `agent:<id>`. |
+| 403 `insufficient_scope`                  | The key lacks the scope, or the agent is not on its allow-list.                                                                           |
+| 403 `model_not_allowed`                   | Your IAM model rules forbid the model, or the key's model patterns do.                                                                    |
+| 429 `insufficient_quota`                  | The owner's or the key's monthly budget is spent.                                                                                         |
+| The reply came from a different model     | A fallback fired; `X-Gateway-Model` names it and the audit log has `gateway.fallback` with the reason.                                    |
+| 502 `upstream_error` after several models | Every candidate failed; `gateway.chat` in the audit log lists the models tried.                                                           |

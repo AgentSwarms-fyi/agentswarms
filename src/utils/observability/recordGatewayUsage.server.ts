@@ -59,7 +59,7 @@ export type RecordGatewayCallArgs = {
    * user acting directly (embed key, swarm API key). Recorded on the trace so
    * per-credential budgets are computable — see budgetGuard.server.ts.
    */
-  costScope?: { type: "embed_key" | "swarm_api_key"; id: string } | null;
+  costScope?: { type: "embed_key" | "swarm_api_key" | "gateway_key"; id: string } | null;
   /**
    * Cost the PROVIDER reported for this call, from `extractUsage(...).costUsd`.
    *

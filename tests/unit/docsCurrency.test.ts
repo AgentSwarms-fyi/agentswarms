@@ -52,6 +52,22 @@ type Currency = {
 
 const CASES: Currency[] = [
   {
+    capability:
+      "An OpenAI-compatible endpoint fronts agents and models with a per-key fallback chain",
+    code: "src/utils/gateway/api.server.ts",
+    codeContains: "fallbackCandidates(",
+    doc: "src/routes/docs.gateway.tsx",
+    docMentions: [/chat\/completions/, /fallback/i, /agent:<name or id>/],
+  },
+  {
+    capability:
+      "Gateway spend is attributed to the key that made the call, so its budget is measured",
+    code: "src/routes/api/chat.ts",
+    codeContains: "cost_scope_type: trace.costScope?.type ?? null",
+    doc: "src/routes/docs.gateway.tsx",
+    docMentions: [/budget/i, /insufficient_quota/],
+  },
+  {
     capability: "Models train in a sandbox and explain themselves by permutation importance",
     code: "src/utils/ml/pyTrain.ts",
     codeContains: "permutation_importance(",

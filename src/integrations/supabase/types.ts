@@ -2373,6 +2373,69 @@ export type Database = {
         };
         Relationships: [];
       };
+      gateway_keys: {
+        Row: {
+          agent_ids: string[];
+          created_at: string;
+          expires_at: string | null;
+          fallback_models: string[];
+          id: string;
+          is_active: boolean;
+          key_hash: string;
+          key_prefix: string;
+          last_used_at: string | null;
+          last_used_ip: string | null;
+          model_allow: string[];
+          name: string;
+          rate_limit_per_min: number | null;
+          revoked_at: string | null;
+          scopes: string[];
+          updated_at: string;
+          use_count: number;
+          user_id: string;
+        };
+        Insert: {
+          agent_ids?: string[];
+          created_at?: string;
+          expires_at?: string | null;
+          fallback_models?: string[];
+          id?: string;
+          is_active?: boolean;
+          key_hash: string;
+          key_prefix: string;
+          last_used_at?: string | null;
+          last_used_ip?: string | null;
+          model_allow?: string[];
+          name: string;
+          rate_limit_per_min?: number | null;
+          revoked_at?: string | null;
+          scopes?: string[];
+          updated_at?: string;
+          use_count?: number;
+          user_id: string;
+        };
+        Update: {
+          agent_ids?: string[];
+          created_at?: string;
+          expires_at?: string | null;
+          fallback_models?: string[];
+          id?: string;
+          is_active?: boolean;
+          key_hash?: string;
+          key_prefix?: string;
+          last_used_at?: string | null;
+          last_used_ip?: string | null;
+          model_allow?: string[];
+          name?: string;
+          rate_limit_per_min?: number | null;
+          revoked_at?: string | null;
+          scopes?: string[];
+          updated_at?: string;
+          use_count?: number;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       git_export_config: {
         Row: {
           base_path: string;
@@ -4470,6 +4533,8 @@ export type Database = {
           egress_allowlist: string[];
           etl_max_concurrent_runs_per_user: number | null;
           etl_pipelines_per_sweep: number | null;
+          gateway_fallback_models: string[] | null;
+          gateway_rate_limit_per_min: number | null;
           id: boolean;
           idle_ttl_minutes: number;
           lakehouse_memory_limit: string | null;
@@ -4502,6 +4567,8 @@ export type Database = {
           egress_allowlist?: string[];
           etl_max_concurrent_runs_per_user?: number | null;
           etl_pipelines_per_sweep?: number | null;
+          gateway_fallback_models?: string[] | null;
+          gateway_rate_limit_per_min?: number | null;
           id?: boolean;
           idle_ttl_minutes?: number;
           lakehouse_memory_limit?: string | null;
@@ -4534,6 +4601,8 @@ export type Database = {
           egress_allowlist?: string[];
           etl_max_concurrent_runs_per_user?: number | null;
           etl_pipelines_per_sweep?: number | null;
+          gateway_fallback_models?: string[] | null;
+          gateway_rate_limit_per_min?: number | null;
           id?: boolean;
           idle_ttl_minutes?: number;
           lakehouse_memory_limit?: string | null;

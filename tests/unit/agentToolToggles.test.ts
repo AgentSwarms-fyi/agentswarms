@@ -23,10 +23,14 @@ function builderToolIds(): string[] {
 }
 
 function deriveSource(): string {
+  // The mapping lives in one shared module; the chat route must delegate to
+  // it rather than keep a copy that can drift.
   const chat = rd("src/routes/api/chat.ts");
-  const start = chat.indexOf("function deriveEnabledToolsFromAgent()");
+  expect(chat).toContain("return enabledToolsFromToggles(agentBuiltInToggles);");
+  const mod = rd("src/utils/tools/agentToggles.ts");
+  const start = mod.indexOf("export function enabledToolsFromToggles(");
   expect(start).toBeGreaterThan(0);
-  return chat.slice(start, chat.indexOf("return out.length > 0 ? out : undefined;", start));
+  return mod.slice(start, mod.indexOf("return out.length > 0 ? out : undefined;", start));
 }
 
 describe("agent tool toggles reach agent chat", () => {

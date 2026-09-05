@@ -1363,6 +1363,79 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     ]
   },
   {
+    "route": "/docs/gateway",
+    "title": "AI Gateway",
+    "description": "An OpenAI-compatible endpoint in front of your agents and connected models. Point any OpenAI SDK, IDE plugin, evaluation harness or other agent at /api/v1/ with a gateway key; every call runs as the key's owner, under that owner's model rules, budgets, traces and audit trail.",
+    "terms": [
+      "X-Gateway-Fallback",
+      "X-Gateway-Model",
+      "X-Trace-Id",
+      "agent.chat",
+      "agentswarms",
+      "gateway.access.denied",
+      "gateway.chat",
+      "gateway.fallback",
+      "gw_…",
+      "insufficient_quota",
+      "insufficient_scope",
+      "invalid_api_key",
+      "invalid_request_error",
+      "max_tokens",
+      "messages",
+      "model",
+      "model_not_allowed",
+      "model_not_found",
+      "rate_limit_exceeded",
+      "stream",
+      "stream_options.include_usage",
+      "temperature",
+      "tools",
+      "upstream_error"
+    ],
+    "headings": [
+      {
+        "id": "what",
+        "text": "What it is",
+        "level": 2
+      },
+      {
+        "id": "keys",
+        "text": "Keys",
+        "level": 2
+      },
+      {
+        "id": "calling",
+        "text": "Calling it",
+        "level": 2
+      },
+      {
+        "id": "fallback",
+        "text": "Fallback",
+        "level": 2
+      },
+      {
+        "id": "governance",
+        "text": "Governance",
+        "level": 2
+      },
+      {
+        "id": "limits",
+        "text": "Limits",
+        "level": 2
+      },
+      {
+        "id": "how-this-compares",
+        "text": "How this compares",
+        "level": 2
+      },
+      {
+        "id": "troubleshooting",
+        "text": "Troubleshooting",
+        "level": 3
+      }
+    ]
+  },
+  {
     "route": "/docs/guardrails",
     "title": "Guardrails & PII",
     "description": "Checks that run outside the model, on the way in and on the way out — which is why they still hold when someone talks the agent out of its instructions.",

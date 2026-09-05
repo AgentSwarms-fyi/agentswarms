@@ -63,6 +63,7 @@ import {
 import { saveProviderCredential } from "@/utils/providers/credentials.functions";
 import { detectOllama } from "@/utils/providers/ollama.functions";
 import { invalidateOllamaModels } from "@/hooks/use-ollama-models";
+import { GatewayApiCard } from "@/components/gateway/GatewayApiCard";
 
 // Providers we can live-test against the real upstream API.
 // bedrock/azure/vertex/oci use signed requests and live in the encrypted
@@ -1398,6 +1399,8 @@ function IntegrationsPage() {
                 </Button>
               </CardContent>
             </Card>
+
+            {session?.access_token ? <GatewayApiCard token={session.access_token} /> : null}
           </TabsContent>
 
           <TabsContent value="websearch" className="space-y-4">
