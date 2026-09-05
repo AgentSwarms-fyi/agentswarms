@@ -354,10 +354,7 @@ redistribute it freely, but do not offer it to third parties as a hosted or
 managed service, and keep the notices. A commercial license for uses ELv2 does
 not permit, including running it as a SaaS, is available from the author. The
 "AgentSwarms" name, logo and hosted service are trademarks of the project
-author; ELv2 covers the code, not the brand. Every direct dependency is
-permissively licensed (MIT / Apache-2.0 / ISC / BSD); the credits for the
-open-source projects AgentSwarms builds on are in
-[ACKNOWLEDGEMENTS.md](./ACKNOWLEDGEMENTS.md).
+author; ELv2 covers the code, not the brand. Every direct dependency of the application is permissively licensed (MIT / Apache-2.0 / ISC / BSD); the optional service containers run a few LGPL, MPL and GPL programs as separate processes. The full audit, with credits for every open-source dependency and project AgentSwarms builds on, is in [ACKNOWLEDGEMENTS.md](./ACKNOWLEDGEMENTS.md).
 
 ---
 
