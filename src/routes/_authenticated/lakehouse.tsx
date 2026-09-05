@@ -53,6 +53,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { BiModelSelect } from "@/components/bi/BiModelSelect";
+import { AiFunctionsReference } from "@/components/lakehouse/AiFunctionsReference";
 import { downloadCsv } from "@/lib/exportData";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
@@ -616,6 +617,7 @@ function QueryTab({
               Explain
             </Button>
             <SaveMatviewDialog sql={sql} onSaved={onDataChanged} />
+            <AiFunctionsReference onInsert={(example) => setSql(example)} />
             {result && (
               <>
                 <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -628,6 +630,16 @@ function QueryTab({
                       title="Served from the result cache — invalidated automatically by any write"
                     >
                       cached
+                    </Badge>
+                  )}
+                  {result.ai && (result.ai.calls > 0 || result.ai.cached > 0) && (
+                    <Badge
+                      variant="secondary"
+                      className="text-[10px]"
+                      title={`AI functions (${result.ai.functions.join(", ")}): ${result.ai.calls} model call(s), ${result.ai.cached} from the answer cache${result.ai.cost_usd != null ? ` · $${result.ai.cost_usd.toFixed(4)}` : ""}${result.ai.models.length ? ` · ${result.ai.models.join(", ")}` : ""}`}
+                    >
+                      {result.ai.calls} AI call{result.ai.calls === 1 ? "" : "s"}
+                      {result.ai.cached ? ` · ${result.ai.cached} cached` : ""}
                     </Badge>
                   )}
                 </span>

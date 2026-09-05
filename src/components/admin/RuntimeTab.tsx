@@ -516,6 +516,33 @@ export function RuntimeTab({ token }: { token: string }) {
             hint="Standard deviations from the learned baseline beyond which a volume check alerts. 3 is the usual choice."
           />
         </div>
+        <p className="text-xs font-medium text-muted-foreground">AI in SQL</p>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <NumberField
+            label="AI calls per statement"
+            value={form.ai_sql_max_calls_per_statement}
+            onChange={(n) => set("ai_sql_max_calls_per_statement", n)}
+            hint="Model calls one lakehouse statement may make through ai_* functions (distinct inputs only; cached answers are free)."
+          />
+          <div className="space-y-1">
+            <Label className="text-xs">Default model</Label>
+            <Input
+              value={form.ai_sql_default_model}
+              onChange={(e) => set("ai_sql_default_model", e.target.value)}
+              placeholder="openrouter/google/gemini-3-flash-preview"
+              className="h-8 font-mono text-xs"
+            />
+            <p className="text-[10px] text-muted-foreground">
+              provider/model an ai_* function uses when the statement names none.
+            </p>
+          </div>
+          <NumberField
+            label="Answer cache (days)"
+            value={form.ai_sql_cache_ttl_days}
+            onChange={(n) => set("ai_sql_cache_ttl_days", n)}
+            hint="How long an ai_* answer is reused for the same input and model before the model is asked again."
+          />
+        </div>
         <p className="text-xs font-medium text-muted-foreground">AI gateway</p>
         <div className="grid gap-3 sm:grid-cols-3">
           <NumberField

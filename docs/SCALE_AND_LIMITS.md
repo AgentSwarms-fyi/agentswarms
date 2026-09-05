@@ -323,6 +323,8 @@ runtime** and takes effect on the next job, no redeploy.
 | `AI_GATEWAY_FALLBACK_MODELS`           | —         | Comma-separated `provider/model` entries every gateway call may fall back to, after the key's own chain.          |
 | `DATA_MONITORS_PER_SWEEP`              | 20        | Due data monitors one scheduler sweep runs; a check must answer within 60 seconds.                                |
 | `DATA_MONITOR_ANOMALY_SIGMA`           | 3         | Standard deviations from a volume monitor's learned baseline beyond which it alerts (needs five runs of history). |
+| `AI_SQL_MAX_CALLS_PER_STATEMENT`       | 200       | Model calls one lakehouse statement may make through `ai_*` functions (distinct inputs; cached answers are free). |
+| `AI_SQL_CACHE_TTL_DAYS`                | 30        | Days an `ai_*` answer is reused for the same input and model before the model is asked again.                     |
 | `NOTEBOOK_K8S_GPU_NODE_SELECTOR`       | —         | Kubernetes only: JSON node selector for GPU training pods (`ML_TRAIN_GPUS` > 0).                                  |
 | `NOTEBOOK_K8S_GPU_TOLERATIONS`         | —         | Kubernetes only: JSON tolerations for GPU training pods, for a tainted GPU pool.                                  |
 

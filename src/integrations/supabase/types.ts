@@ -413,6 +413,36 @@ export type Database = {
         };
         Relationships: [];
       };
+      ai_function_cache: {
+        Row: {
+          answer: string | null;
+          created_at: string;
+          expires_at: string;
+          fn: string;
+          key: string;
+          model: string;
+          user_id: string;
+        };
+        Insert: {
+          answer?: string | null;
+          created_at?: string;
+          expires_at: string;
+          fn: string;
+          key: string;
+          model: string;
+          user_id: string;
+        };
+        Update: {
+          answer?: string | null;
+          created_at?: string;
+          expires_at?: string;
+          fn?: string;
+          key?: string;
+          model?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       approvals: {
         Row: {
           action_title: string;
@@ -4721,6 +4751,9 @@ export type Database = {
       };
       notebook_runtime_settings: {
         Row: {
+          ai_sql_cache_ttl_days: number | null;
+          ai_sql_default_model: string | null;
+          ai_sql_max_calls_per_statement: number | null;
           backend: string;
           batch_cpu_limit: string;
           batch_max_minutes: number;
@@ -4757,6 +4790,9 @@ export type Database = {
           updated_at: string;
         };
         Insert: {
+          ai_sql_cache_ttl_days?: number | null;
+          ai_sql_default_model?: string | null;
+          ai_sql_max_calls_per_statement?: number | null;
           backend?: string;
           batch_cpu_limit?: string;
           batch_max_minutes?: number;
@@ -4793,6 +4829,9 @@ export type Database = {
           updated_at?: string;
         };
         Update: {
+          ai_sql_cache_ttl_days?: number | null;
+          ai_sql_default_model?: string | null;
+          ai_sql_max_calls_per_statement?: number | null;
           backend?: string;
           batch_cpu_limit?: string;
           batch_max_minutes?: number;

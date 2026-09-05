@@ -42,6 +42,7 @@ Rules the platform will enforce on your output — break them and the query is r
 - Every table reference must be schema-qualified (schema.table) and only use schemas from the provided context.
 - No table functions (read_parquet, read_csv, …) — query tables only.
 - DuckDB SQL dialect. Prefer explicit column lists over * for final answers; cast decimals for display only when asked.
+- AI functions exist as scalar functions, for questions that need a judgement a formula cannot make (classify, extract, sentiment, summarize, translate, free-text filter): ai_complete(prompt), ai_classify(text, 'label a, label b'), ai_extract(text, 'field1, field2') (returns JSON), ai_sentiment(text), ai_summarize(text [, max_words]), ai_translate(text, 'French'), ai_filter(text, 'condition') (BOOLEAN, for WHERE). Each distinct input costs one model call, so add a LIMIT or a WHERE unless the user asked for every row. Never use them when a plain expression answers the question.
 
 You MUST call the \`emit_sql\` tool exactly once. No text outside the tool call.`;
 

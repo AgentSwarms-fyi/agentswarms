@@ -16,6 +16,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import {
+  AI_SQL_DETAIL_LABELS,
+  AI_SQL_FUNCTION_LABELS,
+  AI_SQL_FUNCTIONS,
+  type AiSqlFunction,
+} from "@/utils/aiSql/core";
+import {
   ArrowDown,
   ArrowDownUp,
   ArrowLeftRight,
@@ -50,6 +56,7 @@ import {
   Undo2,
   Wand2,
   X,
+  Sparkles,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -172,6 +179,7 @@ const STEP_ICON: Record<PrepStepKind, React.ComponentType<{ className?: string }
   split: Scissors,
   dedupe: Copy,
   replace: Repeat,
+  ai: Sparkles,
 };
 
 const REFRESH_INTERVALS: { minutes: number; label: string }[] = [
@@ -2210,6 +2218,7 @@ function StepCard({
       </div>
       <div className="p-2.5">
         {step.kind === "calc" && <CalcStepEditor step={step} columns={names} onUpdate={onUpdate} />}
+        {step.kind === "ai" && <AiStepEditor step={step} columns={names} onUpdate={onUpdate} />}
         {step.kind === "filter" && (
           <FilterStepEditor step={step} columns={names} onUpdate={onUpdate} />
         )}
@@ -2385,6 +2394,145 @@ function CalcStepEditor({
             </button>
           ))}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function AiStepEditor({
+  step,
+  columns,
+  onUpdate,
+}: {
+  step: Extract<PrepStep, { kind: "ai" }>;
+  columns: string[];
+  onUpdate: (next: PrepStep) => void;
+}) {
+  const ref = useRef<HTMLTextAreaElement | null>(null);
+  const detailLabel = AI_SQL_DETAIL_LABELS[step.fn];
+  const selectClass =
+    "h-7 rounded-md border border-input bg-background px-2 text-[11px] focus:outline-none focus:ring-1 focus:ring-ring";
+  function insertPlaceholder(col: string) {
+    const el = ref.current;
+    const token = `{${col}}`;
+    if (!el) return onUpdate({ ...step, detail: step.detail + token });
+    const start = el.selectionStart ?? step.detail.length;
+    const end = el.selectionEnd ?? step.detail.length;
+    onUpdate({ ...step, detail: step.detail.slice(0, start) + token + step.detail.slice(end) });
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(start + token.length, start + token.length);
+    });
+  }
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          value={step.name}
+          onChange={(e) => onUpdate({ ...step, name: e.target.value })}
+          placeholder="column_name"
+          title="The new column"
+          className="h-7 w-44 font-mono text-[11px]"
+        />
+        <select
+          className={selectClass}
+          value={step.fn}
+          title="What the model does"
+          onChange={(e) => onUpdate({ ...step, fn: e.target.value as AiSqlFunction })}
+        >
+          {AI_SQL_FUNCTIONS.map((fn) => (
+            <option key={fn} value={fn}>
+              {AI_SQL_FUNCTION_LABELS[fn]}
+            </option>
+          ))}
+        </select>
+        {step.fn !== "ai_complete" && (
+          <select
+            className={selectClass}
+            value={step.column}
+            title="The column the model reads"
+            onChange={(e) => onUpdate({ ...step, column: e.target.value })}
+          >
+            {!columns.includes(step.column) && <option value="">Pick a column…</option>}
+            {columns.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
+      {step.fn === "ai_complete" ? (
+        <div className="space-y-1">
+          <Textarea
+            ref={ref}
+            value={step.detail}
+            onChange={(e) => onUpdate({ ...step, detail: e.target.value })}
+            placeholder="Write a one-line tagline for the {plan} plan sold in {region}"
+            className="min-h-[56px] text-[11px]"
+            spellCheck={false}
+          />
+          {columns.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {columns.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  title={`Insert {${c}}`}
+                  onClick={() => insertPlaceholder(c)}
+                  className="rounded border border-border/60 bg-background px-1.5 py-0.5 font-mono text-[10px] hover:border-primary/50 hover:bg-primary/5"
+                >
+                  {`{${c}}`}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : step.fn === "ai_summarize" ? (
+        <div className="flex items-center gap-2">
+          <Label className="text-[11px]">{detailLabel}</Label>
+          <Input
+            type="number"
+            min={1}
+            value={step.maxWords ?? ""}
+            onChange={(e) =>
+              onUpdate({ ...step, maxWords: e.target.value === "" ? null : Number(e.target.value) })
+            }
+            placeholder="40"
+            className="h-7 w-24 text-[11px]"
+          />
+        </div>
+      ) : step.fn === "ai_sentiment" ? null : (
+        <div className="flex items-center gap-2">
+          <Label className="shrink-0 text-[11px]">{detailLabel}</Label>
+          <Input
+            value={step.detail}
+            onChange={(e) => onUpdate({ ...step, detail: e.target.value })}
+            placeholder={
+              step.fn === "ai_classify"
+                ? "americas, emea, apac"
+                : step.fn === "ai_extract"
+                  ? "first_name, last_name"
+                  : step.fn === "ai_translate"
+                    ? "French"
+                    : "looks like a company, not a person"
+            }
+            className="h-7 text-[11px]"
+          />
+        </div>
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          value={step.model}
+          onChange={(e) => onUpdate({ ...step, model: e.target.value })}
+          placeholder="model (optional): provider/model"
+          title="Leave empty for the instance default (Admin → Developer runtime → AI in SQL)"
+          className="h-7 w-72 font-mono text-[11px]"
+        />
+        <p className="text-[10px] text-muted-foreground">
+          One model call per distinct input; answers are cached. Runs on the lakehouse or the DuckDB
+          local engine; a warehouse flow runs this step locally.
+        </p>
       </div>
     </div>
   );

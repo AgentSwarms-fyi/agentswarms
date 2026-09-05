@@ -293,7 +293,16 @@ function coerceValue(raw: unknown, type: ColumnDef["type"]): Coerced {
 export async function runLocalSqlDuckDB(
   sql: string,
   tables: DuckTable[],
-  opts: { rowCap?: number } = {},
+  opts: {
+    rowCap?: number;
+    /**
+     * The user the statement runs as, when it may call ai_* functions: the
+     * answers are cached per user and every model call is governed as that
+     * user. Without it the functions are not registered and a statement that
+     * names one fails as an unknown function.
+     */
+    aiUserId?: string;
+  } = {},
 ): Promise<DuckResult> {
   // Same guard as every other local engine — DuckDB would happily run DDL.
   const safeSql = assertLocalReadOnlySql(sql);
@@ -312,16 +321,29 @@ export async function runLocalSqlDuckDB(
       coercionFailures += await loadTable(connection, table);
     }
 
-    timer = setTimeout(() => {
-      timedOut = true;
-      try {
-        connection.interrupt();
-      } catch {
-        /* the query may already have finished */
-      }
-    }, queryTimeoutMs());
+    const { usesAiSqlFunctions } = await import("@/utils/aiSql/core");
+    const withAi = Boolean(opts.aiUserId) && usesAiSqlFunctions(safeSql).length > 0;
+    timer = setTimeout(
+      () => {
+        timedOut = true;
+        try {
+          connection.interrupt();
+        } catch {
+          /* the query may already have finished */
+        }
+      },
+      // A statement with AI calls waits on the model between its passes.
+      queryTimeoutMs() + (withAi ? 10 * 60_000 : 0),
+    );
 
-    const result = await connection.run(safeSql);
+    const execute = () => connection.run(safeSql);
+    const result = withAi
+      ? (
+          await (
+            await import("@/utils/aiSql/run.server")
+          ).runWithAiSql(connection, opts.aiUserId!, safeSql, execute, { auditVia: "local_engine" })
+        ).result
+      : await execute();
     const columns = result.columnNames();
     const raw = await result.getRowObjects();
     const cap = opts.rowCap;

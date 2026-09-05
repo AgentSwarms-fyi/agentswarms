@@ -15,6 +15,7 @@
 // compiler, validation, casting, profiling) with type-only imports, so both
 // the browser (lib/dataPrep.ts) and the server refresh job can use it.
 import type { Json } from "@/integrations/supabase/types";
+import { AI_SQL_DETAIL_LABELS, type AiSqlFunction } from "@/utils/aiSql/core";
 import type { ColumnDef } from "@/lib/sqlEngine";
 
 export const PREP_SAVE_ROW_CAP = 5000;
@@ -219,6 +220,21 @@ export type PrepStep =
       find: string;
       replaceWith: string;
       mode: "substring" | "exact";
+    }
+  | {
+      id: string;
+      kind: "ai";
+      /** The output column. */
+      name: string;
+      fn: AiSqlFunction;
+      /** The column the model reads; unused by ai_complete, whose prompt names columns. */
+      column: string;
+      /** Labels, fields, language, condition - or the prompt template for ai_complete ({column} inserts a value). */
+      detail: string;
+      /** ai_summarize only. */
+      maxWords: number | null;
+      /** provider/model, or empty for the instance default. */
+      model: string;
     };
 
 export type PrepStepKind = PrepStep["kind"];
@@ -232,6 +248,11 @@ export const PREP_STEP_KINDS: { kind: PrepStepKind; label: string; hint: string 
   { kind: "unpivot", label: "Unpivot", hint: "Turn columns into rows (wide → long)" },
   { kind: "split", label: "Split column", hint: "Split text into multiple columns" },
   { kind: "dedupe", label: "Remove duplicates", hint: "Drop duplicate rows" },
+  {
+    kind: "ai",
+    label: "AI column",
+    hint: "Classify, extract, judge, summarize or translate a column with a model",
+  },
   { kind: "replace", label: "Find & replace", hint: "Replace values in a column" },
 ];
 
@@ -239,6 +260,7 @@ export function prepStepLabel(step: PrepStep): string {
   const base = PREP_STEP_KINDS.find((k) => k.kind === step.kind)?.label ?? step.kind;
   switch (step.kind) {
     case "calc":
+    case "ai":
       return `${base}: ${step.name || "(unnamed)"}`;
     case "filter":
       return `${base} (${step.conditions.length})`;
@@ -267,6 +289,17 @@ export function makeStep(kind: PrepStepKind, cols: PrepSchemaCol[]): PrepStep {
   switch (kind) {
     case "calc":
       return { id: uid(), kind, name: freshName("new_field", names), expr: "", type: "decimal" };
+    case "ai":
+      return {
+        id: uid(),
+        kind,
+        name: freshName("ai_label", names),
+        fn: "ai_classify",
+        column: firstText,
+        detail: "",
+        maxWords: null,
+        model: "",
+      };
     case "filter":
       return {
         id: uid(),
@@ -576,6 +609,8 @@ function stepOutputSchema(inCols: PrepSchemaCol[], step: PrepStep): PrepSchemaCo
   switch (step.kind) {
     case "calc":
       return [...inCols, { name: step.name, type: step.type }];
+    case "ai":
+      return [...inCols, { name: step.name, type: step.fn === "ai_filter" ? "boolean" : "text" }];
     case "filter":
     case "append":
     case "dedupe":
@@ -756,6 +791,45 @@ function pivotCell(
 }
 
 /** Compile one step, wrapping the previous relation `sql` as a derived table. */
+/**
+ * The ai_* call an AI column compiles to. Only the DuckDB engines answer the
+ * functions (the lakehouse, or the local engine when it is DuckDB), so any
+ * other dialect refuses here with the reason, before a query is sent.
+ */
+function aiStepCall(
+  step: Extract<PrepStep, { kind: "ai" }>,
+  q: (s: string) => string,
+  dialect: PrepDialect,
+): string {
+  if (dialect !== "duckdb") {
+    throw new Error(
+      "An AI column runs on the DuckDB engine - the lakehouse, or the local engine with LOCAL_ENGINE=duckdb. It cannot be pushed down to a warehouse.",
+    );
+  }
+  const lit = (s: string) => `'${s.replace(/'/g, "''")}'`;
+  const args: string[] = [];
+  if (step.fn === "ai_complete") {
+    // The prompt template: {column} becomes the column's text, the rest literals.
+    const parts = step.detail
+      .split(/(\{[^}]+\})/g)
+      .filter(Boolean)
+      .map((p) => {
+        const m = p.match(/^\{([^}]+)\}$/);
+        return m ? `coalesce(CAST(${q(m[1].trim())} AS VARCHAR), '')` : lit(p);
+      });
+    args.push(parts.length === 1 ? parts[0] : `concat(${parts.join(", ")})`);
+  } else {
+    args.push(q(step.column));
+    if (step.fn === "ai_summarize") {
+      if (step.maxWords) args.push(String(Math.floor(step.maxWords)));
+    } else if (step.fn !== "ai_sentiment") {
+      args.push(lit(step.detail.trim()));
+    }
+  }
+  if (step.model.trim()) args.push(lit(step.model.trim()));
+  return `${step.fn}(${args.join(", ")})`;
+}
+
 function compileStep(
   sql: string,
   step: PrepStep,
@@ -768,6 +842,8 @@ function compileStep(
   switch (step.kind) {
     case "calc":
       return `SELECT *, (${step.expr.trim()}) AS ${q(step.name)}\nFROM ${src}`;
+    case "ai":
+      return `SELECT *, ${aiStepCall(step, q, dialect)} AS ${q(step.name)}\nFROM ${src}`;
     case "filter": {
       const where = step.conditions.map((c) => filterSql(c, q)).join(`\n  ${step.combine} `);
       return `SELECT *\nFROM ${src}\nWHERE ${where}`;
@@ -1056,6 +1132,12 @@ export function foldEligibility(cfg: PrepFlowConfig, dialect: PrepDialect): Fold
           };
         }
         break;
+      case "ai":
+        return {
+          foldable: false,
+          stepIndex: i,
+          reason: "An AI column runs on the platform's model channel, not in the warehouse.",
+        };
       default:
         // filter / aggregate / append / pivot / unpivot / split / replace all
         // compile to ANSI constructs (or a dialect-specific SPLIT we've proven).
@@ -1112,6 +1194,30 @@ export function validatePrepConfig(cfg: PrepFlowConfig): PrepValidation {
           return { ok: false, error: `${label}: "${step.name}" already exists — rename it.` };
         if (!step.expr.trim()) return { ok: false, error: `${label}: enter a formula.` };
         break;
+      case "ai": {
+        if (!step.name.trim()) return { ok: false, error: `${label}: name the AI column.` };
+        if (avail.has(step.name))
+          return { ok: false, error: `${label}: "${step.name}" already exists — rename it.` };
+        if (step.fn === "ai_complete") {
+          if (!step.detail.trim())
+            return { ok: false, error: `${label}: write the prompt; {column} inserts a value.` };
+          for (const m of step.detail.matchAll(/\{([^}]+)\}/g)) {
+            if (!avail.has(m[1].trim())) return missing(m[1].trim());
+          }
+        } else {
+          if (!step.column || !avail.has(step.column)) return missing(step.column || "(none)");
+          if (step.fn === "ai_summarize") {
+            if (step.maxWords !== null && !(step.maxWords > 0))
+              return { ok: false, error: `${label}: the word limit must be a positive number.` };
+          } else if (step.fn !== "ai_sentiment" && !step.detail.trim()) {
+            return {
+              ok: false,
+              error: `${label}: ${AI_SQL_DETAIL_LABELS[step.fn].toLowerCase()} required.`,
+            };
+          }
+        }
+        break;
+      }
       case "filter":
         if (step.conditions.length === 0)
           return { ok: false, error: `${label}: add a condition or remove the filter.` };

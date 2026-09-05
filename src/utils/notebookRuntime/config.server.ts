@@ -60,6 +60,12 @@ export type PlatformResourceSettings = {
   dataMonitorsPerSweep: number;
   /** Standard deviations from the learned baseline beyond which a volume check alerts. */
   dataMonitorAnomalySigma: number;
+  /** Model calls one SQL statement may make through ai_* functions. */
+  aiSqlMaxCallsPerStatement: number;
+  /** provider/model an ai_* function uses when the statement names none. */
+  aiSqlDefaultModel: string;
+  /** Days an ai_* answer is reused before the model is asked again. */
+  aiSqlCacheTtlDays: number;
 };
 
 /** A stored override only counts when it is a usable positive number. */
@@ -94,7 +100,7 @@ export async function getPlatformResources(): Promise<PlatformResourceSettings> 
   const { data } = await supabaseAdmin
     .from("notebook_runtime_settings")
     .select(
-      "lakehouse_memory_limit, lakehouse_threads, etl_max_concurrent_runs_per_user, etl_pipelines_per_sweep, ml_train_max_rows, ml_train_time_budget_minutes, ml_train_mem_limit_mb, ml_max_concurrent_trainings_per_user, ml_predict_max_rows, ml_train_gpus, ml_drift_alert_psi, gateway_rate_limit_per_min, gateway_fallback_models, data_monitors_per_sweep, data_monitor_anomaly_sigma",
+      "lakehouse_memory_limit, lakehouse_threads, etl_max_concurrent_runs_per_user, etl_pipelines_per_sweep, ml_train_max_rows, ml_train_time_budget_minutes, ml_train_mem_limit_mb, ml_max_concurrent_trainings_per_user, ml_predict_max_rows, ml_train_gpus, ml_drift_alert_psi, gateway_rate_limit_per_min, gateway_fallback_models, data_monitors_per_sweep, data_monitor_anomaly_sigma, ai_sql_max_calls_per_statement, ai_sql_default_model, ai_sql_cache_ttl_days",
     )
     .eq("id", true)
     .maybeSingle();
@@ -138,6 +144,16 @@ export async function getPlatformResources(): Promise<PlatformResourceSettings> 
       positive(data?.data_monitors_per_sweep) ?? envInt("DATA_MONITORS_PER_SWEEP") ?? 20,
     dataMonitorAnomalySigma:
       positiveNum(data?.data_monitor_anomaly_sigma) ?? envNum("DATA_MONITOR_ANOMALY_SIGMA") ?? 3,
+    aiSqlMaxCallsPerStatement:
+      positive(data?.ai_sql_max_calls_per_statement) ??
+      envInt("AI_SQL_MAX_CALLS_PER_STATEMENT") ??
+      200,
+    aiSqlDefaultModel:
+      (typeof data?.ai_sql_default_model === "string" && data.ai_sql_default_model.trim()) ||
+      (process.env.AI_SQL_DEFAULT_MODEL ?? "").trim() ||
+      "openrouter/google/gemini-3-flash-preview",
+    aiSqlCacheTtlDays:
+      positive(data?.ai_sql_cache_ttl_days) ?? envInt("AI_SQL_CACHE_TTL_DAYS") ?? 30,
   };
 }
 

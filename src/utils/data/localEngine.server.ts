@@ -56,7 +56,7 @@ export async function localEngineName(): Promise<"duckdb" | "alasql"> {
 export async function runLocalSelect(
   sql: string,
   tables: LocalEngineTable[],
-  opts: { rowCap?: number } = {},
+  opts: { rowCap?: number; aiUserId?: string } = {},
 ): Promise<LocalEngineResult> {
   const safeSql = assertLocalReadOnlySql(sql);
   const { duckdbEnabled } = await import("@/utils/data/duckdb.server");
@@ -77,7 +77,10 @@ export async function runLocalSelect(
   if (duckdbEnabled()) {
     const { runLocalSqlDuckDB } = await import("@/utils/data/duckdb.server");
     try {
-      const res = await runLocalSqlDuckDB(safeSql, tables, { rowCap: opts.rowCap });
+      const res = await runLocalSqlDuckDB(safeSql, tables, {
+        rowCap: opts.rowCap,
+        aiUserId: opts.aiUserId,
+      });
       return { columns: res.columns, rows: res.rows, engine: "duckdb" };
     } catch (e) {
       throw explainEngineFailure(e, "duckdb");

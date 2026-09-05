@@ -140,6 +140,58 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     ]
   },
   {
+    "route": "/docs/ai-sql",
+    "title": "AI in SQL",
+    "description": "Seven scalar functions answered by a model, callable wherever a lower() is: classify, extract fields, judge sentiment, summarize, translate, filter by a condition a formula cannot express, or ask anything. Every call is governed like every other model call.",
+    "terms": [
+      "AI_SQL_CACHE_TTL_DAYS",
+      "AI_SQL_DEFAULT_MODEL",
+      "AI_SQL_MAX_CALLS_PER_STATEMENT",
+      "ai_*",
+      "ai_classify",
+      "ai_extract",
+      "ai_filter",
+      "ai_sentiment",
+      "ai_summarize(ai_translate(...))",
+      "lakehouse.ai_functions",
+      "openai/gpt-4o",
+      "openrouter/openai/gpt-4o-mini",
+      "provider/model"
+    ],
+    "headings": [
+      {
+        "id": "what",
+        "text": "What it is",
+        "level": 2
+      },
+      {
+        "id": "functions",
+        "text": "The functions",
+        "level": 2
+      },
+      {
+        "id": "passes",
+        "text": "How a statement runs",
+        "level": 2
+      },
+      {
+        "id": "prep",
+        "text": "In Data Prep",
+        "level": 2
+      },
+      {
+        "id": "governance",
+        "text": "Cost, limits and governance",
+        "level": 2
+      },
+      {
+        "id": "troubleshooting",
+        "text": "Troubleshooting",
+        "level": 2
+      }
+    ]
+  },
+  {
     "route": "/docs/analytics",
     "title": "Analytics",
     "description": "Two views built on the same telemetry: workspace-level cost analytics at /analytics, and per-run swarm observability that replays a swarm execution node by node.",
@@ -802,6 +854,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "OR",
       "SELECT",
       "aggregate",
+      "ai",
       "all",
       "amount",
       "append",
@@ -850,7 +903,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       },
       {
         "id": "steps",
-        "text": "The nine steps",
+        "text": "The ten steps",
         "level": 2
       },
       {

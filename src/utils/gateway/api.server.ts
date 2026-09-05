@@ -34,22 +34,8 @@ import {
 } from "@/utils/gateway/keys";
 
 /** Every provider id the platform knows; pinned to the type so a new provider cannot be forgotten here. */
-export const GATEWAY_PROVIDERS = [
-  "bedrock",
-  "vertex",
-  "anthropic",
-  "azure_openai",
-  "oci_genai",
-  "qwen",
-  "grok",
-  "openai",
-  "gemini",
-  "ollama",
-  "openrouter",
-  "groq",
-  "vllm",
-  "nvidia",
-] as const satisfies readonly ProviderId[];
+export { GATEWAY_PROVIDERS } from "@/utils/gateway/providers";
+import { GATEWAY_PROVIDERS } from "@/utils/gateway/providers";
 type _Exhaustive =
   Exclude<ProviderId, (typeof GATEWAY_PROVIDERS)[number]> extends never ? true : never;
 const _exhaustive: _Exhaustive = true;

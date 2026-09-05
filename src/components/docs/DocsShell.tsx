@@ -39,6 +39,7 @@ import {
   List,
   Brain,
   HeartPulse,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DocsSearch } from "./DocsSearch";
@@ -84,6 +85,7 @@ export const DOCS_GROUPS: DocGroup[] = [
       { to: "/docs/lakehouse", label: "Lakehouse", icon: Warehouse },
       { to: "/docs/ml", label: "ML Models", icon: Brain },
       { to: "/docs/data-monitors", label: "Data monitors", icon: HeartPulse },
+      { to: "/docs/ai-sql", label: "AI in SQL", icon: Sparkles },
       { to: "/docs/knowledge", label: "Knowledge Base", icon: BookOpen },
       { to: "/docs/semantics", label: "Semantic Layer", icon: Layers },
       { to: "/docs/bi", label: "BI Workspace", icon: PieChart },

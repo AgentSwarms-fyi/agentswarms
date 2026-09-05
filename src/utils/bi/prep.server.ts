@@ -365,7 +365,7 @@ export async function executePrepFlow(
     const { runLocalSqlDuckDB } = await import("@/utils/data/duckdb.server");
     // rowCap is applied after, so `outputCapped` can still be reported
     // honestly rather than silently truncating at the engine.
-    const res = await runLocalSqlDuckDB(sql, tables);
+    const res = await runLocalSqlDuckDB(sql, tables, { aiUserId: userId });
     produced = res.rows;
   } else {
     const db = alasqlDatabaseFrom(tables);

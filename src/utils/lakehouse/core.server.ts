@@ -32,6 +32,8 @@ import { applyTablePolicies, loadPolicies } from "@/utils/lakehouse/policies.ser
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
 import type { DuckDBConnection, DuckDBInstance } from "@duckdb/node-api";
+import { usesAiSqlFunctions } from "@/utils/aiSql/core";
+import { runWithAiSql, type AiSqlStats } from "@/utils/aiSql/run.server";
 
 export type LakehouseConfig = {
   catalog: string;
@@ -795,7 +797,16 @@ export type LakehouseResult = {
   cached?: boolean;
   /** Times this write lost a commit race and was re-run. */
   retries?: number;
+  /** Present when the statement called ai_* functions: what it cost to answer them. */
+  ai?: AiSqlStats;
 };
+
+/**
+ * A statement that calls ai_* functions waits on model calls between its
+ * passes, so it gets this much longer before the engine is interrupted. The
+ * per-statement call cap and the per-call timeout bound the wait themselves.
+ */
+const AI_SQL_EXTRA_TIMEOUT_MS = 10 * 60_000;
 
 const ROW_CAP = 10_000;
 const TIMEOUT_MS = 60_000;
@@ -977,16 +988,28 @@ export async function runLakehouseStatement(
       }
 
       const conn = c;
-      const timer = setTimeout(() => {
-        try {
-          conn.interrupt();
-        } catch {
-          /* already finished */
-        }
-      }, opts?.timeoutMs ?? TIMEOUT_MS);
+      const aiExtraMs = usesAiSqlFunctions(effectiveSql).length ? AI_SQL_EXTRA_TIMEOUT_MS : 0;
+      const timer = setTimeout(
+        () => {
+          try {
+            conn.interrupt();
+          } catch {
+            /* already finished */
+          }
+        },
+        (opts?.timeoutMs ?? TIMEOUT_MS) + aiExtraMs,
+      );
 
       try {
-        const reader = await conn.runAndReadUntil(stripSqlComments(effectiveSql), rowCap + 1);
+        // ai_* functions, when the statement calls any: registered on this
+        // connection, answered through the model channel between passes.
+        const { result: reader, ai } = await runWithAiSql(
+          conn,
+          userId,
+          effectiveSql,
+          () => conn.runAndReadUntil(stripSqlComments(effectiveSql), rowCap + 1),
+          { auditVia: opts?.auditVia },
+        );
         const names = reader.columnNames();
         const types = reader.columnTypes();
         const raw = reader.getRows();
@@ -1000,6 +1023,7 @@ export async function runLakehouseStatement(
           duration_ms: Date.now() - started,
           kind: classified.kind,
           retries: attempt || undefined,
+          ai: ai ?? undefined,
         };
         if (cacheSlot) cachePut(cacheSlot.key, cacheSlot.snapshot, result);
         record("ok", rows.length, undefined, { retries: attempt });

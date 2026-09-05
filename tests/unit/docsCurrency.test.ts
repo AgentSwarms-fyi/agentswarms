@@ -60,6 +60,14 @@ const CASES: Currency[] = [
     docMentions: [/baseline/i, /incident/i, /five/],
   },
   {
+    capability:
+      "SQL statements call ai_* scalar functions that run through the model channel under a per-statement cap",
+    code: "src/utils/aiSql/run.server.ts",
+    codeContains: "registerScalarFunction(",
+    doc: "src/routes/docs.ai-sql.tsx",
+    docMentions: [/ai_classify/, /cache/i, /per statement/i],
+  },
+  {
     capability: "Agents can report table health from the monitors",
     code: "src/utils/tools/registry.server.ts",
     codeContains: 'name: "data_health"',

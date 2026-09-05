@@ -42,6 +42,9 @@ export type NbRuntimeSettings = {
   gateway_fallback_models: string[];
   data_monitors_per_sweep: number;
   data_monitor_anomaly_sigma: number;
+  ai_sql_max_calls_per_statement: number;
+  ai_sql_default_model: string;
+  ai_sql_cache_ttl_days: number;
   sandbox_tmpfs_mb: number;
   batch_max_minutes: number;
   egress_allowlist: string[];
@@ -123,6 +126,9 @@ const DEFAULTS: NbRuntimeSettings = {
   gateway_fallback_models: [],
   data_monitors_per_sweep: 20,
   data_monitor_anomaly_sigma: 3,
+  ai_sql_max_calls_per_statement: 200,
+  ai_sql_default_model: "openrouter/google/gemini-3-flash-preview",
+  ai_sql_cache_ttl_days: 30,
   sandbox_tmpfs_mb: 512,
   batch_max_minutes: 120,
   egress_allowlist: ["pypi.org", "files.pythonhosted.org", "openrouter.ai", "api.openai.com"],
@@ -177,6 +183,10 @@ export const nbRuntimeGetState = createServerFn({ method: "POST" })
           gateway_fallback_models: row.gateway_fallback_models ?? [],
           data_monitors_per_sweep: row.data_monitors_per_sweep ?? 20,
           data_monitor_anomaly_sigma: row.data_monitor_anomaly_sigma ?? 3,
+          ai_sql_max_calls_per_statement: row.ai_sql_max_calls_per_statement ?? 200,
+          ai_sql_default_model:
+            row.ai_sql_default_model ?? "openrouter/google/gemini-3-flash-preview",
+          ai_sql_cache_ttl_days: row.ai_sql_cache_ttl_days ?? 30,
           sandbox_tmpfs_mb: row.sandbox_tmpfs_mb ?? 512,
           batch_max_minutes: row.batch_max_minutes,
           egress_allowlist: row.egress_allowlist,
@@ -257,6 +267,9 @@ export const nbRuntimeUpdateSettings = createServerFn({ method: "POST" })
         gateway_fallback_models: z.array(z.string().min(1).max(160)).max(10).optional(),
         data_monitors_per_sweep: z.number().int().min(1).max(10000).optional(),
         data_monitor_anomaly_sigma: z.number().min(0.5).max(20).optional(),
+        ai_sql_max_calls_per_statement: z.number().int().min(1).max(1000000).optional(),
+        ai_sql_default_model: z.string().trim().min(3).max(160).optional(),
+        ai_sql_cache_ttl_days: z.number().int().min(1).max(3650).optional(),
         sandbox_tmpfs_mb: z.number().int().min(64).optional(),
         egress_allowlist: z.array(z.string().min(1).max(255)).max(200).optional(),
         pip_allowed: z.boolean().optional(),

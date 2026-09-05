@@ -147,7 +147,7 @@ customers┘                          status=       margin =
         ]}
       />
 
-      <H2 id="steps">The nine steps</H2>
+      <H2 id="steps">The ten steps</H2>
       <P>Steps apply in order. Any one can be removed, and the preview updates as you go.</P>
       <Table
         headers={["Step", "What it does", "Configure"]}
@@ -220,6 +220,13 @@ customers┘                          status=       margin =
             "Replace values in a column",
             "Column, match and replacement",
           ],
+          [
+            <>
+              AI column <C key="j">ai</C>
+            </>,
+            "Classify, extract fields, judge sentiment or a condition, summarize, translate, or ask a free prompt - answered by a model",
+            "Output name, what the model does, the column it reads (or a prompt with {column} placeholders), and an optional model. Runs on the lakehouse or the DuckDB local engine; see AI in SQL for cost, caching and the per-statement cap.",
+          ],
         ]}
       />
 
@@ -277,9 +284,9 @@ date_trunc('month', ordered_at)`}</Code>
 
       <H2 id="worked">Worked example — a messy export to a monthly table</H2>
       <P>
-        The nine steps above are documented one at a time; this is what they look like assembled.
-        The situation: a raw order export where test orders are mixed in with real ones, the same
-        order appears twice when it was edited, and finance wants revenue by month and product — not
+        The ten steps above are documented one at a time; this is what they look like assembled. The
+        situation: a raw order export where test orders are mixed in with real ones, the same order
+        appears twice when it was edited, and finance wants revenue by month and product — not
         eleven thousand rows.
       </P>
       <Steps
