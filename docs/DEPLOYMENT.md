@@ -359,12 +359,12 @@ the Deployments.
 name no StorageClass, so each `PersistentVolumeClaim` takes the cluster's
 default. Four things still need a decision:
 
-| Concern                    | What to know                                                                                                                                                                                                                              |
-| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Ingress and TLS**        | `port-forward` is for checking the install. Put an Ingress or a `LoadBalancer` Service in front of `svc/agentswarms` and the chart's Kong service, and set `PUBLIC_APP_URL` to the resulting hostname.                                    |
-| **NetworkPolicy**          | The `NetworkPolicy` that denies the JS sandbox all egress needs a CNI that enforces policy — Calico, Cilium, GKE Dataplane V2, AKS with Azure or Calico policy, EKS with VPC CNI policy enabled. Without one it applies and does nothing. |
-| **Pod Security Standards** | Everything meets `restricted` except the Office renderer, whose image runs as root. See below.                                                                                                                                            |
-| **Node capacity**          | Requests total roughly 3 CPU and 6 GiB for our pods (web ×2, analytics), plus the Supabase chart's own. A single 2-vCPU node will not schedule it.                                                                                        |
+| Concern                    | What to know                                                                                                                                                                                                                                                                                                     |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Ingress and TLS**        | `port-forward` is for checking the install. Put an Ingress or a `LoadBalancer` Service in front of `svc/agentswarms` and the chart's Kong service, and set `PUBLIC_APP_URL` to the resulting hostname.                                                                                                           |
+| **NetworkPolicy**          | The `NetworkPolicy` that denies the JS sandbox all egress needs a CNI that enforces policy — Calico, Cilium, GKE Dataplane V2, AKS with Azure or Calico policy, EKS with VPC CNI policy enabled. Without one it applies and does nothing.                                                                        |
+| **Pod Security Standards** | Everything meets `restricted` except the Office renderer, whose image runs as root. See below.                                                                                                                                                                                                                   |
+| **Node capacity**          | Requests total roughly 3 CPU and 6 GiB for our pods (web ×2, analytics), plus the Supabase chart's own. A single 2-vCPU node will not schedule it. ML training and ETL runs add one batch pod each (default 8 GiB for a training) in the notebook namespace — size that pool for the trainings you want at once. |
 
 **The Office renderer and `restricted`.** On a cluster that enforces the
 `restricted` Pod Security Standard namespace-wide, `agentswarms-docgen` is
@@ -476,6 +476,45 @@ unlike the single-host Docker backend). Manifests live under
 in-cluster. See [DEVELOPER_WORKSPACE_RUNTIME.md](./DEVELOPER_WORKSPACE_RUNTIME.md).
 
 ---
+
+### The ML platform on Kubernetes
+
+Everything the ML platform does runs on Kubernetes with the scaling the
+cluster gives you; nothing is Compose-only. What runs where:
+
+| Piece                                             | Where it runs                                                                                                                   | Scales by                                                                                                                                                                               |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Training and prediction sandboxes                 | Batch **Jobs** in `agentswarms-notebooks` (the notebook runtime manifest), one per run, `activeDeadlineSeconds` from the budget | Nodes in the pool and the namespace `ResourceQuota`; per-user by `ML_MAX_CONCURRENT_TRAININGS_PER_USER`. Memory per job is `ML_TRAIN_MEM_LIMIT_MB`; the `LimitRange` max must allow it. |
+| Model artifacts                                   | The lake bucket (`ml-artifacts/`), SHA-256 verified before inference                                                            | Object-store capacity                                                                                                                                                                   |
+| Data in and out                                   | Lakehouse tables through the statement guard; the sandbox reads Parquet via the egress proxy                                    | Add the object-store host to the `notebook-egress` ConfigMap (the app names the host in its log if it is missing)                                                                       |
+| Schedules, drift evaluation, materialized views   | The one sweep: the BI `CronJob` (web pods run `DISABLE_INPROCESS_SCHEDULER=1`) under the fleet-wide lease                       | Does not multiply with replicas — by design; raise the sweep's per-pass limits instead                                                                                                  |
+| The public ML API, the wizard, predictions try-it | The web tier, behind the Service and HPA                                                                                        | Replicas; rate limits are global (`ML_API_RATE_LIMIT_PER_MIN` is per key across replicas)                                                                                               |
+| GPUs                                              | `ML_TRAIN_GPUS` puts an `nvidia.com/gpu` limit on each training Job                                                             | A GPU node pool with the NVIDIA device plugin; `NOTEBOOK_K8S_GPU_NODE_SELECTOR` / `NOTEBOOK_K8S_GPU_TOLERATIONS` (JSON) place the pods; a CUDA build of the runtime image               |
+
+Three things to set for a cluster that trains:
+
+1. **The notebook runtime manifest is required**, not optional, and
+   `NOTEBOOK_RUNTIME_BACKEND=k8s` in the app Secret. Training, prediction and
+   ETL all run as Jobs there.
+2. **The egress ConfigMap must admit the object store.** Under Compose the app
+   rewrites the squid allow-list itself; on Kubernetes it cannot, so add the
+   host of `LAKEHOUSE_S3_ENDPOINT` to `allowed_domains` (or `allowed_ips`) and
+   restart the proxy. The first training job otherwise fails with DuckDB's
+   misleading "Authentication Failure", and the app log says which host to add.
+3. **Size the namespace for concurrent trainings**: `ResourceQuota`
+   (cluster-wide ceiling), `LimitRange.max.memory` ≥ `ML_TRAIN_MEM_LIMIT_MB`, and
+   `ML_MAX_CONCURRENT_TRAININGS_PER_USER`. A training on a few hundred thousand
+   rows fits the 8 GiB default; tens of millions of rows want 32–64 GiB, or
+   `ML_TRAIN_MAX_ROWS` to sample. The built-in trainers are CPU-only, so no GPU
+   pool is needed unless you bring your own CUDA image.
+
+The GPU placement knobs, like every other limit, come from the environment:
+
+```bash
+ML_TRAIN_GPUS=1
+NOTEBOOK_K8S_GPU_NODE_SELECTOR='{"cloud.google.com/gke-accelerator":"nvidia-l4"}'
+NOTEBOOK_K8S_GPU_TOLERATIONS='[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]'
+```
 
 ## Self-hosted Supabase (complete data residency)
 

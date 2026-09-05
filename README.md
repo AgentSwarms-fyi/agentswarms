@@ -104,6 +104,21 @@ locked in.
 
 ![The Lakehouse: the object explorer listing analytics and raw_lake schemas beside a SQL editor with Run, Explain and Save-as-view, and the query's results below](docs/screenshots/lakehouse-query.png)
 
+**ML Models** — no-code machine learning on your lakehouse tables, under
+**Data & BI → ML Models**. Pick a table and a goal — predict a column, forecast
+a series, find groups, find anomalies, recommend items — and a sandboxed
+trainer profiles the data, prepares it (filters, imputation, encoding, text as
+features), tries several algorithms under a time budget with optional
+hyperparameter search, and keeps the best with its metrics, leaderboard,
+permutation importance and a passport (lakehouse snapshot, decision id,
+artifact digest). Every model is a registry entry with versions and stages,
+scores rows back into the lakehouse — by hand, on a schedule, or through a
+scoped public API — is an agent tool, reports drift against its training data,
+compares versions side by side, and writes its own model card. Governed like
+everything else: IAM shares, trigger audit, decision ids.
+
+![An ML model page: a clustering model trained on the sample revenue table, showing its silhouette score, the groups it found with their typical rows, the leaderboard of every k tried, and the lineage with snapshot, decision id and artifact digest](docs/screenshots/ml-model-training.png)
+
 **BI Workspace** — multi-page dashboards over your connected tables and
 warehouses, with KPIs, cross-filtering, scheduled refresh, PDF export and
 publish-and-share links.
@@ -297,7 +312,8 @@ First time? Follow **[the full installation guide](./docs/INSTALL.md)** — it
 covers every step on macOS, Linux, and Windows, including the Supabase
 dashboard clicks and a troubleshooting section for the errors people
 actually hit. Wondering what hardware you need (spoiler: a 2 vCPU / 4 GB VM,
-no GPU)? See **[System requirements & sizing](./docs/SYSTEM_REQUIREMENTS.md)**.
+no GPU — ML training included, on CPU; 16 GB if you train)? See
+**[System requirements & sizing](./docs/SYSTEM_REQUIREMENTS.md)**.
 
 **"Does it handle billions of rows?"** Aggregate queries compile to SQL that
 runs **inside your warehouse** — or inside the lakehouse, where columnar scans
@@ -317,7 +333,7 @@ The docs live in [`docs/`](./docs), one focused guide per topic:
 | Guide                                                                    | What it covers                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **[Installation](./docs/INSTALL.md)**                                    | Complete local setup on macOS / Linux / Windows: prerequisites, Supabase project, environment variables, first run, and troubleshooting.                                                                                                                                                                                                                                                                                                                                                                   |
-| **[System requirements & sizing](./docs/SYSTEM_REQUIREMENTS.md)**        | Minimum hardware (a 2 vCPU / 4 GB VM — no GPU), sizing scenarios from a solo pilot to 1,000 users, token budgets by model tier, GPU sizing for self-hosted models, and monthly cost tables for AWS / GCP / Azure / OCI across US, Europe, Middle East, India and APJC regions.                                                                                                                                                                                                                             |
+| **[System requirements & sizing](./docs/SYSTEM_REQUIREMENTS.md)**        | Minimum hardware (a 2 vCPU / 4 GB VM — no GPU), sizing scenarios from a solo pilot to 1,000 users, worked sizes for ETL, the lakehouse and ML training, token budgets by model tier, GPU sizing for self-hosted models, and monthly cost tables for AWS / GCP / Azure / OCI across US, Europe, Middle East, India and APJC regions.                                                                                                                                                                        |
 | **[Backups & restore](./docs/DEPLOYMENT.md#backups-and-restore)**        | The four things a self-hosted install cannot regenerate, `npm run backup` to capture them, and the restore drill that proves a backup works before you need it.                                                                                                                                                                                                                                                                                                                                            |
 | **[Scale and limits](./docs/SCALE_AND_LIMITS.md)**                       | What is bounded and by what: aggregation pushes down into your warehouse, local datasets cap at 500k rows, dashboards default to a 500-row snapshot. Every row/timeout/concurrency cap with the env var that changes it.                                                                                                                                                                                                                                                                                   |
 | **[Model pricing](./docs/MODEL_PRICING.md)**                             | Where a `cost_usd` figure comes from: the provider's own reported charge first, then operator overrides, a git-vendored catalog synced from LiteLLM **and OpenRouter**, and self-hosted zeroes. How `npm run prices:refresh` works, why an unknown price is flagged rather than recorded as free, and how history is re-priced.                                                                                                                                                                            |

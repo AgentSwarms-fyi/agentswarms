@@ -161,6 +161,17 @@ export async function applyEgressAllowlist(hosts: string[]): Promise<EgressApply
  */
 export async function ensurePlatformEgress(): Promise<EgressApplyResult> {
   if (!platformEgressHosts().length) return { applied: true, hosts: 0 };
+  // On Kubernetes the allow-list is the notebook-egress ConfigMap, not a file
+  // this process can write: name the hosts so the warning is the instruction.
+  if ((process.env.NOTEBOOK_RUNTIME_BACKEND || "").toLowerCase() === "k8s") {
+    return {
+      applied: false,
+      reason:
+        `On Kubernetes, add ${platformEgressHosts().join(", ")} to the notebook-egress ConfigMap ` +
+        `(allowed_domains, or allowed_ips for a raw address) and restart the proxy; ` +
+        `see deploy/k8s/notebooks/notebook-runtime.yaml.`,
+    };
+  }
   let stored: string[] = [];
   try {
     const { data } = await supabaseAdmin

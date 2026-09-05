@@ -463,6 +463,13 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
           with the lake endpoint automatically before a job starts.
         </li>
         <li>
+          <strong>On Kubernetes</strong> training and prediction are batch Jobs in the notebook
+          namespace, bounded by its <C>ResourceQuota</C> and <C>LimitRange</C> and scaled by adding
+          nodes; the egress ConfigMap must admit the object store. The deployment guide&apos;s{" "}
+          <DocLink to="/docs/self-hosting">ML platform on Kubernetes</DocLink> section has the three
+          settings that matter.
+        </li>
+        <li>
           <strong>GPUs:</strong> <C>ML_TRAIN_GPUS</C> (or the Admin setting) requests that many GPUs
           for every training sandbox — a Docker device request on a single host, an{" "}
           <C>nvidia.com/gpu</C> limit on Kubernetes. The baked runtime image is CPU-only; point{" "}

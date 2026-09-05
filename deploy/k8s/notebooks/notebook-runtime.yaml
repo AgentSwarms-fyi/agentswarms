@@ -17,7 +17,11 @@ metadata:
   labels:
     app.kubernetes.io/part-of: agentswarms
 ---
-# Caps total resource consumption by all kernels at once.
+# Caps total resource consumption by all kernels at once. ML training and
+# prediction runs are batch Jobs in this namespace too, so this quota is the
+# cluster-wide ceiling on concurrent trainings (each takes batch_cpu_limit CPU
+# and ML_TRAIN_MEM_LIMIT_MB memory, 8 GiB by default); raise it, or add nodes,
+# to run more at once. Per-user concurrency is ML_MAX_CONCURRENT_TRAININGS_PER_USER.
 apiVersion: v1
 kind: ResourceQuota
 metadata:
@@ -45,6 +49,10 @@ spec:
       defaultRequest:
         cpu: 250m
         memory: 512Mi
+      # max.memory must be at least ML_TRAIN_MEM_LIMIT_MB (8192 MB by default),
+      # or a training Job is refused at admission with a LimitRange error.
+      # Raise both together for large tables; ML_TRAIN_MAX_ROWS samples the
+      # rest. A CPU-only node pool is enough for the built-in trainers.
       max:
         cpu: "4"
         memory: 8Gi
@@ -136,6 +144,13 @@ data:
   allowed_domains: |
     .pypi.org
     .pythonhosted.org
+    # YOUR OBJECT STORE (the host of LAKEHOUSE_S3_ENDPOINT, e.g. minio.storage.svc
+    # or s3.eu-west-1.amazonaws.com). ML training and prediction read Parquet
+    # and write model artifacts through this proxy, and lakehouse ETL nodes read
+    # through it too. Under Compose the app appends this host automatically;
+    # here it is a ConfigMap, so add it (a raw IP goes in allowed_ips) and
+    # restart the proxy. A missing entry shows up as DuckDB "Authentication
+    # Failure" on the first training job, and the app logs the host to add.
     # DuckDB extension registry — lakehouse ETL nodes load the
     # ducklake/postgres/httpfs extensions at run time. Without this the run
     # fails with "Failed to download extension (HTTP 403)": squid refused it,
@@ -259,3 +274,14 @@ spec:
 # kind: RuntimeClass
 # metadata: { name: gvisor }
 # handler: runsc
+---
+# Optional: GPU training. Set ML_TRAIN_GPUS (or Admin -> Developer runtime) to
+# the GPUs each training sandbox should request; the Job then carries an
+# nvidia.com/gpu limit. Your cluster needs the NVIDIA device plugin, a node
+# pool that advertises the resource, and - because the built-in runtime image
+# is CPU-only - NOTEBOOK_RUNTIME_IMAGE pointed at a CUDA build of it. If the
+# pool is labelled or tainted, tell the orchestrator where to place GPU pods:
+#   NOTEBOOK_K8S_GPU_NODE_SELECTOR='{"cloud.google.com/gke-accelerator":"nvidia-l4"}'
+#   NOTEBOOK_K8S_GPU_TOLERATIONS='[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]'
+# Raise the LimitRange above as well: it has no GPU entry, so it does not cap
+# them, but a GPU trainer usually wants more than 8 GiB of memory.

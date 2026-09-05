@@ -88,9 +88,45 @@ function containerSpec(spec: KernelSpec) {
   };
 }
 
+/** A JSON env var's value, or undefined when unset or unparseable (logged). */
+function jsonEnv<T>(name: string, raw: string | undefined): T | undefined {
+  raw = raw?.trim();
+  if (!raw) return undefined;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    console.warn(`[notebook-k8s] ${name} is not valid JSON; ignoring it`);
+    return undefined;
+  }
+}
+
+/**
+ * Where a GPU sandbox may run. A GPU request alone only schedules onto a node
+ * that advertises nvidia.com/gpu; clusters that also taint or label their GPU
+ * pool need the selector and tolerations set to match, e.g.
+ *   NOTEBOOK_K8S_GPU_NODE_SELECTOR='{"cloud.google.com/gke-accelerator":"nvidia-l4"}'
+ *   NOTEBOOK_K8S_GPU_TOLERATIONS='[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]'
+ */
+function gpuPlacement(spec: KernelSpec) {
+  if (!spec.gpus) return {};
+  const nodeSelector = jsonEnv<Record<string, string>>(
+    "NOTEBOOK_K8S_GPU_NODE_SELECTOR",
+    process.env.NOTEBOOK_K8S_GPU_NODE_SELECTOR,
+  );
+  const tolerations = jsonEnv<unknown[]>(
+    "NOTEBOOK_K8S_GPU_TOLERATIONS",
+    process.env.NOTEBOOK_K8S_GPU_TOLERATIONS,
+  );
+  return {
+    ...(nodeSelector ? { nodeSelector } : {}),
+    ...(Array.isArray(tolerations) ? { tolerations } : {}),
+  };
+}
+
 function podSpec(spec: KernelSpec) {
   const runtimeClass = process.env.NOTEBOOK_K8S_RUNTIME_CLASS; // e.g. "gvisor"
   return {
+    ...gpuPlacement(spec),
     ...(runtimeClass ? { runtimeClassName: runtimeClass } : {}),
     // A service is meant to keep listening: let the kubelet restart it if the
     // user's process dies, and never impose a wall-clock deadline on it.

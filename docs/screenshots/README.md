@@ -1,6 +1,6 @@
 # Screenshots used by the project README
 
-The root `README.md` references these five files by exact name. Replacing one
+The root `README.md` references these files by exact name. Replacing one
 updates the README with no other change.
 
 | File                                 | Shows                                                                       |
@@ -10,6 +10,7 @@ updates the README with no other change.
 | `agent-chat-visual-bi.png`           | Agent Chat — a chart answered from connected tables, with the SQL as source |
 | `agent-chat-document-generation.png` | Agent Chat — generated PowerPoint / Word with preview and download          |
 | `developer-workspace-notebook.png`   | Developer workspace — a sample notebook running on a server kernel          |
+| `ml-model-training.png`              | ML Models — a trained model's page: metrics, groups, leaderboard, lineage   |
 
 Guidance for retaking them:
 

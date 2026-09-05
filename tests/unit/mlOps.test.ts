@@ -7,7 +7,7 @@
 // sweep's claim pattern, the trainer's statistics and inference's PSI, the
 // settings' three-tier resolution, and the docs.
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { TRAIN_PY } from "@/utils/ml/pyTrain";
 import { beatsProduction, nextMlRunAt } from "@/utils/ml/schedule.server";
@@ -313,5 +313,38 @@ describe("compare and docs", () => {
     // The comparison is honest about the gaps.
     expect(md).toContain("no warm autoscaled endpoint yet");
     expect(page).toContain("Feature store");
+  });
+});
+
+describe("Kubernetes", () => {
+  it("places GPU training pods and explains the egress ConfigMap instead of failing quietly", () => {
+    const k8s = rd("src/utils/notebookRuntime/k8s.server.ts");
+    expect(k8s).toContain("process.env.NOTEBOOK_K8S_GPU_NODE_SELECTOR");
+    expect(k8s).toContain("process.env.NOTEBOOK_K8S_GPU_TOLERATIONS");
+    expect(k8s).toContain("...(nodeSelector ? { nodeSelector } : {}),");
+    expect(k8s).toContain("...gpuPlacement(spec),");
+    const egress = rd("src/utils/notebookRuntime/egressApply.server.ts");
+    expect(egress).toContain("to the notebook-egress ConfigMap");
+    // The manifests and docs say the same three things: Jobs, quota/limit range, the object store.
+    const manifest = rd("deploy/k8s/notebooks/notebook-runtime.yaml");
+    expect(manifest).toContain("ML_TRAIN_MEM_LIMIT_MB");
+    expect(manifest).toContain("LAKEHOUSE_S3_ENDPOINT");
+    expect(manifest).toContain("NOTEBOOK_K8S_GPU_NODE_SELECTOR");
+    expect(rd("deploy/k8s/app/agentswarms.yaml")).toContain("NOTEBOOK_RUNTIME_BACKEND=k8s");
+    expect(rd("docs/DEPLOYMENT.md")).toContain("### The ML platform on Kubernetes");
+    expect(rd("docs/SYSTEM_REQUIREMENTS.md")).toContain("### Worked ML sizes");
+    for (const knob of ["NOTEBOOK_K8S_GPU_NODE_SELECTOR", "NOTEBOOK_K8S_GPU_TOLERATIONS"]) {
+      for (const f of [".env.example", "docs/SCALE_AND_LIMITS.md", "docs/DEPLOYMENT.md"]) {
+        expect(rd(f), `${knob} in ${f}`).toContain(knob);
+      }
+    }
+  });
+
+  it("ships the README screenshot it describes", () => {
+    const readme = rd("README.md");
+    expect(readme).toContain("docs/screenshots/ml-model-training.png");
+    expect(readme).toContain("**ML Models** — no-code machine learning on your lakehouse tables");
+    expect(existsSync(path.join(REPO, "docs/screenshots/ml-model-training.png"))).toBe(true);
+    expect(rd("docs/screenshots/README.md")).toContain("`ml-model-training.png`");
   });
 });

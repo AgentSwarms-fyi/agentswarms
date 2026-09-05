@@ -24,8 +24,13 @@
 # CreateContainerConfigError — it is the credential the sweep authenticates with.
 #
 # The notebook runtime is a SEPARATE manifest with its own namespace and RBAC:
-# deploy/k8s/notebooks/notebook-runtime.yaml. You only need it if you enable the
-# Developer workspace.
+# deploy/k8s/notebooks/notebook-runtime.yaml. You need it for the Developer
+# workspace, ETL pipelines AND the ML platform: ML training and prediction run
+# as batch Jobs there, scheduled across the node pool and bounded by its
+# ResourceQuota, so training throughput scales with nodes, not with app pods.
+# Set NOTEBOOK_RUNTIME_BACKEND=k8s in the Secret; the ML_* knobs (rows, time
+# budget, memory, concurrency, GPUs, drift threshold) are ordinary env vars or
+# Admin -> Developer runtime settings - see docs/SCALE_AND_LIMITS.md.
 #
 # THREE THINGS HERE ARE LOAD-BEARING, and each is a mistake worth not making:
 #

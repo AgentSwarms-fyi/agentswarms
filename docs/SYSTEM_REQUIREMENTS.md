@@ -25,31 +25,34 @@ across US, Europe, Middle East, India and APJC regions.
 AgentSwarms is deliberately light to host. Understanding _why_ makes every
 sizing decision below obvious:
 
-| Component                               | What it is                                                                                                                                          | Resource profile                                                                                                                                                                             |
-| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **App server**                          | Stateless Node (SSR + API + in-process scheduler), clustered one worker per CPU. Scales horizontally behind any load balancer — no sticky sessions. | ~0.5–1 GB RSS **per worker**. Almost all "AI work" is streaming JSON to an LLM API, but SSR costs ~30 ms CPU per page — see [§3b](#3b-one-big-host-measured).                                |
-| **PostgreSQL (Supabase)**               | Auth, RLS data, traces, audit, BI results, vectors (pgvector). Use [Supabase Cloud](https://supabase.com/pricing) (free tier works) or self-host.   | The main stateful component. Grows with traces/audit/KB — see [storage growth](#storage-growth).                                                                                             |
-| **LLM calls**                           | External by default (BYOK: OpenRouter, OpenAI, Anthropic, Bedrock, …).                                                                              | **No GPU needed.** Your cost here is _tokens_, not hardware — see [§4](#4-token-budgets). GPUs only enter the picture if you self-host models ([§5](#5-gpu-sizing-self-hosted-models-only)). |
-| **Notebook / MCP runtime** _(optional)_ | Sandboxed Docker containers for the Developer workspace (Python Lab) and MCP Builder.                                                               | Each interactive sandbox is capped at **2 GB RAM** (batch: 4 GB) and ~1 CPU by default. Size the host for _concurrent_ sandboxes, not total users.                                           |
-| **docgen-service** _(optional)_         | Python sidecar rendering PPTX/DOCX/XLSX.                                                                                                            | Bursty; 1 vCPU / 1–2 GB is fine for teams.                                                                                                                                                   |
+| Component                                 | What it is                                                                                                                                                         | Resource profile                                                                                                                                                                                                                                                             |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **App server**                            | Stateless Node (SSR + API + in-process scheduler), clustered one worker per CPU. Scales horizontally behind any load balancer — no sticky sessions.                | ~0.5–1 GB RSS **per worker**. Almost all "AI work" is streaming JSON to an LLM API, but SSR costs ~30 ms CPU per page — see [§3b](#3b-one-big-host-measured).                                                                                                                |
+| **PostgreSQL (Supabase)**                 | Auth, RLS data, traces, audit, BI results, vectors (pgvector). Use [Supabase Cloud](https://supabase.com/pricing) (free tier works) or self-host.                  | The main stateful component. Grows with traces/audit/KB — see [storage growth](#storage-growth).                                                                                                                                                                             |
+| **LLM calls**                             | External by default (BYOK: OpenRouter, OpenAI, Anthropic, Bedrock, …).                                                                                             | **No GPU needed.** Your cost here is _tokens_, not hardware — see [§4](#4-token-budgets). GPUs only enter the picture if you self-host models ([§5](#5-gpu-sizing-self-hosted-models-only)).                                                                                 |
+| **Notebook / MCP runtime** _(optional)_   | Sandboxed Docker containers for the Developer workspace (Python Lab) and MCP Builder.                                                                              | Each interactive sandbox is capped at **2 GB RAM** (batch: 4 GB) and ~1 CPU by default. Size the host for _concurrent_ sandboxes, not total users.                                                                                                                           |
+| **docgen-service** _(optional)_           | Python sidecar rendering PPTX/DOCX/XLSX.                                                                                                                           | Bursty; 1 vCPU / 1–2 GB is fine for teams.                                                                                                                                                                                                                                   |
+| **ML training / prediction** _(optional)_ | Batch sandboxes of the same notebook runtime (scikit-learn, LightGBM, statsmodels on CPU), one per training job or batch prediction; artifacts in the lake bucket. | Each training sandbox may use up to `ML_TRAIN_MEM_LIMIT_MB` (**8 GB** default) and `batch_cpu_limit` CPU for up to its time budget. Size for _concurrent_ trainings (`ML_MAX_CONCURRENT_TRAININGS_PER_USER`); **no GPU needed** — `ML_TRAIN_GPUS` is for custom CUDA images. |
 
 Heavy load therefore means: many concurrent SSE streams (cheap), scheduled
 BI refreshes / swarm runs (short CPU bursts), and — the only genuinely heavy
-part — concurrent notebook sandboxes.
+part — concurrent sandboxes: notebooks, ETL runs and ML trainings.
 
 ---
 
 ## 2. Minimum requirements
 
-| Setup                                                     | CPU     | RAM   | Disk       | Notes                                                                                                    |
-| --------------------------------------------------------- | ------- | ----- | ---------- | -------------------------------------------------------------------------------------------------------- |
-| **Laptop / evaluation** (dev server, Supabase Cloud)      | 2 cores | 8 GB  | 15 GB free | Any macOS / Linux / Windows machine from the last ~8 years.                                              |
-| **Smallest production server** (app only, Supabase Cloud) | 2 vCPU  | 4 GB  | 20 GB      | The "[2 vCPU / 4 GB is plenty to start](./DEPLOYMENT.md)" VM. Runs the app + scheduler for a small team. |
-| **+ Notebook/MCP runtime** (`--profile notebooks`)        | 4 vCPU  | 8 GB  | 40 GB      | Adds Docker sandboxes; each active notebook takes up to 2 GB.                                            |
-| **+ Building on the same box**                            | 4 vCPU  | 8 GB  | +10 GB     | `vite build` peaks around 6 GB — build in CI or on your laptop if the VM is smaller.                     |
-| **Self-hosted Supabase on the same box**                  | +2 vCPU | +4 GB | +20 GB     | Or just use Supabase Cloud (free tier) and skip this.                                                    |
+| Setup                                                     | CPU     | RAM   | Disk       | Notes                                                                                                                                                 |
+| --------------------------------------------------------- | ------- | ----- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Laptop / evaluation** (dev server, Supabase Cloud)      | 2 cores | 8 GB  | 15 GB free | Any macOS / Linux / Windows machine from the last ~8 years.                                                                                           |
+| **Smallest production server** (app only, Supabase Cloud) | 2 vCPU  | 4 GB  | 20 GB      | The "[2 vCPU / 4 GB is plenty to start](./DEPLOYMENT.md)" VM. Runs the app + scheduler for a small team.                                              |
+| **+ Notebook/MCP runtime** (`--profile notebooks`)        | 4 vCPU  | 8 GB  | 40 GB      | Adds Docker sandboxes; each active notebook takes up to 2 GB.                                                                                         |
+| **+ ML training** (same profile)                          | 4 vCPU  | 16 GB | 40 GB      | One training sandbox at a time at the 8 GB default; the sample table trains in about a minute. Lower `ML_TRAIN_MEM_LIMIT_MB` to 4096 on an 8 GB host. |
+| **+ Building on the same box**                            | 4 vCPU  | 8 GB  | +10 GB     | `vite build` peaks around 6 GB — build in CI or on your laptop if the VM is smaller.                                                                  |
+| **Self-hosted Supabase on the same box**                  | +2 vCPU | +4 GB | +20 GB     | Or just use Supabase Cloud (free tier) and skip this.                                                                                                 |
 
-GPU: **none required**. Browsers do the rendering; LLMs are API calls.
+GPU: **none required** — including for ML training, which runs scikit-learn
+and LightGBM on CPU. Browsers do the rendering; LLMs are API calls.
 
 > **Free-tier corner:** OCI's Always Free tier (4 Ampere A1 OCPUs, 24 GB RAM,
 > 200 GB block storage) comfortably runs the app **and** the notebook profile
@@ -63,15 +66,15 @@ GPU: **none required**. Browsers do the rendering; LLMs are API calls.
 Concurrency assumptions: at any moment roughly **5–10 % of daily active
 users** have an in-flight request, and ~1–3 % hold an open notebook.
 
-|                            | **A — Solo / pilot**     | **B — Team**                           | **C — Department**                                                                                       | **D — Heavy / public**                                                |
-| -------------------------- | ------------------------ | -------------------------------------- | -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| Users                      | 1–10                     | up to ~50                              | 100–250                                                                                                  | 500–1,000 + public embeds                                             |
-| Feature profile            | Everything, lightly      | Chat, swarms, BI, a few notebooks      | + scheduled refreshes, MCP Builder, embeds                                                               | + published dashboards, embedded agents, constant scheduled swarms    |
-| **App tier**               | shared 2 vCPU / 8 GB VM  | 4 vCPU / 16 GB                         | 2 × (4 vCPU / 16 GB) + LB                                                                                | 4 × (4 vCPU / 16 GB) + LB                                             |
-| **Worker / notebook host** | same VM                  | same VM                                | 8 vCPU / 32 GB (≈ 12–14 concurrent sandboxes)                                                            | 2 × (8 vCPU / 32 GB)                                                  |
-| **Postgres**               | same VM or Supabase Free | Supabase Pro ($25/mo) or 2 vCPU / 8 GB | 4 vCPU / 16 GB (or Supabase Team)                                                                        | HA pair 8 vCPU / 32 GB (or managed HA)                                |
-| **Storage total**          | 60 GB                    | 100 GB                                 | 500 GB                                                                                                   | 1 TB                                                                  |
-| Multi-instance flags       | —                        | —                                      | `DISABLE_INPROCESS_SCHEDULER=1` + external cron ([details](./DEPLOYMENT.md#scheduling--background-jobs)) | same + `/api/metrics` + [alert pack](../deploy/prometheus/alerts.yml) |
+|                            | **A — Solo / pilot**     | **B — Team**                           | **C — Department**                                                                                       | **D — Heavy / public**                                                                   |
+| -------------------------- | ------------------------ | -------------------------------------- | -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Users                      | 1–10                     | up to ~50                              | 100–250                                                                                                  | 500–1,000 + public embeds                                                                |
+| Feature profile            | Everything, lightly      | Chat, swarms, BI, a few notebooks      | + scheduled refreshes, MCP Builder, embeds, scheduled ML retrains                                        | + published dashboards, embedded agents, constant scheduled swarms and batch predictions |
+| **App tier**               | shared 2 vCPU / 8 GB VM  | 4 vCPU / 16 GB                         | 2 × (4 vCPU / 16 GB) + LB                                                                                | 4 × (4 vCPU / 16 GB) + LB                                                                |
+| **Worker / notebook host** | same VM                  | same VM                                | 8 vCPU / 32 GB (≈ 12–14 concurrent sandboxes, or 3 trainings at 8 GB)                                    | 2 × (8 vCPU / 32 GB)                                                                     |
+| **Postgres**               | same VM or Supabase Free | Supabase Pro ($25/mo) or 2 vCPU / 8 GB | 4 vCPU / 16 GB (or Supabase Team)                                                                        | HA pair 8 vCPU / 32 GB (or managed HA)                                                   |
+| **Storage total**          | 60 GB                    | 100 GB                                 | 500 GB                                                                                                   | 1 TB                                                                                     |
+| Multi-instance flags       | —                        | —                                      | `DISABLE_INPROCESS_SCHEDULER=1` + external cron ([details](./DEPLOYMENT.md#scheduling--background-jobs)) | same + `/api/metrics` + [alert pack](../deploy/prometheus/alerts.yml)                    |
 
 ## 3a. Sizing ETL and the lakehouse
 
@@ -138,6 +141,29 @@ Remember these are **per worker process**, and the app runs one worker per CPU �
 multiply before you compare against host RAM. `LAKEHOUSE_SPILL_LIMIT`
 (default 20 GB) bounds the disk a spilling query may use; give each replica real
 scratch disk, not a RAM-backed tmpfs.
+
+### Worked ML sizes
+
+A training run is one batch sandbox for at most its time budget; a batch
+prediction is another, shorter one. Every number here is a setting
+(`Admin → Developer runtime`, or the environment) — nothing is a hard cap.
+
+| Workload                                                | Sandbox memory (`ML_TRAIN_MEM_LIMIT_MB`) / CPU | Concurrent trainings | Notes                                                                                                                                           |
+| ------------------------------------------------------- | ---------------------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Small** — up to ~100k rows, tens of columns           | `4096` / `2`                                   | `2` (default)        | Minutes. The 836-row sample trains in about a minute; a quick tuning search adds a few.                                                         |
+| **Typical** — 1–5 M rows, a few hundred one-hot columns | `8192` (default) / `4`                         | `2–4`                | LightGBM and histogram gradient boosting stay memory-flat; one-hot width is what grows. Give a 30–60 min budget.                                |
+| **Large** — tens of millions of rows                    | `32768–65536` / `8`                            | `2`                  | Or leave `ML_TRAIN_MAX_ROWS` at 2 M and let the trainer reservoir-sample (the version says so) — most tabular models saturate long before that. |
+| **Batch prediction** — score a table                    | same sandbox, `ML_PREDICT_MAX_ROWS` rows       | one per run          | Streams from Parquet through the pipeline; a million rows takes a few minutes on 2 CPUs.                                                        |
+
+GPUs are optional and off by default: the built-in candidates are CPU
+libraries. `ML_TRAIN_GPUS` exists for a CUDA build of the runtime image and
+your own frameworks — on Kubernetes it becomes an `nvidia.com/gpu` limit on
+the training Job (see [DEPLOYMENT.md](./DEPLOYMENT.md#the-ml-platform-on-kubernetes)).
+
+On Kubernetes the same numbers map onto the notebook namespace: the
+`ResourceQuota` is the cluster-wide ceiling on concurrent trainings, the
+`LimitRange` maximum must be at least the sandbox memory above, and adding
+nodes to the pool is how training throughput grows.
 
 ## 3b. One big host, measured
 

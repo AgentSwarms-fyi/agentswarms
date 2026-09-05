@@ -310,6 +310,8 @@ Works on **Windows (Docker Desktop/WSL2)** and **Linux**. The `agentswarms/noteb
 - Helm chart / manifests under `deploy/k8s/notebooks/`: gateway Deployment + Service + Ingress, egress-proxy Deployment, the `agentswarms-notebooks` namespace with `ResourceQuota`/`LimitRange`/`NetworkPolicy`, and the RBAC `ServiceAccount` for the orchestrator.
 - Kernels run as **Jobs** (per session) with the securityContext of §5.2; optional `RuntimeClass: gvisor`.
 - Horizontal scale is automatic (each session is its own Job); cap total load with the namespace `ResourceQuota`.
+- **ML training and prediction runs are batch Jobs here too** (`docs/ML.md`): memory per Job is `ML_TRAIN_MEM_LIMIT_MB`, so `LimitRange.max.memory` must allow it; the `ResourceQuota` is the cluster-wide ceiling on concurrent trainings. The object-store host must be in the `notebook-egress` ConfigMap — the app cannot rewrite it as it does under Compose, and logs the host to add.
+- **GPUs**: `ML_TRAIN_GPUS` adds an `nvidia.com/gpu` limit to each training Job; `NOTEBOOK_K8S_GPU_NODE_SELECTOR` and `NOTEBOOK_K8S_GPU_TOLERATIONS` (JSON) place those pods on a labelled or tainted GPU pool. Needs the NVIDIA device plugin and a CUDA build of the runtime image (`NOTEBOOK_RUNTIME_IMAGE`).
 
 ### 9.3 Windows note
 
@@ -603,7 +605,7 @@ owns it from then on. Two reasons this matters:
   particular holds raw IPs — a LAN object store, an internal warehouse — and
   tracking it staged a small map of somebody's private network for commit.
 - Compose mounts the **directory** (`./deploy/notebooks/egress:/etc/squid/egress:ro`),
-  not the two files by name. Docker creates a *directory* at a bind-mount source
+  not the two files by name. Docker creates a _directory_ at a bind-mount source
   that does not exist, so naming untracked files in the mount would leave a
   fresh clone with two directories where the ACL files should be and a squid
   that refuses to start.
